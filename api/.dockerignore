@@ -1,0 +1,13 @@
+node_modules
+dist
+.env
+.env.*
+coverage
+.turbo
+*.log
+src/**/*.test.ts
+src/**/*.api.test.ts
+src/**/*.integration.test.ts
+src/**/*.system.test.ts
+vitest.config.ts
+README.md
