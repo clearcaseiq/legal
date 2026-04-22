@@ -1,0 +1,114 @@
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: injury-intelligence-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: injury_intelligence
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      - ./apps/ml-service/sql/init_pgvector.sql:/docker-entrypoint-initdb.d/010-init-pgvector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d injury_intelligence"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - injury-network
+
+  # API Backend
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: injury-intelligence-api
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/injury_intelligence?schema=public
+      NODE_ENV: development
+      PORT: 4000
+      FILE_BUCKET: local
+      ML_SERVICE_URL: http://ml:8000
+      ML_PREDICTION_MODE: shadow
+      ML_RETRIEVAL_ENABLED: "true"
+      ML_RETRIEVAL_TOP_K: 4
+    depends_on:
+      db:
+        condition: service_healthy
+      ml:
+        condition: service_started
+    volumes:
+      - ./api:/app
+      - /app/node_modules
+      - ./uploads:/app/uploads
+    command: pnpm dev
+    networks:
+      - injury-network
+
+  # Python ML service
+  ml:
+    build:
+      context: ./apps/ml-service
+      dockerfile: Dockerfile
+    container_name: injury-intelligence-ml
+    ports:
+      - "8000:8000"
+    environment:
+      PORT: 8000
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/injury_intelligence
+      MLFLOW_TRACKING_URI: http://mlflow:5001
+      PREDICTIVE_MODEL_VERSION: shadow-v1
+      LEGAL_CORPUS_JSONL: /app/artifacts/corpus/legal_corpus.jsonl
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./apps/ml-service/src:/app/src
+      - ./apps/ml-service/pipelines:/app/pipelines
+      - ./apps/ml-service/sql:/app/sql
+      - ./artifacts/ml:/app/artifacts
+    networks:
+      - injury-network
+
+  # Local experiment tracking and model registry
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.18.0
+    container_name: injury-intelligence-mlflow
+    ports:
+      - "5001:5001"
+    command: mlflow server --host 0.0.0.0 --port 5001 --backend-store-uri sqlite:///mlflow/mlflow.db --artifacts-destination /mlflow/artifacts
+    volumes:
+      - ./artifacts/mlflow:/mlflow
+    networks:
+      - injury-network
+
+  # Web Frontend
+  web:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: injury-intelligence-web
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+    volumes:
+      - ./app:/app
+      - /app/node_modules
+    command: pnpm dev -- --hostname 0.0.0.0 --port 3000
+    networks:
+      - injury-network
+
+volumes:
+  dbdata:
+
+networks:
+  injury-network:
+    driver: bridge

@@ -1,0 +1,55 @@
+version: '3.9'
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: injury_intelligence
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      - ../ml-service/sql/init_pgvector.sql:/docker-entrypoint-initdb.d/010-init_pgvector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d injury_intelligence"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  api:
+    build: .
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/injury_intelligence?schema=public
+      NODE_ENV: development
+      PORT: 4000
+      FILE_BUCKET: local
+      ML_SERVICE_URL: http://ml:8000
+      ML_PREDICTION_MODE: shadow
+      ML_RETRIEVAL_ENABLED: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      ml:
+        condition: service_started
+    volumes:
+      - ./uploads:/app/uploads
+    command: pnpm dev
+
+  ml:
+    build: ../ml-service
+    ports:
+      - "8000:8000"
+    environment:
+      PORT: 8000
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/injury_intelligence
+      PREDICTIVE_MODEL_VERSION: shadow-v1
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  dbdata: {}

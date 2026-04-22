@@ -1,0 +1,2175 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String?
+  firstName     String
+  lastName      String
+  phone         String?
+  isActive      Boolean   @default(true)
+  emailVerified Boolean   @default(false)
+  role          String    @default("client") // client, attorney, staff, admin
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // OAuth fields
+  googleId String? @unique
+  appleId  String? @unique
+  avatar   String?
+  provider String? // 'local', 'google', 'apple'
+
+  // Consent tracking
+  consents Consent[]
+
+  assessments       Assessment[]
+  favoriteAttorneys FavoriteAttorney[]
+  notifications     Notification[]
+  platformNotificationEvents PlatformNotificationEvent[]
+  supportTickets    SupportTicket[]
+  assignedTickets  SupportTicket[] @relation("AssignedTickets")
+  appointments      Appointment[]
+  reviews           AttorneyReview[]
+  chatRooms         ChatRoom[]
+  chatbotSessions   ChatBotSession[]
+  evidenceFiles     EvidenceFile[]
+  evidenceAnnotations EvidenceAnnotation[]
+  auditLogs         AuditLog[]
+  featureToggles    FeatureToggle[]
+  attorneyPushDevices AttorneyPushDevice[]
+
+  @@map("users")
+}
+
+model AttorneyPushDevice {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expoPushToken String   @unique @db.VarChar(512)
+  platform      String? // ios, android
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@map("attorney_push_devices")
+}
+
+model Consent {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Consent type and version
+  consentType String // 'hipaa', 'terms', 'privacy', 'marketing'
+  version     String // Version of the consent document
+  documentId  String // Reference to the consent document
+
+  // Consent details
+  granted   Boolean // Whether consent was granted
+  grantedAt DateTime? // When consent was given
+  revokedAt DateTime? // When consent was revoked
+  expiresAt DateTime? // When consent expires (if applicable)
+
+  // E-signature data
+  signatureData   String? // Base64 encoded signature image
+  signatureMethod String? // 'drawn', 'typed', 'clicked'
+  ipAddress       String? // IP address when consent was given
+  userAgent       String? // Browser user agent
+
+  // Legal compliance
+  consentText String @db.Text // The actual consent text that was shown
+  consentHash String // Hash of the consent text for verification
+
+  // Audit trail
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("consents")
+}
+
+model Assessment {
+  id          String  @id @default(cuid())
+  userId      String?
+  user        User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  claimType   String
+  venueState  String
+  venueCounty String?
+  status      String  @default("DRAFT")
+  facts       String @db.Text
+
+  // ChatGPT Analysis
+  chatgptAnalysis     String? @db.Text // JSON string of ChatGPT analysis
+  chatgptAnalysisDate DateTime?
+  similarCases        String? // JSON string of similar case outcomes
+  similarCasesUpdatedAt DateTime?
+
+  // Case Tier Classification
+  caseTierId  String?
+  caseTier    CaseTier? @relation(fields: [caseTierId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  predictions   Prediction[]
+  files         File[]
+  introductions Introduction[]
+  demandLetters DemandLetter[]
+  appointments  Appointment[]
+  chatRooms     ChatRoom[]
+  evidenceFiles EvidenceFile[]
+  ethicalWalls  EthicalWall[]
+
+  // Lead Management
+  leadSubmission LeadSubmission?
+
+  // Routing lifecycle
+  routingWaves RoutingWave[]
+
+  // Attorney workflow
+  insuranceDetails InsuranceDetail[]
+  lienHolders      LienHolder[]
+  caseTasks        CaseTask[]
+  negotiationEvents NegotiationEvent[]
+  decisionMemories  DecisionMemory[]
+  negotiationInsight NegotiationInsight?
+  caseNotes        CaseNote[]
+  commentThreads   CaseCommentThread[]
+  billingInvoices  BillingInvoice[]
+  billingPayments  BillingPayment[]
+  healthSnapshots  CaseHealthSnapshot[]
+  caseReminders    CaseReminder[]
+  recurringInvoices RecurringInvoice[]
+  caseIntakeRequests CaseIntakeRequest[]
+  caseShares       CaseShare[]
+  referralAgreements ReferralAgreement[]
+  coCounselWorkflows CoCounselWorkflow[]
+
+  // Phase 2: Communications
+  platformNotificationEvents PlatformNotificationEvent[]
+  supportTickets    SupportTicket[]
+  caseThreads       CaseThread[]
+
+  // Manual review queue (held for low confidence, duplicate, near-SOL, etc.)
+  manualReviewStatus  String?   // null | pending | released | rejected | request_info | compliance
+  manualReviewReason  String?   // low_confidence | duplicate | conflicting_facts | suspicious_documents | near_sol | unsupported_jurisdiction | premium_case | ocr_failure
+  manualReviewHeldAt  DateTime?
+  manualReviewNote    String?   @db.Text
+
+  @@map("assessments")
+}
+
+model InsuranceDetail {
+  id            String     @id @default(cuid())
+  assessmentId  String
+  assessment    Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  carrierName   String
+  policyNumber  String?
+  policyLimit   Float?
+  adjusterName  String?
+  adjusterEmail String?
+  adjusterPhone String?
+  notes         String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@map("insurance_details")
+}
+
+model LienHolder {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  name         String
+  type         String?
+  amount       Float?
+  status       String     @default("open")
+  notes        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("lien_holders")
+}
+
+model CaseTask {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  title        String
+  taskType     String     @default("general") // statute, milestone, checkpoint, demand_deadline, negotiation_deadline, general
+  milestoneType String?   // litigation_milestone
+  checkpointType String?  // medical_checkpoint
+  deadlineType  String?   // demand, negotiation, sol
+  dueDate      DateTime?
+  reminderAt   DateTime?
+  escalationLevel String  @default("none") // none, warning, critical
+  assignedRole   String?  // attorney, paralegal
+  assignedTo     String?  // name or email
+  status       String     @default("open") // open, done
+  priority     String     @default("medium") // low, medium, high
+  notes        String?
+  sourceTemplateId String?
+  sourceTemplateStepId String?
+  completedAt DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("case_tasks")
+}
+
+model CaseWorkflowTemplate {
+  id         String   @id @default(cuid())
+  attorneyId String
+  attorney   Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  name       String
+  caseType   String   // PI, MVA, Premises, MedMal, etc.
+  description String?
+  isActive   Boolean  @default(true)
+  steps      CaseWorkflowStep[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("case_workflow_templates")
+}
+
+model CaseWorkflowStep {
+  id          String              @id @default(cuid())
+  templateId  String
+  template    CaseWorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  title       String
+  offsetDays  Int
+  priority    String   @default("medium")
+  taskType    String   @default("general")
+  milestoneType String?
+  checkpointType String?
+  deadlineType  String?
+  assignedRole  String?
+  reminderOffsetDays Int @default(1)
+  escalationLevel String @default("none")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("case_workflow_steps")
+}
+
+model NegotiationEvent {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  eventType    String     // demand, offer, counter, call, note
+  amount       Float?
+  eventDate    DateTime   @default(now())
+  status       String     @default("open") // open, pending, accepted, rejected
+  notes        String?
+  counterpartyType String? // insurer, claimant
+  insurerName     String?
+  adjusterName    String?
+  adjusterEmail   String?
+  adjusterPhone   String?
+  concessionValue Float?
+  concessionNotes String?
+  acceptanceRationale String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("negotiation_events")
+}
+
+model NegotiationInsight {
+  id           String     @id @default(cuid())
+  assessmentId String     @unique
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  data         String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("negotiation_insights")
+}
+
+model CaseNote {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  authorId     String?
+  authorName   String?
+  authorEmail  String?
+  noteType     String     @default("general") // general, strategy, evidence, update
+  message      String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("case_notes")
+}
+
+model CaseCommentThread {
+  id            String     @id @default(cuid())
+  assessmentId  String
+  assessment    Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  title         String
+  threadType    String     @default("general") // general, decision
+  allowedRoles  String?    // JSON array of roles allowed
+  summary       String?
+  createdById   String?
+  createdByName String?
+  createdByEmail String?
+  lastCommentAt DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  comments CaseComment[]
+
+  @@index([assessmentId])
+  @@map("case_comment_threads")
+}
+
+model CaseComment {
+  id           String            @id @default(cuid())
+  threadId     String
+  thread       CaseCommentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  authorId     String?
+  authorName   String?
+  authorEmail  String?
+  message      String
+  mentions     String? // JSON array of mention tokens/emails
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([threadId])
+  @@map("case_comments")
+}
+
+model BillingInvoice {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  invoiceNumber String?
+  amount       Float
+  status       String     @default("open") // open, paid, overdue
+  dueDate      DateTime?
+  paidAt       DateTime?
+  notes        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("billing_invoices")
+}
+
+model BillingPayment {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  amount       Float
+  method       String?    // check, ach, card, cash
+  receivedAt   DateTime   @default(now())
+  reference    String?
+  notes        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("billing_payments")
+}
+
+model CaseHealthSnapshot {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  score        Float
+  level        String     // green, yellow, red
+  factors      String?    // JSON
+  createdAt    DateTime   @default(now())
+
+  @@map("case_health_snapshots")
+}
+
+model ReminderTemplate {
+  id         String   @id @default(cuid())
+  attorneyId String
+  attorney   Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  name       String
+  channel    String   @default("email") // email, sms, call
+  offsetDays Int      @default(3) // days after creation
+  message    String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  caseReminders CaseReminder[]
+
+  @@map("reminder_templates")
+}
+
+model CaseReminder {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  templateId   String?
+  template     ReminderTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  channel      String
+  message      String
+  dueAt        DateTime
+  status       String     @default("scheduled") // scheduled, sent, dismissed, failed
+  deliveryStatus String   @default("pending") // pending, delivered, failed
+  attempts     Int        @default(0)
+  sentAt       DateTime?
+  lastAttemptAt DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("case_reminders")
+}
+
+model HealthEscalationRule {
+  id         String   @id @default(cuid())
+  attorneyId String
+  attorney   Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  threshold  Float    // score <= threshold
+  action     String   // recommended escalation action
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("health_escalation_rules")
+}
+
+model NegotiationCadenceTemplate {
+  id              String   @id @default(cuid())
+  attorneyId      String
+  attorney        Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  name            String
+  triggerEventType String  // offer, counter, demand
+  isActive        Boolean  @default(true)
+  steps           NegotiationCadenceStep[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("negotiation_cadence_templates")
+}
+
+model NegotiationCadenceStep {
+  id          String                     @id @default(cuid())
+  templateId  String
+  template    NegotiationCadenceTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  offsetDays  Int
+  channel     String    // email, sms, call
+  message     String
+  sortOrder   Int       @default(0)
+
+  @@map("negotiation_cadence_steps")
+}
+
+model TaskSlaTemplate {
+  id            String   @id @default(cuid())
+  attorneyId    String
+  attorney      Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  name          String
+  triggerStatus String   // contacted, consulted, retained
+  isActive      Boolean  @default(true)
+  steps         TaskSlaStep[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("task_sla_templates")
+}
+
+model TaskSlaStep {
+  id          String        @id @default(cuid())
+  templateId  String
+  template    TaskSlaTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  title       String
+  offsetDays  Int
+  priority    String @default("medium")
+
+  @@map("task_sla_steps")
+}
+
+model RecurringInvoice {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  amount       Float
+  intervalDays Int        @default(30)
+  nextRunAt    DateTime
+  lastRunAt    DateTime?
+  status       String     @default("active") // active, paused
+  notes        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("recurring_invoices")
+}
+
+model Prediction {
+  id           String     @id @default(cuid())
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessmentId String
+  modelVersion String
+  viability    String
+  bands        String
+  explain      String
+  createdAt    DateTime   @default(now())
+
+  @@map("predictions")
+}
+
+model Attorney {
+  id                String   @id @default(cuid())
+  name              String
+  email             String?  @unique
+  phone             String?
+  specialties       String
+  venues            String
+  meta              String? @db.Text
+  profile           String? @db.Text // Enhanced profile data (JSON)
+  isActive          Boolean  @default(true)
+  isVerified        Boolean  @default(false)
+  responseTimeHours Int      @default(24)
+  averageRating     Float    @default(0.0)
+  totalReviews      Int      @default(0)
+  lawFirmId         String?
+  lawFirm           LawFirm? @relation(fields: [lawFirmId], references: [id], onDelete: SetNull)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  introductions     Introduction[]
+  favoriteAttorneys FavoriteAttorney[]
+  appointments      Appointment[]
+  reviews           AttorneyReview[]
+  availability      AttorneyAvailability[]
+  chatRooms         ChatRoom[]
+  ethicalWalls      EthicalWall[]
+  caseSharesBy      CaseShare[]         @relation("CaseShareSharedByAttorney")
+  caseSharesWith    CaseShare[]         @relation("CaseShareSharedWithAttorney")
+  referralAgreementsReferring ReferralAgreement[] @relation("ReferralAgreementReferringAttorney")
+  referralAgreementsReceiving ReferralAgreement[] @relation("ReferralAgreementReceivingAttorney")
+  coCounselWorkflowsLead CoCounselWorkflow[] @relation("CoCounselWorkflowLeadAttorney")
+  coCounselWorkflowsCoCounsel CoCounselWorkflow[] @relation("CoCounselWorkflowCoCounselAttorney")
+
+  // Attorney Dashboard Relations
+  dashboard         AttorneyDashboard?
+  attorneyProfile   AttorneyProfile?   @relation("AttorneyProfile")
+  leadSubmissions   LeadSubmission[]
+  leadContacts      LeadContact[]
+  caseContacts      CaseContact[]
+  documentRequests  DocumentRequest[]
+  leadAnalytics     LeadAnalytics[]
+  conflictChecks    ConflictCheck[]
+  providerReferrals ProviderReferral[]
+  reminderTemplates ReminderTemplate[]
+  healthRules       HealthEscalationRule[]
+  negotiationCadenceTemplates NegotiationCadenceTemplate[]
+  taskSlaTemplates           TaskSlaTemplate[]
+  caseIntakeRequests         CaseIntakeRequest[]
+  intakeConfig               AttorneyIntakeConfig?
+  workflowTemplates          CaseWorkflowTemplate[]
+  decisionMemories           DecisionMemory[]
+  decisionProfile            AttorneyDecisionProfile?
+  auditLogs                  AuditLog[]
+  smsWebhookReceipts         SmsWebhookReceipt[]
+  reputationScore            AttorneyReputationScore?
+  importSources              AttorneyImportSource[]
+  calendarConnections        AttorneyCalendarConnection[]
+  calendarBusyBlocks         AttorneyCalendarBusyBlock[]
+
+  // Phase 2: Communications
+  platformNotificationEvents PlatformNotificationEvent[]
+  supportTickets             SupportTicket[]
+
+  @@index([phone])
+  @@map("attorneys")
+}
+
+model LawFirm {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  primaryEmail String?
+  phone        String?
+  website      String?
+  address      String?
+  city         String?
+  state        String?
+  zip          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  decisionMemories DecisionMemory[]
+  decisionProfiles AttorneyDecisionProfile[]
+
+  // Relations
+  attorneys Attorney[]
+  settings  FirmSetting[]
+  featureToggles FeatureToggle[]
+
+  @@map("law_firms")
+}
+
+model FirmSetting {
+  id        String   @id @default(cuid())
+  lawFirmId String
+  lawFirm   LawFirm  @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+  key       String
+  value     String   // JSON string
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([lawFirmId, key])
+  @@index([lawFirmId])
+  @@map("firm_settings")
+}
+
+model FeatureToggle {
+  id          String   @id @default(cuid())
+  key         String
+  description String?
+  enabled     Boolean  @default(false)
+  scope       String   @default("global") // global, firm, user
+  lawFirmId   String?
+  lawFirm     LawFirm? @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([key, scope, lawFirmId, userId])
+  @@index([key])
+  @@index([lawFirmId])
+  @@index([userId])
+  @@map("feature_toggles")
+}
+
+model AttorneyDecisionProfile {
+  id              String   @id @default(cuid())
+  attorneyId      String   @unique
+  attorney        Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  lawFirmId       String?
+  lawFirm         LawFirm? @relation(fields: [lawFirmId], references: [id], onDelete: SetNull)
+  negotiationStyle String?
+  riskTolerance    String?
+  preferences      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([lawFirmId])
+  @@map("attorney_decision_profiles")
+}
+
+model File {
+  id            String      @id @default(cuid())
+  assessment    Assessment? @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessmentId  String?
+  originalName  String
+  filename      String
+  mimetype      String
+  size          Int
+  path          String
+  status        String      @default("UPLOADED")
+  extractedText String?
+  summary       String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@map("files")
+}
+
+model Introduction {
+  id           String     @id @default(cuid())
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessmentId String
+  attorney     Attorney   @relation(fields: [attorneyId], references: [id])
+  attorneyId   String
+  status       String     @default("PENDING") // PENDING, ACCEPTED, DECLINED, REQUESTED_INFO
+  message      String     @default("")
+  requestedAt  DateTime   @default(now())
+  respondedAt  DateTime?
+  declineReason String?   // Reason when status=DECLINED
+  requestedInfoNotes String? @db.Text // Notes when status=REQUESTED_INFO
+  waveNumber   Int       @default(1) // Which routing wave this was part of
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([attorneyId, status, requestedAt])
+  @@index([assessmentId])
+  @@map("introductions")
+}
+
+model SmsWebhookReceipt {
+  id               String    @id @default(cuid())
+  provider         String    @default("twilio")
+  messageSid       String?   @unique
+  requestId        String?
+  fromPhone        String?
+  normalizedFrom   String?
+  messageBody      String?   @db.Text
+  decision         String?
+  attorneyId       String?
+  responseCode     Int?
+  responseMessage  String?   @db.Text
+  processingStatus String    @default("received") // received, processed, ignored, duplicate, failed
+  introductionId   String?
+  leadSubmissionId String?
+  errorMessage     String?   @db.Text
+  processedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  attorney Attorney? @relation(fields: [attorneyId], references: [id], onDelete: SetNull)
+
+  @@index([attorneyId])
+  @@index([processingStatus, createdAt])
+  @@index([introductionId])
+  @@index([leadSubmissionId])
+  @@map("sms_webhook_receipts")
+}
+
+model RoutingWave {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  waveNumber   Int        // 1, 2, 3
+  attorneyIds  String     // JSON array of attorney IDs in this wave
+  sentAt       DateTime   @default(now())
+  nextEscalationAt DateTime? // When to run wave N+1 if no response
+  escalatedAt  DateTime?  // When wave 2/3 was actually sent
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([assessmentId, waveNumber])
+  @@index([assessmentId])
+  @@index([nextEscalationAt])
+  @@map("routing_waves")
+}
+
+model RoutingAnalytics {
+  id           String     @id @default(cuid())
+  assessmentId String
+  introductionId String?
+  attorneyId   String?
+  eventType    String     // routed, viewed, accepted, declined, requested_info, escalated
+  eventData    String?    @db.Text // JSON: declineReason, responseTimeMs, etc.
+  createdAt    DateTime   @default(now())
+
+  @@index([assessmentId])
+  @@index([attorneyId])
+  @@index([eventType])
+  @@map("routing_analytics")
+}
+
+model AttorneyReputationScore {
+  id           String     @id @default(cuid())
+  attorneyId   String     @unique
+  attorney     Attorney   @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  responseSpeedScore Float @default(0)   // 0-1
+  acceptanceRate     Float @default(0)   // 0-1
+  plaintiffSatisfaction Float @default(0) // 0-1
+  caseFollowThrough  Float @default(0)   // 0-1
+  evidenceRequestQuality Float @default(0) // 0-1
+  overallScore Float @default(0)   // Weighted composite
+  lastCalculatedAt DateTime @default(now())
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("attorney_reputation_scores")
+}
+
+model DemandLetter {
+  id           String     @id @default(cuid())
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessmentId String
+  targetAmount Float
+  recipient    String
+  content      String
+  status       String     @default("DRAFT")
+  sentAt       DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("demand_letters")
+}
+
+model FavoriteAttorney {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attorneyId String
+  attorney   Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  notes      String?  @default("")
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, attorneyId])
+  @@map("favorite_attorneys")
+}
+
+model Notification {
+  id          String    @id @default(cuid())
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String
+  recipient   String
+  subject     String    @default("")
+  message     String
+  metadata    String?
+  status      String    @default("PENDING")
+  sentAt      DateTime  @default(now())
+  deliveredAt DateTime?
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("notifications")
+}
+
+// Phase 2: Platform notification events (centralized event system)
+model PlatformNotificationEvent {
+  id           String    @id @default(cuid())
+  userId       String?
+  user         User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  attorneyId   String?
+  attorney     Attorney? @relation(fields: [attorneyId], references: [id], onDelete: SetNull)
+  assessmentId String?
+  assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  role         String    // plaintiff, attorney, admin
+  channel      String    // email, sms, in_app, push
+  eventType    String    // plaintiff.case_submitted, attorney.case_routed, etc.
+  templateKey  String?
+  status       String    @default("pending") // pending, sent, delivered, failed, suppressed
+  subject      String?   @db.Text
+  body         String?   @db.Text
+  payloadJson  String?   @db.Text
+
+  recipient     String?   // email or phone
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  failedAt     DateTime?
+  failureReason String?  @db.Text
+  retryCount   Int       @default(0)
+  nextRetryAt  DateTime?
+  resendCount   Int       @default(0)
+  lastResendAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attempts PlatformNotificationAttempt[]
+
+  @@index([userId])
+  @@index([attorneyId])
+  @@index([assessmentId])
+  @@index([eventType])
+  @@index([status])
+  @@index([createdAt])
+  @@map("platform_notification_events")
+}
+
+model PlatformNotificationAttempt {
+  id                 String   @id @default(cuid())
+  notificationId      String
+  notification       PlatformNotificationEvent @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  provider           String   // sendgrid, twilio, etc.
+  status             String   // success, failed
+  providerMessageId  String?
+  providerStatusCode Int?
+  attemptedAt        DateTime @default(now())
+  errorMessage       String?  @db.Text
+
+  @@index([notificationId])
+  @@map("platform_notification_attempts")
+}
+
+// Phase 2: Support tickets
+model SupportTicket {
+  id                String    @id @default(cuid())
+  caseId            String?
+  assessment        Assessment? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  userId            String?
+  user              User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  attorneyId        String?
+  attorney          Attorney? @relation(fields: [attorneyId], references: [id], onDelete: SetNull)
+
+  role              String    // plaintiff, attorney
+  category          String    // trouble_uploading, cannot_access_dashboard, etc.
+  subject           String    @db.Text
+  description       String   @db.Text
+  priority          String    @default("medium") // low, medium, high, critical
+  status            String    @default("open") // open, in_progress, waiting_on_user, resolved, closed
+  assignedAdminId   String?
+  assignedAdmin     User?     @relation("AssignedTickets", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  resolutionNotes   String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  resolvedAt DateTime?
+
+  messages SupportTicketMessage[]
+
+  @@index([userId])
+  @@index([attorneyId])
+  @@index([caseId])
+  @@index([status])
+  @@index([priority])
+  @@map("support_tickets")
+}
+
+model SupportTicketMessage {
+  id           String   @id @default(cuid())
+  ticketId     String
+  ticket       SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderId     String   // User or Attorney ID
+  senderRole   String   // admin, plaintiff, attorney
+  body         String   @db.Text
+  attachmentUrl String?
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+  @@map("support_ticket_messages")
+}
+
+// Phase 2: Case threads and messages
+model CaseThread {
+  id           String   @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  threadType   String   // plaintiff_platform, attorney_platform, plaintiff_attorney
+  status       String   @default("active") // active, closed
+
+  lastMessageAt DateTime?
+  unreadCountPlaintiff Int @default(0)
+  unreadCountAttorney  Int @default(0)
+  unreadCountAdmin     Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages CaseMessage[]
+
+  @@unique([assessmentId, threadType])
+  @@index([assessmentId])
+  @@map("case_threads")
+}
+
+// Matching rules config (admin-configurable routing parameters)
+model RoutingConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text // JSON
+  updatedAt DateTime @updatedAt
+
+  @@map("routing_config")
+}
+
+model CaseMessage {
+  id            String   @id @default(cuid())
+  threadId      String
+  thread        CaseThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderId      String   // User, Attorney, or "system"
+  senderRole    String   // plaintiff, attorney, admin, system
+  body          String   @db.Text
+  messageType   String   @default("text") // text, document_request, file_attachment, system, status_update
+  attachmentUrl String?
+
+  deliveryStatus String @default("sent") // sent, delivered, failed
+  readAt         DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([threadId])
+  @@map("case_messages")
+}
+
+model Appointment {
+  id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attorneyId   String
+  attorney     Attorney    @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  assessmentId String?
+  assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  type        String // 'in_person', 'phone', 'video'
+  status      String   @default("SCHEDULED") // 'SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'
+  scheduledAt DateTime
+  duration    Int      @default(30) // minutes
+  notes       String?
+
+  // Meeting details
+  meetingUrl  String? // For video calls
+  location    String? // For in-person meetings
+  phoneNumber String? // For phone calls
+  externalCalendarProvider String?
+  externalCalendarEventId  String?
+  externalCalendarSyncedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("appointments")
+}
+
+model AttorneyCalendarConnection {
+  id                 String   @id @default(cuid())
+  attorneyId         String
+  attorney           Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  provider           String   // google, microsoft
+  externalAccountId  String?
+  externalAccountEmail String?
+  calendarId         String?  // defaults to primary when null
+  calendarName       String?
+  timezone           String?
+  accessToken        String?  @db.Text
+  refreshToken       String?  @db.Text
+  tokenExpiresAt     DateTime?
+  scopes             String?  @db.Text // JSON array
+  syncStatus         String   @default("disconnected") // disconnected, connected, sync_error
+  lastSyncedAt       DateTime?
+  lastSyncError      String?  @db.Text
+  webhookChannelId   String?
+  webhookResourceId  String?
+  webhookSubscriptionId String?
+  webhookClientState String?
+  webhookToken       String?
+  webhookExpiresAt   DateTime?
+  lastWebhookAt      DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  busyBlocks         AttorneyCalendarBusyBlock[]
+
+  @@unique([attorneyId, provider])
+  @@index([syncStatus])
+  @@map("attorney_calendar_connections")
+}
+
+model AttorneyCalendarBusyBlock {
+  id           String   @id @default(cuid())
+  attorneyId   String
+  attorney     Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  connectionId String?
+  connection   AttorneyCalendarConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  provider     String
+  startTime    DateTime
+  endTime      DateTime
+  isAllDay     Boolean  @default(false)
+  sourceKey    String?
+  sourceUpdatedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([attorneyId, startTime, endTime])
+  @@index([connectionId])
+  @@unique([connectionId, sourceKey])
+  @@map("attorney_calendar_busy_blocks")
+}
+
+model AttorneyReview {
+  id         String   @id @default(cuid())
+  attorneyId String
+  attorney   Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  rating     Int // 1-5 stars
+  title      String?
+  review     String?
+  isVerified Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([attorneyId, userId])
+  @@map("attorney_reviews")
+}
+
+model AttorneyAvailability {
+  id         String   @id @default(cuid())
+  attorneyId String
+  attorney   Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+
+  dayOfWeek   Int // 0=Sunday, 1=Monday, etc.
+  startTime   String // "09:00"
+  endTime     String // "17:00"
+  isAvailable Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([attorneyId, dayOfWeek])
+  @@map("attorney_availability")
+}
+
+model ChatRoom {
+  id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attorneyId   String
+  attorney     Attorney    @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  assessmentId String?
+  assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  status        String    @default("ACTIVE") // 'ACTIVE', 'CLOSED', 'ARCHIVED'
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  messages Message[]
+
+  @@unique([userId, attorneyId])
+  @@map("chat_rooms")
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  chatRoomId String
+  chatRoom   ChatRoom @relation(fields: [chatRoomId], references: [id], onDelete: Cascade)
+  senderId   String // User ID or Attorney ID
+  senderType String // 'user' or 'attorney'
+
+  content     String
+  messageType String  @default("text") // 'text', 'image', 'file', 'system'
+  metadata    String? // JSON for additional data
+
+  isRead    Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@map("messages")
+}
+
+model ChatBotSession {
+  id        String  @id @default(cuid())
+  userId    String?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId String  @unique
+
+  context         String // JSON context for the conversation
+  lastInteraction DateTime @default(now())
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("chatbot_sessions")
+}
+
+// Attorney Dashboard & Lead Management Models
+
+model AttorneyDashboard {
+  id         String   @id @default(cuid())
+  attorneyId String   @unique
+  attorney   Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+
+  // Lead Quality Settings
+  leadFilters         String? // JSON filters for case type, location, damages, etc.
+  exclusivitySettings String? // JSON settings for exclusive/first-look options
+
+  // Performance Tracking
+  totalLeadsReceived Int   @default(0)
+  totalLeadsAccepted Int   @default(0)
+  totalFeesCollected Float @default(0)
+  totalPlatformSpend Float @default(0)
+
+  // Pricing Preferences
+  pricingModel    String  @default("per_lead") // 'per_lead', 'per_consult', 'per_retainer'
+  volumeDiscounts String? // JSON volume discount settings
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("attorney_dashboard")
+}
+
+model CaseIntakeRequest {
+  id           String      @id @default(cuid())
+  attorneyId   String
+  attorney     Attorney    @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  assessmentId String?
+  assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+  leadId       String?
+  kind         String
+  source       String?
+  payload      String?
+  status       String      @default("queued")
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@map("case_intake_requests")
+}
+
+model AttorneyIntakeConfig {
+  id         String   @id @default(cuid())
+  attorneyId String   @unique
+  attorney   Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  config     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("attorney_intake_configs")
+}
+
+model LeadSubmission {
+  id           String     @id @default(cuid())
+  assessmentId String     @unique
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  // Lead Quality Metrics
+  viabilityScore Float @default(0)
+  liabilityScore Float @default(0)
+  causationScore Float @default(0)
+  damagesScore   Float @default(0)
+
+  // Evidence Checklist
+  evidenceChecklist String? @db.Text // JSON checklist of uploaded/missing documents
+
+  // Exclusivity & Source
+  isExclusive   Boolean @default(false)
+  sourceType    String // 'organic_search', 'paid_ad', 'referral', 'direct'
+  sourceDetails String? // JSON additional source info
+
+  // Lead Hotness
+  submittedAt   DateTime  @default(now())
+  lastContactAt DateTime?
+  hotnessLevel  String    @default("warm") // 'hot', 'warm', 'cold'
+
+  // Attorney Assignment
+  assignedAttorneyId String?
+  assignedAttorney   Attorney? @relation(fields: [assignedAttorneyId], references: [id], onDelete: SetNull)
+  assignmentType     String    @default("shared") // 'exclusive', 'first_look', 'shared'
+
+  // Conversion Tracking
+  status      String    @default("submitted") // 'submitted', 'contacted', 'consulted', 'retained', 'rejected'
+  convertedAt DateTime?
+
+  // Routing Lifecycle (Step 17)
+  lifecycleState String @default("routing_active") // assessment_completed, routing_active, attorney_review, attorney_matched, consultation_scheduled, engaged, closed
+  routingLocked  Boolean @default(false) // true when attorney accepts - stops further routing
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contactAttempts   LeadContact[]
+  caseContacts     CaseContact[]
+  conflictChecks    ConflictCheck[]
+  qualityReports    QualityReport[]
+  providerReferrals ProviderReferral[]
+  decisionMemory    DecisionMemory?
+  documentRequests  DocumentRequest[]
+
+  @@map("lead_submissions")
+}
+
+model DecisionMemory {
+  id           String     @id @default(cuid())
+  leadId       String     @unique
+  lead         LeadSubmission @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  attorneyId   String
+  attorney     Attorney   @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  lawFirmId    String?
+  lawFirm      LawFirm?   @relation(fields: [lawFirmId], references: [id], onDelete: SetNull)
+  recommendedDecision   String
+  recommendedConfidence Float
+  recommendedRationale  String?
+  recommendedData       String?
+  attorneyDecision      String?
+  attorneyRationale     String?
+  override              Boolean @default(false)
+  decisionAt            DateTime?
+  outcomeStatus         String?
+  outcomeNotes          String?
+  outcomeAt             DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([lawFirmId])
+  @@index([attorneyId])
+  @@index([assessmentId])
+  @@map("decision_memories")
+}
+
+model LeadContact {
+  id         String         @id @default(cuid())
+  leadId     String
+  lead       LeadSubmission @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  attorneyId String
+  attorney   Attorney       @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+
+  contactType   String // 'call', 'sms', 'email', 'chat', 'consult'
+  contactMethod String? // phone number, email, chat room ID
+  status        String  @default("pending") // 'pending', 'sent', 'delivered', 'opened', 'responded'
+
+  scheduledAt DateTime?
+  completedAt DateTime?
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("lead_contacts")
+}
+
+model CaseContact {
+  id         String         @id @default(cuid())
+  leadId     String
+  lead       LeadSubmission @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  attorneyId String
+  attorney   Attorney      @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+
+  firstName   String
+  lastName    String
+  email       String?
+  phone       String?
+  companyName String?
+  companyUrl  String?
+  title       String?   // e.g. "Plaintiff", "Adjuster", "Opposing Counsel"
+  contactType String?   // 'client', 'opposing_counsel', 'adjuster', 'witness', 'medical_provider', 'expert', 'other'
+  notes       String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leadId])
+  @@index([attorneyId])
+  @@map("case_contacts")
+}
+
+model DocumentRequest {
+  id           String         @id @default(cuid())
+  leadId       String
+  lead         LeadSubmission @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  attorneyId   String
+  attorney     Attorney       @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+
+  requestedDocs String @db.Text // JSON array: police_report, medical_records, injury_photos, wage_loss, insurance, other
+  customMessage String?
+  secureToken   String   @unique // UUID for secure upload link
+  uploadLink    String   // Full URL for plaintiff
+  status        String   @default("pending") // pending, partial, completed
+
+  attorneyViewedAt DateTime?
+  lastNudgeAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leadId])
+  @@index([secureToken])
+  @@map("document_requests")
+}
+
+model AttorneyProfile {
+  id         String   @id @default(cuid())
+  attorneyId String   @unique
+  attorney   Attorney @relation("AttorneyProfile", fields: [attorneyId], references: [id], onDelete: Cascade)
+
+  // Profile Details
+  bio         String?
+  photoUrl    String?
+  specialties String? // JSON array of specialties
+  languages   String? // JSON array of languages
+
+  // Success Stats
+  yearsExperience   Int   @default(0)
+  totalCases        Int   @default(0)
+  totalSettlements  Float @default(0)
+  averageSettlement Float @default(0)
+  successRate       Float @default(0)
+
+  // Verified Verdicts
+  verifiedVerdicts String? @db.Text // JSON array of verified case outcomes
+
+  // Featured Placement
+  isFeatured    Boolean   @default(false)
+  featuredUntil DateTime?
+  boostLevel    Int       @default(0) // 0-5 boost level
+
+  // Reviews & Ratings
+  totalReviews  Int   @default(0)
+  averageRating Float @default(0)
+
+  // ===== FIRM INFORMATION =====
+  firmName      String? // Firm name
+  firmWebsite   String? // Firm website URL
+  firmLocations String? // JSON array of locations {address, city, state, zip, phone}
+
+  // ===== JURISDICTIONS =====
+  jurisdictions String? // JSON array of {state, counties: [], cities: []} - counties/cities covered
+  secondaryCaseTypes String? // JSON array of secondary case types
+
+  // ===== CASE PREFERENCES =====
+  minInjurySeverity Int? // Minimum injury severity level (0-4) they accept
+  excludedCaseTypes String? // JSON array of case types to exclude
+  minDamagesRange   Float? // Minimum damages range they accept
+  maxDamagesRange   Float? // Maximum damages range they accept (null = no max)
+  insuranceRequired Boolean? // Require insurance on cases
+  mustHaveMedicalTreatment Boolean? // Require medical treatment
+  requirePoliceReport Boolean? // Require police report
+  requireMedicalRecords Boolean? // Require medical records
+
+  // ===== CAPACITY SIGNALS =====
+  maxCasesPerWeek  Int? // Maximum new cases per week
+  maxCasesPerMonth Int? // Maximum new cases per month
+  intakeHours      String? // JSON array of {dayOfWeek, startTime, endTime} or "24/7"
+
+  // ===== BUYING PREFERENCES =====
+  pricingModel     String? // 'fixed_price', 'auction', 'both'
+  paymentModel     String? // 'subscription', 'pay_per_case', 'both'
+  subscriptionTier String? // 'basic', 'premium', 'enterprise' (if subscription)
+  
+  // ===== SUBSCRIPTION & ACCOUNT TRACKING =====
+  subscriptionActive      Boolean  @default(false) // Whether subscription is currently active
+  subscriptionRemainingCases Int?  // Remaining cases in current subscription period
+  accountBalance           Float   @default(0) // Account balance for pay-per-case
+  tier1Enabled             Boolean @default(false) // Enable Tier 1 routing
+  tier2Enabled             Boolean @default(false) // Enable Tier 2 routing
+  
+  // ===== ROUTING METRICS (calculated/aggregated) =====
+  historicalAcceptanceRate Float? // Historical acceptance rate (0-1)
+  responseSpeedScore       Float? // Response speed score (0-1)
+  recentConversionScore    Float? // Recent conversion score (0-1)
+  recentTier1ConversionRate Float? // Tier 1 specific conversion rate (0-1)
+  recentTier2ConversionRate Float? // Tier 2 specific conversion rate (0-1)
+  accountBalanceWeight     Float? // Account balance weight for ranking (0-1)
+
+  // ===== ATTORNEY LICENSE =====
+  licenseNumber    String? // State bar license number
+  licenseState     String? // State where licensed (2-letter code)
+  licenseFileUrl   String? // URL/path to uploaded license file
+  licenseFileName  String? // Original filename of license document
+  licenseVerified  Boolean @default(false) // Whether license has been verified
+  licenseVerifiedAt DateTime? // When license was verified
+  licenseVerificationMethod String? // 'state_bar_lookup', 'manual_upload', 'admin_review'
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("attorney_profiles")
+}
+
+model AttorneyImportRun {
+  id               String   @id @default(cuid())
+  source           String
+  mode             String
+  status           String   @default("running")
+  notes            String?  @db.Text
+  errorMessage     String?  @db.Text
+  pagesDiscovered  Int      @default(0)
+  pagesFetched     Int      @default(0)
+  pagesParsed      Int      @default(0)
+  attorneysCreated Int      @default(0)
+  attorneysUpdated Int      @default(0)
+  attorneysSkipped Int      @default(0)
+  startedAt        DateTime @default(now())
+  finishedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  importSources AttorneyImportSource[]
+
+  @@index([source, status])
+  @@map("attorney_import_runs")
+}
+
+model AttorneyImportSource {
+  id             String   @id @default(cuid())
+  source         String
+  externalId     String?
+  sourceUrl      String   @db.VarChar(1024)
+  sourceUrlHash  String   @db.VarChar(64)
+  rawContentHash String?  @db.VarChar(64)
+  status         String   @default("discovered")
+  parseWarnings  String?  @db.Text
+  sourcePayload  String?  @db.Text
+  lastFetchedAt  DateTime?
+  lastParsedAt   DateTime?
+  attorneyId     String?
+  attorney       Attorney? @relation(fields: [attorneyId], references: [id], onDelete: SetNull)
+  importRunId    String?
+  importRun      AttorneyImportRun? @relation(fields: [importRunId], references: [id], onDelete: SetNull)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([source, sourceUrlHash])
+  @@index([attorneyId])
+  @@index([importRunId])
+  @@index([source, status])
+  @@map("attorney_import_sources")
+}
+
+model CaseTier {
+  id          String  @id @default(cuid())
+  tierNumber Int     @unique // 1, 2, 3, 4
+  name       String  @unique // "Tier 1", "Tier 2", etc.
+  color      String  // "green", "yellow", "blue", "red"
+  label      String  // "Low Severity / High Volume", etc.
+  description String // Full description
+
+  // Settlement Range
+  minSettlementRange Float? // Minimum typical settlement
+  maxSettlementRange Float? // Maximum typical settlement
+
+  // Buying Model
+  buyingModel String // "Fixed price", "Fixed price + subscription", etc.
+
+  // Lawyer Profile
+  lawyerProfile String // "High-volume PI shops", etc.
+
+  // Goal
+  goal String // "Liquidity, scale, predictable flow", etc.
+
+  // Case Types (JSON array)
+  caseTypes String // JSON array of case types
+
+  // Characteristics (JSON array)
+  characteristics String // JSON array of characteristics
+
+  // Promotion Rules (JSON) - Conditions that can promote cases to higher tiers
+  promotionRules String? // JSON object with promotion conditions
+
+  // Metadata
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  assessments Assessment[]
+
+  @@map("case_tiers")
+}
+
+model AuditLog {
+  id          String    @id @default(cuid())
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  attorneyId  String?
+  attorney    Attorney? @relation(fields: [attorneyId], references: [id], onDelete: SetNull)
+  action      String
+  entityType  String?
+  entityId    String?
+  statusCode  Int?
+  ipAddress   String?
+  userAgent   String?
+  metadata    String?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@index([attorneyId])
+  @@map("audit_logs")
+}
+
+model EthicalWall {
+  id               String     @id @default(cuid())
+  assessmentId     String
+  assessment       Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  blockedAttorneyId String
+  blockedAttorney  Attorney   @relation(fields: [blockedAttorneyId], references: [id], onDelete: Cascade)
+  reason           String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  @@index([assessmentId])
+  @@index([blockedAttorneyId])
+  @@map("ethical_walls")
+}
+
+model DataRetentionPolicy {
+  id            String   @id @default(cuid())
+  entityType    String   // e.g., evidence, messages, logs
+  retentionDays Int
+  action        String   @default("archive") // archive, delete
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([entityType])
+  @@map("data_retention_policies")
+}
+
+model ComplianceSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  hipaaAligned Boolean @default(false)
+  soc2Ready    Boolean @default(false)
+  secureApis   Boolean @default(true)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("compliance_settings")
+}
+
+model CaseShare {
+  id                 String     @id @default(cuid())
+  assessmentId       String
+  assessment         Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  sharedByAttorneyId String
+  sharedByAttorney   Attorney   @relation("CaseShareSharedByAttorney", fields: [sharedByAttorneyId], references: [id], onDelete: Cascade)
+  sharedWithAttorneyId String?
+  sharedWithAttorney Attorney?  @relation("CaseShareSharedWithAttorney", fields: [sharedWithAttorneyId], references: [id], onDelete: SetNull)
+  sharedWithFirmName String?
+  sharedWithEmail    String?
+  accessLevel        String     @default("view") // view, edit
+  status             String     @default("pending") // pending, accepted, revoked
+  message            String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@index([assessmentId])
+  @@index([sharedByAttorneyId])
+  @@map("case_shares")
+}
+
+model ReferralAgreement {
+  id                 String     @id @default(cuid())
+  assessmentId       String
+  assessment         Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  referringAttorneyId String
+  referringAttorney  Attorney   @relation("ReferralAgreementReferringAttorney", fields: [referringAttorneyId], references: [id], onDelete: Cascade)
+  receivingAttorneyId String?
+  receivingAttorney  Attorney?  @relation("ReferralAgreementReceivingAttorney", fields: [receivingAttorneyId], references: [id], onDelete: SetNull)
+  receivingFirmName  String?
+  receivingEmail     String?
+  feeSplitPercent    Float?
+  projectedRecovery  Float?
+  referringFeeAmount Float?
+  receivingFeeAmount Float?
+  status             String     @default("proposed") // proposed, accepted, declined, closed
+  notes              String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@index([assessmentId])
+  @@index([referringAttorneyId])
+  @@map("referral_agreements")
+}
+
+model CoCounselWorkflow {
+  id                 String     @id @default(cuid())
+  assessmentId       String
+  assessment         Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  leadAttorneyId     String
+  leadAttorney       Attorney   @relation("CoCounselWorkflowLeadAttorney", fields: [leadAttorneyId], references: [id], onDelete: Cascade)
+  coCounselAttorneyId String?
+  coCounselAttorney  Attorney?  @relation("CoCounselWorkflowCoCounselAttorney", fields: [coCounselAttorneyId], references: [id], onDelete: SetNull)
+  coCounselFirmName  String?
+  coCounselEmail     String?
+  feeSplitPercent    Float?
+  projectedRecovery  Float?
+  leadFeeAmount      Float?
+  coCounselFeeAmount Float?
+  workflowStatus     String     @default("initiated") // initiated, negotiating, active, completed
+  nextStep           String?
+  notes              String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@index([assessmentId])
+  @@index([leadAttorneyId])
+  @@map("co_counsel_workflows")
+}
+
+model LeadAnalytics {
+  id         String    @id @default(cuid())
+  attorneyId String?
+  attorney   Attorney? @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+
+  // Time Period
+  periodStart DateTime
+  periodEnd   DateTime
+  periodType  String // 'daily', 'weekly', 'monthly', 'yearly'
+
+  // Lead Metrics
+  totalLeads     Int @default(0)
+  leadsAccepted  Int @default(0)
+  leadsRejected  Int @default(0)
+  leadsConverted Int @default(0)
+
+  // Financial Metrics
+  totalFees     Float @default(0)
+  averageFee    Float @default(0)
+  platformSpend Float @default(0)
+  roi           Float @default(0)
+
+  // Conversion Funnel
+  funnelMetrics String? // JSON conversion funnel data
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("lead_analytics")
+}
+
+model ConflictCheck {
+  id         String         @id @default(cuid())
+  attorneyId String
+  attorney   Attorney       @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  leadId     String
+  lead       LeadSubmission @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  // Conflict Details
+  conflictType    String // 'direct', 'adverse', 'concurrent', 'none'
+  conflictDetails String? // JSON details about the conflict
+  riskLevel       String  @default("low") // 'low', 'medium', 'high'
+
+  // Resolution
+  isResolved      Boolean   @default(false)
+  resolutionNotes String?
+  resolvedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("conflict_checks")
+}
+
+model QualityReport {
+  id     String         @id @default(cuid())
+  leadId String         @unique
+  lead   LeadSubmission @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  // Quality Assessment
+  overallQuality String @default("good") // 'excellent', 'good', 'fair', 'poor', 'spam'
+  qualityScore   Float  @default(0) // 0-100
+
+  // Specific Issues
+  issues      String? // JSON array of quality issues found
+  isSpam      Boolean @default(false)
+  isDuplicate Boolean @default(false)
+
+  // Reporter
+  reportedBy   String? // Attorney ID or system
+  reportReason String?
+
+  // Resolution
+  status       String  @default("pending") // 'pending', 'investigating', 'resolved', 'dismissed'
+  resolution   String?
+  creditIssued Float   @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("quality_reports")
+}
+
+model MedicalProvider {
+  id String @id @default(cuid())
+
+  name      String
+  specialty String
+  address   String
+  city      String
+  state     String
+  zipCode   String
+  phone     String?
+  email     String?
+
+  // Lien Information
+  acceptsLien     Boolean @default(false)
+  lienTerms       String? // JSON lien terms and conditions
+  averageLienRate Float? // Percentage
+
+  // Provider Details
+  isVerified   Boolean @default(false)
+  rating       Float   @default(0)
+  totalReviews Int     @default(0)
+
+  // Geographic Coverage
+  serviceRadius Int @default(25) // miles
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  referrals ProviderReferral[]
+
+  @@map("medical_providers")
+}
+
+model ProviderReferral {
+  id         String          @id @default(cuid())
+  leadId     String
+  lead       LeadSubmission  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  providerId String
+  provider   MedicalProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  attorneyId String
+  attorney   Attorney        @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+
+  referralType String @default("treatment") // 'treatment', 'evaluation', 'second_opinion'
+  status       String @default("pending") // 'pending', 'accepted', 'declined', 'completed'
+
+  referralDate       DateTime  @default(now())
+  responseDate       DateTime?
+  treatmentStartDate DateTime?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("provider_referrals")
+}
+
+// Evidence Upload & Management Models
+
+model EvidenceFile {
+  id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assessmentId String?
+  assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+
+  // File Information
+  originalName String
+  filename     String
+  mimetype     String
+  size         Int
+  filePath     String
+  fileUrl      String
+
+  // Evidence Classification
+  category    String // 'medical_records', 'police_report', 'bills', 'photos', 'correspondence', 'other'
+  subcategory String? // 'medical_bill', 'insurance_doc', 'accident_photo', 'damage_photo', etc.
+  description String?
+  dataType    String  @default("unstructured") // 'structured', 'unstructured'
+  tags        String? // JSON array of tags
+  relevanceScore Float @default(0)
+
+  // Upload Metadata
+  uploadMethod String    @default("drag_drop") // 'drag_drop', 'camera', 'file_picker'
+  captureDate  DateTime? // For camera uploads
+  location     String? // GPS coordinates for photos
+
+  // EXIF Data (JSON)
+  exifData String? // Camera settings, GPS, timestamp
+
+  // Processing Status
+  processingStatus String  @default("pending") // 'pending', 'processing', 'completed', 'failed'
+  ocrText          String? // Extracted text from OCR
+  aiSummary        String?
+  aiClassification String?
+  aiHighlights     String? // JSON array of highlight snippets
+
+  // HIPAA Compliance
+  isHIPAA         Boolean @default(false)
+  accessLevel     String  @default("private") // 'private', 'attorney', 'shared'
+  retentionPolicy String? // Retention period
+  provenanceSource String?
+  provenanceNotes  String?
+  provenanceActor  String?
+  provenanceDate   DateTime?
+
+  // Verification
+  isVerified Boolean   @default(false)
+  verifiedBy String? // Attorney ID who verified
+  verifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  extractedData  ExtractedData[]
+  processingJobs EvidenceProcessingJob[]
+  accessLogs     EvidenceAccessLog[]
+  annotations    EvidenceAnnotation[]
+
+  @@map("evidence_files")
+}
+
+model EvidenceAnnotation {
+  id             String       @id @default(cuid())
+  evidenceFileId String
+  evidenceFile   EvidenceFile @relation(fields: [evidenceFileId], references: [id], onDelete: Cascade)
+  authorId       String
+  author         User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  content        String
+  anchor         String? // optional location reference
+  pageNumber     Int?
+  createdAt      DateTime     @default(now())
+
+  @@map("evidence_annotations")
+}
+
+model ExtractedData {
+  id             String       @id @default(cuid())
+  evidenceFileId String
+  evidenceFile   EvidenceFile @relation(fields: [evidenceFileId], references: [id], onDelete: Cascade)
+
+  // Medical Codes
+  icdCodes String? // JSON array of ICD codes
+  cptCodes String? // JSON array of CPT codes
+
+  // Financial Data
+  dollarAmounts String? // JSON array of monetary values found
+  totalAmount   Float?
+  currency      String  @default("USD")
+
+  // Timeline Data
+  dates    String? // JSON array of dates found
+  timeline String? // JSON structured timeline
+
+  // Key Entities
+  entities String? // JSON of extracted entities (names, locations, etc.)
+  keywords String? // JSON array of relevant keywords
+
+  // Confidence Scores
+  confidence     Float   @default(0.0)
+  isManualReview Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("extracted_data")
+}
+
+model EvidenceProcessingJob {
+  id             String       @id @default(cuid())
+  evidenceFileId String
+  evidenceFile   EvidenceFile @relation(fields: [evidenceFileId], references: [id], onDelete: Cascade)
+
+  // Job Details
+  jobType  String // 'ocr', 'nlp', 'classification', 'full_processing'
+  status   String @default("queued") // 'queued', 'running', 'completed', 'failed'
+  priority Int    @default(5) // 1-10, higher = more priority
+
+  // Processing Details
+  startedAt    DateTime?
+  completedAt  DateTime?
+  errorMessage String?
+
+  // Results
+  results String? // JSON results from processing
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("evidence_processing_jobs")
+}
+
+model EvidenceAccessLog {
+  id             String       @id @default(cuid())
+  evidenceFileId String
+  evidenceFile   EvidenceFile @relation(fields: [evidenceFileId], references: [id], onDelete: Cascade)
+
+  // Access Details
+  accessedBy String // User ID or Attorney ID
+  accessType String // 'view', 'download', 'share'
+  ipAddress  String?
+  userAgent  String?
+
+  // Purpose
+  purpose  String? // Reason for access
+  duration Int? // Seconds spent accessing
+
+  createdAt DateTime @default(now())
+
+  @@map("evidence_access_logs")
+}
+
+model Court {
+  courtId    BigInt   @id @default(autoincrement())
+  state      String   @db.VarChar(100)
+  county     String   @db.VarChar(255)
+  courtName  String   @db.VarChar(500)
+  courthouse String?  @db.Text
+  judges     Judge[]
+  caseRecords CaseRecord[]
+
+  @@unique([state, county, courtName])
+  @@map("courts")
+}
+
+model CaseRecord {
+  casePk            BigInt    @id @default(autoincrement())
+  trellisCaseNumber String    @db.VarChar(100)
+  trellisUrl        String?   @db.Text
+  trellisCaseId     String?   @db.Text
+  courtId           BigInt?
+  court             Court?    @relation(fields: [courtId], references: [courtId], onDelete: SetNull)
+  caseCaption       String?   @db.Text
+  practiceArea      String?   @db.Text
+  caseCategory      String?   @db.Text
+  caseType          String?   @db.Text
+  matterType        String?   @db.Text
+  filingDate        DateTime? @db.Date
+  status            String?   @db.VarChar(100)
+  isFederal         Boolean   @default(false)
+  dispositionDate   DateTime? @db.Date
+  dispositionType   String?   @db.Text
+  verdictAmount     Decimal?  @db.Decimal(14, 2)
+  sourceCaseJson    Json
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  docketEvents DocketEvent[]
+  documents    Document[]
+  complaintExtraction ComplaintExtraction?
+  mlFeatureSnapshots MlFeatureSnapshot[]
+  trialLabels  TrialLabels?
+
+  @@unique([trellisCaseNumber, courtId])
+  @@index([filingDate])
+  @@index([status])
+  @@map("cases")
+}
+
+model DocketEvent {
+  docketEventId         BigInt   @id @default(autoincrement())
+  casePk                BigInt
+  caseRecord            CaseRecord @relation(fields: [casePk], references: [casePk], onDelete: Cascade)
+  eventDate             DateTime @db.Date
+  entryType             String?  @db.Text
+  motionType            String?  @db.Text
+  description           String   @db.Text
+  fullDescription       String?  @db.Text
+  filingPerson          String?  @db.Text
+  judgeName             String?  @db.Text
+  documentRequestToken  String?  @db.Text
+  sourceEventJson       Json
+  createdAt             DateTime @default(now())
+  tags                  DocketEventTag[]
+  documents             Document[]
+
+  @@index([casePk, eventDate])
+  @@map("docket_events")
+}
+
+model EventTypeMap {
+  eventTypeCode String   @id @db.VarChar(100)
+  description   String   @db.Text
+  docketEventTags DocketEventTag[]
+
+  @@map("event_type_map")
+}
+
+model DocketEventTag {
+  docketEventTagId BigInt   @id @default(autoincrement())
+  docketEventId   BigInt
+  docketEvent     DocketEvent @relation(fields: [docketEventId], references: [docketEventId], onDelete: Cascade)
+  eventTypeCode   String   @db.VarChar(100)
+  eventTypeMap    EventTypeMap @relation(fields: [eventTypeCode], references: [eventTypeCode], onDelete: Restrict)
+  confidence      Decimal  @default(1) @db.Decimal(4, 3)
+  createdAt       DateTime @default(now())
+
+  @@unique([docketEventId, eventTypeCode])
+  @@index([docketEventId])
+  @@index([eventTypeCode])
+  @@map("docket_event_tags")
+}
+
+model Judge {
+  judgeId          BigInt   @id @default(autoincrement())
+  judgeName        String   @db.VarChar(500)
+  courtId          BigInt?
+  court            Court?   @relation(fields: [courtId], references: [courtId], onDelete: SetNull)
+  appointedBy      String?  @db.Text
+  barNumber        String?  @db.Text
+  barAdmissionDate DateTime? @db.Date
+  sourceJson       Json?
+
+  @@unique([judgeName, courtId])
+  @@map("judges")
+}
+
+model Document {
+  documentId      BigInt   @id @default(autoincrement())
+  casePk          BigInt
+  caseRecord      CaseRecord @relation(fields: [casePk], references: [casePk], onDelete: Cascade)
+  docketEventId   BigInt?
+  docketEvent     DocketEvent? @relation(fields: [docketEventId], references: [docketEventId], onDelete: SetNull)
+  documentTitle   String?  @db.Text
+  documentType    String?  @db.Text
+  filedDate       DateTime? @db.Date
+  pageCount       Int?
+  fileUrl         String?  @db.Text
+  trellisToken    String?  @db.Text
+  availability    String?  @db.Text
+  textContent     String?  @db.Text
+  textHash        String?  @db.Text
+  sourceDocJson   Json?
+  createdAt       DateTime @default(now())
+
+  @@index([casePk])
+  @@map("documents")
+}
+
+model ComplaintExtraction {
+  casePk                  BigInt   @id
+  caseRecord              CaseRecord @relation(fields: [casePk], references: [casePk], onDelete: Cascade)
+  juryDemandFlag          Boolean?
+  wrongfulDeathFlag       Boolean?
+  survivalActionFlag      Boolean?
+  medmalFlag              Boolean?
+  grossNegligenceFlag     Boolean?
+  injurySeverityLevel     Int?
+  procedureComplexityLevel Int?
+  allegationThemes        Json?    // e.g. ['anticoagulant', 'bleeding', 'failure_to_transfer']
+  extractedPartiesCount    Int?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@map("complaint_extractions")
+}
+
+model MlFeatureSnapshot {
+  snapshotId                    BigInt   @id @default(autoincrement())
+  casePk                        BigInt
+  caseRecord                    CaseRecord @relation(fields: [casePk], references: [casePk], onDelete: Cascade)
+  cutoffType                    String   @db.VarChar(50)
+  cutoffDate                    DateTime? @db.Date
+  state                         String?  @db.Text
+  county                        String?  @db.Text
+  caseType                      String?  @db.Text
+  matterType                    String?  @db.Text
+  numDefendants                 Int?
+  numPlaintiffs                 Int?
+  corporateDefendantFlag        Boolean?
+  medicalProfessionalDefendantFlag Boolean?
+  juryDemandFlag                Boolean?
+  wrongfulDeathFlag             Boolean?
+  injurySeverityLevel           Int?
+  procedureComplexityLevel      Int?
+  motionCountTotal              Int?
+  msjFiledFlag                  Boolean?
+  juryFeesPostedFlag            Boolean?
+  goodFaithSettlementFlag       Boolean?
+  continuancesCount             Int?
+  daysSinceFiling               Int?
+  engineeredFeatures            Json?
+  createdAt                     DateTime @default(now())
+
+  @@unique([casePk, cutoffType])
+  @@index([cutoffType])
+  @@index([casePk])
+  @@map("ml_feature_snapshots")
+}
+
+model TrialLabels {
+  casePk           BigInt   @id
+  caseRecord       CaseRecord @relation(fields: [casePk], references: [casePk], onDelete: Cascade)
+  trialSetFlag     Boolean?
+  reachedTrialFlag Boolean?
+
+  @@map("trial_labels")
+}
+
+// Settlement Repository - benchmark data for case valuation
+model SettlementRecord {
+  id               String   @id @default(cuid())
+  claimType        String   // auto, slip_and_fall, dog_bite, medmal, product, nursing_home_abuse, wrongful_death
+  venueState       String
+  venueCounty      String?
+  injurySeverity   Int?     // 0-4 scale
+  settlementAmount Float
+  medCharges       Float?
+  wageLoss         Float?
+  treatmentMonths  Int?
+  source           String?  // internal, public_record, anonymized
+  createdAt        DateTime @default(now())
+
+  @@index([claimType])
+  @@index([venueState])
+  @@index([injurySeverity])
+  @@map("settlement_records")
+}

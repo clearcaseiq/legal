@@ -1,0 +1,43 @@
+# Production API image - build from repo root: docker build -f docker/Dockerfile.api -t legal-api .
+FROM node:20-alpine AS base
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+RUN corepack enable pnpm
+
+# Dependencies - use api's lockfile for reproducible install
+FROM base AS deps
+COPY apps/api/package.json apps/api/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+# Build
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY apps/api ./
+
+RUN pnpm prisma generate
+RUN pnpm build
+
+# Production runner
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=4000
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nodejs
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/package.json ./package.json
+
+RUN mkdir -p uploads && chown nodejs:nodejs uploads
+
+USER nodejs
+
+EXPOSE 4000
+
+CMD ["node", "dist/index.js"]

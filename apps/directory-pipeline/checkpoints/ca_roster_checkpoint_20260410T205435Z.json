@@ -1,0 +1,20 @@
+{
+  "checkpoint_type": "ca_bar_quicksearch_scrape_drained",
+  "finished_at_utc": "2026-04-10T20:54:35.152195+00:00",
+  "database": "postgresql",
+  "database_url_hint": "postgresql://postgres:pa\u2026",
+  "rounds_executed": 2,
+  "coverage_note": "Seeded QuickSearch URLs (major cities + A\u2013Z) are a best-effort partition; they are not a proof of 100% State Bar roster coverage without gap analysis.",
+  "stats": {
+    "source_id": "ca_bar_licensing",
+    "fetch_jobs_pending": 0,
+    "fetch_jobs_running": 0,
+    "fetch_jobs_completed": 93,
+    "fetch_jobs_failed": 0,
+    "raw_records_stored": 0,
+    "raw_records_parsed": 93,
+    "raw_records_failed": 0,
+    "attorneys_bar_state_ca": 12898,
+    "parse_results_for_source": 20813
+  }
+}

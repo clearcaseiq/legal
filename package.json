@@ -1,0 +1,28 @@
+{
+  "name": "injury-intelligence",
+  "private": true,
+  "workspaces": [
+    "app",
+    "api",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:clean": "node scripts/kill-port-4000.js && turbo run dev",
+    "build": "turbo run build",
+    "clean": "turbo run clean",
+    "mobile": "pnpm --filter caseiq-mobile start",
+    "test": "pnpm --filter caseiq-api test && pnpm --filter caseiq-web test && pnpm run test:python",
+    "test:python": "node scripts/run-pytest.js",
+    "test:integration": "pnpm --filter caseiq-api exec vitest run src/consent.integration.test.ts src/app.integration.test.ts",
+    "test:system": "pnpm --filter caseiq-api exec vitest run src/plaintiff-consent-flow.system.test.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:install": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "turbo": "^1.13.4"
+  },
+  "packageManager": "pnpm@8.15.6"
+}

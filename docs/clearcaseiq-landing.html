@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ClearCaseIQ – Intelligent Legal Case Management</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      line-height: 1.6;
+      color: #1a1a2e;
+      background: #f8fafc;
+    }
+    .container { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+    header {
+      text-align: center;
+      padding: 1.5rem 0 1rem;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .logo {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #1e40af;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.25rem;
+    }
+    .tagline {
+      font-size: 1.1rem;
+      color: #64748b;
+      font-weight: 500;
+    }
+    section {
+      padding: 0.75rem 0;
+    }
+    h2 {
+      font-size: 1.5rem;
+      color: #1e40af;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+    }
+    p {
+      margin-bottom: 0.5rem;
+      color: #334155;
+    }
+    ul {
+      margin: 0.5rem 0 0.5rem 1.5rem;
+      color: #334155;
+    }
+    li { margin-bottom: 0.25rem; }
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1rem;
+      margin-top: 0.5rem;
+    }
+    .feature {
+      background: white;
+      padding: 1rem;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      border-left: 4px solid #1e40af;
+    }
+    .feature h3 {
+      font-size: 1rem;
+      color: #1e40af;
+      margin-bottom: 0.25rem;
+    }
+    .feature p {
+      font-size: 0.9rem;
+      margin-bottom: 0;
+    }
+    footer {
+      text-align: center;
+      padding: 1rem 0 1.5rem;
+      margin-top: 0.5rem;
+      border-top: 1px solid #e2e8f0;
+      color: #94a3b8;
+      font-size: 0.9rem;
+    }
+    .cta {
+      text-align: center;
+      padding: 0.75rem 0;
+    }
+    .cta a {
+      display: inline-block;
+      background: #1e40af;
+      color: white;
+      padding: 0.75rem 1.5rem;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    .cta a:hover { background: #1d4ed8; }
+    .coming-soon {
+      display: inline-block;
+      background: #1e40af;
+      color: white;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.35rem 0.75rem;
+      border-radius: 4px;
+      letter-spacing: 0.05em;
+      margin-top: 0.35rem;
+    }
+    .workflow {
+      background: white;
+      border-radius: 12px;
+      padding: 2rem;
+      margin-top: 1.5rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      overflow-x: auto;
+    }
+    .workflow-track {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      min-width: 700px;
+    }
+    .workflow-step {
+      flex: 1;
+      min-width: 100px;
+      text-align: center;
+      padding: 1rem 0.75rem;
+      border-radius: 8px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 0.25rem;
+    }
+    .workflow-step.plaintiff {
+      background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+      border: 2px solid #3b82f6;
+      box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
+    }
+    .workflow-step.plaintiff .step-label {
+      font-weight: 700;
+      color: #1d4ed8;
+    }
+    .workflow-step.plaintiff .step-detail {
+      font-size: 0.7rem;
+      color: #1e40af;
+    }
+    .workflow-step:not(.plaintiff) {
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+    }
+    .workflow-step .step-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #334155;
+    }
+    .workflow-step .step-detail {
+      font-size: 0.7rem;
+      color: #64748b;
+    }
+    .workflow-arrow {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      padding: 0 0.25rem;
+    }
+    .workflow-arrow svg {
+      width: 24px;
+      height: 24px;
+      color: #94a3b8;
+    }
+    .workflow-highlight {
+      margin-top: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      background: #eff6ff;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      color: #1e40af;
+      margin-bottom: 0;
+    }
+    .workflow-highlight strong { color: #1d4ed8; }
+    .audience-diagram {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-top: 0.4rem;
+    }
+    .audience-card {
+      background: white;
+      border-radius: 8px;
+      padding: 0.6rem;
+      text-align: center;
+      min-width: 100px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      border: 2px solid #e2e8f0;
+      transition: border-color 0.2s;
+    }
+    .audience-card:hover { border-color: #93c5fd; }
+    .audience-card .icon {
+      width: 36px;
+      height: 36px;
+      margin: 0 auto 0.35rem;
+      background: #eff6ff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+    }
+    .audience-card.attorney .icon { background: linear-gradient(135deg, #dbeafe, #bfdbfe); }
+    .audience-card.plaintiff .icon { background: linear-gradient(135deg, #dcfce7, #bbf7d0); }
+    .audience-card h3 {
+      font-size: 1rem;
+      color: #1e40af;
+      margin-bottom: 0.25rem;
+    }
+    .audience-card.plaintiff h3 { color: #15803d; }
+    .audience-card p {
+      font-size: 0.85rem;
+      color: #64748b;
+      margin-bottom: 0;
+    }
+    .audience-section {
+      background: white;
+      border-radius: 12px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 0;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .audience-section h3 {
+      font-size: 1.1rem;
+      color: #1e40af;
+      margin-bottom: 0.35rem;
+      text-align: center;
+    }
+    .audience-section.plaintiff-section h3 { color: #15803d; }
+    .audience-list {
+      list-style: none;
+      margin: 0.4rem 0 0;
+      padding: 0;
+    }
+    .audience-list li {
+      padding: 0.1rem 0;
+      padding-left: 1.25rem;
+      position: relative;
+      color: #334155;
+      font-size: 0.85rem;
+    }
+    .audience-list li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: #22c55e;
+      font-weight: bold;
+    }
+    .audience-section:not(.plaintiff-section) .audience-list li::before { color: #2563eb; }
+    .audience-section.plaintiff-section .audience-list li::before { color: #16a34a; }
+    .audience-section.plaintiff-section { margin-bottom: 0; }
+    section.who-its-for { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+    .audience-columns {
+      display: flex;
+      gap: 1rem;
+      margin-top: 0.5rem;
+      align-items: stretch;
+    }
+    .audience-columns .audience-section {
+      flex: 1;
+      min-width: 0;
+    }
+    @media (max-width: 700px) {
+      .audience-columns { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">ClearCaseIQ</div>
+      <div class="tagline">Intelligent Legal Case Management</div>
+      <div class="coming-soon">Coming Soon</div>
+    </header>
+
+    <section>
+      <h2>Why ClearCaseIQ</h2>
+      <p>My father passed away from complications following a quadruple bypass surgery. In that moment of grief and shock, our family didn't know where to turn or what to do. That experience showed me how overwhelming it is for families to navigate the legal system during the most difficult time of their lives.</p>
+      <p>I started ClearCaseIQ so that no family has to feel lost. We're building a platform that makes it simple for people to share their story and documents and for attorneys to respond quickly with clarity and care.</p>
+    </section>
+
+    <section>
+      <h2>About ClearCaseIQ</h2>
+      <p>ClearCaseIQ is a modern legal technology platform designed to streamline case intake, assessment, and attorney workflows. Built for personal injury firms, it combines AI powered analysis with intuitive tools to help attorneys evaluate cases faster and manage their practice more effectively.</p>
+      <p>From intake to settlement, ClearCaseIQ provides a single platform for managing leads, assessing case viability, organizing evidence, and collaborating with your team. We're building the tools that today's PI firms need to work smarter and grow their practice.</p>
+    </section>
+
+    <section>
+      <h2>How It Works</h2>
+      <p>From plaintiff intake to attorney case work. ClearCaseIQ guides every step of the process.</p>
+      <div class="workflow">
+        <div class="workflow-track">
+          <div class="workflow-step plaintiff">
+            <span class="step-label">Plaintiff Collects Data</span>
+            <span class="step-detail">Intake form, documents, evidence</span>
+          </div>
+          <div class="workflow-arrow">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </div>
+          <div class="workflow-step">
+            <span class="step-label">Submit</span>
+            <span class="step-detail">Case submitted</span>
+          </div>
+          <div class="workflow-arrow">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </div>
+          <div class="workflow-step">
+            <span class="step-label">AI Assessment</span>
+            <span class="step-detail">Viability scoring</span>
+          </div>
+          <div class="workflow-arrow">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </div>
+          <div class="workflow-step">
+            <span class="step-label">Lead Routing</span>
+            <span class="step-detail">Tier based routing</span>
+          </div>
+          <div class="workflow-arrow">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </div>
+          <div class="workflow-step">
+            <span class="step-label">Attorney Review</span>
+            <span class="step-detail">Accept / decline</span>
+          </div>
+          <div class="workflow-arrow">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </div>
+          <div class="workflow-step">
+            <span class="step-label">Case Work</span>
+            <span class="step-detail">Demand letters, negotiations</span>
+          </div>
+        </div>
+        <p class="workflow-highlight"><strong>Plaintiff data collection</strong> is the foundation. Guided questionnaires, document uploads, and evidence collection ensure attorneys receive complete, ready to evaluate cases from day one.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Key Features</h2>
+      <div class="features">
+        <div class="feature">
+          <h3>Smart Case Intake</h3>
+          <p>Streamlined plaintiff intake with guided questionnaires, document uploads, and evidence collection. Case type specific forms ensure you capture the right information from day one.</p>
+        </div>
+        <div class="feature">
+          <h3>AI Powered Analysis</h3>
+          <p>Automated viability scoring, liability assessment, and damages prediction. Prioritize high value matters and reduce time spent on low viability cases.</p>
+        </div>
+        <div class="feature">
+          <h3>Attorney Dashboard</h3>
+          <p>Centralized view of leads, cases, and workflows. Tier based routing, quality metrics, and analytics help you manage your pipeline efficiently.</p>
+        </div>
+        <div class="feature">
+          <h3>Evidence Management</h3>
+          <p>Secure document storage, medical chronology, case preparation tools, and settlement benchmarks. Keep everything organized and accessible.</p>
+        </div>
+        <div class="feature">
+          <h3>Referrals & Co Counsel</h3>
+          <p>Manage case shares, referrals, and co counsel workflows. Accept, decline, and track collaboration in one place.</p>
+        </div>
+        <div class="feature">
+          <h3>Demand Letters & Documents</h3>
+          <p>AI assisted demand letter drafting, invoice generation, and document export. Streamline paperwork and focus on your clients.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="who-its-for">
+      <h2>Who It's For</h2>
+      <div class="audience-columns">
+        <div class="audience-section plaintiff-section">
+          <h3>Families & Injured People</h3>
+          <div class="audience-diagram">
+            <div class="audience-card plaintiff">
+              <div class="icon">👤</div>
+              <h3>Injured Individuals</h3>
+              <p>Share your story simply</p>
+            </div>
+            <div class="audience-card plaintiff">
+              <div class="icon">👨‍👩‍👧‍👦</div>
+              <h3>Families</h3>
+              <p>Navigate together</p>
+            </div>
+            <div class="audience-card plaintiff">
+              <div class="icon">📄</div>
+              <h3>Document Upload</h3>
+              <p>Guided & secure</p>
+            </div>
+          </div>
+          <ul class="audience-list">
+            <li>Simple, guided intake. No legal jargon</li>
+            <li>Upload documents and evidence from your phone or computer</li>
+            <li>Get connected to attorneys who can help</li>
+            <li>Know what to expect at every step</li>
+            <li>Focus on healing while we handle the process</li>
+          </ul>
+        </div>
+
+        <div class="audience-section">
+          <h3>Attorneys, Law Firms & Legal Professionals</h3>
+          <div class="audience-diagram">
+            <div class="audience-card attorney">
+              <div class="icon">⚖️</div>
+              <h3>Attorneys</h3>
+              <p>Evaluate cases faster</p>
+            </div>
+            <div class="audience-card attorney">
+              <div class="icon">🏢</div>
+              <h3>Law Firms</h3>
+              <p>Manage pipeline & team</p>
+            </div>
+            <div class="audience-card attorney">
+              <div class="icon">📋</div>
+              <h3>Legal Professionals</h3>
+              <p>Streamline workflows</p>
+            </div>
+          </div>
+          <ul class="audience-list">
+            <li>Accelerate case evaluation and intake</li>
+            <li>Improve lead quality and conversion</li>
+            <li>Organize evidence and case files in one place</li>
+            <li>Collaborate with co counsel and referral partners</li>
+            <li>Reduce administrative overhead with AI powered tools</li>
+            <li>Make data driven decisions with built in analytics</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>What to Expect</h2>
+      <p>ClearCaseIQ is currently in development. We're building a platform that puts families and injured people first. When someone shares their story and uploads documents, we package that data into a structured case file: incident details, medical records, insurance information, and a summary of what happened. That package is then routed to attorneys who can help, so families get a clear path forward and attorneys receive complete, ready to review cases.</p>
+      <p>Interested in early access or updates? Reach out below.</p>
+    </section>
+
+    <section class="cta">
+      <a href="mailto:sri@clearcaseiq.com">Get Notified When We Launch</a>
+    </section>
+
+    <footer>
+      <p>&copy; ClearCaseIQ. All rights reserved.</p>
+    </footer>
+  </div>
+</body>
+</html>

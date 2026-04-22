@@ -1,0 +1,21 @@
+version: 1
+applications:
+  - appRoot: app
+    frontend:
+      buildPath: /
+      phases:
+        preBuild:
+          commands:
+            - corepack enable
+            - pnpm install --frozen-lockfile
+        build:
+          commands:
+            - pnpm --filter caseiq-web build
+      artifacts:
+        baseDirectory: app/.next
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*
+          - app/node_modules/**/*

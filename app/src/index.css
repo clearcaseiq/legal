@@ -1,0 +1,239 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --surface-radius: 0.75rem;
+    --surface-border: rgb(226 232 240 / 0.95);
+    --surface-shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 4px 12px rgb(15 23 42 / 0.04);
+  }
+
+  .dark {
+    --surface-border: rgb(51 65 85 / 0.85);
+  }
+  .skip-link {
+    @apply sr-only;
+  }
+  .skip-link:focus {
+    @apply not-sr-only fixed z-[100] top-2 left-2 px-3 py-2 rounded-lg shadow-lg bg-white text-slate-900 dark:bg-slate-800 dark:text-white border border-slate-200 dark:border-slate-600;
+  }
+
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased;
+  }
+
+  .dark body {
+    @apply bg-slate-950 text-slate-100;
+  }
+
+  /* Accessible focus — high contrast rings */
+  :where(a, button, input, textarea, select, summary, [tabindex]:not([tabindex='-1'])):focus {
+    @apply outline-none;
+  }
+
+  :where(a, button, input, textarea, select, summary, [tabindex]:not([tabindex='-1'])):focus-visible {
+    @apply ring-2 ring-brand-500 ring-offset-2 ring-offset-white dark:ring-brand-400 dark:ring-offset-slate-950 rounded;
+  }
+}
+
+@layer utilities {
+  @keyframes roseAvatarFloat {
+    0%, 100% {
+      transform: translateY(0) scale(1);
+    }
+    50% {
+      transform: translateY(-1px) scale(1.01);
+    }
+  }
+
+  @keyframes rosePortraitTalk {
+    0%, 100% {
+      transform: translateY(0) scale(1);
+    }
+    35% {
+      transform: translateY(-0.5px) scale(1.008);
+    }
+    70% {
+      transform: translateY(0.5px) scale(0.996);
+    }
+  }
+
+  @keyframes roseSpeechBar {
+    0%, 100% {
+      transform: scaleY(0.65);
+      opacity: 0.7;
+    }
+    50% {
+      transform: scaleY(1.2);
+      opacity: 1;
+    }
+  }
+
+  @keyframes roseSpeechDot {
+    0%, 100% {
+      transform: scale(0.9);
+      opacity: 0.55;
+    }
+    50% {
+      transform: scale(1.25);
+      opacity: 1;
+    }
+  }
+
+  @keyframes roseSpeechCaption {
+    0%, 100% {
+      transform: translateY(0);
+      opacity: 0.92;
+    }
+    50% {
+      transform: translateY(0);
+      opacity: 0.96;
+    }
+  }
+
+  @keyframes roseTypingCursor {
+    0%, 49% {
+      opacity: 1;
+    }
+    50%, 100% {
+      opacity: 0.2;
+    }
+  }
+
+  .rose-avatar-speaking {
+    animation: roseAvatarFloat 1.8s ease-in-out infinite;
+    transform-origin: center bottom;
+  }
+
+  .rose-avatar-portrait-speaking {
+    animation: rosePortraitTalk 1.1s ease-in-out infinite;
+    transform-origin: center bottom;
+  }
+
+  .rose-speaking-bars span {
+    animation: roseSpeechBar 0.95s ease-in-out infinite;
+    transform-origin: bottom center;
+  }
+
+  .rose-speaking-dot {
+    animation: roseSpeechDot 1s ease-in-out infinite;
+  }
+
+  .rose-speaking-caption {
+    animation: roseSpeechCaption 1.6s ease-in-out infinite;
+  }
+
+  .rose-typing-cursor {
+    animation: roseTypingCursor 0.9s steps(1, end) infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .motion-reduce\:transition-none {
+      transition: none !important;
+    }
+
+    .rose-avatar-speaking,
+    .rose-avatar-portrait-speaking,
+    .rose-speaking-bars span,
+    .rose-speaking-dot,
+    .rose-speaking-caption,
+    .rose-typing-cursor {
+      animation: none !important;
+    }
+  }
+}
+
+@layer components {
+  .surface-panel {
+    @apply rounded-[var(--surface-radius)] border shadow-card bg-white dark:bg-slate-900/85;
+    border-color: var(--surface-border);
+  }
+
+  .app-data-table tbody tr {
+    @apply transition-colors motion-reduce:transition-none;
+  }
+
+  .app-data-table tbody tr:hover {
+    @apply bg-slate-50/90 dark:bg-slate-800/50;
+  }
+
+  .app-data-table tbody tr:nth-child(even) {
+    @apply bg-slate-50/40 dark:bg-slate-800/20;
+  }
+
+  .pressable {
+    @apply transition-transform duration-150 ease-out active:scale-[0.98] motion-reduce:active:scale-100;
+  }
+
+  .btn-primary {
+    @apply pressable bg-brand-700 text-white px-4 py-2 rounded-lg hover:bg-brand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 transition-colors shadow-sm;
+  }
+
+  .btn-secondary {
+    @apply pressable bg-slate-200 text-slate-900 dark:bg-slate-700 dark:text-slate-100 px-4 py-2 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 transition-colors;
+  }
+
+  .btn-outline {
+    @apply pressable border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 transition-colors;
+  }
+
+  .card {
+    @apply bg-white dark:bg-slate-900/80 rounded-xl shadow-card border border-slate-200/90 dark:border-slate-700/80 p-6 transition-shadow duration-200 hover:shadow-card-hover motion-reduce:transition-none;
+  }
+
+  .page-shell {
+    @apply mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8;
+  }
+
+  .page-header {
+    @apply flex flex-col gap-3 md:flex-row md:items-end md:justify-between;
+  }
+
+  .page-kicker {
+    @apply inline-flex w-fit items-center rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-700 dark:border-brand-900/70 dark:bg-brand-950/40 dark:text-brand-300;
+  }
+
+  .subtle-panel {
+    @apply rounded-2xl border border-slate-200/90 bg-white/85 p-5 shadow-card backdrop-blur-sm dark:border-slate-700/80 dark:bg-slate-900/70;
+  }
+
+  .chip {
+    @apply inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200;
+  }
+
+  .btn-ghost {
+    @apply pressable rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800;
+  }
+
+  .input {
+    @apply w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:border-brand-500;
+  }
+
+  .textarea {
+    @apply w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 resize-y;
+  }
+
+  .select {
+    @apply w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500;
+  }
+
+  .font-display {
+    font-family: Fraunces, Georgia, ui-serif, serif;
+  }
+
+  .link-underline {
+    @apply text-brand-700 dark:text-brand-400 underline decoration-brand-300 dark:decoration-brand-600 underline-offset-4 hover:text-brand-800 dark:hover:text-brand-300;
+  }
+}

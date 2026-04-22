@@ -1,0 +1,17 @@
+{
+  "dataset_name": "ny_approved_export",
+  "source_type": "licensed_import",
+  "jurisdiction_code": "NY",
+  "provider": "New York Office of Court Administration",
+  "contact_email": "attyreg@nycourts.gov",
+  "request_reference": "",
+  "received_at": "",
+  "delivery_format": "csv",
+  "original_filename": "ny_export.csv",
+  "field_map_path": "",
+  "notes": [
+    "Store the approved source file in imports/ny-licensed/incoming/",
+    "Store any custom field map in imports/ny-licensed/field-maps/",
+    "Store validation output in imports/ny-licensed/reports/"
+  ]
+}

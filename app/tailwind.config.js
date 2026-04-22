@@ -1,0 +1,96 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  darkMode: 'class',
+  content: ['./pages/**/*.{js,ts,jsx,tsx}', './src/**/*.{js,ts,jsx,tsx}'],
+  theme: {
+    extend: {
+      fontSize: {
+        'ui-xs': ['0.75rem', { lineHeight: '1rem' }],
+        'ui-sm': ['0.8125rem', { lineHeight: '1.25rem' }],
+        'ui-base': ['0.875rem', { lineHeight: '1.375rem' }],
+        'ui-md': ['1rem', { lineHeight: '1.5rem' }],
+        'ui-lg': ['1.125rem', { lineHeight: '1.5rem' }],
+        'ui-xl': ['1.25rem', { lineHeight: '1.5rem' }],
+        'ui-2xl': ['1.5rem', { lineHeight: '1.35' }],
+        'ui-3xl': ['1.875rem', { lineHeight: '1.2' }],
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        display: ['Fraunces', 'Georgia', 'ui-serif', 'serif'],
+      },
+      colors: {
+        brand: {
+          50: '#f0f4f8',
+          100: '#d9e6f0',
+          200: '#b8cfe0',
+          300: '#8fadcb',
+          400: '#6487b2',
+          500: '#456997',
+          600: '#34547a',
+          700: '#2a4665',
+          800: '#263b54',
+          900: '#1e3045',
+          950: '#0f1b2b',
+        },
+        accent: {
+          50: '#fffbeb',
+          100: '#fef3c7',
+          200: '#fde68a',
+          300: '#fcd34d',
+          400: '#fbbf24',
+          500: '#f59e0b',
+          600: '#d97706',
+          700: '#b45309',
+          800: '#92400e',
+          900: '#78350f',
+          950: '#451a03',
+        },
+        primary: {
+          50: '#f0f4f8',
+          100: '#d9e6f0',
+          200: '#b8cfe0',
+          300: '#8fadcb',
+          400: '#6487b2',
+          500: '#456997',
+          600: '#34547a',
+          700: '#2a4665',
+          800: '#263b54',
+          900: '#1e3045',
+          950: '#0f1b2b',
+        },
+        gray: {
+          50: '#f9fafb',
+          100: '#f3f4f6',
+          200: '#e5e7eb',
+          300: '#d1d5db',
+          400: '#9ca3af',
+          500: '#6b7280',
+          600: '#4b5563',
+          700: '#374151',
+          800: '#1f2937',
+          900: '#111827',
+        },
+      },
+      boxShadow: {
+        card: '0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.04)',
+        'card-hover':
+          '0 4px 6px rgba(15, 23, 42, 0.05), 0 12px 24px rgba(15, 23, 42, 0.08)',
+      },
+      keyframes: {
+        shimmer: {
+          '0%': { backgroundPosition: '200% 0' },
+          '100%': { backgroundPosition: '-200% 0' },
+        },
+        'toast-in': {
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+      },
+      animation: {
+        shimmer: 'shimmer 1.8s ease-in-out infinite',
+        'toast-in': 'toast-in 0.22s ease-out forwards',
+      },
+    },
+  },
+  plugins: [],
+}

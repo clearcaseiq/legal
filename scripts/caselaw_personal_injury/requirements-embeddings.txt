@@ -1,0 +1,9 @@
+# Optional deps for extract_personal_injury_embeddings.py (heavy: PyTorch + models).
+# pip install -r requirements.txt -r requirements-embeddings.txt
+datasets>=2.16.0
+huggingface_hub>=0.20.0
+pandas>=2.0.0
+pyarrow>=14.0.0
+sentence-transformers>=2.2.0
+torch>=2.0.0
+tqdm>=4.66.0

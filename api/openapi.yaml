@@ -1,0 +1,599 @@
+openapi: 3.0.3
+info:
+  title: Injury Intelligence API
+  description: API for legal case assessment and attorney matching
+  version: 1.0.0
+  contact:
+    name: Injury Intelligence API Support
+    email: support@injuryintelligence.com
+
+servers:
+  - url: http://localhost:4000
+    description: Development server
+  - url: https://api.injuryintelligence.com
+    description: Production server
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      tags:
+        - System
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  timestamp:
+                    type: string
+                    format: date-time
+                  requestId:
+                    type: string
+
+  /v1/assessments:
+    post:
+      summary: Create new assessment
+      tags:
+        - Assessments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssessmentWrite'
+      responses:
+        '200':
+          description: Assessment created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessment_id:
+                    type: string
+                  status:
+                    type: string
+                  created_at:
+                    type: string
+                    format: date-time
+        '400':
+          description: Invalid input
+        '500':
+          description: Internal server error
+
+    get:
+      summary: List assessments
+      tags:
+        - Assessments
+      responses:
+        '200':
+          description: List of assessments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AssessmentSummary'
+
+  /v1/assessments/{id}:
+    get:
+      summary: Get assessment details
+      tags:
+        - Assessments
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Assessment details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assessment'
+        '404':
+          description: Assessment not found
+
+    patch:
+      summary: Update assessment
+      tags:
+        - Assessments
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssessmentUpdate'
+      responses:
+        '200':
+          description: Assessment updated successfully
+        '400':
+          description: Invalid input
+        '404':
+          description: Assessment not found
+
+  /v1/predict:
+    post:
+      summary: Predict case viability and value
+      tags:
+        - Predictions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                assessmentId:
+                  type: string
+      responses:
+        '200':
+          description: Prediction results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PredictionResult'
+
+  /v1/predict/simulate:
+    post:
+      summary: Simulate scenario changes
+      tags:
+        - Predictions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                base:
+                  type: object
+                toggles:
+                  type: object
+      responses:
+        '200':
+          description: Simulation results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deltas:
+                    type: object
+
+  /v1/attorneys/search:
+    get:
+      summary: Search attorneys
+      tags:
+        - Attorneys
+      parameters:
+        - name: venue
+          in: query
+          schema:
+            type: string
+        - name: claim_type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: List of matching attorneys
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AttorneySummary'
+
+  /v1/attorneys/{id}:
+    get:
+      summary: Get attorney details
+      tags:
+        - Attorneys
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Attorney details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attorney'
+
+  /v1/sol/calculate:
+    post:
+      summary: Calculate statute of limitations
+      tags:
+        - Statute of Limitations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                incidentDate:
+                  type: string
+                  format: date
+                venue:
+                  type: object
+                  properties:
+                    state:
+                      type: string
+                    county:
+                      type: string
+                claimType:
+                  type: string
+      responses:
+        '200':
+          description: SOL calculation results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SOLResult'
+
+  /v1/files/upload:
+    post:
+      summary: Upload file
+      tags:
+        - Files
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: File uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_id:
+                    type: string
+                  original_name:
+                    type: string
+                  size:
+                    type: integer
+                  status:
+                    type: string
+
+components:
+  schemas:
+    AssessmentWrite:
+      type: object
+      required:
+        - claimType
+        - venue
+        - incident
+        - consents
+      properties:
+        userId:
+          type: string
+        claimType:
+          type: string
+          enum: [auto, premises, medmal, product, workers]
+        venue:
+          type: object
+          properties:
+            state:
+              type: string
+            county:
+              type: string
+        incident:
+          type: object
+          properties:
+            date:
+              type: string
+              format: date
+            location:
+              type: string
+            narrative:
+              type: string
+            parties:
+              type: array
+              items:
+                type: string
+        liability:
+          type: object
+        injuries:
+          type: array
+          items:
+            type: object
+        treatment:
+          type: array
+          items:
+            type: object
+        damages:
+          type: object
+          properties:
+            med_charges:
+              type: number
+            med_paid:
+              type: number
+            wage_loss:
+              type: number
+            services:
+              type: number
+        insurance:
+          type: object
+        consents:
+          type: object
+          required:
+            - tos
+            - privacy
+            - ml_use
+          properties:
+            tos:
+              type: boolean
+            privacy:
+              type: boolean
+            ml_use:
+              type: boolean
+            hipaa:
+              type: boolean
+
+    AssessmentUpdate:
+      type: object
+      properties:
+        liability:
+          type: object
+        injuries:
+          type: array
+          items:
+            type: object
+        treatment:
+          type: array
+          items:
+            type: object
+        damages:
+          type: object
+        insurance:
+          type: object
+        incident:
+          type: object
+
+    Assessment:
+      type: object
+      properties:
+        id:
+          type: string
+        claimType:
+          type: string
+        venue:
+          type: object
+          properties:
+            state:
+              type: string
+            county:
+              type: string
+        status:
+          type: string
+        facts:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+        latest_prediction:
+          $ref: '#/components/schemas/Prediction'
+
+    AssessmentSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        claimType:
+          type: string
+        venue:
+          type: object
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        latest_prediction:
+          $ref: '#/components/schemas/Prediction'
+
+    Prediction:
+      type: object
+      properties:
+        id:
+          type: string
+        model_version:
+          type: string
+        viability:
+          type: object
+          properties:
+            overall:
+              type: number
+            liability:
+              type: number
+            causation:
+              type: number
+            damages:
+              type: number
+            ci:
+              type: array
+              items:
+                type: number
+        value_bands:
+          type: object
+          properties:
+            p25:
+              type: number
+            median:
+              type: number
+            p75:
+              type: number
+        explainability:
+          type: array
+          items:
+            type: object
+            properties:
+              feature:
+                type: string
+              direction:
+                type: string
+                enum: [+, -]
+              impact:
+                type: number
+        created_at:
+          type: string
+          format: date-time
+
+    PredictionResult:
+      allOf:
+        - $ref: '#/components/schemas/Prediction'
+        - type: object
+          properties:
+            assessment_id:
+              type: string
+            model_version:
+              type: string
+            caveats:
+              type: array
+              items:
+                type: string
+
+    AttorneySummary:
+      type: object
+      properties:
+        attorney_id:
+          type: string
+        name:
+          type: string
+        specialties:
+          type: array
+          items:
+            type: string
+        venues:
+          type: array
+          items:
+            type: string
+        fit_score:
+          type: number
+          minimum: 0
+          maximum: 1
+        verified_outcomes:
+          type: object
+          properties:
+            trials:
+              type: integer
+            settlements:
+              type: integer
+            median_recovery:
+              type: number
+        fee:
+          type: object
+          properties:
+            contingency_min:
+              type: number
+            contingency_max:
+              type: number
+        languages:
+          type: array
+          items:
+            type: string
+        capacity:
+          type: string
+          enum: [open, limited, closed]
+        rating:
+          type: number
+        reviews_count:
+          type: integer
+
+    Attorney:
+      allOf:
+        - $ref: '#/components/schemas/AttorneySummary'
+        - type: object
+          properties:
+            bio:
+              type: string
+            education:
+              type: array
+              items:
+                type: string
+            certifications:
+              type: array
+              items:
+                type: string
+            contact:
+              type: object
+              properties:
+                phone:
+                  type: string
+                email:
+                  type: string
+                website:
+                  type: string
+
+    SOLResult:
+      type: object
+      properties:
+        expiresAt:
+          type: string
+          format: date-time
+        yearsRemaining:
+          type: number
+        daysRemaining:
+          type: integer
+        status:
+          type: string
+          enum: [safe, warning, critical]
+        incident_date:
+          type: string
+          format: date
+        venue:
+          type: object
+        claim_type:
+          type: string
+        rule:
+          type: object
+          properties:
+            years:
+              type: number
+            discoveryRule:
+              type: boolean
+            minorTolling:
+              type: boolean
+            notes:
+              type: string
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - bearerAuth: []
