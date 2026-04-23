@@ -793,14 +793,15 @@ export default function Results() {
 
     return { percent, missing }
   })()
+  const readinessMissing = Array.isArray(readinessDetails?.missing) ? readinessDetails.missing : []
 
   const progressChecklist = [
-    { label: 'Incident narrative', done: !readinessDetails.missing.includes('Incident narrative') },
-    { label: 'Incident location', done: !readinessDetails.missing.includes('Incident location') },
-    { label: 'Injury details', done: !readinessDetails.missing.includes('Injury details') },
-    { label: 'Treatment history', done: !readinessDetails.missing.includes('Treatment history') },
-    { label: 'Damages/financial impact', done: !readinessDetails.missing.includes('Damages/financial impact') },
-    { label: 'Evidence uploads', done: !readinessDetails.missing.includes('Evidence uploads') }
+    { label: 'Incident narrative', done: !readinessMissing.includes('Incident narrative') },
+    { label: 'Incident location', done: !readinessMissing.includes('Incident location') },
+    { label: 'Injury details', done: !readinessMissing.includes('Injury details') },
+    { label: 'Treatment history', done: !readinessMissing.includes('Treatment history') },
+    { label: 'Damages/financial impact', done: !readinessMissing.includes('Damages/financial impact') },
+    { label: 'Evidence uploads', done: !readinessMissing.includes('Evidence uploads') }
   ]
 
   const damagesObj = parsedFacts?.damages || {}
@@ -837,6 +838,7 @@ export default function Results() {
     severityLevel: prediction?.severity?.level,
     chronologyCount: medicalChronology.length,
   })
+  const timelineDrivers = Array.isArray(timelineEstimate?.drivers) ? timelineEstimate.drivers : []
   const estimatedTimeline = timelineEstimate.label
   const liabilityScore = viability?.liability ?? 0.5
   const liabilityOutlook = liabilityScore >= 0.7 ? 'strong' : liabilityScore >= 0.4 ? 'moderate' : 'weak'
@@ -902,7 +904,7 @@ export default function Results() {
   }
   const nextSteps = missingDocItems.length > 0
     ? missingDocItems.slice(0, 3).map((item: any) => item.label)
-    : readinessDetails.missing.slice(0, 3)
+    : readinessMissing.slice(0, 3)
   const facts = parsedFacts
   const injuries = Array.isArray(facts.injuries) ? facts.injuries : []
   const treatment = Array.isArray(facts.treatment) ? facts.treatment : []
@@ -946,10 +948,10 @@ Checklist:
   const filledWageLossTemplate = buildWageLossTemplate(wageLossForm)
   const showSavePrompt = isLoggedIn === false
   const alertMessages = [
-    readinessDetails.missing.includes('Evidence uploads') ? 'You’re falling behind on documentation.' : null,
-    readinessDetails.missing.includes('Treatment history') ? 'This gap could weaken your case.' : null,
-    readinessDetails.missing.includes('Incident narrative') ? 'Now is a good time to follow up on your incident details.' : null,
-    readinessDetails.missing.includes('Damages/financial impact') ? 'Now is a good time to add wage loss or bills.' : null
+    readinessMissing.includes('Evidence uploads') ? 'You’re falling behind on documentation.' : null,
+    readinessMissing.includes('Treatment history') ? 'This gap could weaken your case.' : null,
+    readinessMissing.includes('Incident narrative') ? 'Now is a good time to follow up on your incident details.' : null,
+    readinessMissing.includes('Damages/financial impact') ? 'Now is a good time to add wage loss or bills.' : null
   ].filter(Boolean) as string[]
   const statusUpdates = [
     `Your case readiness is ${readinessDetails.percent}%.`,
@@ -965,15 +967,15 @@ Checklist:
         : 'It may be normal, but no treatment history is recorded yet. If you sought care, add it to strengthen your case.'
     }
     if (normalized.includes('worried') || normalized.includes('worry')) {
-      return readinessDetails.missing.length > 0
-        ? `You still have a few gaps: ${readinessDetails.missing.join(', ')}. Filling these reduces risk.`
+      return readinessMissing.length > 0
+        ? `You still have a few gaps: ${readinessMissing.join(', ')}. Filling these reduces risk.`
         : 'You look in good shape—no major gaps detected in your assessment.'
     }
     if (normalized.includes('next')) {
-      if (readinessDetails.missing.length === 0) {
+      if (readinessMissing.length === 0) {
         return 'You are ready for attorney review. Consider uploading any new evidence as it comes in.'
       }
-      return `Focus next on: ${readinessDetails.missing.slice(0, 2).join(' and ')}.`
+      return `Focus next on: ${readinessMissing.slice(0, 2).join(' and ')}.`
     }
     return 'I can help. Try asking about what to do next, whether something is normal, or if you should worry.'
   }
@@ -1285,7 +1287,7 @@ Checklist:
             </div>
             <div className="shrink-0 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-right shadow-sm">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Reference</p>
-              <p className="font-mono text-xs text-slate-700 mt-0.5">{assessment.id.slice(0, 8)}…</p>
+              <p className="font-mono text-xs text-slate-700 mt-0.5">{(assessment?.id ?? '').slice(0, 8)}…</p>
             </div>
           </div>
           <dl className="mt-8 grid gap-5 sm:grid-cols-3 text-sm border-t border-slate-200/90 pt-8">
@@ -1524,7 +1526,7 @@ Checklist:
                 Stage: {timelineEstimate.stage} • Confidence: {timelineEstimate.confidence}
               </p>
               <ul className="mt-3 space-y-2 text-sm text-gray-700">
-                {timelineEstimate.drivers.slice(0, 3).map((driver) => (
+                {timelineDrivers.slice(0, 3).map((driver) => (
                   <li key={driver} className="flex items-start gap-2">
                     <ChevronRight className="h-4 w-4 text-brand-500 shrink-0 mt-0.5" />
                     <span>{driver}</span>
