@@ -41,9 +41,11 @@ export default function PlaintiffMedicalChronology({
 }: Props) {
   if (!review) return null
 
-  const importantItems = review.missingItems.important || []
-  const helpfulItems = review.missingItems.helpful || []
-  const status = review.review.status
+  const importantItems = Array.isArray(review.missingItems?.important) ? review.missingItems.important : []
+  const helpfulItems = Array.isArray(review.missingItems?.helpful) ? review.missingItems.helpful : []
+  const chronology = Array.isArray(review.chronology) ? review.chronology : []
+  const edits = Array.isArray(review.review?.edits) ? review.review.edits : []
+  const status = review.review?.status ?? 'pending'
   const confirmButtonLabel =
     status === 'confirmed' ? 'Medical story confirmed' : 'Confirm medical story'
   const skipButtonLabel =
@@ -105,9 +107,9 @@ export default function PlaintiffMedicalChronology({
       </div>
 
       <div className="mt-5 space-y-4">
-        {review.chronology.length > 0 ? (
-          review.chronology.map((event) => {
-            const edit = getEditForEvent(review.review.edits, event.id)
+        {chronology.length > 0 ? (
+          chronology.map((event) => {
+            const edit = getEditForEvent(edits, event.id)
             return (
               <div key={event.id} className="rounded-xl border border-slate-200 p-4">
                 <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">

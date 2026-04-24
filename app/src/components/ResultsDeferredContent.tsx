@@ -121,6 +121,10 @@ export function ResultsSubmittedView({
   venueCounty,
   venueState,
 }: ResultsSubmittedViewProps) {
+  const attorneyCards = Array.isArray(rankedAttorneys) ? rankedAttorneys : []
+  const improvementItems = Array.isArray(improveCaseValueItems) ? improveCaseValueItems : []
+  const timeline = Array.isArray(submissionTimeline) ? submissionTimeline : []
+
   return (
     <div className="max-w-2xl mx-auto">
       <div className="rounded-2xl border border-slate-200/90 bg-white shadow-card overflow-hidden">
@@ -138,7 +142,7 @@ export function ResultsSubmittedView({
         <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-6 mb-8">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-4">Status</h3>
           <ol className="space-y-3">
-            {submissionTimeline.map((step, index) => (
+            {timeline.map((step, index) => (
               <li key={index} className="flex items-center gap-3">
                 {step.done ? (
                   <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
@@ -171,17 +175,17 @@ export function ResultsSubmittedView({
           </ul>
         </div>
 
-        {rankedAttorneys.length > 0 && (
+        {attorneyCards.length > 0 && (
           <div className="mb-8 rounded-xl border border-slate-200 bg-slate-50/80 p-6">
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-4">Your ranked attorney picks</h3>
             <div className="space-y-3">
-              {rankedAttorneys.map((attorney, index) => (
+              {attorneyCards.map((attorney, index) => (
                 <div key={attorney.id || attorney.attorney_id || attorney.name} className="rounded-lg border border-slate-200 bg-white px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Choice {index + 1}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{attorney.name}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{attorney?.name ?? 'Attorney'}</p>
                   <p className="mt-1 text-xs text-slate-600">
                     {[
-                      attorney.law_firm?.name,
+                      attorney?.law_firm?.name ?? 'Law Firm',
                       `${Math.round((attorney.fit_score || 0.6) * 100)}% fit`,
                       getResponseBadge(attorney),
                     ].filter(Boolean).join(' • ')}
@@ -231,7 +235,7 @@ export function ResultsSubmittedView({
           <h3 className="text-base font-semibold text-slate-900 mb-2 tracking-tight">Strengthen your file while you wait</h3>
           <p className="text-sm text-slate-600 mb-4 leading-relaxed">Additional documentation can improve how your matter is assessed.</p>
           <ul className="space-y-2 mb-4">
-            {improveCaseValueItems.map((item) => (
+            {improvementItems.map((item) => (
               <li key={item.label} className="flex items-center gap-2">
                 {item.done ? (
                   <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
@@ -358,6 +362,9 @@ export function ResultsReportDetails({
   const sectionTitle = 'font-display text-lg font-semibold text-slate-900 tracking-tight'
   const sectionWrap = 'border-b border-slate-200 px-6 sm:px-10 py-9 sm:py-10'
   const prose = 'text-[15px] text-slate-700 leading-relaxed'
+  const bullets = Array.isArray(whatThisMeansBullets) ? whatThisMeansBullets : []
+  const improvementItems = Array.isArray(improveCaseValueItems) ? improveCaseValueItems : []
+  const attorneyCards = Array.isArray(rankedAttorneys) ? rankedAttorneys : []
 
   return (
     <div className="mt-8 rounded-none border border-slate-200/90 bg-white shadow-card sm:rounded-2xl overflow-hidden">
@@ -368,7 +375,7 @@ export function ResultsReportDetails({
       <div className={sectionWrap}>
         <h2 className={`${sectionTitle} mb-4`}>Executive summary</h2>
         <ul className={`${prose} space-y-3 list-none pl-0`}>
-          {(whatThisMeansBullets.length > 0 ? whatThisMeansBullets : [
+          {(bullets.length > 0 ? bullets : [
             'The incident narrative suggests facts that may support liability against another party.',
             'Injury and treatment information may support a damages claim.',
             'Medical documentation, where present, strengthens the file.',
@@ -385,7 +392,7 @@ export function ResultsReportDetails({
       <div className={sectionWrap}>
         <h2 className={`${sectionTitle} mb-4`}>Strengthening your file</h2>
         <ul className="space-y-3 mb-4">
-          {improveCaseValueItems.map((item) => (
+          {improvementItems.map((item) => (
             <li key={item.label} className="flex items-start gap-3">
               {item.done ? (
                 <CheckCircle className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
@@ -441,17 +448,17 @@ export function ResultsReportDetails({
             </li>
           </ul>
         </div>
-        {rankedAttorneys.length > 0 && (
+        {attorneyCards.length > 0 && (
           <div className="mt-5 rounded-xl border border-slate-200 bg-white px-5 py-5">
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-3">Preview of your current top matches</h3>
             <div className="space-y-3">
-              {rankedAttorneys.map((attorney, index) => (
+              {attorneyCards.map((attorney, index) => (
                 <div key={attorney.id || attorney.attorney_id || attorney.name} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Choice {index + 1}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{attorney.name}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{attorney?.name ?? 'Attorney'}</p>
                   <p className="mt-1 text-xs text-slate-600">
                     {[
-                      attorney.law_firm?.name,
+                      attorney?.law_firm?.name ?? 'Law Firm',
                       `${Math.round((attorney.fit_score || 0.6) * 100)}% fit`,
                     ].filter(Boolean).join(' • ')}
                   </p>

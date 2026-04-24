@@ -350,7 +350,7 @@ export default function Results() {
       setMedicalReviewStatus(null)
       const nextReview = await savePlaintiffMedicalReview(assessmentId, {
         status: options?.status,
-        edits: plaintiffMedicalReview.review.edits,
+        edits: plaintiffMedicalReview?.review?.edits ?? [],
       })
       setPlaintiffMedicalReview(nextReview)
       setMedicalChronology(Array.isArray(nextReview.chronology) ? nextReview.chronology : [])
@@ -386,11 +386,11 @@ export default function Results() {
       return {
         ...current,
         review: {
-          ...current.review,
+          ...(current.review ?? {}),
           status: 'pending',
           confirmedAt: undefined,
           skippedAt: undefined,
-          edits: upsertMedicalReviewEdit(current.review.edits, eventId, field, value),
+          edits: upsertMedicalReviewEdit(current?.review?.edits ?? [], eventId, field, value),
         },
       }
     })
@@ -1027,7 +1027,7 @@ Checklist:
     settlementBenchmarks
       ? `Comparable ${formatClaimTypeLabel(assessment?.claimType)} cases in ${venueState === 'CA' ? 'California' : venueState} often land near ${formatCurrency(settlementBenchmarks.p50)} with a broader range of ${benchmarkRangeText}.`
       : `Similar cases in ${venueState === 'CA' ? 'California' : venueState} settled between ${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`,
-    missingDocItems.length > 0 && `The fastest way to strengthen this estimate is to add ${missingDocItems.slice(0, 2).map((item: any) => item.label.toLowerCase()).join(' and ')}.`
+    missingDocItems.length > 0 && `The fastest way to strengthen this estimate is to add ${missingDocItems.slice(0, 2).map((item: any) => (item?.label ?? '').toLowerCase()).join(' and ')}.`
   ].filter(Boolean) as string[]
   const summaryCards = [
     {
@@ -1153,10 +1153,10 @@ Checklist:
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Choice {index + 1}</p>
-                            <p className="text-sm font-semibold text-slate-900">{attorney.name}</p>
+                            <p className="text-sm font-semibold text-slate-900">{attorney?.name ?? 'Attorney'}</p>
                             <p className="text-xs text-slate-600">
                               {[
-                                attorney.law_firm?.name,
+                                attorney?.law_firm?.name ?? 'Law Firm',
                                 `${Math.round((attorney.fit_score || 0.6) * 100)}% fit`,
                                 getResponseBadge(attorney)
                               ].filter(Boolean).join(' • ')}
@@ -1559,7 +1559,7 @@ Checklist:
                 {missingDocItems.slice(0, 5).map((item: any) => (
                   <div key={item.key} className="flex items-start justify-between gap-3 rounded-lg bg-gray-50 px-3 py-3">
                     <div>
-                      <p className="font-medium text-gray-900">{item.label}</p>
+                      <p className="font-medium text-gray-900">{item?.label ?? 'Missing item'}</p>
                       <p className="text-sm text-gray-600">
                         {item.priority === 'high' ? 'High impact on value and attorney review speed.' : item.priority === 'medium' ? 'Helpful for strengthening the file.' : 'Useful supporting context.'}
                       </p>
@@ -1577,7 +1577,7 @@ Checklist:
                 ))}
                 {treatmentGapItems.length > 0 && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
-                    Treatment gap detected: {treatmentGapItems[0].gapDays} days between {new Date(treatmentGapItems[0].startDate).toLocaleDateString()} and {new Date(treatmentGapItems[0].endDate).toLocaleDateString()}.
+                    Treatment gap detected: {treatmentGapItems?.[0]?.gapDays ?? 'Unknown'} days between {treatmentGapItems?.[0]?.startDate ? new Date(treatmentGapItems[0].startDate).toLocaleDateString() : 'an unknown start date'} and {treatmentGapItems?.[0]?.endDate ? new Date(treatmentGapItems[0].endDate).toLocaleDateString() : 'an unknown end date'}.
                   </div>
                 )}
               </div>
