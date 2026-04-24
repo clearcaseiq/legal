@@ -59,12 +59,31 @@ export const getSolRules = async (state: string) => {
   return response.data
 }
 
+function extractAssessmentId(payload: any): string | undefined {
+  const rawId =
+    payload?.assessment_id ??
+    payload?.assessmentId ??
+    payload?.id ??
+    payload?.data?.assessment_id ??
+    payload?.data?.assessmentId ??
+    payload?.data?.id
+
+  if (rawId == null) return undefined
+  const id = String(rawId).trim()
+  return id && id !== 'undefined' && id !== 'null' ? id : undefined
+}
+
 export async function createAssessment(payload: any) {
   console.log('🚀 createAssessment called with payload:', payload)
   try {
     const { data } = await api.post('/v1/assessments', payload)
     console.log('✅ createAssessment success:', data)
-    return data.assessment_id as string
+    const assessmentId = extractAssessmentId(data)
+    if (!assessmentId) {
+      console.error('❌ createAssessment returned unexpected response shape:', data)
+      throw new Error('Assessment was created but the API response did not include a valid ID.')
+    }
+    return assessmentId
   } catch (error: any) {
     console.error('❌ createAssessment failed:', error)
     console.error('Error details:', error.response?.data)
