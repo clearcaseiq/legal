@@ -94,14 +94,18 @@ function RouteFallback() {
 function ResultsRouteBoundary() {
   const { assessmentId } = useParams<{ assessmentId: string }>()
   const location = useLocation()
+  const normalizedAssessmentId =
+    assessmentId && assessmentId !== 'undefined' && assessmentId !== 'null'
+      ? assessmentId
+      : null
 
   return (
     <ErrorBoundary
-      key={assessmentId || location.pathname}
+      key={normalizedAssessmentId || location.pathname}
       name="Results route"
       context={{
         route: '/results/:assessmentId',
-        assessmentId: assessmentId ?? null,
+        assessmentId: normalizedAssessmentId,
         pathname: location.pathname,
       }}
       fallback={
@@ -111,8 +115,8 @@ function ResultsRouteBoundary() {
             <p className="mt-2 text-sm">
               The report data may be incomplete or temporarily unavailable. Try refreshing this page or return to start a new assessment.
             </p>
-            {assessmentId && (
-              <p className="mt-2 text-xs text-amber-800/80">Reference: {assessmentId}</p>
+            {normalizedAssessmentId && (
+              <p className="mt-2 text-xs text-amber-800/80">Reference: {normalizedAssessmentId}</p>
             )}
             <div className="mt-4 flex flex-wrap gap-3">
               <button

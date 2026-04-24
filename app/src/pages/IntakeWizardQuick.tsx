@@ -461,6 +461,9 @@ export default function IntakeWizardQuick() {
       }
 
       const id = await createAssessment(payload)
+      if (!id || id === 'undefined' || id === 'null') {
+        throw new Error('Assessment was created without a valid ID.')
+      }
       setAssessmentId(id)
       try {
         localStorage.setItem('pending_assessment_id', id)

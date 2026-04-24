@@ -238,6 +238,10 @@ function upsertMedicalReviewEdit(
 export default function Results() {
   const { t } = useLanguage()
   const { assessmentId } = useParams<{ assessmentId: string }>()
+  const resolvedAssessmentId =
+    assessmentId && assessmentId !== 'undefined' && assessmentId !== 'null'
+      ? assessmentId
+      : undefined
   const [assessment, setAssessment] = useState<Assessment | null>(null)
   const [prediction, setPrediction] = useState<any>(null)
   const [sol, setSol] = useState<any>(null)
@@ -343,12 +347,12 @@ export default function Results() {
     status?: 'pending' | 'confirmed' | 'skipped'
     successMessage?: string
   }) => {
-    if (!assessmentId || !plaintiffMedicalReview) return
+    if (!resolvedAssessmentId || !plaintiffMedicalReview) return
     try {
       setMedicalReviewSaving(true)
       setMedicalReviewError(null)
       setMedicalReviewStatus(null)
-      const nextReview = await savePlaintiffMedicalReview(assessmentId, {
+      const nextReview = await savePlaintiffMedicalReview(resolvedAssessmentId, {
         status: options?.status,
         edits: plaintiffMedicalReview?.review?.edits ?? [],
       })
@@ -397,7 +401,7 @@ export default function Results() {
   }
 
   const handleSubmitForReview = async () => {
-    if (!assessmentId) return
+    if (!resolvedAssessmentId) return
     const { firstName, email, phone, preferredContactMethod } = contactForm
     if (!firstName?.trim()) {
       setContactFormError('First name is required')
@@ -421,12 +425,12 @@ export default function Results() {
       // Link case to user's account so it appears on their dashboard
       if (isLoggedIn) {
         try {
-          await associateAssessments([assessmentId])
+          await associateAssessments([resolvedAssessmentId])
         } catch (e) {
           console.warn('Could not associate case with account:', e)
         }
       }
-      await submitCaseForReview(assessmentId, {
+      await submitCaseForReview(resolvedAssessmentId, {
         firstName: firstName.trim(),
         email: email.trim(),
         phone: phone.trim(),
@@ -437,9 +441,9 @@ export default function Results() {
       setCaseSubmittedForReview(true)
       setSendModalOpen(false)
       // Store case ID so Dashboard can associate if needed (backup for API association)
-      localStorage.setItem('pending_assessment_id', assessmentId)
+      localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
       // Redirect to dashboard with case param so user lands on their case
-      const target = `${window.location.origin}/dashboard?case=${assessmentId}`
+      const target = `${window.location.origin}/dashboard?case=${resolvedAssessmentId}`
       window.location.replace(target)
     } catch (err: any) {
       console.error('Failed to submit for review:', err)
@@ -450,11 +454,11 @@ export default function Results() {
   }
 
   const handleResubmit = async () => {
-    if (!assessmentId) return
+    if (!resolvedAssessmentId) return
     try {
       setResubmitLoading(true)
       setResubmitMessage(null)
-      const predictionData = await predict(assessmentId)
+      const predictionData = await predict(resolvedAssessmentId)
       setPrediction(predictionData)
       setResubmitMessage('Case re-submitted. Results updated.')
     } catch (err: any) {
@@ -487,9 +491,9 @@ export default function Results() {
   }
 
   const associateAssessmentWithUser = async () => {
-    if (assessmentId && isLoggedIn) {
+    if (resolvedAssessmentId && isLoggedIn) {
       try {
-        await associateAssessments([assessmentId])
+        await associateAssessments([resolvedAssessmentId])
         console.log('Assessment associated with user successfully')
       } catch (error) {
         console.error('Failed to associate assessment with user:', error)
@@ -498,7 +502,7 @@ export default function Results() {
   }
 
   useEffect(() => {
-    if (!assessmentId) return
+    if (!resolvedAssessmentId) return
 
     const loadData = async () => {
       try {
@@ -512,13 +516,13 @@ export default function Results() {
         }
         
         // Load assessment
-        const assessmentData = await getAssessment(assessmentId)
+        const assessmentData = await getAssessment(resolvedAssessmentId)
         setAssessment(assessmentData)
         setCaseSubmittedForReview(!!assessmentData.submittedForReview)
         
         // Get prediction if not already available
         if (!assessmentData.latest_prediction) {
-          const predictionData = await predict(assessmentId)
+          const predictionData = await predict(resolvedAssessmentId)
           setPrediction(predictionData)
         } else {
           setPrediction(assessmentData.latest_prediction)
@@ -543,7 +547,7 @@ export default function Results() {
           message: err.message,
           response: err.response?.data,
           status: err.response?.status,
-          assessmentId
+          assessmentId: resolvedAssessmentId
         })
         const errorMessage = err.response?.data?.error || err.message || 'Failed to load assessment results'
         setError(errorMessage)
@@ -553,26 +557,26 @@ export default function Results() {
     }
 
     loadData()
-  }, [assessmentId, isLoggedIn])
+  }, [resolvedAssessmentId, isLoggedIn])
 
   useEffect(() => {
     const loadSimilarCases = async () => {
-      if (!assessmentId) return
+      if (!resolvedAssessmentId) return
       try {
-        const data = await getSimilarCaseOutcomes(assessmentId)
+        const data = await getSimilarCaseOutcomes(resolvedAssessmentId)
         setSimilarCases(data.similarCases || [])
       } catch {
         setSimilarCases([])
       }
     }
     loadSimilarCases()
-  }, [assessmentId])
+  }, [resolvedAssessmentId])
 
   useEffect(() => {
     const loadEvidence = async () => {
-      if (!assessmentId) return
+      if (!resolvedAssessmentId) return
       try {
-        const files = await getEvidenceFiles(assessmentId)
+        const files = await getEvidenceFiles(resolvedAssessmentId)
         const fileList = Array.isArray(files) ? files : []
         setEvidenceCount(fileList.length)
         setEvidenceFiles(fileList)
@@ -582,17 +586,17 @@ export default function Results() {
       }
     }
     loadEvidence()
-  }, [assessmentId])
+  }, [resolvedAssessmentId])
 
   useEffect(() => {
     const loadCaseInsights = async () => {
-      if (!assessmentId) return
+      if (!resolvedAssessmentId) return
       try {
         const [chronology, preparation, plaintiffReview, benchmarks] = await Promise.all([
-          getMedicalChronology(assessmentId).catch(() => []),
-          getCasePreparation(assessmentId).catch(() => null),
-          getPlaintiffMedicalReview(assessmentId).catch(() => null),
-          getSettlementBenchmarks(assessmentId).catch(() => null)
+          getMedicalChronology(resolvedAssessmentId).catch(() => []),
+          getCasePreparation(resolvedAssessmentId).catch(() => null),
+          getPlaintiffMedicalReview(resolvedAssessmentId).catch(() => null),
+          getSettlementBenchmarks(resolvedAssessmentId).catch(() => null)
         ])
         const fallbackReview: PlaintiffMedicalReviewPayload = plaintiffReview || {
           chronology: Array.isArray(chronology) ? chronology : [],
@@ -636,20 +640,20 @@ export default function Results() {
       }
     }
     loadCaseInsights()
-  }, [assessmentId])
+  }, [resolvedAssessmentId])
 
   useEffect(() => {
     const loadCommandCenter = async () => {
-      if (!assessmentId) return
+      if (!resolvedAssessmentId) return
       try {
-        const summary = await getAssessmentCommandCenter(assessmentId)
+        const summary = await getAssessmentCommandCenter(resolvedAssessmentId)
         setCommandCenter(summary)
       } catch {
         setCommandCenter(null)
       }
     }
     loadCommandCenter()
-  }, [assessmentId])
+  }, [resolvedAssessmentId])
 
   useEffect(() => {
     const loadMatchedAttorneys = async () => {
@@ -684,17 +688,17 @@ export default function Results() {
 
   // Associate assessment with user when they become logged in
   useEffect(() => {
-    if (isLoggedIn && assessmentId) {
+    if (isLoggedIn && resolvedAssessmentId) {
       associateAssessmentWithUser()
     }
-  }, [isLoggedIn, assessmentId])
+  }, [isLoggedIn, resolvedAssessmentId])
 
   // Persist assessmentId for account-creation flow (OAuth loses URL params)
   useEffect(() => {
-    if (assessmentId && isLoggedIn === false) {
-      localStorage.setItem('pending_assessment_id', assessmentId)
+    if (resolvedAssessmentId && isLoggedIn === false) {
+      localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
     }
-  }, [assessmentId, isLoggedIn])
+  }, [resolvedAssessmentId, isLoggedIn])
 
   // Check authentication status on page load (for redirects from login/register)
   useEffect(() => {
@@ -732,6 +736,21 @@ export default function Results() {
     setWageLossHydrated(true)
   }, [assessment, wageLossHydrated, parsedFacts])
 
+
+  if (!resolvedAssessmentId) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="text-center py-12">
+          <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Invalid case report link</h2>
+          <p className="text-gray-600">This Results link is missing a valid case reference. Start a new assessment to generate a fresh report.</p>
+          <Link to="/assess" className="btn-primary mt-4">
+            Start New Assessment
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   if (loading) {
     return (

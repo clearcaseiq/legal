@@ -730,6 +730,9 @@ export default function IntakeWizard() {
         // Create new assessment
         console.log('Creating new assessment...')
         id = await createAssessment(validatedData)
+        if (!id || id === 'undefined' || id === 'null') {
+          throw new Error('Assessment was created without a valid ID.')
+        }
         setAssessmentId(id)
         console.log('Created assessment with id:', id)
       } else {
