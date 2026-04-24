@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, Link, useLocation, useParams } from 'react-router-dom'
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import { GuestRoute, ProtectedRoute } from './components/AuthRoute'
@@ -88,6 +88,53 @@ function RouteFallback() {
         <span>Loading page...</span>
       </div>
     </div>
+  )
+}
+
+function ResultsRouteBoundary() {
+  const { assessmentId } = useParams<{ assessmentId: string }>()
+  const location = useLocation()
+
+  return (
+    <ErrorBoundary
+      key={assessmentId || location.pathname}
+      name="Results route"
+      context={{
+        route: '/results/:assessmentId',
+        assessmentId: assessmentId ?? null,
+        pathname: location.pathname,
+      }}
+      fallback={
+        <div className="max-w-3xl mx-auto px-4 py-12">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-amber-900 shadow-sm">
+            <h2 className="text-lg font-semibold">We hit a problem loading this case report</h2>
+            <p className="mt-2 text-sm">
+              The report data may be incomplete or temporarily unavailable. Try refreshing this page or return to start a new assessment.
+            </p>
+            {assessmentId && (
+              <p className="mt-2 text-xs text-amber-800/80">Reference: {assessmentId}</p>
+            )}
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="inline-flex items-center justify-center rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800"
+              >
+                Refresh page
+              </button>
+              <Link
+                to="/assess"
+                className="inline-flex items-center justify-center rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+              >
+                Start new assessment
+              </Link>
+            </div>
+          </div>
+        </div>
+      }
+    >
+      <Results />
+    </ErrorBoundary>
   )
 }
 
@@ -181,7 +228,7 @@ function App() {
             <Route path="/assess" element={<IntakeWizardQuick />} />
             <Route path="/rose" element={<RoseIntake />} />
             <Route path="/edit-assessment/:assessmentId" element={<IntakeWizard />} />
-            <Route path="/results/:assessmentId" element={<Results />} />
+            <Route path="/results/:assessmentId" element={<ResultsRouteBoundary />} />
             <Route path="/attorneys" element={<Attorneys />} />
             <Route path="/attorneys-enhanced" element={<AttorneysEnhanced />} />
             <Route path="/case-tracker" element={<CaseTracker />} />
