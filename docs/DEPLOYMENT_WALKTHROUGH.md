@@ -124,7 +124,7 @@ We'll trigger a deploy to create the image, then create App Runner.
 
 4. Go to **Actions** tab → **Deploy to AWS** workflow
 5. Click **Run workflow** → **Run workflow**
-6. Wait for it to complete (2–5 minutes). The **deploy-api** job should succeed. The **deploy-web** job may fail if `VITE_API_URL` isn't set yet – that's OK for now.
+6. Wait for it to complete (2–5 minutes). The **deploy-api** job should succeed. The **deploy-web** job may fail if `NEXT_PUBLIC_API_URL` isn't set yet – that's OK for now.
 
 ### 4.2 Create App Runner Service
 1. Search for **App Runner** in the AWS search bar
@@ -161,7 +161,7 @@ Add any others you need: `OPENAI_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SE
 
 | Name | Value |
 |------|-------|
-| `VITE_API_URL` | `https://YOUR_APP_RUNNER_DOMAIN` (no trailing slash) |
+| `NEXT_PUBLIC_API_URL` | `https://YOUR_APP_RUNNER_DOMAIN` (no trailing slash) |
 | `APP_RUNNER_SERVICE_ARN` | From App Runner console: your service → copy the ARN |
 
 ---
@@ -205,9 +205,9 @@ GitHub Actions will automatically build and deploy. Check the **Actions** tab to
 | Problem | Solution |
 |---------|----------|
 | ECR login failed | Check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are correct |
-| deploy-web fails: "VITE_API_URL" | Add VITE_API_URL secret with your App Runner URL |
+| deploy-web fails: "NEXT_PUBLIC_API_URL" | Add NEXT_PUBLIC_API_URL secret with your App Runner URL |
 | App Runner can't connect to database | Check RDS security group allows inbound on port 3306 from App Runner |
-| Web shows blank page | Open browser console; verify VITE_API_URL matches your API URL |
+| Web shows blank page | Open browser console; verify NEXT_PUBLIC_API_URL matches your API URL |
 | "No such image" when creating App Runner | Run the deploy workflow first to push the image to ECR |
 
 ---
@@ -219,7 +219,7 @@ GitHub Actions will automatically build and deploy. Check the **Actions** tab to
 - [ ] S3 buckets created (web + uploads)
 - [ ] RDS MySQL created and migrations run
 - [ ] IAM user created with access keys
-- [ ] GitHub secrets added (AWS keys, VITE_API_URL, APP_RUNNER_SERVICE_ARN)
+- [ ] GitHub secrets added (AWS keys, NEXT_PUBLIC_API_URL, APP_RUNNER_SERVICE_ARN)
 - [ ] First deploy workflow run (pushes image)
 - [ ] App Runner service created with env vars
 - [ ] Second deploy workflow run (deploys web)

@@ -101,7 +101,7 @@ pnpm prisma migrate deploy
 |--------|-------------|
 | `AWS_ACCESS_KEY_ID` | IAM user access key |
 | `AWS_SECRET_ACCESS_KEY` | IAM user secret key |
-| `VITE_API_URL` | Your App Runner URL (e.g. `https://xxxxx.us-east-1.awsapprunner.com`) |
+| `NEXT_PUBLIC_API_URL` | Your App Runner URL (e.g. `https://xxxxx.us-east-1.awsapprunner.com`) |
 | `APP_RUNNER_SERVICE_ARN` | (Optional) App Runner service ARN – enables auto-deploy on push |
 
 3. **Create an IAM user** for GitHub Actions (if needed):
@@ -115,7 +115,7 @@ Push to `main` (or run the workflow manually: Actions → Deploy to AWS → Run 
 1. Build the API Docker image
 2. Push the image to ECR
 3. Optionally trigger App Runner deployment (if `APP_RUNNER_SERVICE_ARN` is set)
-4. Build the web app with `VITE_API_URL`
+4. Build the web app with `NEXT_PUBLIC_API_URL`
 5. Deploy the web app to S3
 
 **First deploy:** If App Runner was created before the image existed, go to App Runner → your service → **Deploy** and run a new deployment.
@@ -160,7 +160,7 @@ The API currently uses local disk for uploads. For production on App Runner (eph
 | ECR login fails | Run `aws configure` and verify credentials |
 | Build fails | Ensure Docker is running; run from repo root |
 | App Runner can't connect to RDS | Check security group: allow App Runner to access RDS on 3306 |
-| Web shows blank page | Check browser console; verify `VITE_API_URL` matches API URL |
+| Web shows blank page | Check browser console; verify `NEXT_PUBLIC_API_URL` matches API URL |
 | CORS errors | Add your web origin to API CORS config |
 
 ## Cost Estimate (Monthly)

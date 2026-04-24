@@ -1,6 +1,6 @@
-# Build Vite web app and deploy to S3 + CloudFront
+# Build web app and deploy to S3 + CloudFront
 # Run from repo root: .\deploy\aws\deploy-web.ps1 -ApiUrl https://your-api-url
-# The ApiUrl is baked into the build via VITE_API_URL
+# The ApiUrl is baked into the build via NEXT_PUBLIC_API_URL
 
 param(
     [Parameter(Mandatory=$true)]
@@ -25,8 +25,8 @@ Write-Host "API URL: $ApiUrl"
 Write-Host "Bucket: $Bucket`n"
 
 # Build with API URL
-$env:VITE_API_URL = $ApiUrl.TrimEnd('/')
-Write-Host "Building web app (VITE_API_URL=$env:VITE_API_URL)..." -ForegroundColor Yellow
+$env:NEXT_PUBLIC_API_URL = $ApiUrl.TrimEnd('/')
+Write-Host "Building web app (NEXT_PUBLIC_API_URL=$env:NEXT_PUBLIC_API_URL)..." -ForegroundColor Yellow
 pnpm install
 pnpm exec turbo run build --filter=caseiq-web
 

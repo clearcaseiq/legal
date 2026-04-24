@@ -144,6 +144,18 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
     timeout: config.timeout ?? DEFAULT_TIMEOUT,
   }
 
+  if (
+    typeof window !== 'undefined' &&
+    !requestConfig.baseURL &&
+    !baseURL &&
+    !/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(window.location.host) &&
+    url.startsWith('/v1/')
+  ) {
+    const message = 'NEXT_PUBLIC_API_URL is not configured for this deployment. Set it to your API origin in Amplify.'
+    console.error(`❌ API configuration error: ${message}`)
+    throw createApiError(message, requestConfig, { url, method: method.toUpperCase() })
+  }
+
   let body: BodyInit | undefined
   if (isFormData(data)) {
     body = data
