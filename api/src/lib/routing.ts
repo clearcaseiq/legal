@@ -1211,7 +1211,7 @@ export async function scoreAndRankAttorneys(
   }
 
   const attorneyIds = eligibleAttorneys.map((attorney) => attorney.id)
-  const [introStatusCounts, dashboards] = await Promise.all([
+  const [introStatusCounts, dashboards, complaintRates] = await Promise.all([
     prisma.introduction.groupBy({
       by: ['attorneyId', 'status'],
       where: { attorneyId: { in: attorneyIds } },
@@ -1221,6 +1221,7 @@ export async function scoreAndRankAttorneys(
       where: { attorneyId: { in: attorneyIds } },
       select: { attorneyId: true, totalPlatformSpend: true },
     }),
+    Promise.all(attorneyIds.map(async (attorneyId) => [attorneyId, await getComplaintRate(attorneyId)] as const)),
   ])
 
   const introStats = new Map<string, { total: number; converted: number }>()
@@ -1237,6 +1238,7 @@ export async function scoreAndRankAttorneys(
   const revenueByAttorneyId = new Map(
     dashboards.map((dashboard) => [dashboard.attorneyId, dashboard.totalPlatformSpend || 0])
   )
+  const complaintRateByAttorneyId = new Map(complaintRates)
 
   const attorneysWithData = eligibleAttorneys.map((attorney) => {
     const stats = introStats.get(attorney.id)
@@ -1248,7 +1250,7 @@ export async function scoreAndRankAttorneys(
       ...attorney,
       conversionRate,
       platformRevenue: revenueByAttorneyId.get(attorney.id) || 0,
-      complaints: 0 // TODO: Add complaints tracking
+      complaints: Math.round((complaintRateByAttorneyId.get(attorney.id) || 0) * 10)
     }
   })
 

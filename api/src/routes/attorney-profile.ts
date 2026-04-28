@@ -10,6 +10,56 @@ import { v4 as uuidv4 } from 'uuid'
 
 const router = Router()
 
+function parseJsonArray(value: string | null | undefined, fallback: any[] = []) {
+  if (!value) return fallback
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function buildProfileFallback(attorney: any) {
+  return {
+    id: `fallback-${attorney.id}`,
+    attorneyId: attorney.id,
+    attorney,
+    bio: attorney.profile || '',
+    photoUrl: null,
+    specialties: attorney.specialties || JSON.stringify([]),
+    languages: JSON.stringify(['English']),
+    yearsExperience: 0,
+    totalCases: 0,
+    totalSettlements: 0,
+    averageSettlement: 0,
+    successRate: 0,
+    verifiedVerdicts: JSON.stringify([]),
+    totalReviews: attorney.totalReviews ?? 0,
+    averageRating: attorney.averageRating ?? 0,
+    firmName: attorney.lawFirm?.name ?? null,
+    firmWebsite: attorney.lawFirm?.website ?? null,
+    firmLocations: attorney.lawFirm
+      ? JSON.stringify([{
+          address: attorney.lawFirm.address,
+          city: attorney.lawFirm.city,
+          state: attorney.lawFirm.state,
+          zip: attorney.lawFirm.zip,
+          phone: attorney.lawFirm.phone,
+        }])
+      : null,
+    jurisdictions: JSON.stringify([{ state: 'CA', counties: [], cities: parseJsonArray(attorney.venues).filter((v) => v !== 'CA') }]),
+    responseTimeHours: attorney.responseTimeHours ?? 24,
+    licenseNumber: null,
+    licenseState: null,
+    licenseVerified: false,
+    licenseFileUrl: null,
+    licenseFileName: null,
+    licenseVerificationMethod: null,
+    licenseVerifiedAt: null,
+  }
+}
+
 // Configure multer for license file uploads
 const licenseStorage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -70,7 +120,8 @@ router.get('/profile', authMiddleware, async (req: any, res) => {
     let attorney
     try {
       attorney = await prisma.attorney.findUnique({
-        where: { email: userEmail }
+        where: { email: userEmail },
+        include: { lawFirm: true }
       })
       logger.info('Attorney lookup result', { 
         found: !!attorney, 
@@ -116,33 +167,43 @@ router.get('/profile', authMiddleware, async (req: any, res) => {
       logger.error('Database error finding profile', { 
         error: dbError?.message, 
         stack: dbError?.stack,
-        attorneyId 
+        attorneyId,
+        errorCode: dbError?.code
       })
-      throw dbError
+      return res.json(buildProfileFallback(attorney))
     }
 
     if (!profile) {
       // Create default profile if doesn't exist
-      const newProfile = await prisma.attorneyProfile.create({
-        data: {
+      try {
+        const newProfile = await prisma.attorneyProfile.create({
+          data: {
+            attorneyId,
+            bio: '',
+            specialties: JSON.stringify([]),
+            languages: JSON.stringify(['English']),
+            yearsExperience: 0,
+            totalCases: 0,
+            totalSettlements: 0,
+            averageSettlement: 0,
+            successRate: 0,
+            verifiedVerdicts: JSON.stringify([]),
+            totalReviews: 0,
+            averageRating: 0
+          },
+          include: {
+            attorney: true
+          }
+        })
+        return res.json(newProfile)
+      } catch (createError: any) {
+        logger.warn('Profile create failed; returning attorney fallback profile', {
           attorneyId,
-          bio: '',
-          specialties: JSON.stringify([]),
-          languages: JSON.stringify(['English']),
-          yearsExperience: 0,
-          totalCases: 0,
-          totalSettlements: 0,
-          averageSettlement: 0,
-          successRate: 0,
-          verifiedVerdicts: JSON.stringify([]),
-          totalReviews: 0,
-          averageRating: 0
-        },
-        include: {
-          attorney: true
-        }
-      })
-      return res.json(newProfile)
+          error: createError?.message,
+          errorCode: createError?.code,
+        })
+        return res.json(buildProfileFallback(attorney))
+      }
     }
 
     res.json(profile)
@@ -1065,9 +1126,26 @@ router.get('/license/status', authMiddleware, async (req: any, res) => {
 
     const attorneyId = attorney.id
 
-    const profile = await prisma.attorneyProfile.findUnique({
-      where: { attorneyId }
-    })
+    let profile
+    try {
+      profile = await prisma.attorneyProfile.findUnique({
+        where: { attorneyId }
+      })
+    } catch (dbError: any) {
+      logger.warn('License status profile fetch failed; returning unverified fallback', {
+        attorneyId,
+        error: dbError?.message,
+        errorCode: dbError?.code,
+      })
+      return res.json({
+        hasLicense: false,
+        licenseNumber: null,
+        licenseState: null,
+        licenseVerified: false,
+        licenseFileUrl: null,
+        licenseVerificationMethod: null
+      })
+    }
 
     if (!profile) {
       return res.json({

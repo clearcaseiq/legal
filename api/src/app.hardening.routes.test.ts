@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
 
 const { analyzeCaseWithChatGPTMock } = vi.hoisted(() => ({
@@ -81,13 +81,16 @@ vi.mock('./lib/auth', () => {
 vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
 
 import { buildApp } from './build-app'
+import { createServer } from './server'
 import { prisma } from './lib/prisma'
 import { resetUniversalPrismaMock } from './test/universalPrismaMock'
 
 describe('HTTP hardening regressions', () => {
   const app = buildApp()
+  const originalEnv = { ...process.env }
 
   beforeEach(() => {
+    process.env = { ...originalEnv }
     resetUniversalPrismaMock()
     analyzeCaseWithChatGPTMock.mockReset()
     analyzeCaseWithChatGPTMock.mockResolvedValue({
@@ -109,6 +112,36 @@ describe('HTTP hardening regressions', () => {
     })
     simulateScenarioMock.mockReset()
     simulateScenarioMock.mockReturnValue({ deltas: { overall: 0.07 } })
+  })
+
+  afterEach(() => {
+    process.env = { ...originalEnv }
+  })
+
+  it('fails fast in production when session secrets are missing', () => {
+    process.env.NODE_ENV = 'production'
+    delete process.env.SESSION_SECRET
+    delete process.env.JWT_SECRET
+    process.env.CORS_ORIGINS = 'https://app.caseiq.example'
+
+    expect(() => createServer()).toThrow(/SESSION_SECRET|JWT_SECRET/)
+  })
+
+  it('fails fast in production when CORS origins are not configured', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.SESSION_SECRET = 'prod-session-secret-for-test'
+    delete process.env.CORS_ORIGINS
+    delete process.env.WEB_URL
+
+    expect(() => createServer()).toThrow(/CORS_ORIGINS|WEB_URL/)
+  })
+
+  it('rejects placeholder production CORS origins', () => {
+    process.env.NODE_ENV = 'production'
+    process.env.SESSION_SECRET = 'prod-session-secret-for-test'
+    process.env.CORS_ORIGINS = 'https://yourdomain.com'
+
+    expect(() => createServer()).toThrow(/placeholder/)
   })
 
   it('POST /v1/predict allows anonymous prediction for unclaimed (guest) assessments', async () => {

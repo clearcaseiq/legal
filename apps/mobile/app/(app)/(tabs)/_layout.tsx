@@ -35,7 +35,6 @@ export default function TabsLayout() {
 
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
-        void refresh({ force: true, silent: true })
         startPolling()
         return
       }

@@ -526,7 +526,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       }
     }
 
-    const requiredDisclosuresAccepted = Boolean(consents.tos && consents.privacy && consents.hipaa)
+    const requiredDisclosuresAccepted = Boolean(consents.hipaa)
     if (!requiredDisclosuresAccepted) {
       return res.status(400).json({
         error: 'HIPAA authorization is required before sending your case to attorneys.'

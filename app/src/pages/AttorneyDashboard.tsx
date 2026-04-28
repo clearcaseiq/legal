@@ -444,6 +444,7 @@ export default function AttorneyDashboard() {
     handleDownloadInvoiceDocx,
     handleDownloadInvoicePdf,
     handleDownloadPaymentReceipt,
+    handlePayInvoiceWithStripe,
     handleUpdateNegotiationStatus,
     invoiceForm,
     invoiceItems,
@@ -484,14 +485,14 @@ export default function AttorneyDashboard() {
   const leadSection = leadSectionParam ? leadSectionParam.toLowerCase() : ''
   const isLeadSection = Boolean(leadIdParam && leadSection)
   const [workstreamTab, setWorkstreamTab] = useState('overview')
+  const [leadPhaseTab, setLeadPhaseTab] = useState<'pre' | 'post'>('pre')
   const goToSection = (section: string) => {
+    setLeadPhaseTab('post')
+    setWorkstreamTab(section)
     if (isLeadSection && leadIdParam) {
       navigate(`/attorney-dashboard/lead/${leadIdParam}/${section}`)
-    } else {
-      setWorkstreamTab(section)
     }
   }
-  const [leadPhaseTab, setLeadPhaseTab] = useState<'pre' | 'post'>('pre')
   const [negotiationTab, setNegotiationTab] = useState<'tracker' | 'cadence'>('tracker')
   const [insuranceTab, setInsuranceTab] = useState<'insurance' | 'liens'>('insurance')
   const [caseLeadsFilter, setCaseLeadsFilter] = useState(() => ({
@@ -567,26 +568,41 @@ export default function AttorneyDashboard() {
     const { action, section } = leadPickerAction
     setLeadPickerAction(null)
     setSelectedLead(lead)
-    if (action === 'scheduleConsult') {
-      navigate(`/attorney-dashboard/schedule-consult/${lead.id}`)
+    if (action === 'addEvent') {
+      setLeadPhaseTab('post')
+      setContactForm((prev) => ({ ...prev, contactType: 'event' }))
+      navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
+    } else if (action === 'scheduleConsult') {
+      setLeadPhaseTab('post')
+      setContactForm((prev) => ({ ...prev, contactType: 'consult' }))
+      navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
     } else if (action === 'documentRequest') {
-      navigate(`/attorney-dashboard/request-docs/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/evidence`)
     } else if (action === 'documents') {
-      navigate(`/attorney-dashboard/documents/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/evidence`)
     } else if (action === 'addContact') {
-      navigate(`/attorney-dashboard/add-contact/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
     } else if (action === 'timeEntry') {
-      navigate(`/attorney-dashboard/time-entry/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/billing`)
     } else if (action === 'addTask' || section === 'tasks') {
-      navigate(`/attorney-dashboard/add-task/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/tasks`)
     } else if (action === 'addNote' || section === 'demand') {
-      navigate(`/attorney-dashboard/add-note/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/demand`)
     } else if (action === 'addExpense' || section === 'insurance') {
-      navigate(`/attorney-dashboard/add-expense/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/insurance`)
     } else if (action === 'createInvoice' || section === 'billing') {
-      navigate(`/attorney-dashboard/create-invoice/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/billing`)
     } else if (action === 'draftMessage') {
-      navigate(`/attorney-dashboard/draft-message/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
     } else if (section) {
       const isPost = ['contacted', 'consulted', 'retained'].includes(lead.status || '')
       setLeadPhaseTab(isPost ? 'post' : 'pre')
@@ -597,26 +613,41 @@ export default function AttorneyDashboard() {
   const handleQuickActionForLead = useCallback((lead: any, action: string, section?: string) => {
     setSelectedLead(lead)
     setPendingQuickAction(null)
-    if (action === 'scheduleConsult') {
-      navigate(`/attorney-dashboard/schedule-consult/${lead.id}`)
+    if (action === 'addEvent') {
+      setLeadPhaseTab('post')
+      setContactForm((prev) => ({ ...prev, contactType: 'event' }))
+      navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
+    } else if (action === 'scheduleConsult') {
+      setLeadPhaseTab('post')
+      setContactForm((prev) => ({ ...prev, contactType: 'consult' }))
+      navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
     } else if (action === 'documentRequest') {
-      navigate(`/attorney-dashboard/request-docs/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/evidence`)
     } else if (action === 'documents') {
-      navigate(`/attorney-dashboard/documents/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/evidence`)
     } else if (action === 'addContact') {
-      navigate(`/attorney-dashboard/add-contact/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
     } else if (action === 'timeEntry') {
-      navigate(`/attorney-dashboard/time-entry/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/billing`)
     } else if (action === 'addTask' || section === 'tasks') {
-      navigate(`/attorney-dashboard/add-task/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/tasks`)
     } else if (action === 'addNote' || section === 'demand') {
-      navigate(`/attorney-dashboard/add-note/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/demand`)
     } else if (action === 'addExpense' || section === 'insurance') {
-      navigate(`/attorney-dashboard/add-expense/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/insurance`)
     } else if (action === 'createInvoice' || section === 'billing') {
-      navigate(`/attorney-dashboard/create-invoice/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/billing`)
     } else if (action === 'draftMessage') {
-      navigate(`/attorney-dashboard/draft-message/${lead.id}`)
+      setLeadPhaseTab('post')
+      navigate(`/attorney-dashboard/lead/${lead.id}/communications`)
     } else if (section) {
       const isPost = ['contacted', 'consulted', 'retained'].includes(lead.status || '')
       setLeadPhaseTab(isPost ? 'post' : 'pre')
@@ -2198,17 +2229,68 @@ export default function AttorneyDashboard() {
           </Suspense>
         )
       case 'communications':
-        return (
+        {
+          const activityType = contactForm.contactType || 'call'
+          const activityCopy: Record<string, { detailLabel: string; placeholder: string; dateLabel: string; notesLabel: string; notesPlaceholder: string; helper: string; submit: string }> = {
+            call: {
+              detailLabel: 'Phone number',
+              placeholder: '(555) 555-5555',
+              dateLabel: 'Call date/time',
+              notesLabel: 'Outcome / notes',
+              notesPlaceholder: 'Reached client, left voicemail, follow-up needed...',
+              helper: 'Log a call attempt or completed client call.',
+              submit: 'Log Call',
+            },
+            email: {
+              detailLabel: 'Email address',
+              placeholder: 'client@example.com',
+              dateLabel: 'Email date/time',
+              notesLabel: 'Subject / notes',
+              notesPlaceholder: 'Subject sent or summary of the email...',
+              helper: 'Log an email sent or received for this case.',
+              submit: 'Log Email',
+            },
+            sms: {
+              detailLabel: 'Phone number',
+              placeholder: '(555) 555-5555',
+              dateLabel: 'Message date/time',
+              notesLabel: 'Message / notes',
+              notesPlaceholder: 'Text message summary or follow-up needed...',
+              helper: 'Log an SMS/text message related to this case.',
+              submit: 'Log SMS',
+            },
+            consult: {
+              detailLabel: 'Consult format',
+              placeholder: 'Select format',
+              dateLabel: 'Consult date/time',
+              notesLabel: 'Preparation notes',
+              notesPlaceholder: 'Topics to cover, documents needed, prep notes...',
+              helper: 'Schedule or record a client consultation.',
+              submit: 'Save Consult',
+            },
+            event: {
+              detailLabel: 'Event title',
+              placeholder: 'Medical records follow-up',
+              dateLabel: 'Event date/time',
+              notesLabel: 'Event notes',
+              notesPlaceholder: 'Event details, owner, or next step...',
+              helper: 'Create a case event or follow-up reminder.',
+              submit: 'Save Event',
+            },
+          }
+          const copy = activityCopy[activityType] || activityCopy.call
+          return (
           <div className="rounded-md border border-gray-200 p-4">
-            <h4 className="text-sm font-semibold text-gray-900 mb-3">Communication Hub</h4>
+            <h4 className="text-sm font-semibold text-gray-900 mb-3">Communication & Events Hub</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div>
-                <label className="block text-gray-500 mb-1">Contact Type</label>
+                <label className="block text-gray-500 mb-1">Activity Type</label>
                 <select
                   value={contactForm.contactType}
                   onChange={(e) => setContactForm(prev => ({ ...prev, contactType: e.target.value }))}
                   className="input"
                 >
+                  <option value="event">Event</option>
                   <option value="call">Call</option>
                   <option value="email">Email</option>
                   <option value="sms">SMS</option>
@@ -2216,16 +2298,29 @@ export default function AttorneyDashboard() {
                 </select>
               </div>
               <div>
-                <label className="block text-gray-500 mb-1">Contact Method</label>
-                <input
-                  value={contactForm.contactMethod}
-                  onChange={(e) => setContactForm(prev => ({ ...prev, contactMethod: e.target.value }))}
-                  className="input"
-                  placeholder="Phone / Email / Notes"
-                />
+                <label className="block text-gray-500 mb-1">{copy.detailLabel}</label>
+                {activityType === 'consult' ? (
+                  <select
+                    value={contactForm.contactMethod}
+                    onChange={(e) => setContactForm(prev => ({ ...prev, contactMethod: e.target.value }))}
+                    className="input"
+                  >
+                    <option value="">Select format</option>
+                    <option value="Phone">Phone</option>
+                    <option value="Video">Video</option>
+                    <option value="In person">In person</option>
+                  </select>
+                ) : (
+                  <input
+                    value={contactForm.contactMethod}
+                    onChange={(e) => setContactForm(prev => ({ ...prev, contactMethod: e.target.value }))}
+                    className="input"
+                    placeholder={copy.placeholder}
+                  />
+                )}
               </div>
               <div>
-                <label className="block text-gray-500 mb-1">Scheduled At</label>
+                <label className="block text-gray-500 mb-1">{copy.dateLabel}</label>
                 <input
                   type="datetime-local"
                   value={contactForm.scheduledAt}
@@ -2234,26 +2329,29 @@ export default function AttorneyDashboard() {
                 />
               </div>
               <div>
-                <label className="block text-gray-500 mb-1">Notes</label>
+                <label className="block text-gray-500 mb-1">{copy.notesLabel}</label>
                 <input
                   value={contactForm.notes}
                   onChange={(e) => setContactForm(prev => ({ ...prev, notes: e.target.value }))}
                   className="input"
-                  placeholder="Outcome / follow-up"
+                  placeholder={copy.notesPlaceholder}
                 />
               </div>
             </div>
+            <p className="mt-2 text-xs text-gray-500">
+              {copy.helper}
+            </p>
             <div className="mt-3 flex items-center gap-2">
               <button
                 onClick={handleLogContact}
                 disabled={contactLoading}
                 className="px-3 py-1.5 text-sm font-medium text-white bg-slate-700 rounded-md hover:bg-slate-800 disabled:opacity-50"
               >
-                {contactLoading ? 'Saving…' : 'Log Contact'}
+                {contactLoading ? 'Saving…' : copy.submit}
               </button>
             </div>
             <div className="mt-4">
-              <div className="text-xs text-gray-500 mb-2">Recent Contacts</div>
+              <div className="text-xs text-gray-500 mb-2">Recent Activity</div>
               {contactHistory.length === 0 ? (
                 <div className="text-xs text-gray-500">No contact history yet.</div>
               ) : (
@@ -2269,6 +2367,7 @@ export default function AttorneyDashboard() {
             </div>
           </div>
         )
+        }
       case 'evidence':
         return (
           <Suspense fallback={<AttorneyDashboardPanelSkeleton message="Loading evidence workspace..." />}>
@@ -2322,6 +2421,7 @@ export default function AttorneyDashboard() {
               invoiceItems={invoiceItems}
               handleDownloadInvoicePdf={handleDownloadInvoicePdf}
               handleDownloadInvoiceDocx={handleDownloadInvoiceDocx}
+              handlePayInvoiceWithStripe={handlePayInvoiceWithStripe}
               paymentForm={paymentForm}
               setPaymentForm={setPaymentForm}
               handleAddPayment={handleAddPayment}
@@ -2453,6 +2553,7 @@ export default function AttorneyDashboard() {
     dashboardData?.pipelineAlerts?.consultToday ?? 0,
     dashboardData?.upcomingConsults?.length ?? 0,
   )
+  const dashboardCommandCenter = buildDashboardCommandCenter(dashboardData)
 
   return (
     <div className="space-y-8">
@@ -2465,552 +2566,157 @@ export default function AttorneyDashboard() {
           <h1 className="text-3xl font-extrabold text-gray-900">
             Welcome, {attorneyName.split(' ')[0]}!
           </h1>
-          <p className="mt-2 text-gray-600">Manage your leads and track performance</p>
-        </div>
-        <div className="flex space-x-4">
-          <button
-            onClick={() => {
-              setActiveTab('leads')
-              setTimeout(() => document.getElementById('cases-filters')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
-            }}
-            className="btn-secondary"
-          >
-            <Filter className="h-4 w-4 mr-2" />
-            Filter Leads
-          </button>
-          <button onClick={() => setActiveTab('leads')} className="btn-primary">
-            <Users className="h-4 w-4 mr-2" />
-            View All Leads
-          </button>
+          <p className="mt-2 text-gray-600">Focus on today&apos;s highest-priority client work.</p>
         </div>
       </div>
 
-      {/* Quick Actions - buttons + Today's Events + Contacts */}
-      <div className="card">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick actions</h3>
-        <div className="flex flex-wrap gap-2 mb-6">
-          <Tooltip content="Add new case">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Quick Actions</p>
+            <p className="mt-1 text-sm text-slate-600">Start common attorney workflows without leaving the dashboard.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
             <button
+              type="button"
+              onClick={() => openLeadQueue({ status: 'submitted', pipelineStage: 'matched' }, { pipelineTile: 'matched' })}
+              className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
+            >
+              <ClipboardList className="mr-2 h-4 w-4" />
+              Review Cases
+            </button>
+            <button
+              type="button"
               onClick={handleAddCaseQuickAction}
               disabled={bulkActionLoading}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-50 border border-brand-200 text-brand-700 hover:bg-brand-100 transition-colors shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="inline-flex items-center rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <UserPlus className="h-4 w-4" />
-              <span className="text-sm font-medium">Add Case</span>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Add Case
             </button>
-          </Tooltip>
-          <Tooltip content="Schedule consultation">
-            <button onClick={() => handleQuickAction('scheduleConsult')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-700 hover:bg-sky-100 transition-colors shrink-0">
-              <Calendar className="h-4 w-4" />
-              <span className="text-sm font-medium">Add event</span>
-              <span className="text-xs text-sky-600">({dashboardData.quickActionCounts?.events ?? 0})</span>
+            <button
+              type="button"
+              onClick={() => handleQuickAction('addEvent')}
+              className="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100"
+            >
+              <Calendar className="mr-2 h-4 w-4" />
+              Add Event
+              <span className="ml-1 text-xs text-sky-600">({dashboardData.quickActionCounts?.events ?? 0})</span>
             </button>
-          </Tooltip>
-          <Tooltip content="Add task to a case">
-            <button onClick={() => handleQuickAction('addTask', 'tasks')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-700 hover:bg-sky-100 transition-colors shrink-0">
-              <ClipboardList className="h-4 w-4" />
-              <span className="text-sm font-medium">Add task</span>
-              <span className="text-xs text-sky-600">({dashboardData.quickActionCounts?.tasks ?? 0})</span>
+            <button
+              type="button"
+              onClick={() => handleQuickAction('addTask', 'tasks')}
+              className="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100"
+            >
+              <ClipboardList className="mr-2 h-4 w-4" />
+              Add Task
+              <span className="ml-1 text-xs text-sky-600">({dashboardData.quickActionCounts?.tasks ?? 0})</span>
             </button>
-          </Tooltip>
-          <Tooltip content="Log time for a case">
-            <button onClick={() => handleQuickAction('timeEntry')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-700 hover:bg-sky-100 transition-colors shrink-0">
-              <Clock className="h-4 w-4" />
-              <span className="text-sm font-medium">Time entry</span>
-              <span className="text-xs text-sky-600">({dashboardData.quickActionCounts?.timeEntries ?? 0})</span>
+            <button
+              type="button"
+              onClick={() => handleQuickAction('timeEntry')}
+              className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              <Clock className="mr-2 h-4 w-4" />
+              Time Entry
+              <span className="ml-1 text-xs text-slate-500">({dashboardData.quickActionCounts?.timeEntries ?? 0})</span>
             </button>
-          </Tooltip>
-          <Tooltip content="View and add case documents">
-            <button onClick={() => handleQuickAction('documents')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-colors shrink-0">
-              <FileText className="h-4 w-4" />
-              <span className="text-sm font-medium">Document</span>
-              <span className="text-xs text-emerald-600">({dashboardData.quickActionCounts?.documents ?? 0})</span>
+            <button
+              type="button"
+              onClick={() => handleQuickAction('documents')}
+              className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+            >
+              <FileText className="mr-2 h-4 w-4" />
+              Document
+              <span className="ml-1 text-xs text-emerald-600">({dashboardData.quickActionCounts?.documents ?? 0})</span>
             </button>
-          </Tooltip>
-          <Tooltip content="Request documents from plaintiff">
-            <button onClick={() => handleQuickAction('documentRequest')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-colors shrink-0">
-              <FileText className="h-4 w-4" />
-              <span className="text-sm font-medium">Request docs</span>
-              <span className="text-xs text-emerald-600">({dashboardData.quickActionCounts?.documentRequests ?? 0})</span>
+            <button
+              type="button"
+              onClick={() => handleQuickAction('documentRequest')}
+              className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+            >
+              <FileText className="mr-2 h-4 w-4" />
+              Request Docs
+              <span className="ml-1 text-xs text-emerald-600">({dashboardData.quickActionCounts?.documentRequests ?? 0})</span>
             </button>
-          </Tooltip>
-          <Tooltip content="Send message to plaintiff">
-            <button onClick={() => handleQuickAction('draftMessage')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-colors shrink-0">
-              <MessageSquare className="h-4 w-4" />
-              <span className="text-sm font-medium">Draft message</span>
+            <button
+              type="button"
+              onClick={() => handleQuickAction('draftMessage')}
+              className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+            >
+              <MessageSquare className="mr-2 h-4 w-4" />
+              Draft Message
             </button>
-          </Tooltip>
-          <Tooltip content="Add note to a case">
-            <button onClick={() => handleQuickAction('addNote', 'demand')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-colors shrink-0">
-              <StickyNote className="h-4 w-4" />
-              <span className="text-sm font-medium">Add note</span>
-              <span className="text-xs text-emerald-600">({dashboardData.quickActionCounts?.notes ?? 0})</span>
+            <button
+              type="button"
+              onClick={() => handleQuickAction('addNote', 'demand')}
+              className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+            >
+              <StickyNote className="mr-2 h-4 w-4" />
+              Add Note
+              <span className="ml-1 text-xs text-emerald-600">({dashboardData.quickActionCounts?.notes ?? 0})</span>
             </button>
-          </Tooltip>
-          <Tooltip content="Add expense / lien">
-            <button onClick={() => handleQuickAction('addExpense', 'insurance')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 transition-colors shrink-0">
-              <DollarSign className="h-4 w-4" />
-              <span className="text-sm font-medium">Add expense</span>
-              <span className="text-xs text-amber-600">({dashboardData.quickActionCounts?.expenses ?? 0})</span>
+            <button
+              type="button"
+              onClick={() => handleQuickAction('addExpense', 'insurance')}
+              className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100"
+            >
+              <DollarSign className="mr-2 h-4 w-4" />
+              Add Expense
+              <span className="ml-1 text-xs text-amber-600">({dashboardData.quickActionCounts?.expenses ?? 0})</span>
             </button>
-          </Tooltip>
-          <Tooltip content="Create invoice for case">
-            <button onClick={() => handleQuickAction('createInvoice', 'billing')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 transition-colors shrink-0">
-              <Receipt className="h-4 w-4" />
-              <span className="text-sm font-medium">Create invoice</span>
-              <span className="text-xs text-amber-600">({dashboardData.quickActionCounts?.invoices ?? 0})</span>
+            <button
+              type="button"
+              onClick={() => handleQuickAction('createInvoice', 'billing')}
+              className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100"
+            >
+              <Receipt className="mr-2 h-4 w-4" />
+              Create Invoice
+              <span className="ml-1 text-xs text-amber-600">({dashboardData.quickActionCounts?.invoices ?? 0})</span>
             </button>
-          </Tooltip>
-          <Tooltip content="View today's events and schedule">
-            <button onClick={() => navigate('/attorney-dashboard/events')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-700 hover:bg-sky-100 transition-colors shrink-0">
-              <Calendar className="h-4 w-4" />
-              <span className="text-sm font-medium">Today&apos;s events</span>
-              <span className="text-xs text-sky-600">({dashboardData.quickActionCounts?.events ?? 0})</span>
+            <button
+              type="button"
+              onClick={() => setActiveTab('intake')}
+              className="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100"
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Import Intake
             </button>
-          </Tooltip>
-          <Tooltip content="View calendar">
-            <button onClick={() => navigate('/attorney-dashboard/calendar')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-700 hover:bg-sky-100 transition-colors shrink-0">
-              <Calendar className="h-4 w-4" />
-              <span className="text-sm font-medium">Calendar</span>
+            <button
+              type="button"
+              onClick={() => navigate('/attorney-dashboard/events')}
+              className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+            >
+              <Calendar className="mr-2 h-4 w-4" />
+              Today&apos;s Events
+              <span className="ml-1 text-xs text-emerald-600">({dashboardData.quickActionCounts?.events ?? 0})</span>
             </button>
-          </Tooltip>
-          <Tooltip content="View and manage contacts">
-            <button onClick={() => navigate('/attorney-dashboard/contacts')} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-50 border border-brand-200 text-brand-700 hover:bg-brand-100 transition-colors shrink-0">
-              <User className="h-4 w-4" />
-              <span className="text-sm font-medium">Contacts</span>
-              <span className="text-xs text-brand-600">({dashboardData.caseContactsCount ?? 0})</span>
+            <button
+              type="button"
+              onClick={() => navigate('/attorney-dashboard/calendar')}
+              className="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100"
+            >
+              <Calendar className="mr-2 h-4 w-4" />
+              Calendar
             </button>
-          </Tooltip>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-700">Calendar sync</h3>
-            <p className="mt-1 text-sm text-gray-600">
-              Sync your primary Google or Microsoft calendar so plaintiffs only see current consultation openings.
-            </p>
-          </div>
-          <button
-            onClick={() => void loadCalendarConnections()}
-            disabled={calendarConnectionsLoading}
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-          >
-            Refresh
-          </button>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {calendarHealthSummary && (
-            <div className="md:col-span-2 rounded-xl border border-slate-200 bg-white p-4">
-              <div className="flex flex-wrap gap-3 text-xs">
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
-                  {calendarHealthSummary.connectedCount}/{calendarHealthSummary.totalConnections} connected
-                </span>
-                <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">
-                  {calendarHealthSummary.healthyCount} healthy
-                </span>
-                <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-700">
-                  {calendarHealthSummary.warningCount} warning
-                </span>
-                <span className="rounded-full bg-rose-100 px-3 py-1 text-rose-700">
-                  {calendarHealthSummary.errorCount} error
-                </span>
-              </div>
-            </div>
-          )}
-          {(['google', 'microsoft'] as const).map((provider) => {
-            const connection = calendarConnections.find((item) => item.provider === provider)
-            const providerLabel = provider === 'google' ? 'Google Calendar' : 'Microsoft Outlook'
-            const actionLoading = calendarActionProvider === provider
-            const healthTone =
-              connection?.health?.status === 'healthy'
-                ? 'bg-emerald-100 text-emerald-700'
-                : connection?.health?.status === 'warning'
-                  ? 'bg-amber-100 text-amber-700'
-                  : connection?.health?.status === 'error'
-                    ? 'bg-rose-100 text-rose-700'
-                    : 'bg-slate-200 text-slate-700'
-            return (
-              <div key={provider} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">{providerLabel}</p>
-                    <p className="mt-1 text-xs text-slate-600">
-                      {connection?.connected
-                        ? `${connection.externalAccountEmail || 'Connected'}${connection.lastSyncedAt ? ` • synced ${new Date(connection.lastSyncedAt).toLocaleString()}` : ''}`
-                        : 'Not connected'}
-                    </p>
-                    {connection?.connected && (
-                      <p className={`mt-1 text-xs ${connection.autoSyncEnabled ? 'text-emerald-700' : 'text-amber-700'}`}>
-                        {connection.autoSyncEnabled
-                          ? `Auto-sync active${connection.webhookExpiresAt ? ` until ${new Date(connection.webhookExpiresAt).toLocaleString()}` : ''}`
-                          : 'Auto-sync is not active yet. Manual sync still works.'}
-                      </p>
-                    )}
-                    {connection?.lastWebhookAt && (
-                      <p className="mt-1 text-xs text-slate-500">
-                        Last webhook: {new Date(connection.lastWebhookAt).toLocaleString()}
-                      </p>
-                    )}
-                    {connection?.lastSyncError && (
-                      <p className="mt-1 text-xs text-amber-700">{connection.lastSyncError}</p>
-                    )}
-                  </div>
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${healthTone}`}>
-                    {connection?.health?.status
-                      ? connection.health.status.charAt(0).toUpperCase() + connection.health.status.slice(1)
-                      : connection?.connected ? 'Connected' : 'Disconnected'}
-                  </span>
-                </div>
-                {connection?.health && (
-                  <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                      <span>{connection.health.busyBlockCount} busy block(s) synced</span>
-                      <span>Recommendation: {connection.health.recommendedAction}</span>
-                    </div>
-                    {connection.health.issues.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        {connection.health.issues.map((issue) => (
-                          <p key={issue} className="text-xs text-slate-600">
-                            {issue}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    onClick={() => void handleConnectCalendar(provider)}
-                    disabled={actionLoading}
-                    className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
-                  >
-                    {connection?.connected ? 'Reconnect' : 'Connect'}
-                  </button>
-                  {connection?.connected && (
-                    <>
-                      <button
-                        onClick={() => void handleSyncCalendarConnection(provider)}
-                        disabled={actionLoading}
-                        className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-60"
-                      >
-                        Sync now
-                      </button>
-                      <button
-                        onClick={() => void handleDisconnectCalendarConnection(provider)}
-                        disabled={actionLoading}
-                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
-                      >
-                        Disconnect
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Communications - always visible, badge when unread */}
-      <div
-        className="card border-2 border-brand-100 bg-brand-50/30 cursor-pointer hover:bg-brand-50/50 flex items-center justify-between"
-        onClick={() => { setActiveTab('leads'); document.getElementById('cases-filters')?.scrollIntoView({ behavior: 'smooth' }) }}
-      >
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <MessageSquare className="h-5 w-5 text-brand-600" />
-            {(dashboardData.messagingSummary?.unreadCount ?? 0) > 0 && (
-              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-brand-600 text-[10px] font-bold text-white">
-                {Math.min(99, dashboardData.messagingSummary!.unreadCount)}
-              </span>
-            )}
-          </div>
-          <div>
-            <h3 className="font-medium text-gray-900">Communications</h3>
-            <p className="text-sm text-gray-600">
-              {(dashboardData.messagingSummary?.unreadCount ?? 0) > 0 ? (
-                <span className="font-semibold text-brand-700">{dashboardData.messagingSummary?.unreadCount ?? 0} unread</span>
-              ) : (dashboardData.messagingSummary?.awaitingResponseCount ?? 0) > 0 ? (
-                <span className="text-amber-700">{dashboardData.messagingSummary?.awaitingResponseCount ?? 0} awaiting response</span>
-              ) : (
-                'No new messages'
-              )}
-            </p>
-          </div>
-        </div>
-        <ChevronRight className="h-5 w-5 text-gray-400 shrink-0" />
-      </div>
-
-      {/* Section 1: New Case Matches - compact when empty, expands with matches */}
-      {(() => {
-        const matchCount = dashboardData.newCaseMatches?.length ?? 0
-        const hasMatches = matchCount > 0
-        return (
-      <div className={`rounded-lg border border-brand-200 bg-white shadow-sm overflow-hidden ${hasMatches ? '' : ''}`}>
-        <div className={`bg-brand-600 px-4 py-2 flex items-center justify-between ${hasMatches ? 'py-3' : ''}`}>
-          <h2 className="text-base font-semibold text-white">
-            New Case Matches ({matchCount})
-          </h2>
-          {hasMatches && <p className="text-brand-100 text-xs">Your highest-priority cases</p>}
-        </div>
-        <div className={hasMatches ? 'p-4 space-y-3' : 'px-4 py-3'}>
-        {hasMatches ? (
-          <div className="space-y-3">
-            {dashboardData.newCaseMatches!.slice(0, 5).map((lead: any) => {
-              const preds = lead.assessment?.predictions || []
-              const predObj = Array.isArray(preds) ? preds[0] : preds
-              let viability = 0
-              let bands: any = {}
-              if (predObj?.viability) {
-                try {
-                  const v = typeof predObj.viability === 'string' ? JSON.parse(predObj.viability) : predObj.viability
-                  viability = (v.overall ?? 0) * 100
-                } catch {}
-              }
-              if (predObj?.bands) {
-                try {
-                  bands = typeof predObj.bands === 'string' ? JSON.parse(predObj.bands) : predObj.bands
-                } catch {}
-              }
-              const low = bands.low ?? bands.p25 ?? 0
-              const high = bands.high ?? bands.p75 ?? bands.median ?? 0
-              const claimLabel = (lead.assessment?.claimType || 'Case').replace(/_/g, ' ')
-              const location = [lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || '—'
-              const files = lead.assessment?.evidenceFiles ?? lead.assessment?.files ?? []
-              const evidenceTags = []
-              if (files.some((f: any) => f?.category === 'medical' || f?.mimetype?.includes('pdf'))) evidenceTags.push('Medical')
-              if (files.some((f: any) => f?.category === 'photos' || f?.mimetype?.includes('image'))) evidenceTags.push('Photos')
-              const evidenceStr = evidenceTags.length > 0 ? evidenceTags.join(' + ') : 'Pending'
-              return (
-                <div
-                  key={lead.id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-lg border border-brand-100 bg-brand-50/30 hover:bg-brand-50/50"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900 capitalize">{claimLabel} — {location}</p>
-                    <p className="text-sm text-gray-600 mt-1">
-                      Estimated Value: {formatCurrency(low)}–{formatCurrency(high)}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      Evidence: {evidenceStr}
-                    </p>
-                  </div>
-                  <div className="flex gap-2 shrink-0">
-                    <button
-                      onClick={() => navigate(`/attorney-dashboard/lead/${lead.id}/overview`)}
-                      className="px-4 py-2 text-sm font-medium text-brand-600 border border-brand-200 rounded-lg hover:bg-brand-50"
-                    >
-                      Review Case
-                    </button>
-                    {lead.status !== 'submitted' && (
-                      <button
-                        onClick={() => navigate(`/attorney-dashboard/lead/${lead.id}/overview`)}
-                        className="px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700"
-                      >
-                        Contact Plaintiff
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        ) : (
-          <div className="flex items-center justify-between gap-4 text-sm">
-            <p className="text-gray-500">No new case matches yet. We&apos;ll notify you when a case matches your practice area.</p>
-            {dashboardData.recentLeads?.[0]?.submittedAt && (
-              <span className="text-xs text-gray-400 shrink-0">Last match: {getHoursAgo(dashboardData.recentLeads[0].submittedAt)}h ago</span>
-            )}
-          </div>
-        )}
-        </div>
-      </div>
-        )
-      })()}
-
-      {/* Section 2: Pipeline Value (top) + Pipeline Conversion + Active Cases */}
-      <div className="space-y-6">
-        {/* Pipeline Value - prominent at top */}
-        <div className="card border-2 border-emerald-100 bg-emerald-50/30">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <h3 className="text-sm font-medium text-slate-600 dark:text-slate-400">Pipeline Value</h3>
-              <p className="text-2xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">{formatCurrency(dashboardData.pipelineValue ?? 0)} <span className="text-base font-normal text-slate-500 dark:text-slate-400">potential fees</span></p>
-            </div>
-            {(dashboardData.casesRequiringAttention ?? 0) > 0 && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-100 text-amber-800">
-                <AlertTriangle className="h-4 w-4" />
-                <span className="text-sm font-medium">{dashboardData.casesRequiringAttention} cases require attention</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Pipeline Conversion - analytics */}
-        <div className="card">
-          <h3 className="text-lg font-semibold text-gray-900 mb-3">Pipeline Conversion</h3>
-          <p className="text-sm text-gray-500 mb-4">Matched → Accepted → Contacted → Consult → Retained</p>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
-            {[
-              { key: 'matched', label: 'Matched', count: dashboardData.funnel?.matched ?? 0, pct: null },
-              { key: 'accepted', label: 'Accepted', count: dashboardData.funnel?.accepted ?? 0, pct: (dashboardData.funnel?.matched ?? 0) > 0 ? Math.round(((dashboardData.funnel?.accepted ?? 0) / (dashboardData.funnel?.matched ?? 1)) * 100) : null },
-              { key: 'contacted', label: 'Contacted', count: dashboardData.funnel?.contacted ?? 0, pct: (dashboardData.funnel?.accepted ?? 0) > 0 ? Math.round(((dashboardData.funnel?.contacted ?? 0) / ((dashboardData.funnel?.accepted ?? 0) || 1)) * 100) : null },
-              { key: 'consultScheduled', label: 'Consult', count: dashboardData.funnel?.consultScheduled ?? 0, pct: (dashboardData.funnel?.contacted ?? 0) > 0 ? Math.round(((dashboardData.funnel?.consultScheduled ?? 0) / ((dashboardData.funnel?.contacted ?? 0) || 1)) * 100) : null },
-              { key: 'retained', label: 'Retained', count: dashboardData.funnel?.retained ?? 0, pct: (dashboardData.funnel?.consultScheduled ?? 0) > 0 ? Math.round(((dashboardData.funnel?.retained ?? 0) / ((dashboardData.funnel?.consultScheduled ?? 0) || 1)) * 100) : null },
-              { key: 'closed', label: 'Closed', count: dashboardData.funnel?.closed ?? 0, pct: null }
-            ].map(({ key, label, count, pct }) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => handlePipelineTileClick(key as any)}
-                className={`rounded-lg border border-gray-200 p-3 text-center transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 ${
-                  activePipelineTile === key ? 'ring-2 ring-brand-500 ring-offset-2' : ''
-                }`}
-                title={`Filter to ${label} cases`}
-              >
-                <div className="text-xl font-bold text-gray-900">{count}</div>
-                <div className="text-gray-600 text-xs mt-0.5">{label}</div>
-                {pct != null && <div className="text-xs text-brand-600 mt-0.5">({pct}%)</div>}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Active Cases - 6 cards in flow, clickable, no buttons */}
-        <div className="card">
-          <h3 className="text-lg font-semibold text-gray-900 mb-3">Active Cases</h3>
-          <p className="text-sm text-gray-500 mb-4">Matched → Accepted → Contacted → Consult → Retained → Closed</p>
-          {(() => {
-            const pipelineAlerts = dashboardData.pipelineAlerts ?? {}
-            const pipelineMessageCounts = dashboardData.pipelineMessageCounts ?? {}
-            return (
-          <div className="flex flex-wrap items-stretch gap-2">
-            {[
-              { key: 'matched', label: 'Matched', count: dashboardData.activeCases?.matched ?? 0, color: 'violet', alert: (pipelineAlerts.matchedExpiringSoon ?? 0) > 0 ? `⚠ ${pipelineAlerts.matchedExpiringSoon} expiring soon` : (pipelineMessageCounts.matched ?? 0) > 0 ? `📩 ${pipelineMessageCounts.matched} new message` : null, previews: dashboardData.pipelinePreviews?.matched },
-              { key: 'accepted', label: 'Accepted', count: dashboardData.activeCases?.accepted ?? 0, color: 'amber', alert: (pipelineAlerts.acceptedNeedsFollowUp ?? 0) > 0 ? `⚠ ${pipelineAlerts.acceptedNeedsFollowUp} needs follow-up` : (pipelineMessageCounts.accepted ?? 0) > 0 ? `📩 ${pipelineMessageCounts.accepted} new message` : null, previews: dashboardData.pipelinePreviews?.accepted },
-              { key: 'contacted', label: 'Contacted', count: dashboardData.activeCases?.contacted ?? 0, color: 'blue', alert: (pipelineMessageCounts.contacted ?? 0) > 0 ? `📩 ${pipelineMessageCounts.contacted} new message` : null, previews: dashboardData.pipelinePreviews?.contacted },
-              { key: 'consultScheduled', label: 'Consult', count: dashboardData.activeCases?.consultScheduled ?? 0, color: 'sky', alert: (pipelineAlerts.consultToday ?? 0) > 0 ? `📅 ${pipelineAlerts.consultToday} today` : (pipelineMessageCounts.consultScheduled ?? 0) > 0 ? `📩 ${pipelineMessageCounts.consultScheduled} new message` : null, previews: dashboardData.pipelinePreviews?.consultScheduled },
-              { key: 'retained', label: 'Retained', count: dashboardData.activeCases?.retained ?? 0, color: 'emerald', alert: dashboardData.retainedValue ? `$${Math.round((dashboardData.retainedValue ?? 0) / 1000)}K` : (pipelineMessageCounts.retained ?? 0) > 0 ? `📩 ${pipelineMessageCounts.retained} new message` : null, previews: dashboardData.pipelinePreviews?.retained },
-              { key: 'closed', label: 'Closed', count: dashboardData.activeCases?.closed ?? 0, color: 'gray', alert: null, previews: [] }
-            ].map(({ key, label, count, color, alert, previews }, i) => {
-              const isActive = activePipelineTile === key
-              const colorClasses: Record<string, string> = {
-                violet: 'bg-violet-50 border-violet-200 hover:bg-violet-100 text-violet-700',
-                amber: 'bg-amber-50 border-amber-200 hover:bg-amber-100 text-amber-700',
-                blue: 'bg-blue-50 border-blue-200 hover:bg-blue-100 text-blue-700',
-                sky: 'bg-sky-50 border-sky-200 hover:bg-sky-100 text-sky-700',
-                emerald: 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100 text-emerald-700',
-                gray: 'bg-gray-100 border-gray-200 hover:bg-gray-200 text-gray-700'
-              }
-              return (
-                <div key={key} className="flex items-center">
-                  {i > 0 && <ChevronRight className="h-4 w-4 text-gray-300 shrink-0 mx-0.5" />}
-                  <div
-                    onClick={() => handlePipelineTileClick(key as any)}
-                    className={`relative flex-1 min-w-[90px] max-w-[140px] rounded-xl border p-3 text-center cursor-pointer transition-all duration-200 group shadow-sm hover:shadow-md motion-reduce:transition-none ${colorClasses[color]} ${isActive ? 'ring-2 ring-offset-1 ring-brand-500 dark:ring-brand-400 dark:ring-offset-slate-950' : ''}`}
-                    title={`Filter to ${label} cases`}
-                  >
-                    <div className="text-lg font-bold tabular-nums">{count}</div>
-                    <div className="text-xs font-medium opacity-90">{label}</div>
-                    {alert && <div className="mt-1 text-[10px] truncate">{alert}</div>}
-                    {previews && previews.length > 0 && (
-                      <div className="absolute left-full top-0 ml-2 z-20 hidden group-hover:block w-52 p-2 rounded-lg shadow-lg bg-white border border-gray-200 text-left">
-                        {previews.slice(0, 2).map((p: any) => (
-                          <div key={p.id} className="text-xs text-gray-600 py-1 border-b border-gray-100 last:border-0">
-                            <span className="font-medium">{(p.claimType || 'Case').replace(/_/g, ' ')}</span>
-                            {p.venue && <span> — {p.venue}</span>}
-                            {p.estimatedValue != null && <span><br />Est: {formatCurrency(p.estimatedValue)}</span>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-            )
-          })()}
-        </div>
-      </div>
-
-      {/* Section 3: Revenue Overview */}
-      <div className="card border-2 border-emerald-100 bg-emerald-50/30">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Revenue Overview</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          <div>
-            <p className="text-sm text-gray-500">Total Fees Collected</p>
-            <p className="text-xl font-bold text-gray-900">{formatCurrency(dashboardData.dashboard.feesCollectedFromPayments)}</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-500">Platform Spend</p>
-            <p className="text-xl font-bold text-gray-900">{formatCurrency(dashboardData.dashboard.totalPlatformSpend)}</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-500">Net Revenue</p>
-            <p className="text-xl font-bold text-emerald-700">{formatCurrency(Math.max(0, dashboardData.dashboard.feesCollectedFromPayments - dashboardData.dashboard.totalPlatformSpend))}</p>
-          </div>
-          <div>
-            <p className="text-sm text-gray-500">ROI</p>
-            <p className="text-xl font-bold text-emerald-700">{formatPercentage((dashboardData.analytics.roi || 0) * 100)}</p>
+            <button
+              type="button"
+              onClick={() => navigate('/attorney-dashboard/contacts')}
+              className="inline-flex items-center rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100"
+            >
+              <User className="mr-2 h-4 w-4" />
+              Contacts
+              <span className="ml-1 text-xs text-brand-600">({dashboardData.caseContactsCount ?? 0})</span>
+            </button>
           </div>
         </div>
       </div>
-
-      {/* Section 4: Top Opportunity Today */}
-      {dashboardData.topCaseToday && (
-        <div className="rounded-xl border-2 border-amber-200 bg-amber-50/50 overflow-hidden">
-          <div className="px-6 py-4 border-b border-amber-200">
-            <h2 className="text-lg font-bold text-gray-900">Top Opportunity Today</h2>
-            <p className="text-sm text-amber-800">Best opportunity by expected value × viability</p>
-          </div>
-          {(() => {
-            const lead = dashboardData.topCaseToday
-            const pred = lead.assessment?.predictions?.[0] || lead.assessment?.predictions
-            const predObj = Array.isArray(pred) ? pred[0] : pred
-            let viability = 0
-            let bands: any = {}
-            if (predObj?.viability) {
-              try {
-                const v = typeof predObj.viability === 'string' ? JSON.parse(predObj.viability) : predObj.viability
-                viability = (v.overall ?? 0) * 100
-              } catch {}
-            }
-            if (predObj?.bands) {
-              try {
-                bands = typeof predObj.bands === 'string' ? JSON.parse(predObj.bands) : predObj.bands
-              } catch {}
-            }
-            const low = bands.low ?? bands.p25 ?? 0
-            const high = bands.high ?? bands.p75 ?? bands.median ?? 0
-            const claimLabel = (lead.assessment?.claimType || 'Case').replace(/_/g, ' ')
-            const location = [lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || '—'
-            return (
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6">
-                <div>
-                  <p className="font-semibold text-gray-900 capitalize">{claimLabel} — {location}</p>
-                  <p className="text-sm text-gray-600 mt-1">Estimated Value: {formatCurrency(low)}–{formatCurrency(high)}</p>
-                  <p className="text-sm text-brand-600 font-medium">Case Score: {Math.round(viability)}</p>
-                </div>
-                <button
-                  onClick={() => navigate(`/attorney-dashboard/lead/${lead.id}/overview`)}
-                  className="px-5 py-2.5 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 shrink-0"
-                >
-                  Review Case
-                </button>
-              </div>
-            )
-          })()}
-        </div>
-      )}
 
       {/* Tabs */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex flex-wrap gap-4">
           {([
-            { id: 'overview', name: 'Overview', icon: BarChart3 },
+            { id: 'overview', name: 'Today', icon: BarChart3 },
             { id: 'leads', name: 'Cases', icon: Users },
             { id: 'analytics', name: 'Analytics', icon: TrendingUp },
             { id: 'intake', name: 'Intake & Imports', icon: Upload },
@@ -3038,122 +2744,34 @@ export default function AttorneyDashboard() {
       {/* Tab Content */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          <div className="sticky top-4 z-10 rounded-2xl border border-brand-200 bg-white/95 p-4 shadow-sm backdrop-blur">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <DashboardCommandCenter
+            needsDecision={dashboardCommandCenter.needsDecision}
+            needsAction={dashboardCommandCenter.needsAction}
+            upcoming={dashboardCommandCenter.upcoming}
+            onOpenLead={(item) => {
+              const lead = item.leadId ? dashboardData.recentLeads.find((entry) => entry.id === item.leadId) : null
+              if (lead) {
+                setSelectedLead(lead)
+                setLeadPhaseTab(['contacted', 'consulted', 'retained'].includes(lead.status || '') ? 'post' : 'pre')
+              }
+              navigate(`/attorney-dashboard/lead/${item.leadId}/${item.section || 'overview'}`)
+            }}
+            onOpenQueue={(status, pipelineTile) => {
+              setActiveTab('leads')
+              openLeadQueue({ status, pipelineStage: pipelineTile }, { pipelineTile })
+            }}
+            onOpenLeads={() => setActiveTab('leads')}
+          />
+
+          <details className="card group">
+            <summary className="flex cursor-pointer list-none items-center justify-between [&::-webkit-details-marker]:hidden">
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Today command center</h3>
-                <p className="mt-1 text-sm text-gray-600">Jump straight into high-priority work, follow-up, consults, and missing-document cleanup.</p>
+                <h3 className="text-lg font-semibold text-gray-900">More automated reminders</h3>
+                <p className="mt-1 text-sm text-gray-600">Open only when you want the detailed readiness feed.</p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => openLeadQueue({ status: 'submitted', pipelineStage: 'matched' }, { pipelineTile: 'matched' })}
-                  className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
-                >
-                  {dashboardData.dailyQueueSummary?.highSeverity ?? 0} review now
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openLeadQueue({ status: 'contacted', pipelineStage: 'accepted' }, { pipelineTile: 'accepted' })}
-                  className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-800 hover:bg-blue-100"
-                >
-                  {followUpCases} follow-up due
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConsultCalendarModalOpen(true)}
-                  className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-800 hover:bg-sky-100"
-                >
-                  {consultsToday} consults today
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openLeadQueue({ evidenceLevel: 'none' })}
-                  className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
-                >
-                  {zeroDocCases} missing docs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('leads')}
-                  className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-800 hover:bg-violet-100"
-                >
-                  {unreadPipelineMessages} unread messages
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Needs action today</h3>
-                <p className="mt-1 text-sm text-gray-600">Prioritized work across follow-up, document blockers, consult prep, and demand readiness.</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <span className="inline-flex rounded-full bg-red-100 px-3 py-1 text-xs font-medium text-red-700">
-                  {dashboardData.dailyQueueSummary?.highSeverity ?? 0} high priority
-                </span>
-                <span className="inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">
-                  {dashboardData.dailyQueueSummary?.mediumSeverity ?? 0} medium priority
-                </span>
-                <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">
-                  {dashboardData.dailyQueueSummary?.demandReady ?? 0} demand-ready
-                </span>
-              </div>
-            </div>
-
-            {(dashboardData.needsActionToday?.length ?? 0) > 0 ? (
-              <div className="mt-5 grid gap-3">
-                {(dashboardData.needsActionToday ?? []).map((item) => (
-                  <div key={item.id} className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
-                            item.severity === 'high'
-                              ? 'bg-red-100 text-red-700'
-                              : item.severity === 'medium'
-                                ? 'bg-amber-100 text-amber-700'
-                                : 'bg-slate-100 text-slate-700'
-                          }`}>
-                            {item.severity}
-                          </span>
-                          <span className="text-xs font-medium uppercase tracking-wide text-gray-500">{item.claimType}</span>
-                          <span className="text-xs text-gray-500">{item.plaintiffName}</span>
-                        </div>
-                        <h4 className="mt-2 text-sm font-semibold text-gray-900">{item.title}</h4>
-                        <p className="mt-1 text-sm text-gray-600">{item.detail}</p>
-                        {item.dueAt ? (
-                          <p className="mt-2 text-xs text-gray-500">Due: {new Date(item.dueAt).toLocaleString()}</p>
-                        ) : null}
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <button
-                          onClick={() => handleDailyQueueAction(item)}
-                          className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
-                        >
-                          {item.actionLabel}
-                        </button>
-                        <button
-                          onClick={() => navigate(`/attorney-dashboard/lead/${item.leadId}/overview`)}
-                          className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                        >
-                          Open case
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-5 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500">
-                No urgent work is queued right now. Demand-ready files and follow-ups will appear here automatically.
-              </div>
-            )}
-          </div>
-
-          <div className="card">
+              <ChevronRight className="h-5 w-5 text-gray-400 transition-transform group-open:rotate-90" />
+            </summary>
+            <div className="mt-5 border-t border-gray-100 pt-5">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">Automation feed</h3>
@@ -3377,89 +2995,7 @@ export default function AttorneyDashboard() {
             )}
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Lead Quality */}
-            <div className="card">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Lead Quality</h3>
-              <div className="space-y-4">
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Average Case Score</span>
-                  <span className="font-semibold">{Math.round((dashboardData.qualityMetrics.averageViability || 0) * 100)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Average Case Value</span>
-                  <span className="font-semibold">{formatCurrency(dashboardData.analytics.averageFee || 0)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Evidence Complete</span>
-                  <span className="font-semibold text-green-600">{dashboardData.qualityMetrics?.evidenceComplete ?? 0}%</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Notifications */}
-            <div className="card">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Notifications</h3>
-              <div className="space-y-3 text-sm">
-                {dashboardData.newCaseMatches?.length ? (
-                  <div className="flex items-center gap-2 p-2 rounded-lg bg-brand-50 text-brand-800">
-                    <span className="font-medium">New case matched</span>
-                  </div>
-                ) : null}
-                {dashboardData.recentLeads?.some((l: any) => l.status === 'contacted' || l.status === 'consulted') && (
-                  <div className="flex items-center gap-2 p-2 rounded-lg bg-amber-50 text-amber-800">
-                    <span className="font-medium">Leads awaiting follow-up</span>
-                  </div>
-                )}
-                {(!dashboardData.newCaseMatches?.length && !dashboardData.recentLeads?.some((l: any) => l.status === 'contacted' || l.status === 'consulted')) ? (
-                  <p className="text-gray-500">No new notifications</p>
-                ) : null}
-              </div>
-            </div>
-
-            {/* Quick Actions */}
-            <div className="card">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
-              <div className="space-y-2">
-                <button
-                  onClick={() => openLeadQueue({ status: 'submitted', pipelineStage: 'matched' }, { pipelineTile: 'matched' })}
-                  className="w-full px-4 py-2.5 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700"
-                >
-                  Review New Cases
-                </button>
-                {dashboardData.newCaseMatches?.[0] && (
-                  <button
-                    onClick={() => {
-                      const firstHotLead = dashboardData.newCaseMatches?.[0]
-                      if (firstHotLead) {
-                        navigate(`/attorney-dashboard/lead/${firstHotLead.id}/overview`)
-                      }
-                    }}
-                    className="w-full px-4 py-2.5 text-sm font-medium text-brand-600 border border-brand-200 rounded-lg hover:bg-brand-50"
-                  >
-                    <Phone className="h-4 w-4 inline mr-2" />
-                    Call Hot Lead
-                  </button>
-                )}
-                {dashboardData.topCaseToday && (
-                  <button
-                    onClick={() => navigate(`/attorney-dashboard/lead/${dashboardData.topCaseToday.id}/overview`)}
-                    className="w-full px-4 py-2.5 text-sm font-medium text-brand-600 border border-brand-200 rounded-lg hover:bg-brand-50"
-                  >
-                    <Calendar className="h-4 w-4 inline mr-2" />
-                    Schedule Consultation
-                  </button>
-                )}
-                <button
-                  onClick={() => setActiveTab('intake')}
-                  className="w-full px-4 py-2.5 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50"
-                >
-                  <Upload className="h-4 w-4 inline mr-2" />
-                  Upload Case File
-                </button>
-              </div>
-            </div>
-          </div>
+          </details>
         </div>
       )}
 
@@ -3519,36 +3055,48 @@ export default function AttorneyDashboard() {
 
       {activeTab === 'profile' && (
         <Suspense fallback={<AttorneyDashboardPanelSkeleton message="Loading profile settings..." />}>
-          <AttorneyDashboardProfileTab
-            error={error}
-            profileLoading={profileLoading}
-            profile={profile}
-            editing={editing}
-            setEditing={setEditing}
-            setProfile={setProfile}
-            handleSaveProfile={handleSaveProfile}
-            negotiationStyle={negotiationStyle}
-            setNegotiationStyle={setNegotiationStyle}
-            riskTolerance={riskTolerance}
-            setRiskTolerance={setRiskTolerance}
-            handleSaveDecisionProfile={handleSaveDecisionProfile}
-            decisionProfileLoading={decisionProfileLoading}
-            licenseStatus={licenseStatus}
-            licenseSuccess={licenseSuccess}
-            licenseError={licenseError}
-            setLicenseError={setLicenseError}
-            licenseLoading={licenseLoading}
-            licenseMethod={licenseMethod}
-            setLicenseMethod={setLicenseMethod}
-            licenseNumber={licenseNumber}
-            setLicenseNumber={setLicenseNumber}
-            licenseState={licenseState}
-            setLicenseState={setLicenseState}
-            selectedLicenseFile={selectedLicenseFile}
-            handleStateBarLookup={handleStateBarLookup}
-            handleLicenseFileUpload={handleLicenseFileUpload}
-            handleLicenseFileChange={handleLicenseFileChange}
-          />
+          <div className="space-y-6">
+            <AttorneyDashboardProfileTab
+              error={error}
+              profileLoading={profileLoading}
+              profile={profile}
+              editing={editing}
+              setEditing={setEditing}
+              setProfile={setProfile}
+              handleSaveProfile={handleSaveProfile}
+              negotiationStyle={negotiationStyle}
+              setNegotiationStyle={setNegotiationStyle}
+              riskTolerance={riskTolerance}
+              setRiskTolerance={setRiskTolerance}
+              handleSaveDecisionProfile={handleSaveDecisionProfile}
+              decisionProfileLoading={decisionProfileLoading}
+              licenseStatus={licenseStatus}
+              licenseSuccess={licenseSuccess}
+              licenseError={licenseError}
+              setLicenseError={setLicenseError}
+              licenseLoading={licenseLoading}
+              licenseMethod={licenseMethod}
+              setLicenseMethod={setLicenseMethod}
+              licenseNumber={licenseNumber}
+              setLicenseNumber={setLicenseNumber}
+              licenseState={licenseState}
+              setLicenseState={setLicenseState}
+              selectedLicenseFile={selectedLicenseFile}
+              handleStateBarLookup={handleStateBarLookup}
+              handleLicenseFileUpload={handleLicenseFileUpload}
+              handleLicenseFileChange={handleLicenseFileChange}
+            />
+            <CalendarSyncSettings
+              connections={calendarConnections}
+              healthSummary={calendarHealthSummary}
+              loading={calendarConnectionsLoading}
+              actionProvider={calendarActionProvider}
+              onRefresh={loadCalendarConnections}
+              onConnect={handleConnectCalendar}
+              onSync={handleSyncCalendarConnection}
+              onDisconnect={handleDisconnectCalendarConnection}
+            />
+          </div>
         </Suspense>
       )}
 
@@ -3564,12 +3112,19 @@ export default function AttorneyDashboard() {
             isPostAcceptance={isPostAcceptance}
             leadWrapperClass={leadWrapperClass}
             leadContainerClass={leadContainerClass}
-            onBackToOverview={() => navigate('/attorney-dashboard')}
+            onBackToOverview={() => {
+              setSelectedLead(null)
+              setLeadPhaseTab('pre')
+              setWorkstreamTab('overview')
+              navigate('/attorney-dashboard', { replace: true })
+            }}
             onClose={() => {
               if (isLeadSection) {
-                navigate('/attorney-dashboard')
+                navigate('/attorney-dashboard', { replace: true })
               }
               setSelectedLead(null)
+              setLeadPhaseTab('pre')
+              setWorkstreamTab('overview')
             }}
             handleDownloadCaseFile={handleDownloadCaseFile}
             caseFileLoading={caseFileLoading}
@@ -3604,6 +3159,7 @@ export default function AttorneyDashboard() {
             leadDecisionLoading={leadDecisionLoading}
             activeWorkstream={activeWorkstream}
             workstreamTab={workstreamTab}
+            goToSection={goToSection}
             renderWorkstream={renderWorkstream}
             contactHistory={contactHistory}
             handleQuickCall={handleQuickCall}
@@ -3637,13 +3193,22 @@ export default function AttorneyDashboard() {
             onClose={() => {
               setChatDrawerOpen(false)
               setChatDraftPrefill('')
+              void loadDashboardData(0)
             }}
             plaintiffName={[selectedLead.assessment?.user?.firstName, selectedLead.assessment?.user?.lastName].filter(Boolean).join(' ') || 'Plaintiff'}
+            phone={selectedLead.assessment?.user?.phone ?? null}
+            email={selectedLead.assessment?.user?.email ?? null}
+            caseLabel={(selectedLead.assessment?.claimType || 'case').replace(/_/g, ' ')}
+            venue={[selectedLead.assessment?.venueCounty, selectedLead.assessment?.venueState].filter(Boolean).join(', ')}
+            lastContactLabel={
+              contactHistory[0]?.createdAt
+                ? new Date(contactHistory[0].createdAt).toLocaleString()
+                : undefined
+            }
             leadId={selectedLead.id}
             userId={selectedLead.assessment?.user?.id ?? null}
             assessmentId={selectedLead.assessment?.id ?? null}
             initialDraft={chatDraftPrefill}
-            onMessageSent={() => loadDashboardData(0)}
           />
         </Suspense>
       )}
@@ -3722,7 +3287,8 @@ export default function AttorneyDashboard() {
           isOpen={leadPickerOpen}
           onClose={() => { setLeadPickerOpen(false); setLeadPickerAction(null) }}
           leads={dashboardData?.recentLeads ?? []}
-          title={leadPickerAction?.action === 'scheduleConsult' ? 'Select case to schedule consultation'
+          title={leadPickerAction?.action === 'addEvent' ? 'Select case to add event'
+            : leadPickerAction?.action === 'scheduleConsult' ? 'Select case to schedule consultation'
             : leadPickerAction?.action === 'documents' ? 'Select case to view documents'
             : leadPickerAction?.action === 'documentRequest' ? 'Select case to request documents'
             : leadPickerAction?.action === 'draftMessage' ? 'Select case to message'
@@ -3765,6 +3331,397 @@ export default function AttorneyDashboard() {
           success={declineSuccess}
         />
       </Suspense>
+    </div>
+  )
+}
+
+type DashboardCommandCenterItem = {
+  id: string
+  leadId: string
+  title: string
+  detail: string
+  meta?: string
+  actionLabel: string
+  section?: string
+}
+
+function buildDashboardCommandCenter(data: DashboardData) {
+  const leads = data.recentLeads || []
+  const needsDecision = leads
+    .filter((lead) => !lead.status || lead.status === 'submitted')
+    .slice(0, 3)
+    .map((lead) => ({
+      id: `decision-${lead.id}`,
+      leadId: lead.id,
+      title: `${dashboardClaimLabel(lead.assessment?.claimType || 'case')} - ${dashboardLeadVenue(lead)}`,
+      detail: `${dashboardLeadValueRange(lead)} | Strength ${Math.round((lead.viabilityScore || 0) * 100)}/100`,
+      meta: lead.submittedAt ? `Submitted ${new Date(lead.submittedAt).toLocaleDateString()}` : 'Awaiting attorney decision',
+      actionLabel: 'Review case',
+      section: 'overview',
+    }))
+
+  const actionItems = (data.needsActionToday || []).slice(0, 3).map((item) => ({
+    id: item.id,
+    leadId: item.leadId,
+    title: item.title,
+    detail: item.detail,
+    meta: item.dueAt ? `Due ${new Date(item.dueAt).toLocaleString()}` : item.claimType,
+    actionLabel: item.actionLabel || 'Open',
+    section: item.targetSection || 'overview',
+  }))
+
+  const fallbackActions = leads
+    .filter((lead) => ['contacted', 'consulted', 'retained'].includes(lead.status || ''))
+    .filter((lead) => dashboardLeadDocumentCount(lead) === 0 || lead.status === 'contacted')
+    .slice(0, Math.max(0, 3 - actionItems.length))
+    .map((lead) => ({
+      id: `action-${lead.id}`,
+      leadId: lead.id,
+      title: lead.status === 'contacted' ? 'Schedule consultation' : 'Request missing documents',
+      detail: `${dashboardClaimLabel(lead.assessment?.claimType || 'case')} - ${dashboardLeadVenue(lead)}`,
+      meta: dashboardLeadDocumentCount(lead) === 0 ? 'No documents on file' : 'Accepted case needs next step',
+      actionLabel: lead.status === 'contacted' ? 'Schedule' : 'Open evidence',
+      section: lead.status === 'contacted' ? 'communications' : 'evidence',
+    }))
+
+  const upcoming = (data.upcomingConsults || []).slice(0, 3).map((consult) => ({
+    id: `upcoming-${consult.id}`,
+    leadId: (consult as any).leadId || consult.id,
+    title: consult.plaintiffName || 'Upcoming consultation',
+    detail: `${dashboardClaimLabel(consult.claimType || 'case')} | ${new Date(consult.scheduledAt).toLocaleString()}`,
+    meta: `${consult.duration || 30} min ${consult.type || 'consult'}`,
+    actionLabel: 'Open case',
+    section: 'overview',
+  }))
+
+  const fallbackUpcoming = leads
+    .filter((lead) => lead.status === 'contacted')
+    .slice(0, Math.max(0, 3 - upcoming.length))
+    .map((lead) => ({
+      id: `upcoming-followup-${lead.id}`,
+      leadId: lead.id,
+      title: 'Consultation pending',
+      detail: `${dashboardClaimLabel(lead.assessment?.claimType || 'case')} - ${dashboardLeadVenue(lead)}`,
+      meta: 'Needs scheduling or follow-up',
+      actionLabel: 'Open',
+      section: 'communications',
+    }))
+
+  return {
+    needsDecision,
+    needsAction: [...actionItems, ...fallbackActions].slice(0, 3),
+    upcoming: [...upcoming, ...fallbackUpcoming].slice(0, 3),
+  }
+}
+
+function dashboardClaimLabel(value: string) {
+  return (value || 'case').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function dashboardLeadVenue(lead: Lead) {
+  return [lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || 'Venue pending'
+}
+
+function dashboardLeadDocumentCount(lead: Lead) {
+  return lead.assessment?.evidenceFiles?.length ?? lead.assessment?.files?.length ?? 0
+}
+
+function dashboardFormatCurrency(amount: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount)
+}
+
+function dashboardLeadValueRange(lead: Lead) {
+  const prediction = Array.isArray(lead.assessment?.predictions)
+    ? lead.assessment.predictions[0]
+    : lead.assessment?.predictions
+  let bands: any = {}
+  try {
+    bands = typeof prediction?.bands === 'string' ? JSON.parse(prediction.bands) : prediction?.bands || {}
+  } catch {
+    bands = {}
+  }
+  const low = bands.p25 ?? bands.low ?? 0
+  const high = bands.p75 ?? bands.high ?? bands.median ?? 0
+  return low || high ? `${dashboardFormatCurrency(low)}-${dashboardFormatCurrency(high)}` : 'Value pending'
+}
+
+function CalendarSyncSettings({
+  connections,
+  healthSummary,
+  loading,
+  actionProvider,
+  onRefresh,
+  onConnect,
+  onSync,
+  onDisconnect,
+}: {
+  connections: AttorneyCalendarConnection[]
+  healthSummary: {
+    totalConnections: number
+    connectedCount: number
+    healthyCount: number
+    warningCount: number
+    errorCount: number
+    disconnectedCount: number
+  } | null
+  loading: boolean
+  actionProvider: string | null
+  onRefresh: () => void | Promise<void>
+  onConnect: (provider: 'google' | 'microsoft') => void | Promise<void>
+  onSync: (provider: 'google' | 'microsoft') => void | Promise<void>
+  onDisconnect: (provider: 'google' | 'microsoft') => void | Promise<void>
+}) {
+  return (
+    <section className="card">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700">Calendar sync</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            Connect Google or Microsoft Calendar so plaintiff consultations only use current availability.
+          </p>
+        </div>
+        <button
+          onClick={() => void onRefresh()}
+          disabled={loading}
+          className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+        >
+          Refresh
+        </button>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {healthSummary && (
+          <div className="md:col-span-2 rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-wrap gap-3 text-xs">
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
+                {healthSummary.connectedCount}/{healthSummary.totalConnections} connected
+              </span>
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">
+                {healthSummary.healthyCount} healthy
+              </span>
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-700">
+                {healthSummary.warningCount} warning
+              </span>
+              <span className="rounded-full bg-rose-100 px-3 py-1 text-rose-700">
+                {healthSummary.errorCount} error
+              </span>
+            </div>
+          </div>
+        )}
+        {(['google', 'microsoft'] as const).map((provider) => {
+          const connection = connections.find((item) => item.provider === provider)
+          const providerLabel = provider === 'google' ? 'Google Calendar' : 'Microsoft Outlook'
+          const actionLoading = actionProvider === provider
+          const healthTone =
+            connection?.health?.status === 'healthy'
+              ? 'bg-emerald-100 text-emerald-700'
+              : connection?.health?.status === 'warning'
+                ? 'bg-amber-100 text-amber-700'
+                : connection?.health?.status === 'error'
+                  ? 'bg-rose-100 text-rose-700'
+                  : 'bg-slate-200 text-slate-700'
+
+          return (
+            <div key={provider} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{providerLabel}</p>
+                  <p className="mt-1 text-xs text-slate-600">
+                    {connection?.connected
+                      ? `${connection.externalAccountEmail || 'Connected'}${connection.lastSyncedAt ? ` | synced ${new Date(connection.lastSyncedAt).toLocaleString()}` : ''}`
+                      : 'Not connected'}
+                  </p>
+                  {connection?.connected && (
+                    <p className={`mt-1 text-xs ${connection.autoSyncEnabled ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      {connection.autoSyncEnabled
+                        ? `Auto-sync active${connection.webhookExpiresAt ? ` until ${new Date(connection.webhookExpiresAt).toLocaleString()}` : ''}`
+                        : 'Auto-sync is not active yet. Manual sync still works.'}
+                    </p>
+                  )}
+                  {connection?.lastWebhookAt && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Last webhook: {new Date(connection.lastWebhookAt).toLocaleString()}
+                    </p>
+                  )}
+                  {connection?.lastSyncError && (
+                    <p className="mt-1 text-xs text-amber-700">{connection.lastSyncError}</p>
+                  )}
+                </div>
+                <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${healthTone}`}>
+                  {connection?.health?.status
+                    ? connection.health.status.charAt(0).toUpperCase() + connection.health.status.slice(1)
+                    : connection?.connected ? 'Connected' : 'Disconnected'}
+                </span>
+              </div>
+              {connection?.health && (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                    <span>{connection.health.busyBlockCount} busy block(s) synced</span>
+                    <span>Recommendation: {connection.health.recommendedAction}</span>
+                  </div>
+                  {connection.health.issues.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {connection.health.issues.map((issue) => (
+                        <p key={issue} className="text-xs text-slate-600">
+                          {issue}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  onClick={() => void onConnect(provider)}
+                  disabled={actionLoading}
+                  className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+                >
+                  {connection?.connected ? 'Reconnect' : 'Connect'}
+                </button>
+                {connection?.connected && (
+                  <>
+                    <button
+                      onClick={() => void onSync(provider)}
+                      disabled={actionLoading}
+                      className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-60"
+                    >
+                      Sync now
+                    </button>
+                    <button
+                      onClick={() => void onDisconnect(provider)}
+                      disabled={actionLoading}
+                      className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                    >
+                      Disconnect
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function DashboardCommandCenter({
+  needsDecision,
+  needsAction,
+  upcoming,
+  onOpenLead,
+  onOpenQueue,
+  onOpenLeads,
+}: {
+  needsDecision: DashboardCommandCenterItem[]
+  needsAction: DashboardCommandCenterItem[]
+  upcoming: DashboardCommandCenterItem[]
+  onOpenLead: (item: DashboardCommandCenterItem) => void
+  onOpenQueue: (status: string, pipelineTile: string) => void
+  onOpenLeads: () => void
+}) {
+  const total = needsDecision.length + needsAction.length + upcoming.length
+  return (
+    <section className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Dashboard Command Center</p>
+          <h2 className="mt-1 text-xl font-bold text-slate-950">What needs your attention today</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Decisions, next actions, and upcoming consult work are grouped into one daily queue.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => onOpenQueue('submitted', 'matched')} className="btn-primary">
+            Review New Cases
+          </button>
+          <button onClick={onOpenLeads} className="btn-secondary">
+            View All Leads
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-3">
+        <CommandCenterColumn
+          title="Needs Decision"
+          count={needsDecision.length}
+          empty="No cases need accept/decline right now."
+          items={needsDecision}
+          onOpenLead={onOpenLead}
+        />
+        <CommandCenterColumn
+          title="Needs Action"
+          count={needsAction.length}
+          empty="No accepted cases are blocked right now."
+          items={needsAction}
+          onOpenLead={onOpenLead}
+        />
+        <CommandCenterColumn
+          title="Upcoming"
+          count={upcoming.length}
+          empty="No consults or follow-ups are queued."
+          items={upcoming}
+          onOpenLead={onOpenLead}
+        />
+      </div>
+
+      {total === 0 && (
+        <div className="mt-4 rounded-xl border border-dashed border-brand-200 bg-white/70 px-4 py-3 text-sm text-slate-600">
+          You are caught up. New routed cases, document blockers, and consults will appear here.
+        </div>
+      )}
+    </section>
+  )
+}
+
+function CommandCenterColumn({
+  title,
+  count,
+  empty,
+  items,
+  onOpenLead,
+}: {
+  title: string
+  count: number
+  empty: string
+  items: DashboardCommandCenterItem[]
+  onOpenLead: (item: DashboardCommandCenterItem) => void
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{count}</span>
+      </div>
+      {items.length > 0 ? (
+        <div className="space-y-3">
+          {items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onOpenLead(item)}
+              className="block w-full rounded-lg border border-slate-200 px-3 py-3 text-left hover:border-brand-200 hover:bg-brand-50"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{item.title}</p>
+                  <p className="mt-1 text-xs text-slate-600">{item.detail}</p>
+                  {item.meta && <p className="mt-1 text-xs text-slate-500">{item.meta}</p>}
+                </div>
+                <span className="shrink-0 rounded-full bg-brand-100 px-2 py-1 text-[11px] font-semibold text-brand-700">
+                  {item.actionLabel}
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">{empty}</p>
+      )}
     </div>
   )
 }

@@ -3,10 +3,11 @@
  * Uses SecureStore for auth token (biometric-protected).
  */
 import type { AttorneyCalendarEvent } from './calendar'
-import axios, { isAxiosError, type AxiosError } from 'axios'
+import axios, { isAxiosError, type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import * as SecureStore from 'expo-secure-store'
 import * as Device from 'expo-device'
 import { Platform } from 'react-native'
+import type { AttorneyDashboardResponse } from '../../../../shared/api-contracts'
 
 function resolveApiUrl() {
   const configured = process.env.EXPO_PUBLIC_API_URL?.trim()
@@ -48,6 +49,7 @@ export function setUnauthorizedHandler(handler: (() => void) | null) {
 }
 
 type MobileSessionRole = 'attorney' | 'plaintiff'
+type RetryableRequestConfig = InternalAxiosRequestConfig & { _retriedAuth?: boolean }
 
 if (__DEV__ && Device.isDevice && /localhost|127\.0\.0\.1/i.test(API_URL)) {
   // eslint-disable-next-line no-console
@@ -100,8 +102,19 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response?.status === 401) {
+      const config = error.config as RetryableRequestConfig | undefined
+      const method = String(config?.method || '').toLowerCase()
+      const url = String(config?.url || '')
+      const isSessionProbe = url.includes('/v1/auth/me')
+
+      if (config && method === 'get' && !isSessionProbe && !config._retriedAuth) {
+        config._retriedAuth = true
+        return api.request(config)
+      }
+
       await SecureStore.deleteItemAsync('auth_token')
       await SecureStore.deleteItemAsync('user')
+      await SecureStore.deleteItemAsync('session_role')
       unauthorizedHandler?.()
     }
     return Promise.reject(error)
@@ -159,8 +172,21 @@ export async function isAuthenticated(): Promise<boolean> {
 }
 
 // Attorney Dashboard / Leads
-export async function getAttorneyDashboard() {
+export async function getAttorneyDashboard(): Promise<AttorneyDashboardResponse> {
   const { data } = await api.get('/v1/attorney-dashboard/dashboard')
+  return data
+}
+
+export type FilteredLeadParams = {
+  status?: string
+  minScore?: number
+  claimType?: string
+  state?: string
+  sortBy?: 'score' | 'newest' | 'deadline' | 'value'
+}
+
+export async function getFilteredAttorneyLeads(params: FilteredLeadParams = {}) {
+  const { data } = await api.get('/v1/attorney-dashboard/leads/filtered', { params })
   return data
 }
 
@@ -315,6 +341,79 @@ export async function decideLead(
 export async function getLeadDetails(leadId: string) {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}`)
   return data
+}
+
+export type LeadQualityDetails = {
+  qualityScore?: number
+  readinessScore?: number
+  demandReadiness?: {
+    score?: number
+    label?: string
+    nextAction?: { title?: string; detail?: string; actionType?: string }
+  }
+  strengths?: string[]
+  risks?: string[]
+  missingItems?: Array<{ label?: string; detail?: string; actionType?: string }>
+  recommendation?: {
+    decision?: string
+    confidence?: number
+    rationale?: string
+  }
+}
+
+export async function getLeadQuality(leadId: string): Promise<LeadQualityDetails | null> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/quality`)
+  const qualityDetails = data?.qualityDetails || data
+  const viability = qualityDetails?.viabilityBreakdown || {}
+  const required = Array.isArray(qualityDetails?.evidenceChecklist?.required)
+    ? qualityDetails.evidenceChecklist.required
+    : []
+  const missingItems = required
+    .filter((item: any) => !item?.uploaded)
+    .map((item: any) => ({
+      label: item?.name || item?.label || 'Missing document',
+      detail: item?.critical ? 'Critical supporting document for mobile case review.' : 'Useful supporting document.',
+      actionType: 'request_documents',
+    }))
+  const strengths = [
+    Number(viability.liability || 0) >= 0.65 ? 'Liability signal is above routing threshold.' : null,
+    Number(viability.damages || 0) >= 0.65 ? 'Damages signal is strong enough for early review.' : null,
+    qualityDetails?.hotness?.level === 'hot' ? 'Recently submitted and should be reviewed quickly.' : null,
+  ].filter(Boolean) as string[]
+  const risks = [
+    Number(viability.liability || 0) < 0.45 ? 'Liability is not yet clearly established.' : null,
+    Number(viability.damages || 0) < 0.45 ? 'Damages support may be thin.' : null,
+    qualityDetails?.sol?.isUrgent ? 'Statute of limitations timing needs attention.' : null,
+    missingItems.length > 0 ? `${missingItems.length} requested document${missingItems.length === 1 ? '' : 's'} still missing.` : null,
+  ].filter(Boolean) as string[]
+
+  return {
+    qualityScore: Number(qualityDetails?.qualityReports?.[0]?.qualityScore ?? viability.overall ?? 0) * (Number(viability.overall ?? 0) <= 1 ? 100 : 1),
+    readinessScore: Number(viability.overall ?? 0) * (Number(viability.overall ?? 0) <= 1 ? 100 : 1),
+    strengths,
+    risks,
+    missingItems,
+    demandReadiness: {
+      score: Number(viability.overall ?? 0),
+      label: qualityDetails?.hotness?.level
+        ? `${String(qualityDetails.hotness.level).toUpperCase()} lead · ${qualityDetails.hotness.hoursSinceSubmission ?? 0}h since submission`
+        : undefined,
+      nextAction: missingItems[0]
+        ? {
+            title: `Request ${missingItems[0].label}`,
+            detail: missingItems[0].detail,
+            actionType: 'request_documents',
+          }
+        : undefined,
+    },
+    recommendation: {
+      decision: Number(viability.overall || 0) >= 0.6 ? 'review' : 'watch',
+      confidence: Number(viability.overall || 0),
+      rationale: risks.length > 0
+        ? `Review with caution: ${risks[0]}`
+        : strengths[0] || 'Case quality signals are available for mobile triage.',
+    },
+  }
 }
 
 export type LeadEvidenceFile = {

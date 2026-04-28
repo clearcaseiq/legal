@@ -5,6 +5,10 @@
  */
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { config } from 'dotenv'
+import { resolve } from 'path'
+
+config({ path: resolve(__dirname, '../.env'), override: true })
 
 const prisma = new PrismaClient()
 

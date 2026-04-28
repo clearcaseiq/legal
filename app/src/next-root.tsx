@@ -1,19 +1,5 @@
-import { BrowserRouter } from 'react-router-dom'
-import App from './App'
-import { LanguageProvider } from './contexts/LanguageContext'
-import { ThemeProvider } from './contexts/ThemeContext'
-import { ToastProvider } from './contexts/ToastContext'
+import AppProviders from './AppProviders'
 
 export default function NextRoot() {
-  return (
-    <LanguageProvider>
-      <BrowserRouter>
-        <ThemeProvider>
-          <ToastProvider>
-            <App />
-          </ToastProvider>
-        </ThemeProvider>
-      </BrowserRouter>
-    </LanguageProvider>
-  )
+  return <AppProviders />
 }

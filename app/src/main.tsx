@@ -1,22 +1,10 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
-import App from './App'
-import { LanguageProvider } from './contexts/LanguageContext'
-import { ThemeProvider } from './contexts/ThemeContext'
-import { ToastProvider } from './contexts/ToastContext'
+import AppProviders from './AppProviders'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <LanguageProvider>
-      <BrowserRouter>
-        <ThemeProvider>
-          <ToastProvider>
-            <App />
-          </ToastProvider>
-        </ThemeProvider>
-      </BrowserRouter>
-    </LanguageProvider>
+    <AppProviders />
   </React.StrictMode>,
 )

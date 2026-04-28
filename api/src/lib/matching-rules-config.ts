@@ -42,6 +42,18 @@ export interface MatchingRulesConfig {
   strategic_priority: number
 }
 
+export type MatchingRulesWeights = Pick<
+  MatchingRulesConfig,
+  | 'jurisdiction_fit'
+  | 'case_type_fit'
+  | 'economic_fit'
+  | 'response_score'
+  | 'conversion_score'
+  | 'capacity_score'
+  | 'plaintiff_fit'
+  | 'strategic_priority'
+>
+
 export const DEFAULT_MATCHING_RULES: MatchingRulesConfig = {
   routingEnabled: true,
   maxAttorneysWave1: 3,
@@ -103,5 +115,56 @@ export async function saveMatchingRules(config: Partial<MatchingRulesConfig>): P
     throw new Error(
       'Failed to save matching rules. Ensure the routing_config table exists (run: npx prisma migrate deploy)'
     )
+  }
+}
+
+export function normalizeMatchingWeights(config: MatchingRulesConfig): MatchingRulesWeights {
+  const weights: MatchingRulesWeights = {
+    jurisdiction_fit: Number(config.jurisdiction_fit || 0),
+    case_type_fit: Number(config.case_type_fit || 0),
+    economic_fit: Number(config.economic_fit || 0),
+    response_score: Number(config.response_score || 0),
+    conversion_score: Number(config.conversion_score || 0),
+    capacity_score: Number(config.capacity_score || 0),
+    plaintiff_fit: Number(config.plaintiff_fit || 0),
+    strategic_priority: Number(config.strategic_priority || 0),
+  }
+  const total = Object.values(weights).reduce((sum, value) => sum + Math.max(0, value), 0)
+  if (total <= 0) {
+    return normalizeMatchingWeights(DEFAULT_MATCHING_RULES)
+  }
+  return Object.fromEntries(
+    Object.entries(weights).map(([key, value]) => [key, Math.max(0, value) / total])
+  ) as MatchingRulesWeights
+}
+
+export function getConfiguredWaveSize(config: MatchingRulesConfig, waveNumber: number): number {
+  const size = waveNumber === 1
+    ? config.maxAttorneysWave1
+    : waveNumber === 2
+      ? config.maxAttorneysWave2
+      : config.maxAttorneysWave3
+  return Math.max(1, Math.round(Number(size || DEFAULT_MATCHING_RULES.maxAttorneysWave1)))
+}
+
+export function getConfiguredWaveWaitHours(config: MatchingRulesConfig, waveNumber: number): number {
+  const waitHours = waveNumber === 1
+    ? config.wave1WaitHours
+    : waveNumber === 2
+      ? config.wave2WaitHours
+      : config.wave3WaitHours
+  return Math.max(0.25, Number(waitHours || DEFAULT_MATCHING_RULES.wave1WaitHours))
+}
+
+export function getPreRoutingGateOptions(config: MatchingRulesConfig) {
+  return {
+    minCaseScore: Number(config.minCaseScore ?? DEFAULT_MATCHING_RULES.minCaseScore),
+    minEvidenceScore: Number(config.minEvidenceScore ?? DEFAULT_MATCHING_RULES.minEvidenceScore),
+    supportedJurisdictions: config.supportedJurisdictions?.length
+      ? config.supportedJurisdictions
+      : DEFAULT_MATCHING_RULES.supportedJurisdictions,
+    supportedClaimTypes: config.supportedClaimTypes?.length
+      ? config.supportedClaimTypes
+      : DEFAULT_MATCHING_RULES.supportedClaimTypes,
   }
 }

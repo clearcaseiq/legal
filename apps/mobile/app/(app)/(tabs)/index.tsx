@@ -149,7 +149,7 @@ export default function HomeScreen() {
 function AttorneyHomeDashboardScreen() {
   const { user } = useAuth()
   const [refreshing, setRefreshing] = useState(false)
-  const { data: payload, loading, error: loadError, refresh } = useAttorneyDashboardData()
+  const { data: payload, loading, error: loadError, isOfflineSnapshot, refresh } = useAttorneyDashboardData()
 
   useFocusEffect(
     useCallback(() => {
@@ -188,6 +188,65 @@ function AttorneyHomeDashboardScreen() {
     needsActionToday.length +
     meetingsToday.length +
     (messagingSummary.awaitingResponseCount > 0 ? 1 : 0)
+  const reviewSlaLabel = needsReview.length > 0
+    ? `${needsReview.length} lead${needsReview.length === 1 ? '' : 's'} waiting`
+    : 'No pending lead decisions'
+  const primaryCommand = (() => {
+    if (needsActionToday[0]) {
+      const item = needsActionToday[0]
+      return {
+        icon: item.severity === 'high' ? 'alert-circle-outline' : 'flash-outline',
+        eyebrow: item.severity === 'high' ? 'Urgent next action' : 'Best next action',
+        title: item.title,
+        detail: item.detail || `${item.plaintiffName || 'Plaintiff'} · ${formatClaimType(item.claimType)}`,
+        actionLabel: item.actionLabel || 'Open',
+        onPress: () => navigateAttorneyQueueItem({
+          actionType: (item.actionType || 'open_lead') as QueueActionType,
+          leadId: item.leadId,
+        }),
+      }
+    }
+    if (messagingSummary.awaitingResponseCount > 0) {
+      return {
+        icon: 'chatbubbles-outline',
+        eyebrow: 'Communication',
+        title: 'Reply to waiting plaintiffs',
+        detail: `${messagingSummary.awaitingResponseCount} conversation${messagingSummary.awaitingResponseCount === 1 ? '' : 's'} need a response.`,
+        actionLabel: 'Open messages',
+        onPress: () => router.push('/(app)/(tabs)/messages'),
+      }
+    }
+    if (meetingsToday[0]) {
+      const meeting = meetingsToday[0]
+      return {
+        icon: 'calendar-outline',
+        eyebrow: 'Consult today',
+        title: `${formatMeetingType(meeting.type)} at ${formatTime(meeting.scheduledAt)}`,
+        detail: `${meeting.plaintiffName || 'Plaintiff'} · ${formatClaimType(meeting.claimType)}`,
+        actionLabel: 'Open case',
+        onPress: () => meeting.leadId ? router.push(`/(app)/lead/${meeting.leadId}`) : router.push('/(app)/(tabs)/calendar'),
+      }
+    }
+    if (needsReview[0]) {
+      const lead = needsReview[0]
+      return {
+        icon: 'mail-unread-outline',
+        eyebrow: 'Review queue',
+        title: 'Review newest lead match',
+        detail: `${formatClaimType(lead.assessment?.claimType)} · ${[lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || 'Venue pending'}`,
+        actionLabel: 'Review lead',
+        onPress: () => router.push(`/(app)/lead/${lead.id}`),
+      }
+    }
+    return {
+      icon: 'shield-checkmark-outline',
+      eyebrow: 'Pipeline clear',
+      title: 'No urgent attorney actions',
+      detail: 'Your messages, lead decisions, and consults are caught up.',
+      actionLabel: 'Open cases',
+      onPress: () => router.push('/(app)/(tabs)/inbox'),
+    }
+  })()
 
   if (loading && !payload) {
     return (
@@ -218,12 +277,29 @@ function AttorneyHomeDashboardScreen() {
 
       {loadError ? (
         <InlineErrorBanner
-          message={loadError}
+          message={isOfflineSnapshot ? `${loadError} Showing your last saved dashboard snapshot.` : loadError}
           onAction={() => {
             void refresh({ force: true })
           }}
         />
       ) : null}
+
+      <TouchableOpacity style={styles.commandCard} onPress={primaryCommand.onPress} activeOpacity={0.9}>
+        <View style={styles.commandTop}>
+          <View style={styles.commandIcon}>
+            <Ionicons name={primaryCommand.icon as keyof typeof Ionicons.glyphMap} size={22} color="#fff" />
+          </View>
+          <View style={styles.commandCopy}>
+            <Text style={styles.commandEyebrow}>{primaryCommand.eyebrow}</Text>
+            <Text style={styles.commandTitle}>{primaryCommand.title}</Text>
+            <Text style={styles.commandDetail}>{primaryCommand.detail}</Text>
+          </View>
+        </View>
+        <View style={styles.commandFooter}>
+          <Text style={styles.commandSla}>{reviewSlaLabel}</Text>
+          <Text style={styles.commandCta}>{primaryCommand.actionLabel} →</Text>
+        </View>
+      </TouchableOpacity>
 
       {todayCount > 0 ? (
         <View style={styles.todayCard}>
@@ -830,6 +906,40 @@ const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
   greeting: { fontSize: 28, fontWeight: '800', color: colors.text },
   subGreeting: { fontSize: 15, color: colors.textSecondary, marginTop: 4, marginBottom: space.lg },
+  commandCard: {
+    backgroundColor: colors.nav,
+    borderRadius: radii.xl,
+    padding: space.lg,
+    marginBottom: space.lg,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.brandAccent,
+    ...shadows.card,
+  },
+  commandTop: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md },
+  commandIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  commandCopy: { flex: 1 },
+  commandEyebrow: { fontSize: 11, fontWeight: '800', color: colors.brandAccent, letterSpacing: 0.8, textTransform: 'uppercase' },
+  commandTitle: { fontSize: 19, fontWeight: '800', color: '#fff', marginTop: 4 },
+  commandDetail: { fontSize: 14, lineHeight: 20, color: 'rgba(226,232,240,0.92)', marginTop: 6 },
+  commandFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.md,
+    marginTop: space.lg,
+    paddingTop: space.md,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(226,232,240,0.18)',
+  },
+  commandSla: { flex: 1, fontSize: 12, color: 'rgba(226,232,240,0.78)', fontWeight: '600' },
+  commandCta: { fontSize: 14, fontWeight: '800', color: colors.brandAccent },
   todayCard: {
     backgroundColor: colors.card,
     borderRadius: radii.xl,

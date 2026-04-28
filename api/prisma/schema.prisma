@@ -355,6 +355,10 @@ model BillingInvoice {
   dueDate      DateTime?
   paidAt       DateTime?
   notes        String?
+  stripeCheckoutSessionId String? @unique
+  stripePaymentIntentId   String? @unique
+  stripeCustomerId        String?
+  stripePaymentStatus     String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -370,10 +374,38 @@ model BillingPayment {
   receivedAt   DateTime   @default(now())
   reference    String?
   notes        String?
+  processor    String?
+  stripeCheckoutSessionId String? @unique
+  stripePaymentIntentId   String? @unique
+  stripeChargeId          String? @unique
+  stripeCustomerId        String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
   @@map("billing_payments")
+}
+
+model PlatformPayment {
+  id           String    @id @default(cuid())
+  attorneyId   String
+  attorney     Attorney  @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  type         String    // subscription, lead_credit, platform_fee
+  amount       Float?
+  currency     String    @default("usd")
+  status       String
+  stripeCustomerId        String?
+  stripeCheckoutSessionId String? @unique
+  stripePaymentIntentId   String? @unique
+  stripeSubscriptionId    String?
+  stripePriceId           String?
+  metadata     String?   @db.Text
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([attorneyId])
+  @@index([stripeCustomerId])
+  @@index([stripeSubscriptionId])
+  @@map("platform_payments")
 }
 
 model CaseHealthSnapshot {
@@ -573,6 +605,7 @@ model Attorney {
   importSources              AttorneyImportSource[]
   calendarConnections        AttorneyCalendarConnection[]
   calendarBusyBlocks         AttorneyCalendarBusyBlock[]
+  platformPayments           PlatformPayment[]
 
   // Phase 2: Communications
   platformNotificationEvents PlatformNotificationEvent[]
@@ -1425,6 +1458,14 @@ model AttorneyProfile {
   accountBalance           Float   @default(0) // Account balance for pay-per-case
   tier1Enabled             Boolean @default(false) // Enable Tier 1 routing
   tier2Enabled             Boolean @default(false) // Enable Tier 2 routing
+  stripeCustomerId         String? @unique
+  stripeSubscriptionId     String? @unique
+  stripeSubscriptionStatus String?
+  stripeSubscriptionPriceId String?
+  stripeCurrentPeriodEnd   DateTime?
+  stripeConnectAccountId   String? @unique
+  stripeConnectChargesEnabled Boolean @default(false)
+  stripeConnectPayoutsEnabled Boolean @default(false)
   
   // ===== ROUTING METRICS (calculated/aggregated) =====
   historicalAcceptanceRate Float? // Historical acceptance rate (0-1)

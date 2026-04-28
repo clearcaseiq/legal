@@ -20,16 +20,14 @@ router.get('/search', async (req: Request, res: Response) => {
     const { venue, claim_type, limit } = parsed.data
     const groupByFirm = req.query.group_by_firm === 'true'
     
-    // Get all attorneys (in a real app, you'd filter by venue/specialty)
+    // Score a broad candidate pool first, then apply the requested limit.
     const attorneys = await prisma.attorney.findMany({
-      take: limit,
+      take: Math.max(limit * 10, 50),
       where: {
-        // Add venue and specialty filtering here
         isActive: true
       },
       include: {
-        lawFirm: true,
-        attorneyProfile: true
+        lawFirm: true
       } as any
     })
 
@@ -132,16 +130,17 @@ router.get('/search', async (req: Request, res: Response) => {
 
     // Sort by fit score
     attorneyResults.sort((a, b) => b.fit_score - a.fit_score)
+    const limitedAttorneyResults = attorneyResults.slice(0, limit)
 
     if (!groupByFirm) {
       logger.info('Attorney search completed (individual)')
-      return res.json(attorneyResults)
+      return res.json(limitedAttorneyResults)
     }
 
     // Group by firm
     const firmsMap = new Map<string, any>()
 
-    for (const a of attorneyResults) {
+    for (const a of limitedAttorneyResults) {
       const firmKey = a.law_firm?.id || a.law_firm?.name || 'Independent'
       if (!firmsMap.has(firmKey)) {
         firmsMap.set(firmKey, {

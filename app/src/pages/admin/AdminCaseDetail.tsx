@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getAdminCaseDetail, bulkRouteCases, getAdminAttorneys, holdCaseForManualReview, getAdminCaseRoutingState, getAdminAttorneyDebug, getAdminAttorneyRecommendations, runAdminRouteEngine } from '../../lib/api'
+import { getAdminCaseDetail, bulkRouteCases, getAdminAttorneys, holdCaseForManualReview, getAdminCaseRoutingState, getAdminAttorneyDebug, getAdminAttorneyRecommendations, runAdminRouteEngine, manualReviewAction } from '../../lib/api'
 import { DECLINE_REASONS } from '../../components/DeclineModal'
 import { formatCurrency, formatDate } from '../../lib/formatters'
 import {
@@ -47,6 +47,7 @@ export default function AdminCaseDetail() {
   })
   const [simulationLoading, setSimulationLoading] = useState(false)
   const [simulationResult, setSimulationResult] = useState<any | null>(null)
+  const [interventionStatus, setInterventionStatus] = useState<string | null>(null)
 
   const loadCase = async () => {
     if (!id) return
@@ -171,6 +172,22 @@ export default function AdminCaseDetail() {
       await loadCase()
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'Failed to hold case')
+    } finally {
+      setHolding(false)
+    }
+  }
+
+  const handleManualReviewAction = async (action: 'release' | 'request_info' | 'compliance' | 'reject') => {
+    if (!id) return
+    setHolding(true)
+    setError(null)
+    setInterventionStatus(null)
+    try {
+      await manualReviewAction(id, action, `Admin case detail action: ${action}`)
+      setInterventionStatus(`Action completed: ${action.replace(/_/g, ' ')}`)
+      await loadCase()
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || 'Action failed')
     } finally {
       setHolding(false)
     }
@@ -311,6 +328,103 @@ export default function AdminCaseDetail() {
             <p className="text-xs text-slate-500">Estimated value</p>
             <p>{bands.median ? formatCurrency(bands.median) : '—'}</p>
           </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-slate-900 flex items-center gap-2">
+              <ClipboardCheck className="h-5 w-5 text-brand-600" />
+              Case intervention actions
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Hold, release, diagnose, simulate, or route this case without leaving the detail page.
+            </p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
+            caseData.manualReviewStatus === 'pending'
+              ? 'bg-amber-100 text-amber-800'
+              : 'bg-emerald-100 text-emerald-800'
+          }`}>
+            {caseData.manualReviewStatus === 'pending' ? 'Manual review' : 'Active'}
+          </span>
+        </div>
+        {interventionStatus && (
+          <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            {interventionStatus}
+          </div>
+        )}
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <button
+            type="button"
+            onClick={() => setShowHoldModal(true)}
+            disabled={caseData.manualReviewStatus === 'pending'}
+            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-sm hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <p className="font-semibold text-slate-900">Hold for review</p>
+            <p className="mt-1 text-xs text-slate-500">Pause routing for ops review.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => { void handleManualReviewAction('release') }}
+            disabled={caseData.manualReviewStatus !== 'pending' || holding}
+            className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-sm text-emerald-900 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <p className="font-semibold">Release to routing</p>
+            <p className="mt-1 text-xs opacity-80">Return held case to routing.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => { void handleRunSimulation() }}
+            disabled={simulationLoading}
+            className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-left text-sm text-blue-900 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <p className="font-semibold">Simulate routing</p>
+            <p className="mt-1 text-xs opacity-80">Preview candidate matching.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setShowRouteModal(true); setRouteError(null); }}
+            className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-left text-sm text-brand-900 hover:bg-brand-100"
+          >
+            <p className="font-semibold">Assign attorney</p>
+            <p className="mt-1 text-xs opacity-80">Manually route this case.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => { void handleManualReviewAction('request_info') }}
+            disabled={caseData.manualReviewStatus !== 'pending' || holding}
+            className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-sm text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <p className="font-semibold">Request info</p>
+            <p className="mt-1 text-xs opacity-80">Flag plaintiff follow-up needed.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => { void handleManualReviewAction('compliance') }}
+            disabled={caseData.manualReviewStatus !== 'pending' || holding}
+            className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-left text-sm text-violet-900 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <p className="font-semibold">Compliance review</p>
+            <p className="mt-1 text-xs opacity-80">Send case to compliance path.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => checkRoutingState()}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm hover:bg-slate-50"
+          >
+            <p className="font-semibold text-slate-900">Diagnose routing</p>
+            <p className="mt-1 text-xs text-slate-500">Inspect intros, waves, and lock state.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(`/admin/documents?case=${caseData.id}`)}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm hover:bg-slate-50"
+          >
+            <p className="font-semibold text-slate-900">Review documents</p>
+            <p className="mt-1 text-xs text-slate-500">Open document/OCR queue.</p>
+          </button>
         </div>
       </div>
 
@@ -586,6 +700,40 @@ export default function AdminCaseDetail() {
                 {simulationResult.errors.join('; ')}
               </div>
             )}
+            {simulationResult.diagnostics?.selected?.length > 0 && (
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-medium text-slate-500">Why these attorneys ranked highest</p>
+                <div className="space-y-2">
+                  {simulationResult.diagnostics.selected.map((candidate: any) => (
+                    <div key={candidate.attorneyId} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-900">
+                          {recommendations.find((item: any) => item.attorney.id === candidate.attorneyId)?.attorney.name || candidate.attorneyId}
+                        </span>
+                        <span>
+                          Score {Math.round((candidate.routingScore || 0) * 100)}% • Acceptance {Math.round((candidate.acceptanceProbability || 0) * 100)}%
+                        </span>
+                      </div>
+                      <p className="mt-1">
+                        Jurisdiction {Math.round((candidate.components?.jurisdiction_fit || 0) * 100)}%, case fit {Math.round((candidate.components?.case_type_fit || 0) * 100)}%, capacity {Math.round((candidate.components?.capacity_score || 0) * 100)}%, plaintiff fit {Math.round((candidate.components?.plaintiff_fit || 0) * 100)}%.
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {simulationResult.diagnostics?.excludedPreview?.length > 0 && (
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-medium text-slate-500">Top exclusion reasons</p>
+                <div className="flex flex-wrap gap-2">
+                  {simulationResult.diagnostics.excludedPreview.slice(0, 8).map((item: any) => (
+                    <span key={`${item.attorneyId}-${item.stage}-${item.reason}`} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
+                      {item.stage}: {item.reason}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -630,6 +778,51 @@ export default function AdminCaseDetail() {
           </div>
         ) : (
           <p className="text-sm text-slate-500">No routing audit entries recorded for this case yet.</p>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-6">
+        <h2 className="font-semibold text-slate-900 flex items-center gap-2 mb-4">
+          <BarChart3 className="h-5 w-5" />
+          Routing decision diagnostics
+        </h2>
+        {Array.isArray(caseData.routingDiagnostics) && caseData.routingDiagnostics.length > 0 ? (
+          <div className="space-y-3">
+            {caseData.routingDiagnostics.slice(0, 10).map((entry: any) => (
+              <div key={entry.id} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-slate-900">{String(entry.eventType || '').replace(/_/g, ' ')}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {entry.attorneyId ? `Attorney ${entry.attorneyId}` : 'System event'}
+                    </p>
+                  </div>
+                  <p className="text-xs text-slate-500">{formatDate(entry.createdAt)}</p>
+                </div>
+                {entry.eventData?.routingScore != null && (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    <div className="rounded-lg bg-white px-3 py-2">
+                      <p className="text-xs text-slate-500">Routing score</p>
+                      <p className="font-semibold text-slate-900">{Math.round(entry.eventData.routingScore * 100)}%</p>
+                    </div>
+                    <div className="rounded-lg bg-white px-3 py-2">
+                      <p className="text-xs text-slate-500">Match score</p>
+                      <p className="font-semibold text-slate-900">{Math.round((entry.eventData.matchScore || 0) * 100)}%</p>
+                    </div>
+                    <div className="rounded-lg bg-white px-3 py-2">
+                      <p className="text-xs text-slate-500">Accept probability</p>
+                      <p className="font-semibold text-slate-900">{Math.round((entry.eventData.acceptanceProbability || 0) * 100)}%</p>
+                    </div>
+                  </div>
+                )}
+                {entry.eventData?.failureReason && (
+                  <p className="mt-2 text-xs text-red-700">Failure: {entry.eventData.failureReason}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">No routing diagnostics recorded yet. Run a simulation or route the case to populate score explanations.</p>
         )}
       </div>
 

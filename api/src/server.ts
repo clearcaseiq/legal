@@ -8,12 +8,55 @@ import passport from 'passport'
 import crypto from 'crypto'
 import path from 'path'
 import { prisma } from './lib/prisma'
+import { logger } from './lib/logger'
 
 const AUDITED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+const PLACEHOLDER_SECRETS = new Set(['your-secret-key', 'development-secret', 'changeme'])
+
+function parseCommaSeparatedEnv(value: string | undefined) {
+  return (value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function getSessionSecret(isProduction: boolean) {
+  const secret = process.env.SESSION_SECRET || process.env.JWT_SECRET
+  if (isProduction && (!secret || PLACEHOLDER_SECRETS.has(secret))) {
+    throw new Error('SESSION_SECRET or JWT_SECRET must be configured with a non-placeholder value in production')
+  }
+  return secret || 'development-secret'
+}
+
+function getAllowedProductionOrigins() {
+  const origins = parseCommaSeparatedEnv(process.env.CORS_ORIGINS || process.env.WEB_URL)
+  if (origins.length === 0) {
+    throw new Error('CORS_ORIGINS or WEB_URL must be configured in production')
+  }
+  if (origins.some((origin) => origin === 'https://yourdomain.com')) {
+    throw new Error('CORS_ORIGINS contains the placeholder https://yourdomain.com')
+  }
+  return origins
+}
+
+function getRateLimitMax(isProduction: boolean) {
+  const raw = process.env.RATE_LIMIT_MAX
+  if (!raw) return isProduction ? 300 : 1000
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error('RATE_LIMIT_MAX must be a positive number')
+  }
+  return parsed
+}
 
 export function createServer(): Express {
   const app = express()
   app.disable('x-powered-by')
+  const isProduction = process.env.NODE_ENV === 'production'
+
+  if (process.env.TRUST_PROXY) {
+    app.set('trust proxy', process.env.TRUST_PROXY)
+  }
 
   // Minimal health check - before any middleware that could block
   app.get('/health', (req, res) => {
@@ -24,10 +67,9 @@ export function createServer(): Express {
   app.use(helmet())
   
   // Rate limiting
-  const isProduction = process.env.NODE_ENV === 'production'
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: isProduction ? 100 : 1000, // higher limit in dev to avoid blocking local UI
+    max: getRateLimitMax(isProduction), // higher default in dev to avoid blocking local UI
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many requests from this IP, please try again later.',
@@ -41,7 +83,7 @@ export function createServer(): Express {
   
   // Session configuration
   app.use(session({
-    secret: process.env.JWT_SECRET || 'your-secret-key',
+    secret: getSessionSecret(isProduction),
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -67,12 +109,12 @@ export function createServer(): Express {
   ]
   const isDevLocalhost = (o: string) =>
     !o || devOrigins.includes(o) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o)
+  const productionAllowedOrigins = isProduction ? getAllowedProductionOrigins() : []
 
   app.use(cors({
     origin: (origin, callback) => {
-      if (process.env.NODE_ENV === 'production') {
-        const allowed = ['https://yourdomain.com']
-        return callback(null, !origin || allowed.includes(origin))
+      if (isProduction) {
+        return callback(null, !origin || productionAllowedOrigins.includes(origin))
       }
 
       if (!origin) return callback(null, true)
@@ -81,11 +123,16 @@ export function createServer(): Express {
     credentials: true
   }))
   
+  app.use('/v1/payments/stripe-webhook', express.raw({ type: 'application/json' }))
   app.use(express.json({ limit: '10mb' }))
   app.use(express.urlencoded({ extended: true }))
   
   // Logging
-  app.use(morgan('dev'))
+  app.use(morgan(isProduction ? 'combined' : 'dev', {
+    stream: {
+      write: (message) => logger.info(message.trim()),
+    },
+  }))
   
   // Request ID middleware
   app.use((req: Request, res: Response, next: NextFunction) => {

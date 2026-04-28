@@ -24,6 +24,22 @@ export function useAdminRoutingStatus() {
     void reload()
   }, [reload])
 
+  useEffect(() => {
+    const handleRoutingStatusChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ routingEnabled?: boolean }>).detail
+      if (typeof detail?.routingEnabled === 'boolean') {
+        setRoutingEnabled(detail.routingEnabled)
+        setLoading(false)
+        setError(null)
+      } else {
+        void reload()
+      }
+    }
+
+    window.addEventListener('admin-routing-status-changed', handleRoutingStatusChanged)
+    return () => window.removeEventListener('admin-routing-status-changed', handleRoutingStatusChanged)
+  }, [reload])
+
   return {
     routingEnabled,
     loading,

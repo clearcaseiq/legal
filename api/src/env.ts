@@ -1,13 +1,8 @@
 import { config } from 'dotenv'
 import { resolve } from 'path'
 
-// Load .env file with explicit path resolution
-const envPath = resolve(process.cwd(), '.env')
-config({ path: envPath })
-
-// Also try loading from the API directory
-const apiEnvPath = resolve(process.cwd(), 'api/.env')
-config({ path: apiEnvPath })
+const apiEnvPath = resolve(__dirname, '../.env')
+config({ path: apiEnvPath, override: true })
 
 function req(name: string) {
   const v = process.env[name]
@@ -33,6 +28,10 @@ export const ENV = {
   ML_PROMPT_VERSION: process.env.ML_PROMPT_VERSION ?? 'legal-grounded-v1',
   API_URL: process.env.API_URL ?? 'http://localhost:4000',
   WEB_URL: process.env.WEB_URL ?? 'http://localhost:5174',
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+  STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
+  STRIPE_PLATFORM_SUBSCRIPTION_PRICE_ID: process.env.STRIPE_PLATFORM_SUBSCRIPTION_PRICE_ID,
+  STRIPE_LEAD_CREDIT_PRICE_ID: process.env.STRIPE_LEAD_CREDIT_PRICE_ID,
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
   GOOGLE_CALENDAR_CLIENT_ID: process.env.GOOGLE_CALENDAR_CLIENT_ID,

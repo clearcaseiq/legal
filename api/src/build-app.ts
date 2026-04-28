@@ -41,6 +41,7 @@ import rose from './routes/rose'
 import adminCommunications from './routes/admin-communications'
 import supportTickets from './routes/support-tickets'
 import attorneyCalendar from './routes/attorney-calendar'
+import payments from './routes/payments'
 
 /**
  * Fully configured Express app (no listen). Used by index.ts and integration tests.
@@ -88,6 +89,7 @@ export function buildApp(): Express {
   app.use('/v1/feature-toggles', featureToggles)
   app.use('/v1/compliance', compliance)
   app.use('/v1/attorney-calendar', attorneyCalendar)
+  app.use('/v1/payments', payments)
 
   app.get('/', (req, res) => {
     res.json({

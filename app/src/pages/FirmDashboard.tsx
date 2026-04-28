@@ -221,6 +221,32 @@ export default function FirmDashboard() {
     )
   }
 
+  if (error === 'No law firm associated with this attorney') {
+    return (
+      <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
+          <div className="flex items-center">
+            <Building2 className="h-5 w-5 text-amber-600 mr-2" />
+            <h3 className="text-lg font-medium text-amber-900">Firm dashboard is not set up yet</h3>
+          </div>
+          <p className="mt-2 text-sm text-amber-800">
+            This attorney account is not linked to a law firm, so firm-level team management is unavailable.
+          </p>
+          <p className="mt-1 text-sm text-amber-800">
+            You can keep using the attorney dashboard, or add a firm to this attorney record when you are ready to manage a team.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate('/attorney-dashboard')}
+            className="mt-4 rounded-lg bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800"
+          >
+            Back to Attorney Dashboard
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (error) {
     return (
       <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">

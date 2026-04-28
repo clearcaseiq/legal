@@ -97,6 +97,7 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+.local-postgres/
 
 # Python cache artifacts
 __pycache__/

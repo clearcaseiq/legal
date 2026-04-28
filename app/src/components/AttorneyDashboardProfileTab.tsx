@@ -107,6 +107,7 @@ export default function AttorneyDashboardProfileTab({
       : responseTimeHours <= 24
         ? 'Replies within 24h'
         : 'Replies within a few days'
+  const hasFirmDashboard = Boolean(profile?.lawFirmId || profile?.lawFirm?.id || profile?.attorney?.lawFirmId || profile?.attorney?.lawFirm?.id)
 
   const openLicenseFile = async () => {
     try {
@@ -190,14 +191,16 @@ export default function AttorneyDashboardProfileTab({
           <p className="mt-1 text-sm text-gray-600">Manage your professional profile and reputation</p>
         </div>
         <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={() => navigate('/firm-dashboard')}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-          >
-            <Building2 className="h-4 w-4 mr-2" />
-            Firm Dashboard
-          </button>
+          {hasFirmDashboard ? (
+            <button
+              type="button"
+              onClick={() => navigate('/firm-dashboard')}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+            >
+              <Building2 className="h-4 w-4 mr-2" />
+              Firm Dashboard
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => setEditing(!editing)}

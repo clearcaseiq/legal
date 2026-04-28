@@ -21,21 +21,16 @@ import {
   recordRoutingEvent,
   isRoutingLocked,
   placeAssessmentInManualReview,
-  WAVE_TIMING
 } from './routing-lifecycle'
-import { isRoutingEnabled } from './matching-rules-config'
-
-/** New ranking formula weights per design doc */
-const RANKING_WEIGHTS = {
-  jurisdiction_fit: 0.20,
-  case_type_fit: 0.20,
-  economic_fit: 0.15,
-  response_score: 0.15,
-  conversion_score: 0.10,
-  capacity_score: 0.10,
-  plaintiff_fit: 0.05,
-  strategic_priority: 0.05
-}
+import {
+  getConfiguredWaveSize,
+  getConfiguredWaveWaitHours,
+  getMatchingRules,
+  getPreRoutingGateOptions,
+  normalizeMatchingWeights,
+  type MatchingRulesConfig,
+  type MatchingRulesWeights,
+} from './matching-rules-config'
 
 function clampScore(value: number, min = 0, max = 1) {
   return Math.min(max, Math.max(min, value))
@@ -110,6 +105,141 @@ function derivePlaintiffFit(
   return clampScore((languageScore * 0.7) + (contactScore * 0.3))
 }
 
+type AttorneyRoutingFeedback = {
+  totalIntroductions: number
+  accepted: number
+  retained: number
+  declined: number
+  requestedInfo: number
+  responded: number
+  avgResponseHours: number | null
+  outcomeWins: number
+  outcomeLosses: number
+  overrides: number
+}
+
+export type RoutingScoreComponents = {
+  jurisdiction_fit: number
+  case_type_fit: number
+  economic_fit: number
+  response_score: number
+  conversion_score: number
+  capacity_score: number
+  plaintiff_fit: number
+  strategic_priority: number
+  acceptance_probability: number
+  feedback_score: number
+}
+
+export type RoutingRankedCandidate = {
+  attorneyId: string
+  routingScore: number
+  matchScore: number
+  acceptanceProbability: number
+  components: RoutingScoreComponents
+}
+
+export type RoutingDiagnostics = {
+  config: Pick<MatchingRulesConfig, 'maxAttorneysWave1' | 'maxAttorneysWave2' | 'maxAttorneysWave3' | 'wave1WaitHours' | 'wave2WaitHours' | 'wave3WaitHours' | 'minCaseScore' | 'minEvidenceScore'>
+  weights: MatchingRulesWeights
+  selected: RoutingRankedCandidate[]
+  rankedPreview: RoutingRankedCandidate[]
+  excludedPreview: Array<{ attorneyId: string; stage: 'eligibility' | 'quality'; reason: string }>
+}
+
+function emptyFeedback(): AttorneyRoutingFeedback {
+  return {
+    totalIntroductions: 0,
+    accepted: 0,
+    retained: 0,
+    declined: 0,
+    requestedInfo: 0,
+    responded: 0,
+    avgResponseHours: null,
+    outcomeWins: 0,
+    outcomeLosses: 0,
+    overrides: 0,
+  }
+}
+
+async function loadAttorneyRoutingFeedback(attorneyIds: string[]): Promise<Map<string, AttorneyRoutingFeedback>> {
+  const feedback = new Map(attorneyIds.map((attorneyId) => [attorneyId, emptyFeedback()] as const))
+  if (attorneyIds.length === 0) return feedback
+
+  const [introductions, decisionMemories] = await Promise.all([
+    prisma.introduction.findMany({
+      where: { attorneyId: { in: attorneyIds } },
+      select: {
+        attorneyId: true,
+        status: true,
+        requestedAt: true,
+        respondedAt: true,
+      },
+    }),
+    prisma.decisionMemory.findMany({
+      where: { attorneyId: { in: attorneyIds } },
+      select: {
+        attorneyId: true,
+        attorneyDecision: true,
+        outcomeStatus: true,
+        override: true,
+      },
+    }),
+  ])
+
+  const responseHours = new Map<string, number[]>()
+  for (const intro of introductions) {
+    const item = feedback.get(intro.attorneyId) ?? emptyFeedback()
+    item.totalIntroductions += 1
+    if (intro.status === 'ACCEPTED') item.accepted += 1
+    if (intro.status === 'RETAINED') item.retained += 1
+    if (intro.status === 'DECLINED') item.declined += 1
+    if (intro.status === 'REQUESTED_INFO') item.requestedInfo += 1
+    if (intro.respondedAt) {
+      item.responded += 1
+      const hours = (intro.respondedAt.getTime() - intro.requestedAt.getTime()) / (1000 * 60 * 60)
+      responseHours.set(intro.attorneyId, [...(responseHours.get(intro.attorneyId) || []), Math.max(0, hours)])
+    }
+    feedback.set(intro.attorneyId, item)
+  }
+
+  for (const memory of decisionMemories) {
+    const item = feedback.get(memory.attorneyId) ?? emptyFeedback()
+    const outcome = String(memory.outcomeStatus || memory.attorneyDecision || '').toLowerCase()
+    if (['retained', 'engaged', 'won', 'accepted', 'accept'].includes(outcome)) item.outcomeWins += 1
+    if (['lost', 'rejected', 'declined', 'reject'].includes(outcome)) item.outcomeLosses += 1
+    if (memory.override) item.overrides += 1
+    feedback.set(memory.attorneyId, item)
+  }
+
+  for (const [attorneyId, hours] of responseHours) {
+    const item = feedback.get(attorneyId) ?? emptyFeedback()
+    item.avgResponseHours = hours.reduce((sum, value) => sum + value, 0) / hours.length
+    feedback.set(attorneyId, item)
+  }
+
+  return feedback
+}
+
+function deriveAcceptanceProbability(attorney: AttorneyForRouting, feedback: AttorneyRoutingFeedback): number {
+  const historicalAcceptance = feedback.totalIntroductions > 0
+    ? (feedback.accepted + feedback.retained + (feedback.requestedInfo * 0.35)) / feedback.totalIntroductions
+    : 0.55
+  const responseSignal = feedback.avgResponseHours != null
+    ? clampScore(1 - (feedback.avgResponseHours / 72), 0.15, 1)
+    : clampScore(1 - ((attorney.responseTimeHours ?? 36) / 72), 0.2, 0.9)
+  const capacitySignal = deriveCapacityScore(attorney)
+  const declinePenalty = feedback.totalIntroductions > 0 ? clampScore(feedback.declined / feedback.totalIntroductions) : 0
+  return clampScore((historicalAcceptance * 0.45) + (responseSignal * 0.25) + (capacitySignal * 0.2) + ((1 - declinePenalty) * 0.1))
+}
+
+function deriveFeedbackScore(feedback: AttorneyRoutingFeedback): number {
+  const totalOutcomes = feedback.outcomeWins + feedback.outcomeLosses
+  const outcomeScore = totalOutcomes > 0 ? feedback.outcomeWins / totalOutcomes : 0.6
+  const overridePenalty = feedback.totalIntroductions > 0 ? clampScore(feedback.overrides / feedback.totalIntroductions) * 0.15 : 0
+  return clampScore(outcomeScore - overridePenalty)
+}
+
 export interface RoutingEngineResult {
   success: boolean
   gatePassed: boolean
@@ -123,6 +253,7 @@ export interface RoutingEngineResult {
   waveSize?: number
   routedTo?: string[]
   introductionIds?: string[]
+  diagnostics?: RoutingDiagnostics
   errors?: string[]
 }
 
@@ -136,52 +267,56 @@ export interface RoutingEngineOptions {
 }
 
 /**
- * Compute routing score using design doc formula:
- * routing_score = 0.20*jurisdiction + 0.20*case_type + 0.15*economic + 0.15*response
- *                + 0.10*conversion + 0.10*capacity + 0.05*plaintiff + 0.05*strategic
+ * Compute the final routing decision score from one explainable component map.
  */
 function computeRoutingScore(
   attorney: AttorneyForRouting,
   caseData: CaseForRouting,
   normalizedCase: NormalizedCase,
-  existingScores: MatchScore
-): number {
-  // Jurisdiction fit (from existing fit breakdown)
+  existingScores: MatchScore,
+  weights: MatchingRulesWeights,
+  feedback: AttorneyRoutingFeedback
+): RoutingRankedCandidate {
   const jurisdiction_fit = existingScores.breakdown?.fit?.jurisdiction ?? 0.5
-
-  // Case type fit
   const case_type_fit = existingScores.breakdown?.fit?.caseType ?? 0.5
-
-  // Economic fit (tier appetite + damages range)
   const economic_fit = existingScores.breakdown?.fit?.tierAppetite ?? 0.5
-
-  // Response score (from trust/outcome)
   const response_score =
     (existingScores.breakdown?.trust?.responseTime ?? 0.5) * 0.5 +
     (existingScores.breakdown?.outcome?.speed ?? 0.5) * 0.5
-
-  // Conversion score
   const conversion_score = existingScores.breakdown?.outcome?.signRate ?? 0.5
-
-  // Capacity score (remaining headroom against actual recent routing load).
   const capacity_score = deriveCapacityScore(attorney)
-
-  // Plaintiff fit (language + communication preference + responsiveness).
   const plaintiff_fit = derivePlaintiffFit(attorney, caseData, normalizedCase)
-
-  // Strategic priority (subscription tier, premium partners)
   const strategic_priority = existingScores.breakdown?.value?.subscriptionTier ?? 0.5
-
-  return (
-    jurisdiction_fit * RANKING_WEIGHTS.jurisdiction_fit +
-    case_type_fit * RANKING_WEIGHTS.case_type_fit +
-    economic_fit * RANKING_WEIGHTS.economic_fit +
-    response_score * RANKING_WEIGHTS.response_score +
-    conversion_score * RANKING_WEIGHTS.conversion_score +
-    capacity_score * RANKING_WEIGHTS.capacity_score +
-    plaintiff_fit * RANKING_WEIGHTS.plaintiff_fit +
-    strategic_priority * RANKING_WEIGHTS.strategic_priority
-  )
+  const acceptance_probability = deriveAcceptanceProbability(attorney, feedback)
+  const feedback_score = deriveFeedbackScore(feedback)
+  const baseScore =
+    jurisdiction_fit * weights.jurisdiction_fit +
+    case_type_fit * weights.case_type_fit +
+    economic_fit * weights.economic_fit +
+    response_score * weights.response_score +
+    conversion_score * weights.conversion_score +
+    capacity_score * weights.capacity_score +
+    plaintiff_fit * weights.plaintiff_fit +
+    strategic_priority * weights.strategic_priority
+  const routingScore = clampScore((baseScore * 0.72) + (acceptance_probability * 0.2) + (feedback_score * 0.08))
+  return {
+    attorneyId: attorney.id,
+    routingScore,
+    matchScore: existingScores.overall,
+    acceptanceProbability: acceptance_probability,
+    components: {
+      jurisdiction_fit,
+      case_type_fit,
+      economic_fit,
+      response_score,
+      conversion_score,
+      capacity_score,
+      plaintiff_fit,
+      strategic_priority,
+      acceptance_probability,
+      feedback_score,
+    },
+  }
 }
 
 /**
@@ -191,19 +326,42 @@ export async function runRoutingEngine(
   assessmentId: string,
   options?: RoutingEngineOptions
 ): Promise<RoutingEngineResult> {
-  const maxPerWave = options?.maxAttorneysPerWave ?? 3
   const skipGate = options?.skipPreRoutingGate ?? false
   const dryRun = options?.dryRun ?? false
 
   const errors: string[] = []
 
   try {
-    if (!(await isRoutingEnabled())) {
+    const matchingRules = await getMatchingRules()
+    const weights = normalizeMatchingWeights(matchingRules)
+    const waveNumberForConfig = options?.waveNumber ?? 1
+    const maxPerWave = options?.maxAttorneysPerWave ?? getConfiguredWaveSize(matchingRules, waveNumberForConfig)
+    const diagnosticsBase = {
+      config: {
+        maxAttorneysWave1: matchingRules.maxAttorneysWave1,
+        maxAttorneysWave2: matchingRules.maxAttorneysWave2,
+        maxAttorneysWave3: matchingRules.maxAttorneysWave3,
+        wave1WaitHours: matchingRules.wave1WaitHours,
+        wave2WaitHours: matchingRules.wave2WaitHours,
+        wave3WaitHours: matchingRules.wave3WaitHours,
+        minCaseScore: matchingRules.minCaseScore,
+        minEvidenceScore: matchingRules.minEvidenceScore,
+      },
+      weights,
+    }
+
+    if (matchingRules.routingEnabled === false) {
       return {
         success: false,
         gatePassed: false,
         gateReason: 'Routing disabled by admin',
         gateStatus: 'not_routable_yet',
+        diagnostics: {
+          ...diagnosticsBase,
+          selected: [],
+          rankedPreview: [],
+          excludedPreview: [],
+        },
         errors: ['Routing disabled by admin']
       }
     }
@@ -232,7 +390,7 @@ export async function runRoutingEngine(
     // 3. Pre-routing gate
     let gateResult: RoutingGateResult = { pass: true }
     if (!skipGate) {
-      gateResult = await runPreRoutingGate(normalizedCase)
+      gateResult = await runPreRoutingGate(normalizedCase, getPreRoutingGateOptions(matchingRules))
       if (!gateResult.pass) {
         if (!dryRun) {
           if (gateResult.status === 'manual_review') {
@@ -271,6 +429,12 @@ export async function runRoutingEngine(
           gateReason: gateResult.reason,
           gateStatus: gateResult.status,
           normalizedCase,
+          diagnostics: {
+            ...diagnosticsBase,
+            selected: [],
+            rankedPreview: [],
+            excludedPreview: [],
+          },
           errors: [gateResult.reason]
         }
       }
@@ -294,7 +458,10 @@ export async function runRoutingEngine(
     // 5. Load attorneys and build AttorneyForRouting[]
     const attorneys = await prisma.attorney.findMany({
       where: { isActive: true },
-      include: { attorneyProfile: true }
+      include: {
+        lawFirm: true,
+        attorneyProfile: true,
+      }
     })
 
     const now = new Date()
@@ -331,9 +498,9 @@ export async function runRoutingEngine(
       responseTimeHours: a.responseTimeHours,
       averageRating: a.averageRating,
       totalReviews: a.totalReviews,
-      subscriptionTier: a.attorneyProfile?.subscriptionTier ?? null,
-      pricingModel: a.attorneyProfile?.pricingModel ?? null,
-      paymentModel: a.attorneyProfile?.paymentModel ?? null,
+      subscriptionTier: null,
+      pricingModel: null,
+      paymentModel: null,
       attorneyProfile: a.attorneyProfile
         ? {
             jurisdictions: a.attorneyProfile.jurisdictions,
@@ -348,7 +515,7 @@ export async function runRoutingEngine(
             successRate: a.attorneyProfile.successRate,
             averageSettlement: a.attorneyProfile.averageSettlement,
             totalCases: a.attorneyProfile.totalCases,
-            yearsExperience: a.attorneyProfile.yearsExperience
+            yearsExperience: a.attorneyProfile.yearsExperience,
           }
         : null,
       currentCasesWeek: casesThisWeekByAttorney.get(a.id) || 0,
@@ -361,6 +528,11 @@ export async function runRoutingEngine(
       ? attorneysForRouting.filter(a => !excludeIds.has(a.id))
       : attorneysForRouting
     const { eligible, ineligible } = await filterEligibleAttorneys(attorneysToConsider, caseData)
+    const excludedPreview = ineligible.slice(0, 12).map((item) => ({
+      attorneyId: item.attorney.id,
+      stage: 'eligibility' as const,
+      reason: item.reason,
+    }))
     if (eligible.length === 0) {
       const reasons = ineligible.slice(0, 3).map(i => i.reason)
       return {
@@ -369,12 +541,26 @@ export async function runRoutingEngine(
         normalizedCase,
         candidatesTotal: attorneysForRouting.length,
         candidatesEligible: 0,
+        diagnostics: {
+          ...diagnosticsBase,
+          selected: [],
+          rankedPreview: [],
+          excludedPreview,
+        },
         errors: ['No eligible attorneys', ...reasons]
       }
     }
 
     // 7. Quality gate
     const { qualified, disqualified } = await filterQualifiedAttorneys(eligible, caseData)
+    const qualityExcludedPreview = [
+      ...excludedPreview,
+      ...disqualified.slice(0, 12).map((item) => ({
+        attorneyId: item.attorney.id,
+        stage: 'quality' as const,
+        reason: item.reason,
+      })),
+    ].slice(0, 20)
     if (qualified.length === 0) {
       const reasons = disqualified.slice(0, 3).map(d => d.reason)
       return {
@@ -384,6 +570,12 @@ export async function runRoutingEngine(
         candidatesTotal: attorneysForRouting.length,
         candidatesEligible: eligible.length,
         candidatesQualified: 0,
+        diagnostics: {
+          ...diagnosticsBase,
+          selected: [],
+          rankedPreview: [],
+          excludedPreview: qualityExcludedPreview,
+        },
         errors: ['No attorneys passed quality gate', ...reasons]
       }
     }
@@ -391,15 +583,26 @@ export async function runRoutingEngine(
     // 8. Rank with new formula (re-use scoring, apply new weights)
     const { scoreAndRankAttorneys } = await import('./routing')
     const scored = await scoreAndRankAttorneys(qualified, caseData)
+    const feedbackByAttorneyId = await loadAttorneyRoutingFeedback(qualified.map((attorney) => attorney.id))
 
     // Re-rank using design doc formula
     const reranked = scored
-      .map(({ attorney, score }) => ({
-        attorney,
-        score,
-        routingScore: computeRoutingScore(attorney, caseData, normalizedCase, score)
-      }))
-      .sort((a, b) => b.routingScore - a.routingScore)
+      .map(({ attorney, score }) => {
+        const routingScore = computeRoutingScore(
+          attorney,
+          caseData,
+          normalizedCase,
+          score,
+          weights,
+          feedbackByAttorneyId.get(attorney.id) ?? emptyFeedback()
+        )
+        return {
+          attorney,
+          score,
+          routingScore,
+        }
+      })
+      .sort((a, b) => b.routingScore.routingScore - a.routingScore.routingScore)
 
     // 9. Controlled wave: optionally honor the plaintiff's ranked attorney order first.
     const preferredAttorneyIds = (options?.preferredAttorneyIds || []).filter(Boolean)
@@ -408,6 +611,12 @@ export async function runRoutingEngine(
       .map((attorneyId) => rerankedByAttorneyId.get(attorneyId))
       .filter((entry): entry is NonNullable<typeof entry> => !!entry)
     const waveAttorneys = (preferredOrdered.length > 0 ? preferredOrdered : reranked).slice(0, maxPerWave)
+    const diagnostics: RoutingDiagnostics = {
+      ...diagnosticsBase,
+      selected: waveAttorneys.map((entry) => entry.routingScore),
+      rankedPreview: reranked.slice(0, 10).map((entry) => entry.routingScore),
+      excludedPreview: qualityExcludedPreview,
+    }
 
     if (dryRun) {
       return {
@@ -420,6 +629,7 @@ export async function runRoutingEngine(
         rankedCount: reranked.length,
         waveSize: waveAttorneys.length,
         routedTo: waveAttorneys.map(w => w.attorney.id),
+        diagnostics,
         errors: []
       }
     }
@@ -441,7 +651,7 @@ export async function runRoutingEngine(
     const pendingWaveAttorneys = waveAttorneys.filter(({ attorney }) => !existingAttorneyIds.has(attorney.id))
 
     const introResults = await Promise.all(
-      pendingWaveAttorneys.map(async ({ attorney }) => {
+      pendingWaveAttorneys.map(async ({ attorney, routingScore }) => {
         const intro = await prisma.introduction.create({
           data: {
             assessmentId,
@@ -471,7 +681,14 @@ export async function runRoutingEngine(
           ).catch(err => {
             logger.warn('Failed to send case offer', { attorneyId: attorney.id, error: (err as Error).message })
           }),
-          recordRoutingEvent(assessmentId, intro.id, attorney.id, 'routed', { waveNumber })
+          recordRoutingEvent(assessmentId, intro.id, attorney.id, 'routed', {
+            waveNumber,
+            routingScore: routingScore.routingScore,
+            matchScore: routingScore.matchScore,
+            acceptanceProbability: routingScore.acceptanceProbability,
+            components: routingScore.components,
+            weights,
+          })
         ])
 
         return { attorneyId: attorney.id, introId: intro.id }
@@ -484,12 +701,8 @@ export async function runRoutingEngine(
     // Record RoutingWave for escalation (Step 13)
     if (routedTo.length > 0) {
       const nextEscalationAt = new Date()
-      const waitHours = waveNumber === 1
-        ? WAVE_TIMING.wave1WaitHours
-        : waveNumber === 2
-          ? WAVE_TIMING.wave2WaitHours
-          : WAVE_TIMING.wave3WaitHours
-      nextEscalationAt.setHours(nextEscalationAt.getHours() + waitHours)
+      const waitHours = getConfiguredWaveWaitHours(matchingRules, waveNumber)
+      nextEscalationAt.setTime(nextEscalationAt.getTime() + waitHours * 60 * 60 * 1000)
       await prisma.routingWave.upsert({
         where: { assessmentId_waveNumber: { assessmentId, waveNumber } },
         create: {
@@ -553,6 +766,7 @@ export async function runRoutingEngine(
       waveSize: waveAttorneys.length,
       routedTo,
       introductionIds,
+      diagnostics,
       errors
     }
   } catch (error: any) {

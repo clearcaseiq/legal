@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom'
-import { CheckCircle, Download, Plus, TrendingUp, Upload } from 'lucide-react'
+import { CheckCircle, Clock, Download, MessageCircle, Plus, TrendingUp, Upload, Users } from 'lucide-react'
 import { formatCurrency } from '../lib/formatters'
 
-type DeferredTabId = 'insights' | 'evidence' | 'value' | 'activity' | 'journal'
+type DeferredTabId = 'tasks' | 'documents' | 'attorney' | 'value' | 'journal' | 'insights' | 'evidence' | 'activity'
 
 type ScoreFactor = {
   label: string
@@ -46,6 +46,19 @@ type JournalEntry = {
   date: string
   level: number
   note: string
+}
+
+type AttorneyActivityItem = {
+  type: string
+  message: string
+  timeAgo?: string
+}
+
+type CaseMessageItem = {
+  subject?: string
+  message: string
+  createdAt: string
+  from?: 'attorney' | 'plaintiff'
 }
 
 type Props = {
@@ -92,6 +105,15 @@ type Props = {
   journalEntries: JournalEntry[]
   onEditEntry: (index: number) => void
   onDeleteEntry: (index: number) => void
+  submittedForReview: boolean
+  attorneyMatched: boolean
+  hasUpcomingConsult: boolean
+  routingLifecycle?: string
+  routingStatusMessage: string
+  attorneyReviewCount: number
+  attorneyActivity: AttorneyActivityItem[]
+  caseMessages: CaseMessageItem[]
+  attorneyName?: string
 }
 
 export default function PlaintiffDashboardDeferredTabPanel({
@@ -135,7 +157,186 @@ export default function PlaintiffDashboardDeferredTabPanel({
   journalEntries,
   onEditEntry,
   onDeleteEntry,
+  submittedForReview,
+  attorneyMatched,
+  hasUpcomingConsult,
+  routingLifecycle,
+  routingStatusMessage,
+  attorneyReviewCount,
+  attorneyActivity,
+  caseMessages,
+  attorneyName,
 }: Props) {
+  if (activeTab === 'tasks') {
+    const scoreTasks = scoreFactors
+      .filter((factor) => factor.improve)
+      .map((factor) => ({
+        label: factor.label,
+        detail: factor.improve || '',
+        done: false,
+        href: `/evidence-upload/${activeAssessmentId}`,
+      }))
+    const evidenceTasks = evidenceImpact
+      .filter((item) => !item.done)
+      .slice(0, 3)
+      .map((item) => ({
+        label: item.label,
+        detail: `${item.impact} estimated impact when added.`,
+        done: false,
+        href: `/evidence-upload/${activeAssessmentId}`,
+      }))
+    const reviewTask = submittedForReview
+      ? {
+          label: attorneyMatched ? 'Schedule or prepare for consultation' : 'Wait for attorney review',
+          detail: attorneyMatched
+            ? hasUpcomingConsult
+              ? 'Your consultation is scheduled. Upload any documents your attorney may need.'
+              : 'Book a consultation with your matched attorney.'
+            : 'You do not need to do anything urgent unless we request more information.',
+          done: attorneyMatched && hasUpcomingConsult,
+          href: attorneyMatched ? '/messaging' : `/results/${activeAssessmentId}`,
+        }
+      : {
+          label: 'Submit for attorney review',
+          detail: 'Send your case when you are ready to see attorney matches.',
+          done: false,
+          href: `/results/${activeAssessmentId}?review=1`,
+        }
+    const tasks = [reviewTask, ...evidenceTasks, ...scoreTasks].slice(0, 6)
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-2">Tasks</h3>
+          <p className="text-sm text-gray-600 mb-5">The most useful things to do next for your case.</p>
+          <div className="space-y-3">
+            {tasks.map((task) => (
+              <div key={`${task.label}-${task.detail}`} className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                <div className="flex items-start gap-3">
+                  {task.done ? (
+                    <CheckCircle className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <Clock className="h-5 w-5 text-brand-600 shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-900">{task.label}</p>
+                    <p className="text-sm text-gray-600 mt-1">{task.detail}</p>
+                  </div>
+                  {!task.done && (
+                    <Link to={task.href} className="shrink-0 text-sm font-semibold text-brand-600 hover:text-brand-700">
+                      Open
+                    </Link>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="bg-brand-50 border border-brand-100 rounded-xl p-4">
+          <p className="text-sm font-semibold text-brand-900 mb-1">Case Coach</p>
+          <p className="text-sm text-brand-800">{caseCoachDisplay.action}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (activeTab === 'attorney') {
+    const inTeamReview = routingLifecycle === 'manual_review_needed'
+    const statusTitle = attorneyMatched
+      ? 'Attorney matched'
+      : inTeamReview
+      ? 'Team review'
+      : submittedForReview
+      ? 'Attorney review in progress'
+      : 'Not submitted yet'
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
+            <Users className="h-5 w-5 text-brand-600" />
+            Attorney Review
+          </h3>
+          <p className="text-sm text-gray-600 mb-5">Track attorney routing, responses, and messages in one place.</p>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Current status</p>
+            <p className="text-lg font-bold text-gray-900 mt-1">{statusTitle}</p>
+            <p className="text-sm text-gray-600 mt-1">
+              {routingStatusMessage ||
+                (submittedForReview
+                  ? 'Attorneys typically respond within about 24 hours.'
+                  : 'Submit your case when you are ready to review attorney matches.')}
+            </p>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-3 mt-4">
+            <div className="rounded-lg bg-brand-50 p-3">
+              <p className="text-xs font-medium text-brand-600">Reviewing</p>
+              <p className="text-xl font-bold text-brand-900">{attorneyReviewCount}</p>
+            </div>
+            <div className="rounded-lg bg-gray-50 p-3">
+              <p className="text-xs font-medium text-gray-500">Matched</p>
+              <p className="text-sm font-semibold text-gray-900">{attorneyMatched ? attorneyName || 'Attorney matched' : 'Not yet'}</p>
+            </div>
+            <div className="rounded-lg bg-gray-50 p-3">
+              <p className="text-xs font-medium text-gray-500">Consultation</p>
+              <p className="text-sm font-semibold text-gray-900">{hasUpcomingConsult ? 'Scheduled' : 'Not scheduled'}</p>
+            </div>
+          </div>
+          <div className="mt-5 flex flex-wrap gap-2">
+            {submittedForReview ? (
+              <Link to={`/results/${activeAssessmentId}`} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-brand-600 border border-brand-200 rounded-lg hover:bg-brand-50">
+                View Case Report
+              </Link>
+            ) : (
+              <Link to={`/results/${activeAssessmentId}?review=1`} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700">
+                Submit for Review
+              </Link>
+            )}
+            <Link to={`/evidence-upload/${activeAssessmentId}`} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50">
+              Upload Documents
+            </Link>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">Messages</h3>
+          {caseMessages.length > 0 ? (
+            <div className="space-y-3">
+              {caseMessages.map((message, index) => (
+                <div key={`${message.createdAt}-${index}`} className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                  <p className="text-xs font-medium text-gray-500 mb-1">{message.from === 'plaintiff' ? 'You' : attorneyName || 'Attorney'}</p>
+                  {message.subject && <p className="font-semibold text-gray-900 text-sm">{message.subject}</p>}
+                  <p className="text-sm text-gray-700 mt-1">{message.message}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-center">
+              <MessageCircle className="h-5 w-5 text-gray-400 mx-auto mb-2" />
+              <p className="text-sm text-gray-600">
+                {submittedForReview ? 'No attorney messages yet. You will see responses and document requests here.' : 'Messages appear after your case is submitted or matched.'}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {attorneyActivity.length > 0 && (
+          <details className="bg-white rounded-xl border border-gray-200 p-6">
+            <summary className="cursor-pointer list-none text-base font-bold text-gray-900">Show review activity</summary>
+            <div className="space-y-3 mt-4">
+              {attorneyActivity.slice(0, 6).map((activity, index) => (
+                <div key={`${activity.message}-${index}`} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-sm font-medium text-gray-900">{activity.message}</p>
+                  <p className="text-xs text-gray-500 mt-1">{activity.timeAgo || 'Recent update'}</p>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+    )
+  }
+
   if (activeTab === 'insights') {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -387,11 +588,12 @@ export default function PlaintiffDashboardDeferredTabPanel({
     )
   }
 
-  if (activeTab === 'evidence') {
+  if (activeTab === 'documents' || activeTab === 'evidence') {
     return (
       <div className="space-y-6">
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Evidence Impact</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-2">Documents & Evidence</h3>
+          <p className="text-sm text-gray-600 mb-4">Track the documents that can help attorneys understand and value your case.</p>
           <div className="grid grid-cols-2 gap-3 mb-4">
             {evidenceImpact.map((item) => (
               <div key={item.label} className="flex justify-between items-center text-sm p-2 bg-gray-50 rounded-lg">
@@ -405,7 +607,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
             className="inline-flex items-center px-4 py-2 text-sm font-semibold text-white bg-brand-600 rounded-lg hover:bg-brand-700"
           >
             <Upload className="h-4 w-4 mr-2" />
-            Upload Evidence
+            Upload Documents
           </Link>
         </div>
         {treatment.length > 0 && (

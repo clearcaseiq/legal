@@ -32,6 +32,10 @@
 
   body {
     @apply bg-slate-50 text-slate-900 antialiased;
+    background-image:
+      radial-gradient(circle at top left, rgb(184 207 224 / 0.28), transparent 34rem),
+      linear-gradient(180deg, rgb(248 250 252), rgb(241 245 249));
+    background-attachment: fixed;
   }
 
   .dark body {
@@ -207,6 +211,66 @@
 
   .subtle-panel {
     @apply rounded-2xl border border-slate-200/90 bg-white/85 p-5 shadow-card backdrop-blur-sm dark:border-slate-700/80 dark:bg-slate-900/70;
+  }
+
+  .premium-panel {
+    @apply rounded-3xl border border-slate-200/90 bg-white/90 p-6 shadow-card backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-900/75;
+  }
+
+  .section-heading {
+    @apply flex flex-col gap-1;
+  }
+
+  .section-kicker {
+    @apply text-ui-xs font-semibold uppercase tracking-[0.18em] text-brand-700 dark:text-brand-300;
+  }
+
+  .section-title {
+    @apply font-display text-ui-2xl font-semibold text-slate-950 dark:text-slate-50;
+  }
+
+  .section-copy {
+    @apply max-w-3xl text-ui-sm text-slate-600 dark:text-slate-300;
+  }
+
+  .metric-card {
+    @apply rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-card dark:border-slate-700/80 dark:bg-slate-900/75;
+  }
+
+  .status-pill {
+    @apply inline-flex items-center rounded-full border px-2.5 py-1 text-ui-xs font-semibold;
+  }
+
+  .status-pill-success {
+    @apply inline-flex items-center rounded-full border px-2.5 py-1 text-ui-xs font-semibold border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-300;
+  }
+
+  .status-pill-warning {
+    @apply inline-flex items-center rounded-full border px-2.5 py-1 text-ui-xs font-semibold border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300;
+  }
+
+  .status-pill-danger {
+    @apply inline-flex items-center rounded-full border px-2.5 py-1 text-ui-xs font-semibold border-red-200 bg-red-50 text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-300;
+  }
+
+  .status-pill-info {
+    @apply inline-flex items-center rounded-full border px-2.5 py-1 text-ui-xs font-semibold border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/70 dark:bg-blue-950/40 dark:text-blue-300;
+  }
+
+  .status-pill-neutral {
+    @apply inline-flex items-center rounded-full border px-2.5 py-1 text-ui-xs font-semibold border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300;
+  }
+
+  .workspace-tab {
+    @apply inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-ui-sm font-medium text-slate-600 transition-colors hover:border-brand-200 hover:text-brand-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-brand-800 dark:hover:text-brand-300;
+  }
+
+  .workspace-tab-active {
+    @apply border-brand-200 bg-brand-50 text-brand-700 dark:border-brand-900/70 dark:bg-brand-950/40 dark:text-brand-300;
+  }
+
+  .helpful-empty {
+    @apply rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 px-5 py-8 text-center text-ui-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300;
   }
 
   .chip {

@@ -16,7 +16,7 @@ import * as Haptics from 'expo-haptics'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useLocalSearchParams, router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { getLeadDetails, decideLead, getApiErrorMessage, getLeadEvidenceFiles, toAbsoluteApiUrl, type LeadEvidenceFile } from '../../../src/lib/api'
+import { getLeadDetails, decideLead, getApiErrorMessage, getLeadEvidenceFiles, getLeadQuality, toAbsoluteApiUrl, type LeadEvidenceFile, type LeadQualityDetails } from '../../../src/lib/api'
 import { InlineErrorBanner } from '../../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../../src/components/ScreenState'
 import { useAttorneyDashboardData } from '../../../src/contexts/AttorneyDashboardContext'
@@ -32,6 +32,7 @@ export default function LeadDetailScreen() {
   const hasFocusedOnceRef = useRef(false)
   const [lead, setLead] = useState<any>(null)
   const [evidenceFiles, setEvidenceFiles] = useState<LeadEvidenceFile[]>([])
+  const [leadQuality, setLeadQuality] = useState<LeadQualityDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [deciding, setDeciding] = useState(false)
   const [declineOpen, setDeclineOpen] = useState(false)
@@ -61,9 +62,13 @@ export default function LeadDetailScreen() {
       ])
       setLead(leadData)
       setEvidenceFiles(evidenceData)
+      getLeadQuality(id)
+        .then(setLeadQuality)
+        .catch(() => setLeadQuality(null))
     } catch (err: unknown) {
       setLead(null)
       setEvidenceFiles([])
+      setLeadQuality(null)
       setLoadError(getApiErrorMessage(err))
     } finally {
       setLoading(false)
@@ -93,7 +98,19 @@ export default function LeadDetailScreen() {
     return leads.find((l: { id?: string }) => l.id === id) ?? null
   }, [dashboardData, id])
 
-  const suggestedNext = cachedLeadForCase?.demandReadiness?.nextAction as
+  const missingAction = leadQuality?.missingItems?.find((item) => item?.actionType)
+  const suggestedNext = (
+    cachedLeadForCase?.demandReadiness?.nextAction ||
+    lead?.demandReadiness?.nextAction ||
+    leadQuality?.demandReadiness?.nextAction ||
+    (missingAction
+      ? {
+          title: missingAction.label,
+          detail: missingAction.detail,
+          actionType: missingAction.actionType,
+        }
+      : undefined)
+  ) as
     | { title?: string; detail?: string; actionType?: QueueActionType }
     | undefined
 
@@ -387,6 +404,42 @@ export default function LeadDetailScreen() {
           )}
         </View>
 
+        {leadQuality ? (
+          <View style={styles.card}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.cardTitle}>Mobile case intelligence</Text>
+              {leadQuality.qualityScore != null || leadQuality.readinessScore != null ? (
+                <Text style={styles.sectionCount}>
+                  {Math.round(Number(leadQuality.qualityScore ?? leadQuality.readinessScore ?? 0))}%
+                </Text>
+              ) : null}
+            </View>
+            {leadQuality.recommendation?.rationale ? (
+              <Text style={styles.qualitySummary}>{leadQuality.recommendation.rationale}</Text>
+            ) : leadQuality.demandReadiness?.label ? (
+              <Text style={styles.qualitySummary}>{leadQuality.demandReadiness.label}</Text>
+            ) : (
+              <Text style={styles.qualitySummary}>Use the signals below to triage this case from your phone.</Text>
+            )}
+            {Array.isArray(leadQuality.strengths) && leadQuality.strengths.length > 0 ? (
+              <View style={styles.signalBlock}>
+                <Text style={styles.signalTitle}>Strengths</Text>
+                {leadQuality.strengths.slice(0, 3).map((item) => (
+                  <Text key={item} style={styles.signalText}>• {item}</Text>
+                ))}
+              </View>
+            ) : null}
+            {Array.isArray(leadQuality.risks) && leadQuality.risks.length > 0 ? (
+              <View style={styles.signalBlock}>
+                <Text style={styles.signalTitle}>Watch items</Text>
+                {leadQuality.risks.slice(0, 3).map((item) => (
+                  <Text key={item} style={styles.signalText}>• {item}</Text>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
             <Text style={styles.cardTitle}>Evidence files</Text>
@@ -675,6 +728,15 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 14, fontWeight: '700', color: colors.textSecondary, marginBottom: space.sm },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.sm },
   sectionCount: { fontSize: 13, fontWeight: '700', color: colors.primary },
+  qualitySummary: { fontSize: 15, lineHeight: 22, color: colors.text, marginBottom: space.md },
+  signalBlock: {
+    paddingTop: space.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    marginTop: space.sm,
+  },
+  signalTitle: { fontSize: 12, fontWeight: '800', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
+  signalText: { fontSize: 14, color: colors.text, lineHeight: 21, marginTop: 3 },
   narrative: { fontSize: 15, lineHeight: 22, color: colors.text },
   emptyEvidenceText: { fontSize: 14, color: colors.textSecondary, lineHeight: 20 },
   fileRow: {

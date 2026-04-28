@@ -20,12 +20,26 @@ function getEditForEvent(edits: PlaintiffMedicalReviewEdit[], eventId: string) {
   return edits.find((item) => item.eventId === eventId)
 }
 
+function cleanMedicalValue(value?: string | null) {
+  const normalized = (value ?? '').trim()
+  return normalized && normalized.toLowerCase() !== 'none' ? normalized : ''
+}
+
+function hasMeaningfulMedicalEvent(event: PlaintiffMedicalReviewEvent) {
+  return Boolean(
+    cleanMedicalValue(event.date)
+    || cleanMedicalValue(event.provider)
+    || cleanMedicalValue(event.label)
+    || cleanMedicalValue(event.details)
+  )
+}
+
 function getInputValue(event: PlaintiffMedicalReviewEvent, edit: PlaintiffMedicalReviewEdit | undefined, field: keyof PlaintiffMedicalReviewEdit) {
-  if (field === 'correctedDate') return edit?.correctedDate ?? event.date ?? ''
-  if (field === 'correctedProvider') return edit?.correctedProvider ?? event.provider ?? ''
-  if (field === 'correctedLabel') return edit?.correctedLabel ?? event.label ?? ''
-  if (field === 'correctedDetails') return edit?.correctedDetails ?? event.details ?? ''
-  if (field === 'plaintiffNote') return edit?.plaintiffNote ?? event.plaintiffNote ?? ''
+  if (field === 'correctedDate') return edit?.correctedDate ?? cleanMedicalValue(event.date)
+  if (field === 'correctedProvider') return edit?.correctedProvider ?? cleanMedicalValue(event.provider)
+  if (field === 'correctedLabel') return edit?.correctedLabel ?? cleanMedicalValue(event.label)
+  if (field === 'correctedDetails') return edit?.correctedDetails ?? cleanMedicalValue(event.details)
+  if (field === 'plaintiffNote') return edit?.plaintiffNote ?? cleanMedicalValue(event.plaintiffNote)
   return ''
 }
 
@@ -43,7 +57,7 @@ export default function PlaintiffMedicalChronology({
 
   const importantItems = Array.isArray(review.missingItems?.important) ? review.missingItems.important : []
   const helpfulItems = Array.isArray(review.missingItems?.helpful) ? review.missingItems.helpful : []
-  const chronology = Array.isArray(review.chronology) ? review.chronology : []
+  const chronology = Array.isArray(review.chronology) ? review.chronology.filter(hasMeaningfulMedicalEvent) : []
   const edits = Array.isArray(review.review?.edits) ? review.review.edits : []
   const status = review.review?.status ?? 'pending'
   const confirmButtonLabel =
@@ -114,9 +128,9 @@ export default function PlaintiffMedicalChronology({
               <div key={event.id} className="rounded-xl border border-slate-200 p-4">
                 <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">{edit?.correctedLabel ?? event.label}</p>
+                    <p className="text-sm font-semibold text-slate-900">{edit?.correctedLabel ?? (cleanMedicalValue(event.label) || 'Treatment item to confirm')}</p>
                     <p className="mt-1 text-xs uppercase tracking-wide text-slate-500">
-                      {event.provider || 'Provider to confirm'} • {event.confidence === 'documented' ? 'Documented' : 'Estimated'}
+                      {cleanMedicalValue(event.provider) || 'Provider to confirm'} • {event.confidence === 'documented' ? 'Documented' : 'Estimated'}
                     </p>
                     {event.uncertaintyNote ? (
                       <p className="mt-2 flex items-start gap-2 text-sm text-amber-700">
@@ -194,7 +208,7 @@ export default function PlaintiffMedicalChronology({
           })
         ) : (
           <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-600">
-            We have not built a treatment timeline yet. You can still skip this step for now and continue to attorney review.
+            We do not have a treatment timeline yet. You can skip this for now or add medical records later so attorneys can review the treatment story.
           </div>
         )}
       </div>

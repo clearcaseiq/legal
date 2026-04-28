@@ -8,10 +8,10 @@ export default defineConfig({
     /** Large `buildApp()` imports keep memory predictable in CI and on Windows. */
     fileParallelism: false,
     maxConcurrency: 1,
-    pool: 'threads',
+    pool: 'forks',
     poolOptions: {
-      threads: {
-        singleThread: true,
+      forks: {
+        singleFork: true,
       },
     },
   },

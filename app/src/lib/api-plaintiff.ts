@@ -1,4 +1,5 @@
 import api from './http'
+import { apiDebug } from './debug'
 
 export type PlaintiffMedicalReviewStatus = 'pending' | 'confirmed' | 'skipped'
 
@@ -48,9 +49,9 @@ export interface PlaintiffMedicalReviewPayload {
 }
 
 export const analyzeCaseWithChatGPT = async (assessmentId: string) => {
-  console.log('🤖 Starting ChatGPT analysis for assessment:', assessmentId)
+  apiDebug.log('Starting ChatGPT analysis for assessment:', assessmentId)
   const response = await api.post(`/v1/chatgpt/analyze/${assessmentId}`)
-  console.log('✅ ChatGPT analysis completed:', response.data)
+  apiDebug.log('ChatGPT analysis completed:', response.data)
   return response.data
 }
 
@@ -74,31 +75,31 @@ function extractAssessmentId(payload: any): string | undefined {
 }
 
 export async function createAssessment(payload: any) {
-  console.log('🚀 createAssessment called with payload:', payload)
+  apiDebug.log('createAssessment called with payload:', payload)
   try {
     const { data } = await api.post('/v1/assessments', payload)
-    console.log('✅ createAssessment success:', data)
+    apiDebug.log('createAssessment success:', data)
     const assessmentId = extractAssessmentId(data)
     if (!assessmentId) {
-      console.error('❌ createAssessment returned unexpected response shape:', data)
+      apiDebug.error('createAssessment returned unexpected response shape:', data)
       throw new Error('Assessment was created but the API response did not include a valid ID.')
     }
     return assessmentId
   } catch (error: any) {
-    console.error('❌ createAssessment failed:', error)
-    console.error('Error details:', error.response?.data)
+    apiDebug.error('createAssessment failed:', error)
+    apiDebug.error('Error details:', error.response?.data)
     throw error
   }
 }
 
 export async function updateAssessment(id: string, patch: any) {
-  console.log('updateAssessment called with:', { id, patch })
+  apiDebug.log('updateAssessment called with:', { id, patch })
   try {
     const { data } = await api.patch(`/v1/assessments/${id}`, patch)
-    console.log('updateAssessment success:', data)
+    apiDebug.log('updateAssessment success:', data)
     return data
   } catch (error: any) {
-    console.error('updateAssessment error:', {
+    apiDebug.error('updateAssessment error:', {
       message: error.message,
       response: error.response?.data,
       status: error.response?.status,
@@ -181,7 +182,10 @@ export async function predict(assessmentId: string) {
 }
 
 export async function searchAttorneys(params: { venue?: string; claim_type?: string; limit?: number }) {
-  const { data } = await api.get('/v1/attorneys/search', { params })
+  const { data } = await api.get('/v1/attorneys/search', {
+    params: { ...params, _: Date.now() },
+    headers: { 'Cache-Control': 'no-cache' },
+  })
   return data
 }
 
