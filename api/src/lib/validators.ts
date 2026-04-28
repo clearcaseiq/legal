@@ -113,7 +113,8 @@ export const SimulationRequest = z.object({
 export const AttorneySearch = z.object({
   venue: z.string().optional(),
   claim_type: z.string().optional(),
-  limit: z.coerce.number().min(1).max(50).optional().default(10)
+  limit: z.coerce.number().min(1).max(50).optional().default(10),
+  _: z.coerce.number().optional()
 })
 
 export const IntroRequest = z.object({
@@ -131,7 +132,7 @@ export const SubmitCaseForReview = z.object({
   phone: z.string().trim().min(1).optional(),
   preferredContactMethod: z.enum(['phone', 'text', 'email']).optional(),
   hipaa: z.boolean().optional(),
-  rankedAttorneyIds: z.array(z.string().trim().min(1)).min(1).max(3).optional(),
+  rankedAttorneyIds: z.array(z.string().trim().min(1)).max(3).optional(),
 })
 
 // Authentication schemas

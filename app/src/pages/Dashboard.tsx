@@ -2,13 +2,13 @@ import { Suspense, lazy, useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments, getRoutingStatus, createAppointment, getAttorneyAvailability, updateAppointment, cancelAppointment, joinAppointmentWaitlist, updateAppointmentPreparation, sendMessage, getOrCreateChatRoom, getPlaintiffConsentCompliance, requestEmailVerification, getPlaintiffDocumentRequests, createAttorneyReview, type PlaintiffDocumentRequest } from '../lib/api'
 import { formatCurrency } from '../lib/formatters'
-import { CheckCircle, Square, Upload, FileText, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, BookOpen, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, ExternalLink, Send, Star } from 'lucide-react'
+import { CheckCircle, Square, Upload, FileText, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, ExternalLink, Send, Star } from 'lucide-react'
 import CaseProgressPipeline from '../components/CaseProgressPipeline'
 import { DashboardPageSkeleton, DashboardTabPanelSkeleton } from '../components/PageSkeletons'
 import { clearStoredAuth, getLoginRedirect } from '../lib/auth'
 import { loadPlaintiffSessionSummary, updateCachedPlaintiffAssessments } from '../hooks/usePlaintiffSessionSummary'
 
-type TabId = 'dashboard' | 'insights' | 'evidence' | 'value' | 'activity' | 'journal'
+type TabId = 'dashboard' | 'tasks' | 'documents' | 'attorney' | 'value' | 'journal'
 
 interface User {
   id: string
@@ -83,6 +83,7 @@ function LinkCaseForm({ onLinked }: { onLinked: () => void }) {
       setLoading(false)
     }
   }
+
   return (
     <div className="mt-4 pt-4 border-t border-gray-200">
       <p className="text-xs font-medium text-gray-700 mb-2">Already submitted a case?</p>
@@ -107,13 +108,19 @@ function LinkCaseForm({ onLinked }: { onLinked: () => void }) {
   )
 }
 
+function plaintiffStatusMessage(message?: string | null) {
+  return (message ?? '')
+    .replace(/manual review/gi, 'team review')
+    .replace(/human review/gi, 'team review')
+}
+
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <BarChart3 className="h-4 w-4" /> },
-  { id: 'insights', label: 'Case Insights', icon: <BookOpen className="h-4 w-4" /> },
-  { id: 'evidence', label: 'Evidence', icon: <FileStack className="h-4 w-4" /> },
+  { id: 'tasks', label: 'Tasks', icon: <CheckCircle className="h-4 w-4" /> },
+  { id: 'documents', label: 'Documents', icon: <FileStack className="h-4 w-4" /> },
+  { id: 'attorney', label: 'Attorney Review', icon: <Users className="h-4 w-4" /> },
   { id: 'value', label: 'Case Value', icon: <TrendingUp className="h-4 w-4" /> },
-  { id: 'activity', label: 'Activity', icon: <Activity className="h-4 w-4" /> },
-  { id: 'journal', label: 'Case Journal', icon: <MessageCircle className="h-4 w-4" /> }
+  { id: 'journal', label: 'Journal', icon: <MessageCircle className="h-4 w-4" /> }
 ]
 
 const loadPlaintiffDashboardDeferredTabPanel = () => import('../components/PlaintiffDashboardDeferredTabPanel')
@@ -273,10 +280,10 @@ export default function Dashboard() {
           if (last?.type === 'viewed') setLatestNotification('An attorney viewed your case.')
           else if (last?.type === 'accepted') setLatestNotification('An attorney is interested in your case!')
           else if (last?.type === 'requested_info') setLatestNotification('An attorney requested more information.')
-          else if (last?.type === 'manual_review_needed') setLatestNotification('Your case is in manual review.')
+          else if (last?.type === 'manual_review_needed') setLatestNotification('Your case is in team review.')
           else if (last?.type === 'plaintiff_rank_advanced') setLatestNotification('Your case moved to the next attorney in your ranked list.')
           else if (last?.type === 'plaintiff_rank_batch_generated') setLatestNotification('Your original top choices were unavailable, so we expanded the search to more matching attorneys.')
-          else if (data?.statusMessage) setLatestNotification(data.statusMessage)
+          else if (data?.statusMessage) setLatestNotification(plaintiffStatusMessage(data.statusMessage))
         })
         .catch(() => {})
     }
@@ -315,7 +322,8 @@ export default function Dashboard() {
   const loadDashboardData = async () => {
     try {
       let assessmentsData: Assessment[] = []
-      const session = await loadPlaintiffSessionSummary()
+      const pendingId = localStorage.getItem('pending_assessment_id') || caseIdFromUrl || undefined
+      const session = await loadPlaintiffSessionSummary(Boolean(pendingId))
       const userData = session.user
       const listData = session.assessments
       if (userData?.id) {
@@ -338,7 +346,6 @@ export default function Dashboard() {
 
       // If no assessments but we have a pending one (e.g. from OAuth flow or post-submit redirect), try to associate
       if (assessmentsData.length === 0) {
-        const pendingId = localStorage.getItem('pending_assessment_id') || caseIdFromUrl || undefined
         if (pendingId) {
           try {
             await associateAssessments([pendingId])
@@ -444,6 +451,7 @@ export default function Dashboard() {
   const inManualReview = routingLifecycle === 'manual_review_needed'
   const notRoutableYet = routingLifecycle === 'not_routable_yet'
   const waitingState = inManualReview || needsMoreInfo || notRoutableYet
+  const plaintiffRoutingStatusMessage = plaintiffStatusMessage(routingStatus?.statusMessage)
   const waitingBanner = attorneyMatched
     ? {
         title: 'Attorney Interested In Your Case',
@@ -453,29 +461,29 @@ export default function Dashboard() {
       }
     : inManualReview
     ? {
-        title: 'Your Case Is In Manual Review',
-        subtitle: routingStatus?.statusMessage || 'Our team is reviewing your case and will follow up with the next step.',
+        title: 'Your Case Is In Team Review',
+        subtitle: plaintiffRoutingStatusMessage || 'Our team is checking routing fit and the next best step.',
         className: 'bg-amber-500 text-white',
         subClassName: 'text-amber-50'
       }
     : needsMoreInfo
     ? {
         title: 'More Information Needed',
-        subtitle: routingStatus?.statusMessage || 'Add the requested details or documents so your case can keep moving.',
+        subtitle: plaintiffRoutingStatusMessage || 'Add the requested details or documents so your case can keep moving.',
         className: 'bg-blue-600 text-white',
         subClassName: 'text-blue-100'
       }
     : notRoutableYet
     ? {
         title: 'Your Case Needs More Detail',
-        subtitle: routingStatus?.statusMessage || 'Strengthen your case with more facts or evidence before routing.',
+        subtitle: plaintiffRoutingStatusMessage || 'Strengthen your case with more facts or evidence before routing.',
         className: 'bg-slate-700 text-white',
         subClassName: 'text-slate-100'
       }
     : submittedForReview
     ? {
         title: 'Submitted for Attorney Review',
-        subtitle: routingStatus?.statusMessage || 'Expected response within 24 hours',
+        subtitle: plaintiffRoutingStatusMessage || 'Expected response within 24 hours',
         className: 'bg-brand-600 text-white',
         subClassName: 'text-brand-100'
       }
@@ -495,7 +503,7 @@ export default function Dashboard() {
     : attorneyMatched && hasUpcomingConsult
     ? { action: 'Consultation scheduled', valueIncrease: 'Prepare for your call with your attorney', cta: 'View Details', href: '#consultation', isSchedule: false }
     : inManualReview
-    ? { action: 'Our team is reviewing your case', valueIncrease: 'Upload any missing evidence while we review routing options', cta: 'Upload Evidence', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    ? { action: 'Our team is reviewing your case', valueIncrease: 'You do not need to do anything urgent unless we request more information.', cta: 'Upload Evidence', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
     : needsMoreInfo
     ? { action: 'Add the requested information', valueIncrease: 'Responding quickly helps attorneys continue reviewing your case', cta: 'Upload Evidence', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
     : notRoutableYet
@@ -515,7 +523,7 @@ export default function Dashboard() {
     submittedForReview
       ? {
           title: 'Case submitted for attorney review',
-          detail: routingStatus?.statusMessage || 'Your case is in the matching queue.',
+          detail: plaintiffRoutingStatusMessage || 'Your case is in the matching queue.',
           tone: 'border-brand-200 bg-brand-50 text-brand-700',
         }
       : null,
@@ -574,7 +582,7 @@ export default function Dashboard() {
     : attorneyMatched && hasUpcomingConsult
     ? { tip: 'Prepare for your consultation.', action: 'Upload medical records and any documents your attorney may need.' }
     : inManualReview
-    ? { tip: 'Your case needs a human review.', action: 'Upload anything new that could help our team route it faster.' }
+    ? { tip: 'Your case is in team review.', action: 'You can upload missing evidence while we check routing options.' }
     : needsMoreInfo
     ? { tip: 'An attorney needs more information.', action: 'Add documents or details now to keep the review moving.' }
     : notRoutableYet
@@ -874,17 +882,16 @@ export default function Dashboard() {
   if (!user) return null
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors">
+    <div className="min-h-screen transition-colors">
       {user.emailVerified === false && (
-        <div className="max-w-6xl mx-auto px-4 pt-4 print:hidden">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg border border-amber-200 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
+        <div className="page-shell pb-0 pt-4 print:hidden">
+          <div className="subtle-panel flex flex-col gap-2 px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300 sm:flex-row sm:items-center sm:justify-between">
             <p>
-              Your email is not verified yet. If your administrator turns on strict verification, you may need to verify before
-              uploading evidence or messaging.
+              Email verification is pending. Some secure actions may require verification later.
             </p>
             <button
               type="button"
-              className="shrink-0 text-sm font-medium text-amber-900 dark:text-amber-200 underline underline-offset-2"
+              className="btn-ghost shrink-0 text-xs"
               onClick={() =>
                 requestEmailVerification().catch(() =>
                   window.alert('Verification email is not configured on the server yet.')
@@ -898,13 +905,13 @@ export default function Dashboard() {
       )}
       {/* Schedule Consultation Modal */}
       {scheduleModalOpen && routingStatus?.attorneyMatched && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Schedule Consultation</h3>
-            <p className="text-sm text-gray-600 mb-4">Book a call with {routingStatus.attorneyMatched.name} to discuss your case.</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
+          <div className="surface-panel w-full max-w-md p-6 shadow-xl">
+            <h3 className="section-title text-ui-xl">Schedule Consultation</h3>
+            <p className="section-copy mb-4">Book a call with {routingStatus.attorneyMatched.name} to discuss your case.</p>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Choose a day</label>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Choose a day</label>
                 <div className="grid grid-cols-2 gap-2">
                   {buildUpcomingDateOptions().map((option) => (
                     <button
@@ -914,7 +921,7 @@ export default function Dashboard() {
                       className={`rounded-lg border px-3 py-2 text-sm font-medium ${
                         scheduleDate === option.value
                           ? 'border-brand-600 bg-brand-50 text-brand-700'
-                          : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                          : 'border-slate-200 text-slate-700 hover:bg-slate-50'
                       }`}
                     >
                       {option.label}
@@ -923,11 +930,11 @@ export default function Dashboard() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Type</label>
                 <select
                   value={scheduleType}
                   onChange={(e) => setScheduleType(e.target.value as 'phone' | 'video' | 'in_person')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500"
+                  className="select"
                 >
                   <option value="phone">Phone</option>
                   <option value="video">Video</option>
@@ -935,9 +942,9 @@ export default function Dashboard() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Available time slots</label>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Available time slots</label>
                 {scheduleSlotsLoading ? (
-                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-4 text-sm text-gray-500">
+                  <div className="helpful-empty px-3 py-4">
                     Loading available times...
                   </div>
                 ) : scheduleError ? (
@@ -951,7 +958,7 @@ export default function Dashboard() {
                       type="button"
                       onClick={handleJoinWaitlist}
                       disabled={waitlistLoading}
-                      className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+                      className="btn-outline bg-white disabled:opacity-60"
                     >
                       {waitlistLoading ? 'Joining waitlist...' : 'Join earlier-slot waitlist'}
                     </button>
@@ -966,7 +973,7 @@ export default function Dashboard() {
                         className={`rounded-lg border px-3 py-2 text-sm font-medium ${
                           selectedScheduleSlot === slot.start
                             ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
-                            : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                            : 'border-slate-200 text-slate-700 hover:bg-slate-50'
                         }`}
                       >
                         {new Date(slot.start).toLocaleTimeString('en-US', {
@@ -985,14 +992,14 @@ export default function Dashboard() {
                   setScheduleModalOpen(false)
                   setScheduleError(null)
                 }}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                className="btn-outline flex-1"
               >
                 Cancel
               </button>
               <button
                 onClick={handleScheduleConsultation}
                 disabled={scheduleLoading || !selectedScheduleSlot}
-                className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                className="btn-primary flex-1 disabled:opacity-50"
               >
                 {scheduleLoading ? 'Saving...' : routingStatus?.upcomingAppointment?.id ? 'Confirm Reschedule' : 'Schedule Call'}
               </button>
@@ -1002,11 +1009,11 @@ export default function Dashboard() {
       )}
 
       {/* Header + Tab navigation */}
-      <header className="bg-white/95 dark:bg-slate-900/95 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-40 backdrop-blur-md transition-colors">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4">
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur-xl transition-colors dark:border-slate-800 dark:bg-slate-900/90">
+        <div className="mx-auto max-w-5xl px-4 py-4 sm:px-6">
           <div className="flex justify-between items-start mb-4">
             <div>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-slate-50">Hi {user.firstName} 👋</h1>
+              <h1 className="font-display text-ui-2xl font-semibold text-slate-950 dark:text-slate-50">Hi {user.firstName}</h1>
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
                 {activeAssessment
                   ? `Your case is ${docPercent}% complete.${actionItemsCount > 0 ? ' Two more documents could significantly increase your case value.' : ''}`
@@ -1023,15 +1030,15 @@ export default function Dashboard() {
 
           {/* Tab navigation */}
           {activeAssessment && (
-            <nav className="flex gap-1 overflow-x-auto pb-1 -mx-1">
+            <nav className="-mx-1 flex gap-2 overflow-x-auto pb-1">
               {TABS.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                  className={`workspace-tab whitespace-nowrap ${
                     activeTab === tab.id
-                      ? 'bg-brand-100 text-brand-700'
-                      : 'text-gray-600 hover:bg-gray-100'
+                      ? 'workspace-tab-active'
+                      : ''
                   }`}
                 >
                   {tab.icon}
@@ -1043,7 +1050,7 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
         {activeAssessment ? (
           <>
             {activeTab === 'dashboard' && (
@@ -1053,11 +1060,11 @@ export default function Dashboard() {
                   attorneyMatched={attorneyMatched}
                   hasScheduledConsult={hasUpcomingConsult}
                   lifecycleState={routingLifecycle}
-                  statusMessage={routingStatus?.statusMessage}
+                  statusMessage={plaintiffRoutingStatusMessage}
                 />
                 {/* Top status banner - changes when attorney accepts */}
                 {waitingBanner && (
-                  <div className={`${waitingBanner.className} rounded-xl px-6 py-5`}>
+                  <div className={`${waitingBanner.className} premium-panel px-6 py-5`}>
                     <p className="text-xl font-bold">{waitingBanner.title}</p>
                     <p className={`${waitingBanner.subClassName} text-sm mt-1`}>{waitingBanner.subtitle}</p>
                   </div>
@@ -1535,14 +1542,31 @@ export default function Dashboard() {
                   </>
                 ) : (
                   <>
-                    {/* Row 2: Two columns - Case Review Status | Next Best Action (waiting state) */}
+                    {/* Primary status + next action */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
                         {submittedForReview ? (
                           <>
-                            <h2 className="text-lg font-bold text-gray-900 mb-4">Case Review Status</h2>
-                            {routingStatus?.statusMessage && (
-                              <div className={`mb-4 rounded-lg border px-3 py-3 text-sm ${
+                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Current status</p>
+                            <h2 className="text-xl font-bold text-gray-900 mb-2">
+                              {inManualReview
+                                ? 'Your case is in team review'
+                                : needsMoreInfo
+                                ? 'More information is needed'
+                                : notRoutableYet
+                                ? 'Your case needs more detail'
+                                : 'Your case is with attorneys'}
+                            </h2>
+                            <p className="text-sm text-gray-600 mb-4">
+                              {inManualReview
+                                ? 'Our team is checking routing fit and the next best step.'
+                                : needsMoreInfo
+                                ? 'Add the requested details or documents so attorneys can continue reviewing.'
+                                : notRoutableYet
+                                ? 'More evidence or clearer facts can help us route your case.'
+                                : 'Attorneys are reviewing your summary. You decide whether to speak with or hire anyone.'}
+                            </p>
+                            <div className={`mb-4 rounded-lg border px-3 py-3 text-sm ${
                                 inManualReview
                                   ? 'border-amber-200 bg-amber-50 text-amber-800'
                                   : needsMoreInfo
@@ -1551,13 +1575,14 @@ export default function Dashboard() {
                                   ? 'border-slate-200 bg-slate-50 text-slate-700'
                                   : 'border-brand-200 bg-brand-50 text-brand-700'
                               }`}>
-                                {routingStatus.statusMessage}
-                              </div>
-                            )}
+                              {plaintiffRoutingStatusMessage || (inManualReview
+                                ? 'You do not need to do anything urgent unless we request more information.'
+                                : 'Most attorneys respond within about 24 hours.')}
+                            </div>
                             <div className="space-y-2 mb-4">
                               <div className="flex items-center gap-2 text-green-700">
                                 <CheckCircle className="h-5 w-5 flex-shrink-0" />
-                                <span>Submitted to attorneys ✓</span>
+                                <span>Submitted for attorney review</span>
                               </div>
                               {!waitingState && (
                                 <div className="flex items-center gap-2 text-green-700">
@@ -1570,7 +1595,7 @@ export default function Dashboard() {
                                   <Clock className="h-5 w-5 flex-shrink-0" />
                                   <span>
                                     {inManualReview
-                                      ? 'Manual review in progress'
+                                      ? 'Team review in progress'
                                       : needsMoreInfo
                                       ? 'Waiting for added information'
                                       : 'Case is not routable yet'}
@@ -1583,37 +1608,7 @@ export default function Dashboard() {
                                 return <p className="text-sm text-brand-600">Last attorney view: {timeAgo}</p>
                               })()}
                             </div>
-                            <p className="text-sm font-medium text-brand-600 mb-4">Typical response time: 24 hours</p>
-                            <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">What happens next</p>
-                              <ul className="text-sm text-gray-700 space-y-1">
-                                {inManualReview ? (
-                                  <>
-                                    <li>• Our team reviews your case and routing fit</li>
-                                    <li>• We may request more evidence or details</li>
-                                    <li>• Your case can return to attorney routing after review</li>
-                                  </>
-                                ) : needsMoreInfo ? (
-                                  <>
-                                    <li>• Add the missing information or documents</li>
-                                    <li>• Attorneys can continue reviewing once updated</li>
-                                    <li>• You will see the next response here</li>
-                                  </>
-                                ) : notRoutableYet ? (
-                                  <>
-                                    <li>• Strengthen the case with clearer facts or evidence</li>
-                                    <li>• Our team can re-check routing readiness</li>
-                                    <li>• Once ready, your case can go back to attorney review</li>
-                                  </>
-                                ) : (
-                                  <>
-                                    <li>• Attorneys review your case</li>
-                                    <li>• Interested attorneys respond</li>
-                                    <li>• You choose whether to speak with them</li>
-                                  </>
-                                )}
-                              </ul>
-                            </div>
+                            <p className="text-sm text-gray-500">Typical response time: about 24 hours.</p>
                           </>
                         ) : (
                           <>
@@ -1648,38 +1643,29 @@ export default function Dashboard() {
                         </Link>
                       </div>
                     </div>
-                    {submittedForReview ? (
-                      <div className="bg-white rounded-xl border-2 border-green-200 p-5">
-                        <h3 className="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
-                          <CheckCircle className="h-6 w-6 text-green-600" />
-                          Your Case Has Been Submitted for Review
-                        </h3>
-                        <p className="text-sm text-gray-600 mb-4">Attorneys typically respond within 24 hours. You will be notified when an attorney responds.</p>
-                        <Link to={`/results/${activeAssessment.id}`} className="block w-full text-center py-3 text-sm font-semibold text-brand-600 border-2 border-brand-200 rounded-lg hover:bg-brand-50">
-                          View Case Report
-                        </Link>
-                      </div>
-                    ) : (
+                    {!submittedForReview && (
                       <div className="bg-white rounded-xl border-2 border-brand-200 p-5">
                         <h3 className="text-lg font-bold text-gray-900 mb-2">Submit Your Case for Attorney Review</h3>
                         <p className="text-sm text-gray-600 mb-2">65% of cases like yours are accepted by attorneys in our network.</p>
                         <p className="text-sm text-gray-600 mb-4">Most attorneys respond within 24 hours.</p>
-                        <Link to={`/results/${activeAssessment.id}`} className="block w-full text-center py-3 text-sm font-semibold text-white bg-brand-600 rounded-lg hover:bg-brand-700">
+                        <Link to={`/results/${activeAssessment.id}?review=1`} className="block w-full text-center py-3 text-sm font-semibold text-white bg-brand-600 rounded-lg hover:bg-brand-700">
                           Send My Case for Attorney Review
                         </Link>
                       </div>
                     )}
 
                     {submittedForReview && routingTimelineItems.length > 0 && (
-                      <div className="bg-white rounded-xl border border-gray-200 p-5">
-                        <div className="flex items-center justify-between gap-3 mb-4">
-                          <div>
-                            <h3 className="text-lg font-bold text-gray-900">Routing Timeline</h3>
-                            <p className="text-sm text-gray-600">A plain-English view of the latest case-routing milestones.</p>
+                      <details className="bg-white rounded-xl border border-gray-200 p-5">
+                        <summary className="cursor-pointer list-none">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <h3 className="text-base font-bold text-gray-900">Detailed routing timeline</h3>
+                              <p className="text-sm text-gray-600">Open for recent routing milestones.</p>
+                            </div>
+                            <Activity className="h-5 w-5 text-brand-600" />
                           </div>
-                          <Activity className="h-5 w-5 text-brand-600" />
-                        </div>
-                        <div className="space-y-3">
+                        </summary>
+                        <div className="space-y-3 mt-4">
                           {routingTimelineItems.map((item, index) => (
                             <div key={`${item.title}-${index}`} className={`rounded-lg border px-4 py-3 ${item.tone}`}>
                               <p className="text-sm font-semibold">{item.title}</p>
@@ -1687,7 +1673,7 @@ export default function Dashboard() {
                             </div>
                           ))}
                         </div>
-                      </div>
+                      </details>
                     )}
                   </>
                 )}
@@ -1697,10 +1683,10 @@ export default function Dashboard() {
                   {/* Row 1: Upload Evidence | Case Progress */}
                   <div className="bg-white rounded-xl border border-gray-200 p-5 min-h-[280px] flex flex-col">
                     <h3 className="text-lg font-bold text-gray-900 mb-3">
-                      {attorneyMatched ? 'Upload Evidence' : submittedForReview ? 'Improve your case value while you wait' : 'Evidence Center'}
+                      {attorneyMatched ? 'Upload Evidence' : submittedForReview ? 'Evidence that can help while you wait' : 'Evidence Center'}
                     </h3>
                     {submittedForReview && (
-                      <p className="text-sm text-gray-600 mb-3">Uploading more evidence increases case quality and can improve your estimated value.</p>
+                      <p className="text-sm text-gray-600 mb-3">Medical records, photos, and reports can help attorneys understand the case faster.</p>
                     )}
                     <p className="text-sm font-medium text-gray-700 mb-2">Evidence Score: <span className="font-bold text-brand-600">{evidencePercent}%</span></p>
                     <div className="h-2 bg-gray-200 rounded-full mb-3 overflow-hidden">
@@ -1720,33 +1706,36 @@ export default function Dashboard() {
                     </Link>
                   </div>
                   <div className="bg-white rounded-xl border border-gray-200 p-5 min-h-[280px] flex flex-col">
-                    <h3 className="text-lg font-bold text-gray-900 mb-3">Case Progress</h3>
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">Next few steps</h3>
                     <div className="bg-gray-50 rounded-lg p-4 mb-4 border border-gray-200">
                       <p className="text-sm font-semibold text-gray-900 mb-2">What happens next</p>
                       <ul className="text-sm text-gray-600 space-y-1">
-                        <li>Today → {attorneyMatched ? 'Working with attorney' : inManualReview ? 'Manual review' : needsMoreInfo ? 'Waiting for more info' : notRoutableYet ? 'Strengthening case details' : submittedForReview ? 'Attorneys reviewing your case' : 'Case submitted'}</li>
+                        <li>Today → {attorneyMatched ? 'Working with attorney' : inManualReview ? 'Team review' : needsMoreInfo ? 'Waiting for more info' : notRoutableYet ? 'Strengthening case details' : submittedForReview ? 'Attorneys reviewing your case' : 'Case submitted'}</li>
                         <li>1–2 days → {attorneyMatched && hasUpcomingConsult ? 'Your consultation' : 'Attorney consultation'}</li>
                         <li>1–3 months → Negotiation</li>
                         <li>6–12 months → Settlement</li>
                       </ul>
                     </div>
-                    <div className="flex items-center gap-2 overflow-x-auto pb-2 mt-auto">
-                      {horizontalSteps.map((step, i) => (
-                        <div key={step.label} className="flex items-center shrink-0">
-                          <div className="flex flex-col items-center">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                              step.done ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500'
-                            }`}>
-                              {step.done ? '✓' : i + 1}
+                    <details className="mt-auto rounded-lg border border-gray-200 bg-white px-3 py-3">
+                      <summary className="cursor-pointer list-none text-sm font-semibold text-gray-700">Show full progress tracker</summary>
+                      <div className="flex items-center gap-2 overflow-x-auto pb-2 mt-4">
+                        {horizontalSteps.map((step, i) => (
+                          <div key={step.label} className="flex items-center shrink-0">
+                            <div className="flex flex-col items-center">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                                step.done ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500'
+                              }`}>
+                                {step.done ? '✓' : i + 1}
+                              </div>
+                              <span className="text-xs text-gray-600 mt-1 text-center max-w-[80px]">{step.label}</span>
                             </div>
-                            <span className="text-xs text-gray-600 mt-1 text-center max-w-[80px]">{step.label}</span>
+                            {i < horizontalSteps.length - 1 && (
+                              <div className={`w-8 h-0.5 shrink-0 mx-1 ${step.done ? 'bg-green-500' : 'bg-gray-200'}`} />
+                            )}
                           </div>
-                          {i < horizontalSteps.length - 1 && (
-                            <div className={`w-8 h-0.5 shrink-0 mx-1 ${step.done ? 'bg-green-500' : 'bg-gray-200'}`} />
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    </details>
                   </div>
 
                   {/* Row 2: Case Value History | Case Health */}
@@ -1803,8 +1792,10 @@ export default function Dashboard() {
                         Attorney Messages
                       </h3>
                       <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 text-center flex-1 flex flex-col justify-center">
-                        <p className="text-gray-600">No messages yet.</p>
-                        <p className="text-sm text-gray-500 mt-1">You'll see responses here when attorneys contact you.</p>
+                        <p className="text-gray-600">No attorney messages yet.</p>
+                        <p className="text-sm text-gray-500 mt-1">
+                          {waitingState ? 'This is normal while your case is under team review.' : "You'll see responses here when attorneys contact you."}
+                        </p>
                       </div>
                     </div>
                   )}
@@ -1921,6 +1912,15 @@ export default function Dashboard() {
                   journalEntries={journalEntries}
                   onEditEntry={handleEditEntry}
                   onDeleteEntry={handleDeleteEntry}
+                  submittedForReview={submittedForReview}
+                  attorneyMatched={attorneyMatched}
+                  hasUpcomingConsult={hasUpcomingConsult}
+                  routingLifecycle={routingLifecycle}
+                  routingStatusMessage={plaintiffRoutingStatusMessage}
+                  attorneyReviewCount={attorneyReviewCount}
+                  attorneyActivity={routingStatus?.attorneyActivity ?? []}
+                  caseMessages={routingStatus?.caseMessages ?? []}
+                  attorneyName={routingStatus?.attorneyMatched?.name}
                 />
               </Suspense>
             )}

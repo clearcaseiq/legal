@@ -29,9 +29,9 @@ export default function CaseProgressPipeline({
 }) {
   const specialStatus = lifecycleState === 'manual_review_needed'
     ? {
-        label: 'Manual review',
+        label: 'Team review',
         tone: 'bg-amber-50 text-amber-800 border border-amber-200',
-        message: statusMessage || 'Our team is reviewing your case before it goes back into routing.'
+        message: statusMessage || 'Our team is checking routing fit and the next best step.'
       }
     : lifecycleState === 'plaintiff_info_requested'
     ? {
@@ -65,7 +65,7 @@ export default function CaseProgressPipeline({
       aria-label="Your case progress"
     >
       <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-4">
-        Where your case stands
+        Case status
       </h2>
       {specialStatus && (
         <div className={clsx('mb-4 rounded-lg px-3 py-2 text-sm', specialStatus.tone)}>

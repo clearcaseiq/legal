@@ -1,8 +1,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import * as SecureStore from 'expo-secure-store'
+import { AppState, type AppStateStatus } from 'react-native'
 import { getAttorneyDashboard, getApiErrorMessage } from '../lib/api'
 import { useAuth } from './AuthContext'
 
 const CACHE_MS = 20_000
+const STORE_PREFIX = 'attorney_dashboard_cache:'
 
 type RefreshOptions = {
   force?: boolean
@@ -14,6 +17,7 @@ type AttorneyDashboardContextValue = {
   loading: boolean
   error: string | null
   lastLoadedAt: number | null
+  isOfflineSnapshot: boolean
   refresh: (options?: RefreshOptions) => Promise<any | null>
 }
 
@@ -26,9 +30,32 @@ export function AttorneyDashboardProvider({ children }: { children: React.ReactN
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null)
+  const [isOfflineSnapshot, setIsOfflineSnapshot] = useState(false)
   const dataRef = useRef<any | null>(null)
   const lastLoadedAtRef = useRef<number | null>(null)
   const inFlightRef = useRef<Promise<any | null> | null>(null)
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState)
+  const cacheKey = user?.id ? `${STORE_PREFIX}${user.id}` : `${STORE_PREFIX}default`
+
+  const readStoredSnapshot = useCallback(async () => {
+    try {
+      const raw = await SecureStore.getItemAsync(cacheKey)
+      if (!raw) return null
+      const parsed = JSON.parse(raw) as { data?: any; savedAt?: number }
+      if (!parsed?.data) return null
+      return parsed
+    } catch {
+      return null
+    }
+  }, [cacheKey])
+
+  const writeStoredSnapshot = useCallback(async (next: any) => {
+    try {
+      await SecureStore.setItemAsync(cacheKey, JSON.stringify({ data: next, savedAt: Date.now() }))
+    } catch {
+      // Best-effort cache: large dashboards or platform storage limits should not break live data.
+    }
+  }, [cacheKey])
 
   useEffect(() => {
     dataRef.current = data
@@ -44,6 +71,7 @@ export function AttorneyDashboardProvider({ children }: { children: React.ReactN
       setError(null)
       setData(null)
       setLastLoadedAt(null)
+      setIsOfflineSnapshot(false)
       return null
     }
     const now = Date.now()
@@ -68,11 +96,22 @@ export function AttorneyDashboardProvider({ children }: { children: React.ReactN
       .then((next) => {
         setData(next)
         setLastLoadedAt(Date.now())
+        setIsOfflineSnapshot(false)
+        void writeStoredSnapshot(next)
         return next
       })
-      .catch((err: unknown) => {
+      .catch(async (err: unknown) => {
         const message = getApiErrorMessage(err)
         setError(message)
+        if (!currentData) {
+          const snapshot = await readStoredSnapshot()
+          if (snapshot?.data) {
+            setData(snapshot.data)
+            setLastLoadedAt(snapshot.savedAt || Date.now())
+            setIsOfflineSnapshot(true)
+            return snapshot.data
+          }
+        }
         return currentData ?? null
       })
       .finally(() => {
@@ -82,7 +121,7 @@ export function AttorneyDashboardProvider({ children }: { children: React.ReactN
 
     inFlightRef.current = request
     return request
-  }, [isAttorney])
+  }, [isAttorney, readStoredSnapshot, writeStoredSnapshot])
 
   useEffect(() => {
     if (!isAttorney) {
@@ -90,9 +129,24 @@ export function AttorneyDashboardProvider({ children }: { children: React.ReactN
       setLoading(false)
       setError(null)
       setLastLoadedAt(null)
+      setIsOfflineSnapshot(false)
       return
     }
     void refresh({ force: true })
+  }, [isAttorney, refresh])
+
+  useEffect(() => {
+    if (!isAttorney) return
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const previousState = appStateRef.current
+      appStateRef.current = nextState
+      if ((previousState === 'inactive' || previousState === 'background') && nextState === 'active') {
+        void refresh({ force: true, silent: true })
+      }
+    })
+
+    return () => subscription.remove()
   }, [isAttorney, refresh])
 
   const value = useMemo(
@@ -101,9 +155,10 @@ export function AttorneyDashboardProvider({ children }: { children: React.ReactN
       loading,
       error,
       lastLoadedAt,
+      isOfflineSnapshot,
       refresh,
     }),
-    [data, loading, error, lastLoadedAt, refresh]
+    [data, loading, error, lastLoadedAt, isOfflineSnapshot, refresh]
   )
 
   return <AttorneyDashboardContext.Provider value={value}>{children}</AttorneyDashboardContext.Provider>

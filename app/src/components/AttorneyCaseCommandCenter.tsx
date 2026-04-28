@@ -1,4 +1,5 @@
 import { AlertTriangle, Bot, FileText, MessageSquare, Shield, Sparkles, TrendingUp } from 'lucide-react'
+import { useState } from 'react'
 import type { CaseCommandCenter } from '../lib/api'
 import type { DocTypeId } from './DocumentRequestModal'
 
@@ -35,11 +36,33 @@ export default function AttorneyCaseCommandCenter({
   copilotAnswer,
   copilotLoading,
 }: Props) {
+  const [taskActionLoading, setTaskActionLoading] = useState(false)
+  const [taskActionMessage, setTaskActionMessage] = useState<string | null>(null)
+
   if (loading) {
     return <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">Loading case command center...</div>
   }
 
   if (!summary) return null
+
+  const handleCreateBlockerTasks = async () => {
+    if (!onCreateTasksFromBlockers) return
+    setTaskActionLoading(true)
+    setTaskActionMessage(null)
+    try {
+      const result = await onCreateTasksFromBlockers()
+      const createdCount = result?.createdCount ?? result?.tasks?.length ?? 0
+      setTaskActionMessage(
+        createdCount > 0
+          ? `Created ${createdCount} blocker task${createdCount === 1 ? '' : 's'} and opened Tasks.`
+          : result?.summary || 'No new blocker tasks were needed. Opened Tasks.',
+      )
+    } catch (error: any) {
+      setTaskActionMessage(error?.response?.data?.error || error?.message || 'Could not create blocker tasks.')
+    } finally {
+      setTaskActionLoading(false)
+    }
+  }
 
   return (
     <div className="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -130,12 +153,16 @@ export default function AttorneyCaseCommandCenter({
             </button>
             <button
               type="button"
-              onClick={() => onCreateTasksFromBlockers?.()}
+              onClick={() => { void handleCreateBlockerTasks() }}
+              disabled={taskActionLoading}
               className="rounded-md border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100"
             >
-              Create blocker tasks
+              {taskActionLoading ? 'Creating tasks...' : 'Create blocker tasks'}
             </button>
           </div>
+          {taskActionMessage ? (
+            <div className="mt-2 text-xs text-slate-600">{taskActionMessage}</div>
+          ) : null}
         </div>
       </div>
 

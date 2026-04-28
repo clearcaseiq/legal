@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
 import {
   getAssessment,
   getAssessmentCommandCenter,
@@ -18,36 +18,38 @@ import {
   submitCaseForReview,
   type PlaintiffMedicalReviewEdit,
   type PlaintiffMedicalReviewPayload,
+  type PlaintiffMedicalReviewStatus,
 } from '../lib/api-plaintiff'
 import ChatGPTAnalysis from '../components/ChatGPTAnalysis'
 import { formatPercentage, formatCurrency } from '../lib/formatters'
-import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import { ResultsPanelSkeleton } from '../components/PageSkeletons'
 import PlaintiffCaseCommandCenter from '../components/PlaintiffCaseCommandCenter'
 import PlaintiffMedicalChronology from '../components/PlaintiffMedicalChronology'
 import { useLanguage } from '../contexts/LanguageContext'
 import type { CaseCommandCenter } from '../lib/api'
 import { loadPlaintiffSessionSummary } from '../hooks/usePlaintiffSessionSummary'
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  AlertTriangle, 
-  CheckCircle, 
-  FileText,
-  Users,
-  Target,
-  Zap,
-  Upload,
+import { getStoredRole, hasValidAuthToken } from '../lib/auth'
+import {
+  AlertTriangle,
+  CheckCircle,
   Calendar,
   ClipboardList,
   BarChart3,
-  Copy,
-  Download,
-  Square,
   ChevronRight,
-  LayoutDashboard,
   Star
 } from 'lucide-react'
+
+function initialPlaintiffLoggedInState(): boolean | null {
+  try {
+    if (typeof window === 'undefined') return null
+    if (!hasValidAuthToken()) return false
+    const role = getStoredRole()
+    if (role === 'attorney' || role === 'admin') return false
+    return true
+  } catch {
+    return false
+  }
+}
 
 const ResultsSubmittedView = lazy(() =>
   import('../components/ResultsDeferredContent').then((module) => ({ default: module.ResultsSubmittedView }))
@@ -80,6 +82,8 @@ interface SimilarCase {
   keyFactors: string[]
 }
 
+type ResultsTab = 'liability' | 'medical' | 'documents' | 'value' | 'attorney'
+
 type TimelineEstimate = {
   label: string
   stage: string
@@ -108,6 +112,28 @@ function formatVenueLabel(venueState?: string, venueCounty?: string) {
     : ''
   const normalizedState = venueState === 'CA' ? 'CA' : venueState || ''
   return [normalizedCounty, normalizedState].filter(Boolean).join(', ')
+}
+
+function normalizeReportText(value?: string | null) {
+  return (value ?? '')
+    .replace(/\bnarrativ\b/gi, 'narrative')
+    .trim()
+}
+
+function getMissingDocAction(item: any, assessmentId?: string) {
+  const label = String(item?.label ?? '').toLowerCase()
+  if (label.includes('hipaa')) {
+    return {
+      label: 'Complete HIPAA authorization',
+      to: '/hipaa-authorization',
+    }
+  }
+
+  const uploadLabel = item?.label ? `Upload ${String(item.label).toLowerCase()}` : 'Upload document'
+  return {
+    label: uploadLabel,
+    to: assessmentId ? `/evidence-upload/${assessmentId}` : '/evidence-upload',
+  }
 }
 
 function getResponseBadge(attorney: any) {
@@ -238,6 +264,8 @@ function upsertMedicalReviewEdit(
 export default function Results() {
   const { t } = useLanguage()
   const { assessmentId } = useParams<{ assessmentId: string }>()
+  const [searchParams] = useSearchParams()
+  const reviewRequested = searchParams.get('review') === '1'
   const resolvedAssessmentId =
     assessmentId && assessmentId !== 'undefined' && assessmentId !== 'null'
       ? assessmentId
@@ -247,7 +275,7 @@ export default function Results() {
   const [sol, setSol] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null)
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(initialPlaintiffLoggedInState)
   const [resubmitLoading, setResubmitLoading] = useState(false)
   const [resubmitMessage, setResubmitMessage] = useState<string | null>(null)
   const [evidenceCount, setEvidenceCount] = useState(0)
@@ -277,7 +305,9 @@ export default function Results() {
   const [medicalReviewStatus, setMedicalReviewStatus] = useState<string | null>(null)
   const [medicalReviewError, setMedicalReviewError] = useState<string | null>(null)
   const [matchedAttorneys, setMatchedAttorneys] = useState<any[]>([])
+  const [attorneySearchLoading, setAttorneySearchLoading] = useState(false)
   const [rankedAttorneyIds, setRankedAttorneyIds] = useState<string[]>([])
+  const [autoReviewHandled, setAutoReviewHandled] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)
   const [caseSubmittedForReview, setCaseSubmittedForReview] = useState(false)
   const [submitLoading, setSubmitLoading] = useState(false)
@@ -286,6 +316,7 @@ export default function Results() {
   const [sendHipaaConsent, setSendHipaaConsent] = useState(false)
   const [contactFormError, setContactFormError] = useState<string | null>(null)
   const [commandCenter, setCommandCenter] = useState<CaseCommandCenter | null>(null)
+  const [activeResultsTab, setActiveResultsTab] = useState<ResultsTab>('attorney')
   const medicalReviewRef = useRef<HTMLDivElement | null>(null)
 
   const parsedFacts = (() => {
@@ -303,9 +334,31 @@ export default function Results() {
   const venueCounty = assessment?.venue?.county || assessment?.venueCounty
   const hasHipaaConsent = parsedFacts?.consents?.hipaa === true
 
+  const refreshMatchedAttorneys = async () => {
+    if (!assessment || !venueState) return []
+    try {
+      setAttorneySearchLoading(true)
+      const data = await searchAttorneys({
+        venue: venueState,
+        claim_type: assessment.claimType,
+        limit: 3
+      })
+      const list = (Array.isArray(data) ? data : (data?.attorneys ?? [])).slice(0, 3)
+      setMatchedAttorneys(list)
+      setRankedAttorneyIds(list.map((attorney: any) => attorney.id || attorney.attorney_id).filter(Boolean).slice(0, 3))
+      return list
+    } catch {
+      setMatchedAttorneys([])
+      setRankedAttorneyIds([])
+      return []
+    } finally {
+      setAttorneySearchLoading(false)
+    }
+  }
 
-  const openSendModal = () => {
-    if ((plaintiffMedicalReview?.review.status ?? 'pending') === 'pending') {
+  const openSendModal = async (medicalReviewStatusOverride?: PlaintiffMedicalReviewStatus) => {
+    const currentMedicalReviewStatus = medicalReviewStatusOverride ?? plaintiffMedicalReview?.review.status ?? 'pending'
+    if (currentMedicalReviewStatus === 'pending') {
       setMedicalReviewError('Please confirm your medical story or skip this step before sending your case to attorneys.')
       medicalReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       return
@@ -324,6 +377,7 @@ export default function Results() {
       }).catch(() => {})
     }
     setSendModalOpen(true)
+    void refreshMatchedAttorneys()
   }
 
   const rankedAttorneyCards = rankedAttorneyIds
@@ -367,9 +421,13 @@ export default function Results() {
               : 'Your medical-story updates were saved.')
       )
       if (options?.status === 'confirmed' || options?.status === 'skipped') {
+        setActiveResultsTab('attorney')
         window.setTimeout(() => {
-          medicalReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }, 50)
+          document.getElementById('attorney-handoff')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          if (reviewRequested) {
+            void openSendModal(options.status)
+          }
+        }, 100)
       }
     } catch (error: any) {
       setMedicalReviewError(error?.response?.data?.error || 'We could not save your medical-story review. Please try again.')
@@ -419,6 +477,20 @@ export default function Results() {
       setContactFormError('HIPAA authorization is required before sending your case to attorneys')
       return
     }
+    let selectedRankedAttorneyIds = rankedAttorneyIds
+    if (attorneySearchLoading) {
+      setContactFormError('Please wait while we load your attorney matches.')
+      return
+    }
+    if (selectedRankedAttorneyIds.length === 0) {
+      const refreshedMatches = await refreshMatchedAttorneys()
+      if (refreshedMatches.length > 0) {
+        selectedRankedAttorneyIds = refreshedMatches
+          .map((attorney: any) => attorney.id || attorney.attorney_id)
+          .filter(Boolean)
+          .slice(0, 3)
+      }
+    }
     try {
       setSubmitLoading(true)
       setContactFormError(null)
@@ -436,7 +508,7 @@ export default function Results() {
         phone: phone.trim(),
         preferredContactMethod,
         hipaa: hasHipaaConsent || sendHipaaConsent,
-        rankedAttorneyIds
+        rankedAttorneyIds: selectedRankedAttorneyIds
       })
       setCaseSubmittedForReview(true)
       setSendModalOpen(false)
@@ -657,21 +729,23 @@ export default function Results() {
 
   useEffect(() => {
     const loadMatchedAttorneys = async () => {
-      if (!assessment || !venueState) return
-      try {
-        const data = await searchAttorneys({
-          venue: venueState,
-          claim_type: assessment.claimType,
-          limit: 3
-        })
-        const list = Array.isArray(data) ? data : (data?.attorneys ?? [])
-        setMatchedAttorneys(list.slice(0, 3))
-      } catch {
-        setMatchedAttorneys([])
-      }
+      await refreshMatchedAttorneys()
     }
     loadMatchedAttorneys()
   }, [assessment?.id, venueState, assessment?.claimType])
+
+  useEffect(() => {
+    if (!reviewRequested || autoReviewHandled || loading || !assessment || !plaintiffMedicalReview) return
+    window.setTimeout(() => {
+      if ((plaintiffMedicalReview.review.status ?? 'pending') === 'pending') {
+        medicalReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        setMedicalReviewError('Please confirm your medical story or skip this step before sending your case to attorneys.')
+        return
+      }
+      setAutoReviewHandled(true)
+      openSendModal(plaintiffMedicalReview.review.status)
+    }, 100)
+  }, [reviewRequested, autoReviewHandled, loading, assessment?.id, plaintiffMedicalReview?.review.status])
 
   useEffect(() => {
     if (matchedAttorneys.length === 0) {
@@ -862,19 +936,46 @@ export default function Results() {
   const liabilityScore = viability?.liability ?? 0.5
   const liabilityOutlook = liabilityScore >= 0.7 ? 'strong' : liabilityScore >= 0.4 ? 'moderate' : 'weak'
   const liabilityDetails = prediction?.liability
-  const liabilityFactors = Array.isArray(liabilityDetails?.factors)
+  const rawLiabilityFactors = Array.isArray(liabilityDetails?.factors)
     ? liabilityDetails.factors.slice(0, 3)
     : explainability
         .filter((item: any) => typeof item?.feature === 'string' && item.feature.startsWith('liability_factor: '))
         .map((item: any) => String(item.feature).replace('liability_factor: ', ''))
         .slice(0, 3)
+  const liabilityFactors = rawLiabilityFactors
+    .map((factor: string) => normalizeReportText(factor))
+    .filter(Boolean)
   const comparativeFaultPercent = Math.round((liabilityDetails?.comparativeNegligence || 0) * 100)
-  const liabilitySummary = liabilityFactors[0]
+  const liabilitySummary = normalizeReportText(liabilityFactors[0])
     || (liabilityOutlook === 'strong'
       ? 'The current facts point toward the other side being primarily at fault.'
       : liabilityOutlook === 'moderate'
         ? 'Liability looks mixed right now and may depend on more evidence.'
         : 'Liability is still uncertain and needs better supporting facts.')
+  const liabilityConfidence = hasPoliceReport || (hasInjuryPhotos && !!parsedFacts?.incident?.narrative)
+    ? 'Medium'
+    : evidenceCount > 0 || !!parsedFacts?.incident?.narrative
+      ? 'Low'
+      : 'Very low'
+  const comparativeFaultRisk = comparativeFaultPercent >= 30 ? 'High' : comparativeFaultPercent > 0 ? 'Medium' : 'Low'
+  const liabilityPositiveSignals = [
+    ...liabilityFactors,
+    hasPoliceReport && 'A police or incident report is attached.',
+    hasInjuryPhotos && 'Photos may help show scene conditions or damage.',
+    parsedFacts?.incident?.narrative && 'Your incident description gives attorneys a starting fault story.',
+  ].filter(Boolean).slice(0, 4) as string[]
+  const liabilityRiskSignals = [
+    !hasPoliceReport && 'A police or incident report is not uploaded yet.',
+    !hasInjuryPhotos && 'Scene, injury, or damage photos are not uploaded yet.',
+    !parsedFacts?.incident?.narrative && 'The accident description is still limited.',
+    comparativeFaultPercent > 0 && `The model detected possible shared-fault risk around ${comparativeFaultPercent}%.`,
+  ].filter(Boolean).slice(0, 4) as string[]
+  const liabilityStrengthenActions = [
+    !hasPoliceReport && 'Upload the police or incident report.',
+    !hasInjuryPhotos && 'Add scene, vehicle/property damage, or injury photos.',
+    !parsedFacts?.incident?.narrative && 'Clarify what happened and why the other party may be responsible.',
+    'Add witness names, insurance details, or repair estimates if available.',
+  ].filter(Boolean).slice(0, 3) as string[]
   const evidenceLevelConfidence = (() => {
     if (evidenceCount === 0) return { level: 'No documents', confidence: 'Low' }
     if (hasPoliceReport && hasMedicalRecords) return { level: 'Police report + medical records', confidence: 'Very high' }
@@ -1048,28 +1149,68 @@ Checklist:
       : `Similar cases in ${venueState === 'CA' ? 'California' : venueState} settled between ${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`,
     missingDocItems.length > 0 && `The fastest way to strengthen this estimate is to add ${missingDocItems.slice(0, 2).map((item: any) => (item?.label ?? '').toLowerCase()).join(' and ')}.`
   ].filter(Boolean) as string[]
-  const summaryCards = [
-    {
-      label: 'Likely settlement range',
-      value: `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`,
-      detail: settlementBenchmarks ? `Comparable cases often center around ${formatCurrency(settlementBenchmarks.p50)}.` : 'This range will tighten as you upload more records.'
-    },
-    {
-      label: 'Likely timeline',
-      value: timelineEstimate.label,
-      detail: `${timelineEstimate.stage} stage with ${timelineEstimate.confidence} confidence.`
-    },
-    {
-      label: 'Liability view',
-      value: liabilityOutlook.charAt(0).toUpperCase() + liabilityOutlook.slice(1),
-      detail: liabilitySummary
-    },
-    {
-      label: 'Filing deadline',
-      value: solDeadline || 'Need incident date',
-      detail: solDeadline ? `${solRemaining} remaining based on current facts.` : 'Add the incident date and venue to confirm this risk.'
-    }
+  const medicalReviewPending = (plaintiffMedicalReview?.review.status ?? 'pending') === 'pending'
+  const topMissingDocLabels = missingDocItems
+    .slice(0, 3)
+    .map((item: any) => item?.label)
+    .filter(Boolean)
+  const bestMissingDoc = missingDocItems.find((item: any) => item?.priority === 'high') ?? missingDocItems[0]
+  const bestNextAction = bestMissingDoc
+    ? getMissingDocAction(bestMissingDoc, assessment?.id)
+    : medicalReviewPending
+      ? { label: 'Review medical story', to: '#medical-story-review' }
+      : { label: 'Send case for attorney review', to: '#attorney-handoff' }
+  const confidenceReason = evidenceLevelConfidence.confidence === 'Very high'
+    ? 'High confidence because your file includes strong supporting documents.'
+    : `${evidenceLevelConfidence.confidence} confidence because ${topMissingDocLabels.length > 0
+      ? `${topMissingDocLabels.join(', ')} ${topMissingDocLabels.length === 1 ? 'is' : 'are'} still missing`
+      : 'key supporting documents are still limited'
+    }.`
+  const liabilityClarityLabel = liabilityOutlook === 'strong' ? 'Strong' : liabilityOutlook === 'moderate' ? 'Mixed' : 'Unclear'
+  const attorneyReadinessLabel = missingDocItems.length === 0 && !medicalReviewPending
+    ? 'Ready'
+    : medicalReviewPending
+      ? 'Review needed'
+      : 'Needs docs'
+  const deadlineUrgencyLabel = sol?.status === 'critical' || sol?.status === 'expired'
+    ? 'Urgent'
+    : sol?.status === 'warning'
+      ? 'Watch'
+      : solDeadline
+        ? 'Low'
+        : 'Unknown'
+  const atAGlanceStats = [
+    { label: 'Case estimate', value: `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`, helper: 'Modeled range', tone: 'border-brand-200 bg-brand-50 text-brand-950' },
+    { label: 'Value confidence', value: evidenceLevelConfidence.confidence, helper: evidenceLevelConfidence.level, tone: 'border-sky-200 bg-sky-50 text-sky-950' },
+    { label: 'Liability clarity', value: liabilityClarityLabel, helper: liabilityConfidence, tone: 'border-violet-200 bg-violet-50 text-violet-950' },
+    { label: 'File readiness', value: `${evidenceCompletionPercent}%`, helper: missingDocItems.length > 0 ? 'Needs strengthening' : 'Ready for review', tone: 'border-emerald-200 bg-emerald-50 text-emerald-950' },
+    { label: 'Attorney readiness', value: attorneyReadinessLabel, helper: medicalReviewPending ? 'Medical story first' : missingDocItems.length > 0 ? 'More docs help' : 'You can send now', tone: 'border-amber-200 bg-amber-50 text-amber-950' },
+    { label: 'Deadline urgency', value: deadlineUrgencyLabel, helper: solDeadline ? `${solRemaining} left` : 'Confirm incident facts', tone: deadlineUrgencyLabel === 'Urgent' ? 'border-red-200 bg-red-50 text-red-950' : 'border-slate-200 bg-slate-50 text-slate-950' },
   ]
+  const guidedNextSteps = [
+    medicalReviewPending && 'Review or skip the medical story so attorneys know whether the timeline is accurate.',
+    topMissingDocLabels.length > 0 && `Upload ${topMissingDocLabels.join(', ')} to strengthen the file.`,
+    'Send the case for attorney review when you are comfortable sharing the summary.',
+  ].filter(Boolean) as string[]
+  const handoffSteps = [
+    { label: 'Intake complete', done: true },
+    { label: 'Strengthen file', done: missingDocItems.length === 0 },
+    { label: 'Attorney review', done: caseSubmittedForReview },
+  ]
+  const resultsTabs: Array<{ id: ResultsTab; label: string; badge?: string }> = [
+    { id: 'liability', label: 'Liability', badge: liabilityClarityLabel },
+    { id: 'medical', label: 'Medical Story', badge: medicalReviewPending ? 'Review needed' : undefined },
+    { id: 'documents', label: 'Documents', badge: missingDocItems.length > 0 ? `${missingDocItems.length} missing` : 'Ready' },
+    { id: 'value', label: 'Value & Timeline' },
+    { id: 'attorney', label: 'Attorney Review', badge: medicalReviewPending ? 'Medical first' : undefined },
+  ]
+  const openAnchoredResultsSection = (target: string) => {
+    const tab: ResultsTab = target === '#attorney-handoff' ? 'attorney' : target === '#medical-story-review' ? 'medical' : activeResultsTab
+    setActiveResultsTab(tab)
+    window.setTimeout(() => {
+      document.querySelector(target)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 0)
+  }
 
   const improveCaseValueItems = [
     { label: 'Upload injury photos', done: hasInjuryPhotos, boost: '+10-20% potential increase' },
@@ -1107,42 +1248,42 @@ Checklist:
 
   // Pre-submission layout — full case report
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="page-shell max-w-5xl">
       {/* Send Case Modal — minimal contact info before routing */}
       {sendModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4" onClick={() => !submitLoading && setSendModalOpen(false)}>
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-4 backdrop-blur-sm" onClick={() => !submitLoading && setSendModalOpen(false)}>
           <div className="flex min-h-full items-start justify-center py-6 sm:items-center" onClick={e => e.stopPropagation()}>
-            <div className="max-h-[calc(100vh-3rem)] w-full max-w-md overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
-            <h3 className="text-lg font-semibold text-gray-900 mb-1">Before we send your case to attorneys</h3>
-            <p className="text-sm text-gray-500 mb-4">Attorneys need this to call you, schedule a consultation, and request documents.</p>
+            <div className="surface-panel max-h-[calc(100vh-3rem)] w-full max-w-md overflow-y-auto p-6 shadow-xl">
+            <h3 className="section-title text-ui-xl">Before we send your case to attorneys</h3>
+            <p className="section-copy mb-4">Attorneys need this to call you, schedule a consultation, and request documents.</p>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
+                <label className="mb-1 block text-sm font-medium text-slate-700">First Name *</label>
                 <input
                   type="text"
                   value={contactForm.firstName}
                   onChange={e => setContactForm(f => ({ ...f, firstName: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                  className="input"
                   placeholder="John"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Email *</label>
                 <input
                   type="email"
                   value={contactForm.email}
                   onChange={e => setContactForm(f => ({ ...f, email: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                  className="input"
                   placeholder="john@example.com"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Phone *</label>
+                <label className="mb-1 block text-sm font-medium text-slate-700">Phone *</label>
                 <input
                   type="tel"
                   value={contactForm.phone}
                   onChange={e => setContactForm(f => ({ ...f, phone: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                  className="input"
                   placeholder="(555) 123-4567"
                 />
               </div>
@@ -1163,12 +1304,20 @@ Checklist:
                   ))}
                 </div>
               </div>
-              {rankedAttorneyCards.length > 0 && (
+              {attorneySearchLoading && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                  Finding the best attorney matches for your case...
+                </div>
+              )}
+              {!attorneySearchLoading && rankedAttorneyCards.length > 0 && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Rank your top attorney matches</label>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">Rank your top 3 attorney matches</label>
+                  <p className="mb-3 text-xs text-slate-500">
+                    We matched these attorneys based on venue, matter type, response signals, and profile fit. Dragging is not required; use Up/Down to reorder.
+                  </p>
                   <div className="space-y-2">
                     {rankedAttorneyCards.map((attorney: any, index) => (
-                      <div key={attorney.id || attorney.attorney_id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+                      <div key={attorney.id || attorney.attorney_id} className="subtle-panel px-3 py-3">
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Choice {index + 1}</p>
@@ -1242,6 +1391,22 @@ Checklist:
                   </p>
                 </div>
               )}
+              {!attorneySearchLoading && rankedAttorneyCards.length === 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950">
+                  <p className="font-medium text-amber-950">No attorney list loaded for ranking</p>
+                  <p className="mt-1 text-xs text-amber-900/90 leading-relaxed">
+                    You can still send your case—we will route it using our standard attorney matching when no ranked list is available. Try{' '}
+                    <button
+                      type="button"
+                      className="font-semibold underline decoration-amber-700 underline-offset-2 hover:text-amber-950"
+                      onClick={() => void refreshMatchedAttorneys()}
+                    >
+                      reload matches
+                    </button>{' '}
+                    if you want to pick preferred attorneys first.
+                  </p>
+                </div>
+              )}
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
                 <label className="flex items-start gap-2">
                   <input
@@ -1267,19 +1432,19 @@ Checklist:
               </div>
             </div>
             {contactFormError && <p className="mt-2 text-sm text-red-600">{contactFormError}</p>}
-            <p className="mt-4 text-xs text-gray-500">Attorneys will review your case and typically respond within 24 hours. Your information is not shared without your approval.</p>
-            <p className="mt-1 text-xs text-gray-500">No obligation. You are not required to hire any attorney.</p>
+            <p className="mt-4 text-xs text-slate-500">Attorneys will review your case and typically respond within 24 hours. Your information is not shared without your approval.</p>
+            <p className="mt-1 text-xs text-slate-500">No obligation. You are not required to hire any attorney.</p>
             <button
               onClick={handleSubmitForReview}
-              disabled={submitLoading}
-              className="mt-4 w-full py-3 text-base font-semibold text-white bg-brand-600 rounded-lg hover:bg-brand-700 disabled:opacity-70 disabled:cursor-not-allowed"
+              disabled={submitLoading || attorneySearchLoading}
+              className="btn-primary mt-4 w-full py-3 text-base disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {submitLoading ? 'Sending...' : 'Send My Case'}
+              {submitLoading ? 'Sending...' : attorneySearchLoading ? 'Finding attorney matches...' : 'Send My Case'}
             </button>
               <button
                 type="button"
                 onClick={() => !submitLoading && setSendModalOpen(false)}
-                className="mt-2 w-full py-2 text-sm text-gray-500 hover:text-gray-700"
+                className="btn-ghost mt-2 w-full"
               >
                 Cancel
               </button>
@@ -1287,7 +1452,7 @@ Checklist:
           </div>
         </div>
       )}
-      <div className="rounded-none border border-slate-200/90 bg-white shadow-card sm:rounded-2xl overflow-hidden">
+      <div className="premium-panel overflow-hidden rounded-none p-0 sm:rounded-3xl">
         <header className="border-b border-slate-200 bg-gradient-to-b from-slate-50 via-white to-white px-6 sm:px-10 py-8 sm:py-10">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-3">
             Preliminary assessment - confidential
@@ -1309,87 +1474,203 @@ Checklist:
               <p className="font-mono text-xs text-slate-700 mt-0.5">{(assessment?.id ?? '').slice(0, 8)}…</p>
             </div>
           </div>
-          <dl className="mt-8 grid gap-5 sm:grid-cols-3 text-sm border-t border-slate-200/90 pt-8">
-            <div>
-              <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">Matter type</dt>
-              <dd className="mt-1.5 font-semibold text-slate-900 capitalize">{formatClaimTypeLabel(assessment?.claimType)}</dd>
-            </div>
-            <div>
-              <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">Jurisdiction</dt>
-              <dd className="mt-1.5 font-semibold text-slate-900">
-                {[venueCounty, venueState === 'CA' ? 'California' : venueState].filter(Boolean).join(', ') || 'N/A'}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">Prepared</dt>
-              <dd className="mt-1.5 font-semibold text-slate-900">
-                {new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
-              </dd>
-            </div>
-          </dl>
         </header>
 
         <div className="px-6 sm:px-10 py-9 sm:py-10">
-        <section
-          className="mb-10 rounded-xl border border-slate-200 bg-white px-5 py-6 shadow-sm"
-          aria-label="Report summary metrics"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-5 border-b border-slate-100 pb-4">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Report summary</h2>
-            <span className="text-xs font-bold text-brand-800">ClearCaseIQ</span>
-          </div>
-          <dl className="space-y-0 text-[15px] leading-snug">
-            <div className="flex flex-wrap justify-between gap-x-6 gap-y-1 border-b border-slate-100 py-3 first:pt-0">
-              <dt className="text-slate-600">Case Strength</dt>
-              <dd className="font-semibold text-slate-900 tabular-nums text-right">{caseStrengthScore}/100</dd>
-            </div>
-            <div className="flex flex-wrap justify-between gap-x-6 gap-y-1 border-b border-slate-100 py-3">
-              <dt className="text-slate-600">Success Probability</dt>
-              <dd className="font-semibold text-slate-900 tabular-nums text-right">{successProbability}%</dd>
-            </div>
-            <div className="flex flex-wrap justify-between gap-x-6 gap-y-1 border-b border-slate-100 py-3">
-              <dt className="text-slate-600">Settlement Range</dt>
-              <dd className="font-semibold text-slate-900 tabular-nums text-right">
-                {formatCurrency(settlementLow)} - {formatCurrency(settlementHigh)}
-              </dd>
-            </div>
-            <div className="flex flex-wrap justify-between gap-x-6 gap-y-1 border-b border-slate-100 py-3">
-              <dt className="text-slate-600">Trial Probability</dt>
-              <dd className="font-semibold text-slate-900 tabular-nums text-right">{trialProbability}%</dd>
-            </div>
-            <div className="flex flex-wrap justify-between gap-x-6 gap-y-1 border-b border-slate-100 py-3">
-              <dt className="text-slate-600">Timeline</dt>
-              <dd className="font-semibold text-slate-900 tabular-nums text-right">{estimatedTimeline}</dd>
-            </div>
-            <div className="flex flex-wrap justify-between gap-x-6 gap-y-1 border-b border-slate-100 py-3">
-              <dt className="text-slate-600">Statute of Limitations</dt>
-              <dd className="font-semibold text-slate-900 tabular-nums text-right">{solRemaining} remaining</dd>
-            </div>
-            <div className="flex flex-wrap justify-between gap-x-6 gap-y-1 py-3 pb-0">
-              <dt className="text-slate-600">Documentation</dt>
-              <dd className="font-semibold text-slate-900 tabular-nums text-right">{evidenceCompletionPercent}%</dd>
-            </div>
-          </dl>
-        </section>
-
-        <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4 mb-10">
-          {summaryCards.map((card) => (
-            <div
-              key={card.label}
-              className="rounded-xl border border-slate-200/90 bg-slate-50/50 p-5 shadow-sm"
-            >
-              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-2">{card.label}</p>
-              <p className="text-lg sm:text-xl font-bold text-slate-900 leading-snug tracking-tight">{card.value}</p>
-              <p className="text-sm text-slate-600 mt-2 leading-relaxed">{card.detail}</p>
+        <dl className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {atAGlanceStats.map((item) => (
+            <div key={item.label} className={`rounded-2xl border px-4 py-4 shadow-sm ${item.tone}`}>
+              <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] opacity-70">{item.label}</dt>
+              <dd className="mt-1 text-lg font-bold tracking-tight">{item.value}</dd>
+              <dd className="mt-0.5 text-xs font-medium opacity-75">{item.helper}</dd>
             </div>
           ))}
-        </div>
+        </dl>
 
-        <div className="mb-8">
-          <PlaintiffCaseCommandCenter summary={commandCenter} />
-        </div>
+        <section
+          className="premium-panel mb-8 border-brand-100 bg-brand-50/50"
+          aria-label="Case snapshot"
+        >
+          <div className="flex flex-wrap gap-2 text-xs text-slate-700">
+            <span className="rounded-full border border-white/80 bg-white px-3 py-1.5 font-semibold shadow-sm capitalize">
+              {formatClaimTypeLabel(assessment?.claimType)}
+            </span>
+            <span className="rounded-full border border-white/80 bg-white px-3 py-1.5 font-semibold shadow-sm">
+              {[venueCounty, venueState === 'CA' ? 'California' : venueState].filter(Boolean).join(', ') || 'Jurisdiction unavailable'}
+            </span>
+            <span className="rounded-full border border-white/80 bg-white px-3 py-1.5 font-semibold shadow-sm">
+              Prepared {new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+            </span>
+          </div>
 
-        <div ref={medicalReviewRef} className="mb-8 scroll-mt-6">
+          <div className="mt-6 max-w-2xl">
+          <p className="section-kicker">Your case at a glance</p>
+            <h2 className="mt-2 font-display text-2xl font-semibold tracking-tight text-slate-950">
+              {missingDocItems.length > 0 ? 'Your file can be strengthened before attorney review' : 'Your file looks close to attorney-review ready'}
+            </h2>
+            <p className="mt-3 text-sm leading-relaxed text-slate-700">
+              Current estimate: <span className="font-semibold text-slate-950">{formatCurrency(settlementLow)} - {formatCurrency(settlementHigh)}</span>
+              {' '}with {evidenceLevelConfidence.confidence.toLowerCase()} confidence. The most useful next step is{' '}
+              {topMissingDocLabels.length > 0 ? `adding ${topMissingDocLabels[0].toLowerCase()}` : 'sending the case for attorney review'}.
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">{confidenceReason}</p>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-brand-200 bg-white px-5 py-5 shadow-sm">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-brand-700">Start here</p>
+                <p className="mt-1 text-xl font-bold text-slate-950">{bestNextAction.label}</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {topMissingDocLabels.length > 0
+                    ? `${topMissingDocLabels[0]} is the most useful next step for improving confidence.`
+                    : 'This is the clearest next step based on your current file.'}
+                </p>
+              </div>
+              {bestNextAction.to.startsWith('#') ? (
+                <button
+                  type="button"
+                  onClick={() => openAnchoredResultsSection(bestNextAction.to)}
+                  className="inline-flex shrink-0 items-center justify-center rounded-lg bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-800"
+                >
+                  Start now
+                </button>
+              ) : (
+                <Link
+                  to={bestNextAction.to}
+                  className="inline-flex shrink-0 items-center justify-center rounded-lg bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-800"
+                >
+                  Start now
+                </Link>
+              )}
+            </div>
+          </div>
+
+          <ol className="mt-6 grid gap-3 sm:grid-cols-3">
+            {handoffSteps.map((step, index) => (
+              <li key={step.label} className="flex items-center gap-3 rounded-xl border border-white/80 bg-white px-4 py-3 shadow-sm">
+                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                  step.done ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'
+                }`}>
+                  {step.done ? <CheckCircle className="h-4 w-4" /> : index + 1}
+                </span>
+                <span className={step.done ? 'text-sm font-semibold text-slate-900' : 'text-sm font-medium text-slate-600'}>{step.label}</span>
+              </li>
+            ))}
+          </ol>
+
+          <div className="mt-6 rounded-xl border border-slate-200 bg-white px-4 py-4">
+            <h3 className="text-sm font-semibold text-slate-950">What to do next</h3>
+            <ol className="mt-3 space-y-2 text-sm text-slate-700">
+              {guidedNextSteps.map((step, index) => (
+                <li key={step} className="flex gap-3">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-700 text-[11px] font-semibold text-white">
+                    {index + 1}
+                  </span>
+                  <span>{step}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+        </section>
+
+        <nav className="surface-panel mb-6 overflow-x-auto p-2" aria-label="Results sections">
+          <div className="flex min-w-max gap-2">
+            {resultsTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveResultsTab(tab.id)}
+                className={`workspace-tab text-left ${
+                  activeResultsTab === tab.id
+                    ? 'workspace-tab-active'
+                    : ''
+                }`}
+              >
+                <span>{tab.label}</span>
+                {tab.badge && (
+                  <span className="status-pill-neutral ml-2 px-2 py-0.5 text-[11px]">
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </nav>
+
+        {activeResultsTab === 'liability' && (
+        <section className="premium-panel mb-8" aria-label="Liability snapshot">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Liability snapshot</p>
+              <h2 className="mt-2 font-display text-2xl font-semibold tracking-tight text-slate-950 capitalize">
+                {liabilityOutlook} outlook
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-700">{liabilitySummary}</p>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center sm:min-w-72">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Score</p>
+                <p className="mt-1 text-lg font-bold text-slate-950">{Math.round(liabilityScore * 100)}%</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Confidence</p>
+                <p className="mt-1 text-lg font-bold text-slate-950">{liabilityConfidence}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Shared fault</p>
+                <p className="mt-1 text-lg font-bold text-slate-950">{comparativeFaultRisk}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-3">
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-4">
+              <h3 className="text-sm font-semibold text-emerald-950">What supports liability</h3>
+              <ul className="mt-3 space-y-2 text-sm text-emerald-900">
+                {(liabilityPositiveSignals.length > 0 ? liabilityPositiveSignals : ['The current facts provide an initial liability story, but more support would help.']).map((item) => (
+                  <li key={item} className="flex gap-2">
+                    <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-4">
+              <h3 className="text-sm font-semibold text-amber-950">What could be challenged</h3>
+              <ul className="mt-3 space-y-2 text-sm text-amber-900">
+                {(liabilityRiskSignals.length > 0 ? liabilityRiskSignals : ['No major liability challenge signals were detected from the current facts.']).map((item) => (
+                  <li key={item} className="flex gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="rounded-xl border border-brand-100 bg-brand-50/70 px-4 py-4">
+              <h3 className="text-sm font-semibold text-brand-950">Best ways to strengthen it</h3>
+              <ul className="mt-3 space-y-2 text-sm text-brand-900">
+                {liabilityStrengthenActions.map((item) => (
+                  <li key={item} className="flex gap-2">
+                    <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-brand-700" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <p className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600">
+            This is a model-based liability estimate, not a legal conclusion. An attorney will confirm fault, defenses, and comparative negligence after reviewing the documents and applicable law.
+          </p>
+        </section>
+        )}
+
+        {activeResultsTab === 'medical' && (
+        <div id="medical-story-review" ref={medicalReviewRef} className="mb-8 scroll-mt-6">
           <PlaintiffMedicalChronology
             review={plaintiffMedicalReview}
             saving={medicalReviewSaving}
@@ -1401,8 +1682,72 @@ Checklist:
             onSkip={() => persistPlaintiffMedicalReview({ status: 'skipped' })}
           />
         </div>
+        )}
 
-        <div className="mb-10 rounded-xl border border-slate-200 bg-white px-5 py-5 shadow-sm">
+        {activeResultsTab === 'documents' && (
+        <section className="premium-panel mb-8" aria-label="Documents">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Documents</p>
+              <h2 className="mt-2 font-display text-2xl font-semibold tracking-tight text-slate-950">Strengthen your file</h2>
+              <p className="mt-2 max-w-2xl text-sm text-slate-600">
+                Uploading the right documents can improve estimate confidence and make attorney review faster.
+              </p>
+            </div>
+            <p className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-800">{evidenceCompletionPercent}% ready</p>
+          </div>
+
+          {missingDocItems.length > 0 ? (
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              {missingDocItems.slice(0, 6).map((item: any) => {
+                const action = getMissingDocAction(item, assessment?.id)
+                return (
+                  <div key={item.key ?? item.label} className="subtle-panel px-4 py-4">
+                    <p className="text-sm font-semibold text-slate-900">{item?.label ?? 'Missing document'}</p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      {item?.priority === 'high' ? 'High impact on value and attorney review speed.' : 'Helpful for strengthening the file.'}
+                    </p>
+                    <Link
+                      to={action.to}
+                      className="mt-3 inline-flex items-center rounded-lg border border-brand-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-800 hover:bg-brand-50"
+                    >
+                      {action.label}
+                    </Link>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-800">
+              No major missing-document gaps were detected from the current file. You look close to attorney-review ready.
+            </div>
+          )}
+
+          {treatmentGapItems.length > 0 && (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
+              Treatment gap detected: {treatmentGapItems?.[0]?.gapDays ?? 'Unknown'} days between {treatmentGapItems?.[0]?.startDate ? new Date(treatmentGapItems[0].startDate).toLocaleDateString() : 'an unknown start date'} and {treatmentGapItems?.[0]?.endDate ? new Date(treatmentGapItems[0].endDate).toLocaleDateString() : 'an unknown end date'}.
+            </div>
+          )}
+        </section>
+        )}
+
+        {activeResultsTab === 'value' && (
+        <details className="surface-panel mb-10 px-5 py-5">
+          <summary className="cursor-pointer list-none">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Why we estimated this</p>
+                <p className="mt-1 text-sm text-slate-600">Open for liability, settlement, timeline, and document details.</p>
+              </div>
+              <span className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">Show details</span>
+            </div>
+          </summary>
+
+        <div className="mt-6 mb-8">
+          <PlaintiffCaseCommandCenter summary={commandCenter} />
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white px-5 py-5 shadow-sm">
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 mb-3">Overall assessment</p>
           <div className="flex flex-wrap items-center gap-4">
             <div className="relative inline-flex h-20 w-20 shrink-0 items-center justify-center">
@@ -1607,25 +1952,64 @@ Checklist:
             )}
           </div>
         </div>
+        </details>
+        )}
 
-        <div className="border-t border-slate-200 pt-8 mt-2">
+        {activeResultsTab === 'attorney' && (
+        <section className="premium-panel mb-8" aria-label="Attorney review">
+        <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-4 text-sm text-blue-900">
+          <span className="font-semibold">Attorney review does not mean you are hiring a lawyer.</span>{' '}
+          It sends your summary for review so interested attorneys can contact you. You decide whether to speak with or hire anyone.
+        </div>
+
+        {showSavePrompt && (
+          <div className="mb-8 rounded-xl border border-brand-200/80 bg-brand-50/70 px-5 py-5 shadow-sm">
+            <h2 className="font-display text-lg font-semibold text-brand-950">Save your case</h2>
+            <p className="mt-2 text-sm text-brand-900/90 leading-relaxed">
+              Create an account to return to this matter, upload records, and track attorney responses.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Link
+                to={`/register?redirect=/dashboard&assessmentId=${assessment.id}`}
+                className="inline-flex items-center justify-center rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
+              >
+                Create account
+              </Link>
+              <Link
+                to={`/login?redirect=/dashboard&assessmentId=${assessment.id}`}
+                className="inline-flex items-center justify-center rounded-lg border border-brand-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-800 hover:bg-brand-50/80"
+              >
+                Sign in
+              </Link>
+            </div>
+          </div>
+        )}
+
+        <div id="attorney-handoff" className="border-t border-slate-200 pt-8 mt-2 scroll-mt-6">
           <p className="text-center text-sm text-slate-600 mb-3 leading-relaxed">
             Ready for attorney review? Matched counsel typically respond within one business day.
           </p>
-          {(plaintiffMedicalReview?.review.status ?? 'pending') === 'pending' && (
+          {medicalReviewPending && (
             <p className="mb-3 text-center text-sm text-amber-700">
               Review your medical story above, then confirm it or skip it before sending your case.
             </p>
           )}
           <button
             type="button"
-            onClick={openSendModal}
-            disabled={(plaintiffMedicalReview?.review.status ?? 'pending') === 'pending'}
-            className="block w-full text-center py-3.5 text-base font-semibold text-white bg-brand-700 rounded-xl hover:bg-brand-800 shadow-sm transition-colors disabled:cursor-not-allowed disabled:bg-slate-400"
+            onClick={() => {
+              if (medicalReviewPending) {
+                openAnchoredResultsSection('#medical-story-review')
+                return
+              }
+              openSendModal()
+            }}
+            className="block w-full text-center py-3.5 text-base font-semibold text-white bg-brand-700 rounded-xl hover:bg-brand-800 shadow-sm transition-colors"
           >
-            {t('results.sendForReview')}
+            {medicalReviewPending ? 'Review Medical Story First' : t('results.sendForReview')}
           </button>
         </div>
+        </section>
+        )}
         </div>
       </div>
 
@@ -1640,7 +2024,6 @@ Checklist:
           isLoggedIn={isLoggedIn}
           rankedAttorneys={rankedAttorneyCards}
           shareCopied={shareCopied}
-          showSavePrompt={showSavePrompt}
           solDeadline={solDeadline}
           solRemaining={solRemaining}
           settlementHigh={formatCurrency(settlementHigh)}

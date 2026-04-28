@@ -79,6 +79,8 @@ const ForAttorneys = lazy(() => import('./pages/ForAttorneys'))
 const AiMlConsent = lazy(() => import('./pages/AiMlConsent'))
 const RoseIntake = lazy(() => import('./pages/RoseIntake'))
 const HipaaAuthorization = lazy(() => import('./pages/HipaaAuthorization'))
+const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess'))
+const PaymentCancel = lazy(() => import('./pages/PaymentCancel'))
 
 function RouteFallback() {
   return (
@@ -143,6 +145,10 @@ function ResultsRouteBoundary() {
 }
 
 function App() {
+  const allowLocalDevRoutes =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+
   return (
     <ErrorBoundary>
       <Layout>
@@ -171,6 +177,14 @@ function App() {
               <Route path="/assessments" element={<Assessments />} />
               <Route path="/profile" element={<UserProfile />} />
               <Route path="/consent-management" element={<ConsentManagement />} />
+              <Route path="/case-tracker" element={<CaseTracker />} />
+              <Route path="/ai-copilot" element={<AICopilot />} />
+              <Route path="/financing" element={<Financing />} />
+              <Route path="/messaging" element={<Messaging />} />
+              <Route path="/recovery-hub" element={<RecoveryHub />} />
+              <Route path="/smart-recommendations/:assessmentId" element={<SmartRecommendations />} />
+              <Route path="/demand/:assessmentId" element={<Demand />} />
+              <Route path="/drafts/:assessmentId" element={<Drafts />} />
             </Route>
             <Route element={<ProtectedRoute role="admin" />}>
               <Route path="/admin" element={<AdminLayout />}>
@@ -193,8 +207,12 @@ function App() {
                 <Route path="firm-settings" element={<AdminFirmSettings />} />
               </Route>
             </Route>
-            <Route path="/test-consent" element={<TestConsent />} />
-            <Route path="/auth-debug" element={<AuthDebug />} />
+            {allowLocalDevRoutes && (
+              <>
+                <Route path="/test-consent" element={<TestConsent />} />
+                <Route path="/auth-debug" element={<AuthDebug />} />
+              </>
+            )}
             <Route path="/terms-of-service" element={<TermsOfService />} />
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/help" element={<Help />} />
@@ -203,6 +221,8 @@ function App() {
             <Route path="/assessment/start" element={<Navigate to="/assess?fresh=1" replace />} />
             <Route path="/ai-ml-consent" element={<AiMlConsent />} />
             <Route path="/hipaa-authorization" element={<HipaaAuthorization />} />
+            <Route path="/payment/success" element={<PaymentSuccess />} />
+            <Route path="/payment/cancel" element={<PaymentCancel />} />
             <Route element={<ProtectedRoute role="attorney" />}>
               <Route path="/attorney-dashboard" element={<AttorneyDashboard />} />
               <Route path="/attorney-dashboard/contacts" element={<ContactsPage />} />
@@ -235,14 +255,6 @@ function App() {
             <Route path="/results/:assessmentId" element={<ResultsRouteBoundary />} />
             <Route path="/attorneys" element={<Attorneys />} />
             <Route path="/attorneys-enhanced" element={<AttorneysEnhanced />} />
-            <Route path="/case-tracker" element={<CaseTracker />} />
-            <Route path="/ai-copilot" element={<AICopilot />} />
-            <Route path="/financing" element={<Financing />} />
-            <Route path="/messaging" element={<Messaging />} />
-            <Route path="/recovery-hub" element={<RecoveryHub />} />
-            <Route path="/smart-recommendations/:assessmentId" element={<SmartRecommendations />} />
-            <Route path="/demand/:assessmentId" element={<Demand />} />
-            <Route path="/drafts/:assessmentId" element={<Drafts />} />
           </Routes>
         </Suspense>
       </Layout>

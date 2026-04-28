@@ -1,14 +1,16 @@
 import api from './http'
 import { clearStoredAuth } from './auth'
+import { apiDebug } from './debug'
+import type { AttorneyDashboardResponse } from '../../../shared/api-contracts'
 
 // Test authentication
 export async function testAuth() {
   try {
     const { data } = await api.get('/v1/auth/me')
-    console.log('✅ Auth test successful:', data)
+    apiDebug.log('Auth test successful:', data)
     return data
   } catch (error: any) {
-    console.error('❌ Auth test failed:', error.response?.data || error.message)
+    apiDebug.error('Auth test failed:', error.response?.data || error.message)
     throw error
   }
 }
@@ -16,7 +18,7 @@ export async function testAuth() {
 // Clear authentication data
 export function clearAuth() {
   clearStoredAuth()
-  console.log('🧹 Authentication data cleared')
+  apiDebug.log('Authentication data cleared')
 }
 
 // Check authentication status
@@ -24,17 +26,18 @@ export function getAuthStatus() {
   const token = localStorage.getItem('auth_token')
   const user = localStorage.getItem('user')
   
-  console.log('🔍 Auth Status Check:')
-  console.log('  - Token exists:', !!token)
-  console.log('  - User exists:', !!user)
-  console.log('  - Token format valid:', token ? token.split('.').length === 3 : false)
+  apiDebug.log('Auth status check:', {
+    hasToken: !!token,
+    hasUser: !!user,
+    hasValidTokenFormat: token ? token.split('.').length === 3 : false,
+  })
   
   if (user) {
     try {
       const userData = JSON.parse(user)
-      console.log('  - User data:', userData)
-    } catch (e) {
-      console.log('  - User data invalid JSON')
+      apiDebug.log('User data:', userData)
+    } catch {
+      apiDebug.log('User data invalid JSON')
     }
   }
   
@@ -122,9 +125,9 @@ export const updateConsent = async (consentId: string, updates: {
 
 // ChatGPT Analysis API
 export const analyzeCaseWithChatGPT = async (assessmentId: string) => {
-  console.log('🤖 Starting ChatGPT analysis for assessment:', assessmentId)
+  apiDebug.log('Starting ChatGPT analysis for assessment:', assessmentId)
   const response = await api.post(`/v1/chatgpt/analyze/${assessmentId}`)
-  console.log('✅ ChatGPT analysis completed:', response.data)
+  apiDebug.log('ChatGPT analysis completed:', response.data)
   return response.data
 }
 
@@ -160,19 +163,19 @@ function extractAssessmentId(payload: any): string | undefined {
 
 // Assessment API
 export async function createAssessment(payload: any) {
-  console.log('🚀 createAssessment called with payload:', payload)
+  apiDebug.log('createAssessment called with payload:', payload)
   try {
     const { data } = await api.post('/v1/assessments', payload)
-    console.log('✅ createAssessment success:', data)
+    apiDebug.log('createAssessment success:', data)
     const assessmentId = extractAssessmentId(data)
     if (!assessmentId) {
-      console.error('❌ createAssessment returned unexpected response shape:', data)
+      apiDebug.error('createAssessment returned unexpected response shape:', data)
       throw new Error('Assessment was created but the API response did not include a valid ID.')
     }
     return assessmentId
   } catch (error: any) {
-    console.error('❌ createAssessment failed:', error)
-    console.error('Error details:', error.response?.data)
+    apiDebug.error('createAssessment failed:', error)
+    apiDebug.error('Error details:', error.response?.data)
     throw error
   }
 }
@@ -238,13 +241,13 @@ export async function sendRoseTurn(conversationId: string, message: string) {
 }
 
 export async function updateAssessment(id: string, patch: any) {
-  console.log('updateAssessment called with:', { id, patch })
+  apiDebug.log('updateAssessment called with:', { id, patch })
   try {
     const { data } = await api.patch(`/v1/assessments/${id}`, patch)
-    console.log('updateAssessment success:', data)
+    apiDebug.log('updateAssessment success:', data)
     return data
   } catch (error: any) {
-    console.error('updateAssessment error:', {
+    apiDebug.error('updateAssessment error:', {
       message: error.message,
       response: error.response?.data,
       status: error.response?.status,
@@ -1037,15 +1040,15 @@ export async function getMyAttorneyProfile() {
 }
 
 // Get attorney dashboard data
-export async function getAttorneyDashboard() {
+export async function getAttorneyDashboard(): Promise<AttorneyDashboardResponse> {
   try {
-    console.log('Calling getAttorneyDashboard API...')
+    apiDebug.log('Calling getAttorneyDashboard API...')
     const { data: response } = await api.get('/v1/attorney-dashboard/dashboard')
-    console.log('getAttorneyDashboard API success:', response)
+    apiDebug.log('getAttorneyDashboard API success:', response)
     return response
   } catch (error: any) {
-    console.error('getAttorneyDashboard API error:', error)
-    console.error('Error response:', error.response?.data)
+    apiDebug.error('getAttorneyDashboard API error:', error)
+    apiDebug.error('Error response:', error.response?.data)
     throw error
   }
 }
@@ -1483,6 +1486,41 @@ export async function getLeadInvoices(leadId: string) {
 
 export async function createLeadInvoice(leadId: string, payload: any) {
   const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/invoices`, payload)
+  return data
+}
+
+export async function createInvoiceCheckoutSession(invoiceId: string, payload?: { successUrl?: string; cancelUrl?: string }) {
+  const { data } = await api.post(`/v1/payments/invoices/${invoiceId}/checkout-session`, payload || {})
+  return data as { checkoutUrl: string; sessionId: string }
+}
+
+export async function createPlatformSubscriptionCheckoutSession(payload?: {
+  priceId?: string
+  successUrl?: string
+  cancelUrl?: string
+}) {
+  const { data } = await api.post('/v1/payments/platform/subscription-checkout-session', payload || {})
+  return data as { checkoutUrl: string; sessionId: string }
+}
+
+export async function createLeadCreditCheckoutSession(payload: {
+  priceId?: string
+  amount?: number
+  quantity?: number
+  successUrl?: string
+  cancelUrl?: string
+}) {
+  const { data } = await api.post('/v1/payments/platform/lead-credit-checkout-session', payload)
+  return data as { checkoutUrl: string; sessionId: string }
+}
+
+export async function createStripeConnectAccountLink(payload?: { refreshUrl?: string; returnUrl?: string }) {
+  const { data } = await api.post('/v1/payments/connect/account-link', payload || {})
+  return data as { url: string; accountId: string }
+}
+
+export async function getStripeConnectStatus() {
+  const { data } = await api.get('/v1/payments/connect/status')
   return data
 }
 
@@ -2315,6 +2353,122 @@ export async function replyAdminSupportTicket(id: string, body: string) {
 
 export async function getAdminRoutingAlerts() {
   const { data } = await api.get('/v1/admin/communications/routing-alerts')
+  return data
+}
+
+export type AdminDocumentPipelineStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'needs_review' | 'ready' | 'approved' | 'not_ready' | 'not_applicable'
+
+export interface AdminDocumentItem {
+  id: string
+  originalName: string
+  mimetype: string
+  size: number
+  fileUrl: string
+  category: string
+  subcategory?: string | null
+  dataType: string
+  description?: string | null
+  processingStatus: string
+  ocrStatus: AdminDocumentPipelineStatus
+  extractionStatus: AdminDocumentPipelineStatus
+  chronologyStatus: AdminDocumentPipelineStatus
+  billExtractionStatus: AdminDocumentPipelineStatus
+  aiSummary?: string | null
+  aiClassification?: string | null
+  aiHighlights: string[]
+  ocrPreview: string
+  extractedData?: {
+    id: string
+    icdCodes: string[]
+    cptCodes: string[]
+    dollarAmounts: string[]
+    totalAmount?: number | null
+    currency: string
+    dates: string[]
+    keywords: string[]
+    confidence: number
+    isManualReview: boolean
+    updatedAt: string
+  } | null
+  latestJob?: {
+    id: string
+    jobType: string
+    status: string
+    errorMessage?: string | null
+    createdAt: string
+    completedAt?: string | null
+  } | null
+  case?: {
+    id: string
+    claimType: string
+    venueState: string
+    venueCounty?: string | null
+    status: string
+  } | null
+  plaintiff?: {
+    id: string
+    email: string
+    name: string
+  } | null
+  createdAt: string
+  updatedAt: string
+}
+
+export async function getAdminDocuments(params?: {
+  status?: string
+  category?: string
+  assessmentId?: string
+  query?: string
+  limit?: number
+  offset?: number
+}) {
+  const search = new URLSearchParams()
+  if (params?.status) search.append('status', params.status)
+  if (params?.category) search.append('category', params.category)
+  if (params?.assessmentId) search.append('assessmentId', params.assessmentId)
+  if (params?.query) search.append('query', params.query)
+  if (params?.limit) search.append('limit', String(params.limit))
+  if (params?.offset) search.append('offset', String(params.offset))
+  const { data } = await api.get<{
+    documents: AdminDocumentItem[]
+    summary: Record<string, any>
+    total: number
+    limit: number
+    offset: number
+  }>(`/v1/admin/documents?${search.toString()}`)
+  return data
+}
+
+export async function reprocessAdminDocument(fileId: string) {
+  const { data } = await api.post<{ ok: boolean; document: AdminDocumentItem }>(`/v1/admin/documents/${fileId}/reprocess`)
+  return data
+}
+
+export async function correctAdminDocumentExtraction(fileId: string, payload: {
+  category?: string
+  subcategory?: string | null
+  aiSummary?: string | null
+  extractedData?: {
+    icdCodes?: string[]
+    cptCodes?: string[]
+    dollarAmounts?: string[]
+    totalAmount?: number | null
+    dates?: string[]
+    keywords?: string[]
+    confidence?: number
+  }
+}) {
+  const { data } = await api.patch<{ ok: boolean; document: AdminDocumentItem }>(
+    `/v1/admin/documents/${fileId}/extracted-data`,
+    payload,
+  )
+  return data
+}
+
+export async function approveAdminDocumentChronology(fileId: string) {
+  const { data } = await api.post<{ ok: boolean; document: AdminDocumentItem }>(
+    `/v1/admin/documents/${fileId}/approve-chronology`,
+  )
   return data
 }
 

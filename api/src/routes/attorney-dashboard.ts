@@ -29,6 +29,26 @@ const router = Router()
 const PROJECTED_CONTINGENCY_RATE = 0.33
 const PROJECTED_PLATFORM_FEE_RATE = 0.1
 
+async function fetchAttorneyForDashboard(attorneyId: string) {
+  try {
+    return await prisma.attorney.findUnique({
+      where: { id: attorneyId },
+      include: {
+        attorneyProfile: true
+      }
+    })
+  } catch (error: any) {
+    logger.warn('Attorney profile fetch failed; falling back to attorney row only', {
+      attorneyId,
+      error: error?.message,
+      errorCode: error?.code,
+    })
+    return prisma.attorney.findUnique({
+      where: { id: attorneyId },
+    })
+  }
+}
+
 async function buildRevenueProjection(assessmentId: string) {
   const assessment = await prisma.assessment.findUnique({
     where: { id: assessmentId },
@@ -1452,14 +1472,10 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
         where: { attorneyId }
       })
       
-      // If dashboard exists, fetch attorney and profile separately
+      // If dashboard exists, fetch attorney separately. Some deployed DBs may lag
+      // the current AttorneyProfile Prisma model, so profile fetch is best effort.
       if (dashboard) {
-        const attorneyWithProfile = await prisma.attorney.findUnique({
-          where: { id: attorneyId },
-          include: {
-            attorneyProfile: true
-          }
-        })
+        const attorneyWithProfile = await fetchAttorneyForDashboard(attorneyId)
         // Attach attorney data to dashboard object
         dashboard = {
           ...dashboard,
@@ -1495,13 +1511,9 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
           }
         })
         
-        // Fetch attorney with profile separately
-        const attorneyWithProfile = await prisma.attorney.findUnique({
-          where: { id: attorneyId },
-          include: {
-            attorneyProfile: true
-          }
-        })
+        // Fetch attorney separately. Some deployed DBs may lag the current
+        // AttorneyProfile Prisma model, so profile fetch is best effort.
+        const attorneyWithProfile = await fetchAttorneyForDashboard(attorneyId)
         
         // Attach attorney data to dashboard
         dashboard = {
@@ -2616,7 +2628,9 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, async (req: a
 router.get('/leads/:leadId/quality', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const attorneyId = req.user.id
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const attorneyId = auth.attorney.id
 
     const lead = await prisma.leadSubmission.findFirst({
       where: {
@@ -2721,7 +2735,7 @@ router.get('/leads/:leadId/quality', authMiddleware, async (req: any, res) => {
     else if (hoursSinceSubmission < 24) hotnessLevel = 'warm'
 
     // Get SOL information
-    const facts = JSON.parse(lead.assessment.facts)
+    const facts = lead.assessment.facts ? JSON.parse(lead.assessment.facts) : {}
     const incidentDate = new Date(facts.incident?.date)
     const daysSinceIncident = Math.floor((Date.now() - incidentDate.getTime()) / (1000 * 60 * 60 * 24))
     const daysUntilSOL = 365 - daysSinceIncident // Simplified SOL calculation
@@ -4054,9 +4068,7 @@ router.get('/leads/:leadId/finance/summary', authMiddleware, async (req: any, re
         lienHolders: true,
         caseTasks: true,
         negotiationEvents: true,
-        caseNotes: true,
-        billingInvoices: true,
-        billingPayments: true
+        caseNotes: true
       }
     })
 
@@ -4094,11 +4106,27 @@ router.get('/leads/:leadId/finance/summary', authMiddleware, async (req: any, re
     const openTaskCount = (assessment.caseTasks || []).filter((task: any) => task.status !== 'completed').length
     const negotiationCount = assessment.negotiationEvents?.length || 0
     const noteCount = assessment.caseNotes?.length || 0
-    const invoiceTotal = (assessment.billingInvoices || [])
+    const [billingInvoices, billingPayments] = await Promise.all([
+      prisma.billingInvoice.findMany({
+        where: { assessmentId: assessment.id },
+        select: { amount: true },
+      }).catch((error) => {
+        logger.warn('Failed to load billing invoices for finance summary', { assessmentId: assessment.id, error: error?.message })
+        return []
+      }),
+      prisma.billingPayment.findMany({
+        where: { assessmentId: assessment.id },
+        select: { amount: true },
+      }).catch((error) => {
+        logger.warn('Failed to load billing payments for finance summary', { assessmentId: assessment.id, error: error?.message })
+        return []
+      }),
+    ])
+    const invoiceTotal = billingInvoices
       .map((inv: any) => inv.amount)
       .filter((amount: any) => typeof amount === 'number')
       .reduce((sum: number, amount: number) => sum + amount, 0)
-    const paymentTotal = (assessment.billingPayments || [])
+    const paymentTotal = billingPayments
       .map((p: any) => p.amount)
       .filter((amount: any) => typeof amount === 'number')
       .reduce((sum: number, amount: number) => sum + amount, 0)

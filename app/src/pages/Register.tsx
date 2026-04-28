@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { register } from '../lib/api-auth'
 import { createConsent } from '../lib/api-consent'
-import { associateAssessments } from '../lib/api-plaintiff'
+import { associateAssessments, listAssessments } from '../lib/api-plaintiff'
 import OAuthButtons from '../components/OAuthButtons'
 import ConsentWorkflow from '../components/ConsentWorkflow'
 import BrandLogo from '../components/BrandLogo'
+import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../contexts/ToastContext'
-import { resetCachedPlaintiffSessionSummary, updateCachedPlaintiffUser } from '../hooks/usePlaintiffSessionSummary'
+import { resetCachedPlaintiffSessionSummary, updateCachedPlaintiffAssessments, updateCachedPlaintiffUser } from '../hooks/usePlaintiffSessionSummary'
 import { type RegisterFieldErrors, type RegisterInput, validateRegisterInput } from '../lib/registerValidation'
 
 export default function Register() {
@@ -32,7 +33,10 @@ export default function Register() {
   const { showToast } = useToast()
   const [searchParams] = useSearchParams()
   const assessmentId = searchParams.get('assessmentId')
-  const redirectTo = searchParams.get('redirect') || (assessmentId ? `/results/${assessmentId}` : '/dashboard')
+  const rawRedirectTo = searchParams.get('redirect') || (assessmentId ? `/results/${assessmentId}` : '/dashboard')
+  const redirectTo = assessmentId && rawRedirectTo === '/dashboard'
+    ? `/dashboard?case=${encodeURIComponent(assessmentId)}`
+    : rawRedirectTo
 
   // Persist assessmentId for OAuth flow (assessmentId is lost during OAuth redirect)
   useEffect(() => {
@@ -71,6 +75,8 @@ export default function Register() {
       if (assessmentId) {
         try {
           await associateAssessments([assessmentId])
+          const assessments = await listAssessments()
+          updateCachedPlaintiffAssessments(assessments || [])
           localStorage.removeItem('pending_assessment_id')
         } catch (error) {
           console.error('Failed to associate assessment after register:', error)
@@ -275,14 +281,15 @@ export default function Register() {
                 Password
               </label>
               <div className="mt-1">
-                <input
+                <PasswordInputWithReveal
                   id="password"
-                  type="password"
+                  autoComplete="new-password"
                   value={form.password}
                   onChange={(event) => {
                     setForm((current) => ({ ...current, password: event.target.value }))
                     setFieldErrors((current) => ({ ...current, password: undefined }))
                   }}
+                  disabled={isLoading}
                   className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm"
                   placeholder="••••••••"
                 />

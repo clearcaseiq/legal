@@ -1,12 +1,13 @@
 import { clearStoredAuth, getLoginRedirect } from './auth'
+import { apiDebug } from './debug'
 import { getApiOrigin } from './runtimeEnv'
 
 // In Next.js, default to a local API during localhost development and
 // honor NEXT_PUBLIC_API_URL in deployed environments.
 const baseURL = getApiOrigin()
 
-console.log('🌐 API baseURL:', baseURL)
-console.log('🌐 Web origin:', typeof window !== 'undefined' ? window.location.origin : 'unknown')
+apiDebug.log('API baseURL:', baseURL)
+apiDebug.log('Web origin:', typeof window !== 'undefined' ? window.location.origin : 'unknown')
 
 type ResponseType = 'json' | 'text' | 'blob'
 
@@ -115,25 +116,26 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
     headers.set('X-Language', lang)
   }
 
-  console.log(`🔍 API Request Debug:`)
-  console.log(`  - URL: ${method.toUpperCase()} ${url}`)
-  console.log(`  - Token exists: ${!!token}`)
-  console.log(`  - Token value: ${token ? token.substring(0, 20) + '...' : 'none'}`)
+  apiDebug.log('API request:', {
+    method: method.toUpperCase(),
+    url,
+    hasToken: !!token,
+  })
 
   if (token) {
     try {
       const parts = token.split('.')
       if (parts.length === 3) {
         headers.set('Authorization', `Bearer ${token}`)
-        console.log(`✅ Token added to request`)
+        apiDebug.log('Token added to request')
       } else {
-        console.log(`❌ Invalid token format, not adding to request`)
+        apiDebug.log('Invalid token format, not adding to request')
       }
     } catch (error) {
-      console.log(`❌ Error processing token:`, error)
+      apiDebug.error('Error processing token:', error)
     }
   } else {
-    console.log(`⚠️ No token found, proceeding without auth`)
+    apiDebug.log('No token found, proceeding without auth')
   }
 
   const requestConfig: RequestConfig = {
@@ -176,8 +178,8 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
   const controller = new AbortController()
   const timeoutId = window.setTimeout(() => controller.abort(), requestConfig.timeout)
 
-  console.log('Request headers:', Object.fromEntries(headers.entries()))
-  console.log('Request data:', data)
+  apiDebug.log('Request headers:', Object.fromEntries(headers.entries()))
+  apiDebug.log('Request data:', data)
 
   try {
     const response = await fetch(requestUrl, {
@@ -203,7 +205,7 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
       throw error
     }
 
-    console.log(`✅ API Response: ${method.toUpperCase()} ${url} - ${response.status}`)
+    apiDebug.log(`API response: ${method.toUpperCase()} ${url} - ${response.status}`)
     return normalizedResponse
   } catch (rawError: any) {
     const error = rawError?.name === 'ApiError'
@@ -218,8 +220,8 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
         )
 
     const status = error.response?.status || 'NO_RESPONSE'
-    console.error(`❌ API Error: ${method.toUpperCase()} ${url} - ${status}`)
-    console.error('Error details:', {
+    apiDebug.error(`API error: ${method.toUpperCase()} ${url} - ${status}`)
+    apiDebug.error('Error details:', {
       message: error.message,
       response: error.response?.data,
       status: error.response?.status,
@@ -231,7 +233,7 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
     })
 
     if (!error.response) {
-      console.error('⚠️ Network error or server not reachable')
+      apiDebug.error('Network error or server not reachable')
     }
 
     if (typeof window !== 'undefined' && (error.response?.status === 401 || error.response?.status === 403)) {
@@ -288,10 +290,14 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
         (url === '/v1/auth/admin-access' || url.endsWith('/v1/auth/admin-access')) &&
         (pathname.startsWith('/login/admin') || pathname === '/admin-login')
 
-      if (hadToken && (status === 401 || status === 403)) {
+      if (hadToken && status === 401) {
         if (!registerConsentSave && !consentStatusBootstrap && !adminAccessCheck) {
           clearStoredAuth()
         }
+      }
+
+      if (status === 403) {
+        throw error
       }
 
       if (!onLoginPage && !guestOnResults && !guestOnEvidence) {

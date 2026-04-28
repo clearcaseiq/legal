@@ -22,6 +22,7 @@ type Step =
   | 'branch_10'
   | 'evidence'
   | 'case_posture'
+  | 'review'
   | 'consent'
 
 const INJURY_TYPES = [
@@ -206,6 +207,7 @@ const STEPS: { key: Step; title: string }[] = [
   { key: 'branch_10', title: 'Case Details' },
   { key: 'evidence', title: 'Evidence Upload' },
   { key: 'case_posture', title: 'Case Posture' },
+  { key: 'review', title: 'Review Your Case Story' },
   { key: 'consent', title: 'Your Case Report Is Ready' }
 ]
 
@@ -244,6 +246,7 @@ export default function IntakeWizardQuick() {
 
   const currentStepIndex = STEPS.findIndex(s => s.key === currentStep)
   const progressPercent = Math.round(((currentStepIndex + 1) / STEPS.length) * 100)
+  const uploadedEvidenceCount = Object.values(pendingEvidenceFiles).reduce((total, files) => total + (Array.isArray(files) ? files.length : 0), 0)
 
   useEffect(() => {
     let cancelled = false
@@ -330,6 +333,52 @@ export default function IntakeWizardQuick() {
     })
     return parts.join('. ')
   }
+
+  const getOptionLabel = (options: Array<{ value: string; labelKey?: string; label?: string }>, value?: string) => {
+    const option = options.find(o => o.value === value)
+    if (!option) return value || 'Not answered yet'
+    return option.labelKey ? t(`intake.${option.labelKey}`) : option.label || option.value
+  }
+
+  const getMedicalTreatmentSummary = () => {
+    if (!formData.medicalTreatment.length) return 'Not answered yet'
+    return formData.medicalTreatment
+      .map(value => getOptionLabel(MEDICAL_TREATMENT_OPTIONS, value))
+      .join(', ')
+  }
+
+  const getReviewItems = () => [
+    {
+      title: 'What happened',
+      value: formData.narrative || 'You can add a short description now or update it later.',
+      step: 'narrative' as Step,
+      helper: 'Plain-language accident details help attorneys understand fault faster.'
+    },
+    {
+      title: 'Where and when',
+      value: `${getIncidentDate() || 'Date not set'}${formData.venue.state ? ` • ${[formData.venue.city, formData.venue.county, formData.venue.state].filter(Boolean).join(', ')}` : ''}`,
+      step: 'when' as Step,
+      helper: 'This supports venue and deadline checks.'
+    },
+    {
+      title: 'Injuries',
+      value: getOptionLabel(INJURY_SEVERITY_OPTIONS, formData.injurySeverity),
+      step: 'injury_severity' as Step,
+      helper: 'It is okay if this is only an early estimate.'
+    },
+    {
+      title: 'Treatment',
+      value: getMedicalTreatmentSummary(),
+      step: 'medical_treatment' as Step,
+      helper: 'Medical treatment details are one of the strongest value signals.'
+    },
+    {
+      title: 'Documents',
+      value: uploadedEvidenceCount > 0 ? `${uploadedEvidenceCount} file${uploadedEvidenceCount === 1 ? '' : 's'} added` : 'No documents uploaded yet',
+      step: 'evidence' as Step,
+      helper: 'No documents yet is okay. You can still get a preliminary assessment.'
+    }
+  ]
 
   const handleEvidenceFiles = (category: string, files: any[]) => {
     setPendingEvidenceFiles(prev => ({ ...prev, [category]: files }))
@@ -493,7 +542,12 @@ export default function IntakeWizardQuick() {
   const toggleMedicalTreatment = (v: string) => {
     setFormData(prev => ({
       ...prev,
-      medicalTreatment: prev.medicalTreatment.includes(v) ? prev.medicalTreatment.filter(t => t !== v) : [...prev.medicalTreatment, v]
+      medicalTreatment:
+        v === 'none'
+          ? prev.medicalTreatment.includes('none') ? [] : ['none']
+          : prev.medicalTreatment.includes(v)
+          ? prev.medicalTreatment.filter(t => t !== v)
+          : [...prev.medicalTreatment.filter(t => t !== 'none'), v]
     }))
   }
 
@@ -650,18 +704,23 @@ export default function IntakeWizardQuick() {
       case 'narrative':
         return (
           <div className="space-y-4">
-            <p className="text-gray-900 font-medium text-center text-lg">Briefly describe what happened.</p>
-            <p className="text-gray-500 text-center text-sm">This helps us understand your case and assess liability.</p>
+            <p className="text-gray-900 font-medium text-center text-lg">Tell the story in your own words.</p>
+            <p className="text-gray-500 text-center text-sm">A few sentences is enough. You can skip this and update it later.</p>
             <textarea
               value={formData.narrative}
               onChange={e => updateForm({ narrative: e.target.value })}
-              placeholder="Describe the incident in your own words..."
+              placeholder="Example: I was stopped at a red light when another driver hit me from behind. Police came to the scene and I went to urgent care the next day."
               rows={4}
               className="input w-full resize-none"
             />
-            <p className="text-xs text-gray-500">
-              Optional: You can upload photos or documents later to strengthen your case.
-            </p>
+            <div className="rounded-xl border border-brand-100 bg-brand-50 p-3 text-sm text-brand-800">
+              Helpful details: what happened, who may be responsible, and whether there were witnesses, photos, or a report.
+            </div>
+            {!formData.narrative.trim() && (
+              <button type="button" onClick={() => setCurrentStep('injury_severity')} className="w-full py-2 text-sm font-medium text-gray-600 hover:text-brand-600">
+                I am not sure. I will add this later.
+              </button>
+            )}
           </div>
         )
 
@@ -691,8 +750,8 @@ export default function IntakeWizardQuick() {
       case 'medical_treatment':
         return (
           <div className="space-y-4">
-            <p className="text-gray-900 font-medium text-center text-lg">{t('intake.medicalTreatment')}</p>
-            <p className="text-gray-500 text-center text-sm">{t('intake.selectAllApply')}</p>
+            <p className="text-gray-900 font-medium text-center text-lg">What treatment have you had so far?</p>
+            <p className="text-gray-500 text-center text-sm">Select everything that applies. It is okay if treatment is still being scheduled.</p>
             <div className="grid grid-cols-2 gap-2">
               {MEDICAL_TREATMENT_OPTIONS.map(({ value, labelKey }) => (
                 <button
@@ -708,7 +767,14 @@ export default function IntakeWizardQuick() {
                 </button>
               ))}
             </div>
-            <p className="text-center text-sm text-gray-500">{t('intake.selectAllApply')}</p>
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-800">
+              Medical records and bills usually improve estimate confidence more than any other document type.
+            </div>
+            {!formData.medicalTreatment.length && (
+              <button type="button" onClick={() => { updateForm({ medicalTreatment: ['none'] }); setCurrentStep('branch_7') }} className="w-full py-2 text-sm font-medium text-gray-600 hover:text-brand-600">
+                I have not had treatment yet
+              </button>
+            )}
           </div>
         )
 
@@ -1103,28 +1169,32 @@ export default function IntakeWizardQuick() {
       case 'evidence':
         return (
           <div className="space-y-4">
-            <p className="text-gray-900 font-medium text-center text-lg">{t('intake.evidenceUpload')}</p>
-            <p className="text-gray-500 text-center text-sm">{t('intake.evidenceHelp')}</p>
+            <p className="text-gray-900 font-medium text-center text-lg">Add documents if you have them handy.</p>
+            <p className="text-gray-500 text-center text-sm">No problem if you do not have documents right now. You can upload them after your report.</p>
             <div className="space-y-4">
               <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50">
                 <div className="flex items-center gap-2 mb-1"><Image className="h-5 w-5 text-brand-600" /><h4 className="font-medium text-gray-900">{t('intake.photos')}</h4></div>
+                <p className="mb-3 text-xs text-gray-500">Photos help show visible injuries, vehicle/property damage, and scene conditions.</p>
                 <InlineEvidenceUpload assessmentId={assessmentId || undefined} category="photos" subcategory="injury_photos" description="Injury or incident photos" compact alwaysShowUpload hideHeader uploadButtonLabel={t('intake.uploadPhotos')} onFilesUploaded={f => handleEvidenceFiles('photos', f)} />
               </div>
               <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50">
                 <div className="flex items-center gap-2 mb-1"><FileText className="h-5 w-5 text-brand-600" /><h4 className="font-medium text-gray-900">{t('intake.medicalBills')}</h4></div>
+                <p className="mb-3 text-xs text-gray-500">Bills help show the financial impact of your injury.</p>
                 <InlineEvidenceUpload assessmentId={assessmentId || undefined} category="bills" subcategory="medical_bill" description="Medical bills" compact alwaysShowUpload uploadButtonLabel={t('intake.uploadBills')} onFilesUploaded={f => handleEvidenceFiles('bills', f)} />
               </div>
               <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50">
                 <div className="flex items-center gap-2 mb-1"><FileText className="h-5 w-5 text-brand-600" /><h4 className="font-medium text-gray-900">{t('intake.medicalRecords')}</h4></div>
+                <p className="mb-3 text-xs text-gray-500">Records help prove what treatment you received and how injuries changed over time.</p>
                 <InlineEvidenceUpload assessmentId={assessmentId || undefined} category="medical_records" subcategory="records" description="Medical records" compact alwaysShowUpload hideHeader uploadButtonLabel={t('intake.uploadRecords')} onFilesUploaded={f => handleEvidenceFiles('medical_records', f)} />
               </div>
               <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50">
                 <div className="flex items-center gap-2 mb-1"><Shield className="h-5 w-5 text-brand-600" /><h4 className="font-medium text-gray-900">{t('intake.policeReport')}</h4></div>
+                <p className="mb-3 text-xs text-gray-500">Reports can help confirm what happened and support early liability review.</p>
                 <InlineEvidenceUpload assessmentId={assessmentId || undefined} category="police_report" subcategory="report" description="Police report" compact alwaysShowUpload hideHeader uploadButtonLabel={t('intake.uploadReport')} onFilesUploaded={f => handleEvidenceFiles('police_report', f)} />
               </div>
             </div>
             <button type="button" onClick={() => setCurrentStep('case_posture')} className="w-full py-3 text-sm font-medium text-gray-600 hover:text-brand-600 border border-dashed border-gray-300 rounded-xl hover:border-brand-300 transition-colors">
-              {t('intake.skipForNow')}
+              I do not have documents right now
             </button>
           </div>
         )
@@ -1248,6 +1318,35 @@ export default function IntakeWizardQuick() {
           </div>
         )
 
+      case 'review':
+        return (
+          <div className="space-y-5">
+            <div className="text-center">
+              <p className="text-gray-900 font-medium text-lg">Review your case story before we create the report.</p>
+              <p className="text-gray-500 text-sm mt-1">This is just a quick check. You can still update everything later.</p>
+            </div>
+            <div className="space-y-3">
+              {getReviewItems().map(item => (
+                <div key={item.title} className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{item.title}</p>
+                      <p className="text-sm text-gray-700 mt-1">{item.value}</p>
+                      <p className="text-xs text-gray-500 mt-2">{item.helper}</p>
+                    </div>
+                    <button type="button" onClick={() => setCurrentStep(item.step)} className="shrink-0 text-sm font-medium text-brand-600 hover:text-brand-700">
+                      Edit
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-800">
+              Ready for a preliminary assessment. Missing details will be shown as next steps in your report.
+            </div>
+          </div>
+        )
+
       case 'consent':
         const consents = formData.consents || { tos: false, privacy: false, ml_use: false, hipaa: false }
         return (
@@ -1298,6 +1397,7 @@ export default function IntakeWizardQuick() {
     branch_10: t('intake.stepTitles_branch_10'),
     evidence: t('intake.stepTitles_evidence'),
     case_posture: t('intake.stepTitles_case_posture'),
+    review: 'Review your case story',
     consent: t('intake.stepTitles_consent')
   }
 
@@ -1350,6 +1450,10 @@ export default function IntakeWizardQuick() {
           </div>
         </div>
         <p className="sr-only">{Math.round(progressPercent)} percent complete</p>
+      </div>
+
+      <div className="mb-4 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-900">
+        Answer what you know. You can skip uncertain details now and update your case after the report is created.
       </div>
 
       {shouldShowSolPreview && (

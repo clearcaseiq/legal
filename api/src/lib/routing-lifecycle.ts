@@ -9,7 +9,7 @@ import {
   sendPlaintiffAttorneyAccepted,
   sendPlaintiffManualReviewNeeded
 } from './case-notifications'
-import { isRoutingEnabled } from './matching-rules-config'
+import { getConfiguredWaveSize, getConfiguredWaveWaitHours, getMatchingRules } from './matching-rules-config'
 
 const PROJECTED_CONTINGENCY_RATE = 0.33
 const PROJECTED_PLATFORM_FEE_RATE = 0.1
@@ -87,8 +87,9 @@ async function generateNextRankedBatch(
   })
   const excludeAttorneyIds = [...new Set(existingIntroductions.map((intro) => intro.attorneyId))]
   const { runRoutingEngine } = await import('./routing-engine')
+  const matchingRules = await getMatchingRules()
   const dryRunResult = await runRoutingEngine(assessmentId, {
-    maxAttorneysPerWave: 3,
+    maxAttorneysPerWave: getConfiguredWaveSize(matchingRules, 1),
     skipPreRoutingGate: true,
     dryRun: true,
     excludeAttorneyIds
@@ -686,7 +687,8 @@ export async function runEscalationWave(assessmentId: string): Promise<{
   waveNumber?: number
   error?: string
 }> {
-  if (!(await isRoutingEnabled())) {
+  const matchingRules = await getMatchingRules()
+  if (matchingRules.routingEnabled === false) {
     return { escalated: false, error: 'Routing disabled by admin' }
   }
 
@@ -741,6 +743,18 @@ export async function runEscalationWave(assessmentId: string): Promise<{
 
   const nextWave = (latestWave?.waveNumber ?? 0) + 1
 
+  if (latestWave?.nextEscalationAt) {
+    const overdueHours = (Date.now() - latestWave.nextEscalationAt.getTime()) / (1000 * 60 * 60)
+    const alertThresholdHours = Math.max(24, getConfiguredWaveWaitHours(matchingRules, latestWave.waveNumber) * 2)
+    if (overdueHours > alertThresholdHours) {
+      await recordRoutingEvent(assessmentId, null, null, 'routing_overdue', {
+        waveNumber: latestWave.waveNumber,
+        overdueHours: Math.round(overdueHours * 10) / 10,
+        alertThresholdHours,
+      })
+    }
+  }
+
   // Get all attorneys already routed (from previous waves)
   const existingIntros = await prisma.introduction.findMany({
     where: { assessmentId },
@@ -792,9 +806,8 @@ export async function runEscalationWave(assessmentId: string): Promise<{
 
   // Run routing engine for next wave (will add more attorneys, excluding already-routed)
   const { runRoutingEngine } = await import('./routing-engine')
-  const waveSizes = [3, 5, 10] // Wave 1: 3, Wave 2: 5, Wave 3: 10
   const result = await runRoutingEngine(assessmentId, {
-    maxAttorneysPerWave: waveSizes[nextWave - 1] ?? 5,
+    maxAttorneysPerWave: getConfiguredWaveSize(matchingRules, nextWave),
     skipPreRoutingGate: true, // Already passed
     dryRun: false,
     excludeAttorneyIds,
@@ -808,9 +821,7 @@ export async function runEscalationWave(assessmentId: string): Promise<{
   }
 
   const nextEscalationAt = new Date()
-  if (nextWave === 1) nextEscalationAt.setHours(nextEscalationAt.getHours() + WAVE_TIMING.wave1WaitHours)
-  else if (nextWave === 2) nextEscalationAt.setHours(nextEscalationAt.getHours() + WAVE_TIMING.wave2WaitHours)
-  else nextEscalationAt.setHours(nextEscalationAt.getHours() + WAVE_TIMING.wave3WaitHours)
+  nextEscalationAt.setTime(nextEscalationAt.getTime() + getConfiguredWaveWaitHours(matchingRules, nextWave) * 60 * 60 * 1000)
 
   await prisma.routingWave.upsert({
     where: {

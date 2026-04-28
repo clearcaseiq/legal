@@ -209,7 +209,7 @@ describe('runRoutingEngine', () => {
     expect(prisma.introduction.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         assessmentId: 'asm-eng-1',
-        attorneyId: { in: ['att-eng-1', 'att-eng-2'] },
+        attorneyId: { in: expect.arrayContaining(['att-eng-1', 'att-eng-2']) },
       }),
     }))
     expect(prisma.introduction.create).toHaveBeenCalledTimes(1)

@@ -1,6 +1,7 @@
 import { buildApp } from './build-app'
 import { ENV } from './env'
 import { logger } from './lib/logger'
+import { prisma } from './lib/prisma'
 import { renewCalendarWebhookSubscriptions } from './lib/calendar-sync'
 import { runAppointmentEngagementSweep } from './lib/appointment-engagement'
 import { retryPendingPlatformNotifications } from './lib/platform-notifications'
@@ -89,24 +90,45 @@ const server = app.listen(ENV.PORT, ENV.HOST, () => {
   startNotificationRetryLoop()
 })
 
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down gracefully')
+function stopBackgroundLoops() {
   if (calendarWebhookRenewalTimer) clearInterval(calendarWebhookRenewalTimer)
   if (appointmentEngagementTimer) clearInterval(appointmentEngagementTimer)
   if (notificationRetryTimer) clearInterval(notificationRetryTimer)
-  server.close(() => {
+  calendarWebhookRenewalTimer = null
+  appointmentEngagementTimer = null
+  notificationRetryTimer = null
+}
+
+function closeHttpServer() {
+  return new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error)
+        return
+      }
+      resolve()
+    })
+  })
+}
+
+async function shutdown(signal: 'SIGTERM' | 'SIGINT') {
+  logger.info(`${signal} received, shutting down gracefully`)
+  stopBackgroundLoops()
+  try {
+    await closeHttpServer()
+    await prisma.$disconnect()
     logger.info('Server closed')
     process.exit(0)
-  })
+  } catch (error) {
+    logger.error('Graceful shutdown failed', { error })
+    process.exit(1)
+  }
+}
+
+process.on('SIGTERM', () => {
+  void shutdown('SIGTERM')
 })
 
 process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down gracefully')
-  if (calendarWebhookRenewalTimer) clearInterval(calendarWebhookRenewalTimer)
-  if (appointmentEngagementTimer) clearInterval(appointmentEngagementTimer)
-  if (notificationRetryTimer) clearInterval(notificationRetryTimer)
-  server.close(() => {
-    logger.info('Server closed')
-    process.exit(0)
-  })
+  void shutdown('SIGINT')
 })

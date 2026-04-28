@@ -62,6 +62,29 @@ export default function AdminMatchingRules() {
     }
   }
 
+  const handleRoutingToggle = async () => {
+    if (!config || saving) return
+    const routingEnabled = !config.routingEnabled
+    setConfig({ ...config, routingEnabled })
+    setSaving(true)
+    setSuccess(false)
+    setError(null)
+    try {
+      const saved = await saveAdminMatchingRules({ routingEnabled })
+      setConfig((current) => current ? { ...current, routingEnabled: saved.routingEnabled } : saved)
+      window.dispatchEvent(new CustomEvent('admin-routing-status-changed', {
+        detail: { routingEnabled: saved.routingEnabled },
+      }))
+      setSuccess(true)
+      setTimeout(() => setSuccess(false), 3000)
+    } catch (e: any) {
+      setConfig(config)
+      setError(e?.response?.data?.error || e?.message || 'Failed to update routing status')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const updateWeight = (key: keyof MatchingRulesConfig, value: number) => {
     if (!config) return
     const next = { ...config, [key]: value }
@@ -122,12 +145,13 @@ export default function AdminMatchingRules() {
           </div>
           <button
             type="button"
-            onClick={() => update({ routingEnabled: !config.routingEnabled })}
+            onClick={handleRoutingToggle}
+            disabled={saving}
             className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
               config.routingEnabled
                 ? 'border-green-200 bg-green-50 text-green-700'
                 : 'border-slate-300 bg-slate-100 text-slate-700'
-            }`}
+            } disabled:cursor-not-allowed disabled:opacity-60`}
           >
             <span
               className={`inline-block h-2.5 w-2.5 rounded-full ${

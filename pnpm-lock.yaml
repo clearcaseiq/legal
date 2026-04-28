@@ -101,6 +101,9 @@ importers:
       sharp:
         specifier: ^0.34.4
         version: 0.34.4
+      stripe:
+        specifier: ^22.1.0
+        version: 22.1.0
       twilio:
         specifier: ^5.12.2
         version: 5.12.2
@@ -11697,6 +11700,16 @@ packages:
   /strip-json-comments@5.0.3:
     resolution: {integrity: sha512-1tB5mhVo7U+ETBKNf92xT4hrQa3pm0MZ0PQvuDnWgAAGHDsfp4lPSpiS6psrSiet87wyGPh9ft6wmhOMQ0hDiw==}
     engines: {node: '>=14.16'}
+    dev: false
+
+  /stripe@22.1.0:
+    resolution: {integrity: sha512-w/xHyJGxXWnLPbNHG13sz/fae0MrFGC80Oz7YbICQymbfpqfEcsoG+6yG+9BWb81PWc4rrkeSO4wmTcmefmbLw==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@types/node': '>=18'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
     dev: false
 
   /structured-headers@0.4.1:

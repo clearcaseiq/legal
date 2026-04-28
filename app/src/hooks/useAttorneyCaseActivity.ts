@@ -4,6 +4,7 @@ import {
   createLeadNegotiation,
   createLeadNote,
   createLeadPayment,
+  createInvoiceCheckoutSession,
   downloadLeadInvoiceDocx,
   downloadLeadInvoicePdf,
   downloadLeadPaymentReceiptPdf,
@@ -163,6 +164,16 @@ export function useAttorneyCaseActivity(selectedLeadId?: string) {
     }
   }, [selectedLeadId])
 
+  const handlePayInvoiceWithStripe = useCallback(async (invoiceId: string) => {
+    try {
+      const { checkoutUrl } = await createInvoiceCheckoutSession(invoiceId)
+      window.location.assign(checkoutUrl)
+    } catch (err) {
+      console.error('Failed to create Stripe checkout session:', err)
+      window.alert('Stripe Checkout is not configured yet. Add Stripe environment keys and try again.')
+    }
+  }, [])
+
   const handleDownloadPaymentReceipt = useCallback(async (paymentId: string) => {
     if (!selectedLeadId) return
     try {
@@ -233,6 +244,7 @@ export function useAttorneyCaseActivity(selectedLeadId?: string) {
     handleAddNegotiation,
     handleAddNote,
     handleAddPayment,
+    handlePayInvoiceWithStripe,
     handleDownloadInvoiceDocx,
     handleDownloadInvoicePdf,
     handleDownloadPaymentReceipt,

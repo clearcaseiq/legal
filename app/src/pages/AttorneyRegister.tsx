@@ -13,6 +13,7 @@ import {
 import AttorneyRegisterProgress from '../components/AttorneyRegisterProgress'
 import AttorneyRegisterBenefits from '../components/AttorneyRegisterBenefits'
 import BrandLogo from '../components/BrandLogo'
+import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 
 const CASE_TYPES = [
   { value: 'auto', label: 'Auto Accidents' },
@@ -340,10 +341,11 @@ export default function AttorneyRegister() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
-                    <input
-                      type="password"
+                    <PasswordInputWithReveal
+                      autoComplete="new-password"
                       value={form.password}
                       onChange={(e) => updateField('password', e.target.value)}
+                      disabled={isLoading}
                       className="input"
                     />
                     {fieldErrors.password && <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>}

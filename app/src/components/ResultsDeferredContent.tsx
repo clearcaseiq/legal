@@ -330,7 +330,6 @@ type ResultsReportDetailsProps = {
   isLoggedIn: boolean | null
   rankedAttorneys: RankedAttorneyCard[]
   shareCopied: boolean
-  showSavePrompt: boolean
   solDeadline: string | null
   solRemaining: string
   settlementHigh: string
@@ -350,7 +349,6 @@ export function ResultsReportDetails({
   isLoggedIn,
   rankedAttorneys,
   shareCopied,
-  showSavePrompt,
   solDeadline,
   solRemaining,
   settlementHigh,
@@ -367,11 +365,17 @@ export function ResultsReportDetails({
   const attorneyCards = Array.isArray(rankedAttorneys) ? rankedAttorneys : []
 
   return (
-    <div className="mt-8 rounded-none border border-slate-200/90 bg-white shadow-card sm:rounded-2xl overflow-hidden">
-      <div className="border-b border-slate-200 bg-slate-50/50 px-6 sm:px-10 py-4">
-        <p className="text-xs font-bold text-brand-800">ClearCaseIQ</p>
-        <p className="text-[11px] text-slate-500 mt-0.5">Supplemental sections</p>
-      </div>
+    <details className="mt-8 rounded-none border border-slate-200/90 bg-white shadow-card sm:rounded-2xl overflow-hidden">
+      <summary className="cursor-pointer list-none border-b border-slate-200 bg-slate-50/50 px-6 sm:px-10 py-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold text-brand-800">ClearCaseIQ</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">Full report, sharing, and legal notes</p>
+            <p className="mt-0.5 text-xs text-slate-500">Open this if you want the complete supplemental analysis.</p>
+          </div>
+          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">Show full report</span>
+        </div>
+      </summary>
       <div className={sectionWrap}>
         <h2 className={`${sectionTitle} mb-4`}>Executive summary</h2>
         <ul className={`${prose} space-y-3 list-none pl-0`}>
@@ -538,29 +542,6 @@ export function ResultsReportDetails({
         </div>
       </div>
 
-      {showSavePrompt && (
-        <div className="mx-6 sm:mx-10 my-8 rounded-xl border border-brand-200/80 bg-brand-50/60 px-6 py-6">
-          <h2 className="font-display text-lg font-semibold text-brand-950">Save this report</h2>
-          <p className="mt-2 text-sm text-brand-900/90 leading-relaxed">
-            Create an account to return to this matter, track updates, and upload additional records securely.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Link
-              to={`/register?redirect=/dashboard&assessmentId=${assessmentId}`}
-              className="inline-flex items-center justify-center px-4 py-2.5 text-sm font-semibold text-white bg-brand-700 rounded-lg hover:bg-brand-800 shadow-sm"
-            >
-              Create account
-            </Link>
-            <Link
-              to={`/login?redirect=/dashboard&assessmentId=${assessmentId}`}
-              className="inline-flex items-center justify-center px-4 py-2.5 text-sm font-semibold text-brand-800 bg-white border border-brand-200 rounded-lg hover:bg-brand-50/80"
-            >
-              Sign in
-            </Link>
-          </div>
-        </div>
-      )}
-
       {isLoggedIn && (
         <div className="flex justify-center px-6 pb-8">
           <Link
@@ -588,6 +569,6 @@ export function ResultsReportDetails({
           </div>
         </div>
       </footer>
-    </div>
+    </details>
   )
 }

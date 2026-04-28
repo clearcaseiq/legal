@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { loginAttorney } from '../lib/api-auth'
 import { getStoredRole, hasValidAuthToken } from '../lib/auth'
 import LoginLayout from '../components/LoginLayout'
+import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import { type LoginFieldErrors, type LoginInput, validateLoginInput } from '../lib/loginValidation'
 
 export default function AttorneyLogin() {
@@ -103,15 +104,15 @@ export default function AttorneyLogin() {
             Password
           </label>
           <div className="mt-1">
-            <input
+            <PasswordInputWithReveal
               id="password"
-              type="password"
               autoComplete="current-password"
               value={form.password}
               onChange={(event) => {
                 setForm((current) => ({ ...current, password: event.target.value }))
                 setFieldErrors((current) => ({ ...current, password: undefined }))
               }}
+              disabled={isLoading}
               className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm"
               placeholder="••••••••"
             />

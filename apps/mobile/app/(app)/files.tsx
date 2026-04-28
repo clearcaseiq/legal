@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { View, Text, FlatList, Linking, StyleSheet, TextInput, TouchableOpacity, RefreshControl } from 'react-native'
-import { useFocusEffect, useLocalSearchParams } from 'expo-router'
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { getApiErrorMessage, getLeadEvidenceFiles, toAbsoluteApiUrl, type LeadEvidenceFile } from '../../src/lib/api'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
@@ -118,6 +118,11 @@ export default function FilesScreen() {
             <Text style={styles.emptySub}>
               {query ? 'Try a different search term.' : 'Evidence uploads and supporting files will appear here.'}
             </Text>
+            {!query ? (
+              <TouchableOpacity style={styles.emptyAction} onPress={() => router.push('/(app)/document-requests')} activeOpacity={0.85}>
+                <Text style={styles.emptyActionText}>Request documents</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         }
       />
@@ -171,4 +176,12 @@ const styles = StyleSheet.create({
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 56 },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginTop: space.md },
   emptySub: { fontSize: 14, color: colors.textSecondary, marginTop: 8, textAlign: 'center', lineHeight: 21 },
+  emptyAction: {
+    marginTop: space.lg,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    borderRadius: radii.md,
+    backgroundColor: colors.primary,
+  },
+  emptyActionText: { color: '#fff', fontSize: 15, fontWeight: '800' },
 })

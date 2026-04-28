@@ -52,6 +52,7 @@ export default function Layout({ children }: LayoutProps) {
   const attorney = localStorage.getItem('attorney')
   const isAuthenticated = hasValidAuthToken()
   const isAdmin = location.pathname.startsWith('/admin')
+  const isDashboard = location.pathname.startsWith('/dashboard')
   const isAttorney = !isAdmin && (!!attorney || location.pathname.startsWith('/attorney-dashboard') || location.pathname.startsWith('/firm-dashboard'))
   const shouldLoadPlaintiffSummary = !!authToken && !isAttorney
   const storedUser = getStoredUser<{ firstName?: string }>('user')
@@ -371,6 +372,18 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Footer - hidden during assessment flow to reduce distractions */}
       {!['/assess', '/intake'].includes(location.pathname) && (
+      isDashboard ? (
+      <footer className="mt-auto border-t border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <span>{t('footer.copyright')}</span>
+          <div className="flex flex-wrap gap-3">
+            <Link to="/help" className="hover:text-slate-900">{t('footer.helpCenter')}</Link>
+            <Link to="/terms-of-service" className="hover:text-slate-900">{t('footer.termsOfService')}</Link>
+            <Link to="/privacy-policy" className="hover:text-slate-900">{t('footer.privacyPolicy')}</Link>
+          </div>
+        </div>
+      </footer>
+      ) : (
       <footer className="mt-auto border-t border-slate-700/50 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-900">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-start">
@@ -437,6 +450,7 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         </div>
       </footer>
+      )
       )}
     </div>
   )

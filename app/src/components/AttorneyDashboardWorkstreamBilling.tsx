@@ -1,3 +1,11 @@
+import { useEffect, useState } from 'react'
+import {
+  createLeadCreditCheckoutSession,
+  createPlatformSubscriptionCheckoutSession,
+  createStripeConnectAccountLink,
+  getStripeConnectStatus,
+} from '../lib/api'
+
 type AttorneyDashboardWorkstreamBillingProps = {
   invoiceForm: any
   setInvoiceForm: any
@@ -5,6 +13,7 @@ type AttorneyDashboardWorkstreamBillingProps = {
   invoiceItems: any[]
   handleDownloadInvoicePdf: any
   handleDownloadInvoiceDocx: any
+  handlePayInvoiceWithStripe: any
   paymentForm: any
   setPaymentForm: any
   handleAddPayment: any
@@ -24,6 +33,7 @@ export default function AttorneyDashboardWorkstreamBilling({
   invoiceItems,
   handleDownloadInvoicePdf,
   handleDownloadInvoiceDocx,
+  handlePayInvoiceWithStripe,
   paymentForm,
   setPaymentForm,
   handleAddPayment,
@@ -35,8 +45,71 @@ export default function AttorneyDashboardWorkstreamBilling({
   handleAddRecurringInvoice,
   recurringInvoices,
 }: AttorneyDashboardWorkstreamBillingProps) {
+  const [connectStatus, setConnectStatus] = useState<any>(null)
+  const [stripeActionLoading, setStripeActionLoading] = useState<string | null>(null)
+
+  useEffect(() => {
+    getStripeConnectStatus()
+      .then(setConnectStatus)
+      .catch(() => setConnectStatus(null))
+  }, [])
+
+  const redirectToStripe = async (action: string, fn: () => Promise<{ checkoutUrl?: string; url?: string }>) => {
+    try {
+      setStripeActionLoading(action)
+      const result = await fn()
+      const url = result.checkoutUrl || result.url
+      if (!url) throw new Error('Stripe did not return a redirect URL')
+      window.location.assign(url)
+    } catch (error) {
+      console.error(`Failed to start Stripe ${action}:`, error)
+      window.alert('Stripe is not configured yet. Add Stripe environment keys and try again.')
+    } finally {
+      setStripeActionLoading(null)
+    }
+  }
+
   return (
     <>
+      <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
+        <h4 className="text-sm font-semibold text-emerald-950 mb-2">Stripe Platform Billing</h4>
+        <p className="text-xs text-emerald-800">
+          Use Stripe Checkout for CaseIQ subscriptions, lead credits, and Connect onboarding for payouts.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => redirectToStripe('subscription', () => createPlatformSubscriptionCheckoutSession())}
+            disabled={stripeActionLoading !== null}
+            className="px-3 py-1.5 text-sm font-medium text-white bg-emerald-700 rounded-md hover:bg-emerald-800 disabled:opacity-60"
+          >
+            Start Subscription
+          </button>
+          <button
+            type="button"
+            onClick={() => redirectToStripe('lead credits', () => createLeadCreditCheckoutSession({ amount: 500 }))}
+            disabled={stripeActionLoading !== null}
+            className="px-3 py-1.5 text-sm font-medium text-emerald-800 bg-white border border-emerald-300 rounded-md hover:bg-emerald-100 disabled:opacity-60"
+          >
+            Buy $500 Lead Credits
+          </button>
+          <button
+            type="button"
+            onClick={() => redirectToStripe('Connect onboarding', () => createStripeConnectAccountLink())}
+            disabled={stripeActionLoading !== null}
+            className="px-3 py-1.5 text-sm font-medium text-emerald-800 bg-white border border-emerald-300 rounded-md hover:bg-emerald-100 disabled:opacity-60"
+          >
+            {connectStatus?.connected ? 'Update Payout Setup' : 'Set Up Payouts'}
+          </button>
+        </div>
+        {connectStatus?.connected && (
+          <p className="mt-2 text-xs text-emerald-800">
+            Connect status: charges {connectStatus.chargesEnabled ? 'enabled' : 'pending'}, payouts{' '}
+            {connectStatus.payoutsEnabled ? 'enabled' : 'pending'}.
+          </p>
+        )}
+      </div>
+
       <div className="rounded-md border border-gray-200 p-4">
         <h4 className="text-sm font-semibold text-gray-900 mb-3">Billing & Payments</h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
@@ -95,6 +168,14 @@ export default function AttorneyDashboardWorkstreamBilling({
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {item.status !== 'paid' && (
+                    <button
+                      onClick={() => handlePayInvoiceWithStripe(item.id)}
+                      className="text-xs text-emerald-600 hover:text-emerald-800"
+                    >
+                      Pay with Stripe
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDownloadInvoicePdf(item.id)}
                     className="text-xs text-brand-600 hover:text-brand-800"

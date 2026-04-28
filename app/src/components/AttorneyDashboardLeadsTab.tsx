@@ -8,6 +8,7 @@ type CaseLeadsFilter = {
   pipelineStage: string
   evidenceLevel: string
   jurisdiction: string
+  routingInboxView?: 'awaitingDecision' | 'hotMatches' | 'staleMatches' | 'consultReady' | ''
 }
 
 type PendingQuickAction = {
@@ -213,6 +214,26 @@ export default function AttorneyDashboardLeadsTab({
 
   const getFilteredAndSortedLeads = () => {
     const filtered = (dashboardData?.recentLeads || []).filter((lead: any) => {
+      if (caseLeadsFilter.routingInboxView === 'awaitingDecision' && (lead?.status || '') !== 'submitted') {
+        return false
+      }
+      if (caseLeadsFilter.routingInboxView === 'hotMatches' && getPriorityLabel(lead).label !== 'Hot') {
+        return false
+      }
+      if (caseLeadsFilter.routingInboxView === 'staleMatches') {
+        const submittedAt = Date.parse(lead?.submittedAt || '')
+        if (
+          Number.isNaN(submittedAt) ||
+          (lead?.status || '') !== 'submitted' ||
+          (Date.now() - submittedAt) < (24 * 60 * 60 * 1000)
+        ) {
+          return false
+        }
+      }
+      if (caseLeadsFilter.routingInboxView === 'consultReady' && ((lead?.status || '') !== 'contacted' || !hasMadeContact(lead))) {
+        return false
+      }
+
       if (
         caseLeadsFilter.caseType &&
         (lead.assessment?.claimType || '').toLowerCase() !== caseLeadsFilter.caseType.toLowerCase()
@@ -264,7 +285,6 @@ export default function AttorneyDashboardLeadsTab({
   }
 
   const filteredLeads = getFilteredAndSortedLeads()
-  const topLead = filteredLeads[0]
   const routingInboxSummary = {
     awaitingDecision: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.status || '') === 'submitted').length,
     hotMatches: (dashboardData?.recentLeads || []).filter((lead: any) => getPriorityLabel(lead).label === 'Hot').length,
@@ -275,53 +295,24 @@ export default function AttorneyDashboardLeadsTab({
     }).length,
     consultReady: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.status || '') === 'contacted' && hasMadeContact(lead)).length,
   }
-  const savedViews = [
-    {
-      id: 'needs-review',
-      label: 'Needs review',
-      count: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.status || '') === 'submitted').length,
-      onClick: () => {
-        setCaseLeadsFilter((prev) => ({ ...prev, ...{ caseType: '', valueRange: '', jurisdiction: '', evidenceLevel: '', status: 'submitted', pipelineStage: 'matched' } }))
-        setActivePipelineTile('matched')
-      },
-    },
-    {
-      id: 'follow-up',
-      label: 'Follow-up',
-      count: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.status || '') === 'contacted' && hasMadeContact(lead)).length,
-      onClick: () => {
-        setCaseLeadsFilter((prev) => ({ ...prev, ...{ caseType: '', valueRange: '', jurisdiction: '', evidenceLevel: '', status: 'contacted', pipelineStage: 'contacted' } }))
-        setActivePipelineTile('contacted')
-      },
-    },
-    {
-      id: 'missing-docs',
-      label: 'Missing docs',
-      count: (dashboardData?.recentLeads || []).filter((lead: any) => getLeadEvidenceCount(lead) === 0).length,
-      onClick: () => {
-        setCaseLeadsFilter((prev) => ({ ...prev, ...{ caseType: '', valueRange: '', jurisdiction: '', status: '', pipelineStage: '', evidenceLevel: 'none' } }))
-        setActivePipelineTile(null)
-      },
-    },
-    {
-      id: 'consults',
-      label: 'Consult scheduled',
-      count: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.status || '') === 'consulted').length,
-      onClick: () => {
-        setCaseLeadsFilter((prev) => ({ ...prev, ...{ caseType: '', valueRange: '', jurisdiction: '', evidenceLevel: '', status: 'consulted', pipelineStage: 'consultScheduled' } }))
-        setActivePipelineTile('consultScheduled')
-      },
-    },
-    {
-      id: 'retained',
-      label: 'Retained',
-      count: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.status || '') === 'retained').length,
-      onClick: () => {
-        setCaseLeadsFilter((prev) => ({ ...prev, ...{ caseType: '', valueRange: '', jurisdiction: '', evidenceLevel: '', status: 'retained', pipelineStage: 'retained' } }))
-        setActivePipelineTile('retained')
-      },
-    },
-  ]
+  const applyRoutingInboxView = (
+    view: NonNullable<CaseLeadsFilter['routingInboxView']>,
+    filterPatch: Partial<CaseLeadsFilter>,
+    pipelineTile: string | null,
+  ) => {
+    setCaseLeadsFilter({
+      caseType: '',
+      valueRange: '',
+      status: '',
+      pipelineStage: '',
+      evidenceLevel: '',
+      jurisdiction: '',
+      routingInboxView: view,
+      ...filterPatch,
+    })
+    setActivePipelineTile(pipelineTile)
+    window.setTimeout(() => document.getElementById('cases-filters')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
   const caseTypes = [
     ...new Set<string>(
       (dashboardData?.recentLeads || [])
@@ -366,36 +357,6 @@ export default function AttorneyDashboardLeadsTab({
 
   return (
     <div className="space-y-6">
-      {topLead && (
-        <div className="rounded-xl border-2 border-amber-200 bg-amber-50/50 p-4">
-          <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider">Top Opportunity Today</p>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-2">
-            <div>
-              <p className="font-semibold text-gray-900">
-                {isIdentityRevealed(topLead)
-                  ? `${[topLead.assessment?.user?.firstName, topLead.assessment?.user?.lastName].filter(Boolean).join(' ') || '—'} — ${[topLead.assessment?.venueCounty, topLead.assessment?.venueState].filter(Boolean).join(', ') || '—'}`
-                  : `${claimLabel(topLead.assessment?.claimType)} — ${[topLead.assessment?.venueCounty, topLead.assessment?.venueState].filter(Boolean).join(', ') || '—'}`}
-                {!isIdentityRevealed(topLead) && (
-                  <span className="ml-1.5 inline-flex items-center gap-1 text-xs font-normal text-amber-700">
-                    <Lock className="h-3 w-3" /> Identity hidden
-                  </span>
-                )}
-              </p>
-              <p className="text-sm text-gray-600 mt-0.5">
-                Estimated Value: {formatCurrency(getLeadBands(topLead).low)}-{formatCurrency(getLeadBands(topLead).high)} ·
-                {' '}Case Strength: {Math.round((topLead.viabilityScore || 0) * 100)}
-              </p>
-            </div>
-            <button
-              onClick={() => onOpenLead(topLead)}
-              className="px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 shrink-0"
-            >
-              Review Case
-            </button>
-          </div>
-        </div>
-      )}
-
       {pendingQuickAction && (
         <div className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 flex items-center justify-between gap-4">
           <p className="text-sm font-medium text-brand-800">Select a case: click the action button on any row below.</p>
@@ -419,46 +380,57 @@ export default function AttorneyDashboardLeadsTab({
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
             <p className="text-xs font-medium uppercase tracking-wide text-amber-700">Awaiting decision</p>
-            <p className="mt-1 text-2xl font-semibold text-amber-900">{routingInboxSummary.awaitingDecision}</p>
+            <button
+              type="button"
+              onClick={() => applyRoutingInboxView('awaitingDecision', { status: 'submitted', pipelineStage: 'matched' }, 'matched')}
+              className="mt-1 text-2xl font-semibold text-amber-900 underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
+            >
+              {routingInboxSummary.awaitingDecision}
+            </button>
             <p className="text-xs text-amber-700">Newly routed cases still waiting for accept or decline.</p>
           </div>
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
             <p className="text-xs font-medium uppercase tracking-wide text-red-700">Hot matches</p>
-            <p className="mt-1 text-2xl font-semibold text-red-900">{routingInboxSummary.hotMatches}</p>
+            <button
+              type="button"
+              onClick={() => applyRoutingInboxView('hotMatches', {}, null)}
+              className="mt-1 text-2xl font-semibold text-red-900 underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+            >
+              {routingInboxSummary.hotMatches}
+            </button>
             <p className="text-xs text-red-700">High-value or evidence-rich matters that should move quickly.</p>
           </div>
           <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
             <p className="text-xs font-medium uppercase tracking-wide text-blue-700">Aging over 24h</p>
-            <p className="mt-1 text-2xl font-semibold text-blue-900">{routingInboxSummary.staleMatches}</p>
+            <button
+              type="button"
+              onClick={() => applyRoutingInboxView('staleMatches', { status: 'submitted', pipelineStage: 'matched' }, 'matched')}
+              className="mt-1 text-2xl font-semibold text-blue-900 underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              {routingInboxSummary.staleMatches}
+            </button>
             <p className="text-xs text-blue-700">Matched cases that may be slipping beyond the response commitment.</p>
           </div>
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
             <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">Consult ready</p>
-            <p className="mt-1 text-2xl font-semibold text-emerald-900">{routingInboxSummary.consultReady}</p>
+            <button
+              type="button"
+              onClick={() => applyRoutingInboxView('consultReady', { status: 'contacted', pipelineStage: 'contacted' }, 'contacted')}
+              className="mt-1 text-2xl font-semibold text-emerald-900 underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
+            >
+              {routingInboxSummary.consultReady}
+            </button>
             <p className="text-xs text-emerald-700">Accepted cases with contact made and ready for consultation scheduling.</p>
           </div>
         </div>
       </div>
 
       <div id="cases-filters" className="card scroll-mt-4">
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Saved views</span>
-          {savedViews.map((view) => (
-            <button
-              key={view.id}
-              type="button"
-              onClick={view.onClick}
-              className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
-            >
-              {view.label} {view.count}
-            </button>
-          ))}
-        </div>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm font-medium text-gray-700">Filters:</span>
           <select
             value={caseLeadsFilter.caseType}
-            onChange={(e) => setCaseLeadsFilter((prev) => ({ ...prev, caseType: e.target.value }))}
+            onChange={(e) => setCaseLeadsFilter((prev) => ({ ...prev, caseType: e.target.value, routingInboxView: '' }))}
             className="text-sm border border-gray-200 rounded-md px-2 py-1"
           >
             <option value="">All Types</option>
@@ -470,7 +442,7 @@ export default function AttorneyDashboardLeadsTab({
           </select>
           <select
             value={caseLeadsFilter.valueRange}
-            onChange={(e) => setCaseLeadsFilter((prev) => ({ ...prev, valueRange: e.target.value }))}
+            onChange={(e) => setCaseLeadsFilter((prev) => ({ ...prev, valueRange: e.target.value, routingInboxView: '' }))}
             className="text-sm border border-gray-200 rounded-md px-2 py-1"
           >
             <option value="">All Values</option>
@@ -490,7 +462,7 @@ export default function AttorneyDashboardLeadsTab({
                 retained: 'retained',
                 closed: 'rejected',
               }
-              setCaseLeadsFilter((prev) => ({ ...prev, pipelineStage: value, status: value ? statusMap[value] : '' }))
+              setCaseLeadsFilter((prev) => ({ ...prev, pipelineStage: value, status: value ? statusMap[value] : '', routingInboxView: '' }))
               setActivePipelineTile(value || null)
             }}
             className="text-sm border border-gray-200 rounded-md px-2 py-1"
@@ -505,7 +477,7 @@ export default function AttorneyDashboardLeadsTab({
           </select>
           <select
             value={caseLeadsFilter.jurisdiction}
-            onChange={(e) => setCaseLeadsFilter((prev) => ({ ...prev, jurisdiction: e.target.value }))}
+            onChange={(e) => setCaseLeadsFilter((prev) => ({ ...prev, jurisdiction: e.target.value, routingInboxView: '' }))}
             className="text-sm border border-gray-200 rounded-md px-2 py-1"
           >
             <option value="">All Jurisdictions</option>
@@ -517,7 +489,7 @@ export default function AttorneyDashboardLeadsTab({
           </select>
           <select
             value={caseLeadsFilter.evidenceLevel}
-            onChange={(e) => setCaseLeadsFilter((prev) => ({ ...prev, evidenceLevel: e.target.value }))}
+            onChange={(e) => setCaseLeadsFilter((prev) => ({ ...prev, evidenceLevel: e.target.value, routingInboxView: '' }))}
             className="text-sm border border-gray-200 rounded-md px-2 py-1"
           >
             <option value="">All Evidence</option>
@@ -534,6 +506,7 @@ export default function AttorneyDashboardLeadsTab({
                 pipelineStage: '',
                 evidenceLevel: '',
                 jurisdiction: '',
+                routingInboxView: '',
               })
               setActivePipelineTile(null)
             }}

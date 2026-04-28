@@ -66,6 +66,7 @@ export default function PreAcceptanceView({
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [requestInfoOpen, setRequestInfoOpen] = useState(false)
   const [requestInfoNotes, setRequestInfoNotes] = useState('')
+  const [activeTab, setActiveTab] = useState<'snapshot' | 'value' | 'risks' | 'documents' | 'decision'>('snapshot')
 
   const claimType = formatClaimType(selectedLead?.assessment?.claimType || '')
   const location = [selectedLead?.assessment?.venueCounty, selectedLead?.assessment?.venueState]
@@ -82,6 +83,8 @@ export default function PreAcceptanceView({
   const evidenceUploaded = evidenceItems.filter((e: any) => e?.uploaded).length
   const evidenceTotal = evidenceItems.length || 1
   const evidenceScore = evidenceTotal > 0 ? Math.round((evidenceUploaded / evidenceTotal) * 100) : 0
+  const evidenceStatus = evidenceUploaded > 0 ? `${evidenceUploaded}/${evidenceTotal} uploaded` : 'Pending'
+  const expectedTimeline = '8–14 months'
   const hasMedical = treatments.length > 0 || leadEvidenceFiles.some((f: any) => f?.category === 'medical')
   const hasPolice = leadEvidenceFiles.some((f: any) => f?.category === 'police') || filesCount > 0
   const hasPhotos = leadEvidenceFiles.some((f: any) => f?.category === 'photos')
@@ -92,6 +95,23 @@ export default function PreAcceptanceView({
     { label: 'Police report', status: hasPolice ? 'Uploaded' : 'Missing' },
     { label: 'Wage loss docs', status: 'Missing' }
   ]
+  const missingDocuments = evidenceList.filter((item) => item.status !== 'Uploaded')
+  const attorneyFitScore = Math.round(
+    [
+      venueState ? 1 : 0.5,
+      attorneyProfile?.specialties ? 1 : 0.5,
+      valueLow > 0 || valueHigh > 0 ? 1 : 0.5,
+      liabilityScore >= 0.5 ? 1 : 0,
+    ].reduce((sum, score) => sum + score, 0) / 4 * 100,
+  )
+  const readinessScore = Math.round((caseScore + evidenceScore + confidenceScore + Math.round(liabilityScore * 100)) / 4)
+  const tabs = [
+    { id: 'snapshot', label: 'Snapshot' },
+    { id: 'value', label: 'Value' },
+    { id: 'risks', label: 'Risks' },
+    { id: 'documents', label: 'Documents' },
+    { id: 'decision', label: 'Decision' },
+  ] as const
 
   // Timeline: Accident → First Visit → Last Visit
   const firstVisit = treatments[0]?.date || deterministicChronology.timeline[0] || '—'
@@ -128,14 +148,47 @@ export default function PreAcceptanceView({
         return h > 0 ? `${h}h ${m}m` : `${m}m`
       })()
     : null
+  const deadlineUrgency = expiresIn ? `Response window: ${expiresIn}` : 'No response deadline shown'
+  const decisionRecommendation =
+    caseScore >= 70 && risks.length <= 1
+      ? 'Strong accept candidate'
+      : caseScore >= 45
+        ? 'Accept if capacity and missing documents are manageable'
+        : 'Review risks before accepting'
+  const riskRows = [
+    { label: 'Treatment continuity', value: treatmentContinuity || 'Unknown', level: treatmentContinuity === 'Fragmented' || treatments.length <= 1 ? 'high' : 'low' },
+    { label: 'Documentation completeness', value: `${evidenceScore}%`, level: evidenceScore < 50 ? 'high' : evidenceScore < 75 ? 'medium' : 'low' },
+    { label: 'Comparative fault', value: comparativeRisk, level: comparativeRisk === 'Yes' || comparativeRisk === 'Possible' ? 'medium' : 'low' },
+    { label: 'Confidence', value: `${confidenceScore}%`, level: confidenceScore < 50 ? 'medium' : 'low' },
+  ]
 
   return (
     <div className="space-y-6">
       {/* 1. Case Summary Card */}
       <div className="rounded-xl border-2 border-brand-200 bg-brand-50/30 p-5">
-        <h2 className="text-lg font-semibold text-gray-900 mb-3">
-          {claimType} – {location}
-        </h2>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+          <h2 className="text-xl font-semibold text-gray-900">
+            {claimType} – {location}
+          </h2>
+          {!accepted && (
+            <div className="flex gap-3">
+              <button
+                onClick={onAccept}
+                disabled={loading}
+                className="px-6 py-3 text-base font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50"
+              >
+                Accept Case
+              </button>
+              <button
+                onClick={onDecline}
+                disabled={loading}
+                className="px-6 py-3 text-base font-semibold text-red-600 border-2 border-red-300 rounded-lg hover:bg-red-50 disabled:opacity-50"
+              >
+                Decline
+              </button>
+            </div>
+          )}
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
           <div>
             <span className="text-gray-500">Estimated Case Value:</span>
@@ -156,44 +209,21 @@ export default function PreAcceptanceView({
           <div>
             <span className="text-gray-500">Evidence:</span>
             <p className="font-semibold text-gray-900">
-              {hasMedical ? 'Medical records' : 'Pending'}
-              {hasPhotos ? ' + Photos' : ''}
-              {hasPolice ? ' + Police report' : ''}
+              {evidenceStatus}
             </p>
           </div>
           <div>
             <span className="text-gray-500">Timeline:</span>
             <p className="font-semibold text-gray-900">
-              {firstVisit !== '—' && lastVisit !== '—' ? `${firstVisit} → ${lastVisit}` : '8–14 months'}{' '}
+              {expectedTimeline}
             </p>
           </div>
         </div>
+        {!accepted && expiresIn && (
+          <p className="mt-4 text-sm font-medium text-amber-700">Case expires in {expiresIn}</p>
+        )}
       </div>
 
-      {/* 2. Accept / Decline - Prominent (hidden when case already accepted) */}
-      {!accepted && (
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex gap-3">
-            <button
-              onClick={onAccept}
-              disabled={loading}
-              className="px-6 py-3 text-base font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50"
-            >
-              Accept Case
-            </button>
-            <button
-              onClick={onDecline}
-              disabled={loading}
-              className="px-6 py-3 text-base font-semibold text-red-600 border-2 border-red-300 rounded-lg hover:bg-red-50 disabled:opacity-50"
-            >
-              Decline
-            </button>
-          </div>
-          {expiresIn && (
-            <span className="text-sm text-amber-700 font-medium">Case expires in {expiresIn}</span>
-          )}
-        </div>
-      )}
       {accepted && (
         <div className="flex flex-wrap items-center gap-4">
           <div className="inline-flex items-center px-4 py-2 rounded-lg bg-green-100 text-green-800 font-medium">
@@ -241,6 +271,137 @@ export default function PreAcceptanceView({
           </div>
         </div>
       )}
+
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-4 pt-4">
+          <div className="flex flex-wrap gap-2 text-sm">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`rounded-t-lg border px-3 py-2 font-medium ${
+                  activeTab === tab.id
+                    ? 'border-slate-200 border-b-white bg-white text-brand-700'
+                    : 'border-transparent bg-slate-50 text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="p-5">
+          {activeTab === 'snapshot' && (
+            <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-4">
+                <DecisionMetric label="Acceptability" value={`${readinessScore}%`} helper={decisionRecommendation} tone={readinessScore >= 70 ? 'green' : readinessScore >= 45 ? 'amber' : 'red'} />
+                <DecisionMetric label="Attorney fit" value={`${attorneyFitScore}%`} helper={matchReasons[0] || 'Fit based on case and venue signals'} tone="blue" />
+                <DecisionMetric label="File completeness" value={`${evidenceScore}%`} helper={`${evidenceUploaded}/${evidenceTotal} key items uploaded`} tone={evidenceScore >= 75 ? 'green' : 'amber'} />
+                <DecisionMetric label="Urgency" value={expiresIn || 'Normal'} helper={deadlineUrgency} tone={expiresIn ? 'amber' : 'slate'} />
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <h3 className="text-sm font-semibold text-slate-900">60-second case story</h3>
+                <p className="mt-2 text-sm text-slate-700">
+                  {claimType} in {location}. Estimated value is{' '}
+                  {valueLow || valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : 'not available'} with{' '}
+                  {confidenceScore}% confidence. Liability is scored at {Math.round(liabilityScore * 100)}%, treatment is{' '}
+                  {hasMedical ? 'documented' : 'not yet documented'}, and {missingDocuments.length} key document
+                  {missingDocuments.length === 1 ? ' is' : 's are'} still missing.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'value' && (
+            <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+              <div className="rounded-lg border border-slate-200 p-4">
+                <h3 className="text-sm font-semibold text-slate-900">Value confidence</h3>
+                <p className="mt-2 text-2xl font-bold text-slate-900">
+                  {valueLow || valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : 'Not available'}
+                </p>
+                <p className="mt-2 text-sm text-slate-600">
+                  Confidence is {confidenceScore}%. Add medical bills, complete treatment records, and insurance details to tighten the range.
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-4">
+                <h3 className="text-sm font-semibold text-slate-900">Comparable case signal</h3>
+                <dl className="mt-3 space-y-2 text-sm">
+                  <InfoRow label="Similar cases" value={comparableCount != null ? `${comparableCount} on file` : 'Not enough data'} />
+                  <InfoRow label="Typical range" value={valueLow && valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : '—'} />
+                  <InfoRow label="Venue signal" value={venueSignal || 'No venue data'} />
+                  <InfoRow label="Average settlement" value={comparableAvgSettlement ? formatCurrency(comparableAvgSettlement) : '—'} />
+                </dl>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'risks' && (
+            <div className="space-y-3">
+              {riskRows.map((row) => (
+                <div key={row.label} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">{row.label}</p>
+                    <p className="text-sm text-slate-600">{row.value}</p>
+                  </div>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${riskTone(row.level)}`}>
+                    {row.level === 'high' ? 'High risk' : row.level === 'medium' ? 'Watch' : 'Low risk'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeTab === 'documents' && (
+            <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-4">
+                {evidenceList.map((item) => (
+                  <div key={item.label} className="rounded-lg border border-slate-200 p-4">
+                    <p className="text-sm font-semibold text-slate-900">{item.label}</p>
+                    <p className={`mt-2 text-sm font-medium ${item.status === 'Uploaded' ? 'text-green-700' : 'text-amber-700'}`}>
+                      {item.status}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                Best next document: {missingDocuments[0]?.label || 'No immediate missing document'}.
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'decision' && (
+            <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
+              <div className="rounded-lg border border-slate-200 p-4">
+                <h3 className="text-sm font-semibold text-slate-900">Decision recommendation</h3>
+                <p className="mt-2 text-lg font-bold text-slate-900">{decisionRecommendation}</p>
+                <ul className="mt-3 space-y-2 text-sm text-slate-700">
+                  <li>Case score: {caseScore}/100</li>
+                  <li>Liability: {Math.round(liabilityScore * 100)}%</li>
+                  <li>File completeness: {evidenceScore}%</li>
+                  <li>Attorney fit: {attorneyFitScore}%</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-4">
+                <h3 className="text-sm font-semibold text-slate-900">Decision capture</h3>
+                <p className="mt-2 text-sm text-slate-600">
+                  Use Accept when the case fits your venue, value, and capacity. Use Decline with a reason when there is a conflict, jurisdiction issue, capacity issue, or low-value concern.
+                </p>
+                {!accepted && (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button onClick={onAccept} disabled={loading} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50">
+                      Accept
+                    </button>
+                    <button onClick={onDecline} disabled={loading} className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">
+                      Decline with reason
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* 3. Key Metrics - Simplified */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -411,4 +572,46 @@ export default function PreAcceptanceView({
       </div>
     </div>
   )
+}
+
+function DecisionMetric({
+  label,
+  value,
+  helper,
+  tone,
+}: {
+  label: string
+  value: string
+  helper: string
+  tone: 'green' | 'amber' | 'red' | 'blue' | 'slate'
+}) {
+  const tones = {
+    green: 'border-green-200 bg-green-50 text-green-700',
+    amber: 'border-amber-200 bg-amber-50 text-amber-700',
+    red: 'border-red-200 bg-red-50 text-red-700',
+    blue: 'border-blue-200 bg-blue-50 text-blue-700',
+    slate: 'border-slate-200 bg-slate-50 text-slate-700',
+  }
+  return (
+    <div className={`rounded-lg border p-4 ${tones[tone]}`}>
+      <p className="text-xs font-semibold uppercase tracking-wide opacity-80">{label}</p>
+      <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
+      <p className="mt-1 text-xs">{helper}</p>
+    </div>
+  )
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-4">
+      <dt className="text-slate-500">{label}</dt>
+      <dd className="text-right font-medium text-slate-900">{value}</dd>
+    </div>
+  )
+}
+
+function riskTone(level: string) {
+  if (level === 'high') return 'bg-red-100 text-red-700'
+  if (level === 'medium') return 'bg-amber-100 text-amber-700'
+  return 'bg-green-100 text-green-700'
 }

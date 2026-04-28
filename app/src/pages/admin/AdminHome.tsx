@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getAdminStats, listAuditLogs } from '../../lib/api'
+import {
+  getAdminFailedNotifications,
+  getAdminMatchingRules,
+  getAdminRoutingAlerts,
+  getAdminStats,
+  listAuditLogs,
+  saveAdminMatchingRules,
+  type MatchingRulesConfig,
+} from '../../lib/api'
 import {
   FileText,
   GitBranch,
@@ -11,11 +19,18 @@ import {
   ArrowRight,
   RefreshCw,
   BrainCircuit,
+  Shield,
 } from 'lucide-react'
 
 export default function AdminHome() {
   const [stats, setStats] = useState<any>(null)
   const [automationLogs, setAutomationLogs] = useState<any[]>([])
+  const [auditLogs, setAuditLogs] = useState<any[]>([])
+  const [routingConfig, setRoutingConfig] = useState<MatchingRulesConfig | null>(null)
+  const [routingAlerts, setRoutingAlerts] = useState<any[]>([])
+  const [failedNotifications, setFailedNotifications] = useState<any[]>([])
+  const [routingSaving, setRoutingSaving] = useState(false)
+  const [routingControlError, setRoutingControlError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -23,11 +38,19 @@ export default function AdminHome() {
     try {
       setLoading(true)
       setError(null)
-      const [data, logs] = await Promise.all([
+      setRoutingControlError(null)
+      const [data, logs, matchingRules, alertData, failedData] = await Promise.all([
         getAdminStats(),
         listAuditLogs({ limit: 80 }).catch(() => []),
+        getAdminMatchingRules().catch(() => null),
+        getAdminRoutingAlerts().catch(() => ({ alerts: [] })),
+        getAdminFailedNotifications().catch(() => ({ notifications: [] })),
       ])
       setStats(data)
+      setAuditLogs(Array.isArray(logs) ? logs : [])
+      setRoutingConfig(matchingRules)
+      setRoutingAlerts(alertData?.alerts || [])
+      setFailedNotifications(failedData?.notifications || failedData?.failed || [])
       setAutomationLogs(
         (Array.isArray(logs) ? logs : []).filter((entry) =>
           String(entry?.action || '').startsWith('automation_'),
@@ -45,6 +68,27 @@ export default function AdminHome() {
       setError(msg)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const toggleRouting = async () => {
+    if (!routingConfig || routingSaving) return
+    const routingEnabled = !routingConfig.routingEnabled
+    const previous = routingConfig
+    setRoutingConfig({ ...routingConfig, routingEnabled })
+    setRoutingSaving(true)
+    setRoutingControlError(null)
+    try {
+      const saved = await saveAdminMatchingRules({ routingEnabled })
+      setRoutingConfig((current) => current ? { ...current, routingEnabled: saved.routingEnabled } : saved)
+      window.dispatchEvent(new CustomEvent('admin-routing-status-changed', {
+        detail: { routingEnabled: saved.routingEnabled },
+      }))
+    } catch (err: any) {
+      setRoutingConfig(previous)
+      setRoutingControlError(err?.response?.data?.error || err?.message || 'Failed to update routing status')
+    } finally {
+      setRoutingSaving(false)
     }
   }
 
@@ -81,6 +125,45 @@ export default function AdminHome() {
     snoozed: automationLogs.filter((item) => item.action === 'automation_feed_snoozed').length,
     dismissed: automationLogs.filter((item) => item.action === 'automation_feed_dismissed').length,
   }
+  const routingAuditLog = auditLogs.find((item) => item.action === 'routing_rules_updated')
+    || auditLogs.find((item) => String(item?.action || '').includes('routing'))
+  const operationsQueue = [
+    routingConfig?.routingEnabled === false && {
+      label: 'Routing is paused',
+      detail: 'New auto-routing and escalation waves are stopped until routing is resumed.',
+      tone: 'border-amber-200 bg-amber-50 text-amber-900',
+      to: '/admin/matching-rules',
+      priority: 'High',
+    },
+    (cards.casesManuallyHeld ?? 0) > 0 && {
+      label: `${cards.casesManuallyHeld} case${cards.casesManuallyHeld === 1 ? '' : 's'} in manual review`,
+      detail: 'Review held cases and release, reject, request information, or send to compliance.',
+      tone: 'border-amber-200 bg-amber-50 text-amber-900',
+      to: '/admin/manual-review',
+      priority: 'High',
+    },
+    (cards.casesAgingOver24h ?? 0) > 0 && {
+      label: `${cards.casesAgingOver24h} case${cards.casesAgingOver24h === 1 ? '' : 's'} aging over 24h`,
+      detail: 'Check for stuck routing, attorney timeout, or cases that need manual intervention.',
+      tone: 'border-red-200 bg-red-50 text-red-900',
+      to: '/admin/cases',
+      priority: 'High',
+    },
+    routingAlerts.length > 0 && {
+      label: `${routingAlerts.length} routing alert${routingAlerts.length === 1 ? '' : 's'}`,
+      detail: 'Routing alerts may indicate unavailable attorneys, failed escalations, or operational exceptions.',
+      tone: 'border-blue-200 bg-blue-50 text-blue-900',
+      to: '/admin/communications',
+      priority: 'Medium',
+    },
+    failedNotifications.length > 0 && {
+      label: `${failedNotifications.length} failed notification${failedNotifications.length === 1 ? '' : 's'}`,
+      detail: 'Review failed email/SMS delivery so plaintiffs and attorneys are not blocked.',
+      tone: 'border-rose-200 bg-rose-50 text-rose-900',
+      to: '/admin/communications',
+      priority: 'Medium',
+    },
+  ].filter(Boolean) as Array<{ label: string; detail: string; tone: string; to: string; priority: string }>
   const funnelSteps: { label: string; value: number; to?: string }[] = [
     { label: 'Submitted', value: funnel.submitted ?? 0, to: '/admin/cases?status=COMPLETED' },
     { label: 'Qualified', value: funnel.qualified ?? 0, to: '/admin/cases?status=COMPLETED' },
@@ -155,14 +238,12 @@ export default function AdminHome() {
   return (
     <div className="page-shell space-y-8">
       <div className="page-header">
-        <div className="space-y-3">
+        <div className="section-heading">
           <span className="page-kicker">Operations command</span>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Admin Dashboard</h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              Routing throughput, intake posture, and automation activity across the platform.
-            </p>
-          </div>
+          <h1 className="section-title">Admin Dashboard</h1>
+          <p className="section-copy">
+            Routing throughput, intake posture, and automation activity across the platform.
+          </p>
         </div>
         <button
           onClick={loadStats}
@@ -171,6 +252,90 @@ export default function AdminHome() {
           <RefreshCw className="h-4 w-4" />
           Refresh
         </button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        <section className="premium-panel">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">Operations queue</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Prioritized admin work across routing, manual review, delivery failures, and aging cases.
+              </p>
+            </div>
+            <Link to="/admin/cases" className="btn-outline">Open cases</Link>
+          </div>
+          <div className="mt-5 space-y-3">
+            {operationsQueue.length > 0 ? (
+              operationsQueue.map((item) => (
+                <Link
+                  key={item.label}
+                  to={item.to}
+                  className={`block rounded-xl border px-4 py-3 transition-shadow hover:shadow-sm ${item.tone}`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold">{item.label}</p>
+                    <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs font-semibold">{item.priority}</span>
+                  </div>
+                  <p className="mt-1 text-sm opacity-90">{item.detail}</p>
+                </Link>
+              ))
+            ) : (
+              <div className="helpful-empty border-emerald-200 bg-emerald-50 text-emerald-800">
+                No urgent operations items. Routing, manual review, and delivery queues look clear.
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="premium-panel">
+          <h2 className="text-lg font-semibold text-slate-900">Routing control center</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Global dispatch switch and latest routing configuration audit signal.
+          </p>
+          <div className={`mt-5 rounded-xl border px-4 py-4 ${
+            routingConfig?.routingEnabled === false
+              ? 'border-amber-200 bg-amber-50'
+              : 'border-emerald-200 bg-emerald-50'
+          }`}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Routing status</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">
+              {routingConfig?.routingEnabled === false ? 'Paused' : 'Active'}
+            </p>
+            <p className="mt-1 text-sm text-slate-700">
+              {routingConfig?.routingEnabled === false
+                ? 'New automated routing and escalation waves are paused.'
+                : 'New eligible cases can route and escalation waves can run.'}
+            </p>
+            <button
+              type="button"
+              onClick={toggleRouting}
+              disabled={!routingConfig || routingSaving}
+              className="btn-primary mt-4 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {routingSaving
+                ? 'Updating...'
+                : routingConfig?.routingEnabled === false
+                  ? 'Resume routing'
+                  : 'Pause routing'}
+            </button>
+            {routingControlError && (
+              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {routingControlError}
+              </p>
+            )}
+          </div>
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            <p className="font-medium text-slate-900">Latest routing audit</p>
+            {routingAuditLog ? (
+              <p className="mt-1">
+                {String(routingAuditLog.action || '').replace(/_/g, ' ')} • {new Date(routingAuditLog.createdAt).toLocaleString()}
+              </p>
+            ) : (
+              <p className="mt-1">No recent routing audit event found.</p>
+            )}
+          </div>
+        </section>
       </div>
 
       {/* KPI Cards */}
@@ -189,7 +354,7 @@ export default function AdminHome() {
             </div>
           )
           const panelClass =
-            'subtle-panel p-4' +
+            'metric-card' +
             (card.to
               ? ' hover:border-brand-300/90 hover:shadow-sm transition-shadow transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2'
               : '')
@@ -370,15 +535,45 @@ export default function AdminHome() {
         </Link>
       </div>
 
-      {/* Alerts panel placeholder */}
-      <div className="rounded-2xl border border-amber-200 bg-amber-50/95 p-4 shadow-sm">
-        <h3 className="font-medium text-amber-900 flex items-center gap-2">
-          <AlertTriangle className="h-5 w-5" />
-          Alerts
-        </h3>
-        <p className="text-sm text-amber-800 mt-2">
-          Capacity exceeded, stuck routing, near-SOL, duplicate/fraud risk, and OCR failures will appear here.
-        </p>
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+              <Shield className="h-5 w-5 text-brand-600" />
+              System health & alerts
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Quick health checks for routing, delivery, manual review, and aging queues.
+            </p>
+          </div>
+          <Link to="/admin/communications" className="btn-outline">Open communications</Link>
+        </div>
+        <div className="mt-5 grid gap-3 md:grid-cols-4">
+          <div className={`rounded-xl border px-4 py-3 ${
+            routingConfig?.routingEnabled === false ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'
+          }`}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Routing</p>
+            <p className="mt-1 font-bold text-slate-900">{routingConfig?.routingEnabled === false ? 'Paused' : 'Healthy'}</p>
+          </div>
+          <div className={`rounded-xl border px-4 py-3 ${
+            failedNotifications.length > 0 ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50'
+          }`}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Notifications</p>
+            <p className="mt-1 font-bold text-slate-900">{failedNotifications.length} failed</p>
+          </div>
+          <div className={`rounded-xl border px-4 py-3 ${
+            (cards.casesManuallyHeld ?? 0) > 0 ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'
+          }`}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Manual review</p>
+            <p className="mt-1 font-bold text-slate-900">{cards.casesManuallyHeld ?? 0} held</p>
+          </div>
+          <div className={`rounded-xl border px-4 py-3 ${
+            (cards.casesAgingOver24h ?? 0) > 0 ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50'
+          }`}>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Aging</p>
+            <p className="mt-1 font-bold text-slate-900">{cards.casesAgingOver24h ?? 0} over 24h</p>
+          </div>
+        </div>
       </div>
     </div>
   )
