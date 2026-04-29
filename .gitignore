@@ -155,6 +155,8 @@ debug.log
 
 # data / corpora / training files
 Data/
+data/ml-exports/
+data/ml-labels/
 *.parquet
 *.jsonl
 *.csv

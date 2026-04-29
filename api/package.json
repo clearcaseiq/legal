@@ -29,7 +29,10 @@
     "create:attorneys-firms": "node ../node_modules/tsx/dist/cli.mjs scripts/create-attorneys-and-firms.ts",
     "seed:ca-attorneys": "node ../node_modules/tsx/dist/cli.mjs scripts/seed-california-attorneys.ts",
     "seed:attorney-login": "node ../node_modules/tsx/dist/cli.mjs scripts/ensure-seed-attorney-login.ts",
-    "seed:attorney-logins": "node ../node_modules/tsx/dist/cli.mjs scripts/ensure-seed-attorney-logins.ts"
+    "seed:attorney-logins": "node ../node_modules/tsx/dist/cli.mjs scripts/ensure-seed-attorney-logins.ts",
+    "data:compare-supabase-local": "node ../node_modules/tsx/dist/cli.mjs scripts/compare-supabase-local-data.ts",
+    "data:export-ml-csv": "node ../node_modules/tsx/dist/cli.mjs scripts/export-ml-tables-csv.ts",
+    "ml:label-sample": "node ../node_modules/tsx/dist/cli.mjs scripts/label-cases-raw-sample.ts"
   },
   "prisma": {
     "seed": "node ../node_modules/tsx/dist/cli.mjs prisma/seed.ts"
