@@ -155,6 +155,8 @@ debug.log
 
 # data / corpora / training files
 Data/
+!app/src/data/
+!app/src/data/**
 data/ml-exports/
 data/ml-labels/
 *.parquet
