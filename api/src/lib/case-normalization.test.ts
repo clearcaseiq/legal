@@ -91,6 +91,35 @@ describe('normalizeCaseForRouting', () => {
     expect(n.medical_record_present).toBe(true)
   })
 
+  it('uses case type validation enrichment when present', async () => {
+    const assessment = {
+      id: 'norm-validator',
+      claimType: 'wrongful_death',
+      venueState: 'CA',
+      venueCounty: null,
+      facts: JSON.stringify({
+        incident: { date: '2025-01-01', narrative: 'I was attacked in a bar fight and suffered facial fractures.' },
+        consents: { tos: true, privacy: true, hipaa: true },
+        caseTypeValidation: {
+          selectedClaimType: 'wrongful_death',
+          validatedClaimType: 'intentional_tort',
+          subtypes: ['bar_fight'],
+          conflicts: ['Selected claim type "wrongful_death" does not match validated type "intentional_tort".'],
+          confidence: 0.8,
+          reasons: ['intentional injury terms appear in facts'],
+          source: 'rules_v1',
+        },
+      }),
+      predictions: [],
+    }
+
+    const n = await normalizeCaseForRouting(assessment as any)
+    expect(n.claim_type).toBe('intentional_tort')
+    expect(n.selected_claim_type).toBe('wrongful_death')
+    expect(n.sub_type).toBe('bar_fight')
+    expect(n.case_type_conflicts).toHaveLength(1)
+  })
+
   it('flags expired cases via SOL derivation', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'))

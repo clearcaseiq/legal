@@ -8,9 +8,33 @@ import { logger } from './logger'
 import type { NormalizedCase } from './case-normalization'
 import { normalizeClaimTypeForSOL } from './solRules'
 
+type GateHoldAction = 'manual_review' | 'needs_more_info' | 'not_routable_yet'
+
 export type RoutingGateResult =
   | { pass: true; reason?: string }
-  | { pass: false; reason: string; status: 'needs_more_info' | 'manual_review' | 'not_routable_yet' }
+  | { pass: false; reason: string; status: GateHoldAction }
+
+export interface ClaimTypeGateOverride {
+  claimType: string
+  minCaseScore?: number
+  minEvidenceScore?: number
+  action?: GateHoldAction
+}
+
+export interface StateGateOverride {
+  state: string
+  minCaseScore?: number
+  minEvidenceScore?: number
+  action?: GateHoldAction
+}
+
+export interface JurisdictionGateOverride {
+  state: string
+  jurisdiction: string
+  minCaseScore?: number
+  minEvidenceScore?: number
+  action?: GateHoldAction
+}
 
 export interface PreRoutingGateOptions {
   minCaseScore?: number
@@ -20,6 +44,10 @@ export interface PreRoutingGateOptions {
   requirePlaintiffContact?: boolean
   supportedJurisdictions?: string[]
   supportedClaimTypes?: string[]
+  gateFailureAction?: GateHoldAction
+  claimTypeGateOverrides?: ClaimTypeGateOverride[]
+  stateGateOverrides?: StateGateOverride[]
+  jurisdictionGateOverrides?: JurisdictionGateOverride[]
 }
 
 const DEFAULT_OPTIONS: Required<PreRoutingGateOptions> = {
@@ -29,7 +57,19 @@ const DEFAULT_OPTIONS: Required<PreRoutingGateOptions> = {
   requireDisclosures: true,
   requirePlaintiffContact: false, // User may be linked via userId; relax for now
   supportedJurisdictions: ['CA', 'TX', 'FL', 'NY', 'IL', 'PA', 'OH', 'GA', 'NC', 'MI', 'AZ', 'WA', 'CO', 'NV', 'NJ'],
-  supportedClaimTypes: ['auto', 'slip_and_fall', 'dog_bite', 'medmal', 'product', 'nursing_home_abuse', 'wrongful_death', 'auto_accident', 'premises', 'pi']
+  supportedClaimTypes: ['auto', 'slip_and_fall', 'dog_bite', 'medmal', 'product', 'nursing_home_abuse', 'wrongful_death', 'auto_accident', 'premises', 'pi'],
+  gateFailureAction: 'manual_review',
+  claimTypeGateOverrides: [],
+  stateGateOverrides: [],
+  jurisdictionGateOverrides: []
+}
+
+function normalizeJurisdiction(value?: string | null) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\bcounty\b/g, '')
+    .replace(/[^a-z0-9]/g, '')
+    .trim()
 }
 
 /**
@@ -41,6 +81,23 @@ export async function runPreRoutingGate(
   options?: PreRoutingGateOptions
 ): Promise<RoutingGateResult> {
   const opts = { ...DEFAULT_OPTIONS, ...options }
+  const claimType = normalizeClaimTypeForSOL(normalizedCase.claim_type)
+  const state = normalizedCase.jurisdiction_state?.toUpperCase()
+  const county = normalizeJurisdiction(normalizedCase.jurisdiction_county)
+  const claimOverride = opts.claimTypeGateOverrides.find((override) =>
+    normalizeClaimTypeForSOL(override.claimType) === claimType
+  )
+  const stateOverride = opts.stateGateOverrides.find((override) =>
+    override.state?.toUpperCase() === state
+  )
+  const jurisdictionOverride = opts.jurisdictionGateOverrides.find((override) =>
+    override.state?.toUpperCase() === state &&
+    normalizeJurisdiction(override.jurisdiction) === county
+  )
+  const effectiveOverride = jurisdictionOverride || stateOverride || claimOverride
+  const minCaseScore = Number(effectiveOverride?.minCaseScore ?? opts.minCaseScore)
+  const minEvidenceScore = Number(effectiveOverride?.minEvidenceScore ?? opts.minEvidenceScore)
+  const thresholdFailureAction = effectiveOverride?.action || opts.gateFailureAction
   const assessment = await prisma.assessment.findUnique({
     where: { id: normalizedCase.case_id },
     select: {
@@ -61,39 +118,37 @@ export async function runPreRoutingGate(
 
   // 1. Minimum routing thresholds
   const caseScore = (normalizedCase.liability_confidence + normalizedCase.damages_score) / 2
-  if (caseScore < opts.minCaseScore) {
+  if (caseScore < minCaseScore) {
     return {
       pass: false,
-      reason: `Case score ${(caseScore * 100).toFixed(0)}% below minimum ${(opts.minCaseScore * 100).toFixed(0)}%`,
-      status: 'not_routable_yet'
+      reason: `Case score ${(caseScore * 100).toFixed(0)}% below minimum ${(minCaseScore * 100).toFixed(0)}%`,
+      status: thresholdFailureAction
     }
   }
 
-  if (normalizedCase.evidence_score < opts.minEvidenceScore) {
+  if (normalizedCase.evidence_score < minEvidenceScore) {
     return {
       pass: false,
-      reason: `Evidence score too low (${(normalizedCase.evidence_score * 100).toFixed(0)}%)`,
-      status: 'needs_more_info'
+      reason: `Evidence score ${(normalizedCase.evidence_score * 100).toFixed(0)}% below minimum ${(minEvidenceScore * 100).toFixed(0)}%`,
+      status: thresholdFailureAction
     }
   }
 
   // 2. Valid jurisdiction
-  const state = normalizedCase.jurisdiction_state?.toUpperCase()
   if (!state || !opts.supportedJurisdictions.includes(state)) {
     return {
       pass: false,
       reason: `Jurisdiction ${state || 'unknown'} not supported`,
-      status: 'not_routable_yet'
+      status: opts.gateFailureAction
     }
   }
 
   // 3. Claim type supported (normalize aliases)
-  const claimType = normalizeClaimTypeForSOL(normalizedCase.claim_type)
   if (!claimType || !opts.supportedClaimTypes.some(t => t.toLowerCase() === claimType)) {
     return {
       pass: false,
       reason: `Claim type ${claimType || 'unknown'} not supported`,
-      status: 'not_routable_yet'
+      status: opts.gateFailureAction
     }
   }
 

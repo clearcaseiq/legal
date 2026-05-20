@@ -71,6 +71,24 @@ interface ProcessingJob {
   errorMessage?: string
 }
 
+function tightUploadCountLabel(category: string | undefined, count: number): string {
+  const n = count
+  const p = (singular: string, plural: string) =>
+    `${n} ${n === 1 ? singular : plural} uploaded`
+  switch (category) {
+    case 'photos':
+      return p('photo', 'photos')
+    case 'bills':
+      return p('bill', 'bills')
+    case 'medical_records':
+      return p('record', 'records')
+    case 'police_report':
+      return p('report', 'reports')
+    default:
+      return p('file', 'files')
+  }
+}
+
 interface InlineEvidenceUploadProps {
   assessmentId?: string
   category?: string  // When undefined, loads ALL files for the assessment
@@ -88,6 +106,8 @@ interface InlineEvidenceUploadProps {
   alwaysShowUpload?: boolean
   /** When true, hide the header (title + count) - for use inside custom card layouts */
   hideHeader?: boolean
+  /** Smaller dashed zone + buttons for dense grids (quick intake evidence). */
+  tightChrome?: boolean
 }
 
 export default function InlineEvidenceUpload({
@@ -102,7 +122,8 @@ export default function InlineEvidenceUpload({
   uploadButtonLabel,
   impactHint,
   alwaysShowUpload = false,
-  hideHeader = false
+  hideHeader = false,
+  tightChrome = false,
 }: InlineEvidenceUploadProps) {
   const [files, setFiles] = useState<EvidenceFile[]>([])
   const [loading, setLoading] = useState(false)
@@ -110,9 +131,23 @@ export default function InlineEvidenceUpload({
   const [showUpload, setShowUpload] = useState(false)
   const [processingFiles, setProcessingFiles] = useState<Set<string>>(new Set())
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
-  
+  const [showTightManage, setShowTightManage] = useState(false)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
+
+  const prependFiles = useCallback((incomingFiles: EvidenceFile[]) => {
+    if (incomingFiles.length === 0) return
+    setFiles((prev) => {
+      const next = [...incomingFiles, ...prev]
+      onFilesUploaded?.(next)
+      return next
+    })
+  }, [onFilesUploaded])
+
+  useEffect(() => {
+    if (files.length === 0) setShowTightManage(false)
+  }, [files.length])
 
   // Load existing files - simplified to prevent infinite loops
   const loadFiles = useCallback(async () => {
@@ -171,9 +206,7 @@ export default function InlineEvidenceUpload({
         createdAt: new Date().toISOString()
       }
       
-      const newFiles = [tempFile, ...files]
-      setFiles(newFiles)
-      onFilesUploaded?.(newFiles)
+      prependFiles([tempFile])
       return
     }
     
@@ -207,9 +240,7 @@ export default function InlineEvidenceUpload({
       console.log('Proceeding with full upload...')
       const uploadedFile = await uploadEvidenceFile(formData)
       console.log('File uploaded successfully:', uploadedFile)
-      const newFiles = [uploadedFile, ...files]
-      setFiles(newFiles)
-      onFilesUploaded?.(newFiles)
+      prependFiles([uploadedFile])
       
       // Auto-process the file
       await processFile(uploadedFile.id)
@@ -280,20 +311,10 @@ export default function InlineEvidenceUpload({
   // Handle multiple file upload
   const handleMultipleUpload = async (fileList: File[]) => {
     console.log('handleMultipleUpload called:', { fileCount: fileList.length, assessmentId, category })
-    const token = localStorage.getItem('auth_token')
-    const hasValidToken = !!token && token.split('.').length === 3
-    if (!hasValidToken) {
-      // Fall back to single uploads when not authenticated
-      for (const file of fileList) {
-        await handleFileUpload(file)
-      }
-      return
-    }
-    
+
     if (!assessmentId) {
       console.log('No assessmentId available yet, storing files for later upload')
-      // Store files locally for later upload when assessment is created
-      const tempFiles: EvidenceFile[] = fileList.map(file => ({
+      const tempFiles: EvidenceFile[] = fileList.map((file) => ({
         id: `temp_${Date.now()}_${Math.random()}`,
         originalName: file.name,
         filename: file.name,
@@ -309,49 +330,50 @@ export default function InlineEvidenceUpload({
         isHIPAA: (category || '') === 'medical_records',
         accessLevel: 'private',
         isVerified: false,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       }))
-      
       console.log('Storing temp files locally:', tempFiles.length)
-      const newFiles = [...tempFiles, ...files]
-      setFiles(newFiles)
-      onFilesUploaded?.(newFiles)
+      prependFiles(tempFiles)
       return
     }
-    
-      console.log('Assessment ID available, proceeding with upload to server')
-      
-      try {
-        setLoading(true)
-        console.log('Uploading files to server...')
-        
-        // Add a delay to prevent overwhelming the server
-        await new Promise(resolve => setTimeout(resolve, 300))
-        
-        const formData = new FormData()
-      
-      fileList.forEach(file => {
+
+    const token = localStorage.getItem('auth_token')
+    const hasValidToken = !!token && token.split('.').length === 3
+    if (!hasValidToken) {
+      for (const file of fileList) {
+        await handleFileUpload(file)
+      }
+      return
+    }
+
+    console.log('Assessment ID available, proceeding with upload to server')
+
+    try {
+      setLoading(true)
+      console.log('Uploading files to server...')
+      await new Promise((resolve) => setTimeout(resolve, 300))
+
+      const formData = new FormData()
+
+      fileList.forEach((file) => {
         formData.append('files', file)
       })
-      
+
       formData.append('assessmentId', assessmentId)
       formData.append('category', category || 'plaintiff_upload')
       formData.append('subcategory', subcategory || '')
       formData.append('description', description || '')
 
-      console.log('Sending multiple upload request...', { 
-        fileCount: fileList.length, 
-        assessmentId, 
-        category 
+      console.log('Sending multiple upload request...', {
+        fileCount: fileList.length,
+        assessmentId,
+        category,
       })
-      
+
       const result = await uploadMultipleEvidenceFiles(formData)
       console.log('Files uploaded successfully:', result)
-      const newFiles = [...result.files, ...files]
-      setFiles(newFiles)
-      onFilesUploaded?.(newFiles)
-      
-      // Auto-process all files
+      prependFiles(result.files || [])
+
       for (const file of result.files) {
         if (file.id) {
           await processFile(file.id)
@@ -360,7 +382,6 @@ export default function InlineEvidenceUpload({
     } catch (error: any) {
       const status = error.response?.status
       if (status === 401 || status === 403) {
-        // Fall back to single uploads when auth fails
         for (const file of fileList) {
           await handleFileUpload(file)
         }
@@ -371,10 +392,9 @@ export default function InlineEvidenceUpload({
         message: error.message,
         response: error.response?.data,
         status: error.response?.status,
-        statusText: error.response?.statusText
+        statusText: error.response?.statusText,
       })
-      
-      // Handle rate limiting
+
       if (status === 429) {
         alert('Server is busy. Please wait a moment and try again.')
       } else {
@@ -538,52 +558,60 @@ export default function InlineEvidenceUpload({
 
   if (compact) {
     const showUploadArea = alwaysShowUpload || showUpload
+    const tight = tightChrome
     return (
-      <div className="space-y-3">
+      <div className={tight ? 'space-y-1.5' : 'space-y-3'}>
         {!hideHeader && (
-        <div className="flex items-center justify-between">
-          <h4 className="text-sm font-medium text-gray-700">
-            {title || 'Upload Evidence'}
-            <span className="text-gray-500 font-normal ml-1">
-              {countOverride ?? files.length} uploaded
-            </span>
-            {loading && <span className="ml-2 text-xs text-blue-600">Uploading...</span>}
-          </h4>
-          {!alwaysShowUpload && (
-            <button
-              onClick={() => setShowUpload(!showUpload)}
-              disabled={loading}
-              className="text-brand-600 hover:text-brand-700 text-sm font-medium disabled:opacity-50"
-            >
-              {showUpload ? 'Hide' : 'Add Files'}
-            </button>
-          )}
-        </div>
+          <div className="flex items-center justify-between">
+            <h4 className={`font-medium text-gray-700 ${tight ? 'text-xs' : 'text-sm'}`}>
+              {title || 'Upload Evidence'}
+              <span className="ml-1 font-normal text-gray-500">
+                {countOverride ?? files.length} uploaded
+              </span>
+              {loading && <span className="ml-2 text-[11px] text-blue-600">Uploading...</span>}
+            </h4>
+            {!alwaysShowUpload && (
+              <button
+                type="button"
+                onClick={() => setShowUpload(!showUpload)}
+                disabled={loading}
+                className="text-sm font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50"
+              >
+                {showUpload ? 'Hide' : 'Add Files'}
+              </button>
+            )}
+          </div>
         )}
 
         {impactHint && (
-          <p className="text-xs text-green-600 font-medium">{impactHint}</p>
+          <p className={`font-medium text-green-600 ${tight ? 'text-[11px]' : 'text-xs'}`}>{impactHint}</p>
         )}
 
         {showUploadArea && (
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-            <div className="flex items-center justify-center gap-3 flex-wrap">
+          <div className={`rounded-lg border-2 border-dashed border-gray-300 ${tight ? 'p-2' : 'p-4'}`}>
+            <div className={`flex flex-wrap items-center justify-center ${tight ? 'gap-1.5' : 'gap-3'}`}>
               <button
+                type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={loading}
-                className="flex items-center px-4 py-2 text-sm font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
+                className={`flex items-center rounded-lg bg-brand-600 font-medium text-white hover:bg-brand-700 disabled:opacity-50 ${
+                  tight ? 'min-h-8 px-2.5 py-1 text-[11px]' : 'px-4 py-2 text-sm'
+                }`}
               >
-                <Upload className="h-4 w-4 mr-2" />
+                <Upload className={`mr-1 shrink-0 ${tight ? 'h-3 w-3' : 'mr-2 h-4 w-4'}`} />
                 {uploadButtonLabel || 'Upload Files'}
               </button>
-              
+
               <button
+                type="button"
                 onClick={() => cameraInputRef.current?.click()}
                 disabled={loading}
-                className="flex items-center px-4 py-2 text-sm font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                className={`flex items-center rounded-lg bg-green-600 font-medium text-white hover:bg-green-700 disabled:opacity-50 ${
+                  tight ? 'min-h-8 px-2.5 py-1 text-[11px]' : 'px-4 py-2 text-sm'
+                }`}
               >
-                <Camera className="h-4 w-4 mr-2" />
-                Take Photo
+                <Camera className={`mr-1 shrink-0 ${tight ? 'h-3 w-3' : 'mr-2 h-4 w-4'}`} />
+                {tight ? 'Photo' : 'Take Photo'}
               </button>
             </div>
 
@@ -608,34 +636,137 @@ export default function InlineEvidenceUpload({
           </div>
         )}
 
-        {files.length > 0 && (
+        {files.length > 0 && tight && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-2 rounded-md border border-brand-200/80 bg-brand-50 px-2 py-1.5 dark:border-brand-800/60 dark:bg-brand-950/40">
+              <span className="min-w-0 text-[11px] font-semibold leading-tight text-brand-950 dark:text-brand-100">
+                {tightUploadCountLabel(category, files.length)}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowTightManage(true)}
+                className="shrink-0 rounded-md bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-brand-800 shadow-sm ring-1 ring-brand-200 hover:bg-brand-100 dark:bg-brand-900 dark:text-brand-100 dark:ring-brand-700 dark:hover:bg-brand-800"
+              >
+                Manage
+              </button>
+            </div>
+
+            {files.length > 0 && !assessmentId && (
+              <p className="rounded bg-yellow-50 p-1 text-center text-[10px] leading-snug text-yellow-700">
+                Files will upload when you finish this intake.
+              </p>
+            )}
+
+            {showTightManage && (
+              <div
+                className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 p-4 sm:items-center"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={`tight-evidence-manage-${category ?? 'upload'}`}
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) setShowTightManage(false)
+                }}
+              >
+                <div className="flex max-h-[70vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+                  <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                    <h3 id={`tight-evidence-manage-${category ?? 'upload'}`} className="text-sm font-semibold text-gray-900">
+                      {tightUploadCountLabel(category, files.length)}
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowTightManage(false)}
+                      className="rounded-lg px-2 py-1 text-sm text-gray-600 hover:bg-gray-100"
+                    >
+                      Done
+                    </button>
+                  </div>
+                  <div className="space-y-2 overflow-y-auto p-3">
+                    {files.map((file) => (
+                      <div
+                        key={file.id}
+                        className="flex items-start justify-between gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
+                      >
+                        <div className="flex min-w-0 flex-1 items-start gap-2">
+                          <span className="mt-0.5 shrink-0">{getFileIcon(file.mimetype)}</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-gray-900">{file.originalName}</p>
+                            <p className="text-[11px] text-gray-500">
+                              {formatFileSize(file.size)} • {new Date(file.createdAt).toLocaleDateString()}
+                            </p>
+                            {(() => {
+                              const summary = getAIExtractedSummary(file)
+                              if (!summary) return null
+                              const parts = [
+                                summary.treatment && `Treatment: ${summary.treatment}`,
+                                summary.diagnosis && `Diagnosis: ${summary.diagnosis}`,
+                                summary.provider && `Provider: ${summary.provider}`,
+                                summary.amounts && `Amounts: ${summary.amounts}`,
+                              ].filter(Boolean)
+                              if (parts.length === 0) return null
+                              return (
+                                <p className="mt-1 text-[11px] text-brand-700">
+                                  <span className="font-medium">AI:</span> {parts.join(' • ')}
+                                </p>
+                              )
+                            })()}
+                          </div>
+                          <span className="mt-0.5 shrink-0">{getProcessingStatusIcon(file.processingStatus)}</span>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          <button
+                            type="button"
+                            onClick={() => window.open(file.fileUrl, '_blank')}
+                            className="rounded p-1 text-blue-500 hover:bg-blue-50 hover:text-blue-700"
+                            aria-label="View file"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteFile(file.id)}
+                            className="inline-flex h-8 w-8 flex-none items-center justify-center rounded text-red-500 hover:bg-red-50 hover:text-red-700"
+                            aria-label="Delete file"
+                          >
+                            <TrashIcon size={18} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {files.length > 0 && !tight && (
           <div className="space-y-2">
-          {files.map((file) => (
-            <div key={file.id} className="flex flex-col gap-1 bg-gray-50 p-2 rounded">
+            {files.map((file) => (
+              <div key={file.id} className="flex flex-col gap-1 rounded bg-gray-50 p-2">
                 <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-hidden">
-                  <span className="shrink-0">{getFileIcon(file.mimetype)}</span>
-                  <span className="text-sm text-gray-900 truncate min-w-0">
-                    {file.originalName}
-                  </span>
-                  <span className="shrink-0">{getProcessingStatusIcon(file.processingStatus)}</span>
-                </div>
-                
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={() => window.open(file.fileUrl, '_blank')}
-                    className="text-blue-500 hover:text-blue-700"
-                  >
-                    <Eye className="h-3 w-3" />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteFile(file.id)}
-                    className="w-8 h-8 flex-none inline-flex items-center justify-center rounded text-red-500 hover:text-red-700 hover:bg-red-50"
-                    aria-label="Delete file"
-                  >
-                    <TrashIcon size={18} />
-                  </button>
-                </div>
+                  <div className="flex min-w-0 flex-1 items-center space-x-2 overflow-hidden">
+                    <span className="shrink-0">{getFileIcon(file.mimetype)}</span>
+                    <span className="min-w-0 truncate text-sm text-gray-900">{file.originalName}</span>
+                    <span className="shrink-0">{getProcessingStatusIcon(file.processingStatus)}</span>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => window.open(file.fileUrl, '_blank')}
+                      className="text-blue-500 hover:text-blue-700"
+                    >
+                      <Eye className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteFile(file.id)}
+                      className="inline-flex h-8 w-8 flex-none items-center justify-center rounded text-red-500 hover:bg-red-50 hover:text-red-700"
+                      aria-label="Delete file"
+                    >
+                      <TrashIcon size={18} />
+                    </button>
+                  </div>
                 </div>
                 {(() => {
                   const summary = getAIExtractedSummary(file)
@@ -644,20 +775,20 @@ export default function InlineEvidenceUpload({
                     summary.treatment && `Treatment: ${summary.treatment}`,
                     summary.diagnosis && `Diagnosis: ${summary.diagnosis}`,
                     summary.provider && `Provider: ${summary.provider}`,
-                    summary.amounts && `Amounts: ${summary.amounts}`
+                    summary.amounts && `Amounts: ${summary.amounts}`,
                   ].filter(Boolean)
                   if (parts.length === 0) return null
                   return (
-                    <div className="text-xs text-brand-700 bg-brand-50/70 px-2 py-1.5 rounded border border-brand-100">
+                    <div className="rounded border border-brand-100 bg-brand-50/70 px-2 py-1.5 text-xs text-brand-700">
                       <span className="font-medium">AI extracted:</span> {parts.join(' • ')}
                     </div>
                   )
                 })()}
               </div>
             ))}
-            
+
             {files.length > 0 && !assessmentId && (
-              <p className="text-xs text-yellow-600 text-center bg-yellow-50 p-2 rounded">
+              <p className="rounded bg-yellow-50 p-2 text-center text-xs text-yellow-600">
                 Files will be uploaded when you complete the assessment
               </p>
             )}

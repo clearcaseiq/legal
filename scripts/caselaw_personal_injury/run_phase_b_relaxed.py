@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -26,12 +27,105 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from pre_llm_cleanup import PREPROCESS_VERSION, PreLLMOpinion, prepare_opinion_for_llm
 
-PROMPT_VERSION = "cap_pi_extract_relaxed_v2"
+PROMPT_VERSION = "cap_pi_extract_taxonomy_v3_clean_v1"
 DEFAULT_MODEL_NAME = "gpt-5.4-mini"
 COMPOSER_MANUAL_MODEL_NAME = "cursor-composer-2-manual"
 SOURCE_NAME = "CaselawAccessProject"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+
+ALLOWED_CASE_TYPES = {
+    "auto_pi",
+    "premises",
+    "workplace_injury",
+    "railroad_transport",
+    "med_mal",
+    "product_liability",
+    "wrongful_death",
+    "intentional_tort",
+    "other_pi",
+    "property_damage",
+    "not_pi",
+}
+
+CASE_TYPE_ALIASES = {
+    "auto": "auto_pi",
+    "auto_accident": "auto_pi",
+    "motor_vehicle": "auto_pi",
+    "motor_vehicle_accident": "auto_pi",
+    "slip_and_fall": "premises",
+    "premises_liability": "premises",
+    "medical_malpractice": "med_mal",
+    "medmal": "med_mal",
+    "workplace": "workplace_injury",
+    "workers_comp": "workplace_injury",
+    "railroad": "railroad_transport",
+    "railway": "railroad_transport",
+    "train": "railroad_transport",
+    "assault": "intentional_tort",
+    "battery": "intentional_tort",
+    "property_only": "property_damage",
+    "property": "property_damage",
+    "negligence": "other_pi",
+    "unknown": "not_pi",
+}
+
+PI_CASE_TYPES = ALLOWED_CASE_TYPES - {"property_damage", "not_pi"}
+
+DEATH_TERMS = re.compile(
+    r"\b("
+    r"wrongful\s+death|survival\s+action|decedent|deceased|fatal|fatally|"
+    r"killed|died|death\s+of|died\s+from|died\s+of|resulting\s+in\s+death|"
+    r"administrator\s+of\s+(?:the\s+)?estate|estate\s+of"
+    r")\b",
+    re.IGNORECASE,
+)
+RAILROAD_TERMS = re.compile(r"\b(train|railroad|railway|streetcar|horse\s+car|rail\s+crossing|locomotive|coal\s+car)\b", re.IGNORECASE)
+WORKPLACE_TERMS = re.compile(r"\b(work(?:er|ing|place)?|employee|employer|mine|coal\s+mine|factory|construction|industrial|uncoupl)\b", re.IGNORECASE)
+PREMISES_TERMS = re.compile(r"\b(sidewalk|premises|stairs?|hole|ice|warehouse|store|building|landlord|fall|fell|slip|trip)\b", re.IGNORECASE)
+AUTO_TERMS = re.compile(r"\b(automobile|motor\s+vehicle|car\s+crash|truck|bus|motorcycle|pedestrian|bicycle|highway|road)\b", re.IGNORECASE)
+
+
+def _joined_text(*values: Any) -> str:
+    parts: list[str] = []
+    for value in values:
+        if isinstance(value, str):
+            parts.append(value)
+        elif isinstance(value, list):
+            parts.extend(str(item) for item in value if item is not None)
+        elif isinstance(value, dict):
+            parts.extend(str(item) for item in value.values() if item is not None)
+    return " ".join(parts)
+
+
+def _downgrade_nonfatal_wrongful_death(normalized: dict[str, Any]) -> None:
+    if normalized.get("case_type") != "wrongful_death":
+        return
+
+    evidence_spans = normalized.get("evidence_spans") if isinstance(normalized.get("evidence_spans"), dict) else {}
+    text = _joined_text(
+        normalized.get("injury_summary"),
+        normalized.get("procedural_posture"),
+        evidence_spans.get("injury_text"),
+        evidence_spans.get("damages_text"),
+        evidence_spans.get("liability_text"),
+    )
+
+    if DEATH_TERMS.search(text):
+        return
+
+    if WORKPLACE_TERMS.search(text):
+        normalized["case_type"] = "workplace_injury"
+    elif RAILROAD_TERMS.search(text):
+        normalized["case_type"] = "railroad_transport"
+    elif PREMISES_TERMS.search(text):
+        normalized["case_type"] = "premises"
+    elif AUTO_TERMS.search(text):
+        normalized["case_type"] = "auto_pi"
+    else:
+        normalized["case_type"] = "other_pi"
+    normalized["is_plaintiff_pi_case"] = True
 
 
 def parse_args() -> argparse.Namespace:
@@ -210,8 +304,12 @@ def normalize_extraction(data: dict[str, Any], *, case_id: str, source_url: str 
     normalized["source_url"] = normalized.get("source_url") or source_url
     normalized["court_level"] = normalized.get("court_level") or "unknown"
     normalized["procedural_posture"] = normalized.get("procedural_posture") or "unknown"
-    normalized["case_type"] = normalized.get("case_type") or "not_pi"
-    normalized["is_plaintiff_pi_case"] = bool(normalized.get("is_plaintiff_pi_case", False))
+    case_type = str(normalized.get("case_type") or "not_pi").strip().lower()
+    case_type = CASE_TYPE_ALIASES.get(case_type, case_type)
+    if case_type not in ALLOWED_CASE_TYPES:
+        case_type = "other_pi" if bool(normalized.get("is_plaintiff_pi_case", False)) else "not_pi"
+    normalized["case_type"] = case_type
+    normalized["is_plaintiff_pi_case"] = case_type in PI_CASE_TYPES
     normalized["citations"] = normalized.get("citations") if isinstance(normalized.get("citations"), list) else []
 
     injury_flags = normalized.get("injury_flags")
@@ -292,6 +390,7 @@ def normalize_extraction(data: dict[str, Any], *, case_id: str, source_url: str 
         "liability_text": evidence_spans.get("liability_text") if isinstance(evidence_spans.get("liability_text"), list) else [],
     }
 
+    _downgrade_nonfatal_wrongful_death(normalized)
     normalized["confidence"] = normalize_confidence(normalized.get("confidence"))
     normalized["decision_year"] = normalized.get("decision_year")
     normalized["injury_summary"] = normalized.get("injury_summary")
@@ -300,7 +399,26 @@ def normalize_extraction(data: dict[str, Any], *, case_id: str, source_url: str 
     return normalized
 
 
-def build_prompt(case_id: str, source_url: str | None, opinion_text: str) -> str:
+def apply_pre_llm_metadata(normalized: dict[str, Any], prepared: PreLLMOpinion) -> None:
+    known = prepared.known_metadata
+    if normalized.get("jurisdiction_state") is None and known.get("jurisdiction_state_hint"):
+        normalized["jurisdiction_state"] = known["jurisdiction_state_hint"]
+    if normalized.get("decision_year") is None and known.get("decision_year_hint"):
+        normalized["decision_year"] = known["decision_year_hint"]
+    if normalized.get("court_name") is None and known.get("court_name_hint"):
+        normalized["court_name"] = known["court_name_hint"]
+
+
+def build_prompt(
+    case_id: str,
+    source_url: str | None,
+    opinion_text: str,
+    *,
+    prepared: PreLLMOpinion | None = None,
+) -> str:
+    known_metadata = prepared.known_metadata if prepared else {}
+    heuristic_hints = prepared.heuristic_hints if prepared else {}
+    cleanup_metrics = prepared.metrics if prepared else {}
     return f"""You are extracting structured plaintiff-side personal injury case-value data from a judicial opinion.
 
 Return ONLY valid JSON.
@@ -330,6 +448,26 @@ If this is not plaintiff-side PI:
 - is_plaintiff_pi_case = false
 - case_type = \"not_pi\"
 
+Taxonomy rules:
+- auto_pi: motor vehicle road collisions only, such as car, truck, bus, motorcycle, pedestrian, or bicycle crashes.
+- railroad_transport: train, streetcar, rail crossing, rail passenger, rail worker, or rail equipment injury. Do not label these auto_pi.
+- workplace_injury: employee or worker injured at work, including mines, factories, construction, industrial equipment, employer negligence, or unsafe workplace conditions.
+- premises: land/building/sidewalk/store/residential premises conditions, slip/trip/fall, negligent maintenance, unsafe stairs, holes, ice, or similar premises defects.
+- med_mal: medical, hospital, physician, nursing, diagnosis, treatment, or surgical negligence.
+- product_liability: defective product, machine, tool, design/manufacturing defect, or failure to warn.
+- wrongful_death: death claim arising from injury/tort facts, but only when the opinion explicitly says death, died, killed, fatal, deceased, decedent, estate, administrator, survival action, or wrongful death. Severe injury, permanent injury, paralysis, amputation, or catastrophic injury alone is not wrongful_death.
+- intentional_tort: assault, battery, false imprisonment, intentional infliction, or other intentional personal injury.
+- property_damage: property-only economic loss, damaged goods, repossession, contract/commercial disputes, or vehicle/property damage without bodily injury.
+- other_pi: plaintiff-side bodily injury that does not fit the above.
+- not_pi: no plaintiff-side personal injury or wrongful death claim.
+
+Classification precedence:
+1. If there is explicit death/decedent/estate/survival/wrongful-death language from tort/injury facts, use wrongful_death.
+2. If bodily injury happened while working or in a mine/factory/construction workplace, use workplace_injury unless the case is strictly med_mal or product_liability.
+3. If injury involves trains, railroads, streetcars, crossings, or rail equipment, use railroad_transport, not auto_pi.
+4. Use auto_pi only for road motor vehicle crashes.
+5. Use property_damage or not_pi for property-only/value-only disputes, even if damages are discussed.
+
 Schema:
 {{
   "case_id": "string",
@@ -339,7 +477,7 @@ Schema:
   "court_name": "string or null",
   "court_level": "string",
   "decision_year": 2024,
-  "case_type": "auto_pi | premises | med_mal | product_liability | wrongful_death | other_pi | not_pi",
+  "case_type": "auto_pi | premises | workplace_injury | railroad_transport | med_mal | product_liability | wrongful_death | intentional_tort | other_pi | property_damage | not_pi",
   "is_plaintiff_pi_case": true,
   "procedural_posture": "string",
   "injury_summary": "string or null",
@@ -405,10 +543,34 @@ Schema:
 Metadata:
 - case_id: {case_id}
 - source_url: {source_url}
+- prompt_version: {PROMPT_VERSION}
+- preprocess_version: {PREPROCESS_VERSION}
+
+Known metadata extracted before the LLM (use only when consistent with the opinion):
+{json.dumps(known_metadata, indent=2, sort_keys=True)}
+
+Precomputed heuristic hints (not final labels; use only as supporting signals):
+{json.dumps(heuristic_hints, indent=2, sort_keys=True)}
+
+Preprocessing metrics:
+{json.dumps(cleanup_metrics, indent=2, sort_keys=True)}
 
 Opinion text:
 {opinion_text}
 """
+
+
+def prepare_prompt_for_case(case: dict[str, Any], max_input_chars: int) -> tuple[str, PreLLMOpinion]:
+    case_id = case["case_id"]
+    source_url = case.get("source_url")
+    prepared = prepare_opinion_for_llm(
+        case_id=case_id,
+        source_url=source_url,
+        opinion_text=case.get("opinion_text") or "",
+        max_chars=max_input_chars,
+    )
+    prompt = build_prompt(case_id, source_url, prepared.text, prepared=prepared)
+    return prompt, prepared
 
 
 def call_openai(api_key: str, prompt: str, *, model: str) -> str:
@@ -565,9 +727,16 @@ def main() -> int:
         print("--case-id is only valid with --dump-first-prompt or --apply-json-file", file=sys.stderr)
         return 2
 
+    repo_root = Path(__file__).resolve().parents[2]
     env_values: dict[str, str] = {}
-    env_values.update(load_env_file(Path(".env")))
-    env_values.update(load_env_file(Path("apps/api/.env")))
+    for env_path in (
+        Path(".env"),
+        Path("apps/api/.env"),
+        Path("api/.env"),
+        repo_root / ".env",
+        repo_root / "api" / ".env",
+    ):
+        env_values.update(load_env_file(env_path))
 
     supabase_url = get_required_env("SUPABASE_URL", env_values).rstrip("/")
     supabase_key = get_required_env("SUPABASE_SERVICE_ROLE_KEY", env_values)
@@ -585,11 +754,14 @@ def main() -> int:
                 return 1
         case = cases[0]
         case_id = case["case_id"]
-        source_url = case.get("source_url")
-        opinion_text = (case.get("opinion_text") or "")[: args.max_input_chars]
-        prompt = build_prompt(case_id, source_url, opinion_text)
+        prompt, prepared = prepare_prompt_for_case(case, args.max_input_chars)
         print(
-            f"# Paste the block below into Cursor Composer (or any model). case_id={case_id}\n",
+            (
+                f"# Paste the block below into Cursor Composer (or any model). case_id={case_id} "
+                f"preprocess={prepared.metrics['preprocess_version']} "
+                f"raw_chars={prepared.metrics['raw_char_count']} "
+                f"prompt_chars={prepared.metrics['prompt_char_count']}\n"
+            ),
             file=sys.stderr,
         )
         sys.stdout.write(prompt)
@@ -613,9 +785,11 @@ def main() -> int:
         case = cases[0]
         case_id = case["case_id"]
         source_url = case.get("source_url")
+        _, prepared = prepare_prompt_for_case(case, args.max_input_chars)
         raw_text = read_text_file_robust(json_path)
         raw_json = json.loads(extract_first_json_object(raw_text))
         normalized = normalize_extraction(raw_json, case_id=case_id, source_url=source_url)
+        apply_pre_llm_metadata(normalized, prepared)
         model_name = args.model.strip()
         if model_name == DEFAULT_MODEL_NAME:
             model_name = COMPOSER_MANUAL_MODEL_NAME
@@ -652,15 +826,19 @@ def main() -> int:
 
     success = 0
     failures: list[dict[str, str]] = []
+    skipped: list[dict[str, str]] = []
     for idx, case in enumerate(cases, start=1):
         case_id = case["case_id"]
         source_url = case.get("source_url")
-        opinion_text = (case.get("opinion_text") or "")[: args.max_input_chars]
         try:
-            prompt = build_prompt(case_id, source_url, opinion_text)
+            prompt, prepared = prepare_prompt_for_case(case, args.max_input_chars)
+            if prepared.skip_reason == "too_little_text":
+                skipped.append({"case_id": case_id, "reason": prepared.skip_reason})
+                continue
             raw_text = call_openai(openai_key, prompt, model=model_name)
             raw_json = json.loads(extract_first_json_object(raw_text))
             normalized = normalize_extraction(raw_json, case_id=case_id, source_url=source_url)
+            apply_pre_llm_metadata(normalized, prepared)
             upsert_extraction(supabase_url, supabase_key, normalized, raw_json, model_name=model_name)
             if args.mark_complete:
                 mark_case_complete(supabase_url, supabase_key, case_id)
@@ -668,7 +846,10 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             failures.append({"case_id": case_id, "error": str(exc)})
         if idx % 10 == 0:
-            print(f"Processed {idx}/{len(cases)} | success={success} | failed={len(failures)}", file=sys.stderr)
+            print(
+                f"Processed {idx}/{len(cases)} | success={success} | failed={len(failures)} | skipped={len(skipped)}",
+                file=sys.stderr,
+            )
             time.sleep(0.2)
 
     samples = fetch_inserted_samples(supabase_url, supabase_key, 10, model_name=model_name)
@@ -676,9 +857,13 @@ def main() -> int:
         "processed": len(cases),
         "success": success,
         "failed": len(failures),
+        "skipped": len(skipped),
         "failure_examples": failures[:10],
+        "skip_examples": skipped[:10],
         "samples": samples,
         "model": model_name,
+        "prompt_version": PROMPT_VERSION,
+        "preprocess_version": PREPROCESS_VERSION,
     }
     print(json.dumps(result, indent=2))
     return 0

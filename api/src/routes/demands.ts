@@ -7,6 +7,7 @@ import { authMiddleware, AuthRequest } from '../lib/auth'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 
 const router = Router()
+type DemandMode = 'represented' | 'pro_se'
 
 function isValidDraft(content?: string | null) {
   if (!content) return false
@@ -15,6 +16,41 @@ function isValidDraft(content?: string | null) {
   const lower = trimmed.toLowerCase()
   if (['n/a', 'na', 'not available', 'not available.'].includes(lower)) return false
   return trimmed.length >= 50
+}
+
+function parseAssessmentFacts(rawFacts: unknown) {
+  if (typeof rawFacts === 'string') {
+    try {
+      return JSON.parse(rawFacts)
+    } catch {
+      return {}
+    }
+  }
+  return rawFacts && typeof rawFacts === 'object' ? rawFacts : {}
+}
+
+function hasReportedEconomicDamages(facts: any) {
+  const damages = facts?.damages || {}
+  return [
+    damages.med_charges,
+    damages.med_paid,
+    damages.wage_loss,
+    damages.estimated_med_charges,
+    damages.estimated_wage_loss,
+    damages.estimated_out_of_pocket,
+    damages.estimated_future_med_charges,
+  ].some((value) => Number(value || 0) > 0)
+}
+
+function draftContradictsDamages(content: string | null | undefined, facts: any) {
+  if (!content || !hasReportedEconomicDamages(facts)) return false
+  const lower = content.toLowerCase()
+  return (
+    lower.includes('no reported medical charges') ||
+    lower.includes('no reported medical expenses') ||
+    lower.includes('no reported wage loss') ||
+    lower.includes('no reported medical charges or wage loss')
+  )
 }
 
 async function canAccessAssessment(assessmentId: string, userId?: string, userEmail?: string) {
@@ -82,7 +118,7 @@ router.post('/draft/:assessmentId', authMiddleware, async (req: AuthRequest, res
     }
 
     if (!analysisPayload) {
-      const facts = JSON.parse(assessment.facts)
+      const facts = parseAssessmentFacts(assessment.facts)
       const evidenceData = (assessment.evidenceFiles || []).map((file: any) => ({
         id: file.id,
         filename: file.filename,
@@ -122,9 +158,9 @@ router.post('/draft/:assessmentId', authMiddleware, async (req: AuthRequest, res
       email: ''
     }
 
-    const facts = JSON.parse(assessment.facts)
+    const facts = parseAssessmentFacts(assessment.facts)
     const demandDraft = analysisPayload?.demandPackage?.demandDraft
-    const content = isValidDraft(demandDraft) ? demandDraft : generateDemandLetter({
+    const content = isValidDraft(demandDraft) && !draftContradictsDamages(demandDraft, facts) ? demandDraft : generateDemandLetter({
       assessment,
       facts,
       targetAmount,
@@ -162,9 +198,13 @@ const DemandRequest = z.object({
   recipient: z.object({
     name: z.string(),
     address: z.string(),
-    email: z.string().email().optional()
+    email: z.preprocess(
+      value => typeof value === 'string' && value.trim() === '' ? undefined : value,
+      z.string().email().optional()
+    )
   }),
-  message: z.string().optional()
+  message: z.string().optional(),
+  mode: z.enum(['represented', 'pro_se']).optional()
 })
 
 // Generate demand letter
@@ -178,7 +218,7 @@ router.post('/generate', async (req, res) => {
       })
     }
 
-    const { assessmentId, targetAmount, recipient, message } = parsed.data
+    const { assessmentId, targetAmount, recipient, message, mode } = parsed.data
     
     // Get assessment details
     const assessment = await prisma.assessment.findUnique({
@@ -189,7 +229,7 @@ router.post('/generate', async (req, res) => {
       return res.status(404).json({ error: 'Assessment not found' })
     }
 
-    const facts = assessment.facts as any
+    const facts = parseAssessmentFacts(assessment.facts)
     
     // Generate demand letter content
     const demandLetter = generateDemandLetter({
@@ -197,7 +237,8 @@ router.post('/generate', async (req, res) => {
       facts,
       targetAmount,
       recipient,
-      message
+      message,
+      mode
     })
 
     // Store demand letter
@@ -321,17 +362,63 @@ function generateDemandLetter({
   facts,
   targetAmount,
   recipient,
-  message
+  message,
+  mode = 'represented'
 }: {
   assessment: any
   facts: any
   targetAmount: number
   recipient: any
   message?: string
+  mode?: DemandMode
 }) {
   const incidentDate = facts.incident?.date || 'the date of the incident'
   const narrative = facts.incident?.narrative || 'the incident'
   const venue = `${assessment.venueState}${assessment.venueCounty ? `, ${assessment.venueCounty}` : ''}`
+  const medicalExpenses = facts.damages?.med_charges?.toLocaleString() || 'To be determined'
+  const lostWages = facts.damages?.wage_loss?.toLocaleString() || 'To be determined'
+
+  if (mode === 'pro_se') {
+    return `
+SELF-HELP SETTLEMENT DEMAND
+
+${recipient.name}
+${recipient.address}
+
+Re: Personal Injury Claim - ${incidentDate}
+
+Dear ${recipient.name},
+
+I am writing on my own behalf about my personal injury claim arising from an incident that occurred on or about ${incidentDate} in ${venue}.
+
+INCIDENT SUMMARY
+${narrative}
+
+DAMAGES CLAIMED
+Based on the information currently available to me, my damages include:
+
+- Medical expenses: $${medicalExpenses}
+- Lost wages: $${lostWages}
+- Pain, inconvenience, and disruption caused by the incident
+- Future medical expenses or ongoing care, if supported by records
+
+DEMAND
+To resolve this matter without litigation, I am requesting $${targetAmount.toLocaleString()}.
+
+${message ? `\nADDITIONAL CONTEXT\n${message}` : ''}
+
+Please review the attached or available supporting records, including medical bills, wage loss proof, photos, reports, and any other documentation I provide. I am willing to discuss settlement in good faith.
+
+Please respond within thirty (30) days of receipt of this letter. I reserve all rights and claims, and nothing in this letter should be treated as a release or waiver.
+
+Sincerely,
+
+[Your Name]
+[Your Contact Information]
+
+This letter is for settlement purposes only. I understand that I should consider attorney review before signing any release, accepting a final settlement, or resolving claims involving serious injury, minors, disputed liability, government entities, liens, permanent disability, or approaching legal deadlines.
+    `.trim()
+  }
   
   return `
 DEMAND LETTER
@@ -351,8 +438,8 @@ ${narrative}
 DAMAGES CLAIMED
 Our client has suffered significant injuries and damages as a result of this incident, including but not limited to:
 
-- Medical expenses: $${facts.damages?.med_charges?.toLocaleString() || 'To be determined'}
-- Lost wages: $${facts.damages?.wage_loss?.toLocaleString() || 'To be determined'}
+- Medical expenses: $${medicalExpenses}
+- Lost wages: $${lostWages}
 - Pain and suffering
 - Future medical expenses
 - Loss of earning capacity

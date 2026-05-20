@@ -32,12 +32,20 @@
     "seed:attorney-logins": "node ../node_modules/tsx/dist/cli.mjs scripts/ensure-seed-attorney-logins.ts",
     "data:compare-supabase-local": "node ../node_modules/tsx/dist/cli.mjs scripts/compare-supabase-local-data.ts",
     "data:export-ml-csv": "node ../node_modules/tsx/dist/cli.mjs scripts/export-ml-tables-csv.ts",
-    "ml:label-sample": "node ../node_modules/tsx/dist/cli.mjs scripts/label-cases-raw-sample.ts"
+    "ml:pre-llm-cleanup": "node ../node_modules/tsx/dist/cli.mjs scripts/bulk-pre-llm-cleanup.ts",
+    "ml:extract-cleaned": "node ../node_modules/tsx/dist/cli.mjs scripts/bulk-llm-extract-cleaned.ts",
+    "ml:label-sample": "node ../node_modules/tsx/dist/cli.mjs scripts/label-cases-raw-sample.ts",
+    "ml:label-pi-web-candidates": "node ../node_modules/tsx/dist/cli.mjs scripts/label-pi-website-case-candidates.ts",
+    "ml:extract-ca-docket-settlements": "node ../node_modules/tsx/dist/cli.mjs scripts/extract-ca-docket-settlement-signals.ts",
+    "ml:discover-ca-court-settlements": "node ../node_modules/tsx/dist/cli.mjs scripts/discover-ca-court-settlement-dockets.ts",
+    "ml:discover-ca-pi-web": "node ../node_modules/tsx/dist/cli.mjs scripts/discover-ca-pi-website-cases.ts",
+    "ml:discover-ca-pi-firms": "node ../node_modules/tsx/dist/cli.mjs scripts/discover-ca-pi-firms.ts"
   },
   "prisma": {
     "seed": "node ../node_modules/tsx/dist/cli.mjs prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-textract": "^3.1041.0",
     "@google-cloud/local-auth": "^3.0.1",
     "@prisma/client": "^5.17.0",
     "@types/express-session": "^1.18.2",
@@ -56,12 +64,14 @@
     "google-auth-library": "^10.4.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
+    "mammoth": "^1.12.0",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "openai": "^6.1.0",
     "passport": "^0.7.0",
     "passport-apple": "^2.0.2",
     "passport-google-oauth20": "^2.0.0",
+    "pdf-parse": "^2.4.5",
     "pdfkit": "^0.17.2",
     "pino": "^9.2.0",
     "pino-pretty": "^13.1.1",

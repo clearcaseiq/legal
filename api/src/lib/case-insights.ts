@@ -14,6 +14,9 @@ export interface MedicalChronologyEvent {
   details?: string
   provider?: string
   amount?: number
+  sourceFileId?: string
+  sourceFileName?: string
+  extractionConfidence?: 'documented' | 'estimated' | 'needs_review'
 }
 
 export interface CasePreparationResult {
@@ -64,7 +67,7 @@ export interface PlaintiffMedicalReviewMissingItem {
 }
 
 export interface PlaintiffMedicalReviewEvent extends MedicalChronologyEvent {
-  confidence: 'documented' | 'estimated'
+  confidence: 'documented' | 'estimated' | 'needs_review'
   uncertaintyNote?: string
   plaintiffNote?: string
 }
@@ -81,7 +84,18 @@ export interface PlaintiffMedicalReviewPayload {
 type ExtractedMedicalData = {
   dates?: string[] | string | null
   timeline?: string | null
+  entities?: string | null
   totalAmount?: number | null
+  confidence?: number | null
+}
+
+type StructuredMedicalTimelineEvent = {
+  date?: string | null
+  provider?: string
+  visitType?: string
+  details?: string
+  amount?: number
+  confidence?: 'documented' | 'estimated' | 'needs_review'
 }
 
 function parseExtractedMedicalData(input: unknown): ExtractedMedicalData {
@@ -97,6 +111,44 @@ function toStringArray(value: string[] | string | null | undefined): string[] {
   } catch {
     return []
   }
+}
+
+function parseStructuredTimeline(value: string | null | undefined): StructuredMedicalTimelineEvent[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map((item) => item as StructuredMedicalTimelineEvent)
+      .filter((item) => item && typeof item === 'object')
+  } catch {
+    return []
+  }
+}
+
+function sortChronologyEvents(a: MedicalChronologyEvent, b: MedicalChronologyEvent) {
+  if (!a.date) return 1
+  if (!b.date) return -1
+  const aTime = Date.parse(a.date)
+  const bTime = Date.parse(b.date)
+  if (Number.isNaN(aTime) && Number.isNaN(bTime)) return a.date.localeCompare(b.date)
+  if (Number.isNaN(aTime)) return 1
+  if (Number.isNaN(bTime)) return -1
+  return aTime - bTime
+}
+
+function hasText(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function isNonTreatmentFinancialSummary(file: { originalName?: string | null; aiSummary?: string | null }) {
+  const text = `${file.originalName || ''} ${file.aiSummary || ''}`.toLowerCase()
+  return (
+    text.includes('lost wage') ||
+    text.includes('wage loss') ||
+    text.includes('damages summary') ||
+    text.includes('economic damages')
+  )
 }
 
 function parseFactsJson(value: string | null | undefined): Record<string, any> {
@@ -166,18 +218,21 @@ function applyMedicalReviewEdits(
 ): PlaintiffMedicalReviewEvent[] {
   const editMap = new Map(review.edits.map((edit) => [edit.eventId, edit]))
 
-  return chronology
+  const reviewedChronology: PlaintiffMedicalReviewEvent[] = chronology
     .filter((event) => !editMap.get(event.id)?.hideEvent)
     .map((event) => {
       const edit = editMap.get(event.id)
-      const confidence =
+      const baseConfidence: PlaintiffMedicalReviewEvent['confidence'] =
         event.source === 'medical_record' || event.source === 'treatment' ? 'documented' : 'estimated'
       const uncertaintyNote =
-        event.source === 'evidence'
+        event.extractionConfidence === 'needs_review'
+          ? 'We found this from a document, but the details need your review.'
+          : event.source === 'evidence'
           ? 'Date estimated from the upload because no treatment date was extracted yet.'
           : event.source === 'incident' && !event.date
             ? 'This event still needs a date estimate.'
             : undefined
+      const confidence = event.extractionConfidence || baseConfidence
 
       return {
         ...event,
@@ -190,6 +245,21 @@ function applyMedicalReviewEdits(
         plaintiffNote: edit?.plaintiffNote,
       }
     })
+
+  const addedEvents: PlaintiffMedicalReviewEvent[] = review.edits
+    .filter((edit) => edit.eventId.startsWith('added-') && !edit.hideEvent)
+    .map((edit) => ({
+      id: edit.eventId,
+      date: edit.correctedDate || null,
+      label: edit.correctedLabel || 'Additional treatment visit',
+      source: 'treatment',
+      details: edit.correctedDetails,
+      provider: edit.correctedProvider,
+      confidence: 'documented',
+      plaintiffNote: edit.plaintiffNote,
+    }))
+
+  return [...reviewedChronology, ...addedEvents]
 }
 
 export async function buildMedicalChronology(assessmentId: string): Promise<MedicalChronologyEvent[]> {
@@ -209,7 +279,9 @@ export async function buildMedicalChronology(assessmentId: string): Promise<Medi
             select: {
               dates: true,
               timeline: true,
+              entities: true,
               totalAmount: true,
+              confidence: true,
             },
           },
         },
@@ -238,61 +310,108 @@ export async function buildMedicalChronology(assessmentId: string): Promise<Medi
       })
   }
 
+  const evidenceFiles = assessment.evidenceFiles || []
+  const hasExtractedMedicalEvidence = evidenceFiles.some((file) => {
+    if (file.category !== 'medical_records' && file.category !== 'bills') return false
+    if (isNonTreatmentFinancialSummary(file)) return false
+    const extracted = parseExtractedMedicalData(file.extractedData?.[0])
+    return parseStructuredTimeline(extracted.timeline).length > 0 || toStringArray(extracted.dates).length > 0
+  })
+
   // 2. Treatment from facts
-  const treatment = facts?.treatment as Array<{ provider?: string; type?: string; date?: string; notes?: string }> | undefined
+  const treatment = facts?.treatment as Array<{
+    provider?: string
+    type?: string
+    date?: string
+    notes?: string
+    treatment?: string
+  }> | undefined
   if (Array.isArray(treatment)) {
     treatment.forEach((t, i) => {
+      const provider = hasText(t.provider) ? t.provider.trim() : undefined
+      const notes = hasText(t.notes) ? t.notes.trim() : hasText(t.treatment) ? t.treatment.trim() : undefined
+      const hasMeaningfulTreatmentDetail = hasText(t.date) || Boolean(provider) || Boolean(notes)
+      if (!hasMeaningfulTreatmentDetail) return
+      if (hasExtractedMedicalEvidence && provider?.toLowerCase() === 'from uploaded records') return
+
       const label = t.type || 'Treatment'
       events.push({
         id: `treatment-${i}`,
         date: t.date || null,
         label,
         source: 'treatment',
-        details: t.notes,
-        provider: t.provider
+        details: notes,
+        provider,
       })
     })
   }
 
   // 3. Evidence files - medical records with extracted data
-  const evidenceFiles = assessment.evidenceFiles || []
   for (const file of evidenceFiles) {
     if (file.category !== 'medical_records' && file.category !== 'bills') continue
+    if (isNonTreatmentFinancialSummary(file)) continue
 
     const extracted = parseExtractedMedicalData(file.extractedData?.[0])
+    const structuredTimeline = parseStructuredTimeline(extracted.timeline)
     const dates = toStringArray(extracted.dates)
-    const timelineStr = extracted?.timeline
     const amount = typeof extracted?.totalAmount === 'number' ? extracted.totalAmount : undefined
 
-    if (Array.isArray(dates) && dates.length > 0) {
+    if (structuredTimeline.length > 0) {
+      const repeatsDocumentAmount =
+        typeof amount === 'number' &&
+        structuredTimeline.length > 1 &&
+        structuredTimeline.every((event) => event.amount === amount)
+      structuredTimeline.forEach((event, i) => {
+        const label = event.visitType || file.originalName || 'Medical record'
+        const eventAmount = repeatsDocumentAmount
+          ? i === 0 ? amount : undefined
+          : typeof event.amount === 'number'
+            ? event.amount
+            : i === 0 ? amount : undefined
+        events.push({
+          id: `evidence-${file.id}-timeline-${i}`,
+          date: event.date || null,
+          label,
+          source: 'medical_record',
+          details: event.details || file.aiSummary || undefined,
+          provider: event.provider,
+          amount: eventAmount,
+          sourceFileId: file.id,
+          sourceFileName: file.originalName || undefined,
+          extractionConfidence: event.confidence || (extracted.confidence && extracted.confidence >= 0.7 ? 'documented' : 'needs_review'),
+        })
+      })
+    } else if (Array.isArray(dates) && dates.length > 0) {
       dates.forEach((d, i) => {
         events.push({
           id: `evidence-${file.id}-${i}`,
           date: typeof d === 'string' ? d : null,
           label: file.originalName || 'Medical record',
           source: 'medical_record',
-          details: timelineStr ? String(timelineStr).slice(0, 200) : undefined,
-          amount: amount ?? undefined
+          details: file.aiSummary || undefined,
+          amount: i === 0 ? amount ?? undefined : undefined,
+          sourceFileId: file.id,
+          sourceFileName: file.originalName || undefined,
+          extractionConfidence: 'documented',
         })
       })
     } else if (file.createdAt) {
       events.push({
         id: `evidence-${file.id}`,
-        date: new Date(file.createdAt).toISOString().slice(0, 10),
+        date: null,
         label: file.originalName || 'Medical record',
         source: 'evidence',
         details: file.aiSummary || undefined,
-        amount: undefined
+        amount: undefined,
+        sourceFileId: file.id,
+        sourceFileName: file.originalName || undefined,
+        extractionConfidence: 'estimated',
       })
     }
   }
 
   // Sort by date
-  events.sort((a, b) => {
-    if (!a.date) return 1
-    if (!b.date) return -1
-    return a.date.localeCompare(b.date)
-  })
+  events.sort(sortChronologyEvents)
 
   return events
 }

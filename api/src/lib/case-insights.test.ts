@@ -71,6 +71,52 @@ describe('case-insights', () => {
     })
   })
 
+  it('buildMedicalChronology prefers structured extracted medical timeline events', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      id: 'asm-case-insights-structured',
+      facts: JSON.stringify({ incident: { date: '2025-01-10' } }),
+      evidenceFiles: [
+        {
+          id: 'file-structured',
+          category: 'medical_records',
+          originalName: 'orthopedic-record.pdf',
+          createdAt: new Date('2025-02-01T00:00:00Z'),
+          aiSummary: 'Orthopedic follow-up for neck pain.',
+          extractedData: [
+            {
+              dates: JSON.stringify(['2025-01-20']),
+              timeline: JSON.stringify([
+                {
+                  date: '2025-01-18',
+                  provider: 'Westside Orthopedics',
+                  visitType: 'Follow-up visit',
+                  details: 'Neck pain evaluation and therapy referral.',
+                  amount: 750,
+                  confidence: 'documented',
+                },
+              ]),
+              totalAmount: 750,
+              confidence: 0.86,
+            },
+          ],
+        },
+      ],
+    } as any)
+
+    const chronology = await buildMedicalChronology('asm-case-insights-structured')
+
+    expect(chronology).toHaveLength(1)
+    expect(chronology[0]).toMatchObject({
+      id: 'evidence-file-structured-timeline-0',
+      date: '2025-01-18',
+      label: 'Follow-up visit',
+      provider: 'Westside Orthopedics',
+      sourceFileName: 'orthopedic-record.pdf',
+      extractionConfidence: 'documented',
+      amount: 750,
+    })
+  })
+
   it('computeCasePreparation flags missing documents and treatment gaps', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       id: 'asm-case-insights-2',

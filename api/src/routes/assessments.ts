@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { AssessmentWrite, AssessmentUpdate, SubmitCaseForReview } from '../lib/validators'
 import { logger } from '../lib/logger'
@@ -12,8 +13,19 @@ import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt
 import { startAssessmentRouting } from '../lib/assessment-routing'
 import { buildCaseCommandCenter } from '../lib/case-command-center'
 import { runEscalationWave } from '../lib/routing-lifecycle'
+import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
+import { runCaseRecalculation } from '../lib/case-recalculation'
 
 const router = Router()
+
+const DamageEstimates = z.object({
+  medicalBillsEstimate: z.number().min(0).optional(),
+  lostWagesEstimate: z.number().min(0).optional(),
+  outOfPocketEstimate: z.number().min(0).optional(),
+  propertyDamageEstimate: z.number().min(0).optional(),
+  futureTreatmentEstimate: z.number().min(0).optional(),
+  notes: z.string().trim().max(1000).optional(),
+})
 
 const DOCUMENT_REQUEST_LABELS: Record<string, string> = {
   police_report: 'Police report',
@@ -54,6 +66,11 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       })
     }
 
+    const enrichedFacts = {
+      ...parsed.data,
+      caseTypeValidation: validateCaseTypeFromFacts(parsed.data.claimType, parsed.data as Record<string, unknown>),
+    }
+
     const assessment = await prisma.assessment.create({
       data: {
         userId: req.user?.id, // Associate with user if logged in
@@ -61,7 +78,7 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
         venueState: parsed.data.venue.state,
         venueCounty: parsed.data.venue.county ?? null,
         status: 'DRAFT',
-        facts: JSON.stringify(parsed.data)
+        facts: JSON.stringify(enrichedFacts)
       }
     })
 
@@ -73,7 +90,7 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
         const analysisRequest: CaseAnalysisRequest = {
           assessmentId: assessment.id,
           caseData: {
-            ...parsed.data,
+            ...enrichedFacts,
             evidence: []
           }
         }
@@ -109,6 +126,71 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
         ? 'Database unavailable. Start MySQL (e.g. docker-compose up -d db) and ensure DATABASE_URL in api/.env is correct.'
         : (isDev ? msg : 'Internal server error')
     })
+  }
+})
+
+router.post('/:id/damage-estimates', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id
+    const parsed = DamageEstimates.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'Invalid damage estimates',
+        details: parsed.error.flatten(),
+      })
+    }
+
+    const current = await prisma.assessment.findUnique({ where: { id } })
+    if (!current) {
+      return res.status(404).json({ error: 'Assessment not found' })
+    }
+    if (current.userId && current.userId !== req.user?.id) {
+      const owner = await prisma.user.findUnique({
+        where: { id: current.userId },
+        select: { email: true },
+      })
+      if (!owner || !isGuestCaseUserEmail(owner.email)) {
+        return res.status(403).json({ error: 'Unauthorized to update this assessment' })
+      }
+    }
+
+    const facts = JSON.parse(current.facts)
+    const damages = (facts.damages || {}) as Record<string, unknown>
+    const estimates = parsed.data
+    const medicalEstimate = estimates.medicalBillsEstimate ?? Number(damages.estimated_med_charges || 0)
+    const wageEstimate = estimates.lostWagesEstimate ?? Number(damages.estimated_wage_loss || 0)
+
+    facts.damages = {
+      ...damages,
+      estimated_med_charges: medicalEstimate,
+      estimated_wage_loss: wageEstimate,
+      estimated_out_of_pocket: estimates.outOfPocketEstimate ?? Number(damages.estimated_out_of_pocket || 0),
+      estimated_property_damage: estimates.propertyDamageEstimate ?? Number(damages.estimated_property_damage || 0),
+      estimated_future_med_charges: estimates.futureTreatmentEstimate ?? Number(damages.estimated_future_med_charges || 0),
+      damage_estimate_notes: estimates.notes ?? damages.damage_estimate_notes,
+      intake_med_charges: medicalEstimate,
+      med_charges: Math.max(Number(damages.extracted_med_charges || 0), medicalEstimate),
+      wage_loss: Math.max(Number(damages.extracted_wage_loss || 0), wageEstimate),
+    }
+
+    await prisma.assessment.update({
+      where: { id },
+      data: { facts: JSON.stringify(facts), status: 'IN_PROGRESS' },
+    })
+
+    const recalculation = await runCaseRecalculation(id, 'plaintiff_damage_estimates')
+    const updated = await prisma.assessment.findUnique({ where: { id } })
+    res.json({
+      assessmentId: id,
+      facts: updated ? JSON.parse(updated.facts) : facts,
+      recalculation,
+    })
+  } catch (error: any) {
+    logger.error('Failed to save plaintiff damage estimates', {
+      assessmentId: req.params.id,
+      error: error?.message,
+    })
+    res.status(500).json({ error: 'Failed to save damage estimates' })
   }
 })
 
@@ -150,6 +232,10 @@ router.patch(
 
     const currentFacts = JSON.parse(current.facts)
     const updatedFacts = { ...currentFacts, ...parsed.data }
+    updatedFacts.caseTypeValidation = validateCaseTypeFromFacts(
+      (updatedFacts.claimType as string) || current.claimType,
+      updatedFacts as Record<string, unknown>,
+    )
 
     const assessment = await prisma.assessment.update({
       where: { id },
@@ -526,12 +612,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       }
     }
 
-    const requiredDisclosuresAccepted = Boolean(consents.hipaa)
-    if (!requiredDisclosuresAccepted) {
-      return res.status(400).json({
-        error: 'HIPAA authorization is required before sending your case to attorneys.'
-      })
-    }
+    const medicalSharingAuthorized = Boolean(req.user && consents.hipaa === true)
 
     await prisma.assessment.update({
       where: { id },
@@ -555,6 +636,15 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
         sourceType: 'plaintiff',
         sourceDetails: JSON.stringify({
           ...(req.user ? { userId: req.user.id } : {}),
+          submissionScope: medicalSharingAuthorized ? 'full_with_medical_authorization' : 'limited_non_medical',
+          medicalSharing: {
+            canShareMedicalData: medicalSharingAuthorized,
+            hasPlaintiffAccount: Boolean(req.user),
+            hasHipaaConsent: consents.hipaa === true,
+            message: medicalSharingAuthorized
+              ? null
+              : 'Medical records and extracted treatment details are pending plaintiff account creation and HIPAA authorization. The visible case summary is based on intake answers only until the plaintiff authorizes medical document sharing.'
+          },
           plaintiffAttorneyPreferences: rankedAttorneyIds.length > 0
             ? {
                 rankedAttorneyIds,

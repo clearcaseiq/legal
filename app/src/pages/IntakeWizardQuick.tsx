@@ -219,6 +219,7 @@ export default function IntakeWizardQuick() {
   const [assessmentId, setAssessmentId] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [pendingEvidenceFiles, setPendingEvidenceFiles] = useState<Record<string, any[]>>({})
+  const [returnToReviewFromStep, setReturnToReviewFromStep] = useState<Step | null>(null)
   const [customDate, setCustomDate] = useState('')
   const [detectedLocation, setDetectedLocation] = useState<{ city: string; county: string; state: string } | null>(null)
   const [locationAccepted, setLocationAccepted] = useState(false)
@@ -247,6 +248,20 @@ export default function IntakeWizardQuick() {
   const currentStepIndex = STEPS.findIndex(s => s.key === currentStep)
   const progressPercent = Math.round(((currentStepIndex + 1) / STEPS.length) * 100)
   const uploadedEvidenceCount = Object.values(pendingEvidenceFiles).reduce((total, files) => total + (Array.isArray(files) ? files.length : 0), 0)
+
+  const goToStepAfterEdit = (fallbackStep: Step) => {
+    if (returnToReviewFromStep === currentStep) {
+      setReturnToReviewFromStep(null)
+      setCurrentStep('review')
+      return
+    }
+    setCurrentStep(fallbackStep)
+  }
+
+  const editReviewStep = (step: Step) => {
+    setReturnToReviewFromStep(step)
+    setCurrentStep(step)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -452,6 +467,11 @@ export default function IntakeWizardQuick() {
     }
     setErrors(err)
     if (Object.keys(err).length > 0) return
+    if (returnToReviewFromStep === currentStep) {
+      setReturnToReviewFromStep(null)
+      setCurrentStep('review')
+      return
+    }
     if (currentStepIndex < STEPS.length - 1) {
       setCurrentStep(STEPS[currentStepIndex + 1].key)
     }
@@ -583,10 +603,10 @@ export default function IntakeWizardQuick() {
     switch (currentStep) {
       case 'injury_type':
         return (
-          <div className="space-y-4">
-            <p className="text-gray-900 font-medium text-center text-lg">{t('intake.injuryType')}</p>
-            <p className="text-gray-500 text-center text-sm">{t('intake.injuryTypeHelp')}</p>
-            <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-2">
+            <p className="text-center text-base font-medium text-gray-900">{t('intake.injuryType')}</p>
+            <p className="text-center text-xs text-gray-500">{t('intake.injuryTypeHelp')}</p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {INJURY_TYPES.map(({ value, labelKey, icon: Icon }) => (
                 <button
                   key={value}
@@ -595,12 +615,12 @@ export default function IntakeWizardQuick() {
                     updateForm({ injuryType: value, claimType: injuryTypeToClaimType(value) })
                     setCurrentStep('when')
                   }}
-                  className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${
+                  className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 px-3 py-4 transition-all ${
                     formData.injuryType === value ? 'border-brand-600 bg-brand-50' : 'border-gray-200 hover:border-brand-300'
                   }`}
                 >
-                  <Icon className="h-7 w-7 text-brand-600" />
-                  <span className="font-medium text-sm text-center">{t(`intake.${labelKey}`)}</span>
+                  <Icon className="h-6 w-6 text-brand-600" />
+                  <span className="text-center text-base font-medium leading-snug">{t(`intake.${labelKey}`)}</span>
                 </button>
               ))}
             </div>
@@ -620,7 +640,7 @@ export default function IntakeWizardQuick() {
                   type="button"
                   onClick={() => {
                     if (value === 'custom') updateForm({ incidentDatePreset: value })
-                    else { updateForm({ incidentDatePreset: value, incidentDate: getDate() }); setCurrentStep('where') }
+                    else { updateForm({ incidentDatePreset: value, incidentDate: getDate() }); goToStepAfterEdit('where') }
                   }}
                   className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${
                     formData.incidentDatePreset === value ? 'border-brand-700 bg-brand-100 ring-2 ring-brand-200' : 'border-gray-200 hover:border-brand-300'
@@ -703,21 +723,27 @@ export default function IntakeWizardQuick() {
 
       case 'narrative':
         return (
-          <div className="space-y-4">
-            <p className="text-gray-900 font-medium text-center text-lg">Tell the story in your own words.</p>
-            <p className="text-gray-500 text-center text-sm">A few sentences is enough. You can skip this and update it later.</p>
+          <div className="flex min-h-0 flex-1 flex-col gap-2">
+            <p className="shrink-0 text-center text-base font-medium text-gray-900">Tell the story in your own words.</p>
+            <p className="shrink-0 text-center text-xs leading-snug text-gray-500">
+              A few sentences is enough. Skip anytime—you can edit later.
+            </p>
             <textarea
               value={formData.narrative}
               onChange={e => updateForm({ narrative: e.target.value })}
-              placeholder="Example: I was stopped at a red light when another driver hit me from behind. Police came to the scene and I went to urgent care the next day."
-              rows={4}
-              className="input w-full resize-none"
+              placeholder="Example: Rear-ended at a red light; police report; urgent care next day."
+              rows={6}
+              className="input w-full flex-1 resize-none py-3 text-base leading-relaxed !min-h-[10rem] md:!min-h-[12rem]"
             />
-            <div className="rounded-xl border border-brand-100 bg-brand-50 p-3 text-sm text-brand-800">
-              Helpful details: what happened, who may be responsible, and whether there were witnesses, photos, or a report.
-            </div>
+            <p className="shrink-0 rounded-lg border border-brand-100 bg-brand-50 px-2 py-1.5 text-center text-[11px] leading-snug text-brand-800">
+              Tip: what happened, fault, witnesses, photos, or report.
+            </p>
             {!formData.narrative.trim() && (
-              <button type="button" onClick={() => setCurrentStep('injury_severity')} className="w-full py-2 text-sm font-medium text-gray-600 hover:text-brand-600">
+              <button
+                type="button"
+                onClick={() => goToStepAfterEdit('injury_severity')}
+                className="!min-h-0 h-auto w-full shrink-0 py-1 text-sm font-medium leading-tight text-gray-600 hover:text-brand-600"
+              >
                 I am not sure. I will add this later.
               </button>
             )}
@@ -733,7 +759,7 @@ export default function IntakeWizardQuick() {
                 <button
                   key={value}
                   type="button"
-                  onClick={() => { updateForm({ injurySeverity: value }); setCurrentStep('medical_treatment') }}
+                  onClick={() => { updateForm({ injurySeverity: value }); goToStepAfterEdit('medical_treatment') }}
                   className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${
                     formData.injurySeverity === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'
                   }`}
@@ -771,7 +797,7 @@ export default function IntakeWizardQuick() {
               Medical records and bills usually improve estimate confidence more than any other document type.
             </div>
             {!formData.medicalTreatment.length && (
-              <button type="button" onClick={() => { updateForm({ medicalTreatment: ['none'] }); setCurrentStep('branch_7') }} className="w-full py-2 text-sm font-medium text-gray-600 hover:text-brand-600">
+              <button type="button" onClick={() => { updateForm({ medicalTreatment: ['none'] }); goToStepAfterEdit('branch_7') }} className="w-full py-2 text-sm font-medium text-gray-600 hover:text-brand-600">
                 I have not had treatment yet
               </button>
             )}
@@ -893,6 +919,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="text-gray-900 font-medium text-center text-lg">{t('intake.vehicle_liabilityEvidence')}</p>
+              <p className="text-center text-sm leading-6 text-gray-500">
+                Select everything you have or know about. Police reports, tickets, witnesses, and photos can help show who was at fault.
+              </p>
               <div className="space-y-2">
                 <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.policeReport} onChange={e => setBranch('policeReport', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.vehicle_policeReport')}</span></label>
                 <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.ticketIssued} onChange={e => setBranch('ticketIssued', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.vehicle_ticket')}</span></label>
@@ -992,8 +1021,8 @@ export default function IntakeWizardQuick() {
       case 'branch_9':
         if (isVehicle) {
           return (
-            <div className="space-y-4">
-              <p className="text-gray-900 font-medium text-center text-lg">{t('intake.vehicle_propertyDamage')}</p>
+            <div className="flex flex-col gap-1 [&_button]:!min-h-11 [&_button]:py-2 [&_button]:text-sm md:[&_button]:!min-h-12 md:[&_button]:py-3 md:[&_button]:text-base md:[&_button]:text-lg">
+              <p className="mb-0 text-center text-base font-medium leading-snug text-gray-900 md:text-lg">{t('intake.vehicle_propertyDamage')}</p>
               <div className="grid grid-cols-2 gap-2">
                 {PROPERTY_DAMAGE_OPTIONS.map(({ value, labelKey }) => (
                   <button key={value} type="button" onClick={() => { setBranch('propertyDamage', value); setCurrentStep('branch_10') }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.propertyDamage === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
@@ -1008,6 +1037,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="text-gray-900 font-medium text-center text-lg">{t('intake.slip_hazardAwareness')}</p>
+              <p className="text-center text-sm leading-6 text-gray-500">
+                Select everything that applies. These details help show whether the property owner may have known about the hazard or had time to fix it.
+              </p>
               <div className="space-y-2">
                 <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.employeesKnew} onChange={e => setBranch('employeesKnew', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.slip_employeesKnew')}</span></label>
                 <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.warningSigns} onChange={e => setBranch('warningSigns', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.slip_warningSigns')}</span></label>
@@ -1168,32 +1200,109 @@ export default function IntakeWizardQuick() {
 
       case 'evidence':
         return (
-          <div className="space-y-4">
-            <p className="text-gray-900 font-medium text-center text-lg">Add documents if you have them handy.</p>
-            <p className="text-gray-500 text-center text-sm">No problem if you do not have documents right now. You can upload them after your report.</p>
-            <div className="space-y-4">
-              <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50">
-                <div className="flex items-center gap-2 mb-1"><Image className="h-5 w-5 text-brand-600" /><h4 className="font-medium text-gray-900">{t('intake.photos')}</h4></div>
-                <p className="mb-3 text-xs text-gray-500">Photos help show visible injuries, vehicle/property damage, and scene conditions.</p>
-                <InlineEvidenceUpload assessmentId={assessmentId || undefined} category="photos" subcategory="injury_photos" description="Injury or incident photos" compact alwaysShowUpload hideHeader uploadButtonLabel={t('intake.uploadPhotos')} onFilesUploaded={f => handleEvidenceFiles('photos', f)} />
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+            <div className="shrink-0 space-y-0.5 text-center">
+              <p className="text-sm font-medium leading-snug text-gray-900 md:text-base">Add documents if you have them handy.</p>
+              <p className="text-[11px] leading-snug text-gray-500 md:text-xs">
+                No problem if you do not have documents now — upload after your report.
+              </p>
+            </div>
+
+            <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-hidden">
+              <div className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-gray-50/50 p-2">
+                <div className="mb-0.5 flex items-center gap-1">
+                  <Image className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+                  <h4 className="text-[11px] font-semibold leading-tight text-gray-900 md:text-xs">{t('intake.photos')}</h4>
+                </div>
+                <p className="mb-1 line-clamp-2 text-[10px] leading-snug text-gray-500 md:text-[11px]">
+                  Injuries, damage, scene photos.
+                </p>
+                <InlineEvidenceUpload
+                  assessmentId={assessmentId || undefined}
+                  category="photos"
+                  subcategory="injury_photos"
+                  description="Injury or incident photos"
+                  compact
+                  tightChrome
+                  alwaysShowUpload
+                  hideHeader
+                  uploadButtonLabel={t('intake.uploadPhotos')}
+                  onFilesUploaded={(f) => handleEvidenceFiles('photos', f)}
+                />
               </div>
-              <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50">
-                <div className="flex items-center gap-2 mb-1"><FileText className="h-5 w-5 text-brand-600" /><h4 className="font-medium text-gray-900">{t('intake.medicalBills')}</h4></div>
-                <p className="mb-3 text-xs text-gray-500">Bills help show the financial impact of your injury.</p>
-                <InlineEvidenceUpload assessmentId={assessmentId || undefined} category="bills" subcategory="medical_bill" description="Medical bills" compact alwaysShowUpload uploadButtonLabel={t('intake.uploadBills')} onFilesUploaded={f => handleEvidenceFiles('bills', f)} />
+
+              <div className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-gray-50/50 p-2">
+                <div className="mb-0.5 flex items-center gap-1">
+                  <FileText className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+                  <h4 className="text-[11px] font-semibold leading-tight text-gray-900 md:text-xs">{t('intake.medicalBills')}</h4>
+                </div>
+                <p className="mb-1 line-clamp-2 text-[10px] leading-snug text-gray-500 md:text-[11px]">
+                  Bills and balances.
+                </p>
+                <InlineEvidenceUpload
+                  assessmentId={assessmentId || undefined}
+                  category="bills"
+                  subcategory="medical_bill"
+                  description="Medical bills"
+                  compact
+                  tightChrome
+                  alwaysShowUpload
+                  hideHeader
+                  uploadButtonLabel={t('intake.uploadBills')}
+                  onFilesUploaded={(f) => handleEvidenceFiles('bills', f)}
+                />
               </div>
-              <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50">
-                <div className="flex items-center gap-2 mb-1"><FileText className="h-5 w-5 text-brand-600" /><h4 className="font-medium text-gray-900">{t('intake.medicalRecords')}</h4></div>
-                <p className="mb-3 text-xs text-gray-500">Records help prove what treatment you received and how injuries changed over time.</p>
-                <InlineEvidenceUpload assessmentId={assessmentId || undefined} category="medical_records" subcategory="records" description="Medical records" compact alwaysShowUpload hideHeader uploadButtonLabel={t('intake.uploadRecords')} onFilesUploaded={f => handleEvidenceFiles('medical_records', f)} />
+
+              <div className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-gray-50/50 p-2">
+                <div className="mb-0.5 flex items-center gap-1">
+                  <FileText className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+                  <h4 className="text-[11px] font-semibold leading-tight text-gray-900 md:text-xs">{t('intake.medicalRecords')}</h4>
+                </div>
+                <p className="mb-1 line-clamp-2 text-[10px] leading-snug text-gray-500 md:text-[11px]">
+                  Records, imaging, notes.
+                </p>
+                <InlineEvidenceUpload
+                  assessmentId={assessmentId || undefined}
+                  category="medical_records"
+                  subcategory="records"
+                  description="Medical records"
+                  compact
+                  tightChrome
+                  alwaysShowUpload
+                  hideHeader
+                  uploadButtonLabel={t('intake.uploadRecords')}
+                  onFilesUploaded={(f) => handleEvidenceFiles('medical_records', f)}
+                />
               </div>
-              <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50">
-                <div className="flex items-center gap-2 mb-1"><Shield className="h-5 w-5 text-brand-600" /><h4 className="font-medium text-gray-900">{t('intake.policeReport')}</h4></div>
-                <p className="mb-3 text-xs text-gray-500">Reports can help confirm what happened and support early liability review.</p>
-                <InlineEvidenceUpload assessmentId={assessmentId || undefined} category="police_report" subcategory="report" description="Police report" compact alwaysShowUpload hideHeader uploadButtonLabel={t('intake.uploadReport')} onFilesUploaded={f => handleEvidenceFiles('police_report', f)} />
+
+              <div className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-gray-50/50 p-2">
+                <div className="mb-0.5 flex items-center gap-1">
+                  <Shield className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+                  <h4 className="text-[11px] font-semibold leading-tight text-gray-900 md:text-xs">{t('intake.policeReport')}</h4>
+                </div>
+                <p className="mb-1 line-clamp-2 text-[10px] leading-snug text-gray-500 md:text-[11px]">
+                  Official report when available.
+                </p>
+                <InlineEvidenceUpload
+                  assessmentId={assessmentId || undefined}
+                  category="police_report"
+                  subcategory="report"
+                  description="Police report"
+                  compact
+                  tightChrome
+                  alwaysShowUpload
+                  hideHeader
+                  uploadButtonLabel={t('intake.uploadReport')}
+                  onFilesUploaded={(f) => handleEvidenceFiles('police_report', f)}
+                />
               </div>
             </div>
-            <button type="button" onClick={() => setCurrentStep('case_posture')} className="w-full py-3 text-sm font-medium text-gray-600 hover:text-brand-600 border border-dashed border-gray-300 rounded-xl hover:border-brand-300 transition-colors">
+
+            <button
+              type="button"
+              onClick={() => setCurrentStep('case_posture')}
+              className="shrink-0 rounded-lg border border-dashed border-gray-300 py-2 text-[11px] font-medium leading-snug text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 md:text-xs"
+            >
               I do not have documents right now
             </button>
           </div>
@@ -1203,116 +1312,180 @@ export default function IntakeWizardQuick() {
         const cp = formData.casePosture || {}
         const ic = formData.insuranceCoverage
         const COVERAGE_TYPE_OPTS = [
-          { value: 'private', labelKey: 'insurance_type_private' as const },
-          { value: 'medicare', labelKey: 'insurance_type_medicare' as const },
-          { value: 'medicaid', labelKey: 'insurance_type_medicaid' as const },
-          { value: 'workers_comp', labelKey: 'insurance_type_workers_comp' as const },
-          { value: 'other', labelKey: 'insurance_type_other' as const },
-          { value: 'unsure_coverage', labelKey: 'insurance_type_unsure' as const }
+          { value: 'private', label: 'Private' },
+          { value: 'medicare', label: 'Medicare' },
+          { value: 'medicaid', label: 'Medicaid' },
+          { value: 'workers_comp', label: "Workers' comp" },
+          { value: 'other', label: 'Other plan' },
+          { value: 'unsure_coverage', label: 'Not sure' }
         ]
+        const postureOptions = [
+          { key: 'spokenToInsurance', label: t('intake.casePosture_spokenToInsurance') },
+          { key: 'hiredLawyer', label: t('intake.casePosture_hiredLawyer') },
+          { key: 'receivedOffer', label: t('intake.casePosture_receivedOffer') },
+          { key: 'wantLawyer', label: t('intake.casePosture_wantLawyer') }
+        ] as const
+        const completedPostureItems =
+          (ic.healthCoverage ? 1 : 0) +
+          (ic.healthCoverage === 'yes' ? (ic.coverageTypes.length ? 1 : 0) : 1) +
+          (Object.values(cp).some(Boolean) ? 1 : 0)
+        const postureSummary =
+          completedPostureItems >= 3
+            ? 'Strong posture context'
+            : completedPostureItems === 2
+              ? 'Good start'
+              : 'Needs a little more context'
         return (
-          <div className="space-y-6">
-            <div>
-              <p className="text-gray-900 font-medium text-center text-lg">{t('intake.case_posture_insurance_heading')}</p>
-              <p className="text-gray-500 text-center text-sm mt-1">{t('intake.case_posture_insurance_help')}</p>
-              <p className="text-gray-700 text-sm mt-3 font-medium">{t('intake.insurance_healthCoverageQuestion')}</p>
-              <div className="grid grid-cols-3 gap-2 mt-2">
-                {(['yes', 'no', 'unsure'] as const).map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() =>
-                      updateForm({
-                        insuranceCoverage: {
-                          ...ic,
-                          healthCoverage: v,
-                          ...(v !== 'yes' ? { coverageTypes: [], medicarePlanType: '' } : {})
-                        }
-                      })
-                    }
-                    className={`p-2 rounded-xl border-2 text-sm font-medium transition-all ${
-                      ic.healthCoverage === v ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'
-                    }`}
-                  >
-                    {t(`intake.insurance_health_${v}`)}
-                  </button>
-                ))}
+          <div className="space-y-3">
+            <div className="overflow-hidden rounded-xl border border-brand-100 bg-gradient-to-r from-brand-50 via-white to-white px-3 py-2">
+              <div className="flex items-center gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <Shield className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold leading-tight text-gray-950">{t('intake.stepTitles_case_posture')}</p>
+                    <p className="truncate text-[11px] leading-tight text-gray-600">Insurance, lien, and negotiation context.</p>
+                  </div>
+                </div>
+                <div className="grid w-[55%] grid-cols-3 gap-1.5">
+                  {[
+                    ['Coverage', ic.healthCoverage ? 'Answered' : 'Missing'],
+                    ['Lien risk', ic.coverageTypes.includes('medicare') || ic.coverageTypes.includes('medicaid') || ic.coverageTypes.includes('workers_comp') ? 'Flagged' : 'Normal'],
+                    ['Posture', postureSummary]
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-md border border-white/80 bg-white/80 px-1.5 py-1 shadow-sm">
+                      <div className="truncate text-[9px] font-semibold uppercase tracking-wide text-gray-500">{label}</div>
+                      <div className="truncate text-[11px] font-semibold leading-tight text-gray-900">{value}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              {errors.healthCoverage && <p className="text-sm text-red-600 mt-1">{errors.healthCoverage}</p>}
             </div>
 
-            {ic.healthCoverage === 'yes' && (
-              <div className="space-y-2">
-                <p className="text-gray-700 text-sm font-medium">{t('intake.insurance_coverageTypesPrompt')}</p>
-                <div className="space-y-2">
-                  {COVERAGE_TYPE_OPTS.map(({ value, labelKey }) => (
-                    <label key={value} className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        className="rounded border-gray-300"
-                        checked={ic.coverageTypes.includes(value)}
-                        onChange={() => toggleCoverageType(value)}
-                      />
-                      <span className="text-sm">{t(`intake.${labelKey}`)}</span>
-                    </label>
-                  ))}
-                </div>
-                {errors.coverageTypes && <p className="text-sm text-red-600">{errors.coverageTypes}</p>}
-              </div>
-            )}
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+              <div className="space-y-3">
+                <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-950">{t('intake.case_posture_insurance_heading')}</p>
+                      <p className="text-xs text-gray-500">Coverage can affect liens and reimbursement.</p>
+                    </div>
+                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">Required</span>
+                  </div>
 
-            {ic.healthCoverage === 'yes' && ic.coverageTypes.includes('medicare') && (
-              <div className="space-y-2 p-3 rounded-xl bg-amber-50 border border-amber-100">
-                <p className="text-gray-900 text-sm font-medium">{t('intake.insurance_medicarePlanQuestion')}</p>
-                <p className="text-gray-600 text-xs">{t('intake.insurance_medicarePlanHelp')}</p>
-                <div className="grid grid-cols-1 gap-2 mt-2">
-                  {(
-                    [
-                      ['original', 'insurance_medicare_original'],
-                      ['advantage', 'insurance_medicare_advantage'],
-                      ['unsure', 'insurance_medicare_unsure']
-                    ] as const
-                  ).map(([val, labelKey]) => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() =>
-                        updateForm({
-                          insuranceCoverage: { ...ic, medicarePlanType: val }
-                        })
-                      }
-                      className={`p-2 rounded-lg border-2 text-sm text-left font-medium transition-all ${
-                        ic.medicarePlanType === val ? 'border-brand-700 bg-brand-50' : 'border-gray-200 hover:border-brand-300'
-                      }`}
-                    >
-                      {t(`intake.${labelKey}`)}
-                    </button>
-                  ))}
+                  <p className="mt-2 text-xs font-medium text-gray-800">{t('intake.insurance_healthCoverageQuestion')}</p>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {(['yes', 'no', 'unsure'] as const).map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() =>
+                          updateForm({
+                            insuranceCoverage: {
+                              ...ic,
+                              healthCoverage: v,
+                              ...(v !== 'yes' ? { coverageTypes: [], medicarePlanType: '' } : {})
+                            }
+                          })
+                        }
+                        className={`rounded-lg border-2 px-2 py-2 text-xs font-semibold transition-all ${
+                          ic.healthCoverage === v ? 'border-brand-700 bg-brand-100 text-brand-900 shadow-sm' : 'border-gray-200 bg-white text-gray-700 hover:border-brand-300'
+                        }`}
+                      >
+                        {t(`intake.insurance_health_${v}`)}
+                      </button>
+                    ))}
+                  </div>
+                  {errors.healthCoverage && <p className="text-sm text-red-600 mt-1">{errors.healthCoverage}</p>}
                 </div>
-                {errors.medicarePlan && <p className="text-sm text-red-600">{errors.medicarePlan}</p>}
-              </div>
-            )}
 
-            <div className="pt-2 border-t border-gray-100">
-              <p className="text-gray-900 font-medium text-center text-lg">{t('intake.casePosture')}</p>
-              <p className="text-gray-500 text-center text-sm">{t('intake.casePostureHelp')}</p>
-              <div className="space-y-2 mt-3">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={!!cp.spokenToInsurance} onChange={e => updateForm({ casePosture: { ...cp, spokenToInsurance: e.target.checked } })} className="rounded border-gray-300" />
-                  <span className="text-sm">{t('intake.casePosture_spokenToInsurance')}</span>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={!!cp.hiredLawyer} onChange={e => updateForm({ casePosture: { ...cp, hiredLawyer: e.target.checked } })} className="rounded border-gray-300" />
-                  <span className="text-sm">{t('intake.casePosture_hiredLawyer')}</span>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={!!cp.receivedOffer} onChange={e => updateForm({ casePosture: { ...cp, receivedOffer: e.target.checked } })} className="rounded border-gray-300" />
-                  <span className="text-sm">{t('intake.casePosture_receivedOffer')}</span>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={!!cp.wantLawyer} onChange={e => updateForm({ casePosture: { ...cp, wantLawyer: e.target.checked } })} className="rounded border-gray-300" />
-                  <span className="text-sm">{t('intake.casePosture_wantLawyer')}</span>
-                </label>
+                {ic.healthCoverage === 'yes' && (
+                  <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                    <p className="text-xs font-semibold text-gray-900">{t('intake.insurance_coverageTypesPrompt')}</p>
+                    <div className="mt-2 grid grid-cols-3 gap-1.5">
+                      {COVERAGE_TYPE_OPTS.map(({ value, label }) => (
+                        <label
+                          key={value}
+                          className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1 transition-all ${
+                            ic.coverageTypes.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-gray-200 hover:border-brand-200'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="rounded border-gray-300"
+                            checked={ic.coverageTypes.includes(value)}
+                            onChange={() => toggleCoverageType(value)}
+                          />
+                          <span className="text-[11px] font-medium leading-4 text-gray-800">{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {ic.coverageTypes.includes('medicare') && (
+                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5">
+                        <div className="grid gap-1">
+                          <p className="text-[11px] font-semibold leading-tight text-gray-900">Medicare type?</p>
+                          <div className="grid gap-1">
+                            {(
+                              [
+                                ['original', 'Original'],
+                                ['advantage', 'Advantage'],
+                                ['unsure', 'Not sure']
+                              ] as const
+                            ).map(([val, label]) => (
+                              <button
+                                key={val}
+                                type="button"
+                                onClick={() =>
+                                  updateForm({
+                                    insuranceCoverage: { ...ic, medicarePlanType: val }
+                                  })
+                                }
+                                className={`rounded-md border px-1.5 py-1 text-center text-[10px] font-medium leading-tight transition-all ${
+                                  ic.medicarePlanType === val ? 'border-brand-700 bg-white text-brand-900' : 'border-amber-200 bg-white/70 hover:border-brand-300'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {errors.coverageTypes && <p className="mt-1 text-xs text-red-600">{errors.coverageTypes}</p>}
+                    {errors.medicarePlan && <p className="mt-1 text-xs text-red-600">{errors.medicarePlan}</p>}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm lg:self-start">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-950">{t('intake.casePosture')}</p>
+                    <p className="text-xs text-gray-500">{t('intake.casePostureHelp')}</p>
+                  </div>
+                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">Optional</span>
+                </div>
+                <div className="mt-2 grid gap-2">
+                  {postureOptions.map((option) => {
+                    const checked = !!cp[option.key]
+                    return (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => updateForm({ casePosture: { ...cp, [option.key]: !checked } })}
+                        className={`flex items-center gap-2 rounded-lg border px-2 py-2 text-left transition-all ${
+                          checked ? 'border-brand-300 bg-brand-50 shadow-sm' : 'border-gray-200 hover:border-brand-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                          checked ? 'border-brand-600 bg-brand-600' : 'border-gray-300 bg-white'
+                        }`}>
+                          {checked && <Check className="h-3.5 w-3.5 text-white" aria-hidden />}
+                        </span>
+                        <span className="text-xs font-semibold leading-5 text-gray-900">{option.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
             </div>
           </div>
@@ -1320,28 +1493,28 @@ export default function IntakeWizardQuick() {
 
       case 'review':
         return (
-          <div className="space-y-5">
+          <div className="space-y-3">
             <div className="text-center">
-              <p className="text-gray-900 font-medium text-lg">Review your case story before we create the report.</p>
-              <p className="text-gray-500 text-sm mt-1">This is just a quick check. You can still update everything later.</p>
+              <p className="text-base font-semibold text-gray-900">Review your case story</p>
+              <p className="text-xs text-gray-500">Quick check before we create the report.</p>
             </div>
-            <div className="space-y-3">
+            <div className="grid gap-2 md:grid-cols-2">
               {getReviewItems().map(item => (
-                <div key={item.title} className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">{item.title}</p>
-                      <p className="text-sm text-gray-700 mt-1">{item.value}</p>
-                      <p className="text-xs text-gray-500 mt-2">{item.helper}</p>
+                <div key={item.title} className="rounded-xl border border-gray-200 bg-gray-50/60 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{item.title}</p>
+                      <p className="mt-1 line-clamp-2 text-sm font-medium leading-5 text-gray-900">{item.value}</p>
+                      <p className="mt-1 line-clamp-1 text-[11px] leading-4 text-gray-500">{item.helper}</p>
                     </div>
-                    <button type="button" onClick={() => setCurrentStep(item.step)} className="shrink-0 text-sm font-medium text-brand-600 hover:text-brand-700">
+                    <button type="button" onClick={() => editReviewStep(item.step)} className="shrink-0 rounded-full bg-white px-2 py-1 text-xs font-medium text-brand-600 ring-1 ring-brand-100 hover:text-brand-700">
                       Edit
                     </button>
                   </div>
                 </div>
               ))}
             </div>
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-800">
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
               Ready for a preliminary assessment. Missing details will be shown as next steps in your report.
             </div>
           </div>
@@ -1350,29 +1523,36 @@ export default function IntakeWizardQuick() {
       case 'consent':
         const consents = formData.consents || { tos: false, privacy: false, ml_use: false, hipaa: false }
         return (
-          <div className="space-y-6">
-            <p className="text-gray-600 text-center">{t('intake.consent_intro')}</p>
-            <div className="p-4 rounded-xl bg-brand-50 border border-brand-100">
-              <p className="text-sm font-medium text-gray-900 mb-2">{t('intake.consent_includes')}</p>
-              <ul className="space-y-1.5 text-sm text-gray-700">
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600 flex-shrink-0" /> {t('intake.consent_item1')}</li>
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600 flex-shrink-0" /> {t('intake.consent_item2')}</li>
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600 flex-shrink-0" /> {t('intake.consent_item3')}</li>
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600 flex-shrink-0" /> {t('intake.consent_item4')}</li>
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600 flex-shrink-0" /> {t('intake.consent_item5')}</li>
-                <li className="flex items-center gap-2"><Check className="h-4 w-4 text-green-600 flex-shrink-0" /> {t('intake.consent_item6')}</li>
-              </ul>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
+            <div className="rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50 to-white p-4">
+              <p className="text-sm font-semibold uppercase tracking-wide text-brand-700">Report ready</p>
+              <p className="mt-1 text-lg font-semibold text-gray-950">{t('intake.consent_intro')}</p>
+              <p className="mt-1 text-sm leading-6 text-gray-600">Confirm the required permissions and we’ll generate your ClearCaseIQ report.</p>
+              <div className="mt-4 rounded-xl border border-white/80 bg-white/85 p-3">
+                <p className="mb-2 text-sm font-semibold text-gray-900">{t('intake.consent_includes')}</p>
+                <ul className="grid gap-2 text-sm text-gray-700 sm:grid-cols-2">
+                  <li className="flex items-center gap-2"><Check className="h-4 w-4 flex-shrink-0 text-green-600" /> {t('intake.consent_item1')}</li>
+                  <li className="flex items-center gap-2"><Check className="h-4 w-4 flex-shrink-0 text-green-600" /> {t('intake.consent_item2')}</li>
+                  <li className="flex items-center gap-2"><Check className="h-4 w-4 flex-shrink-0 text-green-600" /> {t('intake.consent_item3')}</li>
+                  <li className="flex items-center gap-2"><Check className="h-4 w-4 flex-shrink-0 text-green-600" /> {t('intake.consent_item4')}</li>
+                  <li className="flex items-center gap-2"><Check className="h-4 w-4 flex-shrink-0 text-green-600" /> {t('intake.consent_item5')}</li>
+                  <li className="flex items-center gap-2"><Check className="h-4 w-4 flex-shrink-0 text-green-600" /> {t('intake.consent_item6')}</li>
+                </ul>
+              </div>
             </div>
-            <p className="text-gray-700 font-medium text-center">{t('intake.consent_confirm')}</p>
-            <div className="space-y-4">
-              <label className="flex items-start gap-3">
-                <input type="checkbox" checked={consents.tos && consents.privacy} onChange={e => { const checked = e.target.checked; updateForm({ consents: { ...consents, tos: checked, privacy: checked } }) }} className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-600" />
-                <span className="text-sm">{t('intake.consent_tos')}</span>
-              </label>
-              <label className="flex items-start gap-3">
-                <input type="checkbox" checked={consents.ml_use} onChange={e => updateForm({ consents: { ...consents, ml_use: e.target.checked } })} className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-600" />
-                <span className="text-sm">{t('intake.consent_ml')}</span>
-              </label>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="text-base font-semibold text-gray-950">{t('intake.consent_confirm')}</p>
+              <p className="mt-1 text-sm leading-6 text-gray-500">These keep your intake private and allow AI-assisted case analysis.</p>
+              <div className="mt-4 space-y-3">
+                <label className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition-all ${consents.tos && consents.privacy ? 'border-brand-300 bg-brand-50' : 'border-slate-200 bg-slate-50 hover:border-brand-200'}`}>
+                  <input type="checkbox" checked={consents.tos && consents.privacy} onChange={e => { const checked = e.target.checked; updateForm({ consents: { ...consents, tos: checked, privacy: checked } }) }} className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-brand-600" />
+                  <span className="text-sm font-medium leading-6 text-gray-800">{t('intake.consent_tos')}</span>
+                </label>
+                <label className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition-all ${consents.ml_use ? 'border-brand-300 bg-brand-50' : 'border-slate-200 bg-slate-50 hover:border-brand-200'}`}>
+                  <input type="checkbox" checked={consents.ml_use} onChange={e => updateForm({ consents: { ...consents, ml_use: e.target.checked } })} className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-brand-600" />
+                  <span className="text-sm font-medium leading-6 text-gray-800">{t('intake.consent_ml')}</span>
+                </label>
+              </div>
             </div>
             {(errors.tos || errors.privacy || errors.ml_use) && <p className="text-sm text-red-600 text-center">{errors.tos || errors.privacy || errors.ml_use}</p>}
             {errors.submit && <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{errors.submit}</div>}
@@ -1403,8 +1583,19 @@ export default function IntakeWizardQuick() {
 
   const autoAdvanceSteps = ['injury_type', 'when', 'injury_severity'].includes(currentStep)
   const showTapHint = autoAdvanceSteps && !(currentStep === 'when' && formData.incidentDatePreset === 'custom')
+  const isFirstStep = currentStep === 'injury_type'
+  const casePostureFit = currentStep === 'case_posture'
+  const reviewFit = currentStep === 'review'
+  const showReassurance = currentStep !== 'consent' && !casePostureFit
+  const evidenceFit = currentStep === 'evidence'
+  /** Steps where the white panel should fill leftover viewport height (textarea growth or dense grids). */
+  const stretchStepPanel =
+    currentStep === 'narrative' ||
+    currentStep === 'case_posture' ||
+    currentStep === 'review' ||
+    evidenceFit
   const previewIncidentDate = getIncidentDate()
-  const shouldShowSolPreview = !!(previewIncidentDate || formData.incidentDatePreset)
+  const shouldShowSolPreview = !!(previewIncidentDate || formData.incidentDatePreset) && !casePostureFit
   const solPreviewTone = solPreview?.status === 'critical' || solPreview?.status === 'expired'
     ? 'bg-red-50 border-red-200 text-red-800'
     : solPreview?.status === 'warning'
@@ -1419,30 +1610,38 @@ export default function IntakeWizardQuick() {
       : 'Select the state and county to check your filing deadline early.'
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-6">
-      <div className="mb-5" aria-busy={loading}>
-        <h1 className="font-display text-2xl md:text-[1.65rem] font-bold text-slate-900 dark:text-slate-50 text-center leading-snug">
-          {stepTitles[currentStep] || STEPS[currentStepIndex]?.title}
+    <div className="mx-auto flex h-[calc(100dvh-6.5rem)] w-full max-w-4xl flex-col overflow-hidden px-4 py-3 md:h-[calc(100dvh-7.5rem)] md:px-6 md:py-4">
+      <div className="mb-2 shrink-0" aria-busy={loading}>
+        <p className="mb-1 text-center text-xs font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300 md:text-sm">
+          {t('intake.timePromise')}
+        </p>
+        <h1 className="text-center font-display text-xl font-bold leading-tight text-slate-900 dark:text-slate-50 md:text-2xl">
+          {isFirstStep ? t('intake.startHeadline') : stepTitles[currentStep] || STEPS[currentStepIndex]?.title}
         </h1>
-        <div className="flex justify-between items-center mt-3 text-sm text-slate-500 dark:text-slate-400 tabular-nums">
+        {isFirstStep && (
+          <p className="mx-auto mt-1.5 max-w-2xl text-center text-sm leading-6 text-slate-600 dark:text-slate-300 md:text-base md:leading-7">
+            {t('intake.startHelper')}
+          </p>
+        )}
+        <div className="mt-2 flex items-center justify-between text-sm text-slate-500 dark:text-slate-400 tabular-nums">
           <span>
             {t('intake.step')} {currentStepIndex + 1} {t('intake.of')} {STEPS.length}
           </span>
           <span>
             {currentStepIndex + 1 < STEPS.length
-              ? `• About ${Math.round(((STEPS.length - currentStepIndex - 1) / STEPS.length) * 90)} ${t('intake.secondsLeft')}`
+              ? `• ${t('intake.progressTime')}`
               : `• ${t('intake.almostDone')}`}
           </span>
         </div>
         <div
-          className="mt-3"
+          className="mt-2"
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(progressPercent)}
           aria-label="Assessment progress"
         >
-          <div className="h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden shadow-inner">
+          <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden shadow-inner">
             <div
               className="h-full rounded-full bg-gradient-to-r from-brand-600 to-accent-500 transition-[width] duration-300 ease-out motion-reduce:transition-none"
               style={{ width: `${progressPercent}%` }}
@@ -1452,24 +1651,37 @@ export default function IntakeWizardQuick() {
         <p className="sr-only">{Math.round(progressPercent)} percent complete</p>
       </div>
 
-      <div className="mb-4 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-900">
-        Answer what you know. You can skip uncertain details now and update your case after the report is created.
-      </div>
+      {showReassurance && !evidenceFit && (
+        <div
+          className={`mb-2 shrink-0 rounded-xl border border-brand-100 bg-brand-50 text-brand-900 ${
+            evidenceFit ? 'px-3 py-2 text-xs leading-snug' : 'px-4 py-3 text-base leading-7'
+          }`}
+        >
+          {isFirstStep ? t('intake.skipReassurance') : t('intake.answerReassurance')}
+        </div>
+      )}
 
       {shouldShowSolPreview && (
-        <div className={`mb-4 rounded-2xl border px-4 py-3 ${solPreviewTone}`}>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold">Early statute of limitations check</p>
-              <p className="text-sm mt-1">{solPreviewMessage}</p>
+        <div className={`mb-2 shrink-0 rounded-xl border ${solPreviewTone} ${evidenceFit ? 'px-3 py-2' : 'px-4 py-3'}`}>
+          <div className={`flex items-start justify-between ${evidenceFit ? 'gap-2' : 'gap-3'}`}>
+            <div className="min-w-0">
+              <p className={evidenceFit ? 'text-xs font-semibold leading-snug' : 'text-base font-semibold'}>
+                Early statute of limitations check
+              </p>
+              <p className={evidenceFit ? 'mt-0.5 text-[11px] leading-snug' : 'mt-1 text-base'}>{solPreviewMessage}</p>
               {solPreview?.daysRemaining != null && (
-                <p className="text-xs mt-1">
-                  About {Math.max(0, solPreview.daysRemaining)} day{Math.max(0, solPreview.daysRemaining) === 1 ? '' : 's'} remaining based on your current answers.
+                <p className={evidenceFit ? 'mt-0.5 text-[10px] leading-snug' : 'mt-1 text-sm'}>
+                  About {Math.max(0, solPreview.daysRemaining)} day{Math.max(0, solPreview.daysRemaining) === 1 ? '' : 's'}{' '}
+                  remaining based on your current answers.
                 </p>
               )}
             </div>
             {solPreview?.status && (
-              <span className="inline-flex rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold uppercase">
+              <span
+                className={`inline-flex shrink-0 rounded-full bg-white/70 font-semibold uppercase ${
+                  evidenceFit ? 'px-2 py-0.5 text-[10px]' : 'px-3 py-1.5 text-sm'
+                }`}
+              >
                 {String(solPreview.status).replace(/_/g, ' ')}
               </span>
             )}
@@ -1477,16 +1689,44 @@ export default function IntakeWizardQuick() {
         </div>
       )}
 
-      <div className="bg-white dark:bg-slate-900/80 rounded-2xl shadow-card border border-slate-200/90 dark:border-slate-700 p-5 mb-4 transition-shadow hover:shadow-card-hover motion-reduce:hover:shadow-card">
-        {renderStep()}
+      <div
+        className={`mb-2 flex flex-col overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-card transition-shadow hover:shadow-card-hover dark:border-slate-700 dark:bg-slate-900/80 motion-reduce:hover:shadow-card ${evidenceFit || casePostureFit || reviewFit ? 'p-3 md:p-4' : 'p-4 md:p-6'} ${evidenceFit || casePostureFit || reviewFit ? 'text-sm md:text-base' : 'text-base'} ${
+          evidenceFit || casePostureFit || reviewFit
+            ? "[&_button]:min-h-9 [&_button]:py-2 [&_button]:text-xs [&_button]:leading-tight md:[&_button]:min-h-10 md:[&_button]:text-sm [&_input:not([type='checkbox'])]:min-h-10 [&_input:not([type='checkbox'])]:text-sm [&_select]:min-h-10 [&_select]:text-sm [&_p.text-lg]:text-sm [&_p.text-sm]:text-xs [&_span.text-sm]:text-xs [&_textarea]:min-h-[3rem] [&_textarea]:py-2 [&_textarea]:text-sm"
+            : "[&_button]:min-h-14 [&_button]:leading-snug [&_button]:text-base md:[&_button]:text-lg [&_input:not([type='checkbox'])]:min-h-12 [&_input:not([type='checkbox'])]:text-lg [&_label]:text-base [&_p.text-lg]:text-xl [&_p.text-sm]:text-base [&_p.text-xs]:text-sm [&_select]:min-h-12 [&_select]:text-lg [&_span.text-sm]:text-base [&_span.text-xs]:text-sm [&_textarea]:min-h-[4.75rem] [&_textarea]:py-2 [&_textarea]:text-base [&_textarea]:leading-snug"
+        } ${stretchStepPanel ? 'min-h-0 flex-1' : 'shrink-0'}`}
+      >
+        {stretchStepPanel ? (
+          evidenceFit || casePostureFit || reviewFit ? (
+            renderStep()
+          ) : (
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]">
+              {renderStep()}
+            </div>
+          )
+        ) : (
+          renderStep()
+        )}
       </div>
 
-      <div className="flex justify-between items-center gap-3">
+      <p className="mb-2 shrink-0 text-center text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+        {t('intake.privacyNote')}
+      </p>
+
+      <div className="z-20 shrink-0 rounded-2xl border border-slate-200/80 bg-white/95 p-2 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)))] shadow-lg shadow-slate-200/70 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95">
+      <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
         <button
           type="button"
-          onClick={() => currentStepIndex > 0 && setCurrentStep(STEPS[currentStepIndex - 1].key)}
+          onClick={() => {
+            if (returnToReviewFromStep === currentStep) {
+              setReturnToReviewFromStep(null)
+              setCurrentStep('review')
+              return
+            }
+            if (currentStepIndex > 0) setCurrentStep(STEPS[currentStepIndex - 1].key)
+          }}
           disabled={currentStepIndex === 0}
-          className="inline-flex items-center gap-1 px-4 py-2.5 text-brand-700 dark:text-brand-400 font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-50 dark:hover:bg-brand-950/40 transition-colors"
+          className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-6 py-3 text-base font-medium text-slate-600 shadow-sm transition-colors hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300 dark:hover:bg-brand-950/40 dark:hover:text-brand-300"
         >
           <ChevronLeft className="h-4 w-4" aria-hidden /> {t('common.back')}
         </button>
@@ -1495,18 +1735,21 @@ export default function IntakeWizardQuick() {
             type="button"
             onClick={handleSubmit}
             disabled={loading}
-            className="px-6 py-2.5 bg-accent-600 hover:bg-accent-700 text-white font-semibold rounded-xl shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+            className="min-h-12 rounded-xl bg-accent-600 px-7 py-3 text-base font-semibold text-white shadow-md transition-all hover:bg-accent-700 hover:shadow-lg disabled:opacity-50"
           >
             {loading ? t('intake.submitting') : t('intake.viewReport')}
           </button>
         ) : showTapHint ? (
-          <span className="text-sm text-slate-500 dark:text-slate-400">{t('intake.tapToContinue')}</span>
+          <span className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-5 py-3 text-center text-base font-medium text-brand-800 shadow-sm dark:border-brand-800/70 dark:bg-brand-950/40 dark:text-brand-200">
+            <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
+            {t('intake.tapToContinue')}
+          </span>
         ) : currentStep === 'when' && formData.incidentDatePreset === 'custom' ? (
           <button
             type="button"
             onClick={validateAndNext}
             disabled={!customDate}
-            className="inline-flex items-center px-6 py-2.5 bg-accent-600 text-white font-semibold rounded-xl hover:bg-accent-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+            className="inline-flex min-h-12 items-center justify-center rounded-xl bg-accent-600 px-7 py-3 text-base font-semibold text-white shadow-sm hover:bg-accent-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
           </button>
@@ -1514,11 +1757,12 @@ export default function IntakeWizardQuick() {
           <button
             type="button"
             onClick={validateAndNext}
-            className="inline-flex items-center px-6 py-2.5 bg-accent-600 text-white font-semibold rounded-xl hover:bg-accent-700 shadow-sm"
+            className="inline-flex min-h-12 items-center justify-center rounded-xl bg-accent-600 px-7 py-3 text-base font-semibold text-white shadow-sm hover:bg-accent-700"
           >
             {t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
           </button>
         )}
+      </div>
       </div>
     </div>
   )

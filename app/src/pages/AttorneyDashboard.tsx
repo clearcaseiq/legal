@@ -21,7 +21,7 @@ import {
   UserPlus,
   Receipt
 } from 'lucide-react'
-import { getAttorneyDashboard, decideLead, updateLeadStatus, createDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, createManualIntake, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, getAttorneyCalendarConnectUrl, syncAttorneyCalendar, disconnectAttorneyCalendar, type AttorneyCalendarConnection, type CaseCommandCenter } from '../lib/api'
+import { getAttorneyDashboard, decideLead, updateLeadStatus, createDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, createManualIntake, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, getAttorneyCalendarConnectUrl, syncAttorneyCalendar, disconnectAttorneyCalendar, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type CaseCommandCenter } from '../lib/api'
 import Tooltip from '../components/Tooltip'
 import { AttorneyDashboardPanelSkeleton, AttorneyDashboardSkeleton } from '../components/PageSkeletons'
 import { clearStoredAuth, getLoginRedirect, hasValidAuthToken } from '../lib/auth'
@@ -254,6 +254,11 @@ interface Lead {
   submittedAt: string
   status: string
   assignedAttorneyId?: string | null
+  responseDeadlineMinutes?: number
+  responseDeadlineLabel?: string
+  offerRequestedAt?: string | null
+  offerExpiresAt?: string | null
+  offerStatus?: string | null
   assessment: any
   contactAttempts: any[]
   conflictChecks: any[]
@@ -1053,7 +1058,7 @@ export default function AttorneyDashboard() {
       console.log('Attorney from localStorage:', localStorage.getItem('attorney'))
       
       // Get actual dashboard data from API
-      let response
+      let response: any
       try {
         response = await getAttorneyDashboard()
         console.log('Dashboard response received:', response)
@@ -1140,6 +1145,12 @@ export default function AttorneyDashboard() {
           hotnessLevel: lead.hotnessLevel || 'cold',
           submittedAt: lead.submittedAt || new Date().toISOString(),
           status: lead.status || 'submitted',
+          responseDeadlineMinutes: lead.responseDeadlineMinutes,
+          responseDeadlineLabel: lead.responseDeadlineLabel,
+          offerRequestedAt: lead.offerRequestedAt || null,
+          offerExpiresAt: lead.offerExpiresAt || null,
+          offerStatus: lead.offerStatus || null,
+          routingPricing: lead.routingPricing || null,
           assessment: lead.assessment || {
             claimType: 'unknown',
             venueState: '',
@@ -1490,6 +1501,18 @@ export default function AttorneyDashboard() {
         setLeadDecisionLoading(true)
         if (rationale && decision === 'accept') {
           await saveLeadDecisionOverride(leadId, { decision, rationale })
+        }
+        if (decision === 'accept') {
+          const origin = window.location.origin
+          const payment = await createRoutingFeePaymentSession({
+            leadId,
+            successUrl: `${origin}/payment/success?type=routing_fee&leadId=${encodeURIComponent(leadId)}&session_id={CHECKOUT_SESSION_ID}`,
+            cancelUrl: `${origin}/payment/cancel?type=routing_fee&leadId=${encodeURIComponent(leadId)}`
+          })
+          if (payment.checkoutUrl) {
+            window.location.assign(payment.checkoutUrl)
+            return
+          }
         }
         const updated = await decideLead(
           leadId,
@@ -2415,6 +2438,7 @@ export default function AttorneyDashboard() {
         return (
           <Suspense fallback={<AttorneyDashboardPanelSkeleton message="Loading billing workspace..." />}>
             <AttorneyDashboardWorkstreamBilling
+              profile={profile}
               invoiceForm={invoiceForm}
               setInvoiceForm={setInvoiceForm}
               handleAddInvoice={handleAddInvoice}
@@ -3152,6 +3176,7 @@ export default function AttorneyDashboard() {
             analyticsIntel={analyticsIntel}
             dashboardData={dashboardData}
             leadEvidenceFiles={leadEvidenceFiles}
+            medicalChronology={medicalChronology}
             profile={profile}
             handleLeadDecision={handleLeadDecision}
             setDeclineLeadId={setDeclineLeadId}

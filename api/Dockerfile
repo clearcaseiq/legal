@@ -1,34 +1,40 @@
 FROM node:20-alpine AS base
 RUN apk add --no-cache libc6-compat
-WORKDIR /app
+WORKDIR /repo
 RUN corepack enable
 
 FROM base AS deps
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* ./
+COPY api/package.json ./api/package.json
 RUN pnpm install --frozen-lockfile
 
 FROM base AS builder
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY --from=deps /repo/node_modules ./node_modules
+COPY --from=deps /repo/api/node_modules ./api/node_modules
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* turbo.json* ./
+COPY api ./api
+WORKDIR /repo/api
 RUN pnpm prisma generate
 RUN pnpm build
 
 FROM base AS runner
-ENV NODE_ENV production
-ENV PORT 3000
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=4000
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nodejs
 
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /repo/api/dist ./dist
+COPY --from=builder /repo/api/prisma ./prisma
+COPY --from=builder /repo/api/package.json ./package.json
+COPY --from=builder /repo/node_modules ../node_modules
+COPY --from=builder /repo/api/node_modules ./node_modules
 
 RUN mkdir -p uploads && chown nodejs:nodejs uploads
 
 USER nodejs
 
-EXPOSE 3000
+EXPOSE 4000
 
-CMD ["npm", "start"]
+CMD ["pnpm", "start"]

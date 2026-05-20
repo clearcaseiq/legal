@@ -2425,6 +2425,7 @@ router.get('/attorneys', authMiddleware, adminMiddleware, async (req: AuthReques
         email: true,
         specialties: true,
         venues: true,
+        isActive: true,
         isVerified: true,
         responseTimeHours: true,
         averageRating: true,
@@ -2469,6 +2470,24 @@ router.get('/attorneys', authMiddleware, adminMiddleware, async (req: AuthReques
     const verifiedReviewCountMap = new Map(
       verifiedReviewCounts.map((entry) => [entry.attorneyId, entry._count._all])
     )
+    const attorneyEmails = attorneys
+      .map((attorney) => attorney.email?.trim().toLowerCase())
+      .filter((email): email is string => Boolean(email))
+    const attorneyUsers = attorneyEmails.length
+      ? await prisma.user.findMany({
+          where: {
+            email: { in: attorneyEmails },
+            role: 'attorney',
+          },
+          select: {
+            email: true,
+            lastLoginAt: true,
+          },
+        })
+      : []
+    const lastLoginByEmail = new Map(
+      attorneyUsers.map((user) => [user.email.trim().toLowerCase(), user.lastLoginAt])
+    )
 
     let formattedAttorneys = attorneys.map(attorney => ({
       id: attorney.id,
@@ -2476,11 +2495,13 @@ router.get('/attorneys', authMiddleware, adminMiddleware, async (req: AuthReques
       email: attorney.email,
       specialties: attorney.specialties ? JSON.parse(attorney.specialties) : [],
       venues: attorney.venues ? JSON.parse(attorney.venues) : [],
+      isActive: attorney.isActive,
       isVerified: attorney.isVerified,
       responseTimeHours: attorney.responseTimeHours,
       averageRating: attorney.averageRating,
       totalReviews: attorney.totalReviews,
       verifiedReviewCount: verifiedReviewCountMap.get(attorney.id) || 0,
+      lastActiveAt: attorney.email ? lastLoginByEmail.get(attorney.email.trim().toLowerCase()) || null : null,
       lawFirm: attorney.lawFirm,
       subscriptionTier: attorney.attorneyProfile?.subscriptionTier || null,
       profile: attorney.attorneyProfile

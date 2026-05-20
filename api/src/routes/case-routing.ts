@@ -13,6 +13,7 @@ import {
   attorneyRequestMoreInfo,
   recordRoutingEvent
 } from '../lib/routing-lifecycle'
+import { formatAttorneyResponseDeadline, getAttorneyResponseDeadlineMinutes, getMatchingRules } from '../lib/matching-rules-config'
 import { getAppointmentPreparation } from '../lib/appointment-engagement'
 const router = Router()
 
@@ -263,6 +264,11 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
       }).catch(() => []),
     ])
 
+    const matchingRules = await getMatchingRules()
+    const responseDeadlineMinutes = getAttorneyResponseDeadlineMinutes(matchingRules)
+    const responseDeadlineHours = Math.ceil(responseDeadlineMinutes / 60)
+    const responseDeadlineLabel = formatAttorneyResponseDeadline(responseDeadlineMinutes)
+
     const appointmentPrep = appointmentRecord && assessment.userId && req.user?.id === assessment.userId
       ? await getAppointmentPreparation(appointmentRecord.id, req.user.id).catch(() => null)
       : null
@@ -328,7 +334,7 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
       stage = 'attorney_review'
       statusMessage = searchExpanded
         ? 'Your original top choices were unavailable, so we expanded the search. Additional attorneys are now reviewing your case.'
-        : `${reviewingCount} attorney(s) reviewing your case. Expected response within 24 hours.`
+        : `${reviewingCount} attorney(s) reviewing your case. Expected response within ${responseDeadlineLabel}.`
     } else if (intros.length > 0) {
       statusMessage = searchExpanded
         ? 'We expanded the search to a new group of matching attorneys. Awaiting response.'
@@ -421,6 +427,9 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
       statusMessage,
       attorneysRouted: intros.length,
       attorneysReviewing: reviewingCount,
+      responseDeadlineMinutes,
+      responseDeadlineHours,
+      responseDeadlineLabel,
       attorneyMatched: accepted
         ? {
             id: accepted.attorney.id,

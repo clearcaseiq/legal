@@ -50,6 +50,7 @@ type AttorneyDashboardLeadDetailProps = {
   analyticsIntel: any
   dashboardData: any
   leadEvidenceFiles: AttorneyDashboardFile[]
+  medicalChronology: any[]
   profile: any
   handleLeadDecision: (
     leadId: string,
@@ -129,6 +130,7 @@ export default function AttorneyDashboardLeadDetail({
   analyticsIntel,
   dashboardData,
   leadEvidenceFiles,
+  medicalChronology,
   profile,
   handleLeadDecision,
   setDeclineLeadId,
@@ -475,10 +477,7 @@ export default function AttorneyDashboardLeadDetail({
                 const raw = (selectedLead as any).evidenceChecklist
                 evidenceChecklistParsed = raw ? JSON.parse(raw) : {}
               } catch {}
-              const introRequestedAt = selectedLead.assessment?.introductions?.[0]?.requestedAt
-              const expiresAt = introRequestedAt
-                ? new Date(new Date(introRequestedAt).getTime() + 24 * 60 * 60 * 1000)
-                : null
+              const expiresAt = selectedLead.offerExpiresAt ? new Date(selectedLead.offerExpiresAt) : null
               return (
                 <PreAcceptanceView
                   selectedLead={selectedLead}
@@ -618,6 +617,7 @@ export default function AttorneyDashboardLeadDetail({
                   contactHistory={contactHistory}
                   leadCommandCenter={leadCommandCenter}
                   deterministicChronology={deterministicChronology}
+                  medicalChronology={medicalChronology}
                   readiness={postAcceptanceWorkup}
                   valueLow={valueLow}
                   valueHigh={valueHigh}

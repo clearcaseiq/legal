@@ -25,10 +25,12 @@ export interface RecalculationResult {
 function mergeEvidenceIntoFacts(
   facts: Record<string, unknown>,
   evidenceFiles: Array<{
+    originalName?: string | null
     category: string
     aiClassification?: string | null
     aiSummary?: string | null
     aiHighlights?: string | null
+    ocrText?: string | null
     extractedData?: Array<{
       totalAmount?: number | null
       dollarAmounts?: string | null
@@ -42,8 +44,11 @@ function mergeEvidenceIntoFacts(
   const treatment = (merged.treatment as Array<unknown>) || []
   const evidence = new Set<string>((merged.evidence as string[]) || [])
 
-  let totalMedCharges = Number(damages.med_charges) || 0
-  let totalMedPaid = Number(damages.med_paid) || 0
+  const intakeMedCharges = Number(damages.intake_med_charges ?? damages.med_charges) || 0
+  const intakeMedPaid = Number(damages.intake_med_paid ?? damages.med_paid) || 0
+  let extractedMedCharges = 0
+  let extractedMedPaid = 0
+  let extractedWageLoss = 0
 
   for (const file of evidenceFiles) {
     const cat = file.aiClassification || file.category
@@ -56,8 +61,12 @@ function mergeEvidenceIntoFacts(
     if (ext) {
       const amt = ext.totalAmount ?? 0
       if (amt > 0) {
-        totalMedCharges += amt
-        totalMedPaid += amt * 0.8 // Assume ~80% paid
+        if (isLostWageEvidence(file)) {
+          extractedWageLoss += extractWageLossAmount(file.ocrText || '', amt)
+        } else if (isMedicalChargeEvidence(file)) {
+          extractedMedCharges += amt
+          extractedMedPaid += amt * 0.8 // Assume ~80% paid
+        }
       }
       if (ext.icdCodes && file.category === 'medical_records') {
         try {
@@ -77,10 +86,72 @@ function mergeEvidenceIntoFacts(
     }
   }
 
-  merged.damages = { ...damages, med_charges: totalMedCharges, med_paid: totalMedPaid }
+  const totalMedCharges = Math.max(intakeMedCharges, extractedMedCharges)
+  const totalMedPaid = Math.max(intakeMedPaid, extractedMedPaid)
+  const intakeWageLoss = Number(damages.wage_loss) || 0
+  const totalWageLoss = Math.max(intakeWageLoss, extractedWageLoss)
+  merged.damages = {
+    ...damages,
+    intake_med_charges: intakeMedCharges,
+    intake_med_paid: intakeMedPaid,
+    extracted_med_charges: extractedMedCharges,
+    extracted_med_paid: extractedMedPaid,
+    extracted_wage_loss: extractedWageLoss,
+    med_charges: totalMedCharges,
+    med_paid: totalMedPaid,
+    wage_loss: totalWageLoss,
+  }
   merged.treatment = treatment
   merged.evidence = Array.from(evidence)
   return merged
+}
+
+function evidenceText(file: {
+  originalName?: string | null
+  category: string
+  aiClassification?: string | null
+  aiSummary?: string | null
+  aiHighlights?: string | null
+}) {
+  return `${file.category} ${file.originalName || ''} ${file.aiClassification || ''} ${file.aiSummary || ''} ${file.aiHighlights || ''}`.toLowerCase()
+}
+
+function isLostWageEvidence(file: {
+  originalName?: string | null
+  category: string
+  aiClassification?: string | null
+  aiSummary?: string | null
+  aiHighlights?: string | null
+}) {
+  return /\b(wage|wages|lost wages|payroll|pay stub|employer|income|earnings)\b/.test(evidenceText(file))
+}
+
+function isDamagesSummaryEvidence(file: {
+  originalName?: string | null
+  category: string
+  aiClassification?: string | null
+  aiSummary?: string | null
+  aiHighlights?: string | null
+}) {
+  return /\b(damages summary|economic damages|total economic damages)\b/.test(evidenceText(file))
+}
+
+function isMedicalChargeEvidence(file: {
+  originalName?: string | null
+  category: string
+  aiClassification?: string | null
+  aiSummary?: string | null
+  aiHighlights?: string | null
+}) {
+  const cat = file.aiClassification || file.category
+  return (cat === 'bills' || file.category === 'bills' || file.category === 'medical_records') && !isDamagesSummaryEvidence(file)
+}
+
+function extractWageLossAmount(ocrText: string, fallback: number) {
+  const match = ocrText.match(/\b(?:total\s+)?(?:wage\s+loss|lost\s+wages)\b[^$]{0,80}\$([\d,]+(?:\.\d{1,2})?)/i)
+  if (!match) return fallback
+  const amount = Number(match[1].replace(/,/g, ''))
+  return Number.isFinite(amount) && amount > 0 ? amount : fallback
 }
 
 /**
@@ -141,10 +212,12 @@ export async function runCaseRecalculation(
 
     const factsRaw = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : assessment.facts
     const evidenceFiles = assessment.evidenceFiles.map((f) => ({
+      originalName: f.originalName,
       category: f.category,
       aiClassification: f.aiClassification,
       aiSummary: f.aiSummary,
       aiHighlights: f.aiHighlights,
+      ocrText: f.ocrText,
       extractedData: f.extractedData?.length
         ? f.extractedData.map((ed) => ({
             totalAmount: ed.totalAmount,

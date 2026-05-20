@@ -547,12 +547,17 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
 
 export function computeFeatures(a: Assessment) {
   // Derive a minimal feature vector from JSON facts
-  const f = a.facts as any
+  const f = typeof a.facts === 'string'
+    ? JSON.parse(a.facts)
+    : a.facts as any
   const severityScore = calculateInjurySeverity(f)
   const liabilityScore = calculateLiabilityScore(f, a.venueState) // V2: Rules-based liability
   const medPaid = f?.damages?.med_paid ?? 0
   const medCharges = f?.damages?.med_charges ?? 0
   const wageLoss = f?.damages?.wage_loss ?? 0
+  const outOfPocket = f?.damages?.estimated_out_of_pocket ?? f?.damages?.services ?? 0
+  const propertyDamage = f?.damages?.estimated_property_damage ?? 0
+  const futureMedCharges = f?.damages?.estimated_future_med_charges ?? 0
   const hasTreatment = (f?.treatment?.length ?? 0) > 0
   
   return { 
@@ -564,6 +569,9 @@ export function computeFeatures(a: Assessment) {
     medPaid,
     medCharges,
     wageLoss,
+    outOfPocket,
+    propertyDamage,
+    futureMedCharges,
     hasTreatment,
     narrativeLength: (f?.incident?.narrative?.length ?? 0) / 100 // normalize to roughly 0-10
   }
@@ -624,7 +632,13 @@ function predictViabilityHeuristic(features: any) {
   const ci = [Math.max(0.05, overall - 0.09), Math.min(0.95, overall + 0.09)]
   
   // Value bands based on medical expenses and multi-level severity
-  const baseValue = Math.max(10000, features.medPaid * 3)
+  const economicDamages =
+    (features.medPaid * 3) +
+    (features.futureMedCharges * 1.5) +
+    features.wageLoss +
+    features.outOfPocket +
+    Math.min(features.propertyDamage, 25000)
+  const baseValue = Math.max(10000, economicDamages)
   // Severity multipliers based on level (0-4)
   const severityMultipliers: Record<SeverityLevel, number> = {
     0: 1.0,   // No injuries: base value

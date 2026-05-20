@@ -16,6 +16,24 @@ import ErrorBanner from '../../components/ErrorBanner'
 type SortField = 'createdAt' | 'claimType' | 'venueState' | 'status' | 'viability' | 'estimatedValue'
 type SortDirection = 'asc' | 'desc'
 
+const CASE_TABS = [
+  { id: 'all', label: 'All cases' },
+  { id: 'queue', label: 'Queue' },
+  { id: 'waiting', label: 'Waiting' },
+  { id: 'accepted', label: 'Accepted' },
+  { id: 'today', label: 'New today' },
+] as const
+
+type CaseTab = typeof CASE_TABS[number]['id']
+
+function getCaseTabFromFilters(routingStatus: string, createdToday: boolean): CaseTab {
+  if (createdToday) return 'today'
+  if (routingStatus === 'queue') return 'queue'
+  if (routingStatus === 'waiting') return 'waiting'
+  if (routingStatus === 'accepted') return 'accepted'
+  return 'all'
+}
+
 export default function AdminCases() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -32,6 +50,9 @@ export default function AdminCases() {
     const ct = searchParams.get('createdToday')
     return ct === '1' || ct === 'true'
   })
+  const [activeCaseTab, setActiveCaseTab] = useState<CaseTab>(() =>
+    getCaseTabFromFilters(searchParams.get('routingStatus') || '', searchParams.get('createdToday') === '1' || searchParams.get('createdToday') === 'true'),
+  )
   const [sortField, setSortField] = useState<SortField>('createdAt')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
 
@@ -40,7 +61,12 @@ export default function AdminCases() {
     const ct = searchParams.get('createdToday')
     setRoutingStatusFilter(rs)
     setCreatedTodayOnly(ct === '1' || ct === 'true')
+    setActiveCaseTab(getCaseTabFromFilters(rs, ct === '1' || ct === 'true'))
   }, [searchParams])
+
+  useEffect(() => {
+    setActiveCaseTab(getCaseTabFromFilters(routingStatusFilter, createdTodayOnly))
+  }, [routingStatusFilter, createdTodayOnly])
 
   const loadCases = useCallback(async () => {
     try {
@@ -125,6 +151,17 @@ export default function AdminCases() {
     }
   }
 
+  const applyCaseTab = (tab: CaseTab) => {
+    setActiveCaseTab(tab)
+    if (tab === 'today') {
+      setCreatedTodayOnly(true)
+      setRoutingStatusFilter('')
+      return
+    }
+    setCreatedTodayOnly(false)
+    setRoutingStatusFilter(tab === 'all' ? '' : tab)
+  }
+
   const getRoutingStatus = (c: any) => {
     if (c.leadSubmission?.routingLocked) return 'Accepted'
     if (c.introductions?.length > 0) return 'Waiting'
@@ -141,8 +178,8 @@ export default function AdminCases() {
     ) : null
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="flex h-[calc(100vh-6.5rem)] min-h-0 flex-col gap-4 overflow-hidden">
+      <div className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-ui-2xl font-bold font-display text-slate-900 dark:text-slate-100 tracking-tight">
           Cases
         </h1>
@@ -155,8 +192,37 @@ export default function AdminCases() {
         </button>
       </div>
 
+      <div className="sticky top-14 z-20 shrink-0 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
+        <div className="grid gap-2 sm:grid-cols-5">
+          {CASE_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => applyCaseTab(tab.id)}
+              className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
+                activeCaseTab === tab.id
+                  ? 'bg-brand-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Filters */}
-      <div className="surface-panel p-4 flex flex-wrap gap-4">
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm shrink-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-800">Case search and filters</h2>
+          <p className="mt-1 text-xs text-slate-500">Use tabs for common queues, then narrow the list without leaving the page.</p>
+        </div>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+          {sortedCases.length} shown
+        </span>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-4">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
@@ -212,42 +278,45 @@ export default function AdminCases() {
           New today
         </label>
       </div>
+      </section>
 
-      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      {error && <div className="shrink-0"><ErrorBanner message={error} onDismiss={() => setError(null)} /></div>}
 
       {loading ? (
-        <div className="flex justify-center py-12">
+        <div className="surface-panel flex min-h-0 flex-1 items-center justify-center">
           <RefreshCw className="h-8 w-8 animate-spin text-brand-600" />
         </div>
       ) : sortedCases.length === 0 ? (
-        <EmptyState
-          icon={FolderOpen}
-          title="No cases match your filters"
-          description="Try clearing search or filters, or refresh to load the latest intake."
-          compact
-        >
-          <button
-            type="button"
-            onClick={() => {
-              setSearchTerm('')
-              setClaimTypeFilter('')
-              setStateFilter('')
-              setRoutingStatusFilter('')
-              setCreatedTodayOnly(false)
-            }}
-            className="btn-outline text-ui-sm"
+        <div className="surface-panel min-h-0 flex-1 overflow-hidden">
+          <EmptyState
+            icon={FolderOpen}
+            title="No cases match your filters"
+            description="Try clearing search or filters, or refresh to load the latest intake."
+            compact
           >
-            Clear filters
-          </button>
-          <button type="button" onClick={loadCases} className="btn-primary text-ui-sm">
-            Refresh
-          </button>
-        </EmptyState>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchTerm('')
+                setClaimTypeFilter('')
+                setStateFilter('')
+                setRoutingStatusFilter('')
+                setCreatedTodayOnly(false)
+              }}
+              className="btn-outline text-ui-sm"
+            >
+              Clear filters
+            </button>
+            <button type="button" onClick={loadCases} className="btn-primary text-ui-sm">
+              Refresh
+            </button>
+          </EmptyState>
+        </div>
       ) : (
-        <div className="surface-panel overflow-hidden p-0">
-          <div className="overflow-x-auto">
+        <div className="surface-panel min-h-0 flex-1 overflow-hidden p-0">
+          <div className="h-full overflow-auto">
             <table className="app-data-table w-full">
-              <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
+              <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
                 <tr>
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
                     Case ID

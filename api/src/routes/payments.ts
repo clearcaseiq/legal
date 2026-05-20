@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { ENV } from '../env'
+import { getAttorneySubscriptionTier, getCaseRoutingPricingForClaimType, getMatchingRules } from '../lib/matching-rules-config'
 
 const router = Router()
 const db = prisma as any
@@ -25,6 +26,34 @@ function toCents(amount: number) {
 
 function fromCents(amount: number | null | undefined) {
   return amount == null ? null : amount / 100
+}
+
+function toStripeMetadataValue(value: unknown) {
+  return value == null ? '' : String(value)
+}
+
+function parseJsonMaybe(value: unknown) {
+  if (!value || typeof value !== 'string') return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
+}
+
+function getPricingClaimType(assessment: any) {
+  const facts = parseJsonMaybe(assessment?.facts) || {}
+  const prediction = parseJsonMaybe(assessment?.prediction) || {}
+  return (
+    assessment?.validatedClaimType ||
+    assessment?.claimType ||
+    facts?.validatedClaimType ||
+    facts?.caseType ||
+    facts?.incident?.type ||
+    prediction?.claimType ||
+    prediction?.caseType ||
+    null
+  )
 }
 
 function stripeError(res: any, error: any, fallback = 'Stripe request failed') {
@@ -66,6 +95,120 @@ async function getOrCreateStripeCustomer(attorney: any, stripe: any) {
   })
 
   return customer.id
+}
+
+async function getDefaultPaymentMethodId(stripe: any, customerId: string) {
+  const customer = await stripe.customers.retrieve(customerId, {
+    expand: ['invoice_settings.default_payment_method'],
+  })
+  if (customer.deleted) return null
+
+  const defaultPaymentMethod = customer.invoice_settings?.default_payment_method
+  if (!defaultPaymentMethod) return null
+  return typeof defaultPaymentMethod === 'string' ? defaultPaymentMethod : defaultPaymentMethod.id
+}
+
+async function getAuthorizedLeadForAttorney(req: AuthRequest, leadId: string) {
+  const attorney = await getAttorneyForUser(req)
+  if (!attorney) return { error: { status: 403, message: 'Attorney profile not found' } }
+
+  const lead = await db.leadSubmission.findUnique({
+    where: { id: leadId },
+    include: { assessment: true },
+  })
+  if (!lead) return { error: { status: 404, message: 'Lead not found' } }
+
+  const intro = await db.introduction.findFirst({
+    where: { assessmentId: lead.assessmentId, attorneyId: attorney.id },
+    select: { id: true },
+  })
+  const isShared = lead.assignmentType === 'shared'
+  const isAssigned = lead.assignedAttorneyId === attorney.id
+  if (!isShared && !isAssigned && !intro) {
+    return { error: { status: 403, message: 'Not authorized to access this lead' } }
+  }
+
+  return { attorney, lead }
+}
+
+async function applySubscriptionCaseCredit(attorney: any, lead: any) {
+  const profile = attorney.attorneyProfile
+  if (!profile?.subscriptionActive) return null
+
+  const matchingRules = await getMatchingRules()
+  const subscriptionTier = getAttorneySubscriptionTier(matchingRules, profile.subscriptionTier)
+  if (!subscriptionTier) return null
+
+  const metadata = {
+    kind: 'routing_fee_subscription_credit',
+    attorneyId: attorney.id,
+    leadId: lead.id,
+    assessmentId: lead.assessmentId,
+    tierId: subscriptionTier.id,
+    tierLabel: subscriptionTier.label,
+  }
+  const existingCredit = await db.platformPayment.findFirst({
+    where: {
+      attorneyId: attorney.id,
+      type: 'routing_fee_subscription_credit',
+      metadata: { contains: `"leadId":"${lead.id}"` },
+    },
+  })
+  if (existingCredit) {
+    return {
+      status: 'subscription_applied',
+      tierId: subscriptionTier.id,
+      tierLabel: subscriptionTier.label,
+      remainingCases: profile.subscriptionRemainingCases ?? null,
+    }
+  }
+
+  if (subscriptionTier.includedCasesPerMonth == null) {
+    await db.platformPayment.create({
+      data: {
+        attorneyId: attorney.id,
+        type: 'routing_fee_subscription_credit',
+        amount: 0,
+        status: 'applied',
+        stripeCustomerId: profile.stripeCustomerId || null,
+        metadata: JSON.stringify(metadata),
+      },
+    })
+    return {
+      status: 'subscription_applied',
+      tierId: subscriptionTier.id,
+      tierLabel: subscriptionTier.label,
+      remainingCases: null,
+    }
+  }
+
+  const remainingCases = Number(profile.subscriptionRemainingCases ?? 0)
+  if (remainingCases <= 0) return null
+
+  const updatedProfile = await db.attorneyProfile.update({
+    where: { attorneyId: attorney.id },
+    data: { subscriptionRemainingCases: { decrement: 1 } },
+  })
+  await db.platformPayment.create({
+    data: {
+      attorneyId: attorney.id,
+      type: 'routing_fee_subscription_credit',
+      amount: 0,
+      status: 'applied',
+      stripeCustomerId: profile.stripeCustomerId || null,
+      metadata: JSON.stringify({
+        ...metadata,
+        remainingCasesAfterAcceptance: updatedProfile.subscriptionRemainingCases,
+      }),
+    },
+  })
+
+  return {
+    status: 'subscription_applied',
+    tierId: subscriptionTier.id,
+    tierLabel: subscriptionTier.label,
+    remainingCases: updatedProfile.subscriptionRemainingCases,
+  }
 }
 
 async function canAccessInvoice(req: AuthRequest, invoice: any) {
@@ -159,19 +302,44 @@ router.post('/platform/subscription-checkout-session', authMiddleware, async (re
     const attorney = await getAttorneyForUser(req)
     if (!attorney) return res.status(403).json({ error: 'Attorney profile not found' })
 
-    const priceId = req.body?.priceId || ENV.STRIPE_PLATFORM_SUBSCRIPTION_PRICE_ID
-    if (!priceId) return res.status(400).json({ error: 'Stripe subscription price is not configured' })
+    const matchingRules = await getMatchingRules()
+    const subscriptionTier = getAttorneySubscriptionTier(matchingRules, req.body?.tierId || 'starter')
+    if (!subscriptionTier) return res.status(400).json({ error: 'Subscription tier is not available' })
+    if (!subscriptionTier.monthlyPriceCents || subscriptionTier.monthlyPriceCents <= 0) {
+      return res.status(400).json({ error: 'This subscription tier requires custom billing setup' })
+    }
 
     const customerId = await getOrCreateStripeCustomer(attorney, stripe)
-    const metadata = { kind: 'attorney_subscription', attorneyId: attorney.id }
+    const metadata = {
+      kind: 'attorney_subscription',
+      attorneyId: attorney.id,
+      tierId: subscriptionTier.id,
+      tierLabel: subscriptionTier.label,
+      includedCasesPerMonth: toStripeMetadataValue(subscriptionTier.includedCasesPerMonth),
+    }
+    const priceId = req.body?.priceId || ENV.STRIPE_PLATFORM_SUBSCRIPTION_PRICE_ID
+    const lineItem = priceId
+      ? { price: priceId, quantity: 1 }
+      : {
+          quantity: 1,
+          price_data: {
+            currency: 'usd',
+            unit_amount: subscriptionTier.monthlyPriceCents,
+            recurring: { interval: 'month' as const },
+            product_data: {
+              name: `CaseIQ ${subscriptionTier.label} subscription`,
+              description: subscriptionTier.description,
+            },
+          },
+        }
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
-      success_url: req.body?.successUrl || webUrl('/payment/success?session_id={CHECKOUT_SESSION_ID}'),
+      success_url: req.body?.successUrl || webUrl('/payment/success?type=subscription&session_id={CHECKOUT_SESSION_ID}'),
       cancel_url: req.body?.cancelUrl || webUrl('/payment/cancel?type=subscription'),
       metadata,
       subscription_data: { metadata },
-      line_items: [{ price: priceId, quantity: 1 }],
+      line_items: [lineItem],
     })
 
     await db.platformPayment.create({
@@ -182,6 +350,7 @@ router.post('/platform/subscription-checkout-session', authMiddleware, async (re
         stripeCustomerId: customerId,
         stripeCheckoutSessionId: session.id,
         stripePriceId: priceId,
+        metadata: JSON.stringify(metadata),
       },
     })
 
@@ -241,6 +410,165 @@ router.post('/platform/lead-credit-checkout-session', authMiddleware, async (req
     res.json({ checkoutUrl: session.url, sessionId: session.id })
   } catch (error: any) {
     return stripeError(res, error, 'Failed to create lead-credit checkout session')
+  }
+})
+
+router.post('/payment-methods/setup-session', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const stripe = getStripe()
+    const attorney = await getAttorneyForUser(req)
+    if (!attorney) return res.status(403).json({ error: 'Attorney profile not found' })
+
+    const customerId = await getOrCreateStripeCustomer(attorney, stripe)
+    const metadata = { kind: 'attorney_payment_method', attorneyId: attorney.id }
+    const session = await stripe.checkout.sessions.create({
+      mode: 'setup',
+      customer: customerId,
+      payment_method_types: ['card'],
+      success_url: req.body?.successUrl || webUrl('/payment/success?type=payment_method&session_id={CHECKOUT_SESSION_ID}'),
+      cancel_url: req.body?.cancelUrl || webUrl('/payment/cancel?type=payment_method'),
+      metadata,
+      setup_intent_data: { metadata },
+    })
+
+    res.json({ checkoutUrl: session.url, sessionId: session.id })
+  } catch (error: any) {
+    return stripeError(res, error, 'Failed to create payment method setup session')
+  }
+})
+
+router.post('/platform/routing-fee-session', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { leadId } = req.body || {}
+    if (!leadId) return res.status(400).json({ error: 'leadId is required' })
+
+    const auth = await getAuthorizedLeadForAttorney(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { attorney, lead } = auth
+
+    const matchingRules = await getMatchingRules()
+    const claimType = getPricingClaimType(lead.assessment)
+    const pricingTier = getCaseRoutingPricingForClaimType(matchingRules, claimType)
+    if (!pricingTier || !pricingTier.enabled || pricingTier.priceCents <= 0) {
+      return res.json({ status: 'not_required', amount: 0 })
+    }
+
+    const subscriptionCredit = await applySubscriptionCaseCredit(attorney, lead)
+    if (subscriptionCredit) return res.json(subscriptionCredit)
+
+    const metadata = {
+      kind: 'routing_fee',
+      attorneyId: attorney.id,
+      leadId: lead.id,
+      assessmentId: lead.assessmentId,
+      tierId: pricingTier.id,
+      tierLabel: pricingTier.label,
+    }
+    const amount = fromCents(pricingTier.priceCents)
+    if (!ENV.STRIPE_SECRET_KEY && ENV.NODE_ENV !== 'production') {
+      logger.warn('Routing fee payment bypassed because Stripe is not configured in development', {
+        attorneyId: attorney.id,
+        leadId: lead.id,
+        tierId: pricingTier.id,
+      })
+      await db.platformPayment.create({
+        data: {
+          attorneyId: attorney.id,
+          type: 'routing_fee',
+          amount,
+          status: 'skipped_stripe_not_configured',
+          metadata: JSON.stringify(metadata),
+        },
+      })
+      return res.json({ status: 'skipped_stripe_not_configured', amount })
+    }
+
+    const stripe = getStripe()
+    const customerId = await getOrCreateStripeCustomer(attorney, stripe)
+
+    const defaultPaymentMethodId = await getDefaultPaymentMethodId(stripe, customerId)
+    if (defaultPaymentMethodId) {
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: pricingTier.priceCents,
+          currency: 'usd',
+          customer: customerId,
+          payment_method: defaultPaymentMethodId,
+          off_session: true,
+          confirm: true,
+          description: `CaseIQ routing fee: ${pricingTier.label}`,
+          metadata,
+        })
+
+        await db.platformPayment.create({
+          data: {
+            attorneyId: attorney.id,
+            type: 'routing_fee',
+            amount,
+            status: paymentIntent.status,
+            stripeCustomerId: customerId,
+            stripePaymentIntentId: paymentIntent.id,
+            metadata: JSON.stringify(metadata),
+          },
+        })
+
+        return res.json({
+          status: paymentIntent.status,
+          paymentIntentId: paymentIntent.id,
+          chargedAutomatically: paymentIntent.status === 'succeeded',
+        })
+      } catch (chargeError: any) {
+        logger.warn('Saved card could not be charged off-session; falling back to Checkout', {
+          attorneyId: attorney.id,
+          leadId: lead.id,
+          error: chargeError?.message,
+        })
+      }
+    }
+
+    const successUrl = req.body?.successUrl || webUrl(`/payment/success?type=routing_fee&leadId=${encodeURIComponent(lead.id)}&session_id={CHECKOUT_SESSION_ID}`)
+    const cancelUrl = req.body?.cancelUrl || webUrl(`/payment/cancel?type=routing_fee&leadId=${encodeURIComponent(lead.id)}`)
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer: customerId,
+      payment_method_types: ['card'],
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      metadata,
+      payment_intent_data: {
+        setup_future_usage: 'off_session',
+        metadata,
+      },
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: 'usd',
+            unit_amount: pricingTier.priceCents,
+            product_data: {
+              name: `CaseIQ routing fee - ${pricingTier.label}`,
+              description: pricingTier.description || 'Due when accepting this case.',
+            },
+          },
+        },
+      ],
+    })
+
+    await db.platformPayment.create({
+      data: {
+        attorneyId: attorney.id,
+        type: 'routing_fee',
+        amount,
+        status: 'checkout_created',
+        stripeCustomerId: customerId,
+        stripeCheckoutSessionId: session.id,
+        metadata: JSON.stringify(metadata),
+      },
+    })
+
+    res.json({ status: 'checkout_required', checkoutUrl: session.url, sessionId: session.id })
+  } catch (error: any) {
+    return stripeError(res, error, 'Failed to create routing fee payment')
   }
 })
 
@@ -371,11 +699,16 @@ async function recordPlatformCheckout(session: any) {
   const subscriptionId = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id
   const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id
   const amount = fromCents(session.amount_total)
+  const type = kind === 'attorney_subscription'
+    ? 'subscription'
+    : kind === 'routing_fee'
+      ? 'routing_fee'
+      : 'lead_credit'
 
   const existing = await db.platformPayment.findFirst({ where: { stripeCheckoutSessionId: session.id } })
   const data = {
     attorneyId,
-    type: kind === 'attorney_subscription' ? 'subscription' : 'lead_credit',
+    type,
     amount,
     status: session.payment_status || 'completed',
     stripeCustomerId: customerId || null,
@@ -392,13 +725,20 @@ async function recordPlatformCheckout(session: any) {
   }
 
   if (kind === 'attorney_subscription' && subscriptionId) {
+    const includedCases = session.metadata?.includedCasesPerMonth
+      ? Number(session.metadata.includedCasesPerMonth)
+      : null
     await db.attorneyProfile.update({
       where: { attorneyId },
       data: {
         stripeCustomerId: customerId || undefined,
         stripeSubscriptionId: subscriptionId,
         stripeSubscriptionStatus: 'active',
+        stripeSubscriptionPriceId: session.metadata?.stripePriceId || undefined,
         subscriptionActive: true,
+        subscriptionTier: session.metadata?.tierId || undefined,
+        subscriptionRemainingCases: Number.isFinite(includedCases) ? includedCases : null,
+        paymentModel: 'subscription',
       },
     })
   }
@@ -410,6 +750,27 @@ async function recordPlatformCheckout(session: any) {
       create: { attorneyId, accountBalance: amount, stripeCustomerId: customerId || undefined },
     })
   }
+}
+
+async function saveDefaultPaymentMethodFromSetupSession(stripe: any, session: any) {
+  const attorneyId = session.metadata?.attorneyId
+  const setupIntentId = typeof session.setup_intent === 'string' ? session.setup_intent : session.setup_intent?.id
+  const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id
+  if (!attorneyId || !setupIntentId || !customerId) return
+
+  const setupIntent = await stripe.setupIntents.retrieve(setupIntentId)
+  const paymentMethodId = typeof setupIntent.payment_method === 'string'
+    ? setupIntent.payment_method
+    : setupIntent.payment_method?.id
+  if (!paymentMethodId) return
+
+  await stripe.customers.update(customerId, {
+    invoice_settings: { default_payment_method: paymentMethodId },
+  })
+  await db.attorneyProfile.update({
+    where: { attorneyId },
+    data: { stripeCustomerId: customerId },
+  })
 }
 
 async function syncSubscription(subscription: any) {
@@ -428,6 +789,7 @@ async function syncSubscription(subscription: any) {
       : null
 
   if (!where) return
+  const tierId = subscription.metadata?.tierId
 
   await db.attorneyProfile.updateMany({
     where,
@@ -438,6 +800,31 @@ async function syncSubscription(subscription: any) {
       stripeSubscriptionPriceId: priceId || undefined,
       stripeCurrentPeriodEnd: currentPeriodEnd,
       subscriptionActive: active,
+      subscriptionTier: tierId || undefined,
+      paymentModel: active ? 'subscription' : undefined,
+      ...(active ? {} : { subscriptionRemainingCases: 0 }),
+    },
+  })
+}
+
+async function resetSubscriptionAllotmentFromInvoice(stripe: any, invoice: any) {
+  const subscriptionId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id
+  if (!subscriptionId || invoice.status !== 'paid') return
+
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId)
+  const attorneyId = subscription.metadata?.attorneyId
+  const includedCases = subscription.metadata?.includedCasesPerMonth
+    ? Number(subscription.metadata.includedCasesPerMonth)
+    : null
+  if (!attorneyId || !Number.isFinite(includedCases)) return
+
+  await db.attorneyProfile.update({
+    where: { attorneyId },
+    data: {
+      subscriptionActive: ['active', 'trialing'].includes(subscription.status),
+      subscriptionTier: subscription.metadata?.tierId || undefined,
+      subscriptionRemainingCases: includedCases,
+      stripeSubscriptionStatus: subscription.status,
     },
   })
 }
@@ -464,7 +851,13 @@ router.post('/stripe-webhook', async (req, res) => {
       const session = event.data.object as any
       if (session.metadata?.kind === 'case_invoice') {
         await recordCaseInvoicePayment(session)
-      } else if (session.metadata?.kind === 'attorney_subscription' || session.metadata?.kind === 'lead_credit') {
+      } else if (session.metadata?.kind === 'attorney_payment_method') {
+        await saveDefaultPaymentMethodFromSetupSession(stripe, session)
+      } else if (
+        session.metadata?.kind === 'attorney_subscription' ||
+        session.metadata?.kind === 'lead_credit' ||
+        session.metadata?.kind === 'routing_fee'
+      ) {
         await recordPlatformCheckout(session)
       }
     }
@@ -475,6 +868,10 @@ router.post('/stripe-webhook', async (req, res) => {
       event.type === 'customer.subscription.deleted'
     ) {
       await syncSubscription(event.data.object as any)
+    }
+
+    if (event.type === 'invoice.paid') {
+      await resetSubscriptionAllotmentFromInvoice(stripe, event.data.object as any)
     }
 
     res.json({ received: true })

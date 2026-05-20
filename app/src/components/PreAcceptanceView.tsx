@@ -3,13 +3,27 @@
  * Answers: Is this case worth my time? What's the likely value? What evidence exists?
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { formatCurrency } from '../lib/formatters'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, Clock } from 'lucide-react'
 
 function formatClaimType(s: string) {
   return (s || 'unknown').replace(/_/g, ' ')
 }
+
+function formatCountdown(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return hours > 0
+    ? `${hours}:${pad(minutes)}:${pad(seconds)}`
+    : `${minutes}:${pad(seconds)}`
+}
+
+const DEFAULT_MEDICAL_PENDING_MESSAGE =
+  'Medical records and extracted treatment details are pending plaintiff account creation and HIPAA authorization. The visible case summary is based on intake answers only until the plaintiff authorizes medical document sharing.'
 
 interface PreAcceptanceViewProps {
   selectedLead: any
@@ -67,6 +81,13 @@ export default function PreAcceptanceView({
   const [requestInfoOpen, setRequestInfoOpen] = useState(false)
   const [requestInfoNotes, setRequestInfoNotes] = useState('')
   const [activeTab, setActiveTab] = useState<'snapshot' | 'value' | 'risks' | 'documents' | 'decision'>('snapshot')
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!caseExpiresAt || accepted) return
+    const intervalId = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(intervalId)
+  }, [accepted, caseExpiresAt])
 
   const claimType = formatClaimType(selectedLead?.assessment?.claimType || '')
   const location = [selectedLead?.assessment?.venueCounty, selectedLead?.assessment?.venueState]
@@ -74,28 +95,44 @@ export default function PreAcceptanceView({
     .join(', ') || '—'
   const valueLow = bands?.p25 ?? bands?.low ?? 0
   const valueHigh = bands?.p75 ?? bands?.high ?? bands?.median ?? 0
+  const routingPricing = selectedLead?.routingPricing
+  const routingFee = typeof routingPricing?.priceCents === 'number'
+    ? formatCurrency(routingPricing.priceCents / 100)
+    : null
+  const routingTierLabel = routingPricing?.tierLabel || 'Pricing tier not assigned'
   const caseScore = Math.round((selectedLead?.viabilityScore ?? viability?.overall ?? 0) * 100)
   const caseStrength =
     caseScore >= 70 ? 'Strong' : caseScore >= 40 ? 'Moderate' : 'Weak'
 
   // Evidence status
-  const evidenceItems = evidenceChecklist?.required || []
-  const evidenceUploaded = evidenceItems.filter((e: any) => e?.uploaded).length
-  const evidenceTotal = evidenceItems.length || 1
-  const evidenceScore = evidenceTotal > 0 ? Math.round((evidenceUploaded / evidenceTotal) * 100) : 0
-  const evidenceStatus = evidenceUploaded > 0 ? `${evidenceUploaded}/${evidenceTotal} uploaded` : 'Pending'
+  const evidenceItems = Array.isArray(evidenceChecklist?.required) ? evidenceChecklist.required : []
   const expectedTimeline = '8–14 months'
-  const hasMedical = treatments.length > 0 || leadEvidenceFiles.some((f: any) => f?.category === 'medical')
-  const hasPolice = leadEvidenceFiles.some((f: any) => f?.category === 'police') || filesCount > 0
+  const medicalSharing = selectedLead?.assessment?.medicalSharing
+  const medicalSharingPending = medicalSharing && medicalSharing.canShareMedicalData === false
+  const medicalPendingMessage = medicalSharing?.message || DEFAULT_MEDICAL_PENDING_MESSAGE
+  const hasMedical = !medicalSharingPending && (
+    treatments.length > 0
+    || leadEvidenceFiles.some((f: any) => ['medical', 'medical_records', 'bills', 'medical_bill'].includes(String(f?.category || f?.subcategory || '')))
+  )
+  const hasPolice = leadEvidenceFiles.some((f: any) => ['police', 'police_report'].includes(String(f?.category || f?.subcategory || ''))) || filesCount > 0
   const hasPhotos = leadEvidenceFiles.some((f: any) => f?.category === 'photos')
+  const hasWageLoss = leadEvidenceFiles.some((f: any) => ['wage', 'wage_loss'].includes(String(f?.category || f?.subcategory || '')))
 
   const evidenceList = [
-    { label: 'Medical records', status: hasMedical ? 'Uploaded' : 'Missing' },
+    { label: 'Medical records', status: medicalSharingPending ? 'Pending authorization' : hasMedical ? 'Uploaded' : 'Missing' },
     { label: 'Injury photos', status: hasPhotos ? 'Uploaded' : 'Missing' },
     { label: 'Police report', status: hasPolice ? 'Uploaded' : 'Missing' },
-    { label: 'Wage loss docs', status: 'Missing' }
+    { label: 'Wage loss docs', status: hasWageLoss ? 'Uploaded' : 'Missing' }
   ]
-  const missingDocuments = evidenceList.filter((item) => item.status !== 'Uploaded')
+  const derivedEvidenceUploaded = evidenceList.filter((item) => item.status === 'Uploaded').length
+  const derivedEvidenceTotal = evidenceList.length
+  const evidenceUploaded = evidenceItems.length > 0
+    ? evidenceItems.filter((e: any) => e?.uploaded).length
+    : derivedEvidenceUploaded
+  const evidenceTotal = evidenceItems.length > 0 ? evidenceItems.length : derivedEvidenceTotal
+  const evidenceScore = evidenceTotal > 0 ? Math.round((evidenceUploaded / evidenceTotal) * 100) : 0
+  const evidenceStatus = evidenceUploaded > 0 ? `${evidenceUploaded}/${evidenceTotal} uploaded` : 'Pending'
+  const missingDocuments = evidenceList.filter((item) => item.status !== 'Uploaded' && item.status !== 'Pending authorization')
   const attorneyFitScore = Math.round(
     [
       venueState ? 1 : 0.5,
@@ -140,15 +177,12 @@ export default function PreAcceptanceView({
   if (venueState) matchReasons.push(`${venueState} jurisdiction`)
   if (valueLow > 0 && valueHigh > 0) matchReasons.push('Estimated value within your preferred range')
 
-  const expiresIn = caseExpiresAt
-    ? (() => {
-        const ms = caseExpiresAt.getTime() - Date.now()
-        const h = Math.floor(ms / 3600000)
-        const m = Math.floor((ms % 3600000) / 60000)
-        return h > 0 ? `${h}h ${m}m` : `${m}m`
-      })()
-    : null
-  const deadlineUrgency = expiresIn ? `Response window: ${expiresIn}` : 'No response deadline shown'
+  const timeRemainingMs = caseExpiresAt ? caseExpiresAt.getTime() - now : null
+  const isExpired = timeRemainingMs != null && timeRemainingMs <= 0
+  const expiresIn = timeRemainingMs != null ? formatCountdown(timeRemainingMs) : null
+  const deadlineUrgency = expiresIn
+    ? isExpired ? 'Response window expired' : `Response window: ${expiresIn}`
+    : 'No response deadline shown'
   const decisionRecommendation =
     caseScore >= 70 && risks.length <= 1
       ? 'Strong accept candidate'
@@ -174,14 +208,14 @@ export default function PreAcceptanceView({
             <div className="flex gap-3">
               <button
                 onClick={onAccept}
-                disabled={loading}
+                disabled={loading || isExpired}
                 className="px-6 py-3 text-base font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50"
               >
-                Accept Case
+                {routingFee ? `Accept Case - ${routingFee}` : 'Accept Case'}
               </button>
               <button
                 onClick={onDecline}
-                disabled={loading}
+                disabled={loading || isExpired}
                 className="px-6 py-3 text-base font-semibold text-red-600 border-2 border-red-300 rounded-lg hover:bg-red-50 disabled:opacity-50"
               >
                 Decline
@@ -218,9 +252,44 @@ export default function PreAcceptanceView({
               {expectedTimeline}
             </p>
           </div>
+          <div>
+            <span className="text-gray-500">Routing Fee:</span>
+            <p className="font-semibold text-gray-900">
+              {routingFee || 'Not assigned'}
+            </p>
+          </div>
         </div>
+        {!accepted && (
+          <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-semibold">Cost to accept: {routingFee || 'pricing not assigned'}</p>
+                <p className="mt-1 text-blue-800">
+                  {routingTierLabel}
+                  {routingPricing?.description ? ` - ${routingPricing.description}` : ''}
+                </p>
+              </div>
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-700">
+                Due on acceptance
+              </span>
+            </div>
+          </div>
+        )}
         {!accepted && expiresIn && (
-          <p className="mt-4 text-sm font-medium text-amber-700">Case expires in {expiresIn}</p>
+          <div className={`mt-4 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
+            isExpired
+              ? 'border-red-200 bg-red-50 text-red-700'
+              : 'border-amber-200 bg-amber-50 text-amber-800'
+          }`}>
+            <Clock className="h-4 w-4" />
+            <span>{isExpired ? 'Response window expired' : `Time left to accept: ${expiresIn}`}</span>
+          </div>
+        )}
+        {medicalSharingPending && (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <p className="font-semibold">Medical records pending authorization</p>
+            <p className="mt-1">{medicalPendingMessage}</p>
+          </div>
         )}
       </div>
 
@@ -309,6 +378,11 @@ export default function PreAcceptanceView({
                   {hasMedical ? 'documented' : 'not yet documented'}, and {missingDocuments.length} key document
                   {missingDocuments.length === 1 ? ' is' : 's are'} still missing.
                 </p>
+                {medicalSharingPending && (
+                  <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                    Medical records and extracted treatment details are not visible yet because HIPAA authorization is pending.
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -354,6 +428,12 @@ export default function PreAcceptanceView({
 
           {activeTab === 'documents' && (
             <div className="space-y-4">
+              {medicalSharingPending && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  <p className="font-semibold">Medical records pending authorization</p>
+                  <p className="mt-1">{medicalPendingMessage}</p>
+                </div>
+              )}
               <div className="grid gap-3 md:grid-cols-4">
                 {evidenceList.map((item) => (
                   <div key={item.label} className="rounded-lg border border-slate-200 p-4">
@@ -388,9 +468,15 @@ export default function PreAcceptanceView({
                   Use Accept when the case fits your venue, value, and capacity. Use Decline with a reason when there is a conflict, jurisdiction issue, capacity issue, or low-value concern.
                 </p>
                 {!accepted && (
+                  <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                    <p className="font-semibold">Routing fee before acceptance: {routingFee || 'Not assigned'}</p>
+                    <p className="mt-1 text-xs text-blue-800">{routingTierLabel}</p>
+                  </div>
+                )}
+                {!accepted && (
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button onClick={onAccept} disabled={loading} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50">
-                      Accept
+                      {routingFee ? `Accept - ${routingFee}` : 'Accept'}
                     </button>
                     <button onClick={onDecline} disabled={loading} className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">
                       Decline with reason

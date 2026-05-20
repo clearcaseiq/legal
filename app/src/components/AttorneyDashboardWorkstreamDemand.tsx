@@ -3,6 +3,7 @@ import type {
   AttorneyDashboardLeadAnalysis,
   AttorneyDashboardLeadFacts,
 } from './attorneyDashboardShared'
+import { formatCurrency } from '../lib/formatters'
 
 type AttorneyDashboardWorkstreamDemandProps = {
   selectedLead: AttorneyDashboardLead
@@ -33,6 +34,7 @@ export default function AttorneyDashboardWorkstreamDemand({
 }: AttorneyDashboardWorkstreamDemandProps) {
   const analysis = (selectedLeadAnalysis || {}) as any
   const facts: any = selectedLeadFacts || {}
+  const damages = facts?.damages || {}
   const injuries = Array.isArray(facts?.injuries) ? facts.injuries : []
   const treatments = Array.isArray(facts?.treatment) ? facts.treatment : []
   const filesCount = Array.isArray(selectedLead?.assessment?.files) ? selectedLead.assessment.files.length : 0
@@ -123,7 +125,9 @@ export default function AttorneyDashboardWorkstreamDemand({
       </div>
       {(() => {
         const draft = analysis?.demandPackage?.demandDraft?.trim() || ''
-        const summary = analysis?.demandPackage?.damageSummary?.trim() || ''
+        const aiSummary = analysis?.demandPackage?.damageSummary?.trim() || ''
+        const currentDamageSummary = buildCurrentDamageSummary(damages)
+        const summary = summaryContradictsDamages(aiSummary, damages) ? currentDamageSummary : aiSummary || currentDamageSummary
         const outline = analysis?.demandPackage?.liabilityOutline?.trim() || ''
         const hasDraft = draft.length >= 50 && !['n/a', 'na', 'not available', 'not available.'].includes(draft.toLowerCase())
         const hasSummary = summary.length > 0 && !['n/a', 'na', 'not available', 'not available.'].includes(summary.toLowerCase())
@@ -166,5 +170,33 @@ export default function AttorneyDashboardWorkstreamDemand({
         )
       })()}
     </>
+  )
+}
+
+function buildCurrentDamageSummary(damages: any) {
+  const medicalCharges = Number(damages?.med_charges || damages?.estimated_med_charges || 0)
+  const wageLoss = Number(damages?.wage_loss || damages?.estimated_wage_loss || 0)
+  const outOfPocket = Number(damages?.estimated_out_of_pocket || 0)
+  const futureMedical = Number(damages?.estimated_future_med_charges || 0)
+  const parts = [
+    medicalCharges > 0 ? `medical charges of ${formatCurrency(medicalCharges)}` : null,
+    wageLoss > 0 ? `wage loss of ${formatCurrency(wageLoss)}` : null,
+    outOfPocket > 0 ? `out-of-pocket expenses of ${formatCurrency(outOfPocket)}` : null,
+    futureMedical > 0 ? `future medical estimates of ${formatCurrency(futureMedical)}` : null,
+  ].filter(Boolean)
+
+  return parts.length > 0
+    ? `Current damages include ${parts.join(', ')}. Pain and suffering should be evaluated in addition to these economic damages.`
+    : ''
+}
+
+function summaryContradictsDamages(summary: string, damages: any) {
+  if (!summary || !buildCurrentDamageSummary(damages)) return false
+  const lower = summary.toLowerCase()
+  return (
+    lower.includes('no reported medical charges') ||
+    lower.includes('no reported medical expenses') ||
+    lower.includes('no reported wage loss') ||
+    lower.includes('no reported medical charges or wage loss')
   )
 }

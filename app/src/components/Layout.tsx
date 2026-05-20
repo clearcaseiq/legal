@@ -14,7 +14,7 @@ import {
 } from './StartupIcons'
 import { useTheme } from '../contexts/ThemeContext'
 import { useLanguage } from '../contexts/LanguageContext'
-import { clearStoredAuth, getStoredUser, hasValidAuthToken } from '../lib/auth'
+import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken } from '../lib/auth'
 import { loadPlaintiffHasCase, resetPlaintiffCaseHintCache } from '../lib/plaintiffCaseHint'
 
 const NotificationBell = lazy(() => import('./NotificationBell'))
@@ -51,13 +51,19 @@ export default function Layout({ children }: LayoutProps) {
   const authToken = localStorage.getItem('auth_token')
   const attorney = localStorage.getItem('attorney')
   const isAuthenticated = hasValidAuthToken()
-  const isAdmin = location.pathname.startsWith('/admin')
+  const storedRole = getStoredRole()
+  const isAdmin = isAuthenticated && storedRole === 'admin'
+  const isAdminArea = location.pathname.startsWith('/admin')
   const isDashboard = location.pathname.startsWith('/dashboard')
   const isAttorney = !isAdmin && (!!attorney || location.pathname.startsWith('/attorney-dashboard') || location.pathname.startsWith('/firm-dashboard'))
   const shouldLoadPlaintiffSummary = !!authToken && !isAttorney
   const storedUser = getStoredUser<{ firstName?: string }>('user')
   const userName = storedUser?.firstName || 'User'
   const headerLabel = isAdmin ? 'Admin' : (userName || 'User')
+  const pendingAssessmentId =
+    typeof window !== 'undefined' && !isAuthenticated
+      ? localStorage.getItem('pending_assessment_id')
+      : null
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -102,12 +108,24 @@ export default function Layout({ children }: LayoutProps) {
     navigate('/')
   }
 
+  const caseNavItem = isAdmin
+    ? { name: 'Cases', href: '/admin/cases', icon: FileTextIcon }
+    : isAttorney
+      ? { name: t('common.myCases'), href: '/attorney-dashboard?tab=leads', icon: FileTextIcon }
+      : (isAuthenticated || hasCase)
+        ? {
+            name: hasCase ? t('common.continueMyCase') : 'My Case Status',
+            href: !isAuthenticated && pendingAssessmentId ? `/results/${pendingAssessmentId}` : navLinks.myCase,
+            icon: FileTextIcon,
+          }
+        : null
+
   const navItems = [
     { name: t('common.howItWorks'), href: navLinks.howItWorks, icon: null },
-    { name: isAdmin ? 'Cases' : isAttorney ? t('common.myCases') : (hasCase ? t('common.continueMyCase') : t('common.myCase')), href: isAdmin ? '/admin/cases' : isAttorney ? '/attorney-dashboard?tab=leads' : navLinks.myCase, icon: FileTextIcon },
+    caseNavItem,
     { name: t('common.forAttorneys'), href: navLinks.forAttorneys, icon: ScaleIcon },
     { name: t('common.help'), href: navLinks.help, icon: HelpCircleIcon },
-  ]
+  ].filter((item): item is { name: string; href: string; icon: typeof FileTextIcon | null } => Boolean(item))
 
   const shellIconFallback = <div className="h-9 w-9 rounded-lg bg-slate-100 dark:bg-slate-800" aria-hidden />
   const languageFallback = <div className="h-5 w-16 rounded bg-slate-100 dark:bg-slate-800" aria-hidden />
@@ -142,7 +160,7 @@ export default function Layout({ children }: LayoutProps) {
             </div>
 
             {/* Center nav - hidden during intake for focus mode */}
-            {!['/assess', '/intake'].includes(location.pathname) && (
+              {!['/assess', '/intake', '/rose'].includes(location.pathname) && (
             <nav className="hidden md:flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/72 px-2 py-1 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
               {navItems.map((item) => {
                 const Icon = item.icon
@@ -201,18 +219,18 @@ export default function Layout({ children }: LayoutProps) {
                     {userMenuOpen && (
                       <div className="absolute right-0 mt-1 w-48 py-1 bg-white rounded-lg shadow-lg border border-slate-200">
                         <Link
-                          to={isAdmin ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'}
+                          to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'}
                           onClick={() => setUserMenuOpen(false)}
                           className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
                         >
-                          {isAdmin ? t('common.adminDashboard') : t('common.dashboard')}
+                          {isAdminArea ? t('common.adminDashboard') : t('common.dashboard')}
                         </Link>
                         <Link
-                          to={isAdmin ? '/admin/cases' : isAttorney ? '/attorney-dashboard?tab=leads' : '/assessments'}
+                          to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard?tab=leads' : '/assessments'}
                           onClick={() => setUserMenuOpen(false)}
                           className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
                         >
-                          {isAdmin ? 'Cases' : t('common.myCases')}
+                          {isAdminArea ? 'Cases' : t('common.myCases')}
                         </Link>
                         {!isAdmin && (
                         <Link
@@ -272,14 +290,15 @@ export default function Layout({ children }: LayoutProps) {
                   </div>
 
                   {/* Primary CTA - hidden during assessment/results/attorney registration */}
-                  {!['/assess', '/intake', '/assessment/start'].includes(location.pathname) &&
+                  {!['/assess', '/intake', '/rose', '/assessment/start'].includes(location.pathname) &&
                     !location.pathname.startsWith('/results') &&
                     !location.pathname.startsWith('/attorney-register') &&
                     !location.pathname.startsWith('/attorney-license-upload') && (
                     <Link
                       to={navLinks.startAssessment}
-                      className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-brand-700 to-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:from-brand-800 hover:to-brand-700 hover:shadow-md"
+                      className="inline-flex items-center justify-center gap-1.5 rounded-full bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-accent-500/25 ring-1 ring-white/20 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-accent-500/30 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
                     >
+                      <FileTextIcon className="h-4 w-4" aria-hidden />
                       {t('common.startAssessment')}
                     </Link>
                   )}
@@ -305,10 +324,10 @@ export default function Layout({ children }: LayoutProps) {
                       {darkMode ? 'Light mode' : 'Dark mode'}
                     </button>
                   )}
-                  {!['/assess', '/intake'].includes(location.pathname) && (
+                  {!['/assess', '/intake', '/rose'].includes(location.pathname) && (
                     <>
-                      <Link to={isAdmin ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'} onClick={() => setMobileMenuOpen(false)} className="py-2 text-sm font-medium text-slate-700 dark:text-slate-200">{isAdmin ? 'Admin Dashboard' : 'Dashboard'}</Link>
-                      <Link to={isAdmin ? '/admin/cases' : isAttorney ? '/attorney-dashboard?tab=leads' : navLinks.myCase} onClick={() => setMobileMenuOpen(false)} className="py-2 text-sm font-medium text-slate-700">{isAdmin ? 'Cases' : isAttorney ? 'My Cases' : (hasCase ? 'Continue My Case' : 'My Case')}</Link>
+                      <Link to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'} onClick={() => setMobileMenuOpen(false)} className="py-2 text-sm font-medium text-slate-700 dark:text-slate-200">{isAdminArea ? 'Admin Dashboard' : 'Dashboard'}</Link>
+                      <Link to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard?tab=leads' : navLinks.myCase} onClick={() => setMobileMenuOpen(false)} className="py-2 text-sm font-medium text-slate-700">{isAdminArea ? 'Cases' : isAttorney ? 'My Cases' : (hasCase ? 'Continue My Case' : 'My Case')}</Link>
                   <Link to={navLinks.howItWorks} onClick={() => setMobileMenuOpen(false)} className="py-2 text-sm font-medium text-slate-700">{t('common.howItWorks')}</Link>
                   <Link to={navLinks.help} onClick={() => setMobileMenuOpen(false)} className="py-2 text-sm font-medium text-slate-700">{t('common.help')}</Link>
                     </>
@@ -328,7 +347,7 @@ export default function Layout({ children }: LayoutProps) {
                 </>
               ) : (
                 <>
-                  {!['/assess', '/intake'].includes(location.pathname) && navItems.map((item) => (
+                  {!['/assess', '/intake', '/rose'].includes(location.pathname) && navItems.map((item) => (
                     <Link
                       key={item.name}
                       to={item.href}
@@ -344,15 +363,16 @@ export default function Layout({ children }: LayoutProps) {
                     <Link to={navLinks.attorneyLogin} onClick={() => setMobileMenuOpen(false)} className="block py-1.5 text-sm text-slate-700">{t('common.attorneyLogin')}</Link>
                     <Link to={navLinks.adminLogin} onClick={() => setMobileMenuOpen(false)} className="block py-1.5 text-sm text-slate-700">{t('common.adminLogin')}</Link>
                   </div>
-                  {!['/assess', '/intake', '/assessment/start'].includes(location.pathname) &&
+                  {!['/assess', '/intake', '/rose', '/assessment/start'].includes(location.pathname) &&
                     !location.pathname.startsWith('/results') &&
                     !location.pathname.startsWith('/attorney-register') &&
                     !location.pathname.startsWith('/attorney-license-upload') && (
                     <Link
                       to={navLinks.startAssessment}
                       onClick={() => setMobileMenuOpen(false)}
-                      className="py-3 mt-2 text-center font-semibold text-white bg-brand-700 rounded-lg block"
+                      className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-4 py-3 text-center font-bold text-white shadow-lg shadow-accent-500/25"
                     >
+                      <FileTextIcon className="h-5 w-5" aria-hidden />
                       {t('common.startAssessment')}
                     </Link>
                   )}
@@ -364,14 +384,21 @@ export default function Layout({ children }: LayoutProps) {
       </header>
 
       {/* Main content - reduced padding during assessment for focused flow */}
-      <main id="main-content" className={`mx-auto max-w-7xl sm:px-6 lg:px-8 ${['/assess', '/intake'].includes(location.pathname) ? 'py-4' : 'py-8'}`}>
-        <div className="px-4 sm:px-0">
+      <main
+        id="main-content"
+        className={`mx-auto max-w-7xl sm:px-6 lg:px-8 ${
+          ['/assess', '/intake'].includes(location.pathname)
+            ? 'h-[calc(100dvh-3.5rem)] overflow-hidden py-2 md:h-[calc(100dvh-4rem)]'
+            : 'py-8'
+        }`}
+      >
+        <div className={`px-4 sm:px-0 ${['/assess', '/intake'].includes(location.pathname) ? 'h-full overflow-hidden' : ''}`}>
           {children}
         </div>
       </main>
 
       {/* Footer - hidden during assessment flow to reduce distractions */}
-      {!['/assess', '/intake'].includes(location.pathname) && (
+      {!['/assess', '/intake', '/rose'].includes(location.pathname) && (
       isDashboard ? (
       <footer className="mt-auto border-t border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
@@ -394,6 +421,9 @@ export default function Layout({ children }: LayoutProps) {
               <p className="mt-1.5 max-w-md text-xs leading-relaxed text-slate-400">
                 {t('footer.tagline')}
               </p>
+              <p className="mt-1 max-w-md text-xs leading-relaxed text-slate-300">
+                {t('footer.privacyLine')}
+              </p>
               <div className="mt-2 flex flex-wrap items-center gap-2.5">
                 <a
                   href="mailto:support@clearcaseiq.com?subject=Support%20Request"
@@ -401,12 +431,9 @@ export default function Layout({ children }: LayoutProps) {
                 >
                   {t('footer.contactSupport')}
                 </a>
-                <Link to={navLinks.howItWorks} className="text-xs text-slate-400 transition-colors hover:text-white">
-                  {t('common.howItWorks')}
-                </Link>
-                <Link to="/help" className="text-xs text-slate-400 transition-colors hover:text-white">
-                  {t('footer.helpCenter')}
-                </Link>
+                <a href="mailto:support@clearcaseiq.com?subject=Support%20Request" className="text-xs text-slate-400 transition-colors hover:text-white">
+                  {t('footer.supportEmail')}
+                </a>
               </div>
             </div>
             <div className="lg:col-span-3">
@@ -414,7 +441,8 @@ export default function Layout({ children }: LayoutProps) {
               <ul className="space-y-1 text-sm">
                 <li><Link to={navLinks.startAssessment} className="text-slate-400 transition-colors hover:text-white">{t('footer.caseAssessment')}</Link></li>
                 <li><Link to="/case-tracker" className="text-slate-400 transition-colors hover:text-white">{t('footer.caseTracker')}</Link></li>
-                <li><Link to={navLinks.howItWorks} className="text-slate-400 transition-colors hover:text-white">{t('common.howItWorks')}</Link></li>
+                <li><Link to={navLinks.startAssessment} className="text-slate-400 transition-colors hover:text-white">{t('footer.selfHelpDemand')}</Link></li>
+                <li><Link to="/attorneys" className="text-slate-400 transition-colors hover:text-white">{t('footer.attorneyReview')}</Link></li>
               </ul>
             </div>
             <div className="lg:col-span-2">
@@ -428,6 +456,7 @@ export default function Layout({ children }: LayoutProps) {
             <div className="lg:col-span-3">
               <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.resources')}</h3>
               <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
+                <Link to={navLinks.howItWorks} className="text-slate-400 transition-colors hover:text-white">{t('common.howItWorks')}</Link>
                 <Link to="/help" className="text-slate-400 transition-colors hover:text-white">{t('footer.helpCenter')}</Link>
                 <Link to="/help#getting-started" className="text-slate-400 transition-colors hover:text-white">{t('footer.gettingStarted')}</Link>
                 <Link to="/terms-of-service" className="text-slate-400 transition-colors hover:text-white">{t('footer.termsOfService')}</Link>

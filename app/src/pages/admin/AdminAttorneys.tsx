@@ -3,6 +3,21 @@ import { useNavigate } from 'react-router-dom'
 import { getAdminAttorneys } from '../../lib/api'
 import { RefreshCw, ExternalLink, Users, Star, CheckCircle, Clock } from 'lucide-react'
 
+function formatLastActive(value?: string | null) {
+  if (!value) return 'Never logged in'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Unknown'
+  const diffMs = Date.now() - date.getTime()
+  const diffMinutes = Math.max(0, Math.floor(diffMs / 60000))
+  if (diffMinutes < 1) return 'Just now'
+  if (diffMinutes < 60) return `${diffMinutes}m ago`
+  const diffHours = Math.floor(diffMinutes / 60)
+  if (diffHours < 24) return `${diffHours}h ago`
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays < 7) return `${diffDays}d ago`
+  return date.toLocaleDateString()
+}
+
 export default function AdminAttorneys() {
   const navigate = useNavigate()
   const [attorneys, setAttorneys] = useState<any[]>([])
@@ -144,6 +159,9 @@ export default function AdminAttorneys() {
                       <div className="mt-2 flex items-center text-xs text-slate-500">
                         <Clock className="mr-1 h-3 w-3" />
                         ~{a.responseTimeHours ?? 24}h response
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Last active: {formatLastActive(a.lastActiveAt)}
                       </div>
                     </td>
                     <td className="py-3 px-4">

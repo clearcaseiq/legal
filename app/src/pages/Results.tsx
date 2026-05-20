@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, Link, useSearchParams } from 'react-router-dom'
 import {
   getAssessment,
@@ -14,6 +14,7 @@ import {
   getPlaintiffMedicalReview,
   getSettlementBenchmarks,
   savePlaintiffMedicalReview,
+  saveDamageEstimates,
   searchAttorneys,
   submitCaseForReview,
   type PlaintiffMedicalReviewEdit,
@@ -120,12 +121,49 @@ function normalizeReportText(value?: string | null) {
     .trim()
 }
 
+function isLostWageEvidence(file: any) {
+  const text = `${file?.category ?? ''} ${file?.originalName ?? ''} ${file?.aiClassification ?? ''} ${file?.aiSummary ?? ''}`.toLowerCase()
+  return /\b(wage|wages|lost wages|payroll|pay stub|employer|income|earnings)\b/.test(text)
+}
+
+function isDamagesSummaryEvidence(file: any) {
+  const text = `${file?.originalName ?? ''} ${file?.aiClassification ?? ''} ${file?.aiSummary ?? ''}`.toLowerCase()
+  return /\b(damages summary|economic damages|total economic damages)\b/.test(text)
+}
+
+function parseJsonArrayValue(value?: string | null) {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function getDocumentProcessingLabel(file: any) {
+  const latestJob = Array.isArray(file?.processingJobs) ? file.processingJobs[0] : null
+  if (file?.processingStatus === 'failed' || latestJob?.status === 'failed') return 'Could not read'
+  if (file?.processingStatus === 'processing' || latestJob?.status === 'running') return 'Reading document'
+  if (file?.processingStatus === 'completed') {
+    return file?.extractedData?.[0]?.isManualReview ? 'Needs review' : 'Extracted'
+  }
+  return 'Uploaded'
+}
+
+function normalizeExplainability(value: any) {
+  if (Array.isArray(value)) return value
+  if (!value || typeof value !== 'object') return []
+  return Object.values(value).filter((item) => item && typeof item === 'object')
+}
+
 function getMissingDocAction(item: any, assessmentId?: string) {
   const label = String(item?.label ?? '').toLowerCase()
   if (label.includes('hipaa')) {
+    const returnPath = assessmentId ? `/results/${assessmentId}` : '/results'
     return {
       label: 'Complete HIPAA authorization',
-      to: '/hipaa-authorization',
+      to: `/hipaa-authorization?return=${encodeURIComponent(returnPath)}`,
     }
   }
 
@@ -177,6 +215,33 @@ function getAttorneyWhyMatched(
     || attorney.law_firm?.state
     || (Array.isArray(attorney.venues) ? attorney.venues[0] : '')
   return `Why matched: strong for ${specialty} matters${venue ? ` in ${venue}` : ''}.`
+}
+
+function getAttorneyRecommendationReasons(
+  attorney: any,
+  context?: {
+    assessmentClaimType?: string
+    venueState?: string
+    venueCounty?: string
+  }
+) {
+  const reasons: string[] = []
+  const specialty = context?.assessmentClaimType
+    ? formatClaimTypeLabel(context.assessmentClaimType)
+    : Array.isArray(attorney.specialties) && attorney.specialties[0]
+      ? formatClaimTypeLabel(attorney.specialties[0])
+      : ''
+  const venue = formatVenueLabel(context?.venueState, context?.venueCounty)
+    || attorney.law_firm?.state
+    || (Array.isArray(attorney.venues) ? attorney.venues[0] : '')
+
+  if (specialty) reasons.push(`Handles ${specialty} cases`)
+  if (venue) reasons.push(`Serves ${venue}`)
+  if ((attorney.responseTimeHours || 24) <= 8 || attorney.responseBadge) reasons.push(getResponseBadge(attorney))
+  if (attorney.yearsExperience) reasons.push(`${attorney.yearsExperience}+ years of experience`)
+  if ((attorney.averageRating || attorney.rating || 0) > 0) reasons.push(`${(attorney.averageRating || attorney.rating || 0).toFixed(1)} average rating`)
+
+  return reasons.length > 0 ? reasons.slice(0, 3) : [getAttorneyWhyMatched(attorney, context)]
 }
 
 function buildTimelineEstimate(params: {
@@ -279,7 +344,7 @@ export default function Results() {
   const [resubmitLoading, setResubmitLoading] = useState(false)
   const [resubmitMessage, setResubmitMessage] = useState<string | null>(null)
   const [evidenceCount, setEvidenceCount] = useState(0)
-  const [evidenceFiles, setEvidenceFiles] = useState<{ category?: string }[]>([])
+  const [evidenceFiles, setEvidenceFiles] = useState<any[]>([])
   const [similarCases, setSimilarCases] = useState<SimilarCase[]>([])
   const [templateCopied, setTemplateCopied] = useState(false)
   const [wageLossForm, setWageLossForm] = useState({
@@ -295,6 +360,17 @@ export default function Results() {
   const [wageLossHydrated, setWageLossHydrated] = useState(false)
   const [wageLossSaving, setWageLossSaving] = useState(false)
   const [wageLossStatus, setWageLossStatus] = useState<string | null>(null)
+  const [damageEstimateHydrated, setDamageEstimateHydrated] = useState(false)
+  const [damageEstimateForm, setDamageEstimateForm] = useState({
+    medicalBillsEstimate: '',
+    lostWagesEstimate: '',
+    outOfPocketEstimate: '',
+    propertyDamageEstimate: '',
+    futureTreatmentEstimate: '',
+    notes: '',
+  })
+  const [damageEstimateSaving, setDamageEstimateSaving] = useState(false)
+  const [damageEstimateStatus, setDamageEstimateStatus] = useState<string | null>(null)
   const [coachQuestion, setCoachQuestion] = useState('')
   const [coachAnswer, setCoachAnswer] = useState<string | null>(null)
   const [medicalChronology, setMedicalChronology] = useState<any[]>([])
@@ -312,7 +388,12 @@ export default function Results() {
   const [caseSubmittedForReview, setCaseSubmittedForReview] = useState(false)
   const [submitLoading, setSubmitLoading] = useState(false)
   const [sendModalOpen, setSendModalOpen] = useState(false)
+  const [saveReviewPromptOpen, setSaveReviewPromptOpen] = useState(false)
+  const [reviewPromptDismissed, setReviewPromptDismissed] = useState(false)
   const [contactForm, setContactForm] = useState({ firstName: '', email: '', phone: '', preferredContactMethod: 'phone' as 'phone' | 'text' | 'email' })
+  const [hipaaAuthorizationComplete, setHipaaAuthorizationComplete] = useState(() =>
+    typeof window !== 'undefined' && localStorage.getItem('consent_read_hipaa') === 'true'
+  )
   const [sendHipaaConsent, setSendHipaaConsent] = useState(false)
   const [contactFormError, setContactFormError] = useState<string | null>(null)
   const [commandCenter, setCommandCenter] = useState<CaseCommandCenter | null>(null)
@@ -332,7 +413,7 @@ export default function Results() {
 
   const venueState = assessment?.venue?.state || assessment?.venueState || 'Unknown'
   const venueCounty = assessment?.venue?.county || assessment?.venueCounty
-  const hasHipaaConsent = parsedFacts?.consents?.hipaa === true
+  const hasHipaaConsent = parsedFacts?.consents?.hipaa === true || hipaaAuthorizationComplete
 
   const refreshMatchedAttorneys = async () => {
     if (!assessment || !venueState) return []
@@ -365,6 +446,12 @@ export default function Results() {
     }
     setContactFormError(null)
     setSendHipaaConsent(hasHipaaConsent)
+    if (isLoggedIn === false) {
+      localStorage.setItem('pending_assessment_id', resolvedAssessmentId || '')
+      setSendModalOpen(true)
+      void refreshMatchedAttorneys()
+      return
+    }
     if (isLoggedIn) {
       loadPlaintiffSessionSummary().then((session) => {
         const user = session.user
@@ -473,10 +560,6 @@ export default function Results() {
       setContactFormError('Phone number is required')
       return
     }
-    if (!hasHipaaConsent && !sendHipaaConsent) {
-      setContactFormError('HIPAA authorization is required before sending your case to attorneys')
-      return
-    }
     let selectedRankedAttorneyIds = rankedAttorneyIds
     if (attorneySearchLoading) {
       setContactFormError('Please wait while we load your attorney matches.')
@@ -507,16 +590,18 @@ export default function Results() {
         email: email.trim(),
         phone: phone.trim(),
         preferredContactMethod,
-        hipaa: hasHipaaConsent || sendHipaaConsent,
+        hipaa: isLoggedIn ? hasHipaaConsent || sendHipaaConsent : false,
         rankedAttorneyIds: selectedRankedAttorneyIds
       })
       setCaseSubmittedForReview(true)
       setSendModalOpen(false)
       // Store case ID so Dashboard can associate if needed (backup for API association)
       localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
-      // Redirect to dashboard with case param so user lands on their case
-      const target = `${window.location.origin}/dashboard?case=${resolvedAssessmentId}`
-      window.location.replace(target)
+      if (isLoggedIn) {
+        // Redirect signed-in users to dashboard with case param so they land on their case
+        const target = `${window.location.origin}/dashboard?case=${resolvedAssessmentId}`
+        window.location.replace(target)
+      }
     } catch (err: any) {
       console.error('Failed to submit for review:', err)
       setContactFormError(err.response?.data?.error || 'Failed to submit. Please try again.')
@@ -660,59 +745,100 @@ export default function Results() {
     loadEvidence()
   }, [resolvedAssessmentId])
 
-  useEffect(() => {
-    const loadCaseInsights = async () => {
-      if (!resolvedAssessmentId) return
-      try {
-        const [chronology, preparation, plaintiffReview, benchmarks] = await Promise.all([
-          getMedicalChronology(resolvedAssessmentId).catch(() => []),
-          getCasePreparation(resolvedAssessmentId).catch(() => null),
-          getPlaintiffMedicalReview(resolvedAssessmentId).catch(() => null),
-          getSettlementBenchmarks(resolvedAssessmentId).catch(() => null)
-        ])
-        const fallbackReview: PlaintiffMedicalReviewPayload = plaintiffReview || {
-          chronology: Array.isArray(chronology) ? chronology : [],
-          missingItems: {
-            important: Array.isArray(preparation?.missingDocs)
-              ? preparation.missingDocs
-                  .filter((item: any) => item.priority === 'high')
-                  .map((item: any) => ({
-                    key: item.key,
-                    label: item.label,
-                    priority: item.priority,
-                    guidance: 'This would help complete your medical story before attorneys review it.',
-                  }))
-              : [],
-            helpful: Array.isArray(preparation?.missingDocs)
-              ? preparation.missingDocs
-                  .filter((item: any) => item.priority !== 'high')
-                  .map((item: any) => ({
-                    key: item.key,
-                    label: item.label,
-                    priority: item.priority,
-                    guidance: 'You may still want to upload this if you have it.',
-                  }))
-              : [],
-          },
-          review: {
-            status: 'pending',
-            edits: [],
-          },
+  const loadCaseInsights = useCallback(async () => {
+    if (!resolvedAssessmentId) return
+    try {
+      const [assessmentData, chronology, preparation, plaintiffReview, benchmarks, commandSummary] = await Promise.all([
+        getAssessment(resolvedAssessmentId).catch(() => null),
+        getMedicalChronology(resolvedAssessmentId).catch(() => []),
+        getCasePreparation(resolvedAssessmentId).catch(() => null),
+        getPlaintiffMedicalReview(resolvedAssessmentId).catch(() => null),
+        getSettlementBenchmarks(resolvedAssessmentId).catch(() => null),
+        getAssessmentCommandCenter(resolvedAssessmentId).catch(() => null),
+      ])
+      if (assessmentData) {
+        setAssessment(assessmentData)
+        setCaseSubmittedForReview(!!assessmentData.submittedForReview)
+        if (assessmentData.latest_prediction) {
+          setPrediction(assessmentData.latest_prediction)
         }
-        const reviewChronology = Array.isArray(fallbackReview?.chronology) ? fallbackReview.chronology : []
-        setMedicalChronology(reviewChronology.length > 0 ? reviewChronology : (Array.isArray(chronology) ? chronology : []))
-        setCasePreparation(preparation)
-        setPlaintiffMedicalReview(fallbackReview)
-        setSettlementBenchmarks(benchmarks)
-      } catch {
-        setMedicalChronology([])
-        setCasePreparation(null)
-        setPlaintiffMedicalReview(null)
-        setSettlementBenchmarks(null)
+      }
+      const fallbackReview: PlaintiffMedicalReviewPayload = plaintiffReview || {
+        chronology: Array.isArray(chronology) ? chronology : [],
+        missingItems: {
+          important: Array.isArray(preparation?.missingDocs)
+            ? preparation.missingDocs
+                .filter((item: any) => item.priority === 'high')
+                .map((item: any) => ({
+                  key: item.key,
+                  label: item.label,
+                  priority: item.priority,
+                  guidance: 'This would help complete your medical story before attorneys review it.',
+                }))
+            : [],
+          helpful: Array.isArray(preparation?.missingDocs)
+            ? preparation.missingDocs
+                .filter((item: any) => item.priority !== 'high')
+                .map((item: any) => ({
+                  key: item.key,
+                  label: item.label,
+                  priority: item.priority,
+                  guidance: 'You may still want to upload this if you have it.',
+                }))
+            : [],
+        },
+        review: {
+          status: 'pending',
+          edits: [],
+        },
+      }
+      const reviewChronology = Array.isArray(fallbackReview?.chronology) ? fallbackReview.chronology : []
+      setMedicalChronology(reviewChronology.length > 0 ? reviewChronology : (Array.isArray(chronology) ? chronology : []))
+      setCasePreparation(preparation)
+      setPlaintiffMedicalReview(fallbackReview)
+      setSettlementBenchmarks(benchmarks)
+      setCommandCenter(commandSummary)
+    } catch {
+      setMedicalChronology([])
+      setCasePreparation(null)
+      setPlaintiffMedicalReview(null)
+      setSettlementBenchmarks(null)
+      setCommandCenter(null)
+    }
+  }, [resolvedAssessmentId])
+
+  useEffect(() => {
+    loadCaseInsights()
+  }, [loadCaseInsights])
+
+  useEffect(() => {
+    if (!resolvedAssessmentId) return
+
+    let cancelled = false
+    let refreshTimeout: number | undefined
+    let attempts = 0
+    const refreshWhileProcessingSettles = async () => {
+      attempts += 1
+      await loadCaseInsights()
+      if (!cancelled && attempts < 10) {
+        refreshTimeout = window.setTimeout(refreshWhileProcessingSettles, 3000)
       }
     }
-    loadCaseInsights()
-  }, [resolvedAssessmentId])
+    const refreshOnReturn = () => {
+      if (document.visibilityState === 'visible') void loadCaseInsights()
+    }
+
+    refreshTimeout = window.setTimeout(refreshWhileProcessingSettles, 3000)
+    window.addEventListener('focus', refreshOnReturn)
+    document.addEventListener('visibilitychange', refreshOnReturn)
+
+    return () => {
+      cancelled = true
+      if (refreshTimeout) window.clearTimeout(refreshTimeout)
+      window.removeEventListener('focus', refreshOnReturn)
+      document.removeEventListener('visibilitychange', refreshOnReturn)
+    }
+  }, [resolvedAssessmentId, loadCaseInsights])
 
   useEffect(() => {
     const loadCommandCenter = async () => {
@@ -774,6 +900,13 @@ export default function Results() {
     }
   }, [resolvedAssessmentId, isLoggedIn])
 
+  useEffect(() => {
+    if (localStorage.getItem('consent_read_hipaa') === 'true') {
+      setHipaaAuthorizationComplete(true)
+      setSendHipaaConsent(true)
+    }
+  }, [])
+
   // Check authentication status on page load (for redirects from login/register)
   useEffect(() => {
     const checkAuthStatus = async () => {
@@ -809,6 +942,20 @@ export default function Results() {
     }
     setWageLossHydrated(true)
   }, [assessment, wageLossHydrated, parsedFacts])
+
+  useEffect(() => {
+    if (!assessment || damageEstimateHydrated) return
+    const damages = parsedFacts?.damages || {}
+    setDamageEstimateForm({
+      medicalBillsEstimate: damages.estimated_med_charges ? String(damages.estimated_med_charges) : '',
+      lostWagesEstimate: damages.estimated_wage_loss ? String(damages.estimated_wage_loss) : '',
+      outOfPocketEstimate: damages.estimated_out_of_pocket ? String(damages.estimated_out_of_pocket) : '',
+      propertyDamageEstimate: damages.estimated_property_damage ? String(damages.estimated_property_damage) : '',
+      futureTreatmentEstimate: damages.estimated_future_med_charges ? String(damages.estimated_future_med_charges) : '',
+      notes: damages.damage_estimate_notes || '',
+    })
+    setDamageEstimateHydrated(true)
+  }, [assessment, damageEstimateHydrated, parsedFacts])
 
 
   if (!resolvedAssessmentId) {
@@ -854,7 +1001,7 @@ export default function Results() {
 
   const viability = prediction?.viability
   const valueBands = prediction?.value_bands
-  const explainability = prediction?.explainability || []
+  const explainability = normalizeExplainability(prediction?.explainability)
   const readinessDetails = (() => {
     const facts = parsedFacts
     const injuries = Array.isArray(facts.injuries) ? facts.injuries : []
@@ -898,11 +1045,55 @@ export default function Results() {
   ]
 
   const damagesObj = parsedFacts?.damages || {}
+  const documentedMedicalCharges = Number(
+    damagesObj.med_charges ||
+    damagesObj.extracted_med_charges ||
+    damagesObj.estimated_med_charges ||
+    0,
+  )
+  const documentedWageLoss = Number(
+    damagesObj.wage_loss ||
+    damagesObj.extracted_wage_loss ||
+    damagesObj.estimated_wage_loss ||
+    parsedFacts?.caseAcceleration?.wageLoss ||
+    0,
+  )
   const hasInjuryPhotos = evidenceFiles.some(f => f.category === 'photos')
-  const hasMedicalRecords = evidenceFiles.some(f => f.category === 'medical_records')
-  const hasMedicalBills = evidenceFiles.some(f => f.category === 'bills')
+  const hasExtractedMedicalChronology = medicalChronology.some((event: any) => event?.source === 'medical_record' || event?.source === 'treatment')
+  const hasMedicalRecords = evidenceFiles.some(f => f.category === 'medical_records') || hasExtractedMedicalChronology
+  const hasMedicalBills = evidenceFiles.some(f => f.category === 'bills' && !isLostWageEvidence(f)) || documentedMedicalCharges > 0
   const hasPoliceReport = evidenceFiles.some(f => f.category === 'police_report')
-  const hasWageLossProof = evidenceFiles.some(f => f.category === 'wage_loss') || !!(damagesObj.wage_loss || parsedFacts?.caseAcceleration?.wageLoss)
+  const hasWageLossProof = evidenceFiles.some(f => f.category === 'wage_loss') || documentedWageLoss > 0
+  const effectiveEvidenceCount = Math.max(
+    evidenceCount,
+    evidenceFiles.length,
+    hasMedicalRecords || hasMedicalBills || hasWageLossProof ? 1 : 0,
+  )
+  const medicalDocumentFiles = evidenceFiles.filter((file) => ['medical_records', 'bills'].includes(file.category))
+  const extractedBillItems = medicalDocumentFiles
+    .filter((file) => file.category === 'bills' && !isLostWageEvidence(file) && !isDamagesSummaryEvidence(file))
+    .map((file) => {
+      const totalAmount = Number(file.extractedData?.[0]?.totalAmount || 0)
+      return {
+        id: file.id || file.originalName,
+        name: file.originalName || 'Uploaded bill',
+        totalAmount: Number.isFinite(totalAmount) ? totalAmount : 0,
+      }
+    })
+    .filter((item) => item.totalAmount > 0)
+  const extractedBillTotal = extractedBillItems.reduce((sum, item) => sum + item.totalAmount, 0)
+  const extractedWageLossItems = medicalDocumentFiles
+    .filter((file) => isLostWageEvidence(file))
+    .map((file) => {
+      const totalAmount = Number(file.extractedData?.[0]?.totalAmount || 0)
+      return {
+        id: file.id || file.originalName,
+        name: file.originalName || 'Wage loss document',
+        totalAmount: Number.isFinite(totalAmount) ? totalAmount : 0,
+      }
+    })
+    .filter((item) => item.totalAmount > 0)
+  const extractedWageLossTotal = extractedWageLossItems.reduce((sum, item) => sum + item.totalAmount, 0)
   const evidenceCompletionChecklist = [
     { label: 'Incident description', done: !!parsedFacts?.incident?.narrative, valueBoost: null },
     { label: 'Location confirmed', done: !!(parsedFacts?.incident?.location || parsedFacts?.venue?.state), valueBoost: null },
@@ -917,7 +1108,8 @@ export default function Results() {
   const settlementLow = valueBands?.p25 ?? 15000
   const settlementHigh = valueBands?.p75 ?? 75000
   const trialProbability = Math.round((1 - (viability?.overall ?? 0.5) * 0.8) * 100)
-  const missingDocItems = Array.isArray(casePreparation?.missingDocs) ? casePreparation.missingDocs : []
+  const missingDocItems = (Array.isArray(casePreparation?.missingDocs) ? casePreparation.missingDocs : [])
+    .filter((item: any) => !(hasHipaaConsent && String(item?.label ?? '').toLowerCase().includes('hipaa')))
   const treatmentGapItems = Array.isArray(casePreparation?.treatmentGaps) ? casePreparation.treatmentGaps : []
   const benchmarkRangeText = settlementBenchmarks
     ? `${formatCurrency(settlementBenchmarks.p25)} - ${formatCurrency(settlementBenchmarks.p75)}`
@@ -927,7 +1119,7 @@ export default function Results() {
     missingDocCount: missingDocItems.length,
     treatmentGapCount: treatmentGapItems.length,
     hasTreatment: Array.isArray(parsedFacts?.treatment) && parsedFacts.treatment.length > 0,
-    evidenceCount,
+    evidenceCount: effectiveEvidenceCount,
     severityLevel: prediction?.severity?.level,
     chronologyCount: medicalChronology.length,
   })
@@ -954,7 +1146,7 @@ export default function Results() {
         : 'Liability is still uncertain and needs better supporting facts.')
   const liabilityConfidence = hasPoliceReport || (hasInjuryPhotos && !!parsedFacts?.incident?.narrative)
     ? 'Medium'
-    : evidenceCount > 0 || !!parsedFacts?.incident?.narrative
+    : effectiveEvidenceCount > 0 || !!parsedFacts?.incident?.narrative
       ? 'Low'
       : 'Very low'
   const comparativeFaultRisk = comparativeFaultPercent >= 30 ? 'High' : comparativeFaultPercent > 0 ? 'Medium' : 'Low'
@@ -977,7 +1169,7 @@ export default function Results() {
     'Add witness names, insurance details, or repair estimates if available.',
   ].filter(Boolean).slice(0, 3) as string[]
   const evidenceLevelConfidence = (() => {
-    if (evidenceCount === 0) return { level: 'No documents', confidence: 'Low' }
+    if (effectiveEvidenceCount === 0) return { level: 'No documents', confidence: 'Low' }
     if (hasPoliceReport && hasMedicalRecords) return { level: 'Police report + medical records', confidence: 'Very high' }
     if (hasMedicalRecords) return { level: 'Medical records', confidence: 'High' }
     if (hasMedicalBills) return { level: 'Medical bills', confidence: 'Medium' }
@@ -1140,6 +1332,37 @@ Checklist:
     })
   }
 
+  const parseEstimateAmount = (value: string) => {
+    const parsed = Number(value.replace(/[$,]/g, ''))
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+  }
+
+  const handleSaveDamageEstimates = async () => {
+    if (!assessment) return
+    try {
+      setDamageEstimateSaving(true)
+      setDamageEstimateStatus(null)
+      const result = await saveDamageEstimates(assessment.id, {
+        medicalBillsEstimate: parseEstimateAmount(damageEstimateForm.medicalBillsEstimate),
+        lostWagesEstimate: parseEstimateAmount(damageEstimateForm.lostWagesEstimate),
+        outOfPocketEstimate: parseEstimateAmount(damageEstimateForm.outOfPocketEstimate),
+        propertyDamageEstimate: parseEstimateAmount(damageEstimateForm.propertyDamageEstimate),
+        futureTreatmentEstimate: parseEstimateAmount(damageEstimateForm.futureTreatmentEstimate),
+        notes: damageEstimateForm.notes.trim() || undefined,
+      })
+      setDamageEstimateStatus('Saved estimates and refreshed your case value.')
+      setDamageEstimateHydrated(false)
+      await loadCaseInsights()
+      if (result?.facts) {
+        setAssessment((current: any) => current ? { ...current, facts: result.facts } : current)
+      }
+    } catch (error) {
+      setDamageEstimateStatus('Could not save estimates. Please try again.')
+    } finally {
+      setDamageEstimateSaving(false)
+    }
+  }
+
   const whatThisMeansBullets = [
     liabilitySummary,
     injuries.length > 0 && 'Your injury indicates possible damages',
@@ -1149,6 +1372,24 @@ Checklist:
       : `Similar cases in ${venueState === 'CA' ? 'California' : venueState} settled between ${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`,
     missingDocItems.length > 0 && `The fastest way to strengthen this estimate is to add ${missingDocItems.slice(0, 2).map((item: any) => (item?.label ?? '').toLowerCase()).join(' and ')}.`
   ].filter(Boolean) as string[]
+  const displayedPlaintiffMedicalReview = hasHipaaConsent && plaintiffMedicalReview
+    ? {
+        ...plaintiffMedicalReview,
+        missingItems: {
+          important: (plaintiffMedicalReview.missingItems?.important ?? [])
+            .filter((item: any) => !String(`${item?.key ?? ''} ${item?.label ?? ''}`).toLowerCase().includes('hipaa')),
+          helpful: (plaintiffMedicalReview.missingItems?.helpful ?? [])
+            .filter((item: any) => !String(`${item?.key ?? ''} ${item?.label ?? ''}`).toLowerCase().includes('hipaa')),
+        },
+      }
+    : plaintiffMedicalReview
+  const displayedCommandCenter = hasHipaaConsent && commandCenter
+    ? {
+        ...commandCenter,
+        missingItems: (commandCenter.missingItems ?? [])
+          .filter((item: any) => !String(`${item?.key ?? ''} ${item?.label ?? ''}`).toLowerCase().includes('hipaa')),
+      }
+    : commandCenter
   const medicalReviewPending = (plaintiffMedicalReview?.review.status ?? 'pending') === 'pending'
   const topMissingDocLabels = missingDocItems
     .slice(0, 3)
@@ -1172,6 +1413,17 @@ Checklist:
     : medicalReviewPending
       ? 'Review needed'
       : 'Needs docs'
+  const diyRiskFlags = [
+    settlementHigh >= 75000 && 'The estimated range is high enough that attorney review may be important.',
+    comparativeFaultPercent >= 20 && 'There may be shared-fault arguments to address.',
+    missingDocItems.some((item: any) => item?.priority === 'high') && 'High-impact records are still missing.',
+    sol?.status === 'critical' || sol?.status === 'expired' ? 'The legal deadline may be close or expired.' : null,
+  ].filter(Boolean) as string[]
+  const diySuitabilityLabel = diyRiskFlags.length >= 2
+    ? 'Attorney review recommended'
+    : diyRiskFlags.length === 1
+      ? 'Use caution'
+      : 'Potential DIY fit'
   const deadlineUrgencyLabel = sol?.status === 'critical' || sol?.status === 'expired'
     ? 'Urgent'
     : sol?.status === 'warning'
@@ -1217,6 +1469,15 @@ Checklist:
     { label: 'Upload medical records', done: hasMedicalRecords, boost: '+15-40% potential increase' },
     { label: 'Add proof of lost wages', done: hasWageLossProof, boost: '+10-25% potential increase' }
   ]
+  const attorneyReviewRedirect = resolvedAssessmentId ? `/results/${resolvedAssessmentId}?review=1` : '/dashboard'
+  const authAssessmentQuery = resolvedAssessmentId ? `&assessmentId=${encodeURIComponent(resolvedAssessmentId)}` : ''
+  const createAccountForReviewUrl = `/register?redirect=${encodeURIComponent(attorneyReviewRedirect)}${authAssessmentQuery}`
+  const signInForReviewUrl = `/login?redirect=${encodeURIComponent(attorneyReviewRedirect)}${authAssessmentQuery}`
+  const closeSaveReviewPrompt = () => {
+    if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
+    setSaveReviewPromptOpen(false)
+    setReviewPromptDismissed(true)
+  }
 
   // Post-submission layout — transition from assessment to case tracking
   if (caseSubmittedForReview) {
@@ -1249,13 +1510,57 @@ Checklist:
   // Pre-submission layout — full case report
   return (
     <div className="page-shell max-w-5xl">
+      {saveReviewPromptOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-4 backdrop-blur-sm" onClick={closeSaveReviewPrompt}>
+          <div className="flex min-h-full items-center justify-center" onClick={e => e.stopPropagation()}>
+            <div className="surface-panel w-full max-w-md p-6 shadow-xl">
+              <h3 className="section-title text-ui-xl">Save your case to track attorney responses</h3>
+              <p className="section-copy mt-2">
+                You can send a limited non-medical summary now with your contact details. Create a free account or sign in when you want to track responses, upload more records, and authorize medical sharing.
+              </p>
+              <div className="mt-5 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-900">
+                No obligation. You decide whether to speak with or hire any attorney.
+              </div>
+              <div className="mt-6 grid gap-3">
+                <Link
+                  to={createAccountForReviewUrl}
+                  onClick={() => {
+                    if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
+                  }}
+                  className="btn-primary w-full justify-center py-3"
+                >
+                  Create Free Account
+                </Link>
+                <Link
+                  to={signInForReviewUrl}
+                  onClick={() => {
+                    if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
+                  }}
+                  className="btn-outline w-full justify-center py-3"
+                >
+                  Sign In
+                </Link>
+                <button
+                  type="button"
+                  onClick={closeSaveReviewPrompt}
+                  className="btn-ghost w-full justify-center"
+                >
+                  Not now
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Send Case Modal — minimal contact info before routing */}
       {sendModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-4 backdrop-blur-sm" onClick={() => !submitLoading && setSendModalOpen(false)}>
           <div className="flex min-h-full items-start justify-center py-6 sm:items-center" onClick={e => e.stopPropagation()}>
             <div className="surface-panel max-h-[calc(100vh-3rem)] w-full max-w-md overflow-y-auto p-6 shadow-xl">
             <h3 className="section-title text-ui-xl">Before we send your case to attorneys</h3>
-            <p className="section-copy mb-4">Attorneys need this to call you, schedule a consultation, and request documents.</p>
+            <p className="section-copy mb-4">
+              Attorneys need this to contact you. If you continue without an account, we will send only your non-medical case summary.
+            </p>
             <div className="space-y-3">
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">First Name *</label>
@@ -1339,13 +1644,21 @@ Checklist:
                                 venueCounty,
                               })}
                             </p>
-                            <p className="mt-1 text-[11px] text-slate-500">
-                              {getAttorneyWhyMatched(attorney, {
-                                assessmentClaimType: assessment?.claimType,
-                                venueState,
-                                venueCounty,
-                              })}
-                            </p>
+                            <div className="mt-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2">
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">Why we recommend them</p>
+                              <ul className="mt-1 space-y-1 text-[11px] text-brand-900">
+                                {getAttorneyRecommendationReasons(attorney, {
+                                  assessmentClaimType: assessment?.claimType,
+                                  venueState,
+                                  venueCounty,
+                                }).map((reason) => (
+                                  <li key={reason} className="flex items-start gap-1.5">
+                                    <CheckCircle className="mt-0.5 h-3 w-3 flex-shrink-0 text-brand-600" />
+                                    <span>{reason}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
                                 <CheckCircle className="mr-1 h-3 w-3" />
@@ -1407,32 +1720,41 @@ Checklist:
                   </p>
                 </div>
               )}
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
-                <label className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    checked={hasHipaaConsent || sendHipaaConsent}
-                    onChange={(e) => setSendHipaaConsent(e.target.checked)}
-                    disabled={hasHipaaConsent}
-                    className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                  />
-                  <span className="text-sm text-amber-900">
-                    I authorize{' '}
-                    <Link
-                      to="/hipaa-authorization"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-medium underline"
-                    >
-                      HIPAA disclosure for medical records
-                    </Link>{' '}
-                    so matched attorneys can review my case. {hasHipaaConsent ? 'Already on file.' : 'Required.'}
-                  </span>
-                </label>
-              </div>
+              {isLoggedIn ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={hasHipaaConsent || sendHipaaConsent}
+                      onChange={(e) => setSendHipaaConsent(e.target.checked)}
+                      disabled={hasHipaaConsent}
+                      className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                    />
+                    <span className="text-sm text-amber-900">
+                      I authorize{' '}
+                      <Link
+                        to="/hipaa-authorization"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-medium underline"
+                      >
+                        HIPAA disclosure for medical records
+                      </Link>{' '}
+                      so matched attorneys can review medical records and extracted treatment details. {hasHipaaConsent ? 'Already on file.' : 'Optional, but needed for full medical review.'}
+                    </span>
+                  </label>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  <p className="font-semibold">Medical records will not be sent yet.</p>
+                  <p className="mt-1">
+                    Attorneys will see your non-medical case summary and contact details only. Create an account and complete HIPAA authorization later to share medical records, OCR extraction, bills, and the treatment chronology.
+                  </p>
+                </div>
+              )}
             </div>
             {contactFormError && <p className="mt-2 text-sm text-red-600">{contactFormError}</p>}
-            <p className="mt-4 text-xs text-slate-500">Attorneys will review your case and typically respond within 24 hours. Your information is not shared without your approval.</p>
+            <p className="mt-4 text-xs text-slate-500">Attorneys will review your case and typically respond within 24 hours. Medical records are not shared unless you create/sign in to an account and authorize medical disclosure.</p>
             <p className="mt-1 text-xs text-slate-500">No obligation. You are not required to hire any attorney.</p>
             <button
               onClick={handleSubmitForReview}
@@ -1453,39 +1775,78 @@ Checklist:
         </div>
       )}
       <div className="premium-panel overflow-hidden rounded-none p-0 sm:rounded-3xl">
-        <header className="border-b border-slate-200 bg-gradient-to-b from-slate-50 via-white to-white px-6 sm:px-10 py-8 sm:py-10">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500 mb-3">
+        <header className="border-b border-slate-200 bg-gradient-to-b from-slate-50 via-white to-white px-5 py-5 sm:px-8 sm:py-6">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
             Preliminary assessment - confidential
           </p>
-          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-sm font-bold text-brand-800 tracking-tight mb-1">ClearCaseIQ</p>
-              <h1 className="font-display text-3xl sm:text-[2.125rem] font-semibold text-slate-900 tracking-tight leading-[1.15]">
+              <img
+                src="/clearcaseiq-logo.png?v=2"
+                alt="ClearCaseIQ"
+                className="mb-2 h-9 w-auto rounded-sm object-contain [mix-blend-mode:multiply]"
+              />
+              <h1 className="font-display text-2xl font-semibold leading-tight tracking-tight text-slate-900 sm:text-3xl">
                 Case Intelligence Report
               </h1>
-              <p className="mt-3 text-sm sm:text-[15px] text-slate-600 max-w-2xl leading-relaxed">
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
                 {evidenceCount === 0
                   ? 'Preliminary analysis based on your intake responses. Estimates will refine as your file develops.'
                   : 'Analysis based on your intake, uploaded materials, and signals comparable to matters in this jurisdiction.'}
               </p>
             </div>
-            <div className="shrink-0 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-right shadow-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Reference</p>
-              <p className="font-mono text-xs text-slate-700 mt-0.5">{(assessment?.id ?? '').slice(0, 8)}…</p>
+            <div className="flex shrink-0 flex-row items-center gap-2 sm:flex-col sm:items-end">
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-right shadow-sm">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Reference</p>
+                <p className="mt-0.5 font-mono text-[11px] text-slate-700">{(assessment?.id ?? '').slice(0, 8)}…</p>
+              </div>
+              {showSavePrompt && (
+                <Link
+                  to={createAccountForReviewUrl}
+                  onClick={() => {
+                    if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
+                  }}
+                  className="inline-flex items-center justify-center rounded-lg bg-brand-700 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
+                >
+                  Create free account
+                </Link>
+              )}
             </div>
           </div>
         </header>
 
         <div className="px-6 sm:px-10 py-9 sm:py-10">
-        <dl className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {atAGlanceStats.map((item) => (
-            <div key={item.label} className={`rounded-2xl border px-4 py-4 shadow-sm ${item.tone}`}>
-              <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] opacity-70">{item.label}</dt>
-              <dd className="mt-1 text-lg font-bold tracking-tight">{item.value}</dd>
-              <dd className="mt-0.5 text-xs font-medium opacity-75">{item.helper}</dd>
+        <section className="mb-6 grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]" aria-label="Case report summary">
+          <div className="rounded-3xl border border-brand-200 bg-gradient-to-br from-brand-50 via-white to-white p-5 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700">Modeled case range</p>
+            <p className="mt-2 font-display text-3xl font-semibold tracking-tight text-slate-950">
+              {formatCurrency(settlementLow)} - {formatCurrency(settlementHigh)}
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">
+              Based on intake facts, current documents, venue signals, and comparable matter patterns.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded-2xl border border-white/80 bg-white/85 px-3 py-2 shadow-sm">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Confidence</p>
+                <p className="mt-1 font-semibold text-slate-950">{evidenceLevelConfidence.confidence}</p>
+              </div>
+              <div className="rounded-2xl border border-white/80 bg-white/85 px-3 py-2 shadow-sm">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Readiness</p>
+                <p className="mt-1 font-semibold text-slate-950">{evidenceCompletionPercent}%</p>
+              </div>
             </div>
-          ))}
-        </dl>
+          </div>
+
+          <dl className="grid gap-3 sm:grid-cols-2">
+            {atAGlanceStats.slice(2).map((item) => (
+              <div key={item.label} className={`rounded-2xl border px-4 py-3 shadow-sm ${item.tone}`}>
+                <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] opacity-70">{item.label}</dt>
+                <dd className="mt-1 text-base font-bold tracking-tight">{item.value}</dd>
+                <dd className="mt-0.5 text-xs font-medium opacity-75">{item.helper}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
 
         <section
           className="premium-panel mb-8 border-brand-100 bg-brand-50/50"
@@ -1516,33 +1877,53 @@ Checklist:
             <p className="mt-2 text-sm leading-relaxed text-slate-600">{confidenceReason}</p>
           </div>
 
-          <div className="mt-6 rounded-2xl border border-brand-200 bg-white px-5 py-5 shadow-sm">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-brand-700">Start here</p>
-                <p className="mt-1 text-xl font-bold text-slate-950">{bestNextAction.label}</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  {topMissingDocLabels.length > 0
-                    ? `${topMissingDocLabels[0]} is the most useful next step for improving confidence.`
-                    : 'This is the clearest next step based on your current file.'}
-                </p>
+          <div className="mt-6 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-brand-200 bg-white px-5 py-5 shadow-sm">
+              <div className="flex h-full flex-col justify-between gap-4">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-brand-700">Priority next step</p>
+                  <p className="mt-1 text-xl font-bold text-slate-950">{bestNextAction.label}</p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {topMissingDocLabels.length > 0
+                      ? `${topMissingDocLabels[0]} is the most useful next step for improving confidence.`
+                      : 'This is the clearest next step based on your current file.'}
+                  </p>
+                </div>
+                {bestNextAction.to.startsWith('#') ? (
+                  <button
+                    type="button"
+                    onClick={() => openAnchoredResultsSection(bestNextAction.to)}
+                    className="inline-flex w-fit items-center justify-center rounded-lg bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-800"
+                  >
+                    Start now
+                  </button>
+                ) : (
+                  <Link
+                    to={bestNextAction.to}
+                    className="inline-flex w-fit items-center justify-center rounded-lg bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-800"
+                  >
+                    Start now
+                  </Link>
+                )}
               </div>
-              {bestNextAction.to.startsWith('#') ? (
-                <button
-                  type="button"
-                  onClick={() => openAnchoredResultsSection(bestNextAction.to)}
-                  className="inline-flex shrink-0 items-center justify-center rounded-lg bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-800"
-                >
-                  Start now
-                </button>
-              ) : (
+            </div>
+
+            <div className="rounded-2xl border border-indigo-200 bg-indigo-50 px-5 py-5 shadow-sm">
+              <div className="flex h-full flex-col justify-between gap-4">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-700">Self-help settlement option</p>
+                  <p className="mt-1 text-lg font-bold text-slate-950">Prepare a demand package</p>
+                  <p className="mt-1 text-sm text-slate-700">
+                    Organize records and create a settlement demand if your case is straightforward.
+                  </p>
+                </div>
                 <Link
-                  to={bestNextAction.to}
-                  className="inline-flex shrink-0 items-center justify-center rounded-lg bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-800"
+                  to={`/demand/${assessment.id}`}
+                  className="inline-flex w-fit items-center justify-center rounded-lg bg-indigo-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-800"
                 >
-                  Start now
+                  Build demand package
                 </Link>
-              )}
+              </div>
             </div>
           </div>
 
@@ -1671,8 +2052,93 @@ Checklist:
 
         {activeResultsTab === 'medical' && (
         <div id="medical-story-review" ref={medicalReviewRef} className="mb-8 scroll-mt-6">
+          <div className="mb-4 rounded-2xl border border-brand-100 bg-brand-50 px-5 py-4 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-brand-700">Medical bills found</p>
+                <p className="mt-1 text-2xl font-bold text-brand-950">
+                  {extractedBillTotal > 0 ? formatCurrency(extractedBillTotal) : 'No extracted bill total yet'}
+                </p>
+                <p className="mt-1 text-sm text-brand-900/80">
+                  {extractedBillTotal > 0
+                    ? 'Review this total while confirming your medical story. Add missing bills or update uploads if it looks incomplete.'
+                    : 'Upload itemized medical bills so your medical story includes the treatment costs.'}
+                </p>
+              </div>
+              <Link
+                to={`/evidence-upload/${resolvedAssessmentId || assessment?.id}`}
+                className="inline-flex shrink-0 items-center justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-brand-800 ring-1 ring-brand-200 hover:bg-brand-50"
+              >
+                Add or update bills
+              </Link>
+            </div>
+            {extractedWageLossTotal > 0 && (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <p className="font-semibold">Lost wages found separately: {formatCurrency(extractedWageLossTotal)}</p>
+                <p className="mt-1 text-xs leading-relaxed">
+                  This is not included in the medical bill total. Please review wage-loss documents separately because summaries can include duplicate subtotal and total amounts.
+                </p>
+              </div>
+            )}
+          </div>
+          <div className="mb-4 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Don&apos;t have documents yet?</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Enter your best estimates for now. Uploaded bills and records can replace these numbers later.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveDamageEstimates}
+                disabled={damageEstimateSaving}
+                className="inline-flex shrink-0 items-center justify-center rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {damageEstimateSaving ? 'Saving...' : 'Save estimates'}
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                ['medicalBillsEstimate', 'Estimated medical bills'],
+                ['lostWagesEstimate', 'Estimated lost wages'],
+                ['outOfPocketEstimate', 'Out-of-pocket costs'],
+                ['propertyDamageEstimate', 'Property damage'],
+                ['futureTreatmentEstimate', 'Expected future treatment'],
+              ].map(([key, label]) => (
+                <label key={key} className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  {label}
+                  <div className="relative mt-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="100"
+                      value={damageEstimateForm[key as keyof typeof damageEstimateForm]}
+                      onChange={(e) => setDamageEstimateForm((current) => ({ ...current, [key]: e.target.value }))}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 pl-7 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                      placeholder="0"
+                    />
+                  </div>
+                </label>
+              ))}
+            </div>
+            <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Notes about these estimates
+              <textarea
+                value={damageEstimateForm.notes}
+                onChange={(e) => setDamageEstimateForm((current) => ({ ...current, notes: e.target.value }))}
+                rows={2}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                placeholder="Example: ER bill not received yet; missed about two weeks of work."
+              />
+            </label>
+            {damageEstimateStatus && (
+              <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{damageEstimateStatus}</p>
+            )}
+          </div>
           <PlaintiffMedicalChronology
-            review={plaintiffMedicalReview}
+            review={displayedPlaintiffMedicalReview}
             saving={medicalReviewSaving}
             statusMessage={medicalReviewStatus}
             errorMessage={medicalReviewError}
@@ -1728,6 +2194,103 @@ Checklist:
               Treatment gap detected: {treatmentGapItems?.[0]?.gapDays ?? 'Unknown'} days between {treatmentGapItems?.[0]?.startDate ? new Date(treatmentGapItems[0].startDate).toLocaleDateString() : 'an unknown start date'} and {treatmentGapItems?.[0]?.endDate ? new Date(treatmentGapItems[0].endDate).toLocaleDateString() : 'an unknown end date'}.
             </div>
           )}
+
+          {medicalDocumentFiles.length > 0 && (
+            <div className="mt-5 rounded-xl border border-slate-200 bg-white px-4 py-4">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Medical document extraction</p>
+                  <p className="text-xs text-slate-600">We read medical records and bills for dates, providers, treatment events, and amounts.</p>
+                </div>
+                <Link
+                  to={assessment?.id ? `/evidence-upload/${assessment.id}` : '/evidence-upload'}
+                  className="text-xs font-semibold text-brand-700 hover:text-brand-900"
+                >
+                  Manage uploads
+                </Link>
+              </div>
+              <div className="mt-4 rounded-xl border border-brand-100 bg-brand-50 px-4 py-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-700">Extracted bill total</p>
+                    <p className="mt-1 text-2xl font-bold text-brand-950">
+                      {extractedBillTotal > 0 ? formatCurrency(extractedBillTotal) : 'No bill total found yet'}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-brand-900/80">
+                      {extractedBillTotal > 0
+                        ? 'This is the sum of dollar amounts found in uploaded files marked as bills. Please review for duplicates, summaries, or non-medical amounts.'
+                        : 'Upload itemized medical bills so we can total the charges for your case value estimate.'}
+                    </p>
+                  </div>
+                  <Link
+                    to={`/evidence-upload/${resolvedAssessmentId || assessment?.id}`}
+                    className="inline-flex shrink-0 items-center justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-brand-800 ring-1 ring-brand-200 hover:bg-brand-50"
+                  >
+                    Add or update bills
+                  </Link>
+                </div>
+                {extractedBillItems.length > 0 && (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {extractedBillItems.slice(0, 4).map((item) => (
+                      <div key={item.id} className="rounded-lg bg-white/80 px-3 py-2 text-xs text-brand-900 ring-1 ring-brand-100">
+                        <p className="truncate font-medium">{item.name}</p>
+                        <p className="mt-0.5 font-semibold">{formatCurrency(item.totalAmount)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {extractedWageLossTotal > 0 && (
+                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  <p className="font-semibold">Lost wages found separately: {formatCurrency(extractedWageLossTotal)}</p>
+                  <p className="mt-1 text-xs leading-relaxed">
+                    We keep wage-loss documents out of the medical bill total. Review this amount separately before relying on it.
+                  </p>
+                </div>
+              )}
+              <div className="mt-3 grid gap-2">
+                {medicalDocumentFiles.slice(0, 4).map((file) => {
+                  const extracted = file.extractedData?.[0]
+                  const timelineCount = parseJsonArrayValue(extracted?.timeline).length
+                  const datesCount = parseJsonArrayValue(extracted?.dates).length
+                  return (
+                    <div key={file.id || file.originalName} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                        <span className="font-medium text-slate-900">{file.originalName || 'Medical document'}</span>
+                        <span className="font-semibold text-brand-700">{getDocumentProcessingLabel(file)}</span>
+                      </div>
+                      {(timelineCount > 0 || datesCount > 0 || extracted?.totalAmount) && (
+                        <p className="mt-1 text-slate-500">
+                          {[
+                            timelineCount > 0 ? `${timelineCount} timeline item${timelineCount === 1 ? '' : 's'}` : null,
+                            datesCount > 0 ? `${datesCount} date${datesCount === 1 ? '' : 's'}` : null,
+                            extracted?.totalAmount ? `$${Number(extracted.totalAmount).toLocaleString()} found` : null,
+                          ].filter(Boolean).join(' • ')}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-5 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-indigo-950">Ready to turn your records into a demand?</p>
+                <p className="mt-1 text-sm text-indigo-900/80">
+                  Once your key records are uploaded, you can generate a self-help settlement demand package.
+                </p>
+              </div>
+              <Link
+                to={`/demand/${assessment.id}`}
+                className="inline-flex shrink-0 items-center justify-center rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-800"
+              >
+                Build demand package
+              </Link>
+            </div>
+          </div>
         </section>
         )}
 
@@ -1744,7 +2307,7 @@ Checklist:
           </summary>
 
         <div className="mt-6 mb-8">
-          <PlaintiffCaseCommandCenter summary={commandCenter} />
+          <PlaintiffCaseCommandCenter summary={displayedCommandCenter} />
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white px-5 py-5 shadow-sm">
@@ -1843,6 +2406,32 @@ Checklist:
           <p className="text-sm text-slate-600 mt-4 leading-relaxed">
             Derived from your current file and {venueState === 'CA' ? 'California' : venueState} matter context. Not a guarantee of outcome.
           </p>
+        </div>
+
+        <div className="mb-8 rounded-xl border border-indigo-200 bg-indigo-50 p-5 sm:p-6 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="max-w-2xl">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-700">Self-help settlement option</p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">Prepare your own demand package</h3>
+              <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                If you want to try resolving the claim yourself, generate a pro-se settlement demand letter, checklist, and downloadable DOCX. This does not replace legal advice.
+              </p>
+              <div className="mt-3 rounded-lg bg-white/70 px-3 py-3 text-sm text-slate-700">
+                <span className="font-semibold text-slate-950">{diySuitabilityLabel}:</span>{' '}
+                {diyRiskFlags.length > 0
+                  ? diyRiskFlags.slice(0, 2).join(' ')
+                  : 'Your current file does not show the common DIY risk flags we screen for.'}
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-col gap-2">
+              <Link to={`/demand/${assessment.id}`} className="btn-primary">
+                Build demand package
+              </Link>
+              <Link to={`/attorneys?assessmentId=${assessment.id}`} className="btn-outline">
+                Compare with attorney review
+              </Link>
+            </div>
+          </div>
         </div>
 
         <div className="grid gap-5 mb-10">
@@ -1962,6 +2551,15 @@ Checklist:
           It sends your summary for review so interested attorneys can contact you. You decide whether to speak with or hire anyone.
         </div>
 
+        {showSavePrompt && reviewPromptDismissed && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+            <p className="font-semibold">Your case is not sent yet.</p>
+            <p className="mt-1">
+              Create a free account when you are ready to send it for attorney review. Your assessment is saved on this device for now.
+            </p>
+          </div>
+        )}
+
         {showSavePrompt && (
           <div className="mb-8 rounded-xl border border-brand-200/80 bg-brand-50/70 px-5 py-5 shadow-sm">
             <h2 className="font-display text-lg font-semibold text-brand-950">Save your case</h2>
@@ -1970,13 +2568,19 @@ Checklist:
             </p>
             <div className="mt-4 flex flex-wrap gap-3">
               <Link
-                to={`/register?redirect=/dashboard&assessmentId=${assessment.id}`}
+                to={createAccountForReviewUrl}
+                onClick={() => {
+                  if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
+                }}
                 className="inline-flex items-center justify-center rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
               >
                 Create account
               </Link>
               <Link
-                to={`/login?redirect=/dashboard&assessmentId=${assessment.id}`}
+                to={signInForReviewUrl}
+                onClick={() => {
+                  if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
+                }}
                 className="inline-flex items-center justify-center rounded-lg border border-brand-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-800 hover:bg-brand-50/80"
               >
                 Sign in

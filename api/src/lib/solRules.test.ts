@@ -87,7 +87,45 @@ describe('deriveSOLStatus', () => {
 })
 
 describe('SOL_RULES', () => {
-  it('includes expected states', () => {
-    expect(Object.keys(SOL_RULES).sort()).toEqual(['CA', 'FL', 'NY', 'TX'])
+  const allJurisdictions = [
+    'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL',
+    'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME',
+    'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH',
+    'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI',
+    'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI',
+    'WY',
+  ]
+
+  it('includes every U.S. state plus DC', () => {
+    expect(Object.keys(SOL_RULES).sort()).toEqual([...allJurisdictions].sort())
+  })
+
+  it('provides each supported claim type for every jurisdiction', () => {
+    const claimTypes = [
+      'auto',
+      'premises',
+      'slip_and_fall',
+      'dog_bite',
+      'medmal',
+      'product',
+      'nursing_home_abuse',
+      'wrongful_death',
+      'high_severity_surgery',
+      'workers',
+    ]
+
+    for (const state of allJurisdictions) {
+      for (const claimType of claimTypes) {
+        expect(SOL_RULES[state]?.[claimType]?.years).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('keeps known state-specific exceptions', () => {
+    expect(SOL_RULES.CO.auto.years).toBe(3)
+    expect(SOL_RULES.KY.auto.years).toBe(2)
+    expect(SOL_RULES.NY.medmal.years).toBe(2.5)
+    expect(SOL_RULES.CA.medmal.years).toBe(1)
+    expect(SOL_RULES.FL.auto.years).toBe(2)
   })
 })

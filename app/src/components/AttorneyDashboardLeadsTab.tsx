@@ -1,5 +1,5 @@
-import type { Dispatch, SetStateAction } from 'react'
-import { Lock, LockOpen, MessageSquare, Phone, Star, Users } from 'lucide-react'
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import { Clock, Lock, LockOpen, MessageSquare, Phone, Star, Users } from 'lucide-react'
 
 type CaseLeadsFilter = {
   caseType: string
@@ -63,8 +63,35 @@ export default function AttorneyDashboardLeadsTab({
   setStarredLeadIds,
   starredLeadIds,
 }: AttorneyDashboardLeadsTabProps) {
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(intervalId)
+  }, [])
+
   const claimLabel = (value: string) =>
     (value || '').replace(/_/g, ' ').replace(/\b\w/g, (char: string) => char.toUpperCase())
+
+  const formatCountdown = (ms: number) => {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+    const hours = Math.floor(totalSeconds / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    const seconds = totalSeconds % 60
+    const pad = (value: number) => String(value).padStart(2, '0')
+    return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`
+  }
+
+  const getOfferCountdown = (lead: any) => {
+    if ((lead?.status || '') !== 'submitted' || !lead?.offerExpiresAt) return null
+    const expiresAt = new Date(lead.offerExpiresAt).getTime()
+    if (Number.isNaN(expiresAt)) return null
+    const remainingMs = expiresAt - now
+    return {
+      isExpired: remainingMs <= 0,
+      label: formatCountdown(remainingMs),
+    }
+  }
 
   const isIdentityRevealed = (lead: any) => ['contacted', 'consulted', 'retained'].includes(lead?.status || '')
 
@@ -571,23 +598,39 @@ export default function AttorneyDashboardLeadsTab({
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="w-[1760px] table-fixed divide-y divide-gray-200">
+            <colgroup>
+              <col className="w-10" />
+              <col className="w-10" />
+              <col className="w-[220px]" />
+              <col className="w-[260px]" />
+              <col className="w-[110px]" />
+              <col className="w-[130px]" />
+              <col className="w-[145px]" />
+              <col className="w-[135px]" />
+              <col className="w-[95px]" />
+              <col className="w-[115px]" />
+              <col className="w-[175px]" />
+              <col className="w-[155px]" />
+              <col className="w-[100px]" />
+              <col className="w-[230px]" />
+            </colgroup>
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-8"></th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-8"></th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lead</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Est. Value</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Case Strength</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Evidence</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Relationship</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Attention</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Received</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Readiness / Next Action</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="w-10 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase"></th>
+                <th className="w-10 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase"></th>
+                <th className="w-[230px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lead</th>
+                <th className="w-[270px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="w-[105px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
+                <th className="w-[140px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+                <th className="w-[150px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Est. Value</th>
+                <th className="w-[135px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Case Strength</th>
+                <th className="w-[100px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Evidence</th>
+                <th className="w-[110px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="w-[180px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Relationship</th>
+                <th className="w-[150px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Attention</th>
+                <th className="w-[100px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Received</th>
+                <th className="w-[220px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Readiness / Next Action</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -619,10 +662,11 @@ export default function AttorneyDashboardLeadsTab({
                   const relationship = getRelationshipActivity(lead)
                   const evidenceCount = getLeadEvidenceCount(lead)
                   const strength = Math.round((lead.viabilityScore || 0) * 100)
+                  const offerCountdown = getOfferCountdown(lead)
 
                   return (
                     <tr key={lead.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3 align-top">
                         <input
                           type="checkbox"
                           checked={selectedLeadIds.has(lead.id)}
@@ -630,7 +674,7 @@ export default function AttorneyDashboardLeadsTab({
                           className="rounded border-gray-300"
                         />
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3 align-top">
                         <button onClick={() => toggleStarred(lead.id)} className="text-gray-400 hover:text-amber-500">
                           {starredLeadIds.has(lead.id) ? (
                             <Star className="h-4 w-4 fill-amber-500 text-amber-500" />
@@ -639,17 +683,12 @@ export default function AttorneyDashboardLeadsTab({
                           )}
                         </button>
                       </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded ${priority.class}`}>
-                          {priority.icon} {priority.label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 align-top">
                         {isIdentityRevealed(lead) ? (
                           <>
                             <div className="flex items-center gap-1.5">
                               <LockOpen className="h-3.5 w-3.5 text-green-600 shrink-0" />
-                              <span className="text-sm font-medium text-gray-900">
+                              <span className="text-sm font-medium text-gray-900 leading-snug">
                                 {[lead.assessment?.user?.firstName, lead.assessment?.user?.lastName].filter(Boolean).join(' ') || '—'}
                               </span>
                             </div>
@@ -665,7 +704,7 @@ export default function AttorneyDashboardLeadsTab({
                           <>
                             <div className="flex items-center gap-1.5">
                               <Lock className="h-3.5 w-3.5 text-amber-600 shrink-0" />
-                              <span className="text-sm font-medium text-gray-900">
+                              <span className="text-sm font-medium text-gray-900 leading-snug">
                                 {claimLabel(lead.assessment?.claimType)} —{' '}
                                 {[lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || '—'}
                               </span>
@@ -674,35 +713,110 @@ export default function AttorneyDashboardLeadsTab({
                           </>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
+                      <td className="px-4 py-3 align-top">
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {pendingQuickAction ? (
+                            <button
+                              onClick={() =>
+                                onHandleQuickActionForLead(lead, pendingQuickAction.action, pendingQuickAction.section)
+                              }
+                              className="col-span-2 inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded border border-brand-200 px-3 py-1 text-xs font-medium text-brand-600 hover:bg-brand-50"
+                            >
+                              {pendingQuickAction.action === 'scheduleConsult' && 'Schedule'}
+                              {pendingQuickAction.action === 'documents' && 'Documents'}
+                              {pendingQuickAction.action === 'documentRequest' && 'Request docs'}
+                              {pendingQuickAction.action === 'draftMessage' && 'Message'}
+                              {pendingQuickAction.section === 'communications' && 'Add contact'}
+                              {pendingQuickAction.section === 'tasks' && 'Add task'}
+                              {pendingQuickAction.section === 'demand' && 'Add note'}
+                              {pendingQuickAction.section === 'insurance' && 'Add expense'}
+                              {pendingQuickAction.section === 'billing' && 'Create invoice'}
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => onOpenLead(lead)}
+                                className="inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded border border-brand-200 px-3 py-1 text-xs font-medium text-brand-600 hover:bg-brand-50"
+                              >
+                                Review
+                              </button>
+                              <button
+                                onClick={() => onOpenLead(lead)}
+                                className="inline-flex min-h-7 items-center justify-center gap-1 whitespace-nowrap rounded border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                              >
+                                <Phone className="h-3 w-3" /> Call
+                              </button>
+                              <button
+                                onClick={() => onOpenLeadChat(lead)}
+                                className="inline-flex min-h-7 items-center justify-center gap-1 whitespace-nowrap rounded border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                              >
+                                <MessageSquare className="h-3 w-3" /> Message
+                              </button>
+                              {(!lead.status || lead.status === 'submitted') && (
+                                <>
+                                  <button
+                                    onClick={() => onAcceptLead(lead.id)}
+                                    disabled={offerCountdown?.isExpired}
+                                    className="inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded border border-green-200 px-3 py-1 text-xs font-medium text-green-700 hover:bg-green-50"
+                                  >
+                                    Accept
+                                  </button>
+                                  <button
+                                    onClick={() => onDeclineLead(lead.id)}
+                                    className="inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded border border-red-200 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                                  >
+                                    Decline
+                                  </button>
+                                </>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded ${priority.class}`}>
+                          {priority.icon} {priority.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 align-top text-sm text-gray-600">
                         {[lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || '—'}
                       </td>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                      <td className="px-4 py-3 align-top text-sm font-medium text-gray-900 whitespace-nowrap">
                         {bands.low && bands.high ? `${formatCurrency(bands.low)}-${formatCurrency(bands.high)}` : '—'}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 align-top">
                         <div className="text-sm font-medium">{strength}/100</div>
                         <div className="text-xs text-gray-500 font-mono">{getCaseStrengthBar(lead.viabilityScore)}</div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
+                      <td className="px-4 py-3 align-top text-sm text-gray-600">
                         {evidenceCount > 0 ? `${evidenceCount} docs` : 'No docs'}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 align-top">
                         <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded ${getFlowStatus(lead).color}`}>
                           {getCaseStatusLabel(lead)}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 align-top">
                         <div className="text-sm font-medium text-gray-800">{relationship.primary}</div>
                         <div className="text-xs text-gray-500">{relationship.secondary}</div>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 align-top">
                         <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded ${attention.class}`}>
                           {attention.icon} {attention.label}
                         </span>
+                        {offerCountdown && (
+                          <div className={`mt-1 inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ${
+                            offerCountdown.isExpired
+                              ? 'bg-red-50 text-red-700'
+                              : 'bg-amber-50 text-amber-700'
+                          }`}>
+                            <Clock className="h-3 w-3" />
+                            {offerCountdown.isExpired ? 'Expired' : offerCountdown.label}
+                          </div>
+                        )}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{getRelativeTime(lead.submittedAt || '')}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 align-top text-sm text-gray-500 whitespace-nowrap">{getRelativeTime(lead.submittedAt || '')}</td>
+                      <td className="px-4 py-3 align-top">
                         {lead.demandReadiness ? (
                           <div className="space-y-1.5">
                             <div className="flex flex-wrap items-center gap-2">
@@ -724,65 +838,6 @@ export default function AttorneyDashboardLeadsTab({
                         ) : (
                           <div className="text-sm text-gray-600">{getLeadNextAction(lead)}</div>
                         )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {pendingQuickAction ? (
-                            <button
-                              onClick={() =>
-                                onHandleQuickActionForLead(lead, pendingQuickAction.action, pendingQuickAction.section)
-                              }
-                              className="px-2 py-1 text-xs font-medium text-brand-600 border border-brand-200 rounded hover:bg-brand-50"
-                            >
-                              {pendingQuickAction.action === 'scheduleConsult' && 'Schedule'}
-                              {pendingQuickAction.action === 'documents' && 'Documents'}
-                              {pendingQuickAction.action === 'documentRequest' && 'Request docs'}
-                              {pendingQuickAction.action === 'draftMessage' && 'Message'}
-                              {pendingQuickAction.section === 'communications' && 'Add contact'}
-                              {pendingQuickAction.section === 'tasks' && 'Add task'}
-                              {pendingQuickAction.section === 'demand' && 'Add note'}
-                              {pendingQuickAction.section === 'insurance' && 'Add expense'}
-                              {pendingQuickAction.section === 'billing' && 'Create invoice'}
-                            </button>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => onOpenLead(lead)}
-                                className="px-2 py-1 text-xs font-medium text-brand-600 border border-brand-200 rounded hover:bg-brand-50"
-                              >
-                                Review
-                              </button>
-                              <button
-                                onClick={() => onOpenLead(lead)}
-                                className="px-2 py-1 text-xs font-medium text-gray-700 border border-gray-200 rounded hover:bg-gray-50 inline-flex items-center gap-1"
-                              >
-                                <Phone className="h-3 w-3" /> Call
-                              </button>
-                              <button
-                                onClick={() => onOpenLeadChat(lead)}
-                                className="px-2 py-1 text-xs font-medium text-gray-700 border border-gray-200 rounded hover:bg-gray-50 inline-flex items-center gap-1"
-                              >
-                                <MessageSquare className="h-3 w-3" /> Message
-                              </button>
-                              {(!lead.status || lead.status === 'submitted') && (
-                                <>
-                                  <button
-                                    onClick={() => onAcceptLead(lead.id)}
-                                    className="px-2 py-1 text-xs font-medium text-green-700 border border-green-200 rounded hover:bg-green-50"
-                                  >
-                                    Accept
-                                  </button>
-                                  <button
-                                    onClick={() => onDeclineLead(lead.id)}
-                                    className="px-2 py-1 text-xs font-medium text-red-600 border border-red-200 rounded hover:bg-red-50"
-                                  >
-                                    Decline
-                                  </button>
-                                </>
-                              )}
-                            </>
-                          )}
-                        </div>
                       </td>
                     </tr>
                   )

@@ -2,7 +2,7 @@
  * ClearCaseIQ Rose - conversational AI intake guide
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   startRoseConversation,
   sendRoseTurn,
@@ -17,6 +17,10 @@ import {
   Sparkles,
   PlayCircle,
   CheckCircle2,
+  ArrowLeft,
+  FileText,
+  Shield,
+  Volume2,
 } from 'lucide-react'
 import rosePortrait from '../assets/rose-avatar-cartoon.png'
 
@@ -65,6 +69,37 @@ const VOICE_LANGUAGES: Record<
     preferredVoiceHints: ['xiaoxiao', 'xiaoyi', 'mei-jia', 'sin-ji', 'female'],
   },
 }
+
+const ROSE_PHASES: Array<{ phase: RoseConversationPhase; label: string; helper: string }> = [
+  {
+    phase: 'story_capture',
+    label: 'Tell Rose what happened',
+    helper: 'Start with the accident story in your own words.',
+  },
+  {
+    phase: 'targeted_followup',
+    label: 'Answer focused follow-ups',
+    helper: 'Rose asks only for the missing facts.',
+  },
+  {
+    phase: 'recap_confirmation',
+    label: 'Confirm the case story',
+    helper: 'Review the summary before anything is submitted.',
+  },
+  {
+    phase: 'completed',
+    label: 'View your report',
+    helper: 'Your case assessment is ready.',
+  },
+]
+
+const VOICE_COMMANDS = [
+  'Repeat that',
+  'I am not sure',
+  'Skip for now',
+  'Change something',
+  'Yes, that is correct',
+]
 
 function getInitialTypingVisibleLength(text: string) {
   if (text.length <= 24) return text.length
@@ -217,12 +252,14 @@ function Message({
   return (
     <div className={`flex ${isRose ? 'justify-start' : 'justify-end'}`}>
       <div className={`flex max-w-[92%] items-start gap-3 ${isRose ? 'flex-row' : 'flex-row-reverse'}`}>
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white shadow-sm">
-          {isRose ? <Bot className="h-4 w-4 text-brand-600" /> : <User className="h-4 w-4 text-gray-600" />}
+        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border shadow-sm ${
+          isRose ? 'border-rose-100 bg-rose-50' : 'border-gray-200 bg-white'
+        }`}>
+          {isRose ? <Bot className="h-4 w-4 text-rose-600" /> : <User className="h-4 w-4 text-gray-600" />}
         </div>
-        <div className={`rounded-3xl px-4 py-3 text-sm leading-6 shadow-sm ${isRose ? 'bg-white text-gray-900 border border-gray-200' : 'bg-brand-600 text-white'}`}>
+        <div className={`rounded-3xl px-4 py-3 text-sm leading-6 shadow-sm ${isRose ? 'bg-white text-gray-900 border border-rose-100' : 'bg-slate-950 text-white'}`}>
           {children}
-          {isTyping && <span className="rose-typing-cursor ml-1 inline-block h-4 w-0.5 rounded-full bg-brand-500 align-[-2px]" />}
+          {isTyping && <span className="rose-typing-cursor ml-1 inline-block h-4 w-0.5 rounded-full bg-rose-500 align-[-2px]" />}
         </div>
       </div>
     </div>
@@ -231,9 +268,9 @@ function Message({
 
 function RoseAvatar({ speaking, language }: { speaking: boolean; language: VoiceLanguageKey }) {
   return (
-    <div className="relative mx-auto flex w-full items-center justify-between gap-6 overflow-hidden rounded-[2rem] border border-gray-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-2xl">
-      <div className={`absolute -left-6 top-4 h-44 w-44 rounded-full bg-fuchsia-400/20 blur-3xl transition-opacity duration-500 ${speaking ? 'opacity-70' : 'opacity-40'}`} />
-      <div className={`absolute right-4 top-8 h-36 w-36 rounded-full bg-violet-300/15 blur-3xl transition-opacity duration-500 ${speaking ? 'opacity-60' : 'opacity-30'}`} />
+    <div className="relative mx-auto flex w-full items-center justify-between gap-6 overflow-hidden rounded-[2rem] border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-rose-950 p-6 text-white shadow-2xl">
+      <div className={`absolute -left-6 top-4 h-44 w-44 rounded-full bg-rose-400/25 blur-3xl transition-opacity duration-500 ${speaking ? 'opacity-80' : 'opacity-45'}`} />
+      <div className={`absolute right-4 top-8 h-36 w-36 rounded-full bg-sky-300/15 blur-3xl transition-opacity duration-500 ${speaking ? 'opacity-70' : 'opacity-35'}`} />
       <div className="relative z-10 flex items-center gap-5">
         <div className="relative">
           <div className={`absolute inset-0 rounded-[1.75rem] bg-white/10 blur-xl transition-opacity ${speaking ? 'opacity-100' : 'opacity-40'}`} />
@@ -262,14 +299,17 @@ function RoseAvatar({ speaking, language }: { speaking: boolean; language: Voice
         </div>
         <div className="max-w-md">
           <div className="flex items-center gap-2">
-            <div className="text-2xl font-semibold tracking-tight">Rose</div>
+          <div className="text-2xl font-semibold tracking-tight">Rose</div>
+          <span className="rounded-full bg-emerald-400/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
+            Secure intake
+          </span>
           </div>
-          <div className="mt-1 text-sm text-white/80">Conversational intake assistant</div>
+          <div className="mt-1 text-sm text-white/80">Professional guided voice intake specialist</div>
           <div className="mt-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white">
             Conversation language: {VOICE_LANGUAGES[language].label}
           </div>
           <div className="mt-3 text-sm leading-6 text-white/75">
-            Speak naturally and Rose will keep the intake moving like a live conversation.
+            Speak naturally. Rose will ask one question at a time, organize your facts, and read back a summary before anything is submitted.
           </div>
         </div>
       </div>
@@ -316,6 +356,7 @@ export default function RoseIntake() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [review, setReview] = useState<RoseConversationReview | null>(null)
   const [submission, setSubmission] = useState<SubmissionState | null>(null)
+  const [completionScore, setCompletionScore] = useState(0)
   const [typingMessageId, setTypingMessageId] = useState<string | null>(null)
   const [typingTargetText, setTypingTargetText] = useState('')
   const [typingVisibleLength, setTypingVisibleLength] = useState(0)
@@ -431,6 +472,34 @@ export default function RoseIntake() {
     },
   )
 
+  const handleVoiceCommand = useCallback((transcript: string) => {
+    const normalized = transcript.trim().toLowerCase().replace(/[.!?]+$/g, '')
+    if (!normalized) return false
+
+    if (['repeat that', 'repeat', 'say that again'].includes(normalized)) {
+      if (lastRoseMessage) speak(lastRoseMessage.text, lastRoseMessage.id)
+      return true
+    }
+
+    if (['mute rose', 'turn voice off'].includes(normalized)) {
+      setVoiceEnabled(false)
+      stop()
+      return true
+    }
+
+    if (['unmute rose', 'turn voice on'].includes(normalized)) {
+      setVoiceEnabled(true)
+      return true
+    }
+
+    if (['standard intake', 'use standard intake'].includes(normalized)) {
+      navigate('/assess?fresh=1')
+      return true
+    }
+
+    return false
+  }, [lastRoseMessage, navigate, speak, stop])
+
   useEffect(() => {
     if (!typingMessageId || typingVisibleLength >= typingTargetText.length) return
     if (speaking && activeSpeechMessageId === typingMessageId && speechBoundarySeen) return
@@ -489,6 +558,7 @@ export default function RoseIntake() {
         const result = await sendRoseTurn(conversationIdRef.current, trimmed)
         const roseMessage = { id: crypto.randomUUID(), role: 'rose' as const, text: result.message }
         setPhase(result.phase)
+        setCompletionScore(result.completion_score ?? 0)
         setReview(result.review ?? null)
         setTypingMessageId(roseMessage.id)
         setTypingTargetText(roseMessage.text)
@@ -521,12 +591,17 @@ export default function RoseIntake() {
 
   const handleFinalTranscript = useCallback(
     (transcript: string) => {
+      if (handleVoiceCommand(transcript)) {
+        setInput('')
+        voiceBaseRef.current = ''
+        return
+      }
       const base = voiceBaseRef.current.trimEnd()
       const message = base ? `${base}\n${transcript}` : transcript
       if (!message.trim()) return
       void send(message)
     },
-    [send],
+    [handleVoiceCommand, send],
   )
 
   const { listening, supported: voiceSupported, startListening, stopListening } = useVoiceInput(
@@ -565,6 +640,7 @@ export default function RoseIntake() {
       const roseMessage = { id: crypto.randomUUID(), role: 'rose' as const, text: result.message }
       setConversationId(result.conversation_id)
       setPhase(result.phase)
+      setCompletionScore(result.completion_score ?? 0)
       setLaunched(true)
       setReview(null)
       setSubmission(null)
@@ -602,6 +678,7 @@ export default function RoseIntake() {
     setSpeechBoundarySeen(false)
     setInput('')
     setPhase('story_capture')
+    setCompletionScore(0)
     setError('')
     voiceBaseRef.current = ''
   }
@@ -623,17 +700,69 @@ export default function RoseIntake() {
     return 'Try saying: "Yes, that is right." or "Change the accident city to San Diego."'
   }, [phase])
 
+  const activePhaseIndex = Math.max(0, ROSE_PHASES.findIndex((item) => item.phase === phase))
+  const progressPercent = Math.max(
+    Math.round(completionScore * 100),
+    Math.round(((activePhaseIndex + 1) / ROSE_PHASES.length) * 100),
+  )
+  const activePhase = ROSE_PHASES[activePhaseIndex] ?? ROSE_PHASES[0]
+  const voiceStatus = listening
+    ? 'Rose is listening...'
+    : loading
+      ? 'Rose is organizing your answer...'
+      : speaking
+        ? 'Rose is speaking...'
+        : 'Ready when you are'
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-rose-50 via-white to-white px-4 py-8">
-      <div className="mx-auto max-w-4xl space-y-6">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(244,114,182,0.22),_transparent_34%),linear-gradient(135deg,_#fff7ed_0%,_#ffffff_42%,_#f8fafc_100%)] px-4 py-6 sm:py-8">
+      <div className="mx-auto max-w-6xl space-y-6">
+        <Link
+          to="/assessment/start"
+          className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-sm font-medium text-slate-600 shadow-sm hover:bg-white hover:text-slate-900"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Assessment options
+        </Link>
+
         {!launched && (
           <div className="text-center">
-            <h1 className="text-3xl font-semibold tracking-tight text-gray-900">Rose</h1>
-            <p className="text-gray-500">A spoken intake conversation.</p>
+            <div className="mx-auto mb-3 inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-rose-700 shadow-sm">
+              <Sparkles className="h-3.5 w-3.5" />
+              Guided Voice Intake
+            </div>
+            <h1 className="font-display text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">Meet Rose</h1>
+            <p className="mt-2 text-slate-600">A calm, professional intake specialist who helps you tell your story out loud.</p>
           </div>
         )}
 
         <RoseAvatar speaking={speaking} language={language} />
+
+        {launched && (
+          <div className="rounded-[1.5rem] border border-slate-200 bg-white/85 p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">{activePhase.label}</div>
+                <div className="text-xs text-slate-500">{activePhase.helper}</div>
+              </div>
+              <div className="rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold text-white">
+                {Math.min(100, progressPercent)}% organized
+              </div>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-full rounded-full bg-gradient-to-r from-rose-500 via-orange-400 to-sky-500 transition-all" style={{ width: `${Math.min(100, progressPercent)}%` }} />
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-4">
+              {ROSE_PHASES.map((item, index) => (
+                <div key={item.phase} className={`rounded-xl px-3 py-2 text-xs ${
+                  index <= activePhaseIndex ? 'bg-rose-50 text-rose-800' : 'bg-slate-50 text-slate-500'
+                }`}>
+                  <div className="font-semibold">{item.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div
           className={`${
@@ -641,154 +770,248 @@ export default function RoseIntake() {
           }`}
         >
           {!launched ? (
-            <div className="space-y-5 rounded-[1.5rem] bg-gray-50 p-6">
-              <p className="text-sm leading-7 text-gray-700">
-                Start the conversation, listen to Rose, and answer out loud in English, Spanish, or Chinese.
-              </p>
-              <div className="space-y-2">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Language</div>
-                <LanguagePicker value={language} onChange={setLanguage} />
+            <div className="grid gap-5 rounded-[1.5rem] bg-slate-50 p-5 sm:p-6 lg:grid-cols-[1fr_0.8fr]">
+              <div className="space-y-5">
+                <div className="rounded-3xl border border-white bg-white p-5 shadow-sm">
+                  <h2 className="text-lg font-semibold text-slate-950">How Rose works</h2>
+                  <p className="mt-2 text-sm leading-7 text-slate-600">
+                    Start the conversation, listen to Rose, and answer out loud. Rose will ask one question at a time, confirm what she heard, and keep medical and legal language clear.
+                  </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    {[
+                      ['1', 'Tell the story'],
+                      ['2', 'Answer follow-ups'],
+                      ['3', 'Confirm summary'],
+                    ].map(([step, label]) => (
+                      <div key={step} className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-700">
+                        <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-full bg-slate-950 text-xs font-bold text-white">{step}</div>
+                        {label}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500">Conversation language</div>
+                  <LanguagePicker value={language} onChange={setLanguage} />
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={launch}
+                    disabled={loading}
+                    className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    <PlayCircle className="h-4 w-4" />
+                    {loading ? 'Starting Rose...' : 'Begin Voice Intake'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVoiceEnabled((value) => !value)}
+                    className="inline-flex items-center gap-2 rounded-full border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    <Volume2 className="h-4 w-4" />
+                    {voiceEnabled ? 'Rose voice on' : 'Rose voice off'}
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setVoiceEnabled((value) => !value)}
-                  className="rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  {voiceEnabled ? 'Rose voice on' : 'Rose voice off'}
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={launch}
-                  disabled={loading}
-                  className="inline-flex items-center gap-2 rounded-full bg-brand-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
-                >
-                  <PlayCircle className="h-4 w-4" />
-                  {loading ? 'Starting...' : 'Begin with Rose'}
-                </button>
-              </div>
-              <div className="rounded-2xl border border-rose-100 bg-white px-4 py-3 text-sm leading-6 text-gray-600">
-                After her greeting, Rose will automatically start listening for your response.
+
+              <div className="rounded-3xl border border-rose-100 bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-2xl bg-rose-50 p-3">
+                    <Shield className="h-5 w-5 text-rose-600" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-950">Professional boundaries</div>
+                    <div className="text-xs text-slate-500">Rose organizes facts. She does not give legal advice.</div>
+                  </div>
+                </div>
+                <ul className="mt-5 space-y-3 text-sm leading-6 text-slate-600">
+                  <li>Say “I’m not sure” when you do not know an answer.</li>
+                  <li>Say “repeat that” if you want Rose to say the last question again.</li>
+                  <li>Use standard intake anytime if you prefer buttons and typing.</li>
+                </ul>
               </div>
             </div>
           ) : (
-            <>
-              <div ref={scrollerRef} className="h-[460px] space-y-4 overflow-y-auto pr-2">
-                <div className="space-y-4">
-                  {messages.map((message) => (
-                    <Message
-                      key={message.id}
-                      role={message.role}
-                      isTyping={message.id === typingMessageId && typingVisibleLength < typingTargetText.length}
-                    >
-                      {message.id === typingMessageId
-                        ? typingTargetText.slice(0, typingVisibleLength)
-                        : message.text}
-                    </Message>
-                  ))}
-                  {liveTranscript && <Message role="user">{liveTranscript}</Message>}
-                </div>
-              </div>
-
-              {error && (
-                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {error}
-                </div>
-              )}
-
-              {submission ? (
-                <div className="mt-6 rounded-[1.5rem] border border-green-200 bg-green-50 p-5">
-                  <div className="mb-2 flex items-center gap-2 text-green-700">
-                    <CheckCircle2 className="h-5 w-5" />
-                    Intake complete
-                  </div>
-                  <p className="text-sm leading-6 text-gray-700">
-                    Rose finished the conversation and created your assessment.
-                  </p>
-                  {submission.plaintiffSummary && (
-                    <div className="mt-4 rounded-2xl bg-white/80 p-4 text-sm leading-6 text-gray-700">
-                      {submission.plaintiffSummary}
-                    </div>
-                  )}
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/results/${submission.caseId}`, { replace: true })}
-                      className="rounded-full bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
-                    >
-                      View Results
-                    </button>
-                    <button
-                      type="button"
-                      onClick={reset}
-                      className="rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                    >
-                      Start Over
-                    </button>
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+              <section className="rounded-[2rem] border border-slate-200 bg-white/90 p-4 shadow-sm sm:p-5">
+                <div ref={scrollerRef} className="h-[460px] space-y-4 overflow-y-auto pr-2">
+                  <div className="space-y-4">
+                    {messages.map((message) => (
+                      <Message
+                        key={message.id}
+                        role={message.role}
+                        isTyping={message.id === typingMessageId && typingVisibleLength < typingTargetText.length}
+                      >
+                        {message.id === typingMessageId
+                          ? typingTargetText.slice(0, typingVisibleLength)
+                          : message.text}
+                      </Message>
+                    ))}
+                    {liveTranscript && <Message role="user">{liveTranscript}</Message>}
                   </div>
                 </div>
-              ) : (
-                <div className="mt-6 rounded-[2rem] border border-gray-200 bg-white p-5 shadow-sm">
-                  <div className="flex flex-col items-center gap-4 text-center">
-                    <div className="min-h-[3.5rem] space-y-2">
-                      <div className="text-sm font-medium text-gray-800">
-                        {listening
-                          ? 'Rose is listening.'
-                          : loading
-                            ? 'Rose is replying.'
-                            : speaking
-                              ? 'Rose is speaking.'
-                              : 'Continue the conversation when you are ready.'}
-                      </div>
-                      <div className="mx-auto max-w-md text-xs leading-5 text-gray-500">
-                        {listening
-                          ? `Speak naturally in ${VOICE_LANGUAGES[language].label}. Rose will send your words automatically when you pause.`
-                          : voiceSupported
-                            ? 'Use the mic to keep talking with Rose.'
-                            : 'Use Chrome or Edge for fully hands-free voice conversation.'}
-                      </div>
+
+                {error && (
+                  <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {error}
+                  </div>
+                )}
+
+                {submission ? (
+                  <div className="mt-6 rounded-[1.5rem] border border-green-200 bg-green-50 p-5">
+                    <div className="mb-2 flex items-center gap-2 text-green-700">
+                      <CheckCircle2 className="h-5 w-5" />
+                      Intake complete
                     </div>
-                    <button
-                      type="button"
-                      onClick={toggleListening}
-                      disabled={!voiceSupported}
-                      className="inline-flex items-center gap-2 rounded-full bg-brand-600 px-8 py-3.5 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                      Microphone
-                    </button>
-                    <div className="flex flex-wrap items-center justify-center gap-3 text-sm text-gray-500">
+                    <p className="text-sm leading-6 text-gray-700">
+                      Rose finished the conversation and created your assessment.
+                    </p>
+                    {submission.plaintiffSummary && (
+                      <div className="mt-4 rounded-2xl bg-white/80 p-4 text-sm leading-6 text-gray-700">
+                        {submission.plaintiffSummary}
+                      </div>
+                    )}
+                    <div className="mt-4 flex flex-wrap gap-3">
                       <button
                         type="button"
-                        onClick={() => setVoiceEnabled((value) => !value)}
-                        className="px-2 py-1 hover:text-gray-700"
+                        onClick={() => navigate(`/results/${submission.caseId}`, { replace: true })}
+                        className="rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
                       >
-                        {voiceEnabled ? 'Mute Rose' : 'Unmute Rose'}
+                        View Results
                       </button>
-                      {lastRoseMessage && (
-                        <button
-                          type="button"
-                          onClick={() => speak(lastRoseMessage.text, lastRoseMessage.id)}
-                          className="px-2 py-1 hover:text-gray-700"
-                        >
-                          Repeat last reply
-                        </button>
-                      )}
                       <button
                         type="button"
                         onClick={reset}
-                        className="px-2 py-1 hover:text-gray-700"
+                        className="rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                       >
-                        Restart
+                        Start Over
                       </button>
                     </div>
                   </div>
-                  {recapHint && <div className="mt-3 text-xs text-gray-500">{recapHint}</div>}
+                ) : (
+                  <div className="mt-6 rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex flex-col items-center gap-4 text-center">
+                      <div className="min-h-[3.5rem] space-y-2">
+                        <div className="text-sm font-semibold text-slate-900">{voiceStatus}</div>
+                        <div className="mx-auto max-w-md text-xs leading-5 text-gray-500">
+                          {listening
+                            ? `Speak naturally in ${VOICE_LANGUAGES[language].label}. Rose will send your words automatically when you pause.`
+                            : voiceSupported
+                              ? 'Use the mic to keep talking with Rose. You can also say “repeat that” or “I’m not sure.”'
+                              : 'Use Chrome or Edge for fully hands-free voice conversation.'}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={toggleListening}
+                        disabled={!voiceSupported}
+                        className={`inline-flex items-center gap-2 rounded-full px-9 py-4 text-sm font-bold text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                          listening ? 'bg-rose-600 shadow-rose-200 hover:bg-rose-700' : 'bg-slate-950 shadow-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                        {listening ? 'Stop listening' : 'Start speaking'}
+                      </button>
+                      <div className="flex flex-wrap items-center justify-center gap-3 text-sm text-gray-500">
+                        <button
+                          type="button"
+                          onClick={() => setVoiceEnabled((value) => !value)}
+                          className="px-2 py-1 hover:text-gray-700"
+                        >
+                          {voiceEnabled ? 'Mute Rose' : 'Unmute Rose'}
+                        </button>
+                        {lastRoseMessage && (
+                          <button
+                            type="button"
+                            onClick={() => speak(lastRoseMessage.text, lastRoseMessage.id)}
+                            className="px-2 py-1 hover:text-gray-700"
+                          >
+                            Repeat last reply
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={reset}
+                          className="px-2 py-1 hover:text-gray-700"
+                        >
+                          Restart
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-5 border-t border-slate-100 pt-4">
+                      <label className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500" htmlFor="rose-typed-response">
+                        Or type your answer
+                      </label>
+                      <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                        <textarea
+                          id="rose-typed-response"
+                          value={input}
+                          onChange={(event) => {
+                            voiceBaseRef.current = ''
+                            setInput(event.target.value)
+                          }}
+                          rows={2}
+                          placeholder={VOICE_LANGUAGES[language].composerPlaceholder}
+                          className="min-h-[3rem] flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-rose-300 focus:ring-4 focus:ring-rose-100"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void send(input)}
+                          disabled={!input.trim() || loading}
+                          className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Send
+                        </button>
+                      </div>
+                    </div>
+                    {recapHint && <div className="mt-3 text-xs text-gray-500">{recapHint}</div>}
+                  </div>
+                )}
+              </section>
+
+              <aside className="space-y-4">
+                <div className="rounded-[2rem] border border-slate-200 bg-white/90 p-5 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-slate-700" />
+                    <h2 className="text-sm font-semibold text-slate-950">Case summary so far</h2>
+                  </div>
+                  {review?.plaintiff_summary ? (
+                    <p className="mt-3 text-sm leading-6 text-slate-700">{review.plaintiff_summary}</p>
+                  ) : (
+                    <p className="mt-3 text-sm leading-6 text-slate-500">
+                      Rose will build this summary as you answer. Before submission, she will ask you to confirm or correct it.
+                    </p>
+                  )}
+                  {review?.missing_required_fields?.length ? (
+                    <div className="mt-4 rounded-2xl bg-amber-50 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Still needed</div>
+                      <ul className="mt-2 space-y-1 text-sm text-amber-900">
+                        {review.missing_required_fields.slice(0, 4).map((field) => (
+                          <li key={field}>{field.replace(/_/g, ' ')}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </div>
-              )}
-            </>
+
+                <div className="rounded-[2rem] border border-slate-200 bg-white/90 p-5 shadow-sm">
+                  <div className="text-sm font-semibold text-slate-950">Voice commands</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {VOICE_COMMANDS.map((command) => (
+                      <span key={command} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+                        “{command}”
+                      </span>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-xs leading-5 text-slate-500">
+                    Rose understands natural answers too. These commands are just shortcuts.
+                  </p>
+                </div>
+              </aside>
+            </div>
           )}
         </div>
       </div>

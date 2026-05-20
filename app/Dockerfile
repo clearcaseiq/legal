@@ -1,42 +1,39 @@
-FROM node:18-alpine AS base
-
-# Install dependencies only when needed
-FROM base AS deps
+FROM node:20-alpine AS base
 RUN apk add --no-cache libc6-compat
-WORKDIR /app
+WORKDIR /repo
+RUN corepack enable
 
-# Install dependencies
-COPY package.json pnpm-lock.yaml* ./
-RUN corepack enable pnpm && pnpm i --frozen-lockfile
+FROM base AS deps
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* ./
+COPY app/package.json ./app/package.json
+COPY api/package.json ./api/package.json
+RUN pnpm install --frozen-lockfile
 
-# Rebuild the source code only when needed
 FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY --from=deps /repo/node_modules ./node_modules
+COPY --from=deps /repo/app/node_modules ./app/node_modules
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* turbo.json* ./
+COPY app ./app
+WORKDIR /repo/app
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+RUN pnpm build
 
-# Build the application
-RUN corepack enable pnpm && pnpm build
-
-# Production image, copy all the files and run the app
 FROM base AS runner
 WORKDIR /app
-
-ENV NODE_ENV production
+ENV NODE_ENV=production
+ENV PORT=3000
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Copy built application
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /repo/app/.next ./.next
+COPY --from=builder /repo/app/public ./public
+COPY --from=builder /repo/app/package.json ./package.json
+COPY --from=builder /repo/node_modules ../node_modules
+COPY --from=builder /repo/app/node_modules ./node_modules
 
 USER nextjs
-
 EXPOSE 3000
-
-ENV PORT 3000
 
 CMD ["pnpm", "start", "--", "--hostname", "0.0.0.0", "--port", "3000"]

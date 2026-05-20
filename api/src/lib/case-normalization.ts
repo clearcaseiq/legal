@@ -7,11 +7,17 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { deriveSOLStatus } from './solRules'
+import type { CaseTypeValidation } from './case-type-validation'
 
 export interface NormalizedCase {
   case_id: string
   claim_type: string
+  selected_claim_type?: string
+  validated_claim_type?: string
   sub_type?: string
+  subtypes?: string[]
+  case_type_conflicts?: string[]
+  case_type_confidence?: number
   incident_date?: string
   jurisdiction_state: string
   jurisdiction_county?: string
@@ -57,6 +63,31 @@ function parsePrediction(prediction: { viability?: string; bands?: string } | nu
     viability: prediction.viability ? JSON.parse(prediction.viability) : undefined,
     bands: prediction.bands ? JSON.parse(prediction.bands) : undefined
   }
+}
+
+function getCaseTypeValidation(facts: Record<string, unknown>): CaseTypeValidation | null {
+  const value = facts.caseTypeValidation
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Partial<CaseTypeValidation>
+  if (typeof record.validatedClaimType !== 'string') return null
+  return {
+    selectedClaimType: typeof record.selectedClaimType === 'string' ? record.selectedClaimType : '',
+    validatedClaimType: record.validatedClaimType,
+    subtypes: Array.isArray(record.subtypes) ? record.subtypes.filter((item): item is string => typeof item === 'string') : [],
+    conflicts: Array.isArray(record.conflicts) ? record.conflicts.filter((item): item is string => typeof item === 'string') : [],
+    confidence: typeof record.confidence === 'number' ? record.confidence : 0,
+    reasons: Array.isArray(record.reasons) ? record.reasons.filter((item): item is string => typeof item === 'string') : [],
+    source: 'rules_v1',
+  }
+}
+
+function firstSubtype(facts: Record<string, unknown>, validation: CaseTypeValidation | null) {
+  if (validation?.subtypes?.[0]) return validation.subtypes[0]
+  const liability = facts.liability && typeof facts.liability === 'object' && !Array.isArray(facts.liability) ? (facts.liability as Record<string, unknown>) : {}
+  for (const key of ['crashType', 'hazardType', 'errorType', 'productType', 'assaultType', 'toxicSubstance']) {
+    if (typeof liability[key] === 'string') return liability[key] as string
+  }
+  return (facts.claimType as string) || undefined
 }
 
 /**
@@ -118,6 +149,8 @@ export async function normalizeCaseForRouting(assessment: {
   const consents = (facts.consents as Record<string, boolean>) || {}
   const venue = (facts.venue as Record<string, string>) || {}
   const plaintiffContext = (facts.plaintiffContext as Record<string, unknown>) || {}
+  const caseTypeValidation = getCaseTypeValidation(facts)
+  const normalizedClaimType = caseTypeValidation?.validatedClaimType || assessment.claimType
 
   const bands = pred.bands || {}
   const viability = pred.viability || {}
@@ -166,13 +199,18 @@ export async function normalizeCaseForRouting(assessment: {
       state: (assessment.venueState || venue.state || 'CA') as string,
       county: (assessment.venueCounty || venue.county) as string | undefined
     },
-    claimType: assessment.claimType
+    claimType: normalizedClaimType
   })
 
   return {
     case_id: assessment.id,
-    claim_type: assessment.claimType,
-    sub_type: (facts.claimType as string) || undefined,
+    claim_type: normalizedClaimType,
+    selected_claim_type: caseTypeValidation?.selectedClaimType || assessment.claimType,
+    validated_claim_type: caseTypeValidation?.validatedClaimType,
+    sub_type: firstSubtype(facts, caseTypeValidation),
+    subtypes: caseTypeValidation?.subtypes,
+    case_type_conflicts: caseTypeValidation?.conflicts,
+    case_type_confidence: caseTypeValidation?.confidence,
     incident_date: incidentDate,
     jurisdiction_state: assessment.venueState || venue.state || 'CA',
     jurisdiction_county: assessment.venueCounty || venue.county,

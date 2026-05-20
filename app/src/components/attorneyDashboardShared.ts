@@ -34,6 +34,13 @@ export type AttorneyDashboardLead = {
   submittedAt: string
   status: string
   assignedAttorneyId?: string | null
+  routingPricing?: {
+    tierId: string
+    tierLabel: string
+    priceCents: number
+    claimType?: string
+    description?: string
+  } | null
   assessment: AttorneyDashboardAssessment
   contactAttempts: any[]
   conflictChecks: any[]

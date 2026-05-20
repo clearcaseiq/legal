@@ -13,6 +13,7 @@ export default function HipaaAuthorization() {
   const isFromFlow = !!returnParam
   const [doc, setDoc] = useState<PublicConsentTemplate | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [attested, setAttested] = useState(false)
 
   useEffect(() => {
     fetchPublicConsentTemplate('hipaa')
@@ -59,6 +60,22 @@ export default function HipaaAuthorization() {
         )}
       </div>
 
+      {isFromFlow && (
+        <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 text-sm text-brand-950 print:hidden">
+          <label className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={attested}
+              onChange={(e) => setAttested(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-brand-300 text-brand-700 focus:ring-brand-500"
+            />
+            <span>
+              I have read this HIPAA authorization and authorize medical records and extracted treatment details to be shared for case review.
+            </span>
+          </label>
+        </div>
+      )}
+
       <div className="flex items-center gap-3 print:hidden">
         {isFromFlow && (
           <button
@@ -67,9 +84,10 @@ export default function HipaaAuthorization() {
               localStorage.setItem('consent_read_hipaa', 'true')
               navigate(returnPath)
             }}
-            className="btn-primary"
+            disabled={!attested}
+            className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
-            I have read this
+            I have read and authorize
           </button>
         )}
         <button

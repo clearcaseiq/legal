@@ -1,6 +1,8 @@
 import api from './http'
 import { apiDebug } from './debug'
 
+const freshParams = () => ({ _: Date.now() })
+
 export type PlaintiffMedicalReviewStatus = 'pending' | 'confirmed' | 'skipped'
 
 export interface PlaintiffMedicalReviewEdit {
@@ -21,7 +23,10 @@ export interface PlaintiffMedicalReviewEvent {
   details?: string
   provider?: string
   amount?: number
-  confidence: 'documented' | 'estimated'
+  sourceFileId?: string
+  sourceFileName?: string
+  extractionConfidence?: 'documented' | 'estimated' | 'needs_review'
+  confidence: 'documented' | 'estimated' | 'needs_review'
   uncertaintyNote?: string
   plaintiffNote?: string
 }
@@ -109,28 +114,40 @@ export async function updateAssessment(id: string, patch: any) {
   }
 }
 
+export async function saveDamageEstimates(id: string, payload: {
+  medicalBillsEstimate?: number
+  lostWagesEstimate?: number
+  outOfPocketEstimate?: number
+  propertyDamageEstimate?: number
+  futureTreatmentEstimate?: number
+  notes?: string
+}) {
+  const { data } = await api.post(`/v1/assessments/${id}/damage-estimates`, payload)
+  return data
+}
+
 export async function getAssessment(id: string) {
-  const { data } = await api.get(`/v1/assessments/${id}`)
+  const { data } = await api.get(`/v1/assessments/${id}`, { params: freshParams() })
   return data
 }
 
 export async function getAssessmentCommandCenter(id: string) {
-  const { data } = await api.get(`/v1/assessments/${id}/command-center`)
+  const { data } = await api.get(`/v1/assessments/${id}/command-center`, { params: freshParams() })
   return data
 }
 
 export async function getMedicalChronology(assessmentId: string) {
-  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/medical-chronology`)
+  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/medical-chronology`, { params: freshParams() })
   return data.chronology
 }
 
 export async function getCasePreparation(assessmentId: string) {
-  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/case-preparation`)
+  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/case-preparation`, { params: freshParams() })
   return data
 }
 
 export async function getPlaintiffMedicalReview(assessmentId: string): Promise<PlaintiffMedicalReviewPayload> {
-  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/plaintiff-medical-review`)
+  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/plaintiff-medical-review`, { params: freshParams() })
   return data
 }
 
@@ -147,7 +164,7 @@ export async function savePlaintiffMedicalReview(
 }
 
 export async function getSettlementBenchmarks(assessmentId: string) {
-  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/settlement-benchmarks`)
+  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/settlement-benchmarks`, { params: freshParams() })
   return data.benchmarks
 }
 
@@ -214,6 +231,7 @@ export async function getEvidenceFiles(assessmentId?: string, category?: string,
   if (category) params.append('category', category)
   if (processingStatus) params.append('processingStatus', processingStatus)
   if (query) params.append('query', query)
+  params.append('_', String(Date.now()))
 
   const { data } = await api.get(`/v1/evidence?${params.toString()}`)
   return data

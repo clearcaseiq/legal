@@ -24,6 +24,10 @@ type TreatmentEntry = {
   dates?: string
   diagnosis?: string
   amount?: number
+  label?: string
+  details?: string
+  sourceFileName?: string
+  confidence?: string
 }
 
 type PotentialValueIncrease = {
@@ -167,6 +171,14 @@ export default function PlaintiffDashboardDeferredTabPanel({
   caseMessages,
   attorneyName,
 }: Props) {
+  const meaningfulTreatment = treatment.filter((entry) => {
+    const label = (entry.provider || entry.type || entry.label || '').trim()
+    const hasDetails = Boolean(entry.date || entry.dates || entry.diagnosis || entry.amount || entry.details || entry.sourceFileName)
+    if (!hasDetails && ['doctor', 'specialist'].includes(label.toLowerCase())) return false
+    if (label.toLowerCase() === 'from uploaded records') return false
+    return Boolean(label || hasDetails)
+  })
+
   if (activeTab === 'tasks') {
     const scoreTasks = scoreFactors
       .filter((factor) => factor.improve)
@@ -610,16 +622,19 @@ export default function PlaintiffDashboardDeferredTabPanel({
             Upload Documents
           </Link>
         </div>
-        {treatment.length > 0 && (
+        {meaningfulTreatment.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Medical Summary</h3>
             <div className="space-y-3">
-              {treatment.map((entry, index) => (
+              {meaningfulTreatment.map((entry, index) => (
                 <div key={index} className="p-3 bg-gray-50 rounded-lg">
-                  <p className="font-medium text-gray-900">{entry.provider || entry.type || 'Treatment'}</p>
+                  <p className="font-medium text-gray-900">{entry.label || entry.type || entry.provider || 'Treatment'}</p>
                   <p className="text-sm text-gray-600">{entry.date || entry.dates || '-'}</p>
+                  {entry.provider && entry.provider !== entry.label && <p className="text-sm text-gray-600">Provider: {entry.provider}</p>}
                   {entry.diagnosis && <p className="text-sm text-gray-600">Diagnosis: {entry.diagnosis}</p>}
                   {entry.amount && <p className="text-sm text-gray-600">Total: {formatCurrency(entry.amount)}</p>}
+                  {entry.sourceFileName && <p className="text-xs text-gray-500">Source: {entry.sourceFileName}</p>}
+                  {entry.details && <p className="mt-1 line-clamp-2 text-sm text-gray-600">{entry.details}</p>}
                 </div>
               ))}
             </div>

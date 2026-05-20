@@ -23,6 +23,7 @@ import {
   placeAssessmentInManualReview,
 } from './routing-lifecycle'
 import {
+  getAttorneyResponseDeadlineMinutes,
   getConfiguredWaveSize,
   getConfiguredWaveWaitHours,
   getMatchingRules,
@@ -140,7 +141,7 @@ export type RoutingRankedCandidate = {
 }
 
 export type RoutingDiagnostics = {
-  config: Pick<MatchingRulesConfig, 'maxAttorneysWave1' | 'maxAttorneysWave2' | 'maxAttorneysWave3' | 'wave1WaitHours' | 'wave2WaitHours' | 'wave3WaitHours' | 'minCaseScore' | 'minEvidenceScore'>
+  config: Pick<MatchingRulesConfig, 'maxAttorneysWave1' | 'maxAttorneysWave2' | 'maxAttorneysWave3' | 'defaultAttorneyResponseDeadlineMinutes' | 'wave1WaitHours' | 'wave2WaitHours' | 'wave3WaitHours' | 'minCaseScore' | 'minEvidenceScore'>
   weights: MatchingRulesWeights
   selected: RoutingRankedCandidate[]
   rankedPreview: RoutingRankedCandidate[]
@@ -341,6 +342,7 @@ export async function runRoutingEngine(
         maxAttorneysWave1: matchingRules.maxAttorneysWave1,
         maxAttorneysWave2: matchingRules.maxAttorneysWave2,
         maxAttorneysWave3: matchingRules.maxAttorneysWave3,
+        defaultAttorneyResponseDeadlineMinutes: matchingRules.defaultAttorneyResponseDeadlineMinutes,
         wave1WaitHours: matchingRules.wave1WaitHours,
         wave2WaitHours: matchingRules.wave2WaitHours,
         wave3WaitHours: matchingRules.wave3WaitHours,
@@ -701,8 +703,10 @@ export async function runRoutingEngine(
     // Record RoutingWave for escalation (Step 13)
     if (routedTo.length > 0) {
       const nextEscalationAt = new Date()
-      const waitHours = getConfiguredWaveWaitHours(matchingRules, waveNumber)
-      nextEscalationAt.setTime(nextEscalationAt.getTime() + waitHours * 60 * 60 * 1000)
+      const waitMinutes = waveNumber === 1
+        ? getAttorneyResponseDeadlineMinutes(matchingRules)
+        : getConfiguredWaveWaitHours(matchingRules, waveNumber) * 60
+      nextEscalationAt.setTime(nextEscalationAt.getTime() + waitMinutes * 60 * 1000)
       await prisma.routingWave.upsert({
         where: { assessmentId_waveNumber: { assessmentId, waveNumber } },
         create: {

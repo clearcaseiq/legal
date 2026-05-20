@@ -1987,19 +1987,19 @@ export default function IntakeWizard() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="mx-auto max-w-5xl px-4 md:px-6">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">
+        <h1 className="text-4xl font-bold text-gray-900">
           {isEditMode ? 'Update Assessment' : 'Case Assessment'}
         </h1>
-        <p className="mt-2 text-gray-600">
+        <p className="mt-3 text-lg leading-8 text-gray-600">
           {isEditMode 
             ? 'Update your case information with pre-filled data from your previous assessment.'
             : 'Let\'s gather information about your case to provide you with insights and recommendations.'
           }
         </p>
         <div className="mt-4">
-          <div className="flex items-start justify-between gap-3 rounded-md border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
+          <div className="flex items-start justify-between gap-4 rounded-xl border border-gray-200 bg-white px-5 py-4 text-base leading-7 text-gray-700">
             <div>
               <div className="font-medium text-gray-900">Save and return anytime</div>
               <div>
@@ -2033,7 +2033,7 @@ export default function IntakeWizard() {
                 onClick={() => {
                   navigator.clipboard?.writeText(window.location.href)
                 }}
-                className="inline-flex items-center justify-center rounded-md border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100"
+                className="inline-flex min-h-10 items-center justify-center rounded-md border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100"
               >
                 Copy link
               </button>
@@ -2045,7 +2045,7 @@ export default function IntakeWizard() {
                   )
                   window.location.href = `sms:?&body=${body}`
                 }}
-                className="inline-flex items-center justify-center rounded-md border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100"
+                className="inline-flex min-h-10 items-center justify-center rounded-md border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100"
               >
                 Text me a link
               </button>
@@ -2058,7 +2058,7 @@ export default function IntakeWizard() {
                   )
                   window.location.href = `mailto:?subject=${subject}&body=${body}`
                 }}
-                className="inline-flex items-center justify-center rounded-md border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100"
+                className="inline-flex min-h-10 items-center justify-center rounded-md border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100"
               >
                 Email me a reminder
               </button>
@@ -2096,12 +2096,12 @@ export default function IntakeWizard() {
       </div>
 
       {/* Step content */}
-      <div className="card">
+      <div className="card text-base leading-7 [&_button]:min-h-12 [&_button]:text-base [&_input]:min-h-12 [&_input]:text-lg [&_label]:text-base [&_p.text-sm]:text-base [&_p.text-xs]:text-sm [&_select]:min-h-12 [&_select]:text-lg [&_textarea]:min-h-32 [&_textarea]:text-lg">
         <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-900">
+          <h2 className="text-2xl font-semibold text-gray-900">
             {steps[currentStepIndex].title}
           </h2>
-          <p className="text-gray-600">{steps[currentStepIndex].description}</p>
+          <p className="mt-1 text-lg text-gray-600">{steps[currentStepIndex].description}</p>
         </div>
 
         {renderStepContent()}
@@ -2111,7 +2111,7 @@ export default function IntakeWizard() {
           <button
             onClick={prevStep}
             disabled={currentStepIndex === 0}
-            className="inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-semibold text-brand-700 bg-brand-50 border border-brand-200 hover:bg-brand-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex min-h-12 items-center justify-center rounded-md border border-brand-200 bg-brand-50 px-6 py-3 text-base font-semibold text-brand-700 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Previous
           </button>

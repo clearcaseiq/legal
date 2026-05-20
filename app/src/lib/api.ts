@@ -424,8 +424,14 @@ export async function getSOLRules(state: string) {
 }
 
 // Demand Letter API
-export async function generateDemandLetter(assessmentId: string, targetAmount: number, recipient: any, message?: string) {
-  const { data } = await api.post('/v1/demands/generate', { assessmentId, targetAmount, recipient, message })
+export async function generateDemandLetter(
+  assessmentId: string,
+  targetAmount: number,
+  recipient: any,
+  message?: string,
+  mode?: 'represented' | 'pro_se'
+) {
+  const { data } = await api.post('/v1/demands/generate', { assessmentId, targetAmount, recipient, message, mode })
   return data
 }
 
@@ -1496,6 +1502,7 @@ export async function createInvoiceCheckoutSession(invoiceId: string, payload?: 
 
 export async function createPlatformSubscriptionCheckoutSession(payload?: {
   priceId?: string
+  tierId?: string
   successUrl?: string
   cancelUrl?: string
 }) {
@@ -1512,6 +1519,27 @@ export async function createLeadCreditCheckoutSession(payload: {
 }) {
   const { data } = await api.post('/v1/payments/platform/lead-credit-checkout-session', payload)
   return data as { checkoutUrl: string; sessionId: string }
+}
+
+export async function createAttorneyPaymentMethodSetupSession(payload?: { successUrl?: string; cancelUrl?: string }) {
+  const { data } = await api.post('/v1/payments/payment-methods/setup-session', payload || {})
+  return data as { checkoutUrl: string; sessionId: string }
+}
+
+export async function createRoutingFeePaymentSession(payload: {
+  leadId: string
+  successUrl?: string
+  cancelUrl?: string
+}) {
+  const { data } = await api.post('/v1/payments/platform/routing-fee-session', payload)
+  return data as {
+    status: string
+    amount?: number
+    checkoutUrl?: string
+    sessionId?: string
+    paymentIntentId?: string
+    chargedAutomatically?: boolean
+  }
 }
 
 export async function createStripeConnectAccountLink(payload?: { refreshUrl?: string; returnUrl?: string }) {
@@ -2056,15 +2084,46 @@ export interface MatchingRulesConfig {
   maxAttorneysWave1: number
   maxAttorneysWave2: number
   maxAttorneysWave3: number
+  defaultAttorneyResponseDeadlineMinutes: number
+  defaultAttorneyResponseDeadlineHours?: number
   wave1WaitHours: number
   wave2WaitHours: number
   wave3WaitHours: number
+  preRoutingGateMode: 'conservative' | 'balanced' | 'growth' | 'custom'
+  gateFailureAction: 'manual_review' | 'needs_more_info' | 'not_routable_yet'
   minCaseScore: number
   minEvidenceScore: number
   supportedJurisdictions: string[]
   supportedClaimTypes: string[]
+  claimTypeGateOverrides: Array<{
+    claimType: string
+    minCaseScore?: number
+    minEvidenceScore?: number
+    action?: 'manual_review' | 'needs_more_info' | 'not_routable_yet'
+  }>
+  stateGateOverrides: Array<{
+    state: string
+    minCaseScore?: number
+    minEvidenceScore?: number
+    action?: 'manual_review' | 'needs_more_info' | 'not_routable_yet'
+  }>
+  jurisdictionGateOverrides: Array<{
+    state: string
+    jurisdiction: string
+    minCaseScore?: number
+    minEvidenceScore?: number
+    action?: 'manual_review' | 'needs_more_info' | 'not_routable_yet'
+  }>
   minValueThreshold: number
   geographicExpansionRadiusMiles: number
+  caseRoutingPricingTiers: Array<{
+    id: string
+    label: string
+    priceCents: number
+    caseTypes: string[]
+    description: string
+    enabled: boolean
+  }>
   jurisdiction_fit: number
   case_type_fit: number
   economic_fit: number

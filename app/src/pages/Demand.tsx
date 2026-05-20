@@ -1,8 +1,31 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getAssessment, generateDemandLetter } from '../lib/api'
+import { downloadDemandLetterDocx, generateDemandLetter, getAssessment } from '../lib/api'
 import { formatCurrency } from '../lib/formatters'
-import { FileText, Download, Send, AlertCircle } from 'lucide-react'
+import { AlertCircle, ArrowLeft, CheckCircle, Download, FileText, ShieldCheck } from 'lucide-react'
+
+function getDiySuitability(assessment: any) {
+  const facts = assessment?.facts || {}
+  const damages = facts?.damages || {}
+  const medicalCharges = Number(damages?.med_charges || 0)
+  const wageLoss = Number(damages?.wage_loss || 0)
+  const treatment = Array.isArray(facts?.treatment) ? facts.treatment : []
+  const flags = [
+    medicalCharges >= 25000 && 'Medical bills are high enough that attorney review may materially change strategy.',
+    wageLoss >= 10000 && 'Wage loss appears significant and may need stronger proof or expert support.',
+    treatment.length >= 4 && 'There may be ongoing treatment or a more complex medical timeline.',
+    /minor|child|death|fatal|surgery|fracture|permanent|disability|government|public entity/i.test(JSON.stringify(facts)) &&
+      'Your facts mention a risk factor such as a minor, serious injury, government entity, or permanent harm.',
+  ].filter(Boolean) as string[]
+
+  if (flags.length >= 2) return { level: 'Attorney review strongly recommended', tone: 'red', flags }
+  if (flags.length === 1) return { level: 'Use caution', tone: 'amber', flags }
+  return {
+    level: 'Potential DIY fit',
+    tone: 'emerald',
+    flags: ['This appears more suitable for a self-help demand package, but review any release before signing.'],
+  }
+}
 
 export default function Demand() {
   const { assessmentId } = useParams<{ assessmentId: string }>()
@@ -58,7 +81,8 @@ export default function Demand() {
         assessmentId,
         formData.targetAmount,
         formData.recipient,
-        formData.message
+        formData.message,
+        'pro_se'
       )
       setDemandLetter(result)
     } catch (err) {
@@ -69,7 +93,7 @@ export default function Demand() {
     }
   }
 
-  const handleDownload = () => {
+  const handleDownloadText = () => {
     if (!demandLetter) return
 
     const element = document.createElement('a')
@@ -79,6 +103,20 @@ export default function Demand() {
     document.body.appendChild(element)
     element.click()
     document.body.removeChild(element)
+  }
+
+  const handleDownloadDocx = async () => {
+    if (!demandLetter?.demand_id) return
+
+    const blob = await downloadDemandLetterDocx(demandLetter.demand_id)
+    const url = window.URL.createObjectURL(blob)
+    const element = document.createElement('a')
+    element.href = url
+    element.download = `self-help-demand-${assessmentId}.docx`
+    document.body.appendChild(element)
+    element.click()
+    document.body.removeChild(element)
+    window.URL.revokeObjectURL(url)
   }
 
   if (loading) {
@@ -107,14 +145,60 @@ export default function Demand() {
     )
   }
 
+  const suitability = getDiySuitability(assessment)
+  const facts = assessment.facts || {}
+  const preparationItems = [
+    { label: 'Confirm who should receive the demand', helper: 'Usually the insurance adjuster, insurer, or defendant contact.', done: !!formData.recipient.name && !!formData.recipient.address },
+    { label: 'Attach medical bills and records', helper: 'Bills support the amount; records explain the injury and treatment.', done: !!facts?.damages?.med_charges },
+    { label: 'Add wage loss proof', helper: 'Use pay stubs, employer letters, or tax records if claiming missed income.', done: !!facts?.damages?.wage_loss },
+    { label: 'Include photos or incident reports', helper: 'Scene photos, property damage, police reports, or witness details strengthen liability.', done: !!facts?.incident?.narrative },
+    { label: 'Review before signing anything', helper: 'A settlement release can permanently end your claim.', done: false },
+  ]
+
   return (
     <div className="max-w-4xl mx-auto space-y-8">
+      <div>
+        <Link
+          to={`/results/${assessmentId}`}
+          className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to results
+        </Link>
+      </div>
+
       {/* Header */}
       <div className="text-center">
-        <h1 className="text-3xl font-bold text-gray-900">Generate Demand Letter</h1>
+        <h1 className="text-3xl font-bold text-gray-900">Self-Help Settlement Demand Package</h1>
         <p className="mt-2 text-gray-600">
-          Create a professional demand letter for your {assessment.claimType} case
+          Prepare a demand letter and review checklist for your {assessment.claimType} case without presenting it as attorney work.
         </p>
+      </div>
+
+      <div className={`rounded-xl border px-5 py-5 ${
+        suitability.tone === 'red'
+          ? 'border-red-200 bg-red-50 text-red-900'
+          : suitability.tone === 'amber'
+            ? 'border-amber-200 bg-amber-50 text-amber-900'
+            : 'border-emerald-200 bg-emerald-50 text-emerald-900'
+      }`}>
+        <div className="flex items-start gap-3">
+          <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">{suitability.level}</p>
+            <p className="mt-1 text-sm leading-relaxed">
+              This tool helps you organize and draft a settlement demand. It is not legal advice, and you should consider attorney review before signing a release or accepting a final settlement.
+            </p>
+            <ul className="mt-3 space-y-1 text-sm">
+              {suitability.flags.map((flag) => (
+                <li key={flag} className="flex gap-2">
+                  <span aria-hidden>•</span>
+                  <span>{flag}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       </div>
 
       {/* Case Summary */}
@@ -149,15 +233,38 @@ export default function Demand() {
         </div>
       </div>
 
+      <div className="card">
+        <h2 className="text-xl font-semibold text-gray-900 mb-4">Demand Package Checklist</h2>
+        <div className="space-y-3">
+          {preparationItems.map((item) => (
+            <div key={item.label} className="flex items-start gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-3">
+              <CheckCircle className={`mt-0.5 h-5 w-5 shrink-0 ${item.done ? 'text-emerald-600' : 'text-slate-300'}`} />
+              <div>
+                <p className="text-sm font-medium text-slate-900">{item.label}</p>
+                <p className="text-sm text-slate-600">{item.helper}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Link to={`/evidence-upload/${assessmentId}`} className="btn-outline">
+            Upload supporting records
+          </Link>
+          <Link to={`/results/${assessmentId}`} className="btn-ghost">
+            Back to results
+          </Link>
+        </div>
+      </div>
+
       {/* Demand Letter Form */}
       {!demandLetter && (
         <div className="card">
-          <h2 className="text-xl font-semibold text-gray-900 mb-6">Demand Letter Details</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-6">Self-Help Demand Details</h2>
           
           <div className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Target Amount *
+                Demand Amount *
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
@@ -172,7 +279,7 @@ export default function Demand() {
                 />
               </div>
               <p className="mt-1 text-sm text-gray-600">
-                Enter the amount you're seeking to resolve this matter
+                Choose the amount you want to request. This is your decision, not a guaranteed case value.
               </p>
             </div>
 
@@ -227,14 +334,14 @@ export default function Demand() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Additional Message (optional)
+                Additional Context (optional)
               </label>
               <textarea
                 value={formData.message}
                 onChange={(e) => setFormData(prev => ({ ...prev, message: e.target.value }))}
                 className="textarea"
                 rows={4}
-                placeholder="Any additional points you'd like to include in the demand letter..."
+                placeholder="Add facts you want the recipient to consider, such as liability details, treatment impact, or records you plan to attach..."
               />
             </div>
 
@@ -252,7 +359,7 @@ export default function Demand() {
                 ) : (
                   <>
                     <FileText className="h-4 w-4 mr-2" />
-                    Generate Letter
+                    Generate Self-Help Package
                   </>
                 )}
               </button>
@@ -265,18 +372,21 @@ export default function Demand() {
       {demandLetter && (
         <div className="card">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">Generated Demand Letter</h2>
+            <h2 className="text-xl font-semibold text-gray-900">Generated Self-Help Demand</h2>
             <div className="flex space-x-3">
               <button
-                onClick={handleDownload}
+                onClick={handleDownloadDocx}
                 className="btn-outline"
               >
                 <Download className="h-4 w-4 mr-2" />
-                Download
+                Download DOCX
               </button>
-              <button className="btn-primary">
-                <Send className="h-4 w-4 mr-2" />
-                Send Letter
+              <button
+                onClick={handleDownloadText}
+                className="btn-outline"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download TXT
               </button>
             </div>
           </div>
@@ -291,12 +401,13 @@ export default function Demand() {
             <div className="flex">
               <AlertCircle className="h-5 w-5 text-yellow-600 mr-3 mt-0.5" />
               <div className="text-sm text-yellow-800">
-                <p className="font-medium">Important:</p>
+                <p className="font-medium">Before you send or sign anything:</p>
                 <ul className="mt-2 space-y-1 list-disc list-inside">
                   <li>Review this letter carefully before sending</li>
-                  <li>Consider having an attorney review it</li>
+                  <li>Consider attorney review if liability is disputed, injuries are serious, or deadlines are close</li>
+                  <li>Do not sign a release until you understand exactly what claims it gives up</li>
                   <li>Keep copies of all correspondence</li>
-                  <li>This is a template - customize as needed</li>
+                  <li>Customize placeholders, attachments, and contact details before sending</li>
                 </ul>
               </div>
             </div>
@@ -314,7 +425,7 @@ export default function Demand() {
               state={{ from: `/demand/${assessmentId}` }}
               className="btn-primary"
             >
-              Find Attorney
+              Get Attorney Review
             </Link>
           </div>
         </div>

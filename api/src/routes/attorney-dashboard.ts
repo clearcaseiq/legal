@@ -24,6 +24,12 @@ import { sendPlaintiffAttorneyAccepted } from '../lib/case-notifications'
 import { answerCommandCenterCopilot, buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
 import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
+import {
+  formatAttorneyResponseDeadline,
+  getAttorneyResponseDeadlineMinutes,
+  getCaseRoutingPricingForClaimType,
+  getMatchingRules,
+} from '../lib/matching-rules-config'
 
 const router = Router()
 const PROJECTED_CONTINGENCY_RATE = 0.33
@@ -1042,6 +1048,74 @@ function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
   }
 }
 
+const MEDICAL_EVIDENCE_CATEGORIES = new Set(['medical_records', 'bills', 'medical_bill'])
+const MEDICAL_SHARING_PENDING_MESSAGE =
+  'Medical records and extracted treatment details are pending plaintiff account creation and HIPAA authorization. The visible case summary is based on intake answers only until the plaintiff authorizes medical document sharing.'
+
+function isMedicalEvidenceFile(file: any) {
+  return MEDICAL_EVIDENCE_CATEGORIES.has(String(file?.category || '')) || MEDICAL_EVIDENCE_CATEGORIES.has(String(file?.subcategory || ''))
+}
+
+function buildMedicalSharingStatus(assessment: any) {
+  const facts = typeof assessment?.facts === 'string'
+    ? safeJsonParse<Record<string, any>>(assessment.facts, {})
+    : (assessment?.facts || {})
+  const hasPlaintiffAccount = Boolean(assessment?.userId || assessment?.user?.id)
+  const hasHipaaConsent = facts?.consents?.hipaa === true
+  const evidenceFiles = Array.isArray(assessment?.evidenceFiles) ? assessment.evidenceFiles : []
+  const medicalFileCount = evidenceFiles.filter(isMedicalEvidenceFile).length
+  const canShareMedicalData = hasPlaintiffAccount && hasHipaaConsent
+
+  return {
+    canShareMedicalData,
+    hasPlaintiffAccount,
+    hasHipaaConsent,
+    medicalFileCount,
+    status: canShareMedicalData ? 'authorized' : 'pending_authorization',
+    message: canShareMedicalData ? null : MEDICAL_SHARING_PENDING_MESSAGE,
+  }
+}
+
+function sanitizeAssessmentForAttorney(assessment: any) {
+  if (!assessment) return assessment
+  const medicalSharing = buildMedicalSharingStatus(assessment)
+  if (medicalSharing.canShareMedicalData) {
+    return { ...assessment, medicalSharing }
+  }
+
+  const facts = typeof assessment.facts === 'string'
+    ? safeJsonParse<Record<string, any>>(assessment.facts, {})
+    : (assessment.facts || {})
+  const sanitizedFacts = {
+    ...facts,
+    treatment: Array.isArray(facts?.treatment)
+      ? facts.treatment.filter((item: any) => String(item?.provider || '').toLowerCase() !== 'from uploaded records')
+      : facts?.treatment,
+  }
+
+  return {
+    ...assessment,
+    facts: typeof assessment.facts === 'string' ? JSON.stringify(sanitizedFacts) : sanitizedFacts,
+    evidenceFiles: Array.isArray(assessment.evidenceFiles)
+      ? assessment.evidenceFiles.filter((file: any) => !isMedicalEvidenceFile(file))
+      : assessment.evidenceFiles,
+    medicalSharing,
+  }
+}
+
+function sanitizeLeadForAttorney(lead: any) {
+  return lead?.assessment
+    ? { ...lead, assessment: sanitizeAssessmentForAttorney(lead.assessment) }
+    : lead
+}
+
+function getPricingClaimType(assessment: any) {
+  const facts = typeof assessment?.facts === 'string'
+    ? safeJsonParse<Record<string, any>>(assessment.facts, {})
+    : (assessment?.facts || {})
+  return facts?.caseTypeValidation?.validatedClaimType || assessment?.claimType
+}
+
 function pickLatestPrediction(predictions: any[] | undefined) {
   if (!Array.isArray(predictions) || predictions.length === 0) return null
   return [...predictions].sort((a, b) => {
@@ -1553,7 +1627,19 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
           predictions: true,
           files: true,
           evidenceFiles: true,
-          user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } }
+          user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
+          introductions: {
+            where: { attorneyId },
+            orderBy: { requestedAt: 'desc' as const },
+            take: 1,
+            select: {
+              id: true,
+              status: true,
+              requestedAt: true,
+              respondedAt: true,
+              waveNumber: true
+            }
+          }
         }
       },
       contactAttempts: { where: { attorneyId } },
@@ -1951,10 +2037,38 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       logger.warn('Messaging counts query failed', { error: msgErr?.message })
     }
 
-    // Augment recentLeads with messaging
+    const matchingRules = await getMatchingRules()
+    const responseDeadlineMinutes = getAttorneyResponseDeadlineMinutes(matchingRules)
+    const responseDeadlineLabel = formatAttorneyResponseDeadline(responseDeadlineMinutes)
+
+    // Augment recentLeads with messaging and attorney offer deadline metadata
     const recentLeadsWithMessaging = (recentLeads || []).map((l: any) => {
       const msg = messagingByLead[l.assessmentId] || { unreadCount: 0, totalCount: 0, awaitingReply: false }
-      return { ...l, messaging: msg }
+      const intro = l.assessment?.introductions?.[0]
+      const requestedAt = intro?.requestedAt ? new Date(intro.requestedAt) : null
+      const expiresAt = requestedAt
+        ? new Date(requestedAt.getTime() + responseDeadlineMinutes * 60 * 1000)
+        : null
+      const pricingClaimType = getPricingClaimType(l.assessment)
+      const pricingTier = getCaseRoutingPricingForClaimType(matchingRules, pricingClaimType)
+      return sanitizeLeadForAttorney({
+        ...l,
+        messaging: msg,
+        routingPricing: pricingTier
+          ? {
+              tierId: pricingTier.id,
+              tierLabel: pricingTier.label,
+              priceCents: pricingTier.priceCents,
+              claimType: pricingClaimType,
+              description: pricingTier.description,
+            }
+          : null,
+        responseDeadlineMinutes,
+        responseDeadlineLabel,
+        offerRequestedAt: requestedAt?.toISOString?.() || null,
+        offerExpiresAt: expiresAt?.toISOString?.() || null,
+        offerStatus: intro?.status || null,
+      })
     })
 
     const workQueueData = await buildAttorneyWorkQueue({
@@ -3594,7 +3708,7 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
 
     const assessment = await prisma.assessment.findUnique({
       where: { id: lead.assessmentId },
-      select: { userId: true, createdAt: true }
+      select: { userId: true, createdAt: true, facts: true }
     })
 
     // Backfill: link unassigned plaintiff uploads to this assessment (recent window)
@@ -3647,7 +3761,15 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
       orderBy: { createdAt: 'desc' }
     })
 
-    res.json(evidenceFiles)
+    const medicalSharing = buildMedicalSharingStatus({
+      ...assessment,
+      evidenceFiles,
+    })
+    res.json(
+      medicalSharing.canShareMedicalData
+        ? evidenceFiles
+        : evidenceFiles.filter((file) => !isMedicalEvidenceFile(file))
+    )
   } catch (error: any) {
     logger.error('Failed to load lead evidence files', { error: error.message })
     res.status(500).json({ error: 'Failed to load evidence files' })
@@ -3789,8 +3911,16 @@ router.get('/leads/:leadId/medical-chronology', authMiddleware, async (req: any,
     const { leadId } = req.params
     const auth = await getAuthorizedLead(req, leadId)
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: auth.lead.assessmentId },
+      include: { evidenceFiles: true, user: { select: { id: true } } }
+    })
+    const medicalSharing = buildMedicalSharingStatus(assessment)
+    if (!medicalSharing.canShareMedicalData) {
+      return res.json({ chronology: [], medicalSharing })
+    }
     const chronology = await buildMedicalChronology(auth.lead.assessmentId)
-    res.json({ chronology })
+    res.json({ chronology, medicalSharing })
   } catch (error: any) {
     logger.error('Failed to get medical chronology', { error: error.message, leadId: req.params.leadId })
     res.status(500).json({ error: 'Failed to get medical chronology' })
@@ -3988,7 +4118,7 @@ router.get('/leads/:leadId/case-file', authMiddleware, async (req: any, res) => 
 
     const assessment = await prisma.assessment.findUnique({
       where: { id: lead.assessmentId },
-      include: { files: true, evidenceFiles: true }
+      include: { files: true, evidenceFiles: true, user: { select: { id: true } } }
     })
 
     if (!assessment) {
@@ -4025,7 +4155,12 @@ router.get('/leads/:leadId/case-file', authMiddleware, async (req: any, res) => 
       addFile(file.path, archivePath, 'assessment')
     }
 
-    for (const file of assessment.evidenceFiles || []) {
+    const medicalSharing = buildMedicalSharingStatus(assessment)
+    const evidenceFilesForDownload = medicalSharing.canShareMedicalData
+      ? assessment.evidenceFiles || []
+      : (assessment.evidenceFiles || []).filter((file: any) => !isMedicalEvidenceFile(file))
+
+    for (const file of evidenceFilesForDownload) {
       const archivePath = path.posix.join('evidence-files', file.originalName || file.filename)
       addFile(file.filePath, archivePath, 'evidence')
     }
@@ -4036,7 +4171,8 @@ router.get('/leads/:leadId/case-file', authMiddleware, async (req: any, res) => 
       includedCount: included.length,
       missingCount: missing.length,
       included,
-      missing
+      missing,
+      medicalSharing
     }
     archive.append(Buffer.from(JSON.stringify(manifest, null, 2)), { name: 'manifest.json' })
 
@@ -4063,6 +4199,7 @@ router.get('/leads/:leadId/finance/summary', authMiddleware, async (req: any, re
         predictions: true,
         files: true,
         evidenceFiles: true,
+        user: { select: { id: true } },
         demandLetters: true,
         insuranceDetails: true,
         lienHolders: true,
@@ -4918,7 +5055,12 @@ router.get('/leads/:leadId/finance/dataroom', authMiddleware, async (req: any, r
       addFile(file.path, archivePath, 'assessment')
     }
 
-    for (const file of assessment.evidenceFiles || []) {
+    const medicalSharing = buildMedicalSharingStatus(assessment)
+    const evidenceFilesForExport = medicalSharing.canShareMedicalData
+      ? assessment.evidenceFiles || []
+      : (assessment.evidenceFiles || []).filter((file: any) => !isMedicalEvidenceFile(file))
+
+    for (const file of evidenceFilesForExport) {
       const archivePath = path.posix.join('evidence-files', file.originalName || file.filename)
       addFile(file.filePath, archivePath, 'evidence')
     }
@@ -4933,7 +5075,8 @@ router.get('/leads/:leadId/finance/dataroom', authMiddleware, async (req: any, r
       includedCount: included.length,
       missingCount: missing.length,
       included,
-      missing
+      missing,
+      medicalSharing
     }
     archive.append(Buffer.from(JSON.stringify(manifest, null, 2)), { name: 'manifest.json' })
 
@@ -7628,8 +7771,20 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
         user: { select: { id: true, firstName: true, lastName: true, email: true } }
       }
     })
+    const matchingRules = await getMatchingRules()
+    const pricingClaimType = getPricingClaimType(assessment)
+    const pricingTier = getCaseRoutingPricingForClaimType(matchingRules, pricingClaimType)
     res.json({
       ...lead,
+      routingPricing: pricingTier
+        ? {
+            tierId: pricingTier.id,
+            tierLabel: pricingTier.label,
+            priceCents: pricingTier.priceCents,
+            claimType: pricingClaimType,
+            description: pricingTier.description,
+          }
+        : null,
       assessment: assessment
         ? {
             id: assessment.id,

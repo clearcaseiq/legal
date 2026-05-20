@@ -98,7 +98,8 @@ export const AssessmentUpdate = z.object({
   caseAcceleration: CaseAcceleration.optional(),
   jurisdiction: JurisdictionIntelligence.optional(),
   plaintiffContext: PlaintiffContext.optional(),
-  expectationCheck: ExpectationCheck.optional()
+  expectationCheck: ExpectationCheck.optional(),
+  intakeData: z.record(z.any()).optional()
 })
 
 export const PredictionRequest = z.object({

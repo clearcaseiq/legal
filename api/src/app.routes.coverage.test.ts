@@ -12,7 +12,7 @@ vi.mock('./services/chatgpt', () => ({
 vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
 
 import { buildApp } from './build-app'
-import { resetUniversalPrismaMock } from './test/universalPrismaMock'
+import { prisma, resetUniversalPrismaMock } from './test/universalPrismaMock'
 
 describe('HTTP API route coverage (mocked prisma)', () => {
   const app = buildApp()
@@ -94,6 +94,32 @@ describe('HTTP API route coverage (mocked prisma)', () => {
       })
     expectHandledStatus(res.status)
     expect(res.status).toBe(404)
+  })
+
+  it('POST /v1/demands/generate supports pro-se self-help letters', async () => {
+    prisma.assessment.findUnique.mockResolvedValueOnce({
+      id: 'assess-1',
+      claimType: 'auto',
+      venueState: 'CA',
+      venueCounty: 'Los Angeles',
+      facts: JSON.stringify({
+        incident: { date: '2026-01-01', narrative: 'Rear-end collision at a red light.' },
+        damages: { med_charges: 12000, wage_loss: 1500 },
+      }),
+    })
+
+    const res = await request(app)
+      .post('/v1/demands/generate')
+      .send({
+        assessmentId: 'assess-1',
+        targetAmount: 30000,
+        recipient: { name: 'Ins Co', address: '1 Main', email: '' },
+        mode: 'pro_se',
+      })
+
+    expect(res.status).toBe(200)
+    expect(res.body.content).toContain('I am writing on my own behalf')
+    expect(res.body.content).not.toContain('We represent')
   })
 
   it('GET /v1/demands/assessment/x (list)', async () => {

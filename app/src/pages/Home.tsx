@@ -9,7 +9,6 @@ import {
   BarChart3Icon,
   UsersIcon,
   CheckCircleIcon,
-  StarIcon,
   QuoteIcon,
 } from '../components/StartupIcons'
 
@@ -59,13 +58,15 @@ export default function Home() {
                   {t('home.heroItem3')}
                 </li>
               </ul>
-              <Link
-                to="/assessment/start"
-                className="inline-flex items-center justify-center px-10 py-4 text-lg font-semibold text-white bg-accent-600 rounded-xl hover:bg-accent-700 shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
-              >
-                <FileTextIcon className="h-6 w-6 mr-2" aria-hidden />
-                {t('common.startAssessment')}
-              </Link>
+              <div className="flex flex-col items-center lg:items-start gap-3">
+                <Link
+                  to="/assessment/start"
+                  className="group inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-8 py-4 text-lg font-bold text-white shadow-xl shadow-accent-500/30 ring-1 ring-white/20 transition-all duration-200 hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl hover:shadow-accent-500/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 sm:px-11 sm:py-5 sm:text-xl"
+                >
+                  <FileTextIcon className="mr-2 h-6 w-6 transition-transform group-hover:rotate-[-4deg] sm:h-7 sm:w-7" aria-hidden />
+                  {t('common.startAssessment')}
+                </Link>
+              </div>
               <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">{t('common.heroFooter')}</p>
             </div>
 
@@ -105,11 +106,6 @@ export default function Home() {
                 className="relative rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 p-5 hover:shadow-md transition-shadow duration-200"
               >
                 <QuoteIcon className="h-8 w-8 text-brand-200 dark:text-brand-800 mb-2" aria-hidden />
-                <div className="flex gap-0.5 mb-3" aria-label="5 out of 5 stars">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <StarIcon key={i} className="h-4 w-4 text-accent-500" aria-hidden />
-                  ))}
-                </div>
                 <blockquote className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
                   “{t(`home.testimonial${n}Quote`)}”
                 </blockquote>
@@ -152,6 +148,9 @@ export default function Home() {
           <h2 className="font-display text-2xl font-bold text-slate-900 dark:text-slate-50 text-center mb-6">
             {t('home.commonCaseTypes')}
           </h2>
+          <p className="mx-auto mb-6 max-w-2xl text-center text-sm text-slate-600 dark:text-slate-400">
+            {t('home.commonCaseTypesDesc')}
+          </p>
           <div className="flex flex-wrap justify-center gap-3 max-w-3xl mx-auto">
             {CASE_TYPES.map((type) => (
               <Link
@@ -166,12 +165,12 @@ export default function Home() {
         </section>
 
         <section className="py-8">
-          <h2 className="font-display text-2xl font-bold text-slate-900 dark:text-slate-50 text-center mb-2">
+          <h2 className="font-display text-3xl font-bold text-slate-900 dark:text-slate-50 text-center mb-2">
             {t('home.reportIncludes')}
           </h2>
           <p className="text-center text-slate-600 dark:text-slate-400 text-sm mb-6">{t('home.reportIncludesDesc')}</p>
           <div className="max-w-xl mx-auto grid sm:grid-cols-2 gap-4">
-            {['reportItem1', 'reportItem2', 'reportItem3', 'reportItem4', 'reportItem5'].map((key) => (
+            {['reportItem1', 'reportItem2', 'reportItem3', 'reportItem4', 'reportItem5', 'reportItem6'].map((key) => (
               <div key={key} className="flex items-center gap-3">
                 <CheckCircleIcon className="h-5 w-5 text-emerald-600 flex-shrink-0" aria-hidden />
                 <span className="text-slate-700 dark:text-slate-300">{t(`home.${key}`)}</span>
@@ -193,6 +192,18 @@ export default function Home() {
               </li>
             ))}
           </ul>
+          <div className="mt-8 flex flex-col items-center gap-3">
+            <Link
+              to="/assessment/start"
+              className="group inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-8 py-4 text-base font-bold text-white shadow-lg shadow-accent-500/25 ring-1 ring-white/20 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-accent-500/30 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 sm:text-lg"
+            >
+              <FileTextIcon className="mr-2 h-5 w-5 transition-transform group-hover:rotate-[-4deg]" aria-hidden />
+              {t('common.startAssessment')}
+            </Link>
+            <p className="text-center text-sm text-slate-500 dark:text-slate-400">
+              Get your case summary, estimate, and next-step checklist.
+            </p>
+          </div>
         </section>
       </div>
   )

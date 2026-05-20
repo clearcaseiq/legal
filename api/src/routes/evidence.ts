@@ -14,6 +14,7 @@ import { runCaseRecalculation } from '../lib/case-recalculation'
 import { getClientConsentCompliance, isGuestCaseUserEmail } from '../lib/client-consent-guard'
 import { ENV } from '../env'
 import { prisma } from '../lib/prisma'
+import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
 
 const router = Router()
 
@@ -52,7 +53,16 @@ export async function runAnalysisForAssessment(assessmentId: string) {
   try {
     const assessment = await prisma.assessment.findUnique({
       where: { id: assessmentId },
-      include: { evidenceFiles: true }
+      include: {
+        evidenceFiles: {
+          include: {
+            extractedData: {
+              orderBy: { createdAt: 'desc' },
+              take: 1
+            }
+          }
+        }
+      }
     })
 
     if (!assessment) return
@@ -62,8 +72,8 @@ export async function runAnalysisForAssessment(assessmentId: string) {
       id: file.id,
       filename: file.filename,
       category: file.category,
-      processed: file.processed,
-      extractedData: file.extractedData ? JSON.parse(file.extractedData) : null
+      processingStatus: file.processingStatus,
+      extractedData: file.extractedData?.[0] || null
     }))
 
     const analysisRequest: CaseAnalysisRequest = {
@@ -490,6 +500,15 @@ router.post('/upload', upload.single('file'), async (req: any, res) => {
       }
     })
 
+    if (shouldAutoProcessEvidence(evidenceFile.category, evidenceFile.mimetype)) {
+      void processEvidenceFileForExtraction(evidenceFile.id).catch((processingError) => {
+        logger.error('Automatic evidence processing failed', {
+          error: processingError,
+          evidenceFileId: evidenceFile.id,
+        })
+      })
+    }
+
     // Log access
     await prisma.evidenceAccessLog.create({
       data: {
@@ -619,6 +638,15 @@ router.post('/upload-multiple', optionalAuthMiddleware, upload.array('files', 10
             priority: 5
           }
         })
+
+        if (shouldAutoProcessEvidence(evidenceFile.category, evidenceFile.mimetype)) {
+          void processEvidenceFileForExtraction(evidenceFile.id).catch((processingError) => {
+            logger.error('Automatic evidence processing failed', {
+              error: processingError,
+              evidenceFileId: evidenceFile.id,
+            })
+          })
+        }
 
         results.push(evidenceFile)
       } catch (fileError) {
@@ -761,83 +789,10 @@ router.post('/:fileId/process', authMiddleware, async (req: any, res) => {
       return res.status(404).json({ error: 'Evidence file not found' })
     }
 
-    // Update processing status
-    await prisma.evidenceFile.update({
-      where: { id: fileId },
-      data: { processingStatus: 'processing' }
-    })
-
     try {
-      let ocrText = ''
-      
-      // Perform OCR if it's an image or PDF (can be disabled via environment variable)
-      try {
-        const enableOCR = process.env.ENABLE_OCR === 'true' // Default to false to prevent crashes, set to 'true' to enable
-        if (
-          enableOCR &&
-          !evidenceFile.mimetype.startsWith('video/') &&
-          (evidenceFile.mimetype.startsWith('image/') || evidenceFile.mimetype === 'application/pdf')
-        ) {
-          logger.info('Starting OCR processing for file:', evidenceFile.originalName)
-          ocrText = await performOCR(evidenceFile.filePath)
-          logger.info('OCR processing completed for file:', evidenceFile.originalName)
-        } else if (!enableOCR) {
-          logger.info('OCR processing disabled via ENABLE_OCR environment variable')
-        }
-      } catch (ocrError: any) {
-        logger.warn('OCR processing failed, continuing without OCR', { 
-          error: ocrError.message, 
-          file: evidenceFile.originalName 
-        })
-        ocrText = '' // Continue without OCR
-      }
-
-      // Process extracted data
-      const extractedData = await processExtractedData(ocrText)
-      const aiClassification = classifyEvidence(evidenceFile.originalName, evidenceFile.category, ocrText)
-      const aiSummary = summarizeText(ocrText)
-      const aiHighlights = buildHighlights(extractedData, ocrText)
-
-      // Update file with OCR text (extractedData stored in ExtractedData model below)
-      await prisma.evidenceFile.update({
-        where: { id: fileId },
-        data: {
-          ocrText,
-          processingStatus: 'completed',
-          aiClassification,
-          aiSummary,
-          aiHighlights: aiHighlights.length ? JSON.stringify(aiHighlights) : null
-        }
-      })
-
-      // Create extracted data record
-      if (Object.keys(extractedData).length > 0) {
-        await prisma.extractedData.create({
-          data: {
-            evidenceFileId: fileId,
-            icdCodes: extractedData.icdCodes ? JSON.stringify(extractedData.icdCodes) : null,
-            cptCodes: extractedData.cptCodes ? JSON.stringify(extractedData.cptCodes) : null,
-            dollarAmounts: extractedData.dollarAmounts ? JSON.stringify(extractedData.dollarAmounts) : null,
-            totalAmount: extractedData.totalAmount,
-            dates: extractedData.dates ? JSON.stringify(extractedData.dates) : null,
-            keywords: extractedData.keywords ? JSON.stringify(extractedData.keywords) : null,
-            confidence: extractedData.confidence
-          }
-        })
-      }
-
-      if (evidenceFile.assessmentId) {
-        void runCaseRecalculation(evidenceFile.assessmentId, 'evidence_processing')
-      }
-
+      const extractedData = await processEvidenceFileForExtraction(fileId)
       res.json({ message: 'Processing completed', extractedData })
     } catch (processingError) {
-      // Update status to failed
-      await prisma.evidenceFile.update({
-        where: { id: fileId },
-        data: { processingStatus: 'failed' }
-      })
-      
       logger.error('Failed to process evidence file', { error: processingError })
       res.status(500).json({ error: 'Processing failed' })
     }

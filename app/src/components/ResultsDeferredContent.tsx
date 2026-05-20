@@ -92,6 +92,33 @@ function getAttorneyWhyMatched(
   return `Why matched: strong for ${specialty} matters${venue ? ` in ${venue}` : ''}.`
 }
 
+function getAttorneyRecommendationReasons(
+  attorney: RankedAttorneyCard,
+  context?: {
+    assessmentClaimType?: string
+    venueState?: string
+    venueCounty?: string
+  }
+) {
+  const reasons: string[] = []
+  const specialty = context?.assessmentClaimType
+    ? formatClaimTypeLabel(context.assessmentClaimType)
+    : Array.isArray(attorney.specialties) && attorney.specialties[0]
+      ? formatClaimTypeLabel(attorney.specialties[0])
+      : ''
+  const venue = formatVenueLabel(context?.venueState, context?.venueCounty)
+    || attorney.law_firm?.state
+    || (Array.isArray(attorney.venues) ? attorney.venues[0] : '')
+
+  if (specialty) reasons.push(`Handles ${specialty} cases`)
+  if (venue) reasons.push(`Serves ${venue}`)
+  if ((attorney.responseTimeHours || 24) <= 8 || attorney.responseBadge) reasons.push(getResponseBadge(attorney))
+  if (attorney.yearsExperience) reasons.push(`${attorney.yearsExperience}+ years of experience`)
+  if ((attorney.averageRating || attorney.rating || 0) > 0) reasons.push(`${(attorney.averageRating || attorney.rating || 0).toFixed(1)} average rating`)
+
+  return reasons.length > 0 ? reasons.slice(0, 3) : [getAttorneyWhyMatched(attorney, context)]
+}
+
 type ResultsSubmittedViewProps = {
   assessmentId?: string
   assessmentClaimType?: string
@@ -200,13 +227,21 @@ export function ResultsSubmittedView({
                       venueState,
                     })}
                   </p>
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    {getAttorneyWhyMatched(attorney, {
-                      assessmentClaimType,
-                      venueCounty,
-                      venueState,
-                    })}
-                  </p>
+                  <div className="mt-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">Why we recommend them</p>
+                    <ul className="mt-1 space-y-1 text-[11px] text-brand-900">
+                      {getAttorneyRecommendationReasons(attorney, {
+                        assessmentClaimType,
+                        venueCounty,
+                        venueState,
+                      }).map((reason) => (
+                        <li key={reason} className="flex items-start gap-1.5">
+                          <CheckCircle className="mt-0.5 h-3 w-3 flex-shrink-0 text-brand-600" />
+                          <span>{reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
                       <CheckCircle className="mr-1 h-3 w-3" />
@@ -369,7 +404,11 @@ export function ResultsReportDetails({
       <summary className="cursor-pointer list-none border-b border-slate-200 bg-slate-50/50 px-6 sm:px-10 py-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-bold text-brand-800">ClearCaseIQ</p>
+            <img
+              src="/clearcaseiq-logo.png?v=2"
+              alt="ClearCaseIQ"
+              className="h-7 w-auto rounded-sm object-contain [mix-blend-mode:multiply]"
+            />
             <p className="mt-1 text-sm font-semibold text-slate-900">Full report, sharing, and legal notes</p>
             <p className="mt-0.5 text-xs text-slate-500">Open this if you want the complete supplemental analysis.</p>
           </div>

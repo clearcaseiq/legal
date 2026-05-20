@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments, getRoutingStatus, createAppointment, getAttorneyAvailability, updateAppointment, cancelAppointment, joinAppointmentWaitlist, updateAppointmentPreparation, sendMessage, getOrCreateChatRoom, getPlaintiffConsentCompliance, requestEmailVerification, getPlaintiffDocumentRequests, createAttorneyReview, type PlaintiffDocumentRequest } from '../lib/api'
+import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments, getRoutingStatus, createAppointment, getAttorneyAvailability, updateAppointment, cancelAppointment, joinAppointmentWaitlist, updateAppointmentPreparation, sendMessage, getOrCreateChatRoom, getPlaintiffConsentCompliance, requestEmailVerification, getPlaintiffDocumentRequests, createAttorneyReview, getMedicalChronology, type PlaintiffDocumentRequest } from '../lib/api'
 import { formatCurrency } from '../lib/formatters'
 import { CheckCircle, Square, Upload, FileText, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, ExternalLink, Send, Star } from 'lucide-react'
 import CaseProgressPipeline from '../components/CaseProgressPipeline'
@@ -151,6 +151,7 @@ export default function Dashboard() {
   const [activeAssessment, setActiveAssessment] = useState<ActiveAssessment | null>(null)
   const [evidenceCount, setEvidenceCount] = useState(0)
   const [evidenceFiles, setEvidenceFiles] = useState<{ category?: string }[]>([])
+  const [medicalSummary, setMedicalSummary] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabId>('dashboard')
   const [painLevel, setPainLevel] = useState(5)
@@ -165,6 +166,9 @@ export default function Dashboard() {
     statusMessage?: string
     attorneysRouted?: number
     attorneysReviewing?: number
+    responseDeadlineMinutes?: number
+    responseDeadlineHours?: number
+    responseDeadlineLabel?: string
     attorneyMatched?: {
       id: string
       name: string
@@ -192,6 +196,7 @@ export default function Dashboard() {
     }
     caseChatRoomId?: string | null
   } | null>(null)
+  const responseDeadlineLabel = routingStatus?.responseDeadlineLabel || '24 hours'
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
   const [caseMessageInput, setCaseMessageInput] = useState('')
   const [caseMessageSending, setCaseMessageSending] = useState(false)
@@ -232,6 +237,67 @@ export default function Dashboard() {
       setJournalEntries(Array.isArray(stored) ? stored : [])
     } else {
       setJournalEntries([])
+    }
+  }, [activeAssessment?.id])
+
+  useEffect(() => {
+    if (!activeAssessment?.id) {
+      setMedicalSummary([])
+      return
+    }
+
+    let cancelled = false
+    const loadMedicalSummary = async () => {
+      try {
+        const chronology = await getMedicalChronology(activeAssessment.id)
+        if (cancelled) return
+        setMedicalSummary(
+          Array.isArray(chronology)
+            ? chronology.map((event: any) => ({
+                date: event.date,
+                label: event.label,
+                provider: event.provider,
+                details: event.details,
+                amount: event.amount,
+                sourceFileName: event.sourceFileName,
+                confidence: event.confidence || event.extractionConfidence,
+              }))
+            : []
+        )
+      } catch {
+        if (!cancelled) setMedicalSummary([])
+      }
+    }
+
+    void loadMedicalSummary()
+    return () => {
+      cancelled = true
+    }
+  }, [activeAssessment?.id])
+
+  useEffect(() => {
+    if (!activeAssessment?.id) return
+
+    let cancelled = false
+    const refreshActiveAssessment = async () => {
+      try {
+        const detail = await getAssessment(activeAssessment.id)
+        if (!cancelled) setActiveAssessment(detail)
+      } catch {
+        /* keep the current dashboard snapshot if refresh fails */
+      }
+    }
+    const refreshOnReturn = () => {
+      if (document.visibilityState === 'visible') void refreshActiveAssessment()
+    }
+
+    window.addEventListener('focus', refreshOnReturn)
+    document.addEventListener('visibilitychange', refreshOnReturn)
+
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', refreshOnReturn)
+      document.removeEventListener('visibilitychange', refreshOnReturn)
     }
   }, [activeAssessment?.id])
 
@@ -401,6 +467,7 @@ export default function Dashboard() {
   const venueState = activeAssessment?.venue?.state || activeAssessment?.venueState || 'California'
   const injuries = Array.isArray(parsedFacts.injuries) ? parsedFacts.injuries : []
   const treatment = Array.isArray(parsedFacts.treatment) ? parsedFacts.treatment : []
+  const dashboardTreatment = medicalSummary.length > 0 ? medicalSummary : treatment
   const damages = parsedFacts.damages || {}
   const hasNarrative = !!parsedFacts.incident?.narrative
   const hasLocation = !!(parsedFacts.incident?.location || parsedFacts.venue?.state)
@@ -483,7 +550,7 @@ export default function Dashboard() {
     : submittedForReview
     ? {
         title: 'Submitted for Attorney Review',
-        subtitle: plaintiffRoutingStatusMessage || 'Expected response within 24 hours',
+        subtitle: plaintiffRoutingStatusMessage || `Expected response within ${responseDeadlineLabel}`,
         className: 'bg-brand-600 text-white',
         subClassName: 'text-brand-100'
       }
@@ -517,7 +584,7 @@ export default function Dashboard() {
     : !hasWageLoss
     ? { action: 'Document wage loss if you missed work', valueIncrease: 'This could increase your case value by $1,000–$5,000', cta: 'Add wage loss', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
     : submittedForReview
-    ? { action: 'Your case has been submitted for attorney review', valueIncrease: 'Attorneys typically respond within 24 hours', cta: 'View Case Report', href: activeAssessment ? `/results/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    ? { action: 'Your case has been submitted for attorney review', valueIncrease: `Attorneys typically respond within ${responseDeadlineLabel}`, cta: 'View Case Report', href: activeAssessment ? `/results/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
     : { action: 'Submit your case for attorney review', valueIncrease: 'Get matched with attorneys', cta: 'Send for review', href: activeAssessment ? `/results/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
   const routingTimelineItems = [
     submittedForReview
@@ -581,6 +648,8 @@ export default function Dashboard() {
     ? { tip: 'Your attorney is ready to discuss your case.', action: 'Schedule your consultation to get started.' }
     : attorneyMatched && hasUpcomingConsult
     ? { tip: 'Prepare for your consultation.', action: 'Upload medical records and any documents your attorney may need.' }
+    : submittedForReview
+    ? { tip: 'Your case is under attorney review.', action: plaintiffRoutingStatusMessage || `Attorneys typically respond within ${responseDeadlineLabel}.` }
     : inManualReview
     ? { tip: 'Your case is in team review.', action: 'You can upload missing evidence while we check routing options.' }
     : needsMoreInfo
@@ -623,6 +692,16 @@ export default function Dashboard() {
   })()
 
   const caseValueHistory = (() => {
+    if (Array.isArray(activeAssessment?.caseValueHistory) && activeAssessment.caseValueHistory.length > 0) {
+      return [...activeAssessment.caseValueHistory]
+        .reverse()
+        .map((entry, index, entries) => ({
+          label: index === entries.length - 1 ? 'Current estimate' : entry.label,
+          shortLabel: index === entries.length - 1 ? 'Current' : index === 0 ? 'Initial' : `V${index + 1}`,
+          value: entry.bands?.p75 ?? entry.value,
+        }))
+    }
+
     const base = settlementLow
     let v = base
     const entries: { label: string; shortLabel: string; value: number }[] = [{ label: 'Initial estimate', shortLabel: 'Initial', value: base }]
@@ -1577,7 +1656,7 @@ export default function Dashboard() {
                               }`}>
                               {plaintiffRoutingStatusMessage || (inManualReview
                                 ? 'You do not need to do anything urgent unless we request more information.'
-                                : 'Most attorneys respond within about 24 hours.')}
+                                : `Most attorneys respond within about ${responseDeadlineLabel}.`)}
                             </div>
                             <div className="space-y-2 mb-4">
                               <div className="flex items-center gap-2 text-green-700">
@@ -1608,7 +1687,7 @@ export default function Dashboard() {
                                 return <p className="text-sm text-brand-600">Last attorney view: {timeAgo}</p>
                               })()}
                             </div>
-                            <p className="text-sm text-gray-500">Typical response time: about 24 hours.</p>
+                            <p className="text-sm text-gray-500">Typical response time: about {responseDeadlineLabel}.</p>
                           </>
                         ) : (
                           <>
@@ -1644,13 +1723,25 @@ export default function Dashboard() {
                       </div>
                     </div>
                     {!submittedForReview && (
-                      <div className="bg-white rounded-xl border-2 border-brand-200 p-5">
-                        <h3 className="text-lg font-bold text-gray-900 mb-2">Submit Your Case for Attorney Review</h3>
-                        <p className="text-sm text-gray-600 mb-2">65% of cases like yours are accepted by attorneys in our network.</p>
-                        <p className="text-sm text-gray-600 mb-4">Most attorneys respond within 24 hours.</p>
-                        <Link to={`/results/${activeAssessment.id}?review=1`} className="block w-full text-center py-3 text-sm font-semibold text-white bg-brand-600 rounded-lg hover:bg-brand-700">
-                          Send My Case for Attorney Review
-                        </Link>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="bg-white rounded-xl border-2 border-brand-200 p-5">
+                          <h3 className="text-lg font-bold text-gray-900 mb-2">Submit Your Case for Attorney Review</h3>
+                          <p className="text-sm text-gray-600 mb-2">65% of cases like yours are accepted by attorneys in our network.</p>
+                          <p className="text-sm text-gray-600 mb-4">Most attorneys respond within {responseDeadlineLabel}.</p>
+                          <Link to={`/results/${activeAssessment.id}?review=1`} className="block w-full text-center py-3 text-sm font-semibold text-white bg-brand-600 rounded-lg hover:bg-brand-700">
+                            Send My Case for Attorney Review
+                          </Link>
+                        </div>
+                        <div className="bg-indigo-50 rounded-xl border-2 border-indigo-200 p-5">
+                          <h3 className="text-lg font-bold text-indigo-950 mb-2">Prepare a Self-Help Demand Package</h3>
+                          <p className="text-sm text-indigo-900/80 mb-2">
+                            For straightforward claims, organize your facts and records into a settlement demand you can review and download.
+                          </p>
+                          <p className="text-sm text-indigo-900/80 mb-4">Attorney review is recommended before signing any release.</p>
+                          <Link to={`/demand/${activeAssessment.id}`} className="block w-full text-center py-3 text-sm font-semibold text-white bg-indigo-700 rounded-lg hover:bg-indigo-800">
+                            Build Demand Package
+                          </Link>
+                        </div>
                       </div>
                     )}
 
@@ -1703,6 +1794,10 @@ export default function Dashboard() {
                     <Link to={`/evidence-upload/${activeAssessment.id}`} className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-sm font-semibold text-white bg-brand-600 rounded-lg hover:bg-brand-700 w-fit">
                       <Upload className="h-4 w-4" />
                       Upload Evidence
+                    </Link>
+                    <Link to={`/demand/${activeAssessment.id}`} className="inline-flex items-center gap-2 mt-2 px-4 py-2 text-sm font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 w-fit">
+                      <FileText className="h-4 w-4" />
+                      Build Demand Package
                     </Link>
                   </div>
                   <div className="bg-white rounded-xl border border-gray-200 p-5 min-h-[280px] flex flex-col">
@@ -1881,7 +1976,7 @@ export default function Dashboard() {
                   settlementHigh={settlementHigh}
                   liabilityLabel={liabilityLabel}
                   evidencePercent={evidencePercent}
-                  treatment={treatment}
+                  treatment={dashboardTreatment}
                   damagesLabel={damagesLabel}
                   strengths={strengths}
                   riskLevel={riskLevel}

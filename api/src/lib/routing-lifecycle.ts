@@ -9,7 +9,7 @@ import {
   sendPlaintiffAttorneyAccepted,
   sendPlaintiffManualReviewNeeded
 } from './case-notifications'
-import { getConfiguredWaveSize, getConfiguredWaveWaitHours, getMatchingRules } from './matching-rules-config'
+import { getAttorneyResponseDeadlineMinutes, getConfiguredWaveSize, getConfiguredWaveWaitHours, getMatchingRules } from './matching-rules-config'
 
 const PROJECTED_CONTINGENCY_RATE = 0.33
 const PROJECTED_PLATFORM_FEE_RATE = 0.1
@@ -745,7 +745,10 @@ export async function runEscalationWave(assessmentId: string): Promise<{
 
   if (latestWave?.nextEscalationAt) {
     const overdueHours = (Date.now() - latestWave.nextEscalationAt.getTime()) / (1000 * 60 * 60)
-    const alertThresholdHours = Math.max(24, getConfiguredWaveWaitHours(matchingRules, latestWave.waveNumber) * 2)
+    const waitHours = latestWave.waveNumber === 1
+      ? getAttorneyResponseDeadlineMinutes(matchingRules) / 60
+      : getConfiguredWaveWaitHours(matchingRules, latestWave.waveNumber)
+    const alertThresholdHours = Math.max(24, waitHours * 2)
     if (overdueHours > alertThresholdHours) {
       await recordRoutingEvent(assessmentId, null, null, 'routing_overdue', {
         waveNumber: latestWave.waveNumber,

@@ -21,6 +21,7 @@ import {
   type ConversationReview,
 } from '../lib/rose-engine'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
+import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
 
 const router = Router()
 
@@ -39,6 +40,13 @@ function serializeReview(review?: ConversationReview) {
   }
 }
 
+function enrichCaseTypeValidation<T extends { claimType: string }>(payload: T): T & { caseTypeValidation: ReturnType<typeof validateCaseTypeFromFacts> } {
+  return {
+    ...payload,
+    caseTypeValidation: validateCaseTypeFromFacts(payload.claimType, payload as Record<string, unknown>),
+  }
+}
+
 /**
  * POST /v1/rose/intake
  * Accepts Rose virtual AI intake payload; maps to ClearCaseIQ schema and creates assessment.
@@ -54,7 +62,7 @@ router.post('/intake', optionalAuthMiddleware, async (req: AuthRequest, res) => 
       })
     }
 
-    const assessmentPayload = roseToAssessmentPayload(parsed.data)
+    const assessmentPayload = enrichCaseTypeValidation(roseToAssessmentPayload(parsed.data))
 
     const assessment = await prisma.assessment.create({
       data: {
@@ -125,7 +133,7 @@ router.post('/conversation/start', optionalAuthMiddleware, async (req: AuthReque
     conversationStore.set(conversationId, state)
 
     const firstQuestion =
-      "Hi, I'm Rose. Tell me what happened in your own words, and I'll help turn it into a complete intake."
+      "Hi, I'm Rose. I'll help organize your injury case step by step. Tell me what happened in your own words, and I will summarize everything before anything is submitted. You can also say, \"I'm not sure\" or \"skip for now.\""
 
     res.json({
       conversation_id: conversationId,
@@ -162,7 +170,7 @@ router.post('/conversation/:id/turn', optionalAuthMiddleware, async (req: AuthRe
     conversationStore.set(conversationId, result.state)
 
     if (result.finalSummary) {
-      const assessmentPayload = enginePayloadToAssessment(result.finalSummary.structured_payload as any)
+      const assessmentPayload = enrichCaseTypeValidation(enginePayloadToAssessment(result.finalSummary.structured_payload as any))
       const assessment = await prisma.assessment.create({
         data: {
           userId: req.user?.id,

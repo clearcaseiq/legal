@@ -5,12 +5,12 @@ const MARK_PX = { sm: 28, md: 34, lg: 42 } as const
 
 export type BrandLogoSize = keyof typeof MARK_PX
 
-/** Premium file-mark: structured case file, trusted approval badge, warmer accent contrast. */
+/** Shield + scales mark: legal protection, case analysis, and verified readiness. */
 export function BrandMark({ size = 'md', className }: { size?: BrandLogoSize; className?: string }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '')
-  const shellGradId = `cciq-shell-${uid}`
-  const panelGradId = `cciq-panel-${uid}`
-  const badgeGradId = `cciq-badge-${uid}`
+  const shieldGradId = `cciq-shield-${uid}`
+  const goldGradId = `cciq-gold-${uid}`
+  const lensGradId = `cciq-lens-${uid}`
   const w = MARK_PX[size]
 
   return (
@@ -24,39 +24,47 @@ export function BrandMark({ size = 'md', className }: { size?: BrandLogoSize; cl
       aria-hidden
     >
       <defs>
-        <linearGradient id={shellGradId} x1="4" y1="3" x2="27" y2="29" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#5279aa" />
-          <stop offset="0.48" stopColor="#34547a" />
-          <stop offset="1" stopColor="#17283c" />
+        <linearGradient id={shieldGradId} x1="5" y1="3" x2="26" y2="29" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#4d78aa" />
+          <stop offset="0.52" stopColor="#173963" />
+          <stop offset="1" stopColor="#071629" />
         </linearGradient>
-        <linearGradient id={panelGradId} x1="9" y1="7" x2="22" y2="26" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#ffffff" />
-          <stop offset="1" stopColor="#eef4fa" />
-        </linearGradient>
-        <linearGradient id={badgeGradId} x1="18.4" y1="18.4" x2="27.3" y2="27.2" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#fbbf24" />
+        <linearGradient id={goldGradId} x1="10" y1="7" x2="23" y2="20" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#fde68a" />
+          <stop offset="0.5" stopColor="#f59e0b" />
           <stop offset="1" stopColor="#d97706" />
+        </linearGradient>
+        <linearGradient id={lensGradId} x1="18" y1="18" x2="29" y2="29" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#1e3a5f" />
+          <stop offset="1" stopColor="#071629" />
         </linearGradient>
       </defs>
 
-      <rect x="0.75" y="0.75" width="30.5" height="30.5" rx="9" fill={`url(#${shellGradId})`} />
-      <rect x="0.75" y="0.75" width="30.5" height="30.5" rx="9" stroke="rgba(255,255,255,0.12)" strokeWidth="1.5" />
-      <path d="M6.6 7.15c0-1.18.96-2.15 2.15-2.15h8.55l5.55 5.52v13.2c0 1.8-1.46 3.28-3.27 3.28H8.75A2.15 2.15 0 0 1 6.6 24.85V7.15z" fill={`url(#${panelGradId})`} />
-      <path d="M17.3 5v4.08c0 1.12.91 2.02 2.03 2.02h3.52L17.3 5z" fill="#dce8f5" />
-      <rect x="9.35" y="8.75" width="1.85" height="14.45" rx="0.92" fill="#34547a" />
-      <rect x="12.8" y="10.1" width="6.65" height="1.55" rx="0.78" fill="#9eb6d0" />
-      <rect x="12.8" y="13.1" width="6" height="1.55" rx="0.78" fill="#c4d4e5" />
-      <rect x="12.8" y="16.1" width="4.4" height="1.55" rx="0.78" fill="#d3dfeb" />
-      <circle cx="22.55" cy="22.45" r="5.05" fill={`url(#${badgeGradId})`} />
-      <circle cx="22.55" cy="22.45" r="4.48" stroke="rgba(255,255,255,0.28)" strokeWidth="1.15" />
       <path
-        d="M19.95 22.35l1.6 1.58 3.55-4.08"
-        stroke="white"
-        strokeWidth="1.95"
+        d="M16 2.8 27 6.7v8.25c0 6.6-4.45 11.35-11 14.25C9.45 26.3 5 21.55 5 14.95V6.7L16 2.8Z"
+        fill={`url(#${shieldGradId})`}
+      />
+      <path
+        d="M16 5.05 24.9 8.2v6.6c0 5.05-3.35 8.95-8.9 11.55-5.55-2.6-8.9-6.5-8.9-11.55V8.2L16 5.05Z"
+        stroke="#6f9ac7"
+        strokeWidth="1.25"
+        strokeLinejoin="round"
+        opacity="0.75"
+      />
+      <path d="M10.4 12.4h11.2" stroke={`url(#${goldGradId})`} strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M16 8.7v9.2" stroke={`url(#${goldGradId})`} strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M12.1 11.3 9.2 17h5.8l-2.9-5.7Z" fill={`url(#${goldGradId})`} />
+      <path d="M19.9 11.3 17 17h5.8l-2.9-5.7Z" fill={`url(#${goldGradId})`} />
+      <rect x="12.6" y="18.2" width="6.8" height="1.75" rx="0.88" fill={`url(#${goldGradId})`} />
+      <circle cx="22.25" cy="22.2" r="5.4" fill={`url(#${lensGradId})`} stroke="#5f86b3" strokeWidth="1.2" />
+      <path
+        d="M19.45 22.1l1.75 1.75 3.8-4.05"
+        stroke="#fbbf24"
+        strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <circle cx="24.7" cy="7.45" r="1.2" fill="#fcd34d" fillOpacity="0.9" />
+      <path d="m25.9 25.85 3.3 3.25" stroke="#f59e0b" strokeWidth="1.9" strokeLinecap="round" />
     </svg>
   )
 }

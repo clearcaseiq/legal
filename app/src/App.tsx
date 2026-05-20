@@ -81,6 +81,7 @@ const RoseIntake = lazy(() => import('./pages/RoseIntake'))
 const HipaaAuthorization = lazy(() => import('./pages/HipaaAuthorization'))
 const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess'))
 const PaymentCancel = lazy(() => import('./pages/PaymentCancel'))
+const SeoLandingPage = lazy(() => import('./pages/SeoLandingPage'))
 
 function RouteFallback() {
   return (
@@ -183,8 +184,6 @@ function App() {
               <Route path="/messaging" element={<Messaging />} />
               <Route path="/recovery-hub" element={<RecoveryHub />} />
               <Route path="/smart-recommendations/:assessmentId" element={<SmartRecommendations />} />
-              <Route path="/demand/:assessmentId" element={<Demand />} />
-              <Route path="/drafts/:assessmentId" element={<Drafts />} />
             </Route>
             <Route element={<ProtectedRoute role="admin" />}>
               <Route path="/admin" element={<AdminLayout />}>
@@ -223,6 +222,15 @@ function App() {
             <Route path="/hipaa-authorization" element={<HipaaAuthorization />} />
             <Route path="/payment/success" element={<PaymentSuccess />} />
             <Route path="/payment/cancel" element={<PaymentCancel />} />
+            <Route path="/injuries/:slug" element={<SeoLandingPage />} />
+            <Route path="/treatment/:slug" element={<SeoLandingPage />} />
+            <Route path="/tools/:slug" element={<SeoLandingPage />} />
+            <Route path="/settlements/:slug" element={<SeoLandingPage />} />
+            <Route path="/insurance/:slug" element={<SeoLandingPage />} />
+            <Route path="/liability/:slug" element={<SeoLandingPage />} />
+            <Route path="/commercial/:slug" element={<SeoLandingPage />} />
+            <Route path="/legal/:slug" element={<SeoLandingPage />} />
+            <Route path="/education/:slug" element={<SeoLandingPage />} />
             <Route element={<ProtectedRoute role="attorney" />}>
               <Route path="/attorney-dashboard" element={<AttorneyDashboard />} />
               <Route path="/attorney-dashboard/contacts" element={<ContactsPage />} />
@@ -248,6 +256,8 @@ function App() {
             <Route path="/evidence-upload/:assessmentId" element={<EvidenceUpload />} />
             <Route path="/evidence-dashboard/:assessmentId" element={<EvidenceDashboard />} />
             <Route path="/evidence-dashboard" element={<EvidenceDashboard />} />
+            <Route path="/demand/:assessmentId" element={<Demand />} />
+            <Route path="/drafts/:assessmentId" element={<Drafts />} />
             <Route path="/intake" element={<IntakeWizardQuick />} />
             <Route path="/assess" element={<IntakeWizardQuick />} />
             <Route path="/rose" element={<RoseIntake />} />
