@@ -1581,9 +1581,9 @@ export default function IntakeWizardQuick() {
     consent: t('intake.stepTitles_consent')
   }
 
-  const autoAdvanceSteps = ['injury_type', 'when', 'injury_severity'].includes(currentStep)
-  const showTapHint = autoAdvanceSteps && !(currentStep === 'when' && formData.incidentDatePreset === 'custom')
   const isFirstStep = currentStep === 'injury_type'
+  const autoAdvanceSteps = ['injury_type', 'when', 'injury_severity'].includes(currentStep)
+  const showTapHint = autoAdvanceSteps && !isFirstStep && !(currentStep === 'when' && formData.incidentDatePreset === 'custom')
   const casePostureFit = currentStep === 'case_posture'
   const reviewFit = currentStep === 'review'
   const showReassurance = currentStep !== 'consent' && !casePostureFit && !isFirstStep
@@ -1610,16 +1610,16 @@ export default function IntakeWizardQuick() {
       : 'Select the state and county to check your filing deadline early.'
 
   return (
-    <div className="mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-4xl flex-col overflow-visible px-2 py-2 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-4 sm:py-3 md:h-[calc(100dvh-7.5rem)] md:overflow-hidden md:px-6 md:py-4">
+    <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-4xl flex-col overflow-visible px-2 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-4 md:h-[calc(100dvh-7.5rem)] md:overflow-hidden md:px-6 md:py-4 ${isFirstStep ? 'py-1' : 'py-2 sm:py-3'}`}>
       <div className="mb-2 shrink-0" aria-busy={loading}>
-        <p className="mb-1 text-center text-xs font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300 md:text-sm">
+        <p className={`mb-1 text-center text-xs font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300 md:text-sm ${isFirstStep ? 'hidden sm:block' : ''}`}>
           {t('intake.timePromise')}
         </p>
-        <h1 className="text-center font-display text-xl font-bold leading-tight text-slate-900 dark:text-slate-50 md:text-2xl">
+        <h1 className={`text-center font-display font-bold leading-tight text-slate-900 dark:text-slate-50 md:text-2xl ${isFirstStep ? 'text-lg sm:text-xl' : 'text-xl'}`}>
           {isFirstStep ? t('intake.startHeadline') : stepTitles[currentStep] || STEPS[currentStepIndex]?.title}
         </h1>
         {isFirstStep && (
-          <p className="mx-auto mt-1 max-w-2xl text-center text-xs leading-5 text-slate-600 dark:text-slate-300 sm:text-sm sm:leading-6 md:text-base md:leading-7">
+          <p className="mx-auto mt-1 hidden max-w-2xl text-center text-xs leading-5 text-slate-600 dark:text-slate-300 sm:block sm:text-sm sm:leading-6 md:text-base md:leading-7">
             {t('intake.startHelper')}
           </p>
         )}
@@ -1709,11 +1709,11 @@ export default function IntakeWizardQuick() {
         )}
       </div>
 
-      <p className="mb-2 shrink-0 text-center text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+      <p className={`mb-2 shrink-0 text-center text-sm leading-relaxed text-slate-500 dark:text-slate-400 ${isFirstStep ? 'hidden sm:block' : ''}`}>
         {t('intake.privacyNote')}
       </p>
 
-      <div className="z-20 shrink-0 rounded-2xl border border-slate-200/80 bg-white/95 p-2 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)))] shadow-lg shadow-slate-200/70 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95">
+      <div className={`z-20 shrink-0 rounded-2xl border border-slate-200/80 bg-white/95 p-2 pb-[max(0.5rem,calc(0.5rem+env(safe-area-inset-bottom)))] shadow-lg shadow-slate-200/70 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 ${isFirstStep ? 'hidden sm:block' : ''}`}>
       <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
         <button
           type="button"
