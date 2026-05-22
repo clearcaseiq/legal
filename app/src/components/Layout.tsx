@@ -55,6 +55,7 @@ export default function Layout({ children }: LayoutProps) {
   const isAdmin = isAuthenticated && storedRole === 'admin'
   const isAdminArea = location.pathname.startsWith('/admin')
   const isDashboard = location.pathname.startsWith('/dashboard')
+  const isFocusRoute = ['/assess', '/intake', '/rose'].includes(location.pathname)
   const isAttorney = !isAdmin && (!!attorney || location.pathname.startsWith('/attorney-dashboard') || location.pathname.startsWith('/firm-dashboard'))
   const shouldLoadPlaintiffSummary = !!authToken && !isAttorney
   const storedUser = getStoredUser<{ firstName?: string }>('user')
@@ -137,7 +138,7 @@ export default function Layout({ children }: LayoutProps) {
         Skip to main content
       </a>
       {/* Header - single row, compact */}
-      <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/78 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-2xl dark:border-slate-800/80 dark:bg-slate-900/82 dark:shadow-[0_1px_0_rgba(255,255,255,0.03)] transition-colors">
+      <header className="relative z-50 border-b border-slate-200/70 bg-white/78 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-2xl transition-colors dark:border-slate-800/80 dark:bg-slate-900/82 dark:shadow-[0_1px_0_rgba(255,255,255,0.03)] md:sticky md:top-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between h-14 md:h-16 py-2">
             {/* Left: Hamburger (mobile) + Logo */}
@@ -160,7 +161,7 @@ export default function Layout({ children }: LayoutProps) {
             </div>
 
             {/* Center nav - hidden during intake for focus mode */}
-              {!['/assess', '/intake', '/rose'].includes(location.pathname) && (
+              {!isFocusRoute && (
             <nav className="hidden md:flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/72 px-2 py-1 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
               {navItems.map((item) => {
                 const Icon = item.icon
@@ -310,6 +311,30 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         </div>
 
+        {!isFocusRoute && !isAuthenticated && (
+          <div className="border-t border-slate-200/60 px-3 pb-2 md:hidden dark:border-slate-800/70">
+            <div className="flex items-center gap-2 overflow-x-auto py-2 [-webkit-overflow-scrolling:touch]">
+              <Link to={navLinks.howItWorks} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
+                {t('common.howItWorks')}
+              </Link>
+              <Link to={navLinks.forAttorneys} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
+                {t('common.forAttorneys')}
+              </Link>
+              <Link to={navLinks.help} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
+                {t('common.help')}
+              </Link>
+              <div className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-2 py-1 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
+                <Suspense fallback={languageFallback}>
+                  <LanguageSwitcher />
+                </Suspense>
+              </div>
+              <Link to={navLinks.plaintiffLogin} className="shrink-0 rounded-full bg-brand-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm">
+                {t('common.signIn')}
+              </Link>
+            </div>
+          </div>
+        )}
+
         {/* Mobile menu */}
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-slate-200/80 bg-white/95 px-4 py-4 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95">
@@ -332,7 +357,7 @@ export default function Layout({ children }: LayoutProps) {
                       {darkMode ? 'Light mode' : 'Dark mode'}
                     </button>
                   )}
-                  {!['/assess', '/intake', '/rose'].includes(location.pathname) && (
+                  {!isFocusRoute && (
                     <>
                       <Link to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Admin Dashboard' : 'Dashboard'}</Link>
                       <Link to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard?tab=leads' : navLinks.myCase} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Cases' : isAttorney ? 'My Cases' : (hasCase ? 'Continue My Case' : 'My Case')}</Link>
@@ -355,7 +380,7 @@ export default function Layout({ children }: LayoutProps) {
                 </>
               ) : (
                 <>
-                  {!['/assess', '/intake', '/rose'].includes(location.pathname) && navItems.map((item) => (
+                  {!isFocusRoute && navItems.map((item) => (
                     <Link
                       key={item.name}
                       to={item.href}
