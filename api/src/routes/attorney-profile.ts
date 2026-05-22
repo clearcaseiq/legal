@@ -9,6 +9,21 @@ import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 
 const router = Router()
+const CA_BAR_SEARCH_URL = 'https://apps.calbar.ca.gov/attorney/LicenseeSearch/QuickSearch'
+
+type StateBarVerificationResult = {
+  found: boolean
+  licenseNumber: string
+  state: string
+  status?: string
+  name?: string
+  city?: string
+  admissionDate?: string
+  profileUrl?: string
+  verifiedAt: string
+  source: string
+  message: string
+}
 
 function parseJsonArray(value: string | null | undefined, fallback: any[] = []) {
   if (!value) return fallback
@@ -58,6 +73,136 @@ function buildProfileFallback(attorney: any) {
     licenseVerificationMethod: null,
     licenseVerifiedAt: null,
   }
+}
+
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+}
+
+function stripHtml(value: string) {
+  return decodeHtmlEntities(value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim())
+}
+
+function extractTableCells(rowHtml: string) {
+  const cells: string[] = []
+  const cellPattern = /<td\b[^>]*>([\s\S]*?)<\/td>/gi
+  let match: RegExpExecArray | null
+  while ((match = cellPattern.exec(rowHtml))) {
+    cells.push(stripHtml(match[1]))
+  }
+  return cells
+}
+
+function extractProfileUrl(rowHtml: string) {
+  const hrefMatch = rowHtml.match(/href=["']([^"']*\/attorney\/Licensee\/Detail\/\d+[^"']*)["']/i)
+  if (!hrefMatch) return undefined
+  const href = decodeHtmlEntities(hrefMatch[1])
+  return href.startsWith('http') ? href : new URL(href, 'https://apps.calbar.ca.gov').toString()
+}
+
+async function lookupCaliforniaStateBarLicense(
+  licenseNumber: string,
+  attorneyName: string
+): Promise<StateBarVerificationResult> {
+  const normalizedLicenseNumber = licenseNumber.replace(/\D/g, '')
+  if (!normalizedLicenseNumber) {
+    return {
+      found: false,
+      licenseNumber,
+      state: 'CA',
+      verifiedAt: new Date().toISOString(),
+      source: CA_BAR_SEARCH_URL,
+      message: 'California bar number must contain digits.',
+    }
+  }
+
+  const searchUrl = new URL(CA_BAR_SEARCH_URL)
+  searchUrl.searchParams.set('FreeText', normalizedLicenseNumber)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10_000)
+  let response: Response
+  try {
+    response = await fetch(searchUrl, {
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        'User-Agent': 'ClearCaseIQ license verification (contact: support@clearcaseiq.com)',
+      },
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timeout)
+  }
+
+  if (!response.ok) {
+    throw new Error(`California State Bar lookup failed with HTTP ${response.status}`)
+  }
+
+  const html = await response.text()
+  const rowPattern = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi
+  let match: RegExpExecArray | null
+  while ((match = rowPattern.exec(html))) {
+    const rowHtml = match[1]
+    if (!rowHtml.includes(normalizedLicenseNumber)) continue
+
+    const cells = extractTableCells(rowHtml)
+    if (cells.length < 3) continue
+
+    const [name, status, number, city, admissionDate] = cells
+    if (number.replace(/\D/g, '') !== normalizedLicenseNumber) continue
+
+    const isActive = status.toLowerCase() === 'active'
+    return {
+      found: isActive,
+      licenseNumber: normalizedLicenseNumber,
+      state: 'CA',
+      status,
+      name,
+      city,
+      admissionDate,
+      profileUrl: extractProfileUrl(rowHtml),
+      verifiedAt: new Date().toISOString(),
+      source: searchUrl.toString(),
+      message: isActive
+        ? `Verified active California State Bar license for ${name}.`
+        : `California State Bar record found for ${name}, but status is ${status || 'not active'}.`,
+    }
+  }
+
+  return {
+    found: false,
+    licenseNumber: normalizedLicenseNumber,
+    state: 'CA',
+    name: attorneyName,
+    verifiedAt: new Date().toISOString(),
+    source: searchUrl.toString(),
+    message: 'No matching California State Bar record was found for that bar number.',
+  }
+}
+
+async function lookupStateBarLicenseRecord(
+  licenseNumber: string,
+  state: string,
+  attorneyName: string
+): Promise<StateBarVerificationResult> {
+  const normalizedState = state.trim().toUpperCase()
+  if (normalizedState !== 'CA') {
+    return {
+      found: false,
+      licenseNumber: licenseNumber.trim(),
+      state: normalizedState,
+      verifiedAt: new Date().toISOString(),
+      source: 'unsupported',
+      message: 'Automated State Bar lookup is currently available for California only. Please upload a license document for manual review.',
+    }
+  }
+
+  return lookupCaliforniaStateBarLicense(licenseNumber.trim(), attorneyName)
 }
 
 // Configure multer for license file uploads
@@ -930,7 +1075,7 @@ router.post('/license/upload', authMiddleware, licenseUpload.single('licenseFile
   }
 })
 
-// State bar lookup (placeholder - would integrate with actual state bar API)
+// State bar lookup through official public state bar sources where supported.
 router.post('/license/state-bar-lookup', authMiddleware, async (req: any, res) => {
   try {
     if (!req.user || !req.user.email) {
@@ -961,24 +1106,7 @@ router.post('/license/state-bar-lookup', authMiddleware, async (req: any, res) =
 
     const attorneyId = attorney.id
 
-    // TODO: Integrate with actual state bar API
-    // For now, this is a placeholder that simulates a successful lookup
-    // In production, you would:
-    // 1. Call the state bar API for the given state
-    // 2. Verify the license number matches
-    // 3. Extract attorney information (name, status, expiration date, etc.)
-    // 4. Store the verification result
-
-    const mockVerificationResult = {
-      found: true,
-      licenseNumber,
-      state,
-      status: 'active',
-      name: attorney.name,
-      verifiedAt: new Date().toISOString(),
-      expirationDate: null, // Would come from state bar API
-      message: 'License verified via state bar lookup (mock)'
-    }
+    const verificationResult = await lookupStateBarLicenseRecord(String(licenseNumber), String(state), attorney.name)
 
     // Get or create profile
     let profile = await prisma.attorneyProfile.findUnique({
@@ -1004,30 +1132,41 @@ router.post('/license/state-bar-lookup', authMiddleware, async (req: any, res) =
       })
     }
 
-    // Update profile with verified license information
+    // Store lookup data even when the result is not verified, but fail closed.
     const updatedProfile = await prisma.attorneyProfile.update({
       where: { attorneyId },
       data: {
-        licenseNumber,
-        licenseState: state,
-        licenseVerified: true,
-        licenseVerifiedAt: new Date(),
+        licenseNumber: verificationResult.licenseNumber,
+        licenseState: verificationResult.state,
+        licenseVerified: verificationResult.found,
+        licenseVerifiedAt: verificationResult.found ? new Date() : null,
         licenseVerificationMethod: 'state_bar_lookup'
       }
     })
 
     logger.info('State bar lookup completed', {
       attorneyId,
-      licenseNumber,
-      state,
-      verified: mockVerificationResult.found
+      licenseNumber: verificationResult.licenseNumber,
+      state: verificationResult.state,
+      status: verificationResult.status,
+      verified: verificationResult.found,
+      source: verificationResult.source
     })
+
+    if (!verificationResult.found) {
+      return res.status(422).json({
+        success: false,
+        verification: verificationResult,
+        profile: updatedProfile,
+        error: verificationResult.message,
+      })
+    }
 
     res.json({
       success: true,
-      verification: mockVerificationResult,
+      verification: verificationResult,
       profile: updatedProfile,
-      message: 'License verified via state bar lookup'
+      message: verificationResult.message
     })
   } catch (error: any) {
     logger.error('Failed to perform state bar lookup', { 

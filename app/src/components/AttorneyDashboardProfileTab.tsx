@@ -847,7 +847,7 @@ export default function AttorneyDashboardProfileTab({
               }`}
             >
               <div className="font-medium text-gray-900 mb-1">State Bar Lookup</div>
-              <div className="text-sm text-gray-500">Automatically verify your license using state bar records</div>
+              <div className="text-sm text-gray-500">Automatically verify active California State Bar licenses</div>
             </button>
             <button
               type="button"

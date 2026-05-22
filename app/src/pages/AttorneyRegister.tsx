@@ -734,7 +734,7 @@ export default function AttorneyRegister() {
                     }`}
                   >
                     <div className="font-medium">State Bar Lookup</div>
-                    <div className="text-sm text-gray-500">Verify via state bar records</div>
+                    <div className="text-sm text-gray-500">Automated California Bar lookup</div>
                   </button>
                   <button
                     type="button"

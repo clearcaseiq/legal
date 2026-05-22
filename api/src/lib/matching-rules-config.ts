@@ -81,6 +81,7 @@ export interface MatchingRulesConfig {
   // Value thresholds (optional)
   minValueThreshold: number
   geographicExpansionRadiusMiles: number
+  routingFeePaymentsEnabled: boolean
   caseRoutingPricingTiers: CaseRoutingPricingTier[]
   attorneySubscriptionTiers: AttorneySubscriptionTier[]
 
@@ -127,6 +128,7 @@ export const DEFAULT_MATCHING_RULES: MatchingRulesConfig = {
   jurisdictionGateOverrides: [],
   minValueThreshold: 0,
   geographicExpansionRadiusMiles: 50,
+  routingFeePaymentsEnabled: false,
   caseRoutingPricingTiers: [
     {
       id: 'qualified_lead',

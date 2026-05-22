@@ -1096,13 +1096,41 @@ export default function AdminMatchingRules() {
               Launch pricing tiers for exclusive PI case routing. Admins can change prices, descriptions, and case-type mappings anytime.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={addPricingTier}
-            className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-          >
-            Add tier
-          </button>
+          <div className="flex flex-col gap-2 sm:items-end">
+            <button
+              type="button"
+              onClick={() => update({ routingFeePaymentsEnabled: !config.routingFeePaymentsEnabled })}
+              className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+                config.routingFeePaymentsEnabled
+                  ? 'border-green-200 bg-green-50 text-green-700'
+                  : 'border-slate-300 bg-slate-100 text-slate-700'
+              }`}
+            >
+              <span
+                className={`inline-block h-2.5 w-2.5 rounded-full ${
+                  config.routingFeePaymentsEnabled ? 'bg-green-500' : 'bg-slate-400'
+                }`}
+              />
+              {config.routingFeePaymentsEnabled ? 'Stripe payments on' : 'Stripe payments off'}
+            </button>
+            <button
+              type="button"
+              onClick={addPricingTier}
+              className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Add tier
+            </button>
+          </div>
+        </div>
+
+        <div className={`mt-5 rounded-lg border px-4 py-3 text-sm ${
+          config.routingFeePaymentsEnabled
+            ? 'border-green-200 bg-green-50 text-green-800'
+            : 'border-amber-200 bg-amber-50 text-amber-900'
+        }`}>
+          {config.routingFeePaymentsEnabled
+            ? 'Stripe checkout is enabled for case acceptance when a pricing tier applies.'
+            : 'Stripe checkout is currently bypassed. Attorneys can accept cases without payment while pricing tiers remain saved.'}
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">

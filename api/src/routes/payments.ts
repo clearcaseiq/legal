@@ -465,22 +465,26 @@ router.post('/platform/routing-fee-session', authMiddleware, async (req: AuthReq
       tierLabel: pricingTier.label,
     }
     const amount = fromCents(pricingTier.priceCents)
-    if (!ENV.STRIPE_SECRET_KEY && ENV.NODE_ENV !== 'production') {
-      logger.warn('Routing fee payment bypassed because Stripe is not configured in development', {
+    if (!matchingRules.routingFeePaymentsEnabled || !ENV.STRIPE_SECRET_KEY) {
+      logger.warn('Routing fee payment bypassed', {
         attorneyId: attorney.id,
         leadId: lead.id,
         tierId: pricingTier.id,
+        reason: !matchingRules.routingFeePaymentsEnabled ? 'routing_fee_payments_disabled' : 'stripe_not_configured',
       })
       await db.platformPayment.create({
         data: {
           attorneyId: attorney.id,
           type: 'routing_fee',
           amount,
-          status: 'skipped_stripe_not_configured',
+          status: !matchingRules.routingFeePaymentsEnabled ? 'skipped_payments_disabled' : 'skipped_stripe_not_configured',
           metadata: JSON.stringify(metadata),
         },
       })
-      return res.json({ status: 'skipped_stripe_not_configured', amount })
+      return res.json({
+        status: !matchingRules.routingFeePaymentsEnabled ? 'skipped_payments_disabled' : 'skipped_stripe_not_configured',
+        amount,
+      })
     }
 
     const stripe = getStripe()

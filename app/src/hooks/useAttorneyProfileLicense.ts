@@ -77,7 +77,12 @@ export function useAttorneyProfileLicense(setPageError: SetPageError) {
       await loadProfile()
       setTimeout(() => setLicenseSuccess(false), 3000)
     } catch (err: any) {
-      setLicenseError(err.response?.data?.error || 'Failed to verify license via state bar lookup')
+      setLicenseError(
+        err.response?.data?.error ||
+        (err.message?.includes('fetch')
+          ? 'Could not reach the ClearCaseIQ API. Please confirm the API server is running and try again.'
+          : 'Failed to verify license via state bar lookup')
+      )
     } finally {
       setLicenseLoading(false)
     }

@@ -55,7 +55,12 @@ export default function AttorneyLicenseUpload() {
         navigate('/attorney-dashboard')
       }, 2000)
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to verify license via state bar lookup')
+      setError(
+        err.response?.data?.error ||
+        (err.message?.includes('fetch')
+          ? 'Could not reach the ClearCaseIQ API. Please confirm the API server is running and try again.'
+          : 'Failed to verify license via state bar lookup')
+      )
     } finally {
       setIsLoading(false)
     }
@@ -180,7 +185,7 @@ export default function AttorneyLicenseUpload() {
               >
                 <div className="font-medium text-gray-900 mb-1">State Bar Lookup</div>
                 <div className="text-sm text-gray-500">
-                  Automatically verify your license using state bar records
+                  Automatically verify active California State Bar licenses
                 </div>
               </button>
               <button

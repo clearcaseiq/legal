@@ -2116,6 +2116,7 @@ export interface MatchingRulesConfig {
   }>
   minValueThreshold: number
   geographicExpansionRadiusMiles: number
+  routingFeePaymentsEnabled: boolean
   caseRoutingPricingTiers: Array<{
     id: string
     label: string

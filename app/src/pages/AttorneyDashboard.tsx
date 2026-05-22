@@ -1527,7 +1527,8 @@ export default function AttorneyDashboard() {
         setDecisionRationale('')
       } catch (err: any) {
         console.error('Failed to update lead decision:', err)
-        setError(err.response?.data?.error || 'Failed to update lead decision')
+        setBulkActionMessage(err.response?.data?.error || 'Failed to update lead decision')
+        setTimeout(() => setBulkActionMessage(null), 5000)
       } finally {
         setLeadDecisionLoading(false)
       }
