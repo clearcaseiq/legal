@@ -85,7 +85,7 @@ export const ATTORNEY_REGISTER_DEFAULTS: AttorneyRegisterFormInput = {
   lastName: '',
   phone: '',
   firmName: '',
-  firmWebsite: '',
+  firmWebsite: 'http://',
   stateBarNumber: '',
   stateBarState: '',
   specialties: [],
@@ -135,9 +135,11 @@ export function validateAttorneyRegisterInput(
     fieldErrors.lastName = 'Last name is required'
   }
 
-  if (input.firmWebsite.trim()) {
+  const firmWebsite = input.firmWebsite.trim()
+  const hasFirmWebsite = firmWebsite && firmWebsite !== 'http://' && firmWebsite !== 'https://'
+  if (hasFirmWebsite) {
     try {
-      new URL(input.firmWebsite.trim())
+      new URL(firmWebsite)
     } catch {
       fieldErrors.firmWebsite = 'Enter a valid website URL'
     }
@@ -194,7 +196,7 @@ export function validateAttorneyRegisterInput(
       lastName: input.lastName.trim(),
       phone: input.phone.trim() || undefined,
       firmName: input.firmName.trim() || undefined,
-      firmWebsite: input.firmWebsite.trim() || undefined,
+      firmWebsite: hasFirmWebsite ? firmWebsite : undefined,
       stateBarNumber: input.stateBarNumber.trim() || undefined,
       stateBarState: input.stateBarState.trim() || undefined,
       specialties: input.specialties,

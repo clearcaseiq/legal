@@ -66,6 +66,32 @@ export default function AttorneyRegister() {
     )
   }
 
+  const setStepError = (errors: AttorneyRegisterFieldErrors, fields: Array<keyof AttorneyRegisterFieldErrors>) => {
+    const messages = fields.map((field) => errors[field]).filter(Boolean)
+    setFieldErrors((prev) => ({ ...prev, ...errors }))
+    if (messages.length) {
+      setError(`Please fix: ${messages.join(' · ')}`)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+    return messages.length > 0
+  }
+
+  const goToStep = (nextStep: number) => {
+    setError(null)
+    const validation = validateAttorneyRegisterInput(form)
+    const errors = validation.fieldErrors
+
+    if (currentStep === 1 && setStepError(errors, ['email', 'password', 'firstName', 'lastName', 'firmWebsite'])) return
+    if (currentStep === 2 && setStepError(errors, ['specialties', 'venues'])) return
+    if (
+      currentStep === 3 &&
+      setStepError(errors, ['minInjurySeverity', 'minDamagesRange', 'maxDamagesRange'])
+    ) return
+    if (currentStep === 4 && setStepError(errors, ['maxCasesPerWeek', 'maxCasesPerMonth'])) return
+
+    setCurrentStep(nextStep)
+  }
+
   const onSubmit = async (data: AttorneyRegisterSubmission) => {
     setIsLoading(true)
     setError(null)
@@ -298,9 +324,12 @@ export default function AttorneyRegister() {
                   <input
                     type="url"
                     value={form.firmWebsite}
+                    onFocus={() => {
+                      if (!form.firmWebsite.trim()) updateField('firmWebsite', 'http://')
+                    }}
                     onChange={(e) => updateField('firmWebsite', e.target.value)}
                     className="input"
-                    placeholder="https://www.yourfirm.com"
+                    placeholder="http://www.yourfirm.com"
                   />
                   {fieldErrors.firmWebsite && <p className="mt-1 text-xs text-red-600">{fieldErrors.firmWebsite}</p>}
                 </div>
@@ -352,7 +381,7 @@ export default function AttorneyRegister() {
                   </div>
                 </div>
                 <div className="flex justify-end pt-2">
-                  <button type="button" onClick={() => setCurrentStep(2)} className="btn-primary">
+                  <button type="button" onClick={() => goToStep(2)} className="btn-primary">
                     Next: Practice Areas
                   </button>
                 </div>
@@ -458,7 +487,7 @@ export default function AttorneyRegister() {
                   <button type="button" onClick={() => setCurrentStep(1)} className="btn-secondary">
                     Back
                   </button>
-                  <button type="button" onClick={() => setCurrentStep(3)} className="btn-primary">
+                  <button type="button" onClick={() => goToStep(3)} className="btn-primary">
                     Next: Case Preferences
                   </button>
                 </div>
@@ -577,7 +606,7 @@ export default function AttorneyRegister() {
                   <button type="button" onClick={() => setCurrentStep(2)} className="btn-secondary">
                     Back
                   </button>
-                  <button type="button" onClick={() => setCurrentStep(4)} className="btn-primary">
+                  <button type="button" onClick={() => goToStep(4)} className="btn-primary">
                     Next: Capacity
                   </button>
                 </div>
@@ -687,7 +716,7 @@ export default function AttorneyRegister() {
                   <button type="button" onClick={() => setCurrentStep(3)} className="btn-secondary">
                     Back
                   </button>
-                  <button type="button" onClick={() => setCurrentStep(5)} className="btn-primary">
+                  <button type="button" onClick={() => goToStep(5)} className="btn-primary">
                     Next: License Verification
                   </button>
                 </div>
