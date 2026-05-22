@@ -606,7 +606,7 @@ export default function IntakeWizardQuick() {
           <div className="space-y-2">
             <p className="text-center text-base font-medium text-gray-900">{t('intake.injuryType')}</p>
             <p className="text-center text-xs text-gray-500">{t('intake.injuryTypeHelp')}</p>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
               {INJURY_TYPES.map(({ value, labelKey, icon: Icon }) => (
                 <button
                   key={value}
@@ -615,12 +615,12 @@ export default function IntakeWizardQuick() {
                     updateForm({ injuryType: value, claimType: injuryTypeToClaimType(value) })
                     setCurrentStep('when')
                   }}
-                  className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 px-3 py-4 transition-all ${
+                  className={`flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl border-2 px-2.5 py-3 transition-all sm:min-h-24 sm:gap-2 sm:px-3 sm:py-4 ${
                     formData.injuryType === value ? 'border-brand-600 bg-brand-50' : 'border-gray-200 hover:border-brand-300'
                   }`}
                 >
-                  <Icon className="h-6 w-6 text-brand-600" />
-                  <span className="text-center text-base font-medium leading-snug">{t(`intake.${labelKey}`)}</span>
+                  <Icon className="h-5 w-5 text-brand-600 sm:h-6 sm:w-6" />
+                  <span className="text-center text-sm font-medium leading-snug sm:text-base">{t(`intake.${labelKey}`)}</span>
                 </button>
               ))}
             </div>
@@ -1610,7 +1610,7 @@ export default function IntakeWizardQuick() {
       : 'Select the state and county to check your filing deadline early.'
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-6.5rem)] w-full max-w-4xl flex-col overflow-hidden px-4 py-3 md:h-[calc(100dvh-7.5rem)] md:px-6 md:py-4">
+    <div className="mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-4xl flex-col overflow-visible px-2 py-2 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-4 sm:py-3 md:h-[calc(100dvh-7.5rem)] md:overflow-hidden md:px-6 md:py-4">
       <div className="mb-2 shrink-0" aria-busy={loading}>
         <p className="mb-1 text-center text-xs font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300 md:text-sm">
           {t('intake.timePromise')}
@@ -1619,7 +1619,7 @@ export default function IntakeWizardQuick() {
           {isFirstStep ? t('intake.startHeadline') : stepTitles[currentStep] || STEPS[currentStepIndex]?.title}
         </h1>
         {isFirstStep && (
-          <p className="mx-auto mt-1.5 max-w-2xl text-center text-sm leading-6 text-slate-600 dark:text-slate-300 md:text-base md:leading-7">
+          <p className="mx-auto mt-1 max-w-2xl text-center text-xs leading-5 text-slate-600 dark:text-slate-300 sm:text-sm sm:leading-6 md:text-base md:leading-7">
             {t('intake.startHelper')}
           </p>
         )}
@@ -1654,7 +1654,7 @@ export default function IntakeWizardQuick() {
       {showReassurance && !evidenceFit && (
         <div
           className={`mb-2 shrink-0 rounded-xl border border-brand-100 bg-brand-50 text-brand-900 ${
-            evidenceFit ? 'px-3 py-2 text-xs leading-snug' : 'px-4 py-3 text-base leading-7'
+            evidenceFit ? 'px-3 py-2 text-xs leading-snug' : 'px-3 py-2 text-sm leading-6 sm:px-4 sm:py-3 sm:text-base sm:leading-7'
           }`}
         >
           {isFirstStep ? t('intake.skipReassurance') : t('intake.answerReassurance')}
@@ -1690,11 +1690,11 @@ export default function IntakeWizardQuick() {
       )}
 
       <div
-        className={`mb-2 flex flex-col overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-card transition-shadow hover:shadow-card-hover dark:border-slate-700 dark:bg-slate-900/80 motion-reduce:hover:shadow-card ${evidenceFit || casePostureFit || reviewFit ? 'p-3 md:p-4' : 'p-4 md:p-6'} ${evidenceFit || casePostureFit || reviewFit ? 'text-sm md:text-base' : 'text-base'} ${
+        className={`mb-2 flex flex-col overflow-visible rounded-3xl border border-slate-200/90 bg-white shadow-card transition-shadow hover:shadow-card-hover dark:border-slate-700 dark:bg-slate-900/80 motion-reduce:hover:shadow-card md:overflow-hidden ${evidenceFit || casePostureFit || reviewFit ? 'p-3 md:p-4' : 'p-3 sm:p-4 md:p-6'} ${evidenceFit || casePostureFit || reviewFit ? 'text-sm md:text-base' : 'text-base'} ${
           evidenceFit || casePostureFit || reviewFit
             ? "[&_button]:min-h-9 [&_button]:py-2 [&_button]:text-xs [&_button]:leading-tight md:[&_button]:min-h-10 md:[&_button]:text-sm [&_input:not([type='checkbox'])]:min-h-10 [&_input:not([type='checkbox'])]:text-sm [&_select]:min-h-10 [&_select]:text-sm [&_p.text-lg]:text-sm [&_p.text-sm]:text-xs [&_span.text-sm]:text-xs [&_textarea]:min-h-[3rem] [&_textarea]:py-2 [&_textarea]:text-sm"
             : "[&_button]:min-h-14 [&_button]:leading-snug [&_button]:text-base md:[&_button]:text-lg [&_input:not([type='checkbox'])]:min-h-12 [&_input:not([type='checkbox'])]:text-lg [&_label]:text-base [&_p.text-lg]:text-xl [&_p.text-sm]:text-base [&_p.text-xs]:text-sm [&_select]:min-h-12 [&_select]:text-lg [&_span.text-sm]:text-base [&_span.text-xs]:text-sm [&_textarea]:min-h-[4.75rem] [&_textarea]:py-2 [&_textarea]:text-base [&_textarea]:leading-snug"
-        } ${stretchStepPanel ? 'min-h-0 flex-1' : 'shrink-0'}`}
+        } ${stretchStepPanel ? 'min-h-0 md:flex-1' : 'shrink-0'}`}
       >
         {stretchStepPanel ? (
           evidenceFit || casePostureFit || reviewFit ? (
