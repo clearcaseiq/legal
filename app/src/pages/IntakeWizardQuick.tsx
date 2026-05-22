@@ -604,9 +604,9 @@ export default function IntakeWizardQuick() {
       case 'injury_type':
         return (
           <div className="space-y-2">
-            <p className="text-center text-base font-medium text-gray-900">{t('intake.injuryType')}</p>
-            <p className="text-center text-xs text-gray-500">{t('intake.injuryTypeHelp')}</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
+            <p className="text-center text-sm font-semibold text-gray-900 sm:text-base">{t('intake.injuryType')}</p>
+            <p className="text-center text-[11px] leading-snug text-gray-500 sm:text-xs">{t('intake.injuryTypeHelp')}</p>
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
               {INJURY_TYPES.map(({ value, labelKey, icon: Icon }) => (
                 <button
                   key={value}
@@ -615,12 +615,12 @@ export default function IntakeWizardQuick() {
                     updateForm({ injuryType: value, claimType: injuryTypeToClaimType(value) })
                     setCurrentStep('when')
                   }}
-                  className={`flex min-h-20 flex-col items-center justify-center gap-1.5 rounded-xl border-2 px-2.5 py-3 transition-all sm:min-h-24 sm:gap-2 sm:px-3 sm:py-4 ${
+                  className={`flex min-h-[4.5rem] flex-col items-center justify-center gap-1 rounded-xl border-2 px-1.5 py-2 transition-all sm:min-h-24 sm:gap-2 sm:px-3 sm:py-4 ${
                     formData.injuryType === value ? 'border-brand-600 bg-brand-50' : 'border-gray-200 hover:border-brand-300'
                   }`}
                 >
-                  <Icon className="h-5 w-5 text-brand-600 sm:h-6 sm:w-6" />
-                  <span className="text-center text-sm font-medium leading-snug sm:text-base">{t(`intake.${labelKey}`)}</span>
+                  <Icon className="h-4 w-4 text-brand-600 sm:h-6 sm:w-6" />
+                  <span className="text-center text-[11px] font-semibold leading-tight sm:text-base sm:font-medium sm:leading-snug">{t(`intake.${labelKey}`)}</span>
                 </button>
               ))}
             </div>
@@ -1586,7 +1586,7 @@ export default function IntakeWizardQuick() {
   const isFirstStep = currentStep === 'injury_type'
   const casePostureFit = currentStep === 'case_posture'
   const reviewFit = currentStep === 'review'
-  const showReassurance = currentStep !== 'consent' && !casePostureFit
+  const showReassurance = currentStep !== 'consent' && !casePostureFit && !isFirstStep
   const evidenceFit = currentStep === 'evidence'
   /** Steps where the white panel should fill leftover viewport height (textarea growth or dense grids). */
   const stretchStepPanel =
