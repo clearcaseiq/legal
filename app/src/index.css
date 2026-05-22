@@ -38,6 +38,18 @@
     background-attachment: fixed;
   }
 
+  #__next,
+  #root {
+    min-width: 0;
+  }
+
+  img,
+  svg,
+  video,
+  canvas {
+    max-width: 100%;
+  }
+
   .dark body {
     @apply bg-slate-950 text-slate-100;
   }

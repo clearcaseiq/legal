@@ -483,13 +483,13 @@ export default function SeoLandingPage() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+    <main className="mx-auto w-full max-w-6xl overflow-x-clip px-3 py-6 sm:px-6 sm:py-10 lg:px-8">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
       <section className={`overflow-hidden rounded-3xl border bg-gradient-to-br ${tone} shadow-card`}>
-        <div className="grid gap-8 p-6 sm:p-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] lg:p-10">
+        <div className="grid gap-6 p-4 sm:gap-8 sm:p-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] lg:p-10">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] opacity-70">{page.eyebrow}</p>
-            <h1 className="mt-3 font-display text-4xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-5xl">
+            <h1 className="mt-3 font-display text-3xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-5xl">
               {page.title}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-slate-700">{page.description}</p>
@@ -503,7 +503,7 @@ export default function SeoLandingPage() {
                 </span>
               ))}
             </div>
-            <div className="mt-6 flex flex-wrap gap-3">
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <Link
                 to="/assessment/start"
                 className="inline-flex items-center justify-center rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
@@ -520,7 +520,7 @@ export default function SeoLandingPage() {
             </div>
           </div>
 
-          <aside className="rounded-2xl border border-white/80 bg-white/85 p-5 shadow-sm">
+          <aside className="min-w-0 rounded-2xl border border-white/80 bg-white/85 p-4 shadow-sm sm:p-5">
             <p className="mb-3 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800">
               Reviewed by medical + legal AI underwriting engine
             </p>
@@ -541,11 +541,11 @@ export default function SeoLandingPage() {
         </div>
       </section>
 
-      <section className="mt-8 rounded-3xl border border-slate-200 bg-slate-950 p-6 text-white shadow-card sm:p-8">
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]">
+      <section className="mt-6 rounded-3xl border border-slate-200 bg-slate-950 p-4 text-white shadow-card sm:mt-8 sm:p-8">
+        <div className="grid gap-6 sm:gap-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-brand-200">Interactive underwriting preview</p>
-            <h2 className="mt-2 text-3xl font-semibold tracking-tight">Personalize this page to your facts.</h2>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Personalize this page to your facts.</h2>
             <p className="mt-3 text-sm leading-7 text-slate-300">
               Select the signals that apply. The page adapts settlement factors, severity explanations, intake prompts, and attorney-fit indicators in real time.
             </p>
@@ -580,7 +580,7 @@ export default function SeoLandingPage() {
             </div>
           </div>
 
-          <aside className="rounded-2xl border border-white/10 bg-white/10 p-5">
+          <aside className="min-w-0 rounded-2xl border border-white/10 bg-white/10 p-4 sm:p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.14em] text-brand-200">Case-readiness score</p>
@@ -592,7 +592,7 @@ export default function SeoLandingPage() {
             </div>
             <div className="mt-5 overflow-hidden rounded-xl border border-white/10">
               {readinessRows.map((row) => (
-                <div key={row.signal} className="grid grid-cols-[1fr_120px] border-b border-white/10 last:border-b-0">
+                <div key={row.signal} className="grid grid-cols-1 border-b border-white/10 last:border-b-0 sm:grid-cols-[1fr_120px]">
                   <div className="px-3 py-2 text-sm text-slate-200">{row.signal}</div>
                   <div className="bg-white/10 px-3 py-2 text-sm font-semibold text-white">{row.status}</div>
                 </div>
@@ -634,8 +634,8 @@ export default function SeoLandingPage() {
         </section>
       )}
 
-      <section className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <section className="mt-6 grid gap-6 sm:mt-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Example scenario</p>
           <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">How a real injury story can evolve</h2>
           <blockquote className="mt-4 rounded-2xl border border-brand-100 bg-brand-50 p-5 text-sm leading-7 text-brand-950">
@@ -646,7 +646,7 @@ export default function SeoLandingPage() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Visual injury map</p>
           <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">{diagram.title}</h2>
           <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
@@ -661,7 +661,7 @@ export default function SeoLandingPage() {
         </div>
       </section>
 
-      <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:mt-8 sm:p-6">
         <div className="flex items-start gap-3">
           <div className="rounded-xl bg-rose-50 p-2 text-rose-700">
             <Activity className="h-5 w-5" aria-hidden />
@@ -675,14 +675,14 @@ export default function SeoLandingPage() {
           </div>
         </div>
         <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
-          <div className="grid grid-cols-[150px_1fr] bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            <div className="border-r border-slate-200 px-4 py-3">Time after accident</div>
+          <div className="grid grid-cols-[112px_1fr] bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500 sm:grid-cols-[150px_1fr]">
+            <div className="border-r border-slate-200 px-3 py-3 sm:px-4">Time after accident</div>
             <div className="px-4 py-3">Common symptoms / case signals</div>
           </div>
           {pageTimeline.map(([time, symptoms]) => (
-            <div key={time} className="grid grid-cols-[150px_1fr] border-t border-slate-200 text-sm">
-              <div className="border-r border-slate-200 px-4 py-3 font-semibold text-slate-900">{time}</div>
-              <div className="px-4 py-3 leading-6 text-slate-700">{symptoms}</div>
+            <div key={time} className="grid grid-cols-[112px_1fr] border-t border-slate-200 text-sm sm:grid-cols-[150px_1fr]">
+              <div className="border-r border-slate-200 px-3 py-3 font-semibold text-slate-900 sm:px-4">{time}</div>
+              <div className="px-3 py-3 leading-6 text-slate-700 sm:px-4">{symptoms}</div>
             </div>
           ))}
         </div>

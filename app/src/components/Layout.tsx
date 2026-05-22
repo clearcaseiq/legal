@@ -183,7 +183,7 @@ export default function Layout({ children }: LayoutProps) {
             )}
 
             {/* Right: Language + Primary CTA + User menu */}
-            <div className="flex items-center gap-3 md:gap-6">
+            <div className="flex min-w-0 items-center gap-2 md:gap-6">
               {showWorkspaceThemeToggle && (
                 <button
                   type="button"
@@ -194,9 +194,11 @@ export default function Layout({ children }: LayoutProps) {
                   {darkMode ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
                 </button>
               )}
-              <Suspense fallback={languageFallback}>
-                <LanguageSwitcher />
-              </Suspense>
+              <div className="hidden sm:block">
+                <Suspense fallback={languageFallback}>
+                  <LanguageSwitcher />
+                </Suspense>
+              </div>
               {isAuthenticated ? (
                 <>
                   {/* Notification bell for attorneys */}
@@ -296,7 +298,7 @@ export default function Layout({ children }: LayoutProps) {
                     !location.pathname.startsWith('/attorney-license-upload') && (
                     <Link
                       to={navLinks.startAssessment}
-                      className="inline-flex items-center justify-center gap-1.5 rounded-full bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-accent-500/25 ring-1 ring-white/20 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-accent-500/30 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900"
+                      className="hidden items-center justify-center gap-1.5 rounded-full bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-accent-500/25 ring-1 ring-white/20 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-accent-500/30 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 sm:inline-flex"
                     >
                       <FileTextIcon className="h-4 w-4" aria-hidden />
                       {t('common.startAssessment')}
@@ -310,8 +312,14 @@ export default function Layout({ children }: LayoutProps) {
 
         {/* Mobile menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-4 px-4">
-            <div className="flex flex-col gap-2">
+          <div className="md:hidden border-t border-slate-200/80 bg-white/95 px-4 py-4 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95">
+            <div className="mx-auto flex max-w-lg flex-col gap-2">
+              <div className="mb-2 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/40">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Menu</span>
+                <Suspense fallback={languageFallback}>
+                  <LanguageSwitcher />
+                </Suspense>
+              </div>
               {isAuthenticated ? (
                 <>
                   {showWorkspaceThemeToggle && (
@@ -326,14 +334,14 @@ export default function Layout({ children }: LayoutProps) {
                   )}
                   {!['/assess', '/intake', '/rose'].includes(location.pathname) && (
                     <>
-                      <Link to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'} onClick={() => setMobileMenuOpen(false)} className="py-2 text-sm font-medium text-slate-700 dark:text-slate-200">{isAdminArea ? 'Admin Dashboard' : 'Dashboard'}</Link>
-                      <Link to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard?tab=leads' : navLinks.myCase} onClick={() => setMobileMenuOpen(false)} className="py-2 text-sm font-medium text-slate-700">{isAdminArea ? 'Cases' : isAttorney ? 'My Cases' : (hasCase ? 'Continue My Case' : 'My Case')}</Link>
-                  <Link to={navLinks.howItWorks} onClick={() => setMobileMenuOpen(false)} className="py-2 text-sm font-medium text-slate-700">{t('common.howItWorks')}</Link>
-                  <Link to={navLinks.help} onClick={() => setMobileMenuOpen(false)} className="py-2 text-sm font-medium text-slate-700">{t('common.help')}</Link>
+                      <Link to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Admin Dashboard' : 'Dashboard'}</Link>
+                      <Link to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard?tab=leads' : navLinks.myCase} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Cases' : isAttorney ? 'My Cases' : (hasCase ? 'Continue My Case' : 'My Case')}</Link>
+                  <Link to={navLinks.howItWorks} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.howItWorks')}</Link>
+                  <Link to={navLinks.help} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.help')}</Link>
                     </>
                   )}
                   <div className="border-t border-slate-200 my-2 pt-2">
-                    <button onClick={() => { setMobileMenuOpen(false); handleLogout(); }} className="py-2 text-sm font-medium text-slate-700">{t('common.logout')}</button>
+                    <button onClick={() => { setMobileMenuOpen(false); handleLogout(); }} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.logout')}</button>
                   </div>
                   {isAttorney && (
                     <Link
@@ -352,16 +360,16 @@ export default function Layout({ children }: LayoutProps) {
                       key={item.name}
                       to={item.href}
                       onClick={() => setMobileMenuOpen(false)}
-                      className="py-2 text-sm font-medium text-slate-700"
+                      className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
                     >
                       {item.name}
                     </Link>
                   ))}
                   <div className="border-t border-slate-200 my-2 pt-2">
                     <p className="text-xs font-medium text-slate-500 uppercase mb-2">{t('common.signIn')}</p>
-                    <Link to={navLinks.plaintiffLogin} onClick={() => setMobileMenuOpen(false)} className="block py-1.5 text-sm text-slate-700">{t('common.plaintiffLogin')}</Link>
-                    <Link to={navLinks.attorneyLogin} onClick={() => setMobileMenuOpen(false)} className="block py-1.5 text-sm text-slate-700">{t('common.attorneyLogin')}</Link>
-                    <Link to={navLinks.adminLogin} onClick={() => setMobileMenuOpen(false)} className="block py-1.5 text-sm text-slate-700">{t('common.adminLogin')}</Link>
+                    <Link to={navLinks.plaintiffLogin} onClick={() => setMobileMenuOpen(false)} className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.plaintiffLogin')}</Link>
+                    <Link to={navLinks.attorneyLogin} onClick={() => setMobileMenuOpen(false)} className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.attorneyLogin')}</Link>
+                    <Link to={navLinks.adminLogin} onClick={() => setMobileMenuOpen(false)} className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.adminLogin')}</Link>
                   </div>
                   {!['/assess', '/intake', '/rose', '/assessment/start'].includes(location.pathname) &&
                     !location.pathname.startsWith('/results') &&
@@ -386,13 +394,13 @@ export default function Layout({ children }: LayoutProps) {
       {/* Main content - reduced padding during assessment for focused flow */}
       <main
         id="main-content"
-        className={`mx-auto max-w-7xl sm:px-6 lg:px-8 ${
+        className={`mx-auto w-full max-w-7xl overflow-x-clip sm:px-6 lg:px-8 ${
           ['/assess', '/intake'].includes(location.pathname)
             ? 'h-[calc(100dvh-3.5rem)] overflow-hidden py-2 md:h-[calc(100dvh-4rem)]'
             : 'py-8'
         }`}
       >
-        <div className={`px-4 sm:px-0 ${['/assess', '/intake'].includes(location.pathname) ? 'h-full overflow-hidden' : ''}`}>
+        <div className={`min-w-0 px-3 sm:px-0 ${['/assess', '/intake'].includes(location.pathname) ? 'h-full overflow-hidden' : ''}`}>
           {children}
         </div>
       </main>
