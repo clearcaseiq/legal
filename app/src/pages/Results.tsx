@@ -37,6 +37,7 @@ import {
   ClipboardList,
   BarChart3,
   ChevronRight,
+  ChevronDown,
   Star
 } from 'lucide-react'
 
@@ -306,6 +307,327 @@ function buildTimelineEstimate(params: {
   }
 }
 
+function getBaseCaseTypeRange(claimType?: string) {
+  const ranges: Record<string, {
+    label: string
+    range: string
+    floor: string
+    why: string
+    examples: string[]
+  }> = {
+    auto: {
+      label: 'Auto accident',
+      range: '$15,000 - $75,000',
+      floor: 'Starts in the standard personal-injury range.',
+      why: 'Auto cases often have clearer incident timing, insurance coverage, police reports, vehicle damage, and treatment records. The range can move up quickly when imaging, injections, surgery, commercial coverage, or serious wage loss appear.',
+      examples: ['Soft-tissue soreness with limited treatment starts lower.', 'MRI-confirmed disc injury, injections, or surgery can move the case higher.', 'Clear rear-end liability and commercial coverage can materially improve review priority.'],
+    },
+    auto_accident: {
+      label: 'Auto accident',
+      range: '$15,000 - $75,000',
+      floor: 'Starts in the standard personal-injury range.',
+      why: 'Auto cases often have clearer incident timing, insurance coverage, police reports, vehicle damage, and treatment records. The range can move up quickly when imaging, injections, surgery, commercial coverage, or serious wage loss appear.',
+      examples: ['Soft-tissue soreness with limited treatment starts lower.', 'MRI-confirmed disc injury, injections, or surgery can move the case higher.', 'Clear rear-end liability and commercial coverage can materially improve review priority.'],
+    },
+    slip_and_fall: {
+      label: 'Slip and fall',
+      range: '$12,000 - $60,000',
+      floor: 'Starts slightly lower until notice and hazard proof are clear.',
+      why: 'Premises cases depend heavily on proving the property owner knew or should have known about the hazard. Photos, incident reports, witness statements, and medical records can move the case out of the lower baseline.',
+      examples: ['A fall with no photos or witnesses starts cautiously.', 'Fractures, surgery, or visible hazard evidence can raise the range.', 'A store incident report or video preservation can improve liability confidence.'],
+    },
+    premises: {
+      label: 'Premises liability',
+      range: '$12,000 - $60,000',
+      floor: 'Starts slightly lower until notice and hazard proof are clear.',
+      why: 'Premises cases depend heavily on proving the property owner knew or should have known about the hazard. Photos, incident reports, witness statements, and medical records can move the case out of the lower baseline.',
+      examples: ['A fall with no photos or witnesses starts cautiously.', 'Fractures, surgery, or visible hazard evidence can raise the range.', 'A store incident report or video preservation can improve liability confidence.'],
+    },
+    dog_bite: {
+      label: 'Dog bite',
+      range: '$20,000 - $90,000',
+      floor: 'Starts higher when liability and visible injury are documented.',
+      why: 'Dog bite cases can have strong liability rules and visible damages. Photos, scarring, infection, nerve injury, and plastic surgery recommendations can push the baseline higher.',
+      examples: ['Minor puncture wounds without scarring stay closer to the lower range.', 'Facial injuries, permanent scars, or child victims may increase value.', 'Animal-control reports and photos are especially important.'],
+    },
+    medmal: {
+      label: 'Medical malpractice',
+      range: '$50,000 - $250,000+',
+      floor: 'Starts higher, but only after expert-support risk is considered.',
+      why: 'Medical malpractice matters are more expensive and harder to prove. The baseline is higher because injuries may be severe, but the case needs records, causation analysis, and often expert review before attorneys can value it confidently.',
+      examples: ['A poor outcome alone does not create a strong case.', 'Clear deviation from standard care plus serious harm can increase value.', 'Complete medical records and chronology are critical before attorney review.'],
+    },
+    nursing_home_abuse: {
+      label: 'Nursing home abuse',
+      range: '$50,000 - $250,000+',
+      floor: 'Starts higher when neglect, injury, and facility responsibility are documented.',
+      why: 'Elder-care cases often involve serious harm, vulnerable plaintiffs, regulatory issues, and facility records. The baseline depends on medical proof, staffing/fall records, photos, and whether neglect caused the injury.',
+      examples: ['Pressure sores, falls, dehydration, or medication errors need records.', 'Severe injury or death can move the case into a higher band.', 'Facility charting and photos are key evidence.'],
+    },
+    wrongful_death: {
+      label: 'Wrongful death',
+      range: '$100,000 - $500,000+',
+      floor: 'Starts in a high-severity band because the claimed harm is catastrophic.',
+      why: 'Wrongful death cases involve the highest damages category, but valuation still depends on liability, causation, available insurance, beneficiaries, economic losses, and supporting records.',
+      examples: ['Clear liability and strong insurance can materially increase value.', 'Causation disputes can reduce confidence.', 'Beneficiary and economic-loss documentation is important.'],
+    },
+    product: {
+      label: 'Product liability',
+      range: '$25,000 - $150,000+',
+      floor: 'Starts above ordinary injury cases when defect proof is plausible.',
+      why: 'Product cases depend on proving a defective product, warnings issue, or design/manufacturing problem. The baseline grows with preserved product evidence, serious injury, similar incidents, and expert support.',
+      examples: ['Preserving the product is often critical.', 'Burns, fractures, surgery, or permanent harm can raise value.', 'Manufacturer identity and purchase records matter.'],
+    },
+  }
+
+  return ranges[claimType || ''] || {
+    label: formatClaimTypeLabel(claimType),
+    range: '$10,000 - $75,000',
+    floor: 'Starts in a general personal-injury baseline until the facts are more specific.',
+    why: 'The system begins with a broad injury-case range, then adjusts based on liability, injury severity, treatment, evidence, venue, insurance, and missing documents.',
+    examples: ['Clear liability improves confidence.', 'Objective medical proof can raise the range.', 'Missing records keep the estimate conservative.'],
+  }
+}
+
+function getLiabilityModifierExplanation(params: {
+  liabilityScore: number
+  comparativeFaultPercent: number
+}) {
+  if (params.liabilityScore >= 0.7 && params.comparativeFaultPercent < 20) {
+    return {
+      label: 'Clearer liability',
+      effect: 'Lower fault discount',
+      range: '0-10% liability discount',
+      explanation: 'When fault appears clearer, the model does not need to discount the case as heavily for disputed responsibility.',
+    }
+  }
+
+  if (params.liabilityScore >= 0.4) {
+    return {
+      label: 'Mixed liability',
+      effect: 'Moderate fault discount',
+      range: '15-30% liability discount',
+      explanation: 'When fault is partly unclear or shared fault may be argued, the model keeps more risk in the estimate.',
+    }
+  }
+
+  return {
+    label: 'Unclear liability',
+    effect: 'Higher fault discount',
+    range: '35-50% liability discount',
+    explanation: 'When fault is hard to prove, the model treats the case more conservatively because the claim may be disputed.',
+  }
+}
+
+function getInjuryTreatmentModifierExplanation(params: {
+  severityLevel?: number
+  hasTreatment: boolean
+  chronologyCount: number
+  treatmentGapCount: number
+}) {
+  if ((params.severityLevel ?? 0) >= 3) {
+    return {
+      label: 'High severity',
+      effect: 'Upward severity modifier',
+      range: 'Higher value band',
+      explanation: 'Serious injuries, escalation of care, surgery recommendations, or lasting impairment can move the case above the starting category range.',
+    }
+  }
+
+  if (params.hasTreatment && params.chronologyCount >= 2 && params.treatmentGapCount === 0) {
+    return {
+      label: 'Documented treatment',
+      effect: 'Moderate upward support',
+      range: 'Stronger causation support',
+      explanation: 'Consistent treatment makes the injury story easier to connect to the incident and reduces causation uncertainty.',
+    }
+  }
+
+  if (params.treatmentGapCount > 0) {
+    return {
+      label: 'Treatment gaps',
+      effect: 'Confidence reduction',
+      range: 'Wider / more cautious range',
+      explanation: 'Gaps in treatment can cause insurers or attorneys to question injury severity, causation, or continuity of symptoms.',
+    }
+  }
+
+  return {
+    label: 'Early treatment picture',
+    effect: 'Limited severity support',
+    range: 'Conservative until records improve',
+    explanation: 'Without a clear treatment timeline, the model avoids overstating value until records, bills, or medical events are confirmed.',
+  }
+}
+
+function getEvidenceModifierExplanation(confidence: string) {
+  if (confidence === 'Very high') {
+    return {
+      label: 'Strong document support',
+      effect: 'Narrower confidence range',
+      range: 'Higher confidence',
+      explanation: 'Police reports, medical records, bills, photos, or other supporting files make the estimate more grounded and less speculative.',
+    }
+  }
+
+  if (confidence === 'High') {
+    return {
+      label: 'Good document support',
+      effect: 'Improved confidence',
+      range: 'Moderate narrowing',
+      explanation: 'The file has useful evidence, but additional records may still refine the value range.',
+    }
+  }
+
+  if (confidence === 'Medium') {
+    return {
+      label: 'Partial document support',
+      effect: 'Wider range',
+      range: 'More uncertainty',
+      explanation: 'Some evidence is available, but missing medical records, bills, photos, or liability documents may still change the estimate.',
+    }
+  }
+
+  return {
+    label: 'Intake-first estimate',
+    effect: 'Wide confidence range',
+    range: 'Most conservative confidence',
+    explanation: 'When the case is based mostly on intake answers, the model keeps the range wider because documents have not confirmed the key facts yet.',
+  }
+}
+
+type ConsumerConfidenceLevel = 'Low' | 'Medium' | 'High'
+
+function getConsumerConfidenceLevel(score: number): ConsumerConfidenceLevel {
+  if (score >= 70) return 'High'
+  if (score >= 40) return 'Medium'
+  return 'Low'
+}
+
+function formatStrengthLabel(level: ConsumerConfidenceLevel): string {
+  return level === 'Medium' ? 'Moderate' : level
+}
+
+function hasErTreatmentReported(treatment: any[], parsedFacts: any): boolean {
+  const medicalTreatment = parsedFacts?.medicalTreatment || parsedFacts?.caseAcceleration?.medicalTreatment
+  if (Array.isArray(medicalTreatment) && medicalTreatment.includes('er')) return true
+  return treatment.some((item) => {
+    const type = String(item?.type || '').toLowerCase()
+    const provider = String(item?.provider || item?.facility || item?.location || '').toLowerCase()
+    return type === 'er' || type.includes('emergency') || provider.includes('emergency') || /\ber\b/.test(provider)
+  })
+}
+
+function hasMriReported(treatment: any[], structuredValuationDrivers: any): boolean {
+  const imaging = structuredValuationDrivers?.imaging || []
+  if (Array.isArray(imaging) && imaging.includes('mri')) return true
+  return treatment.some((item) =>
+    (item?.type === 'imaging' && item?.imaging === 'mri') ||
+    item?.type === 'mri' ||
+    String(item?.imaging || '').includes('mri'),
+  )
+}
+
+function isRearEndCollision(parsedFacts: any, liabilityFactors: string[]): boolean {
+  const crashType = parsedFacts?.liability?.crashType || parsedFacts?.auto?.crashType
+  if (crashType === 'rear_end') return true
+  const narrative = String(parsedFacts?.incident?.narrative || '').toLowerCase()
+  if (/\b(rear[-\s]?end|hit from behind)\b/.test(narrative)) return true
+  return liabilityFactors.some((factor) => /rear[-\s]?end/i.test(factor))
+}
+
+function buildEstimateConfidenceScore(params: {
+  hasMedicalRecords: boolean
+  hasMedicalBills: boolean
+  hasPoliceReport: boolean
+  hasTreatment: boolean
+  hasErTreatment: boolean
+  hasMri: boolean
+  hasInjuryPhotos: boolean
+  hasWageLossProof: boolean
+  effectiveEvidenceCount: number
+  liabilityOutlook: string
+  readinessPercent: number
+}): number {
+  let score = 18
+  if (params.hasTreatment) score += 12
+  if (params.hasErTreatment) score += 8
+  if (params.hasMri) score += 10
+  if (params.hasMedicalRecords) score += 18
+  if (params.hasMedicalBills) score += 14
+  if (params.hasPoliceReport) score += 12
+  if (params.hasInjuryPhotos) score += 6
+  if (params.hasWageLossProof) score += 6
+  if (params.liabilityOutlook === 'strong') score += 10
+  else if (params.liabilityOutlook === 'moderate') score += 5
+  if (params.effectiveEvidenceCount >= 2) score += 4
+  if (params.readinessPercent >= 70) score += 6
+  return Math.min(100, Math.max(8, score))
+}
+
+function buildLitigationReadinessScore(params: {
+  hasMedicalRecords: boolean
+  hasMedicalBills: boolean
+  hasPoliceReport: boolean
+  hasTreatment: boolean
+  hasNarrative: boolean
+  hasInjuryPhotos: boolean
+  hasWageLossProof: boolean
+}): number {
+  const items = [
+    params.hasMedicalRecords,
+    params.hasMedicalBills,
+    params.hasPoliceReport,
+    params.hasTreatment,
+    params.hasNarrative,
+    params.hasInjuryPhotos,
+    params.hasWageLossProof,
+  ]
+  return Math.round((items.filter(Boolean).length / items.length) * 100)
+}
+
+function buildAttorneyInterestLevel(params: {
+  viability: number
+  liabilityOutlook: string
+  hasErTreatment: boolean
+  hasMri: boolean
+  isRearEnd: boolean
+  hasMedicalRecords: boolean
+  hasTreatment: boolean
+}): ConsumerConfidenceLevel {
+  let points = 0
+  if (params.viability >= 0.65) points += 2
+  else if (params.viability >= 0.45) points += 1
+  if (params.liabilityOutlook === 'strong') points += 2
+  else if (params.liabilityOutlook === 'moderate') points += 1
+  if (params.hasErTreatment || params.hasMri) points += 1
+  if (params.isRearEnd) points += 1
+  if (params.hasMedicalRecords) points += 1
+  if (params.hasTreatment) points += 1
+  if (!params.hasMedicalRecords) points -= 1
+  if (points >= 5) return 'High'
+  if (points >= 3) return 'Medium'
+  return 'Low'
+}
+
+function getReadinessStatusLabel(score: number): string {
+  if (score >= 70) return 'Well positioned'
+  if (score >= 45) return 'Needs strengthening'
+  return 'Early stage'
+}
+
+function getTreatmentStrengthLabel(params: {
+  hasErTreatment: boolean
+  hasMri: boolean
+  treatmentCount: number
+  chronologyCount: number
+}): ConsumerConfidenceLevel {
+  if (params.hasMri || params.chronologyCount >= 3) return 'High'
+  if (params.hasErTreatment || params.treatmentCount >= 2) return 'Medium'
+  if (params.treatmentCount > 0) return 'Medium'
+  return 'Low'
+}
+
 function upsertMedicalReviewEdit(
   edits: PlaintiffMedicalReviewEdit[],
   eventId: string,
@@ -390,6 +712,7 @@ export default function Results() {
   const [sendModalOpen, setSendModalOpen] = useState(false)
   const [saveReviewPromptOpen, setSaveReviewPromptOpen] = useState(false)
   const [reviewPromptDismissed, setReviewPromptDismissed] = useState(false)
+  const [attorneyInterestWhyOpen, setAttorneyInterestWhyOpen] = useState(false)
   const [contactForm, setContactForm] = useState({ firstName: '', email: '', phone: '', preferredContactMethod: 'phone' as 'phone' | 'text' | 'email' })
   const [hipaaAuthorizationComplete, setHipaaAuthorizationComplete] = useState(() =>
     typeof window !== 'undefined' && localStorage.getItem('consent_read_hipaa') === 'true'
@@ -438,20 +761,20 @@ export default function Results() {
   }
 
   const openSendModal = async (medicalReviewStatusOverride?: PlaintiffMedicalReviewStatus) => {
+    if (isLoggedIn === false) {
+      if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
+      setSaveReviewPromptOpen(true)
+      return
+    }
+
     const currentMedicalReviewStatus = medicalReviewStatusOverride ?? plaintiffMedicalReview?.review.status ?? 'pending'
     if (currentMedicalReviewStatus === 'pending') {
-      setMedicalReviewError('Please confirm your medical story or skip this step before sending your case to attorneys.')
+      setMedicalReviewError('Please confirm your medical story or skip this step so attorneys know whether the treatment timeline is accurate.')
       medicalReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       return
     }
     setContactFormError(null)
     setSendHipaaConsent(hasHipaaConsent)
-    if (isLoggedIn === false) {
-      localStorage.setItem('pending_assessment_id', resolvedAssessmentId || '')
-      setSendModalOpen(true)
-      void refreshMatchedAttorneys()
-      return
-    }
     if (isLoggedIn) {
       loadPlaintiffSessionSummary().then((session) => {
         const user = session.user
@@ -865,7 +1188,7 @@ export default function Results() {
     window.setTimeout(() => {
       if ((plaintiffMedicalReview.review.status ?? 'pending') === 'pending') {
         medicalReviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        setMedicalReviewError('Please confirm your medical story or skip this step before sending your case to attorneys.')
+        setMedicalReviewError('Please confirm your medical story or skip this step so attorneys know whether the treatment timeline is accurate.')
         return
       }
       setAutoReviewHandled(true)
@@ -1105,15 +1428,22 @@ export default function Results() {
 
   const caseStrengthScore = Math.round((viability?.overall ?? 0.5) * 100)
   const successProbability = Math.round((viability?.overall ?? 0.5) * 100)
-  const settlementLow = valueBands?.p25 ?? 15000
-  const settlementHigh = valueBands?.p75 ?? 75000
+  const settlementRange = valueBands?.settlement || valueBands || {}
+  const trialRange = valueBands?.trial || {}
+  const settlementLow = settlementRange?.p25 ?? valueBands?.p25 ?? 15000
+  const settlementHigh = settlementRange?.p75 ?? valueBands?.p75 ?? 75000
+  const potentialTrialLow = trialRange?.p25 ?? Math.round(settlementHigh * 1.35)
+  const potentialTrialHigh = trialRange?.p75 ?? Math.round(settlementHigh * 3.25)
+  const settlementRangeText = `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`
+  const policyLimitConstrained = !!(settlementRange?.policyLimitConstrained || trialRange?.policyLimitConstrained)
   const trialProbability = Math.round((1 - (viability?.overall ?? 0.5) * 0.8) * 100)
   const missingDocItems = (Array.isArray(casePreparation?.missingDocs) ? casePreparation.missingDocs : [])
     .filter((item: any) => !(hasHipaaConsent && String(item?.label ?? '').toLowerCase().includes('hipaa')))
   const treatmentGapItems = Array.isArray(casePreparation?.treatmentGaps) ? casePreparation.treatmentGaps : []
   const benchmarkRangeText = settlementBenchmarks
     ? `${formatCurrency(settlementBenchmarks.p25)} - ${formatCurrency(settlementBenchmarks.p75)}`
-    : `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`
+    : settlementRangeText
+  const baseCaseTypeRange = getBaseCaseTypeRange(assessment?.claimType)
   const timelineEstimate = buildTimelineEstimate({
     claimType: assessment?.claimType,
     missingDocCount: missingDocItems.length,
@@ -1175,6 +1505,161 @@ export default function Results() {
     if (hasMedicalBills) return { level: 'Medical bills', confidence: 'Medium' }
     return { level: 'Other documents', confidence: 'Low' }
   })()
+  const roundEstimateForDisplay = (value: number) => Math.max(5000, Math.round(value / 5000) * 5000)
+  const isEarlyStageEstimate =
+    evidenceLevelConfidence.confidence === 'Low' ||
+    effectiveEvidenceCount === 0 ||
+    readinessDetails.percent <= 50 ||
+    liabilityOutlook !== 'strong'
+  const displaySettlementLow = isEarlyStageEstimate
+    ? roundEstimateForDisplay(Math.min(settlementLow * 0.4, settlementHigh * 0.25))
+    : settlementLow
+  const displaySettlementHigh = isEarlyStageEstimate
+    ? roundEstimateForDisplay(Math.min(settlementHigh * 0.5, settlementLow * 1.05))
+    : settlementHigh
+  const displaySettlementRangeText = `${formatCurrency(displaySettlementLow)} - ${formatCurrency(Math.max(displaySettlementLow + 5000, displaySettlementHigh))}`
+  const treatment = Array.isArray(parsedFacts?.treatment) ? parsedFacts.treatment : []
+  const structuredValuationDrivers = valueBands?.drivers || {}
+  const hasErTreatment = hasErTreatmentReported(treatment, parsedFacts)
+  const hasMriReportedFlag = hasMriReported(treatment, structuredValuationDrivers)
+  const isRearEndCase = isRearEndCollision(parsedFacts, liabilityFactors)
+  const statuteSafe = sol?.status !== 'critical' && sol?.status !== 'expired' && sol?.status !== 'warning'
+  const estimateConfidenceScore = buildEstimateConfidenceScore({
+    hasMedicalRecords,
+    hasMedicalBills,
+    hasPoliceReport,
+    hasTreatment: treatment.length > 0,
+    hasErTreatment,
+    hasMri: hasMriReportedFlag,
+    hasInjuryPhotos,
+    hasWageLossProof,
+    effectiveEvidenceCount,
+    liabilityOutlook,
+    readinessPercent: readinessDetails.percent,
+  })
+  const estimateConfidenceLevel = getConsumerConfidenceLevel(estimateConfidenceScore)
+  const litigationReadinessScore = buildLitigationReadinessScore({
+    hasMedicalRecords,
+    hasMedicalBills,
+    hasPoliceReport,
+    hasTreatment: treatment.length > 0,
+    hasNarrative: !!parsedFacts?.incident?.narrative,
+    hasInjuryPhotos,
+    hasWageLossProof,
+  })
+  const litigationReadinessStatus = getReadinessStatusLabel(litigationReadinessScore)
+  const attorneyInterestLevel = buildAttorneyInterestLevel({
+    viability: viability?.overall ?? 0.5,
+    liabilityOutlook,
+    hasErTreatment,
+    hasMri: hasMriReportedFlag,
+    isRearEnd: isRearEndCase,
+    hasMedicalRecords,
+    hasTreatment: treatment.length > 0,
+  })
+  const documentationScore = evidenceCompletionPercent
+  const treatmentStrengthLevel = getTreatmentStrengthLabel({
+    hasErTreatment,
+    hasMri: hasMriReportedFlag,
+    treatmentCount: treatment.length,
+    chronologyCount: medicalChronology.length,
+  })
+  const liabilityStrengthLevel: ConsumerConfidenceLevel =
+    liabilityOutlook === 'strong' ? 'High' : liabilityOutlook === 'moderate' ? 'Medium' : 'Low'
+  const deadlineRiskLabel =
+    sol?.status === 'critical' || sol?.status === 'expired'
+      ? 'Urgent'
+      : sol?.status === 'warning'
+        ? 'Watch'
+        : 'Safe'
+  const confidenceDriversPositive = [
+    hasMriReportedFlag && 'MRI reported',
+    hasErTreatment && 'ER treatment reported',
+    statuteSafe && 'Statute safe',
+    hasPoliceReport && 'Police report on file',
+    hasMedicalRecords && 'Medical records uploaded',
+  ].filter(Boolean) as string[]
+  const confidenceDriversNegative = [
+    !hasMedicalRecords && 'Medical records missing',
+    !hasMedicalBills && 'Medical bills missing',
+    (liabilityOutlook !== 'strong' || (!hasPoliceReport && !hasInjuryPhotos)) && 'Liability evidence incomplete',
+    !hasPoliceReport && 'No police report',
+    treatment.length === 0 && 'Treatment history missing',
+  ].filter(Boolean) as string[]
+  const estimateConfidenceReasons = [
+    !hasMedicalRecords && 'Missing medical records',
+    !hasMedicalBills && 'Missing medical bills',
+    !hasPoliceReport && 'No police report',
+    liabilityOutlook !== 'strong' && 'Liability not fully established',
+    treatment.length === 0 && 'Limited treatment documentation',
+  ].filter(Boolean).slice(0, 4) as string[]
+  const litigationReadinessMissing = [
+    !hasMedicalRecords && 'Medical records',
+    !hasMedicalBills && 'Bills',
+    !hasPoliceReport && 'Police report',
+    !hasInjuryPhotos && 'Scene or injury photos',
+    !hasWageLossProof && 'Wage loss proof',
+    treatment.length === 0 && 'Treatment history',
+  ].filter(Boolean).slice(0, 4) as string[]
+  const attorneyInterestFactors = [
+    isRearEndCase && 'Rear-end collision',
+    assessment?.claimType === 'auto' && !isRearEndCase && 'Auto accident',
+    assessment?.claimType && assessment.claimType !== 'auto' && `${formatClaimTypeLabel(assessment.claimType)} case type`,
+    hasErTreatment && 'ER visit',
+    hasMriReportedFlag && 'MRI reported',
+    liabilityOutlook === 'strong' && 'Clear liability signals',
+    treatment.length > 0 && 'Treatment documented',
+  ].filter(Boolean).slice(0, 4) as string[]
+  const attorneyInterestMissing = [
+    !hasMedicalRecords && 'Medical records',
+    treatment.length === 0 && 'Treatment history',
+    !hasPoliceReport && liabilityOutlook !== 'strong' && 'Liability documentation',
+  ].filter(Boolean).slice(0, 3) as string[]
+  const litigationPotentialLabel = isEarlyStageEstimate
+    ? 'Preliminary'
+    : litigationReadinessScore >= 55
+      ? 'Moderate'
+      : 'Limited'
+  const confidenceImprovesWhen = [
+    { label: 'Medical records uploaded', done: hasMedicalRecords },
+    { label: 'Medical bills uploaded', done: hasMedicalBills },
+    { label: 'Police report uploaded', done: hasPoliceReport },
+  ]
+  const improveCaseActions = [
+    !hasMedicalRecords && { label: 'Upload medical records', impact: 'Highest impact' as const },
+    !hasMedicalBills && { label: 'Upload medical bills', impact: 'Medium impact' as const },
+    !hasPoliceReport && { label: 'Upload police report', impact: 'Medium impact' as const },
+    !hasInjuryPhotos && hasMedicalRecords && hasMedicalBills && { label: 'Upload injury photos', impact: 'Helpful' as const },
+  ].filter(Boolean) as Array<{ label: string; impact: string }>
+  const topImproveStep = !hasMedicalRecords
+    ? {
+        title: 'Upload medical records',
+        helper: 'This is the fastest way to improve estimate confidence.',
+      }
+    : !hasMedicalBills
+      ? {
+          title: 'Upload medical bills',
+          helper: 'Bills help confirm economic damages and improve confidence.',
+        }
+      : !hasPoliceReport
+        ? {
+            title: 'Upload police report',
+            helper: 'A police report can strengthen liability documentation.',
+          }
+        : null
+  const caseSignalRows = [
+    { signal: 'Documentation', status: `${documentationScore}%` },
+    { signal: 'Treatment', status: formatStrengthLabel(treatmentStrengthLevel) },
+    { signal: 'Liability', status: formatStrengthLabel(liabilityStrengthLevel) },
+    { signal: 'Deadline', status: deadlineRiskLabel },
+  ]
+  const consumerEstimateLabel = `Confidence: ${estimateConfidenceLevel}`
+  const litigationExposureText = isEarlyStageEstimate
+    ? 'Current assessment: Preliminary'
+    : `${formatCurrency(potentialTrialLow)} - ${formatCurrency(potentialTrialHigh)}${trialRange?.policyLimitConstrained ? '' : '+'}`
+  const litigationExposureHelper = isEarlyStageEstimate
+    ? 'Current information suggests the case may have additional value if medical treatment continues, imaging confirms injury findings, liability evidence strengthens, or wage loss and future care are documented.'
+    : 'This is not a prediction of verdict value. It reflects possible litigation exposure if the case is disputed and evidence develops.'
   const formatSolRemaining = () => {
     if (sol?.yearsRemaining == null) return '1 year 9 months'
     const y = Math.floor(sol.yearsRemaining)
@@ -1206,7 +1691,8 @@ export default function Results() {
     await downloadResultsCaseReportPdf({
       caseStrengthScore,
       successProbability,
-      settlementRangeText: `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`,
+      settlementRangeText: displaySettlementRangeText,
+      trialValueText: litigationExposureText,
       trialProbability,
       estimatedTimeline,
       solRemaining,
@@ -1219,7 +1705,6 @@ export default function Results() {
     : readinessMissing.slice(0, 3)
   const facts = parsedFacts
   const injuries = Array.isArray(facts.injuries) ? facts.injuries : []
-  const treatment = Array.isArray(facts.treatment) ? facts.treatment : []
   const damages = facts.damages || {}
   const strengths = [
     facts.incident?.narrative ? 'Clear incident narrative' : null,
@@ -1350,7 +1835,7 @@ Checklist:
         futureTreatmentEstimate: parseEstimateAmount(damageEstimateForm.futureTreatmentEstimate),
         notes: damageEstimateForm.notes.trim() || undefined,
       })
-      setDamageEstimateStatus('Saved estimates and refreshed your case value.')
+      setDamageEstimateStatus('Saved estimates and refreshed your settlement and trial ranges.')
       setDamageEstimateHydrated(false)
       await loadCaseInsights()
       if (result?.facts) {
@@ -1369,7 +1854,7 @@ Checklist:
     treatment.length > 0 && 'Medical treatment supports your claim',
     settlementBenchmarks
       ? `Comparable ${formatClaimTypeLabel(assessment?.claimType)} cases in ${venueState === 'CA' ? 'California' : venueState} often land near ${formatCurrency(settlementBenchmarks.p50)} with a broader range of ${benchmarkRangeText}.`
-      : `Similar cases in ${venueState === 'CA' ? 'California' : venueState} settled between ${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`,
+      : `Similar cases in ${venueState === 'CA' ? 'California' : venueState} settled between ${displaySettlementRangeText}`,
     missingDocItems.length > 0 && `The fastest way to strengthen this estimate is to add ${missingDocItems.slice(0, 2).map((item: any) => (item?.label ?? '').toLowerCase()).join(' and ')}.`
   ].filter(Boolean) as string[]
   const displayedPlaintiffMedicalReview = hasHipaaConsent && plaintiffMedicalReview
@@ -1396,25 +1881,58 @@ Checklist:
     .map((item: any) => item?.label)
     .filter(Boolean)
   const bestMissingDoc = missingDocItems.find((item: any) => item?.priority === 'high') ?? missingDocItems[0]
-  const bestNextAction = bestMissingDoc
+  const supportingNextAction = bestMissingDoc
     ? getMissingDocAction(bestMissingDoc, assessment?.id)
     : medicalReviewPending
       ? { label: 'Review medical story', to: '#medical-story-review' }
-      : { label: 'Send case for attorney review', to: '#attorney-handoff' }
-  const confidenceReason = evidenceLevelConfidence.confidence === 'Very high'
-    ? 'High confidence because your file includes strong supporting documents.'
-    : `${evidenceLevelConfidence.confidence} confidence because ${topMissingDocLabels.length > 0
-      ? `${topMissingDocLabels.join(', ')} ${topMissingDocLabels.length === 1 ? 'is' : 'are'} still missing`
-      : 'key supporting documents are still limited'
-    }.`
-  const liabilityClarityLabel = liabilityOutlook === 'strong' ? 'Strong' : liabilityOutlook === 'moderate' ? 'Mixed' : 'Unclear'
-  const attorneyReadinessLabel = missingDocItems.length === 0 && !medicalReviewPending
-    ? 'Ready'
+      : null
+  const primaryReviewActionLabel = 'See if an attorney wants your case'
+  const primaryReviewActionHelper = isLoggedIn === false
+    ? 'Create a secure account first so attorneys have a real contact, saved case, and consent trail.'
     : medicalReviewPending
-      ? 'Review needed'
-      : 'Needs docs'
+      ? 'We will ask you to confirm or skip the medical story before attorneys receive the case.'
+    : 'Cases with similar characteristics are commonly reviewed by personal injury attorneys.'
+  const liabilityClarityLabel = liabilityOutlook === 'strong' ? 'Strong' : liabilityOutlook === 'moderate' ? 'Mixed' : 'Unclear'
+  const liabilityModifierExplanation = getLiabilityModifierExplanation({
+    liabilityScore,
+    comparativeFaultPercent,
+  })
+  const injuryTreatmentModifierExplanation = getInjuryTreatmentModifierExplanation({
+    severityLevel: prediction?.severity?.level,
+    hasTreatment: treatment.length > 0,
+    chronologyCount: medicalChronology.length,
+    treatmentGapCount: treatmentGapItems.length,
+  })
+  const evidenceModifierExplanation = getEvidenceModifierExplanation(evidenceLevelConfidence.confidence)
+  const calculationModifierRows = [
+    liabilityModifierExplanation,
+    injuryTreatmentModifierExplanation,
+    evidenceModifierExplanation,
+  ]
+  const valuationKeyDrivers = [
+    liabilityOutlook === 'strong' ? 'Clear liability' : liabilityOutlook === 'moderate' ? 'Mixed liability' : 'Unclear liability',
+    hasMedicalRecords ? 'Medical records' : null,
+    hasMedicalBills ? 'Medical bills included' : null,
+    structuredValuationDrivers.priorInjury && structuredValuationDrivers.priorInjury !== 'none' ? 'Prior injury / causation discount' : null,
+    structuredValuationDrivers.representationStage && structuredValuationDrivers.representationStage !== 'no_lawyer' ? 'Attorney / litigation stage' : null,
+    structuredValuationDrivers.surgeryStatus && structuredValuationDrivers.surgeryStatus !== 'not_discussed' ? 'Surgery recommendation/status' : null,
+    Array.isArray(structuredValuationDrivers.procedures) && structuredValuationDrivers.procedures.some((item: string) => item !== 'none' && item !== 'unknown') ? 'Injections or procedures' : null,
+    Array.isArray(structuredValuationDrivers.futureTreatment) && structuredValuationDrivers.futureTreatment.some((item: string) => item !== 'none' && item !== 'unknown') ? 'Future treatment' : null,
+    structuredValuationDrivers.wageLoss > 0 ? 'Wage loss' : null,
+    prediction?.severity?.level >= 3 ? 'High injury severity' : prediction?.severity?.level >= 2 ? 'Moderate injury severity' : null,
+    treatment.length > 0 ? 'Treatment documented' : 'Treatment still undocumented',
+    policyLimitConstrained ? 'Policy-limit constraints' : null,
+    evidenceLevelConfidence.confidence !== 'Very high' ? 'Evidence confidence limits' : null,
+  ].filter(Boolean).slice(0, 7) as string[]
+  const estimateImprovementItems = [
+    !hasMedicalRecords && 'Medical records',
+    !hasMedicalBills && 'Medical bills',
+    !hasPoliceReport && 'Police or incident report',
+    treatment.length === 0 && 'Additional treatment details',
+    !hasWageLossProof && 'Wage loss proof',
+  ].filter(Boolean).slice(0, 4) as string[]
   const diyRiskFlags = [
-    settlementHigh >= 75000 && 'The estimated range is high enough that attorney review may be important.',
+    settlementHigh >= 75000 && 'The estimated settlement range is high enough that attorney review may be important.',
     comparativeFaultPercent >= 20 && 'There may be shared-fault arguments to address.',
     missingDocItems.some((item: any) => item?.priority === 'high') && 'High-impact records are still missing.',
     sol?.status === 'critical' || sol?.status === 'expired' ? 'The legal deadline may be close or expired.' : null,
@@ -1431,30 +1949,18 @@ Checklist:
       : solDeadline
         ? 'Low'
         : 'Unknown'
-  const atAGlanceStats = [
-    { label: 'Case estimate', value: `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`, helper: 'Modeled range', tone: 'border-brand-200 bg-brand-50 text-brand-950' },
-    { label: 'Value confidence', value: evidenceLevelConfidence.confidence, helper: evidenceLevelConfidence.level, tone: 'border-sky-200 bg-sky-50 text-sky-950' },
-    { label: 'Liability clarity', value: liabilityClarityLabel, helper: liabilityConfidence, tone: 'border-violet-200 bg-violet-50 text-violet-950' },
-    { label: 'File readiness', value: `${evidenceCompletionPercent}%`, helper: missingDocItems.length > 0 ? 'Needs strengthening' : 'Ready for review', tone: 'border-emerald-200 bg-emerald-50 text-emerald-950' },
-    { label: 'Attorney readiness', value: attorneyReadinessLabel, helper: medicalReviewPending ? 'Medical story first' : missingDocItems.length > 0 ? 'More docs help' : 'You can send now', tone: 'border-amber-200 bg-amber-50 text-amber-950' },
-    { label: 'Deadline urgency', value: deadlineUrgencyLabel, helper: solDeadline ? `${solRemaining} left` : 'Confirm incident facts', tone: deadlineUrgencyLabel === 'Urgent' ? 'border-red-200 bg-red-50 text-red-950' : 'border-slate-200 bg-slate-50 text-slate-950' },
-  ]
   const guidedNextSteps = [
-    medicalReviewPending && 'Review or skip the medical story so attorneys know whether the timeline is accurate.',
-    topMissingDocLabels.length > 0 && `Upload ${topMissingDocLabels.join(', ')} to strengthen the file.`,
-    'Send the case for attorney review when you are comfortable sharing the summary.',
+    isLoggedIn === false && 'Create your secure account so the case can be saved and sent to attorney review.',
+    isLoggedIn !== false && medicalReviewPending && 'Confirm or skip the medical story so attorneys know whether the treatment timeline is accurate.',
+    topMissingDocLabels.length > 0 && `Upload ${topMissingDocLabels.join(', ')} when you have them to strengthen the file.`,
+    'See if an attorney wants your case.',
   ].filter(Boolean) as string[]
-  const handoffSteps = [
-    { label: 'Intake complete', done: true },
-    { label: 'Strengthen file', done: missingDocItems.length === 0 },
-    { label: 'Attorney review', done: caseSubmittedForReview },
-  ]
   const resultsTabs: Array<{ id: ResultsTab; label: string; badge?: string }> = [
     { id: 'liability', label: 'Liability', badge: liabilityClarityLabel },
     { id: 'medical', label: 'Medical Story', badge: medicalReviewPending ? 'Review needed' : undefined },
     { id: 'documents', label: 'Documents', badge: missingDocItems.length > 0 ? `${missingDocItems.length} missing` : 'Ready' },
     { id: 'value', label: 'Value & Timeline' },
-    { id: 'attorney', label: 'Attorney Review', badge: medicalReviewPending ? 'Medical first' : undefined },
+    { id: 'attorney', label: 'Attorney Interest', badge: medicalReviewPending ? 'Almost ready' : formatStrengthLabel(attorneyInterestLevel) },
   ]
   const openAnchoredResultsSection = (target: string) => {
     const tab: ResultsTab = target === '#attorney-handoff' ? 'attorney' : target === '#medical-story-review' ? 'medical' : activeResultsTab
@@ -1516,10 +2022,10 @@ Checklist:
             <div className="surface-panel w-full max-w-md p-6 shadow-xl">
               <h3 className="section-title text-ui-xl">Save your case to track attorney responses</h3>
               <p className="section-copy mt-2">
-                You can send a limited non-medical summary now with your contact details. Create a free account or sign in when you want to track responses, upload more records, and authorize medical sharing.
+                Create a secure account to save this case, send it to attorney review, track responses, upload records, and manage consent.
               </p>
               <div className="mt-5 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-900">
-                No obligation. You decide whether to speak with or hire any attorney.
+                This takes less than a minute. No obligation. You decide whether to speak with or hire any attorney.
               </div>
               <div className="mt-6 grid gap-3">
                 <Link
@@ -1559,7 +2065,7 @@ Checklist:
             <div className="surface-panel max-h-[calc(100vh-3rem)] w-full max-w-md overflow-y-auto p-6 shadow-xl">
             <h3 className="section-title text-ui-xl">Before we send your case to attorneys</h3>
             <p className="section-copy mb-4">
-              Attorneys need this to contact you. If you continue without an account, we will send only your non-medical case summary.
+              Attorneys need your contact information and a saved case record before they review the file.
             </p>
             <div className="space-y-3">
               <div>
@@ -1782,17 +2288,15 @@ Checklist:
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <img
-                src="/clearcaseiq-logo.png?v=2"
+                src="/clearcaseiq-logo-transparent.png?v=1"
                 alt="ClearCaseIQ"
-                className="mb-2 h-9 w-auto rounded-sm object-contain [mix-blend-mode:multiply]"
+                className="mb-2 h-9 w-auto object-contain"
               />
               <h1 className="font-display text-2xl font-semibold leading-tight tracking-tight text-slate-900 sm:text-3xl">
-                Case Intelligence Report
+                Your case snapshot
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                {evidenceCount === 0
-                  ? 'Preliminary analysis based on your intake responses. Estimates will refine as your file develops.'
-                  : 'Analysis based on your intake, uploaded materials, and signals comparable to matters in this jurisdiction.'}
+                Three quick answers: attorney interest, estimated value, and what to do next.
               </p>
             </div>
             <div className="flex shrink-0 flex-row items-center gap-2 sm:flex-col sm:items-end">
@@ -1816,146 +2320,199 @@ Checklist:
         </header>
 
         <div className="px-6 sm:px-10 py-9 sm:py-10">
-        <section className="mb-6 grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]" aria-label="Case report summary">
-          <div className="rounded-3xl border border-brand-200 bg-gradient-to-br from-brand-50 via-white to-white p-5 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700">Modeled case range</p>
-            <p className="mt-2 font-display text-3xl font-semibold tracking-tight text-slate-950">
-              {formatCurrency(settlementLow)} - {formatCurrency(settlementHigh)}
-            </p>
-            <p className="mt-2 text-sm leading-relaxed text-slate-600">
-              Based on intake facts, current documents, venue signals, and comparable matter patterns.
-            </p>
-            <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-              <div className="rounded-2xl border border-white/80 bg-white/85 px-3 py-2 shadow-sm">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Confidence</p>
-                <p className="mt-1 font-semibold text-slate-950">{evidenceLevelConfidence.confidence}</p>
-              </div>
-              <div className="rounded-2xl border border-white/80 bg-white/85 px-3 py-2 shadow-sm">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Readiness</p>
-                <p className="mt-1 font-semibold text-slate-950">{evidenceCompletionPercent}%</p>
-              </div>
-            </div>
-          </div>
-
-          <dl className="grid gap-3 sm:grid-cols-2">
-            {atAGlanceStats.slice(2).map((item) => (
-              <div key={item.label} className={`rounded-2xl border px-4 py-3 shadow-sm ${item.tone}`}>
-                <dt className="text-[10px] font-semibold uppercase tracking-[0.12em] opacity-70">{item.label}</dt>
-                <dd className="mt-1 text-base font-bold tracking-tight">{item.value}</dd>
-                <dd className="mt-0.5 text-xs font-medium opacity-75">{item.helper}</dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-
-        <section
-          className="premium-panel mb-8 border-brand-100 bg-brand-50/50"
-          aria-label="Case snapshot"
-        >
-          <div className="flex flex-wrap gap-2 text-xs text-slate-700">
-            <span className="rounded-full border border-white/80 bg-white px-3 py-1.5 font-semibold shadow-sm capitalize">
+        <section className="mb-6 max-w-2xl" aria-label="Your case snapshot">
+          <div className="mb-4 flex flex-wrap gap-2 text-xs text-slate-700">
+            <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold capitalize shadow-sm">
               {formatClaimTypeLabel(assessment?.claimType)}
             </span>
-            <span className="rounded-full border border-white/80 bg-white px-3 py-1.5 font-semibold shadow-sm">
+            <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold shadow-sm">
               {[venueCounty, venueState === 'CA' ? 'California' : venueState].filter(Boolean).join(', ') || 'Jurisdiction unavailable'}
             </span>
-            <span className="rounded-full border border-white/80 bg-white px-3 py-1.5 font-semibold shadow-sm">
-              Prepared {new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-            </span>
           </div>
 
-          <div className="mt-6 max-w-2xl">
-          <p className="section-kicker">Your case at a glance</p>
-            <h2 className="mt-2 font-display text-2xl font-semibold tracking-tight text-slate-950">
-              {missingDocItems.length > 0 ? 'Your file can be strengthened before attorney review' : 'Your file looks close to attorney-review ready'}
-            </h2>
-            <p className="mt-3 text-sm leading-relaxed text-slate-700">
-              Current estimate: <span className="font-semibold text-slate-950">{formatCurrency(settlementLow)} - {formatCurrency(settlementHigh)}</span>
-              {' '}with {evidenceLevelConfidence.confidence.toLowerCase()} confidence. The most useful next step is{' '}
-              {topMissingDocLabels.length > 0 ? `adding ${topMissingDocLabels[0].toLowerCase()}` : 'sending the case for attorney review'}.
-            </p>
-            <p className="mt-2 text-sm leading-relaxed text-slate-600">{confidenceReason}</p>
-          </div>
-
-          <div className="mt-6 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-brand-200 bg-white px-5 py-5 shadow-sm">
-              <div className="flex h-full flex-col justify-between gap-4">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-brand-700">Priority next step</p>
-                  <p className="mt-1 text-xl font-bold text-slate-950">{bestNextAction.label}</p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    {topMissingDocLabels.length > 0
-                      ? `${topMissingDocLabels[0]} is the most useful next step for improving confidence.`
-                      : 'This is the clearest next step based on your current file.'}
-                  </p>
+          <div className="rounded-3xl border border-brand-200 bg-gradient-to-br from-brand-50 via-white to-white p-6 shadow-sm sm:p-7">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Attorney interest</p>
+              <p className="mt-1 font-display text-4xl font-semibold tracking-tight text-slate-950">
+                {formatStrengthLabel(attorneyInterestLevel)}
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                Attorneys commonly review cases like yours.
+              </p>
+              <button
+                type="button"
+                onClick={() => setAttorneyInterestWhyOpen((open) => !open)}
+                className="mt-2 text-sm font-semibold text-brand-700 hover:text-brand-900"
+              >
+                {attorneyInterestWhyOpen ? 'Hide details' : 'Why?'}
+              </button>
+              {attorneyInterestWhyOpen && (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-white/90 px-3 py-3 text-sm text-slate-700">
+                  {attorneyInterestFactors.length > 0 && (
+                    <ul className="space-y-1.5">
+                      {attorneyInterestFactors.map((factor) => (
+                        <li key={factor} className="flex gap-2">
+                          <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                          <span>{factor}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {attorneyInterestMissing.length > 0 && (
+                    <p className="mt-2 text-xs text-amber-800">
+                      Still missing: {attorneyInterestMissing.join(', ')}.
+                    </p>
+                  )}
                 </div>
-                {bestNextAction.to.startsWith('#') ? (
-                  <button
-                    type="button"
-                    onClick={() => openAnchoredResultsSection(bestNextAction.to)}
-                    className="inline-flex w-fit items-center justify-center rounded-lg bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-800"
-                  >
-                    Start now
-                  </button>
-                ) : (
-                  <Link
-                    to={bestNextAction.to}
-                    className="inline-flex w-fit items-center justify-center rounded-lg bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-800"
-                  >
-                    Start now
-                  </Link>
-                )}
+              )}
+            </div>
+
+            <div className="mt-6 border-t border-slate-200/80 pt-6">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-brand-700">Modeled settlement range</p>
+              <p className="mt-1 font-display text-3xl font-semibold tracking-tight text-slate-950">
+                {displaySettlementRangeText}
+              </p>
+              <p className="mt-2 text-sm font-semibold text-slate-700">
+                Confidence:{' '}
+                <span className={
+                  estimateConfidenceLevel === 'High' ? 'text-emerald-700' :
+                  estimateConfidenceLevel === 'Medium' ? 'text-amber-700' : 'text-rose-700'
+                }>
+                  {estimateConfidenceLevel}
+                </span>
+              </p>
+              <div className="mt-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Improves when</p>
+                <ul className="mt-2 space-y-1.5 text-sm text-slate-700">
+                  {confidenceImprovesWhen.map((item) => (
+                    <li key={item.label} className="flex items-center gap-2">
+                      {item.done ? (
+                        <CheckCircle className="h-4 w-4 shrink-0 text-emerald-600" />
+                      ) : (
+                        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[10px] text-slate-400">○</span>
+                      )}
+                      <span className={item.done ? 'text-slate-600' : ''}>{item.label}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-indigo-200 bg-indigo-50 px-5 py-5 shadow-sm">
-              <div className="flex h-full flex-col justify-between gap-4">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-700">Self-help settlement option</p>
-                  <p className="mt-1 text-lg font-bold text-slate-950">Prepare a demand package</p>
-                  <p className="mt-1 text-sm text-slate-700">
-                    Organize records and create a settlement demand if your case is straightforward.
-                  </p>
+            <div className="mt-6 border-t border-slate-200/80 pt-6">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Improve your case</p>
+              {topImproveStep && (
+                <div className="mt-2">
+                  <p className="text-base font-semibold text-slate-950">{topImproveStep.title}</p>
+                  <p className="mt-1 text-sm text-slate-600">{topImproveStep.helper}</p>
                 </div>
-                <Link
-                  to={`/demand/${assessment.id}`}
-                  className="inline-flex w-fit items-center justify-center rounded-lg bg-indigo-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-800"
+              )}
+              {improveCaseActions.length > 0 && (
+                <ul className="mt-3 space-y-2">
+                  {improveCaseActions.map((item) => (
+                    <li key={item.label} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm">
+                      <span className="font-medium text-slate-900">{item.label}</span>
+                      <span className="text-xs font-semibold text-slate-500">{item.impact}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-5 flex flex-col gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => void openSendModal()}
+                  className="inline-flex w-full items-center justify-center rounded-xl bg-brand-700 px-5 py-3.5 text-base font-semibold text-white shadow-sm hover:bg-brand-800"
                 >
-                  Build demand package
+                  See if an attorney wants your case
+                </button>
+                <Link
+                  to={`/evidence-upload/${assessment.id}`}
+                  className="inline-flex w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Upload documents
                 </Link>
               </div>
             </div>
           </div>
-
-          <ol className="mt-6 grid gap-3 sm:grid-cols-3">
-            {handoffSteps.map((step, index) => (
-              <li key={step.label} className="flex items-center gap-3 rounded-xl border border-white/80 bg-white px-4 py-3 shadow-sm">
-                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                  step.done ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'
-                }`}>
-                  {step.done ? <CheckCircle className="h-4 w-4" /> : index + 1}
-                </span>
-                <span className={step.done ? 'text-sm font-semibold text-slate-900' : 'text-sm font-medium text-slate-600'}>{step.label}</span>
-              </li>
-            ))}
-          </ol>
-
-          <div className="mt-6 rounded-xl border border-slate-200 bg-white px-4 py-4">
-            <h3 className="text-sm font-semibold text-slate-950">What to do next</h3>
-            <ol className="mt-3 space-y-2 text-sm text-slate-700">
-              {guidedNextSteps.map((step, index) => (
-                <li key={step} className="flex gap-3">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-700 text-[11px] font-semibold text-white">
-                    {index + 1}
-                  </span>
-                  <span>{step}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
-
         </section>
 
+        <details className="group mb-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
+            <span>Why did we estimate this?</span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="border-t border-slate-100 px-5 py-4">
+            <ul className="space-y-2 text-sm text-slate-700">
+              {confidenceDriversPositive.map((driver) => (
+                <li key={driver} className="flex items-start gap-2">
+                  <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                  <span>{driver.charAt(0).toUpperCase() + driver.slice(1)}</span>
+                </li>
+              ))}
+              {confidenceDriversNegative.map((driver) => (
+                <li key={driver} className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                  <span>{driver.charAt(0).toUpperCase() + driver.slice(1)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </details>
+
+        <details className="group mb-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
+            <span>Advanced case analysis</span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="space-y-4 border-t border-slate-100 px-5 py-4">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Case signals</p>
+              <table className="mt-2 w-full text-sm">
+                <tbody>
+                  {caseSignalRows.map((row) => (
+                    <tr key={row.signal} className="border-b border-slate-100 last:border-0">
+                      <td className="py-2 pr-4 font-medium text-slate-700">{row.signal}</td>
+                      <td className="py-2 text-right font-semibold text-slate-950">{row.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Litigation readiness</p>
+              <p className="mt-1 text-2xl font-bold tabular-nums text-slate-950">{litigationReadinessScore}%</p>
+              <p className="text-sm text-slate-600">{litigationReadinessStatus}</p>
+              {litigationReadinessMissing.length > 0 && (
+                <p className="mt-2 text-xs text-slate-600">
+                  Missing: {litigationReadinessMissing.join(', ')}.
+                </p>
+              )}
+            </div>
+
+            <details className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
+              <summary className="cursor-pointer text-sm font-semibold text-indigo-950">
+                Litigation potential: {litigationPotentialLabel}
+              </summary>
+              <div className="mt-3 text-xs leading-relaxed text-indigo-900">
+                <p>Current information suggests the case may have additional value if:</p>
+                <ul className="mt-2 space-y-1">
+                  <li>• Medical treatment continues</li>
+                  <li>• Imaging confirms injury findings</li>
+                  <li>• Liability evidence strengthens</li>
+                  <li>• Wage loss or future care is documented</li>
+                </ul>
+                <p className="mt-2 font-semibold text-indigo-950">{litigationExposureText}</p>
+              </div>
+            </details>
+          </div>
+        </details>
+
+        <details className="group mb-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
+            <span>Full report</span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="border-t border-slate-100 px-4 py-4 sm:px-5">
         <nav className="surface-panel mb-6 overflow-x-auto p-2" aria-label="Results sections">
           <div className="flex min-w-max gap-2">
             {resultsTabs.map((tab) => (
@@ -2361,18 +2918,25 @@ Checklist:
         </div>
 
         <div className="rounded-xl border-l-4 border-l-brand-600 border border-slate-200 bg-slate-50/60 p-6 sm:p-8 mb-10 shadow-sm">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 mb-2">Estimated settlement range</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 mb-2">Modeled settlement range</p>
           <p className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight mb-1">
-            {formatCurrency(settlementLow)} - {formatCurrency(settlementHigh)}
+            {displaySettlementRangeText}
           </p>
           <div className="mb-4">
-            <p className="text-sm text-gray-500">
-              <span className="font-medium text-gray-700">Confidence: {evidenceLevelConfidence.confidence}</span>
-              <span className="text-gray-500"> - {evidenceLevelConfidence.level}</span>
+            <p className="text-sm text-gray-700">
+              <span className="font-semibold">{consumerEstimateLabel}</span>
+              <span className="text-gray-500"> · Estimate confidence {estimateConfidenceScore}/100</span>
             </p>
+            {estimateConfidenceReasons.length > 0 && (
+              <ul className="mt-2 text-xs text-gray-500 space-y-0.5">
+                {estimateConfidenceReasons.map((reason) => (
+                  <li key={reason}>• {reason}</li>
+                ))}
+              </ul>
+            )}
             {evidenceLevelConfidence.confidence !== 'Very high' && (
               <>
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs text-gray-400 mt-2">
                   {t('results.uploadHint')}
                 </p>
                 <div className="mt-2 text-xs text-gray-500 border-t border-gray-200 pt-2">
@@ -2400,12 +2964,159 @@ Checklist:
             </div>
             <div>
               <p className="text-sm text-gray-500">Recommended next step</p>
-              <p className="text-lg font-semibold text-brand-600">Send to attorneys and keep uploading missing records</p>
+              <p className="text-lg font-semibold text-brand-600">See if an attorney wants your case</p>
             </div>
           </div>
           <p className="text-sm text-slate-600 mt-4 leading-relaxed">
-            Derived from your current file and {venueState === 'CA' ? 'California' : venueState} matter context. Not a guarantee of outcome.
+            Settlement estimates reflect injury-supported value after settlement compression, liability risk, evidence confidence, venue signals, and insurance constraints. Not a guarantee of outcome.
           </p>
+        </div>
+
+        <div className="mb-8 grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-5 shadow-sm sm:p-6">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-700">Litigation potential</p>
+            <p className="mt-2 text-sm leading-relaxed text-indigo-900">
+              Current information suggests the case may have additional value if medical treatment continues, imaging confirms injury findings, liability evidence strengthens, or wage loss and future care are documented.
+            </p>
+            <p className="mt-3 text-xl font-bold tracking-tight text-indigo-950">{litigationExposureText}</p>
+            {!isEarlyStageEstimate && (
+              <p className="mt-3 text-xs leading-relaxed text-indigo-800">
+                Trial outcomes are uncertain, take longer, cost more, and may be limited by collectability or policy limits.
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Key drivers</p>
+            <ul className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+              {valuationKeyDrivers.map((driver) => (
+                <li key={driver} className="flex gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                  <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                  <span>{driver}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Calculation detail 1</p>
+          <h3 className="mt-1 text-lg font-semibold text-slate-950">Base case type range</h3>
+          <p className="mt-2 text-sm leading-relaxed text-slate-700">
+            We start with the case category before adding facts like fault, treatment, documents, venue, insurance, and injury severity.
+            Different claim types begin in different baseline ranges because attorneys and insurers evaluate them with different proof burdens,
+            expected treatment patterns, and liability issues.
+          </p>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <div className="rounded-xl border border-brand-100 bg-brand-50 px-4 py-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Your selected type</p>
+              <p className="mt-1 text-xl font-bold text-slate-950">{baseCaseTypeRange.label}</p>
+              <p className="mt-2 text-2xl font-bold text-brand-800">{baseCaseTypeRange.range}</p>
+              <p className="mt-2 text-sm leading-relaxed text-brand-950">{baseCaseTypeRange.floor}</p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
+              <p className="text-sm font-semibold text-slate-950">Why this type starts there</p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-700">{baseCaseTypeRange.why}</p>
+              <ul className="mt-3 space-y-2 text-sm text-slate-700">
+                {baseCaseTypeRange.examples.map((example) => (
+                  <li key={example} className="flex gap-2">
+                    <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                    <span>{example}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
+            <div className="grid grid-cols-3 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              <span>Claim type</span>
+              <span>Starting range</span>
+              <span>Why it differs</span>
+            </div>
+            {[
+              ['Auto accident', '$15k - $75k', 'Often clearer insurance, incident timing, and treatment path.'],
+              ['Slip and fall', '$12k - $60k', 'Depends heavily on proving hazard notice and property responsibility.'],
+              ['Dog bite', '$20k - $90k', 'Visible injury, scarring, and strict-liability rules may increase baseline.'],
+              ['Medical malpractice', '$50k - $250k+', 'Higher damages potential, but requires records, causation, and expert review.'],
+            ].map(([label, range, reason]) => (
+              <div key={label} className="grid grid-cols-3 gap-3 border-t border-slate-200 px-3 py-3 text-sm text-slate-700">
+                <span className="font-semibold text-slate-950">{label}</span>
+                <span>{range}</span>
+                <span>{reason}</span>
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-4 text-xs leading-relaxed text-slate-500">
+            This is the starting point only. The displayed settlement range of {settlementRangeText}
+            {' '}reflects later adjustments from your specific facts and available documents.
+          </p>
+        </div>
+
+        <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Calculation detail 2</p>
+          <h3 className="mt-1 text-lg font-semibold text-slate-950">How the baseline is adjusted</h3>
+          <p className="mt-2 text-sm leading-relaxed text-slate-700">
+            The model does not treat each fact as a fixed dollar add-on. Instead, it treats major facts as modifiers that can
+            increase confidence, reduce risk discounts, move the case into a higher injury band, or keep the estimate conservative.
+          </p>
+
+          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
+            <p className="text-sm font-semibold text-slate-950">Settlement calculation model</p>
+            <p className="mt-2 text-xs leading-relaxed text-slate-600">
+              Injury-supported value x settlement compression x liability risk x evidence confidence x venue / insurance constraints.
+            </p>
+            <div className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-5">
+              {[
+                'Injury-supported value',
+                'Settlement compression',
+                'Liability risk',
+                'Evidence confidence',
+                'Venue / insurance',
+              ].map((part, index) => (
+                <div key={part} className="rounded-lg border border-slate-200 bg-white px-3 py-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Step {index + 1}</p>
+                  <p className="mt-1 font-semibold text-slate-950">{part}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-slate-500">
+              This is why the explanation says clear liability reduces discounting instead of saying it added a specific dollar amount.
+            </p>
+          </div>
+
+          <div className="mt-5 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-4">
+            <p className="text-sm font-semibold text-indigo-950">Trial calculation model</p>
+            <p className="mt-2 text-xs leading-relaxed text-indigo-900">
+              Economic damages + non-economic damages + future damages, adjusted by liability, venue, jury risk, and evidence strength.
+            </p>
+          </div>
+
+          <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
+            <div className="grid grid-cols-3 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              <span>Modifier</span>
+              <span>Current effect</span>
+              <span>How it changes the estimate</span>
+            </div>
+            {calculationModifierRows.map((row) => (
+              <div key={row.label} className="grid grid-cols-3 gap-3 border-t border-slate-200 px-3 py-3 text-sm text-slate-700">
+                <span>
+                  <span className="block font-semibold text-slate-950">{row.label}</span>
+                  <span className="mt-0.5 block text-xs text-slate-500">{row.range}</span>
+                </span>
+                <span className="font-medium text-slate-900">{row.effect}</span>
+                <span>{row.explanation}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-950">
+            Example: clear liability usually improves confidence and reduces the fault discount. It is not modeled as a universal
+            “+$10,000” rule because the dollar impact depends on the size of the case, injury severity, available insurance, and evidence.
+          </div>
         </div>
 
         <div className="mb-8 rounded-xl border border-indigo-200 bg-indigo-50 p-5 sm:p-6 shadow-sm">
@@ -2591,7 +3302,7 @@ Checklist:
 
         <div id="attorney-handoff" className="border-t border-slate-200 pt-8 mt-2 scroll-mt-6">
           <p className="text-center text-sm text-slate-600 mb-3 leading-relaxed">
-            Ready for attorney review? Matched counsel typically respond within one business day.
+            Ready to see if an attorney wants your case? Matched counsel typically respond within one business day.
           </p>
           {medicalReviewPending && (
             <p className="mb-3 text-center text-sm text-amber-700">
@@ -2614,6 +3325,8 @@ Checklist:
         </div>
         </section>
         )}
+          </div>
+        </details>
         </div>
       </div>
 

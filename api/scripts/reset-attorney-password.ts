@@ -8,7 +8,8 @@ import bcrypt from 'bcryptjs'
 import { config } from 'dotenv'
 import { resolve } from 'path'
 
-config({ path: resolve(__dirname, '../.env'), override: true })
+// Respect DATABASE_URL from the shell (e.g. production Supabase) over api/.env
+config({ path: resolve(__dirname, '../.env'), override: false })
 
 const prisma = new PrismaClient()
 

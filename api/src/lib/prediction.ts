@@ -33,8 +33,15 @@ export interface LiabilityScore {
 export function calculateInjurySeverity(facts: any): SeverityScore {
   const injuries = facts?.injuries || []
   const medPaid = facts?.damages?.med_paid || 0
-  const medCharges = facts?.damages?.med_charges || 0
+  const medCharges = facts?.damages?.med_charges || facts?.damages?.estimated_med_charges || 0
   const treatment = facts?.treatment || []
+  const structuredInjury = injuries[0] || {}
+  const bodyParts = Array.isArray(structuredInjury.bodyParts) ? structuredInjury.bodyParts : []
+  const concussionSymptoms = Array.isArray(structuredInjury.concussionSymptoms) ? structuredInjury.concussionSymptoms : []
+  const lifestyleImpact = Array.isArray(structuredInjury.lifestyleImpact) ? structuredInjury.lifestyleImpact : []
+  const treatmentTypes = Array.isArray(treatment)
+    ? treatment.map((item: any) => `${item?.type || ''} ${item?.status || ''} ${item?.procedure || ''} ${item?.recommendation || ''}`.toLowerCase()).join(' ')
+    : ''
   const narrative = facts?.incident?.narrative?.toLowerCase() || ''
   
   const factors: string[] = []
@@ -112,6 +119,47 @@ export function calculateInjurySeverity(facts: any): SeverityScore {
       factors.push('Brief treatment period')
       score += 0.2
     }
+  }
+
+  if (bodyParts.length >= 2) {
+    factors.push('Multiple injured body parts')
+    score += Math.min(1.2, bodyParts.length * 0.25)
+  }
+
+  if (bodyParts.some((item: any) => ['head_concussion', 'lower_back', 'neck'].includes(item?.part || item))) {
+    factors.push('High-impact injury area')
+    score += 0.6
+  }
+
+  if (concussionSymptoms.length > 0) {
+    factors.push('Concussion or cognitive symptoms reported')
+    score += Math.min(1.0, concussionSymptoms.length * 0.25)
+  }
+
+  if (lifestyleImpact.includes('unable_to_work_normally') || lifestyleImpact.includes('sleep_disruption') || lifestyleImpact.includes('emotional_distress')) {
+    factors.push('Meaningful daily life impact')
+    score += 0.6
+  }
+
+  if (treatmentTypes.includes('surgery_status recommended') || treatmentTypes.includes('future_treatment surgery')) {
+    factors.push('Surgery recommendation')
+    score += 1.2
+  } else if (treatmentTypes.includes('surgery_status scheduled') || treatmentTypes.includes('surgery_status completed')) {
+    factors.push('Surgery scheduled or completed')
+    score += 1.6
+  }
+
+  if (treatmentTypes.includes('epidural') || treatmentTypes.includes('nerve_blocks') || treatmentTypes.includes('radiofrequency')) {
+    factors.push('Interventional pain procedure')
+    score += 0.9
+  }
+
+  if (treatmentTypes.includes('imaging mri') || treatmentTypes.includes(' mri')) {
+    factors.push('MRI imaging reported')
+    score += 0.55
+  } else if (treatmentTypes.includes('imaging ct_scan') || treatmentTypes.includes('imaging xray')) {
+    factors.push('Diagnostic imaging reported')
+    score += 0.25
   }
   
   // Check for severe injury keywords
@@ -553,12 +601,26 @@ export function computeFeatures(a: Assessment) {
   const severityScore = calculateInjurySeverity(f)
   const liabilityScore = calculateLiabilityScore(f, a.venueState) // V2: Rules-based liability
   const medPaid = f?.damages?.med_paid ?? 0
-  const medCharges = f?.damages?.med_charges ?? 0
-  const wageLoss = f?.damages?.wage_loss ?? 0
+  const medCharges = f?.damages?.med_charges ?? f?.damages?.estimated_med_charges ?? 0
+  const wageLoss = f?.damages?.wage_loss ?? f?.damages?.estimated_wage_loss ?? 0
   const outOfPocket = f?.damages?.estimated_out_of_pocket ?? f?.damages?.services ?? 0
   const propertyDamage = f?.damages?.estimated_property_damage ?? 0
   const futureMedCharges = f?.damages?.estimated_future_med_charges ?? 0
   const hasTreatment = (f?.treatment?.length ?? 0) > 0
+  const insurance = f?.insurance || {}
+  const policyLimit = Number(insurance.policy_limit || insurance.policyLimit || insurance.coverage_limit || 0)
+  const injury = Array.isArray(f?.injuries) ? f.injuries[0] || {} : {}
+  const bodyParts = Array.isArray(injury.bodyParts) ? injury.bodyParts : []
+  const priorInjury = injury.priorInjury || ''
+  const concussionSymptoms = Array.isArray(injury.concussionSymptoms) ? injury.concussionSymptoms : []
+  const lifestyleImpact = Array.isArray(injury.lifestyleImpact) ? injury.lifestyleImpact : []
+  const treatmentEvents = Array.isArray(f?.treatment) ? f.treatment : []
+  const surgeryStatus = treatmentEvents.find((item: any) => item?.type === 'surgery_status')?.status || ''
+  const imaging = treatmentEvents.filter((item: any) => item?.type === 'imaging').map((item: any) => item.imaging).filter(Boolean)
+  const procedures = treatmentEvents.filter((item: any) => item?.type === 'procedure').map((item: any) => item.procedure).filter(Boolean)
+  const futureTreatment = treatmentEvents.filter((item: any) => item?.type === 'future_treatment').map((item: any) => item.recommendation).filter(Boolean)
+  const plaintiffContext = f?.plaintiffContext || {}
+  const liability = f?.liability || {}
   
   return { 
     venue: a.venueState, 
@@ -572,8 +634,122 @@ export function computeFeatures(a: Assessment) {
     outOfPocket,
     propertyDamage,
     futureMedCharges,
+    policyLimit: Number.isFinite(policyLimit) ? policyLimit : 0,
+    billPaymentSources: Array.isArray(insurance.bill_payment_sources) ? insurance.bill_payment_sources : [],
+    defendantCoverageLimits: insurance.defendant_coverage_limits || '',
+    priorInjury,
+    bodyParts,
+    surgeryStatus,
+    imaging,
+    procedures,
+    futureTreatment,
+    concussionSymptoms,
+    lifestyleImpact,
+    representationStage: plaintiffContext.representationStage || '',
+    litigationIntent: plaintiffContext.litigationIntent || '',
+    settlementOffer: plaintiffContext.settlementOffer || '',
+    comparativeFault: liability.comparativeFault || '',
     hasTreatment,
     narrativeLength: (f?.incident?.narrative?.length ?? 0) / 100 // normalize to roughly 0-10
+  }
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function roundToNearest(value: number, increment = 1000) {
+  return Math.round(value / increment) * increment
+}
+
+function getVenueConstraint(venue: string) {
+  if (['CA', 'NY'].includes(venue)) return 1.08
+  if (['TX', 'FL'].includes(venue)) return 1.0
+  return 0.94
+}
+
+function getEvidenceConfidenceModifier(features: any) {
+  let modifier = 0.82
+  if (features.hasTreatment) modifier += 0.08
+  if (features.medCharges > 0 || features.medPaid > 0) modifier += 0.05
+  if (features.narrativeLength > 3) modifier += 0.03
+  if ((features.procedures?.length || 0) > 0 || features.surgeryStatus) modifier += 0.04
+  return clamp(modifier, 0.72, 1.08)
+}
+
+function getSettlementCompressionFactor(severityLevel: number, hasTreatment: boolean) {
+  const compressionBySeverity: Record<number, number> = {
+    0: 0.45,
+    1: 0.5,
+    2: 0.58,
+    3: 0.66,
+    4: 0.72,
+  }
+  return (compressionBySeverity[severityLevel] ?? 0.55) + (hasTreatment ? 0.04 : -0.04)
+}
+
+function getCaseStageModifier(stage: string) {
+  const stageModifiers: Record<string, number> = {
+    no_lawyer: 0.92,
+    lawyer_retained: 1.02,
+    demand_sent: 1.08,
+    in_litigation: 1.18,
+    mediation_scheduled: 1.24,
+    trial_scheduled: 1.35,
+  }
+  return stageModifiers[stage] ?? 1
+}
+
+function getPriorInjuryModifier(priorInjury: string) {
+  const modifiers: Record<string, number> = {
+    none: 1,
+    similar: 0.82,
+    prior_claim: 0.78,
+    prior_surgery: 0.74,
+    not_sure: 0.9,
+  }
+  return modifiers[priorInjury] ?? 1
+}
+
+function getProcedureLeverage(features: any) {
+  let leverage = 1
+  if (features.surgeryStatus === 'recommended') leverage += 0.28
+  if (features.surgeryStatus === 'scheduled') leverage += 0.36
+  if (features.surgeryStatus === 'completed') leverage += 0.45
+  if ((features.procedures || []).some((item: string) => ['epidural_injections', 'nerve_blocks', 'radiofrequency_ablation'].includes(item))) leverage += 0.22
+  if ((features.futureTreatment || []).includes('surgery')) leverage += 0.24
+  if ((features.futureTreatment || []).includes('long_term_treatment')) leverage += 0.25
+  if ((features.concussionSymptoms || []).length > 0) leverage += 0.2
+  return leverage
+}
+
+function getLienPressureModifier(sources: string[]) {
+  if (!Array.isArray(sources)) return 1
+  let modifier = 1
+  if (sources.includes('lien')) modifier -= 0.08
+  if (sources.includes('workers_comp')) modifier -= 0.05
+  if (sources.includes('medpay')) modifier += 0.03
+  return clamp(modifier, 0.84, 1.05)
+}
+
+function getOfferAnchor(offer: string) {
+  const anchors: Record<string, number> = {
+    under_10k: 10000,
+    '10k_25k': 25000,
+    '25k_50k': 50000,
+    higher: 75000,
+  }
+  return anchors[offer] ?? 0
+}
+
+function applyPolicyLimitConstraint(low: number, high: number, policyLimit: number) {
+  if (!policyLimit || policyLimit <= 0) return { low, high, constrained: false }
+  const constrainedHigh = Math.min(high, policyLimit)
+  const constrainedLow = Math.min(low, Math.max(constrainedHigh * 0.45, policyLimit * 0.25))
+  return {
+    low: constrainedLow,
+    high: Math.max(constrainedLow, constrainedHigh),
+    constrained: high > policyLimit,
   }
 }
 
@@ -631,29 +807,116 @@ function predictViabilityHeuristic(features: any) {
   // Confidence interval
   const ci = [Math.max(0.05, overall - 0.09), Math.min(0.95, overall + 0.09)]
   
-  // Value bands based on medical expenses and multi-level severity
+  // Value bands use separate settlement and trial models. This keeps the primary
+  // plaintiff-facing number realistic while still showing possible jury exposure.
+  const medCharges = Number(features.medCharges || 0)
+  const medPaid = Number(features.medPaid || 0)
+  const wageLoss = Number(features.wageLoss || 0)
+  const outOfPocket = Number(features.outOfPocket || 0)
+  const propertyDamage = Number(features.propertyDamage || 0)
+  const futureDamages = Number(features.futureMedCharges || 0)
+  const policyLimit = Number(features.policyLimit || 0)
   const economicDamages =
-    (features.medPaid * 3) +
-    (features.futureMedCharges * 1.5) +
-    features.wageLoss +
-    features.outOfPocket +
-    Math.min(features.propertyDamage, 25000)
-  const baseValue = Math.max(10000, economicDamages)
-  // Severity multipliers based on level (0-4)
-  const severityMultipliers: Record<SeverityLevel, number> = {
-    0: 1.0,   // No injuries: base value
-    1: 1.3,   // Mild: 30% increase
-    2: 1.8,   // Moderate: 80% increase
-    3: 2.8,   // Severe: 180% increase
-    4: 4.0    // Catastrophic: 300% increase
+    Math.max(medCharges, medPaid) +
+    wageLoss +
+    outOfPocket +
+    Math.min(propertyDamage, 25000)
+  const medicalBills = Math.max(medCharges, medPaid)
+  const treatmentCredibility = features.hasTreatment ? 1.12 : 0.82
+  const procedureLeverage = getProcedureLeverage(features)
+  const severityAnchors: Record<SeverityLevel, number> = {
+    0: 6000,
+    1: 18000,
+    2: 45000,
+    3: 125000,
+    4: 350000,
   }
-  const severityMultiplier = severityMultipliers[severityLevel as SeverityLevel] || 1.2
-  const median = baseValue * severityMultiplier
+  const painSufferingBySeverity: Record<SeverityLevel, number> = {
+    0: 4000,
+    1: 12000,
+    2: 45000,
+    3: 150000,
+    4: 500000,
+  }
+  const medicalSupport = Math.min(medicalBills * (severityLevel >= 3 ? 1.25 : 0.9), 140000)
+  const bodyPartSeveritySupport = Math.min((features.bodyParts?.length || 0) * 6000, 35000)
+  const lifestyleSupport = Math.min((features.lifestyleImpact?.length || 0) * 5000, 30000)
+  const concussionSupport = Math.min((features.concussionSymptoms?.length || 0) * 8000, 45000)
+  const injurySupportedValue = Math.max(
+    severityAnchors[severityLevel as SeverityLevel] ?? 25000,
+    (economicDamages + medicalSupport + futureDamages * 0.7 + bodyPartSeveritySupport + lifestyleSupport + concussionSupport) * treatmentCredibility * procedureLeverage,
+  )
+  const liabilityModifier = clamp(liability * (1 - (liabilityScore?.comparativeNegligence ?? 0) * 0.55), 0.25, 1.05)
+  const evidenceModifier = getEvidenceConfidenceModifier(features)
+  const venueConstraint = getVenueConstraint(features.venue)
+  const settlementCompression = getSettlementCompressionFactor(severityLevel, features.hasTreatment)
+  const caseStageModifier = getCaseStageModifier(features.representationStage)
+  const priorInjuryModifier = getPriorInjuryModifier(features.priorInjury)
+  const lienPressureModifier = getLienPressureModifier(features.billPaymentSources)
+  const offerAnchor = getOfferAnchor(features.settlementOffer)
+  const settlementMedian = Math.max(
+    offerAnchor,
+    injurySupportedValue * settlementCompression * liabilityModifier * evidenceModifier * venueConstraint * caseStageModifier * priorInjuryModifier * lienPressureModifier
+  )
+  const settlementFloor = Math.max(5000, Math.min(injurySupportedValue * 0.7, economicDamages + medicalBills * 0.4))
+  const constrainedSettlement = applyPolicyLimitConstraint(
+    Math.max(settlementFloor, settlementMedian * 0.62),
+    Math.max(settlementFloor * 1.2, settlementMedian * 1.3),
+    policyLimit,
+  )
+
+  const nonEconomicDamages = (painSufferingBySeverity[severityLevel as SeverityLevel] ?? 20000) + lifestyleSupport + concussionSupport
+  const juryIntentModifier = features.litigationIntent === 'go_to_trial' ? 1.12 : features.litigationIntent === 'settle_quickly' ? 0.95 : 1
+  const juryRiskModifier = (severityLevel >= 3 ? 1.25 : liability >= 0.75 ? 1.12 : 1.0) * juryIntentModifier
+  const trialBaseValue = economicDamages + futureDamages + nonEconomicDamages + medicalSupport
+  const trialMedian = trialBaseValue * liabilityModifier * venueConstraint * juryRiskModifier * evidenceModifier
+  const constrainedTrial = applyPolicyLimitConstraint(
+    Math.max(constrainedSettlement.high * 1.15, trialMedian * 0.65),
+    Math.max(constrainedSettlement.high * 1.8, trialMedian * 1.65),
+    policyLimit,
+  )
   
   const value_bands = {
-    p25: Math.round(median * 0.3),
-    median: Math.round(median),
-    p75: Math.round(median * 2.2)
+    p25: roundToNearest(constrainedSettlement.low),
+    median: roundToNearest((constrainedSettlement.low + constrainedSettlement.high) / 2),
+    p75: roundToNearest(constrainedSettlement.high),
+    settlement: {
+      p25: roundToNearest(constrainedSettlement.low),
+      median: roundToNearest((constrainedSettlement.low + constrainedSettlement.high) / 2),
+      p75: roundToNearest(constrainedSettlement.high),
+      formula: 'injury_supported_value * settlement_compression * liability_risk * evidence_confidence * venue_insurance_constraints',
+      policyLimitConstrained: constrainedSettlement.constrained,
+    },
+    trial: {
+      p25: roundToNearest(constrainedTrial.low),
+      median: roundToNearest((constrainedTrial.low + constrainedTrial.high) / 2),
+      p75: roundToNearest(constrainedTrial.high),
+      formula: 'economic_damages + non_economic_damages + future_damages adjusted by liability, venue, jury risk, and evidence strength',
+      policyLimitConstrained: constrainedTrial.constrained,
+    },
+    economics: {
+      medicalBills: roundToNearest(medicalBills),
+      economicDamages: roundToNearest(economicDamages),
+      futureDamages: roundToNearest(futureDamages),
+      injurySupportedValue: roundToNearest(injurySupportedValue),
+    },
+    drivers: {
+      priorInjury: features.priorInjury,
+      representationStage: features.representationStage,
+      surgeryStatus: features.surgeryStatus,
+      imaging: features.imaging,
+      procedures: features.procedures,
+      futureTreatment: features.futureTreatment,
+      bodyParts: features.bodyParts,
+      wageLoss,
+      billPaymentSources: features.billPaymentSources,
+      defendantCoverageLimits: features.defendantCoverageLimits,
+      litigationIntent: features.litigationIntent,
+      comparativeFault: features.comparativeFault,
+      concussionSymptoms: features.concussionSymptoms,
+      settlementOffer: features.settlementOffer,
+      lifestyleImpact: features.lifestyleImpact,
+    },
   }
   
   // Explainability factors
@@ -703,7 +966,12 @@ function predictViabilityHeuristic(features: any) {
     }
   }
   
-  if (features.medPaid > 10000) explainability.push({ feature: 'medical_expenses', direction: '+', impact: 0.06 })
+  if (medicalBills > 10000) explainability.push({ feature: 'medical_bills_treatment_severity', direction: '+', impact: 0.06 })
+  if (features.priorInjury && features.priorInjury !== 'none') explainability.push({ feature: 'prior_injury_causation_discount', direction: '-', impact: 1 - priorInjuryModifier })
+  if (features.representationStage && features.representationStage !== 'no_lawyer') explainability.push({ feature: 'litigation_stage_pressure', direction: '+', impact: caseStageModifier - 1 })
+  if (procedureLeverage > 1) explainability.push({ feature: 'surgery_or_procedure_leverage', direction: '+', impact: procedureLeverage - 1 })
+  if (offerAnchor > 0) explainability.push({ feature: 'settlement_offer_anchor', direction: '+', impact: 0.04 })
+  if (constrainedSettlement.constrained || constrainedTrial.constrained) explainability.push({ feature: 'policy_limit_constraint', direction: '-', impact: 0.08 })
   if (features.hasTreatment) explainability.push({ feature: 'treatment_continuity', direction: '+', impact: 0.05 })
   if (features.narrativeLength > 3) explainability.push({ feature: 'detailed_narrative', direction: '+', impact: 0.04 })
   

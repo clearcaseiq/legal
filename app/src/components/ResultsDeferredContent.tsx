@@ -405,9 +405,9 @@ export function ResultsReportDetails({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <img
-              src="/clearcaseiq-logo.png?v=2"
+              src="/clearcaseiq-logo-transparent.png?v=1"
               alt="ClearCaseIQ"
-              className="h-7 w-auto rounded-sm object-contain [mix-blend-mode:multiply]"
+              className="h-7 w-auto object-contain"
             />
             <p className="mt-1 text-sm font-semibold text-slate-900">Full report, sharing, and legal notes</p>
             <p className="mt-0.5 text-xs text-slate-500">Open this if you want the complete supplemental analysis.</p>

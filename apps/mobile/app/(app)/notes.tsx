@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -19,6 +19,12 @@ import { ScreenState } from '../../src/components/ScreenState'
 import { colors, radii, space, shadows } from '../../src/theme/tokens'
 
 const NOTE_TYPES = ['general', 'call', 'client_update', 'strategy'] as const
+const NOTE_TYPE_LABELS: Record<(typeof NOTE_TYPES)[number], string> = {
+  general: 'General',
+  call: 'Call',
+  client_update: 'Client update',
+  strategy: 'Strategy',
+}
 
 export default function NotesScreen() {
   const { leadId } = useLocalSearchParams<{ leadId?: string }>()
@@ -28,8 +34,10 @@ export default function NotesScreen() {
   const [saving, setSaving] = useState(false)
   const [draft, setDraft] = useState('')
   const [noteType, setNoteType] = useState<(typeof NOTE_TYPES)[number]>('general')
+  const [voiceMode, setVoiceMode] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const inputRef = useRef<TextInput>(null)
 
   const load = useCallback(async () => {
     if (!leadId) return
@@ -54,6 +62,12 @@ export default function NotesScreen() {
 
   const composerDisabled = useMemo(() => !draft.trim() || saving || !leadId, [draft, saving, leadId])
 
+  function selectNoteType(type: (typeof NOTE_TYPES)[number]) {
+    setNoteType(type)
+    if (type !== 'call') setVoiceMode(false)
+    setTimeout(() => inputRef.current?.focus(), 50)
+  }
+
   async function onSave() {
     if (!leadId || composerDisabled) return
     setSaving(true)
@@ -61,6 +75,7 @@ export default function NotesScreen() {
     try {
       await createLeadNote(leadId, { message: draft.trim(), noteType })
       setDraft('')
+      setVoiceMode(false)
       setNoteType('general')
       await load()
     } catch (err: unknown) {
@@ -89,25 +104,56 @@ export default function NotesScreen() {
       <View style={styles.composerCard}>
         <Text style={styles.composerTitle}>Quick add note</Text>
         <Text style={styles.composerSub}>Capture call notes, next steps, and case context while it is fresh.</Text>
+        <View style={styles.selectedTypeBanner}>
+          <Ionicons name="pricetag-outline" size={16} color={colors.primary} />
+          <Text style={styles.selectedTypeText}>Saving as: {NOTE_TYPE_LABELS[noteType]}</Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.voiceButton, voiceMode && styles.voiceButtonOn]}
+          onPress={() => {
+            setVoiceMode(true)
+            selectNoteType('call')
+            setTimeout(() => inputRef.current?.focus(), 50)
+          }}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="mic-outline" size={18} color={voiceMode ? colors.primary : colors.textSecondary} />
+          <Text style={[styles.voiceButtonText, voiceMode && styles.voiceButtonTextOn]}>
+            {voiceMode ? 'Dictation ready - use the keyboard mic' : 'Voice note / dictation'}
+          </Text>
+        </TouchableOpacity>
         <View style={styles.chips}>
           {NOTE_TYPES.map((type) => (
             <TouchableOpacity
               key={type}
               style={[styles.chip, noteType === type && styles.chipOn]}
-              onPress={() => setNoteType(type)}
+              onPress={() => selectNoteType(type)}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityState={{ selected: noteType === type }}
             >
+              <Ionicons
+                name={noteType === type ? 'checkmark-circle' : 'ellipse-outline'}
+                size={16}
+                color={noteType === type ? colors.primary : colors.textSecondary}
+              />
               <Text style={[styles.chipText, noteType === type && styles.chipTextOn]}>
-                {type.replace(/_/g, ' ')}
+                {NOTE_TYPE_LABELS[type]}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
         <TextInput
+          ref={inputRef}
           style={styles.input}
           value={draft}
           onChangeText={setDraft}
           multiline
-          placeholder="Type a note after a call, meeting, or review..."
+          placeholder={
+            voiceMode
+              ? 'Tap the microphone on your iPhone keyboard and dictate the call note...'
+              : `Type a ${NOTE_TYPE_LABELS[noteType].toLowerCase()} note...`
+          }
           placeholderTextColor={colors.muted}
         />
         {saveError ? <InlineErrorBanner message={saveError} actionLabel="Dismiss" onAction={() => setSaveError(null)} /> : null}
@@ -169,16 +215,48 @@ const styles = StyleSheet.create({
   },
   composerTitle: { fontSize: 18, fontWeight: '800', color: colors.text },
   composerSub: { fontSize: 14, color: colors.textSecondary, marginTop: 6, lineHeight: 20 },
+  selectedTypeBanner: {
+    marginTop: space.md,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    borderRadius: radii.md,
+    backgroundColor: colors.primary + '10',
+    borderWidth: 1,
+    borderColor: colors.primary + '25',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  selectedTypeText: { fontSize: 14, fontWeight: '800', color: colors.primaryDark },
+  voiceButton: {
+    marginTop: space.md,
+    minHeight: 44,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  voiceButtonOn: { borderColor: colors.primary + '55', backgroundColor: colors.primary + '10' },
+  voiceButtonText: { fontSize: 14, fontWeight: '800', color: colors.textSecondary },
+  voiceButtonTextOn: { color: colors.primaryDark },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.md, marginBottom: space.md },
   chip: {
+    minHeight: 40,
     paddingHorizontal: space.md,
     paddingVertical: 7,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
-  chipOn: { borderColor: colors.primary + '40', backgroundColor: colors.primary + '10' },
+  chipOn: { borderColor: colors.primary + '65', backgroundColor: colors.primary + '14' },
   chipText: { fontSize: 13, fontWeight: '700', color: colors.textSecondary, textTransform: 'capitalize' },
   chipTextOn: { color: colors.primaryDark },
   input: {

@@ -30,7 +30,7 @@ export default function AttorneyLogin() {
     setError(null)
     try {
       const response = await loginAttorney({
-        email: form.email.trim(),
+        email: form.email.trim().toLowerCase(),
         password: form.password,
       })
       if (!response.token) {

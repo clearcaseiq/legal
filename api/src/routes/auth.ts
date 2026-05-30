@@ -8,6 +8,16 @@ import { isAdminEmail } from '../lib/admin-access'
 
 const router = Router()
 
+function parseStringArrayField(raw: string | null | undefined): string[] {
+  if (!raw?.trim()) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.map(String) : []
+  } catch {
+    return []
+  }
+}
+
 // Health check for auth routes (verify API is reachable)
 router.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'auth' })
@@ -187,7 +197,7 @@ router.post('/attorney-login', async (req, res) => {
 
     // Find attorney record (email on attorney row must match user email)
     const attorney = await prisma.attorney.findFirst({
-      where: { email: user.email },
+      where: { email: { equals: user.email, mode: 'insensitive' } },
     })
 
     if (!attorney) {
@@ -221,8 +231,8 @@ router.post('/attorney-login', async (req, res) => {
         id: attorney.id,
         name: attorney.name,
         email: attorney.email,
-        specialties: attorney.specialties ? JSON.parse(attorney.specialties) : [],
-        venues: attorney.venues ? JSON.parse(attorney.venues) : []
+        specialties: parseStringArrayField(attorney.specialties),
+        venues: parseStringArrayField(attorney.venues),
       },
       token,
       isAttorney: true

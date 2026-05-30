@@ -1,8 +1,24 @@
-import { Stack } from 'expo-router'
-import { View } from 'react-native'
-import { colors } from '../../src/theme/tokens'
+import { Stack, router } from 'expo-router'
+import { Text, TouchableOpacity, View } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
+import { colors, space } from '../../src/theme/tokens'
 import { PushNavigationHandler } from '../../src/components/PushNavigationHandler'
 import { AttorneyDashboardProvider } from '../../src/contexts/AttorneyDashboardContext'
+
+function DashboardHeaderButton() {
+  return (
+    <TouchableOpacity
+      onPress={() => router.replace('/(app)/(tabs)')}
+      accessibilityRole="button"
+      accessibilityLabel="Back to dashboard"
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      style={{ paddingHorizontal: space.sm, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+    >
+      <Ionicons name="home-outline" size={22} color="#fff" />
+      <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Dashboard</Text>
+    </TouchableOpacity>
+  )
+}
 
 export default function AppLayout() {
   return (
@@ -12,6 +28,7 @@ export default function AppLayout() {
         <Stack
           screenOptions={{
             headerShown: false,
+            headerLeft: () => <DashboardHeaderButton />,
             contentStyle: { backgroundColor: colors.surface },
           }}
         >
@@ -111,6 +128,36 @@ export default function AppLayout() {
             options={{
               headerShown: true,
               title: 'Document requests',
+              headerStyle: { backgroundColor: colors.nav },
+              headerTintColor: '#fff',
+              headerBackTitle: 'Back',
+            }}
+          />
+          <Stack.Screen
+            name="manual-case"
+            options={{
+              headerShown: true,
+              title: 'Add manual case',
+              headerStyle: { backgroundColor: colors.nav },
+              headerTintColor: '#fff',
+              headerBackTitle: 'Back',
+            }}
+          />
+          <Stack.Screen
+            name="schedule-consult"
+            options={{
+              headerShown: true,
+              title: 'Create calendar event',
+              headerStyle: { backgroundColor: colors.nav },
+              headerTintColor: '#fff',
+              headerBackTitle: 'Back',
+            }}
+          />
+          <Stack.Screen
+            name="request-docs"
+            options={{
+              headerShown: true,
+              title: 'Request documents',
               headerStyle: { backgroundColor: colors.nav },
               headerTintColor: '#fff',
               headerBackTitle: 'Back',

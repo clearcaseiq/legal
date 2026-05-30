@@ -421,11 +421,11 @@ export default function Layout({ children }: LayoutProps) {
         id="main-content"
         className={`mx-auto w-full max-w-7xl overflow-x-clip sm:px-6 lg:px-8 ${
           ['/assess', '/intake'].includes(location.pathname)
-            ? 'min-h-[calc(100dvh-3.5rem)] py-2 md:h-[calc(100dvh-4rem)] md:overflow-hidden'
+            ? 'h-[calc(100dvh-3.5rem)] overflow-y-auto overscroll-y-contain py-2 md:h-[calc(100dvh-4rem)]'
             : 'py-8'
         }`}
       >
-        <div className={`min-w-0 px-3 sm:px-0 ${['/assess', '/intake'].includes(location.pathname) ? 'min-h-full md:h-full md:overflow-hidden' : ''}`}>
+        <div className={`min-w-0 px-3 sm:px-0 ${['/assess', '/intake'].includes(location.pathname) ? 'min-h-full' : ''}`}>
           {children}
         </div>
       </main>

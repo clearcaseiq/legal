@@ -275,6 +275,17 @@ function AttorneyHomeDashboardScreen() {
       <Text style={styles.greeting}>{greeting}</Text>
       <Text style={styles.subGreeting}>Your pipeline at a glance</Text>
 
+      <View style={styles.quickActionRow}>
+        <TouchableOpacity style={styles.quickActionButton} onPress={() => router.push('/(app)/manual-case')} activeOpacity={0.9}>
+          <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+          <Text style={styles.quickActionText}>Add case</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.quickActionButton} onPress={() => router.push('/(app)/schedule-consult')} activeOpacity={0.9}>
+          <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+          <Text style={styles.quickActionText}>New event</Text>
+        </TouchableOpacity>
+      </View>
+
       {loadError ? (
         <InlineErrorBanner
           message={isOfflineSnapshot ? `${loadError} Showing your last saved dashboard snapshot.` : loadError}
@@ -906,6 +917,21 @@ const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
   greeting: { fontSize: 28, fontWeight: '800', color: colors.text },
   subGreeting: { fontSize: 15, color: colors.textSecondary, marginTop: 4, marginBottom: space.lg },
+  quickActionRow: { flexDirection: 'row', gap: space.md, marginBottom: space.lg },
+  quickActionButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    ...shadows.soft,
+  },
+  quickActionText: { fontSize: 15, fontWeight: '800', color: colors.text },
   commandCard: {
     backgroundColor: colors.nav,
     borderRadius: radii.xl,

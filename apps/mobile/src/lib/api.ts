@@ -13,6 +13,10 @@ function resolveApiUrl() {
   const configured = process.env.EXPO_PUBLIC_API_URL?.trim()
   if (configured) return configured
 
+  if (!__DEV__) {
+    return 'https://api.clearcaseiq.com'
+  }
+
   // Android emulators cannot reach the host machine via localhost.
   if (__DEV__ && Platform.OS === 'android' && !Device.isDevice) {
     return 'http://10.0.2.2:4000'
@@ -71,7 +75,19 @@ export function getApiErrorMessage(err: unknown): string {
   if (isAxiosError(err)) {
     const e = err as AxiosError<{ error?: string }>
     const server = e.response?.data && typeof e.response.data === 'object' ? e.response.data.error : undefined
-    if (typeof server === 'string' && server.trim()) return server
+    if (typeof server === 'string' && server.trim()) {
+      if (
+        e.response?.status === 401 &&
+        /invalid credentials/i.test(server) &&
+        API_URL.includes('api.clearcaseiq.com')
+      ) {
+        return (
+          `${server} If the website works on your computer but this app does not, the site may be using a local ` +
+          'development API while this build uses production. Use production credentials or ask an admin to reset your password on production.'
+        )
+      }
+      return server
+    }
     const msg = (e.message || '').toLowerCase()
     if (e.code === 'ECONNABORTED' || msg.includes('timeout')) {
       return (
@@ -98,6 +114,14 @@ api.interceptors.request.use(async (config) => {
   return config
 })
 
+function isAuthCredentialRequest(url: string) {
+  return (
+    url.includes('/v1/auth/login') ||
+    url.includes('/v1/auth/attorney-login') ||
+    url.includes('/v1/auth/register')
+  )
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -106,6 +130,11 @@ api.interceptors.response.use(
       const method = String(config?.method || '').toLowerCase()
       const url = String(config?.url || '')
       const isSessionProbe = url.includes('/v1/auth/me')
+
+      // Do not clear stored session on failed sign-in attempts.
+      if (isAuthCredentialRequest(url)) {
+        return Promise.reject(error)
+      }
 
       if (config && method === 'get' && !isSessionProbe && !config._retriedAuth) {
         config._retriedAuth = true
@@ -121,37 +150,26 @@ api.interceptors.response.use(
   }
 )
 
-// Auth
+/** Match web attorney login: trim + lowercase for consistent DB lookup. */
+export function normalizeAuthEmail(email: string) {
+  return email.trim().toLowerCase()
+}
+
+// Auth — attorney app uses the same endpoint as web /login/attorney
 export async function loginUser(email: string, password: string) {
-  let role: MobileSessionRole = 'plaintiff'
-  let data: any
-
-  try {
-    const response = await api.post('/v1/auth/login', { email, password })
-    data = response.data
-    role = 'plaintiff'
-  } catch (error: unknown) {
-    const err = error as AxiosError<{ error?: string; isAttorney?: boolean }>
-    const shouldRetryAsAttorney =
-      !!err.response &&
-      err.response.status === 403 &&
-      !!err.response.data?.isAttorney
-
-    if (!shouldRetryAsAttorney) {
-      throw error
-    }
-
-    const response = await api.post('/v1/auth/attorney-login', { email, password })
-    data = response.data
-    role = 'attorney'
-  }
+  const normalizedEmail = normalizeAuthEmail(email)
+  const response = await api.post('/v1/auth/attorney-login', {
+    email: normalizedEmail,
+    password,
+  })
+  const data = response.data
 
   await SecureStore.setItemAsync('auth_token', data.token)
   await SecureStore.setItemAsync('user', JSON.stringify(data.user))
-  await SecureStore.setItemAsync('session_role', role)
+  await SecureStore.setItemAsync('session_role', 'attorney')
   return {
     ...data,
-    role,
+    role: 'attorney' as MobileSessionRole,
   }
 }
 
@@ -359,6 +377,11 @@ export type LeadQualityDetails = {
     confidence?: number
     rationale?: string
   }
+  evidenceChecklist?: {
+    required?: Array<{ name?: string; label?: string; uploaded?: boolean; critical?: boolean; category?: string }>
+  }
+  conflicts?: Array<{ id?: string; conflictType?: string; riskLevel?: string; isResolved?: boolean; details?: string }>
+  sol?: { isUrgent?: boolean; daysUntilExpiration?: number; daysRemaining?: number; deadline?: string; expiresAt?: string }
 }
 
 export async function getLeadQuality(leadId: string): Promise<LeadQualityDetails | null> {
@@ -413,7 +436,33 @@ export async function getLeadQuality(leadId: string): Promise<LeadQualityDetails
         ? `Review with caution: ${risks[0]}`
         : strengths[0] || 'Case quality signals are available for mobile triage.',
     },
+    evidenceChecklist: qualityDetails?.evidenceChecklist,
+    conflicts: Array.isArray(qualityDetails?.conflicts) ? qualityDetails.conflicts : [],
+    sol: qualityDetails?.sol,
   }
+}
+
+export type ConflictCheckResult = {
+  conflictCheck?: { id?: string; conflictType?: string; riskLevel?: string; isResolved?: boolean }
+  details?: { conflictType?: string; riskLevel?: string; details?: any }
+}
+
+export async function runConflictCheck(leadId: string): Promise<ConflictCheckResult> {
+  const { data } = await api.post('/v1/lead-quality/conflict-check', { leadId })
+  return data
+}
+
+export async function updateLeadStatus(leadId: string, status: 'contacted' | 'consulted' | 'retained') {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/status`, { status })
+  return data
+}
+
+export async function updatePlaintiffCaseStatus(
+  leadId: string,
+  payload: { status: 'INTAKE' | 'UNDER_REVIEW' | 'FILED' | 'NEGOTIATION' | 'SETTLED' | 'TRIAL' | 'CLOSED'; message?: string }
+) {
+  const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/plaintiff-status`, payload)
+  return data
 }
 
 export type LeadEvidenceFile = {
@@ -424,12 +473,33 @@ export type LeadEvidenceFile = {
   size?: number | null
   fileUrl: string
   category?: string | null
+  isVerified?: boolean
+  verifiedAt?: string | null
+  description?: string | null
   createdAt?: string
 }
 
 export async function getLeadEvidenceFiles(leadId: string): Promise<LeadEvidenceFile[]> {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/evidence`)
   return Array.isArray(data) ? data : []
+}
+
+export async function uploadLeadEvidenceFile(leadId: string, formData: FormData): Promise<LeadEvidenceFile> {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/evidence`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+  return data
+}
+
+export async function reviewLeadEvidenceFile(
+  leadId: string,
+  fileId: string,
+  payload: { content?: string; status?: 'reviewed' | 'needs_follow_up' }
+): Promise<LeadEvidenceFile> {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/evidence/${fileId}/review`, payload)
+  return data
 }
 
 export type AttorneyAppointmentsResponse = {
@@ -447,6 +517,77 @@ export async function getAttorneyAppointments(from?: Date | string, to?: Date | 
   const { data } = await api.get<AttorneyAppointmentsResponse>(
     `/v1/attorney-dashboard/appointments${q ? `?${q}` : ''}`
   )
+  return data
+}
+
+export async function scheduleConsultation(
+  leadId: string,
+  payload: { date: string; time: string; meetingType: string; notes?: string }
+) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/schedule-consult`, payload)
+  return data
+}
+
+export async function updateAttorneyAppointment(
+  appointmentId: string,
+  payload: { scheduledAt?: string; type?: string; duration?: number; notes?: string; status?: string }
+) {
+  const { data } = await api.patch(`/v1/attorney-dashboard/appointments/${appointmentId}`, payload)
+  return data
+}
+
+export async function cancelAttorneyAppointment(appointmentId: string, reason?: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/appointments/${appointmentId}/cancel`, { reason })
+  return data
+}
+
+export type AttorneyCalendarConnection = {
+  provider: 'google' | 'microsoft'
+  connected: boolean
+  externalAccountEmail?: string | null
+  calendarName?: string | null
+  lastSyncedAt?: string | null
+  autoSyncEnabled?: boolean
+  webhookExpiresAt?: string | null
+  lastSyncError?: string | null
+  health?: {
+    status: 'healthy' | 'warning' | 'error' | 'disconnected'
+    busyBlockCount: number
+    recommendedAction: string
+    issues: string[]
+  }
+}
+
+export async function getAttorneyCalendarHealth(): Promise<{
+  connections: AttorneyCalendarConnection[]
+  summary?: {
+    totalConnections: number
+    connectedCount: number
+    healthyCount: number
+    warningCount: number
+    errorCount: number
+    disconnectedCount: number
+  }
+}> {
+  const { data } = await api.get('/v1/attorney-calendar/health')
+  return {
+    connections: Array.isArray(data?.connections) ? data.connections : [],
+    summary: data?.summary,
+  }
+}
+
+export async function getAttorneyCalendarConnectUrl(provider: 'google' | 'microsoft') {
+  const { data } = await api.post(`/v1/attorney-calendar/${provider}/connect`)
+  return data as { authorizeUrl: string }
+}
+
+export async function syncAttorneyCalendar(provider: 'google' | 'microsoft') {
+  const { data } = await api.post(`/v1/attorney-calendar/${provider}/sync`)
+  return data as { syncedBlocks: number; autoSyncEnabled?: boolean }
+}
+
+export async function disconnectAttorneyCalendar(provider: 'google' | 'microsoft') {
+  const { data } = await api.delete(`/v1/attorney-calendar/${provider}`)
   return data
 }
 
@@ -491,6 +632,11 @@ export async function getChatMessages(chatRoomId: string, limit = 80, offset = 0
   return data
 }
 
+export async function getOrCreateAttorneyChatRoom(payload: { userId: string; assessmentId?: string | null }) {
+  const { data } = await api.post('/v1/attorney-dashboard/messaging/chat-room', payload)
+  return data as { chatRoomId: string }
+}
+
 export async function sendAttorneyMessage(chatRoomId: string, content: string) {
   const { data } = await api.post('/v1/attorney-dashboard/messaging/send', { chatRoomId, content })
   return data
@@ -498,6 +644,55 @@ export async function sendAttorneyMessage(chatRoomId: string, content: string) {
 
 export async function markChatRead(chatRoomId: string) {
   const { data } = await api.put(`/v1/attorney-dashboard/messaging/chat-room/${chatRoomId}/read`)
+  return data
+}
+
+export async function createDocumentRequest(
+  leadId: string,
+  payload: { requestedDocs?: string[]; customMessage?: string; sendUploadLinkOnly?: boolean }
+) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/document-request`, payload)
+  return data
+}
+
+export async function getLeadCommandCenter(leadId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/command-center`)
+  return data
+}
+
+export async function createLeadContact(
+  leadId: string,
+  payload: { contactType: 'call' | 'sms' | 'email' | 'chat' | 'consult' | 'document_request'; contactMethod?: string; scheduledAt?: string; notes?: string }
+) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/contact`, payload)
+  return data
+}
+
+export async function getAttorneyProfilePreferences(): Promise<{
+  attorneyId: string
+  defaultVenueState: string
+  venueStates: string[]
+}> {
+  const { data } = await api.get('/v1/attorney-dashboard/profile/preferences')
+  return {
+    attorneyId: data?.attorneyId,
+    defaultVenueState: data?.defaultVenueState || 'CA',
+    venueStates: Array.isArray(data?.venueStates) && data.venueStates.length > 0 ? data.venueStates : ['CA'],
+  }
+}
+
+export async function createManualIntake(payload: {
+  template?: string
+  claimType?: string
+  venueState?: string
+  notes?: string
+  plaintiffFirstName?: string
+  plaintiffLastName?: string
+  plaintiffEmail?: string
+  plaintiffPhone?: string
+  sendInvite?: boolean
+}) {
+  const { data } = await api.post('/v1/attorney-dashboard/intake/manual', payload)
   return data
 }
 
@@ -523,6 +718,61 @@ export type TasksSummaryResponse = {
 
 export async function getTasksSummary(): Promise<TasksSummaryResponse> {
   const { data } = await api.get('/v1/attorney-dashboard/tasks/summary')
+  return data
+}
+
+export async function createCaseTask(
+  leadId: string,
+  payload: {
+    title: string
+    dueDate?: string
+    priority?: 'low' | 'medium' | 'high' | 'urgent'
+    notes?: string
+    taskType?: string
+  }
+) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/tasks`, payload)
+  return data
+}
+
+export async function createSolTask(leadId: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/tasks/sol`, {})
+  return data
+}
+
+export type NegotiationEvent = {
+  id: string
+  assessmentId?: string
+  eventType: string
+  amount?: number | null
+  eventDate?: string | null
+  status?: string | null
+  notes?: string | null
+  counterpartyType?: string | null
+  insurerName?: string | null
+  adjusterName?: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export async function getLeadNegotiations(leadId: string): Promise<NegotiationEvent[]> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/negotiations`)
+  return Array.isArray(data) ? data : []
+}
+
+export async function createNegotiationEvent(
+  leadId: string,
+  payload: {
+    eventType: 'demand' | 'offer' | 'counter' | 'call' | 'email' | 'note'
+    amount?: number
+    eventDate?: string
+    status?: string
+    notes?: string
+    insurerName?: string
+    adjusterName?: string
+  }
+): Promise<NegotiationEvent> {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/negotiations`, payload)
   return data
 }
 
@@ -560,6 +810,24 @@ export async function getCaseContacts(): Promise<AttorneyCaseContact[]> {
 export async function getLeadCaseContacts(leadId: string): Promise<AttorneyCaseContact[]> {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/case-contacts`)
   return Array.isArray(data) ? data : []
+}
+
+export async function createCaseContact(
+  leadId: string,
+  payload: {
+    firstName: string
+    lastName: string
+    email?: string
+    phone?: string
+    companyName?: string
+    companyUrl?: string
+    title?: string
+    contactType?: string
+    notes?: string
+  }
+): Promise<AttorneyCaseContact> {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/case-contacts`, payload)
+  return data
 }
 
 // Document requests

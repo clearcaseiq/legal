@@ -2,7 +2,7 @@ import { spawn } from 'child_process'
 import path from 'path'
 import { existsSync, readFileSync } from 'fs'
 import mammoth from 'mammoth'
-import { PDFParse } from 'pdf-parse'
+import { loadPDFParse, type PDFParseInstance } from './pdf-parse-client'
 import { DetectDocumentTextCommand, TextractClient } from '@aws-sdk/client-textract'
 import { prisma } from './prisma'
 import { logger } from './logger'
@@ -129,8 +129,9 @@ async function performConfiguredOCR(filePath: string): Promise<string> {
 const PDF_EMBEDDED_TEXT_MIN_CHARS = 80
 
 async function extractPdfEmbeddedText(filePath: string): Promise<string> {
-  let parser: PDFParse | null = null
+  let parser: PDFParseInstance | null = null
   try {
+    const PDFParse = await loadPDFParse()
     const data = readFileSync(filePath)
     parser = new PDFParse({ data })
     const result = await parser.getText()
@@ -155,8 +156,9 @@ async function extractPdfEmbeddedText(filePath: string): Promise<string> {
  * Sync DetectDocumentText sometimes rejects PDF bytes; rasterizing page 1 often succeeds.
  */
 async function textractRenderedPdfFirstPage(filePath: string): Promise<string> {
-  let parser: PDFParse | null = null
+  let parser: PDFParseInstance | null = null
   try {
+    const PDFParse = await loadPDFParse()
     const data = readFileSync(filePath)
     parser = new PDFParse({ data })
     const shot = await parser.getScreenshot({ scale: 1.75, first: 1 })

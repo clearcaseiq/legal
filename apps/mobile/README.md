@@ -56,3 +56,27 @@ src/
 - Register Expo push token per attorney and send notifications on new routes
 - Deep link from notification to `/(app)/lead/:id`
 - Optional: AsyncStorage cache + offline queue for decisions
+
+## iOS App Store Readiness
+
+Use the production API URL for TestFlight/App Store builds:
+
+```bash
+cd apps/mobile
+set EXPO_PUBLIC_API_URL=https://api.clearcaseiq.com
+```
+
+Build and submit with EAS:
+
+```bash
+pnpm run build:production:ios
+pnpm run submit:production:ios
+```
+
+Before submission, confirm:
+
+- Apple Developer account is connected in EAS credentials.
+- `ios.bundleIdentifier` is registered in App Store Connect.
+- Push notification credentials are configured if attorney alerts are enabled.
+- App privacy details mention account information, case information, documents/photos, notifications, and diagnostics as applicable.
+- The production API is reachable from a physical iPhone and calendar OAuth redirects point to `https://api.clearcaseiq.com`.

@@ -1,8 +1,8 @@
 import { useEffect } from 'react'
-import { AppState } from 'react-native'
-import { Tabs } from 'expo-router'
+import { AppState, Text, TouchableOpacity } from 'react-native'
+import { Tabs, router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { colors, shadows } from '../../../src/theme/tokens'
+import { colors, shadows, space } from '../../../src/theme/tokens'
 import { useAttorneyDashboardData } from '../../../src/contexts/AttorneyDashboardContext'
 import { useAuth } from '../../../src/contexts/AuthContext'
 
@@ -64,12 +64,25 @@ export default function TabsLayout() {
         headerTintColor: '#fff',
         headerTitleStyle: { fontWeight: '700', fontSize: 17 },
         headerShadowVisible: false,
+        headerLeft: () => (
+          <TouchableOpacity
+            onPress={() => router.replace('/(app)/(tabs)')}
+            accessibilityRole="button"
+            accessibilityLabel="Back to dashboard"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={{ paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+          >
+            <Ionicons name="home-outline" size={21} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Dashboard</Text>
+          </TouchableOpacity>
+        ),
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
+          headerLeft: () => null,
           tabBarIcon: ({ color, size }) => <Ionicons name={isAttorney ? 'grid-outline' : 'home-outline'} size={size} color={color} />,
         }}
       />

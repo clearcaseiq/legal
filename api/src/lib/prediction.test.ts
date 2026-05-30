@@ -158,8 +158,30 @@ describe('predictViability', () => {
     expect(r.viability.overall).toBeGreaterThanOrEqual(0.05)
     expect(r.viability.overall).toBeLessThanOrEqual(0.95)
     expect(r.value_bands.median).toBeGreaterThan(0)
+    expect(r.value_bands.settlement.p25).toBeGreaterThan(0)
+    expect(r.value_bands.trial.p75).toBeGreaterThan(r.value_bands.settlement.p75)
     expect(Array.isArray(r.explainability)).toBe(true)
     expect(r.caveats.length).toBeGreaterThan(0)
+  })
+
+  it('keeps rear-end MRI and injection cases in a compressed settlement range', async () => {
+    const features = computeFeatures(mockAssessment({
+      claimType: 'auto',
+      venueState: 'CA',
+      factsObj: {
+        claimType: 'auto',
+        incident: { narrative: 'I was stopped and rear-ended. MRI showed a disc injury and I received epidural injections.' },
+        injuries: [{ description: 'Disc injury' }],
+        treatment: [{ type: 'MRI' }, { type: 'epidural injection' }],
+        damages: { estimated_med_charges: 30000 },
+      },
+    }))
+
+    const r = await predictViability(features)
+
+    expect(r.value_bands.settlement.p25).toBeGreaterThanOrEqual(25000)
+    expect(r.value_bands.settlement.p75).toBeLessThanOrEqual(90000)
+    expect(r.value_bands.trial.p75).toBeGreaterThan(r.value_bands.settlement.p75)
   })
 })
 

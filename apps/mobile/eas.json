@@ -27,16 +27,22 @@
     },
     "production": {
       "developmentClient": false,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.clearcaseiq.com"
+      },
       "android": {
         "buildType": "app-bundle"
       },
       "ios": {
         "simulator": false
-      },
-      "channel": "production"
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6773952405"
+      }
+    }
   }
 }

@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useState } from 'react'
-import { View, Text, FlatList, Linking, StyleSheet, TextInput, TouchableOpacity, RefreshControl } from 'react-native'
+import { ActivityIndicator, View, Text, FlatList, Linking, StyleSheet, TextInput, TouchableOpacity, RefreshControl } from 'react-native'
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { getApiErrorMessage, getLeadEvidenceFiles, toAbsoluteApiUrl, type LeadEvidenceFile } from '../../src/lib/api'
+import * as DocumentPicker from 'expo-document-picker'
+import { getApiErrorMessage, getLeadEvidenceFiles, toAbsoluteApiUrl, uploadLeadEvidenceFile, type LeadEvidenceFile } from '../../src/lib/api'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
 import { colors, radii, space, shadows } from '../../src/theme/tokens'
@@ -20,7 +21,9 @@ export default function FilesScreen() {
   const [rows, setRows] = useState<LeadEvidenceFile[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [query, setQuery] = useState('')
+  const [category, setCategory] = useState('other')
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -62,6 +65,41 @@ export default function FilesScreen() {
     }
   }
 
+  async function pickAndUpload() {
+    if (!leadId || uploading) return
+    setLoadError(null)
+    setUploading(true)
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        multiple: false,
+        copyToCacheDirectory: true,
+        type: [
+          'image/*',
+          'application/pdf',
+          'text/plain',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        ],
+      })
+      if (result.canceled || !result.assets?.[0]) return
+      const asset = result.assets[0]
+      const formData = new FormData()
+      formData.append('category', category)
+      formData.append('description', 'Attorney mobile upload')
+      formData.append('file', {
+        uri: asset.uri,
+        name: asset.name || `case-file-${Date.now()}`,
+        type: asset.mimeType || 'application/octet-stream',
+      } as any)
+      await uploadLeadEvidenceFile(leadId, formData)
+      await load()
+    } catch (err: unknown) {
+      setLoadError(getApiErrorMessage(err))
+    } finally {
+      setUploading(false)
+    }
+  }
+
   if (!leadId) {
     return <ScreenState title="Missing case" message="Open files from a case to review evidence and uploads." icon="document-attach-outline" />
   }
@@ -87,6 +125,38 @@ export default function FilesScreen() {
           placeholder="Search file names and categories"
           placeholderTextColor={colors.muted}
         />
+      </View>
+
+      <View style={styles.uploadCard}>
+        <View style={styles.uploadHeader}>
+          <View>
+            <Text style={styles.uploadTitle}>Upload case file</Text>
+            <Text style={styles.uploadSub}>Attach records, bills, reports, photos, or notes to this case.</Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.uploadButton, uploading && styles.uploadButtonDisabled]}
+            onPress={pickAndUpload}
+            disabled={uploading}
+            activeOpacity={0.85}
+          >
+            {uploading ? <ActivityIndicator color="#fff" /> : <Ionicons name="cloud-upload-outline" size={20} color="#fff" />}
+            <Text style={styles.uploadButtonText}>{uploading ? 'Uploading' : 'Upload'}</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.categoryRow}>
+          {['other', 'medical_records', 'bills', 'police_report', 'photos'].map((item) => (
+            <TouchableOpacity
+              key={item}
+              style={[styles.categoryPill, category === item && styles.categoryPillActive]}
+              onPress={() => setCategory(item)}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.categoryPillText, category === item && styles.categoryPillTextActive]}>
+                {formatCategory(item)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
       <FlatList
@@ -148,6 +218,44 @@ const styles = StyleSheet.create({
     ...shadows.soft,
   },
   searchInput: { flex: 1, fontSize: 16, color: colors.text, paddingVertical: 12 },
+  uploadCard: {
+    marginHorizontal: space.lg,
+    marginBottom: space.md,
+    padding: space.lg,
+    borderRadius: radii.lg,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadows.soft,
+  },
+  uploadHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md },
+  uploadTitle: { fontSize: 16, fontWeight: '800', color: colors.text },
+  uploadSub: { marginTop: 4, fontSize: 13, lineHeight: 18, color: colors.textSecondary, maxWidth: 210 },
+  uploadButton: {
+    minWidth: 94,
+    minHeight: 42,
+    borderRadius: radii.md,
+    backgroundColor: colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: space.md,
+  },
+  uploadButtonDisabled: { opacity: 0.65 },
+  uploadButtonText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  categoryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.md },
+  categoryPill: {
+    paddingHorizontal: space.sm,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  categoryPillActive: { backgroundColor: colors.primary + '18', borderColor: colors.primary + '55' },
+  categoryPillText: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
+  categoryPillTextActive: { color: colors.primaryDark },
   list: { paddingHorizontal: space.lg, paddingBottom: space.xxl },
   emptyContainer: { flexGrow: 1, paddingHorizontal: space.lg, paddingBottom: space.xxl },
   card: {

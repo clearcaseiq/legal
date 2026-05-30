@@ -14,6 +14,7 @@ type ResultsReportInput = {
   caseStrengthScore: number
   successProbability: number
   settlementRangeText: string
+  trialValueText: string
   trialProbability: number
   estimatedTimeline: string
   solRemaining: string
@@ -253,8 +254,10 @@ export async function downloadResultsCaseReportPdf(input: ResultsReportInput) {
   drawLine('Case Intelligence Report', { font: 'F2', size: 14 })
   drawLine(`Case Strength: ${input.caseStrengthScore}/100`)
   drawLine(`Success Probability: ${input.successProbability}%`)
-  drawLine(`Settlement Range: ${input.settlementRangeText}`)
-  drawLine(`Trial Probability: ${input.trialProbability}%`)
+  drawLine(`Estimated Settlement Range: ${input.settlementRangeText}`)
+  drawLine(`Potential Trial Value: ${input.trialValueText}`)
+  drawLine(`Trial Risk: ${input.trialProbability}%`)
+  drawLine('Trial outcomes are uncertain, take longer, cost more, and may be limited by collectability or policy limits.')
   drawLine(`Timeline: ${input.estimatedTimeline}`)
   drawLine(`Statute of Limitations: ${input.solRemaining} remaining`)
   drawLine(`Documentation: ${input.evidenceCompletionPercent}%`)

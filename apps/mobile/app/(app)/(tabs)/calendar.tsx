@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Modal,
   Image,
+  Alert,
 } from 'react-native'
 import { router, useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -17,7 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as DocumentPicker from 'expo-document-picker'
 import * as ImagePicker from 'expo-image-picker'
 import { useAuth } from '../../../src/contexts/AuthContext'
-import { deleteEvidenceFile, getApiErrorMessage, getAttorneyAppointments, getPlaintiffCaseDashboard, getPlaintiffDocumentRequests, uploadEvidenceFile } from '../../../src/lib/api'
+import { cancelAttorneyAppointment, deleteEvidenceFile, getApiErrorMessage, getAttorneyAppointments, getPlaintiffCaseDashboard, getPlaintiffDocumentRequests, uploadEvidenceFile } from '../../../src/lib/api'
 import { InlineErrorBanner } from '../../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../../src/components/ScreenState'
 import {
@@ -578,9 +579,19 @@ function AttorneyCalendarScreen() {
           <Ionicons name="chevron-back" size={26} color={colors.primary} />
         </TouchableOpacity>
         <Text style={styles.monthTitle}>{monthLabel}</Text>
-        <TouchableOpacity onPress={() => shiftMonth(1)} accessibilityLabel="Next month" hitSlop={12}>
-          <Ionicons name="chevron-forward" size={26} color={colors.primary} />
-        </TouchableOpacity>
+        <View style={styles.monthActions}>
+          <TouchableOpacity
+            style={styles.addEventButton}
+            onPress={() => router.push('/(app)/schedule-consult')}
+            accessibilityLabel="Create calendar event"
+            hitSlop={10}
+          >
+            <Ionicons name="add" size={18} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => shiftMonth(1)} accessibilityLabel="Next month" hitSlop={12}>
+            <Ionicons name="chevron-forward" size={26} color={colors.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {loading && !refreshing ? (
@@ -608,13 +619,13 @@ function AttorneyCalendarScreen() {
               <Text style={styles.sectionTitle}>{section.title}</Text>
             </View>
           )}
-          renderItem={({ item }) => <MeetingRow event={item} />}
+          renderItem={({ item }) => <MeetingRow event={item} onChanged={load} />}
           ListEmptyComponent={
             <View style={styles.emptyCard}>
               <Ionicons name="calendar-outline" size={44} color={colors.textSecondary} />
               <Text style={styles.emptyTitle}>No meetings this month</Text>
               <Text style={styles.emptySub}>
-                Scheduled consultations from your cases appear here. Schedule from the web app or when you add a consult on a case.
+                Scheduled consultations from your cases appear here. Tap + to create a new calendar event.
               </Text>
             </View>
           }
@@ -1995,9 +2006,24 @@ function PlaintiffDocumentsScreen() {
   )
 }
 
-function MeetingRow({ event }: { event: AttorneyCalendarEvent }) {
+function MeetingRow({ event, onChanged }: { event: AttorneyCalendarEvent; onChanged: () => void | Promise<void> }) {
   const claim = event.claimType ? formatClaimType(event.claimType) : 'Case'
   const canOpenLead = !!event.leadId
+
+  function confirmCancel() {
+    Alert.alert('Cancel consultation?', 'The plaintiff will be notified that this consultation was cancelled.', [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Cancel consult',
+        style: 'destructive',
+        onPress: () => {
+          void cancelAttorneyAppointment(event.id, 'Cancelled from mobile calendar.')
+            .then(() => onChanged())
+            .catch(() => {})
+        },
+      },
+    ])
+  }
 
   return (
     <View style={styles.card}>
@@ -2024,6 +2050,31 @@ function MeetingRow({ event }: { event: AttorneyCalendarEvent }) {
         </TouchableOpacity>
       ) : null}
       {event.notes ? <Text style={styles.notes}>{event.notes}</Text> : null}
+      <View style={styles.meetingActions}>
+        <TouchableOpacity
+          style={styles.meetingActionButton}
+          onPress={() =>
+            router.push({
+              pathname: '/(app)/schedule-consult',
+              params: {
+                leadId: event.leadId || '',
+                appointmentId: event.id,
+                scheduledAt: event.scheduledAt,
+                currentType: event.type || 'phone',
+                currentNotes: event.notes || '',
+              },
+            })
+          }
+          activeOpacity={0.85}
+        >
+          <Ionicons name="calendar-number-outline" size={16} color={colors.primary} />
+          <Text style={styles.meetingActionText}>Reschedule</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.meetingActionButton, styles.meetingCancelButton]} onPress={confirmCancel} activeOpacity={0.85}>
+          <Ionicons name="close-circle-outline" size={16} color={colors.danger} />
+          <Text style={[styles.meetingActionText, styles.meetingCancelText]}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
       {canOpenLead ? (
         <TouchableOpacity
           style={styles.caseLink}
@@ -2051,6 +2102,15 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   monthTitle: { fontSize: 18, fontWeight: '800', color: colors.text },
+  monthActions: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  addEventButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listPad: { paddingHorizontal: space.lg, paddingBottom: space.xxl },
   emptyContainer: { flexGrow: 1, padding: space.lg },
@@ -2617,6 +2677,21 @@ const styles = StyleSheet.create({
   },
   linkRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
   linkText: { fontSize: 15, fontWeight: '700', color: colors.primary },
+  meetingActions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.md },
+  meetingActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.primary + '35',
+    backgroundColor: colors.primary + '10',
+  },
+  meetingCancelButton: { borderColor: colors.danger + '35', backgroundColor: colors.dangerMuted },
+  meetingActionText: { fontSize: 13, fontWeight: '800', color: colors.primary },
+  meetingCancelText: { color: colors.danger },
   caseLink: {
     flexDirection: 'row',
     alignItems: 'center',

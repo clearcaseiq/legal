@@ -16,11 +16,14 @@ type Step =
   | 'narrative'
   | 'injury_severity'
   | 'medical_treatment'
+  | 'injury_details'
   | 'branch_7'
   | 'branch_8'
   | 'branch_9'
   | 'branch_10'
   | 'evidence'
+  | 'insurance_financial'
+  | 'settlement_legal'
   | 'case_posture'
   | 'review'
   | 'consent'
@@ -55,12 +58,150 @@ const INJURY_SEVERITY_OPTIONS = [
 ]
 
 const MEDICAL_TREATMENT_OPTIONS = [
-  { value: 'er', labelKey: 'er' },
-  { value: 'doctor', labelKey: 'doctor' },
-  { value: 'chiro_pt', labelKey: 'chiroPt' },
-  { value: 'specialist', labelKey: 'specialist' },
-  { value: 'scheduled', labelKey: 'scheduled' },
-  { value: 'none', labelKey: 'none' }
+  { value: 'er', label: 'ER visit' },
+  { value: 'chiro_pt', label: 'Physical therapy' },
+  { value: 'mri', label: 'MRI' },
+  { value: 'injections', label: 'Injections' },
+  { value: 'surgery', label: 'Surgery' },
+  { value: 'none', label: 'No treatment yet' }
+]
+
+const PRIOR_INJURY_OPTIONS = [
+  { value: 'none', label: 'No prior injuries' },
+  { value: 'similar', label: 'Prior similar injury' },
+  { value: 'prior_claim', label: 'Prior accident claim' },
+  { value: 'prior_surgery', label: 'Prior surgery' },
+  { value: 'not_sure', label: 'Not sure' },
+]
+
+const BODY_PART_OPTIONS = [
+  { value: 'neck', label: 'Neck' },
+  { value: 'lower_back', label: 'Lower back' },
+  { value: 'head_concussion', label: 'Head / concussion' },
+  { value: 'shoulder', label: 'Shoulder' },
+  { value: 'knee', label: 'Knee' },
+  { value: 'hip', label: 'Hip' },
+  { value: 'hand_wrist', label: 'Hand/wrist' },
+  { value: 'psychological_trauma', label: 'Emotional / psychological symptoms' },
+  { value: 'other', label: 'Other' },
+]
+
+const BODY_PART_SEVERITY_OPTIONS = [
+  { value: 'mild', label: 'Mild' },
+  { value: 'moderate', label: 'Moderate' },
+  { value: 'severe', label: 'Severe' },
+]
+
+const SURGERY_STATUS_OPTIONS = [
+  { value: 'recommended', label: 'Recommended' },
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'not_discussed', label: 'Not discussed' },
+]
+
+const PROCEDURE_OPTIONS = [
+  { value: 'epidural_injections', label: 'Epidural injections' },
+  { value: 'nerve_blocks', label: 'Nerve blocks' },
+  { value: 'radiofrequency_ablation', label: 'Radiofrequency ablation' },
+  { value: 'prp_stem_cell', label: 'PRP/stem cell treatment' },
+  { value: 'none', label: 'None' },
+]
+
+const FUTURE_TREATMENT_OPTIONS = [
+  { value: 'additional_pt', label: 'Additional PT' },
+  { value: 'injections', label: 'Injections' },
+  { value: 'surgery', label: 'Surgery' },
+  { value: 'long_term_treatment', label: 'Long-term treatment' },
+  { value: 'none', label: 'None' },
+]
+
+const IMAGING_OPTIONS = [
+  { value: 'mri', label: 'MRI' },
+  { value: 'ct_scan', label: 'CT scan' },
+  { value: 'xray', label: 'X-ray' },
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'none', label: 'None' },
+]
+
+const CONCUSSION_SYMPTOM_OPTIONS = [
+  { value: 'headaches', label: 'Headaches' },
+  { value: 'dizziness', label: 'Dizziness' },
+  { value: 'memory_issues', label: 'Memory issues' },
+  { value: 'loss_of_consciousness', label: 'Loss of consciousness' },
+  { value: 'cognitive_problems', label: 'Cognitive problems' },
+]
+
+const LIFESTYLE_IMPACT_OPTIONS = [
+  { value: 'daily_pain', label: 'Daily pain' },
+  { value: 'sleep_disruption', label: 'Sleep problems' },
+  { value: 'exercise_limitations', label: 'Exercise limitations' },
+  { value: 'unable_to_work_normally', label: 'Work limitations' },
+  { value: 'parenting_difficulties', label: 'Parenting/home difficulties' },
+  { value: 'emotional_distress', label: 'Emotional stress' },
+]
+
+const MISSED_WORK_OPTIONS = [
+  { value: 'no', label: 'No' },
+  { value: 'few_days', label: 'Missed a few days' },
+  { value: 'several_weeks', label: 'Missed several weeks' },
+  { value: 'unable_to_return', label: 'Unable to return normally' },
+  { value: 'lost_job_business_income', label: 'Self-employed income affected' },
+]
+
+const BILL_PAYMENT_OPTIONS = [
+  { value: 'health_insurance', label: 'Paid by health insurance' },
+  { value: 'out_of_pocket', label: 'Out of pocket' },
+  { value: 'lien', label: 'On lien' },
+  { value: 'medpay', label: 'MedPay' },
+  { value: 'workers_comp', label: "Workers' comp" },
+]
+
+const DEFENDANT_COVERAGE_OPTIONS = [
+  { value: 'state_minimum', label: 'State minimum' },
+  { value: '50000', label: '$50k' },
+  { value: '100000', label: '$100k' },
+  { value: 'commercial_policy', label: 'Commercial policy' },
+  { value: 'umbrella_policy', label: 'Umbrella policy' },
+  { value: 'not_sure', label: 'Not sure' },
+]
+
+const FAULT_BELIEF_OPTIONS = [
+  { value: 'other_party', label: 'Other driver/property' },
+  { value: 'shared_fault', label: 'Shared responsibility' },
+  { value: 'not_sure', label: 'Not sure' },
+]
+
+const SETTLEMENT_OFFER_OPTIONS = [
+  { value: 'under_10k', label: 'Under $10k' },
+  { value: '10k_25k', label: '$10k-$25k' },
+  { value: '25k_50k', label: '$25k-$50k' },
+  { value: 'higher', label: 'Above $50k' },
+]
+
+const COVERAGE_TYPE_OPTIONS = [
+  { value: 'private', label: 'Private' },
+  { value: 'medicare', label: 'Medicare' },
+  { value: 'medicaid', label: 'Medicaid' },
+  { value: 'workers_comp', label: "Workers' comp" },
+  { value: 'other', label: 'Other plan' },
+  { value: 'unsure_coverage', label: 'Not sure' }
+]
+
+const INSURANCE_CONTACT_OPTIONS = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'no', label: 'No' },
+]
+
+const ATTORNEY_STATUS_OPTIONS = [
+  { value: 'hired', label: 'Yes' },
+  { value: 'no', label: 'No' },
+  { value: 'looking', label: 'Currently exploring options' },
+]
+
+const LAWYER_INTEREST_OPTIONS = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'no', label: 'No' },
+  { value: 'maybe_later', label: 'Maybe later' },
 ]
 
 // Vehicle branch
@@ -201,12 +342,14 @@ const STEPS: { key: Step; title: string }[] = [
   { key: 'narrative', title: 'What Happened?' },
   { key: 'injury_severity', title: 'Injury Severity' },
   { key: 'medical_treatment', title: 'Medical Treatment' },
+  { key: 'injury_details', title: 'Injury Details' },
   { key: 'branch_7', title: 'Case Details' },
   { key: 'branch_8', title: 'Case Details' },
   { key: 'branch_9', title: 'Case Details' },
   { key: 'branch_10', title: 'Case Details' },
   { key: 'evidence', title: 'Evidence Upload' },
-  { key: 'case_posture', title: 'Case Posture' },
+  { key: 'insurance_financial', title: 'Insurance & Financial Details' },
+  { key: 'settlement_legal', title: 'Settlement & Legal Status' },
   { key: 'review', title: 'Review Your Case Story' },
   { key: 'consent', title: 'Your Case Report Is Ready' }
 ]
@@ -235,12 +378,25 @@ export default function IntakeWizardQuick() {
     narrative: '' as string,
     injurySeverity: '' as string,
     medicalTreatment: [] as string[],
+    injuryDetails: {
+      priorInjury: '' as string,
+      bodyParts: [] as string[],
+      bodyPartSeverity: {} as Record<string, string>,
+      imaging: [] as string[],
+      surgeryStatus: '' as string,
+      procedures: [] as string[],
+      futureTreatment: [] as string[],
+      concussionSymptoms: [] as string[],
+      lifestyleImpact: [] as string[]
+    },
     branch: {} as Record<string, any>,
-    casePosture: {} as Record<string, boolean>,
+    casePosture: {} as Record<string, any>,
     insuranceCoverage: {
       healthCoverage: '' as '' | 'yes' | 'no' | 'unsure',
       coverageTypes: [] as string[],
-      medicarePlanType: '' as '' | 'original' | 'advantage' | 'unsure'
+      medicarePlanType: '' as '' | 'original' | 'advantage' | 'unsure',
+      billPaymentSources: [] as string[],
+      defendantCoverageLimits: '' as string
     },
     consents: { tos: false, privacy: false, ml_use: false, hipaa: false }
   })
@@ -339,10 +495,16 @@ export default function IntakeWizardQuick() {
     if (formData.medicalTreatment.length) {
       const tx = formData.medicalTreatment.map(v => {
         const opt = MEDICAL_TREATMENT_OPTIONS.find(o => o.value === v)
-        return opt ? t(`intake.${opt.labelKey}`) : v
+        return opt ? getOptionLabel(MEDICAL_TREATMENT_OPTIONS, opt.value) : v
       }).join(', ')
       parts.push(tx)
     }
+    if (formData.injuryDetails.bodyParts.length) parts.push(`Body parts: ${labelsForValues(BODY_PART_OPTIONS, formData.injuryDetails.bodyParts)}`)
+    if (formData.injuryDetails.priorInjury) parts.push(`Prior injuries: ${labelForValue(PRIOR_INJURY_OPTIONS, formData.injuryDetails.priorInjury)}`)
+    if (formData.injuryDetails.surgeryStatus) parts.push(`Surgery status: ${labelForValue(SURGERY_STATUS_OPTIONS, formData.injuryDetails.surgeryStatus)}`)
+    if (formData.injuryDetails.imaging.length) parts.push(`Imaging: ${labelsForValues(IMAGING_OPTIONS, formData.injuryDetails.imaging)}`)
+    if (formData.injuryDetails.procedures.length) parts.push(`Procedures: ${labelsForValues(PROCEDURE_OPTIONS, formData.injuryDetails.procedures)}`)
+    if (formData.injuryDetails.futureTreatment.length) parts.push(`Future treatment: ${labelsForValues(FUTURE_TREATMENT_OPTIONS, formData.injuryDetails.futureTreatment)}`)
     Object.entries(formData.branch).forEach(([k, v]) => {
       if (v != null && v !== '' && v !== false) parts.push(`${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
     })
@@ -360,6 +522,54 @@ export default function IntakeWizardQuick() {
     return formData.medicalTreatment
       .map(value => getOptionLabel(MEDICAL_TREATMENT_OPTIONS, value))
       .join(', ')
+  }
+
+  const labelForValue = (options: Array<{ value: string; label: string }>, value?: string) => {
+    return options.find(option => option.value === value)?.label || value || 'Not answered yet'
+  }
+
+  const labelsForValues = (options: Array<{ value: string; label: string }>, values?: string[]) => {
+    const selected = Array.isArray(values) ? values : []
+    if (!selected.length) return 'Not answered yet'
+    return selected.map(value => labelForValue(options, value)).join(', ')
+  }
+
+  const getInjuryDetailsSummary = () => {
+    const details = formData.injuryDetails
+    const pieces = [
+      details.bodyParts.length ? labelsForValues(BODY_PART_OPTIONS, details.bodyParts) : null,
+      details.imaging.length ? `Imaging: ${labelsForValues(IMAGING_OPTIONS, details.imaging)}` : null,
+      details.surgeryStatus ? `Surgery: ${labelForValue(SURGERY_STATUS_OPTIONS, details.surgeryStatus)}` : null,
+      details.procedures.length ? labelsForValues(PROCEDURE_OPTIONS, details.procedures) : null,
+      details.priorInjury ? `Prior: ${labelForValue(PRIOR_INJURY_OPTIONS, details.priorInjury)}` : null,
+    ].filter(Boolean)
+    return pieces.length ? pieces.join(' • ') : 'Not answered yet'
+  }
+
+  const getFinancialSummary = () => {
+    const pieces = [
+      formData.insuranceCoverage.healthCoverage ? `Coverage: ${formData.insuranceCoverage.healthCoverage === 'yes' ? 'Yes' : formData.insuranceCoverage.healthCoverage === 'no' ? 'No' : 'Not sure'}` : null,
+      formData.insuranceCoverage.billPaymentSources.length ? `Bills: ${labelsForValues(BILL_PAYMENT_OPTIONS, formData.insuranceCoverage.billPaymentSources)}` : null,
+      formData.casePosture.missedWork ? `Income: ${labelForValue(MISSED_WORK_OPTIONS, formData.casePosture.missedWork)}` : null,
+      formData.insuranceCoverage.defendantCoverageLimits ? `Limits: ${labelForValue(DEFENDANT_COVERAGE_OPTIONS, formData.insuranceCoverage.defendantCoverageLimits)}` : null,
+    ].filter(Boolean)
+    return pieces.length ? pieces.join(' • ') : 'Not answered yet'
+  }
+
+  const getLegalStatusSummary = () => {
+    const cp = formData.casePosture
+    const pieces = [
+      cp.settlementOfferStatus === 'yes'
+        ? `Offer: ${cp.settlementOffer ? labelForValue(SETTLEMENT_OFFER_OPTIONS, cp.settlementOffer) : 'Yes'}`
+        : cp.settlementOfferStatus
+          ? `Offer: ${cp.settlementOfferStatus === 'no' ? 'No' : 'Not sure'}`
+          : null,
+      cp.faultBelief ? `Fault: ${labelForValue(FAULT_BELIEF_OPTIONS, cp.faultBelief)}` : null,
+      cp.insuranceContact ? `Insurance contact: ${labelForValue(INSURANCE_CONTACT_OPTIONS, cp.insuranceContact)}` : null,
+      cp.attorneyStatus ? `Lawyer: ${labelForValue(ATTORNEY_STATUS_OPTIONS, cp.attorneyStatus)}` : null,
+      cp.lawyerInterest ? `Lawyer interest: ${labelForValue(LAWYER_INTEREST_OPTIONS, cp.lawyerInterest)}` : null,
+    ].filter(Boolean)
+    return pieces.length ? pieces.join(' • ') : 'Not answered yet'
   }
 
   const getReviewItems = () => [
@@ -388,12 +598,74 @@ export default function IntakeWizardQuick() {
       helper: 'Medical treatment details are one of the strongest value signals.'
     },
     {
+      title: 'Valuation drivers',
+      value: getInjuryDetailsSummary(),
+      step: 'injury_details' as Step,
+      helper: 'Prior injuries, body parts, procedures, surgery, and future care can change settlement and trial values.'
+    },
+    {
+      title: 'Insurance & financial details',
+      value: getFinancialSummary(),
+      step: 'insurance_financial' as Step,
+      helper: 'Coverage, liens, income impact, and policy limits can improve estimate accuracy.'
+    },
+    {
+      title: 'Settlement & legal status',
+      value: getLegalStatusSummary(),
+      step: 'settlement_legal' as Step,
+      helper: 'Offers, fault, insurance contact, and lawyer status help estimate negotiation posture.'
+    },
+    {
       title: 'Documents',
       value: uploadedEvidenceCount > 0 ? `${uploadedEvidenceCount} file${uploadedEvidenceCount === 1 ? '' : 's'} added` : 'No documents uploaded yet',
       step: 'evidence' as Step,
       helper: 'No documents yet is okay. You can still get a preliminary assessment.'
     }
   ]
+
+  const getPreliminaryInsights = () => {
+    const insights: string[] = []
+    const imaging = formData.injuryDetails.imaging
+    const treatment = formData.medicalTreatment
+    const priorInjury = formData.injuryDetails.priorInjury
+    const missedWork = formData.casePosture.missedWork
+    const offerStatus = formData.casePosture.settlementOfferStatus
+
+    if (imaging.includes('mri') || treatment.includes('mri')) insights.push('MRI imaging strengthens documentation.')
+    if (imaging.includes('ct_scan') || imaging.includes('xray')) insights.push('Diagnostic imaging may improve estimate confidence.')
+    if (treatment.includes('injections') || formData.injuryDetails.procedures.some(value => value !== 'none')) insights.push('Injections or procedures can affect settlement posture.')
+    if (formData.injuryDetails.surgeryStatus && formData.injuryDetails.surgeryStatus !== 'not_discussed') insights.push('Surgery being discussed may increase trial exposure.')
+    if (missedWork && missedWork !== 'no') insights.push('Missed work may increase economic damages.')
+    if (priorInjury === 'none') insights.push('No prior injuries reported for the same areas.')
+    if (priorInjury && priorInjury !== 'none' && priorInjury !== 'not_sure') insights.push('Prior injuries may affect causation and settlement compression.')
+    if (offerStatus === 'no') insights.push('No settlement offer reported yet.')
+    if (offerStatus === 'yes') insights.push('A prior offer gives the model a useful settlement anchor.')
+    if (formData.casePosture.faultBelief === 'other_party') insights.push('Clearer fault facts can improve settlement leverage.')
+    if (uploadedEvidenceCount > 0) insights.push('Uploaded documents improve confidence in the assessment.')
+
+    if (insights.length === 0) {
+      insights.push('Your report will highlight missing details that can improve the estimate later.')
+      insights.push('Treatment, documents, and fault details can refine settlement confidence.')
+    }
+
+    return insights.slice(0, 4)
+  }
+
+  const getEstimateConfidence = () => {
+    const confidenceSignals = [
+      uploadedEvidenceCount > 0,
+      formData.medicalTreatment.length > 0 && !formData.medicalTreatment.includes('none'),
+      formData.injuryDetails.bodyParts.length > 0,
+      formData.injuryDetails.imaging.length > 0,
+      !!formData.casePosture.faultBelief,
+      !!formData.casePosture.missedWork,
+      !!formData.narrative.trim(),
+    ].filter(Boolean).length
+
+    if (confidenceSignals >= 5) return 'High'
+    if (confidenceSignals >= 3) return 'Moderate'
+    return 'Early'
+  }
 
   const handleEvidenceFiles = (category: string, files: any[]) => {
     setPendingEvidenceFiles(prev => ({ ...prev, [category]: files }))
@@ -426,7 +698,8 @@ export default function IntakeWizardQuick() {
     const err: Record<string, string> = {}
     if (currentStep === 'injury_type' && !formData.injuryType) err.injuryType = 'Select an injury type'
     if (currentStep === 'when') {
-      if (formData.incidentDatePreset === 'custom' && !customDate) err.incidentDate = 'Enter a date'
+      if (!formData.incidentDatePreset) err.incidentDate = 'Choose the closest date option'
+      else if (formData.incidentDatePreset === 'custom' && !customDate) err.incidentDate = 'Enter a date'
       else if (formData.incidentDatePreset === 'custom' && customDate) updateForm({ incidentDate: customDate })
       else if (formData.incidentDatePreset !== 'custom') {
         const d = WHEN_OPTIONS.find(o => o.value === formData.incidentDatePreset)
@@ -445,19 +718,7 @@ export default function IntakeWizardQuick() {
       // Can proceed with 0 or more selected
     }
     if (currentStep === 'case_posture') {
-      if (!formData.insuranceCoverage?.healthCoverage) {
-        err.healthCoverage = t('intake.insurance_coverageRequired')
-      }
-      if (formData.insuranceCoverage?.healthCoverage === 'yes' && formData.insuranceCoverage.coverageTypes.length === 0) {
-        err.coverageTypes = t('intake.insurance_typesRequired')
-      }
-      if (
-        formData.insuranceCoverage?.healthCoverage === 'yes' &&
-        formData.insuranceCoverage.coverageTypes.includes('medicare') &&
-        !formData.insuranceCoverage.medicarePlanType
-      ) {
-        err.medicarePlan = t('intake.insurance_medicarePlanRequired')
-      }
+      // Case posture improves estimate accuracy, but should not block intake completion.
     }
     if (currentStep === 'consent') {
       const c = formData.consents || {}
@@ -490,6 +751,12 @@ export default function IntakeWizardQuick() {
     setLoading(true)
     try {
       const claimType = injuryTypeToClaimType(formData.injuryType)
+      const medicalSignalDefaults = {
+        imaging: formData.injuryDetails.imaging.length > 0 ? 'answered' : 'unknown',
+        procedures: formData.injuryDetails.procedures.length > 0 ? 'answered' : 'unknown',
+        futureTreatment: formData.injuryDetails.futureTreatment.length > 0 ? 'answered' : 'unknown',
+        surgeryStatus: formData.injuryDetails.surgeryStatus || 'unknown',
+      }
       const payload = {
         claimType: claimType as any,
         venue: { state: formData.venue.state, county: formData.venue.county.trim() },
@@ -498,10 +765,49 @@ export default function IntakeWizardQuick() {
           location: [formData.venue.city, formData.venue.county, formData.venue.state].filter(Boolean).join(', '),
           narrative: buildNarrative()
         },
-        injuries: [{ description: formData.injurySeverity }],
-        treatment: formData.medicalTreatment.map(t => ({ type: t, notes: '' })),
-        liability: formData.branch,
-        damages: {},
+        injuries: [
+          {
+            description: formData.injurySeverity,
+            bodyParts: formData.injuryDetails.bodyParts.map(bodyPart => ({
+              part: bodyPart,
+              severity: formData.injuryDetails.bodyPartSeverity[bodyPart] || 'unspecified',
+            })),
+            priorInjury: formData.injuryDetails.priorInjury,
+            concussionSymptoms: formData.injuryDetails.concussionSymptoms,
+            lifestyleImpact: formData.injuryDetails.lifestyleImpact,
+          }
+        ],
+        treatment: [
+          ...formData.medicalTreatment.map(t => ({ type: t, notes: '' })),
+          ...formData.injuryDetails.imaging.map(imaging => ({ type: 'imaging', imaging })),
+          ...(formData.injuryDetails.surgeryStatus ? [{ type: 'surgery_status', status: formData.injuryDetails.surgeryStatus }] : []),
+          ...formData.injuryDetails.procedures.map(procedure => ({ type: 'procedure', procedure })),
+          ...formData.injuryDetails.futureTreatment.map(futureTreatment => ({ type: 'future_treatment', recommendation: futureTreatment })),
+        ],
+        liability: {
+          ...formData.branch,
+          faultBelief: formData.casePosture.faultBelief,
+          comparativeFault: formData.casePosture.comparativeFault || (
+            formData.casePosture.faultBelief === 'mostly_me'
+              ? 'yes'
+              : formData.casePosture.faultBelief === 'shared_fault' || formData.casePosture.faultBelief === 'not_sure'
+                ? 'possibly'
+                : 'no'
+          ),
+          comparativeNegligence:
+            formData.casePosture.faultBelief === 'mostly_me' || formData.casePosture.comparativeFault === 'yes'
+              ? 0.35
+              : formData.casePosture.faultBelief === 'shared_fault' ||
+                  formData.casePosture.faultBelief === 'not_sure' ||
+                  formData.casePosture.comparativeFault === 'possibly' ||
+                  formData.casePosture.comparativeFault === 'not_sure'
+                ? 0.15
+                : 0,
+        },
+        damages: {
+          estimated_wage_loss: Number(String(formData.casePosture.lostWagesEstimate || '').replace(/[$,]/g, '')) || 0,
+          wage_loss: Number(String(formData.casePosture.lostWagesEstimate || '').replace(/[$,]/g, '')) || 0,
+        },
         insurance: {
           health_coverage: formData.insuranceCoverage.healthCoverage,
           coverage_types:
@@ -512,7 +818,37 @@ export default function IntakeWizardQuick() {
             formData.insuranceCoverage.healthCoverage === 'yes' &&
             formData.insuranceCoverage.coverageTypes.includes('medicare')
               ? formData.insuranceCoverage.medicarePlanType || 'unsure'
-              : undefined
+              : undefined,
+          bill_payment_sources: formData.insuranceCoverage.billPaymentSources,
+          defendant_coverage_limits: formData.insuranceCoverage.defendantCoverageLimits,
+          policy_limit:
+            formData.insuranceCoverage.defendantCoverageLimits === '50000'
+              ? 50000
+              : formData.insuranceCoverage.defendantCoverageLimits === '100000'
+                ? 100000
+                : formData.insuranceCoverage.defendantCoverageLimits === 'state_minimum'
+                  ? 25000
+                  : undefined
+        },
+        caseAcceleration: {
+          wageLoss: {
+            missedWork: formData.casePosture.missedWork,
+            estimatedAmount: formData.casePosture.lostWagesEstimate,
+          }
+        },
+        plaintiffContext: {
+          representationStage:
+            formData.casePosture.attorneyStatus === 'hired'
+              ? 'lawyer_retained'
+              : formData.casePosture.attorneyStatus === 'looking'
+                ? 'no_lawyer'
+                : undefined,
+          settlementOfferStatus: formData.casePosture.settlementOfferStatus,
+          settlementOffer: formData.casePosture.settlementOfferStatus === 'yes' ? formData.casePosture.settlementOffer : formData.casePosture.settlementOfferStatus,
+          insuranceContact: formData.casePosture.insuranceContact,
+          attorneyStatus: formData.casePosture.attorneyStatus,
+          lawyerInterest: formData.casePosture.lawyerInterest,
+          painLifestyleImpact: formData.injuryDetails.lifestyleImpact,
         },
         consents: {
           tos: consents.tos,
@@ -525,6 +861,8 @@ export default function IntakeWizardQuick() {
         injuryType: formData.injuryType,
         narrative: formData.narrative,
         branch: formData.branch,
+        injuryDetails: formData.injuryDetails,
+        medicalSignalDefaults,
         casePosture: formData.casePosture,
         insuranceCoverage: formData.insuranceCoverage
       }
@@ -569,6 +907,77 @@ export default function IntakeWizardQuick() {
           ? prev.medicalTreatment.filter(t => t !== v)
           : [...prev.medicalTreatment.filter(t => t !== 'none'), v]
     }))
+  }
+
+  const toggleInjuryDetail = (
+    field: 'bodyParts' | 'imaging' | 'procedures' | 'futureTreatment' | 'concussionSymptoms' | 'lifestyleImpact',
+    value: string,
+    exclusiveNone = false
+  ) => {
+    setFormData(prev => {
+      const current = prev.injuryDetails[field]
+      const next = exclusiveNone && value === 'none'
+        ? current.includes('none') ? [] : ['none']
+        : current.includes(value)
+          ? current.filter(item => item !== value)
+          : [...current.filter(item => item !== 'none'), value]
+      return {
+        ...prev,
+        injuryDetails: {
+          ...prev.injuryDetails,
+          [field]: next,
+          ...(field === 'bodyParts'
+            ? {
+                bodyPartSeverity: Object.fromEntries(
+                  Object.entries(prev.injuryDetails.bodyPartSeverity).filter(([part]) => next.includes(part))
+                )
+              }
+            : {})
+        }
+      }
+    })
+    setErrors({})
+  }
+
+  const setBodyPartSeverity = (bodyPart: string, severity: string) => {
+    setFormData(prev => ({
+      ...prev,
+      injuryDetails: {
+        ...prev.injuryDetails,
+        bodyPartSeverity: {
+          ...prev.injuryDetails.bodyPartSeverity,
+          [bodyPart]: severity
+        }
+      }
+    }))
+    setErrors({})
+  }
+
+  const setCasePostureField = (key: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      casePosture: { ...prev.casePosture, [key]: value }
+    }))
+    setErrors({})
+  }
+
+  const toggleBillPaymentSource = (value: string) => {
+    setFormData(prev => {
+      const current = prev.insuranceCoverage.billPaymentSources
+      const nextSources = value === 'not_sure'
+        ? current.includes('not_sure') ? [] : ['not_sure']
+        : current.includes(value)
+          ? current.filter(item => item !== value)
+          : [...current.filter(item => item !== 'not_sure'), value]
+      return {
+        ...prev,
+        insuranceCoverage: {
+          ...prev.insuranceCoverage,
+          billPaymentSources: nextSources
+        }
+      }
+    })
+    setErrors({})
   }
 
   const toggleCoverageType = (v: string) => {
@@ -779,7 +1188,7 @@ export default function IntakeWizardQuick() {
             <p className="text-gray-900 font-medium text-center text-lg">What treatment have you had so far?</p>
             <p className="text-gray-500 text-center text-sm">Select everything that applies. It is okay if treatment is still being scheduled.</p>
             <div className="grid grid-cols-2 gap-2">
-              {MEDICAL_TREATMENT_OPTIONS.map(({ value, labelKey }) => (
+              {MEDICAL_TREATMENT_OPTIONS.map(({ value }) => (
                 <button
                   key={value}
                   type="button"
@@ -788,7 +1197,7 @@ export default function IntakeWizardQuick() {
                     formData.medicalTreatment.includes(value) ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'
                   }`}
                 >
-                  {t(`intake.${labelKey}`)}
+                  {getOptionLabel(MEDICAL_TREATMENT_OPTIONS, value)}
                   {formData.medicalTreatment.includes(value) && <Check className="h-5 w-5 text-brand-600" />}
                 </button>
               ))}
@@ -797,9 +1206,225 @@ export default function IntakeWizardQuick() {
               Medical records and bills usually improve estimate confidence more than any other document type.
             </div>
             {!formData.medicalTreatment.length && (
-              <button type="button" onClick={() => { updateForm({ medicalTreatment: ['none'] }); goToStepAfterEdit('branch_7') }} className="w-full py-2 text-sm font-medium text-gray-600 hover:text-brand-600">
+              <button type="button" onClick={() => { updateForm({ medicalTreatment: ['none'] }); goToStepAfterEdit('injury_details') }} className="w-full py-2 text-sm font-medium text-gray-600 hover:text-brand-600">
                 I have not had treatment yet
               </button>
+            )}
+          </div>
+        )
+
+      case 'injury_details':
+        const hasHeadInjury = formData.injuryDetails.bodyParts.includes('head_concussion')
+        const hasInjectionTreatment = formData.medicalTreatment.includes('injections') || formData.injuryDetails.procedures.some(item => item !== 'none')
+        const hasSurgeryTreatment = formData.medicalTreatment.includes('surgery') || formData.injuryDetails.futureTreatment.includes('surgery') || !!formData.injuryDetails.surgeryStatus
+        const hasEscalatedTreatment = formData.medicalTreatment.some(item => ['mri', 'injections', 'surgery'].includes(item)) || formData.injuryDetails.imaging.some(item => item !== 'none')
+        return (
+          <div className="space-y-3">
+            <div className="text-center">
+              <p className="text-base font-semibold text-gray-900">A few quick injury details.</p>
+              <p className="text-xs leading-5 text-gray-500">Only answer what you know right now. You can always add more information later.</p>
+            </div>
+
+            <section className="rounded-2xl border border-brand-100 bg-brand-50/50 p-3 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-950">Where are you injured?</p>
+                  <p className="mt-0.5 text-xs text-slate-600">Pick the main areas. Multiple is okay.</p>
+                </div>
+                <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-brand-700">Core</span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
+                {BODY_PART_OPTIONS.map(({ value, label }) => {
+                  const selected = formData.injuryDetails.bodyParts.includes(value)
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => toggleInjuryDetail('bodyParts', value)}
+                      className={`rounded-lg border px-2 py-2 text-left text-xs font-semibold ${selected ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+
+            <section className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <p className="text-sm font-semibold text-slate-950">How has this affected your life?</p>
+                <div className="mt-2 grid gap-1.5">
+                  {LIFESTYLE_IMPACT_OPTIONS.map(({ value, label }) => (
+                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.lifestyleImpact.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                      <input type="checkbox" checked={formData.injuryDetails.lifestyleImpact.includes(value)} onChange={() => toggleInjuryDetail('lifestyleImpact', value)} className="rounded border-gray-300" />
+                      <span className="text-xs font-semibold text-slate-800">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <p className="text-sm font-semibold text-slate-950">Prior injuries to these areas?</p>
+                <p className="mt-0.5 text-xs text-slate-500">Have you previously injured these same areas?</p>
+                <div className="mt-2 grid grid-cols-3 gap-1.5">
+                  {[
+                    { value: 'none', label: 'No' },
+                    { value: 'similar', label: 'Yes' },
+                    { value: 'not_sure', label: 'Not sure' },
+                  ].map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, priorInjury: value } })}
+                      className={`rounded-lg border px-2 py-2 text-xs font-semibold ${formData.injuryDetails.priorInjury === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-950">Have you had imaging or scans?</p>
+                  <span className="rounded-full bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-700">Improves estimate accuracy</span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                  {IMAGING_OPTIONS.map(({ value, label }) => (
+                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.imaging.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                      <input type="checkbox" checked={formData.injuryDetails.imaging.includes(value)} onChange={() => toggleInjuryDetail('imaging', value, true)} className="rounded border-gray-300" />
+                      <span className="text-xs font-semibold text-slate-800">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-950">Has this affected your ability to work?</p>
+                  <span className="rounded-full bg-sky-50 px-2 py-1 text-[10px] font-semibold text-sky-700">Improves estimate accuracy</span>
+                </div>
+                <div className="mt-2 grid gap-1.5">
+                  {MISSED_WORK_OPTIONS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setCasePostureField('missedWork', value)}
+                      className={`rounded-lg border px-2 py-2 text-left text-xs font-semibold ${formData.casePosture.missedWork === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <p className="text-sm font-semibold text-slate-950">Any surgery or injections?</p>
+              <p className="mt-0.5 text-xs text-slate-500">This helps us ask only the follow-up that matters.</p>
+              <div className="mt-2 grid grid-cols-3 gap-1.5">
+                {[
+                  { value: 'injections', label: 'Injections' },
+                  { value: 'surgery', label: 'Surgery' },
+                  { value: 'none', label: 'No / not sure' },
+                ].map(({ value, label }) => {
+                  const selected = value === 'none'
+                    ? !formData.medicalTreatment.includes('injections') && !formData.medicalTreatment.includes('surgery') && !formData.injuryDetails.surgeryStatus && formData.injuryDetails.procedures.length === 0
+                    : formData.medicalTreatment.includes(value)
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => {
+                        if (value === 'none') {
+                          updateForm({
+                            medicalTreatment: formData.medicalTreatment.filter(item => item !== 'injections' && item !== 'surgery'),
+                            injuryDetails: {
+                              ...formData.injuryDetails,
+                              surgeryStatus: '',
+                              procedures: [],
+                            },
+                          })
+                          return
+                        }
+                        toggleMedicalTreatment(value)
+                      }}
+                      className={`rounded-lg border px-2 py-2 text-xs font-semibold ${selected ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+
+            {(hasHeadInjury || hasInjectionTreatment || hasSurgeryTreatment || hasEscalatedTreatment) && (
+              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Optional follow-ups</p>
+                <p className="mt-1 text-sm font-semibold text-indigo-950">These may improve estimate accuracy. Skip anything you do not know.</p>
+              </div>
+            )}
+
+            {hasHeadInjury && (
+              <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <p className="text-sm font-semibold text-slate-950">Head injury symptoms</p>
+                <div className="mt-2 grid gap-1.5 md:grid-cols-2">
+                  {CONCUSSION_SYMPTOM_OPTIONS.map(({ value, label }) => (
+                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.concussionSymptoms.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                      <input type="checkbox" checked={formData.injuryDetails.concussionSymptoms.includes(value)} onChange={() => toggleInjuryDetail('concussionSymptoms', value)} className="rounded border-gray-300" />
+                      <span className="text-xs font-semibold text-slate-800">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {hasInjectionTreatment && (
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <p className="text-sm font-semibold text-slate-950">Tell us more about the injections.</p>
+                <div className="mt-2 grid gap-1.5 md:grid-cols-2">
+                  {PROCEDURE_OPTIONS.filter(option => option.value !== 'none').map(({ value, label }) => (
+                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.procedures.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                      <input type="checkbox" checked={formData.injuryDetails.procedures.includes(value)} onChange={() => toggleInjuryDetail('procedures', value)} className="rounded border-gray-300" />
+                      <span className="text-xs font-semibold text-slate-800">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {hasSurgeryTreatment && (
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <p className="text-sm font-semibold text-slate-950">Has surgery been discussed?</p>
+                <div className="mt-2 grid grid-cols-2 gap-1.5">
+                  {SURGERY_STATUS_OPTIONS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, surgeryStatus: value } })}
+                      className={`rounded-lg border px-2 py-2 text-xs font-semibold ${formData.injuryDetails.surgeryStatus === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {hasEscalatedTreatment && (
+              <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <p className="text-sm font-semibold text-slate-950">Has a doctor recommended future treatment?</p>
+                <div className="mt-2 grid gap-1.5 md:grid-cols-2">
+                  {FUTURE_TREATMENT_OPTIONS.map(({ value, label }) => (
+                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.futureTreatment.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                      <input type="checkbox" checked={formData.injuryDetails.futureTreatment.includes(value)} onChange={() => toggleInjuryDetail('futureTreatment', value, true)} className="rounded border-gray-300" />
+                      <span className="text-xs font-semibold text-slate-800">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </section>
             )}
           </div>
         )
@@ -1300,11 +1925,240 @@ export default function IntakeWizardQuick() {
 
             <button
               type="button"
-              onClick={() => setCurrentStep('case_posture')}
+              onClick={() => setCurrentStep('insurance_financial')}
               className="shrink-0 rounded-lg border border-dashed border-gray-300 py-2 text-[11px] font-medium leading-snug text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 md:text-xs"
             >
               I do not have documents right now
             </button>
+          </div>
+        )
+
+      case 'insurance_financial':
+        const icFinancial = formData.insuranceCoverage
+        const cpFinancial = formData.casePosture || {}
+        return (
+          <div className="space-y-4">
+            <div className="text-center">
+              <p className="text-base font-semibold text-gray-900">Insurance & financial details</p>
+              <p className="text-xs leading-5 text-gray-500">
+                Only answer what you know right now. These details may help improve your estimate.
+              </p>
+            </div>
+
+            <section className="rounded-2xl border border-brand-100 bg-brand-50/40 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Insurance coverage</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <p className="text-sm font-semibold text-slate-950">Has health insurance or another program helped pay for treatment?</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Examples: private insurance, Medicare, Medicaid, workers' comp, MedPay.</p>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {(['yes', 'no', 'unsure'] as const).map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => updateForm({
+                        insuranceCoverage: {
+                          ...icFinancial,
+                          healthCoverage: value,
+                          ...(value !== 'yes' ? { coverageTypes: [], medicarePlanType: '' } : {})
+                        }
+                      })}
+                      className={`rounded-lg border px-2 py-2 text-xs font-semibold ${icFinancial.healthCoverage === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                    >
+                      {value === 'yes' ? 'Yes' : value === 'no' ? 'No' : 'Not sure'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <p className="text-sm font-semibold text-slate-950">How were medical bills handled?</p>
+                <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                  {[...BILL_PAYMENT_OPTIONS, { value: 'not_sure', label: 'Not sure' }].map(({ value, label }) => (
+                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${icFinancial.billPaymentSources.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                      <input type="checkbox" checked={icFinancial.billPaymentSources.includes(value)} onChange={() => toggleBillPaymentSource(value)} className="rounded border-gray-300" />
+                      <span className="text-xs font-semibold text-slate-800">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Work / income effects</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <p className="text-sm font-semibold text-slate-950">Has this injury affected your income?</p>
+                <div className="mt-2 grid gap-1.5">
+                  {MISSED_WORK_OPTIONS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setCasePostureField('missedWork', value)}
+                      className={`rounded-lg border px-2 py-2 text-left text-xs font-semibold ${cpFinancial.missedWork === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {['several_weeks', 'unable_to_return', 'lost_job_business_income'].includes(cpFinancial.missedWork) && (
+                  <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2">
+                    <summary className="cursor-pointer text-xs font-semibold text-slate-700">Optional: approximate lost income</summary>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={cpFinancial.lostWagesEstimate || ''}
+                      onChange={(e) => setCasePostureField('lostWagesEstimate', e.target.value)}
+                      placeholder="Approximate amount, if known"
+                      className="input mt-2 w-full text-sm"
+                    />
+                  </details>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <p className="text-sm font-semibold text-slate-950">Do you know the other driver or property's insurance coverage?</p>
+                <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                  {DEFENDANT_COVERAGE_OPTIONS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, defendantCoverageLimits: value } })}
+                      className={`rounded-lg border px-2 py-2 text-xs font-semibold ${icFinancial.defendantCoverageLimits === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              </div>
+            </section>
+          </div>
+        )
+
+      case 'settlement_legal':
+        const cpLegal = formData.casePosture || {}
+        return (
+          <div className="mx-auto max-w-3xl space-y-4">
+            <div className="text-center">
+              <p className="text-base font-semibold text-gray-900">A few final questions</p>
+              <p className="text-xs leading-5 text-gray-500">
+                These answers help improve your estimate and attorney matching. You can skip anything you are unsure about.
+              </p>
+            </div>
+
+            <section className="rounded-2xl border border-brand-100 bg-brand-50/40 p-4 shadow-sm">
+              <p className="text-sm font-semibold text-slate-950">Who do you believe was mostly responsible?</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                {FAULT_BELIEF_OPTIONS.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setCasePostureField('faultBelief', value)}
+                    className={`rounded-xl border px-3 py-3 text-sm font-semibold ${cpLegal.faultBelief === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="text-sm font-semibold text-slate-950">Have you spoken with the insurance company yet?</p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {INSURANCE_CONTACT_OPTIONS.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => {
+                      setFormData(prev => ({
+                        ...prev,
+                        casePosture: {
+                          ...prev.casePosture,
+                          insuranceContact: value,
+                          ...(value !== 'yes' ? { settlementOfferStatus: '', settlementOffer: '' } : {})
+                        }
+                      }))
+                    }}
+                    className={`rounded-xl border px-3 py-3 text-sm font-semibold ${cpLegal.insuranceContact === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            {cpLegal.insuranceContact === 'yes' && (
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p className="text-sm font-semibold text-slate-950">Have they made a settlement offer?</p>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {[
+                    { value: 'no', label: 'No' },
+                    { value: 'yes', label: 'Yes' },
+                    { value: 'not_sure', label: 'Not sure' },
+                  ].map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => {
+                        setFormData(prev => ({
+                          ...prev,
+                          casePosture: {
+                            ...prev.casePosture,
+                            settlementOfferStatus: value,
+                            ...(value !== 'yes' ? { settlementOffer: '' } : {})
+                          }
+                        }))
+                      }}
+                      className={`rounded-xl border px-3 py-3 text-sm font-semibold ${cpLegal.settlementOfferStatus === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {cpLegal.settlementOfferStatus === 'yes' && (
+                  <div className="mt-4 rounded-xl border border-brand-100 bg-brand-50 p-3">
+                    <p className="text-xs font-semibold text-slate-900">Approximate offer amount?</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {SETTLEMENT_OFFER_OPTIONS.map(({ value, label }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setCasePostureField('settlementOffer', value)}
+                          className={`rounded-lg border px-2 py-2 text-xs font-semibold ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-white text-brand-900' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="text-sm font-semibold text-slate-950">Are you already working with a lawyer?</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {ATTORNEY_STATUS_OPTIONS.map(({ value, label }) => (
+                    <button key={value} type="button" onClick={() => setCasePostureField('attorneyStatus', value)} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${cpLegal.attorneyStatus === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}>
+                      {label}
+                    </button>
+                  ))}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
+              <p className="text-sm font-semibold text-slate-950">Would you like help connecting with a lawyer?</p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">No pressure. This just helps us understand your preferred next step.</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {LAWYER_INTEREST_OPTIONS.map(({ value, label }) => (
+                    <button key={value} type="button" onClick={() => setCasePostureField('lawyerInterest', value)} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${cpLegal.lawyerInterest === value ? 'border-emerald-600 bg-white text-emerald-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-emerald-300'}`}>
+                      {label}
+                    </button>
+                  ))}
+              </div>
+            </section>
           </div>
         )
 
@@ -1367,9 +2221,9 @@ export default function IntakeWizardQuick() {
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-gray-950">{t('intake.case_posture_insurance_heading')}</p>
-                      <p className="text-xs text-gray-500">Coverage can affect liens and reimbursement.</p>
+                      <p className="text-xs text-gray-500">Only answer what you know. Coverage details can be updated later.</p>
                     </div>
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">Required</span>
+                    <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">Improves accuracy</span>
                   </div>
 
                   <p className="mt-2 text-xs font-medium text-gray-800">{t('intake.insurance_healthCoverageQuestion')}</p>
@@ -1395,7 +2249,6 @@ export default function IntakeWizardQuick() {
                       </button>
                     ))}
                   </div>
-                  {errors.healthCoverage && <p className="text-sm text-red-600 mt-1">{errors.healthCoverage}</p>}
                 </div>
 
                 {ic.healthCoverage === 'yes' && (
@@ -1450,13 +2303,137 @@ export default function IntakeWizardQuick() {
                         </div>
                       </div>
                     )}
-                    {errors.coverageTypes && <p className="mt-1 text-xs text-red-600">{errors.coverageTypes}</p>}
-                    {errors.medicarePlan && <p className="mt-1 text-xs text-red-600">{errors.medicarePlan}</p>}
+                  </div>
+                )}
+
+                <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                  <p className="text-sm font-semibold text-gray-950">How were medical bills handled?</p>
+                  <p className="mt-0.5 text-xs text-gray-500">Lien treatment and MedPay affect net settlement and negotiation pressure.</p>
+                  <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                    {BILL_PAYMENT_OPTIONS.map(({ value, label }) => (
+                      <label
+                        key={value}
+                        className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${ic.billPaymentSources.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-gray-200'}`}
+                      >
+                        <input type="checkbox" checked={ic.billPaymentSources.includes(value)} onChange={() => toggleBillPaymentSource(value)} className="rounded border-gray-300" />
+                        <span className="text-[11px] font-semibold text-gray-800">{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                  <p className="text-sm font-semibold text-gray-950">Defendant coverage limits</p>
+                  <p className="mt-0.5 text-xs text-gray-500">Collectability can cap expected settlement even when trial exposure is higher.</p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                    {DEFENDANT_COVERAGE_OPTIONS.map(({ value, label }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => updateForm({ insuranceCoverage: { ...ic, defendantCoverageLimits: value } })}
+                        className={`rounded-lg border px-2 py-2 text-xs font-semibold ${ic.defendantCoverageLimits === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-gray-200 text-gray-700 hover:border-brand-300'}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-2 space-y-3 lg:self-start">
+              <details className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                <summary className="cursor-pointer text-sm font-semibold text-gray-950">Approximate lost wages</summary>
+                <p className="mt-0.5 text-xs text-gray-500">Optional. The quick work-impact question is already captured.</p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={cp.lostWagesEstimate || ''}
+                  onChange={(e) => setCasePostureField('lostWagesEstimate', e.target.value)}
+                  placeholder="Approximate lost wages, if known"
+                  className="input mt-2 w-full text-sm"
+                />
+              </details>
+
+              <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                <p className="text-sm font-semibold text-gray-950">Settlement offer history</p>
+                <p className="text-sm font-semibold text-gray-950">Have you received a settlement offer yet?</p>
+                <div className="mt-2 grid grid-cols-3 gap-1.5">
+                  {[
+                    { value: 'no', label: 'No' },
+                    { value: 'yes', label: 'Yes' },
+                    { value: 'not_sure', label: 'Not sure' },
+                  ].map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => {
+                        setFormData(prev => ({
+                          ...prev,
+                          casePosture: {
+                            ...prev.casePosture,
+                            settlementOfferStatus: value,
+                            ...(value !== 'yes' ? { settlementOffer: '' } : {})
+                          }
+                        }))
+                      }}
+                      className={`rounded-lg border px-2 py-2 text-xs font-semibold ${cp.settlementOfferStatus === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-gray-200 text-gray-700 hover:border-brand-300'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {cp.settlementOfferStatus === 'yes' && (
+                  <div className="mt-3 rounded-lg border border-brand-100 bg-brand-50 p-2">
+                    <p className="text-xs font-semibold text-gray-900">Was the offer:</p>
+                    <div className="mt-2 grid grid-cols-2 gap-1.5">
+                      {SETTLEMENT_OFFER_OPTIONS.map(({ value, label }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setCasePostureField('settlementOffer', value)}
+                          className={`rounded-lg border px-2 py-2 text-xs font-semibold ${cp.settlementOffer === value ? 'border-brand-600 bg-white text-brand-900' : 'border-gray-200 bg-white/80 text-gray-700 hover:border-brand-300'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
 
-              <div className="mt-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm lg:self-start">
+              <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                <p className="text-sm font-semibold text-gray-950">Fault and risk tolerance</p>
+                <p className="mt-2 text-xs font-medium text-gray-800">Who do you believe was mostly at fault?</p>
+                <div className="mt-1 grid grid-cols-2 gap-1.5">
+                  {FAULT_BELIEF_OPTIONS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setCasePostureField('faultBelief', value)}
+                      className={`rounded-md border px-1.5 py-1.5 text-[11px] font-semibold ${cp.faultBelief === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-gray-200 text-gray-700'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <details className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-2 py-2">
+                  <summary className="cursor-pointer text-xs font-semibold text-gray-700">Optional: litigation preference</summary>
+                <div className="mt-1 grid grid-cols-2 gap-1.5">
+                  {LITIGATION_INTENT_OPTIONS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setCasePostureField('litigationIntent', value)}
+                      className={`rounded-lg border px-2 py-2 text-[11px] font-semibold ${cp.litigationIntent === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-gray-200 text-gray-700 hover:border-brand-300'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                </details>
+              </div>
+
+              <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-gray-950">{t('intake.casePosture')}</p>
@@ -1487,16 +2464,37 @@ export default function IntakeWizardQuick() {
                   })}
                 </div>
               </div>
+              </div>
             </div>
           </div>
         )
 
       case 'review':
+        const preliminaryInsights = getPreliminaryInsights()
+        const estimateConfidence = getEstimateConfidence()
         return (
           <div className="space-y-3">
             <div className="text-center">
               <p className="text-base font-semibold text-gray-900">Review your case story</p>
               <p className="text-xs text-gray-500">Quick check before we create the report.</p>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+              <div className="rounded-2xl border border-brand-100 bg-brand-50/60 p-4 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Preliminary observations</p>
+                <ul className="mt-3 grid gap-2 text-sm text-brand-950 sm:grid-cols-2">
+                  {preliminaryInsights.map((insight) => (
+                    <li key={insight} className="flex gap-2 rounded-xl bg-white/80 px-3 py-2">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                      <span>{insight}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Estimate confidence</p>
+                <p className="mt-2 text-2xl font-bold text-slate-950">{estimateConfidence}</p>
+                <p className="mt-2 text-xs leading-5 text-slate-500">Based on treatment detail, documents, fault context, and missing information.</p>
+              </div>
             </div>
             <div className="grid gap-2 md:grid-cols-2">
               {getReviewItems().map(item => (
@@ -1515,7 +2513,7 @@ export default function IntakeWizardQuick() {
               ))}
             </div>
             <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
-              Ready for a preliminary assessment. Missing details will be shown as next steps in your report.
+              Ready to generate your ClearCaseIQ assessment. Missing details will be shown as next steps in your report.
             </div>
           </div>
         )
@@ -1571,12 +2569,15 @@ export default function IntakeWizardQuick() {
     narrative: t('intake.stepTitles_narrative'),
     injury_severity: t('intake.stepTitles_injury_severity'),
     medical_treatment: t('intake.stepTitles_medical_treatment'),
+    injury_details: 'Injury details',
     branch_7: t('intake.stepTitles_branch_7'),
     branch_8: t('intake.stepTitles_branch_8'),
     branch_9: t('intake.stepTitles_branch_9'),
     branch_10: t('intake.stepTitles_branch_10'),
     evidence: t('intake.stepTitles_evidence'),
-    case_posture: t('intake.stepTitles_case_posture'),
+    insurance_financial: 'Insurance & financial details',
+    settlement_legal: 'Next steps & settlement status',
+    case_posture: 'Claim details',
     review: 'Review your case story',
     consent: t('intake.stepTitles_consent')
   }
@@ -1584,14 +2585,16 @@ export default function IntakeWizardQuick() {
   const isFirstStep = currentStep === 'injury_type'
   const autoAdvanceSteps = ['injury_type', 'when', 'injury_severity'].includes(currentStep)
   const showTapHint = autoAdvanceSteps && !isFirstStep && !(currentStep === 'when' && formData.incidentDatePreset === 'custom')
-  const casePostureFit = currentStep === 'case_posture'
+  const casePostureFit = currentStep === 'case_posture' || currentStep === 'insurance_financial' || currentStep === 'settlement_legal'
+  const injuryDetailsFit = currentStep === 'injury_details'
   const reviewFit = currentStep === 'review'
-  const showReassurance = currentStep !== 'consent' && !casePostureFit && !isFirstStep
+  const showReassurance = currentStep !== 'consent' && !casePostureFit && !injuryDetailsFit && !isFirstStep
   const evidenceFit = currentStep === 'evidence'
   /** Steps where the white panel should fill leftover viewport height (textarea growth or dense grids). */
   const stretchStepPanel =
     currentStep === 'narrative' ||
-    currentStep === 'case_posture' ||
+    injuryDetailsFit ||
+    casePostureFit ||
     currentStep === 'review' ||
     evidenceFit
   const previewIncidentDate = getIncidentDate()
@@ -1610,7 +2613,7 @@ export default function IntakeWizardQuick() {
       : 'Select the state and county to check your filing deadline early.'
 
   return (
-    <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-4xl flex-col overflow-visible px-2 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-4 md:h-[calc(100dvh-7.5rem)] md:overflow-hidden md:px-6 md:py-4 ${isFirstStep ? 'py-1' : 'py-2 sm:py-3'}`}>
+    <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-7xl flex-col overflow-visible px-2 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-4 md:h-[calc(100dvh-7.5rem)] md:min-h-0 md:overflow-hidden md:px-8 md:py-4 ${isFirstStep ? 'py-1' : 'py-2 sm:py-3'}`}>
       <div className="mb-2 shrink-0" aria-busy={loading}>
         <p className={`mb-1 text-center text-xs font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300 md:text-sm ${isFirstStep ? 'hidden sm:block' : ''}`}>
           {t('intake.timePromise')}
@@ -1690,20 +2693,16 @@ export default function IntakeWizardQuick() {
       )}
 
       <div
-        className={`mb-2 flex flex-col overflow-visible rounded-3xl border border-slate-200/90 bg-white shadow-card transition-shadow hover:shadow-card-hover dark:border-slate-700 dark:bg-slate-900/80 motion-reduce:hover:shadow-card md:overflow-hidden ${evidenceFit || casePostureFit || reviewFit ? 'p-3 md:p-4' : 'p-3 sm:p-4 md:p-6'} ${evidenceFit || casePostureFit || reviewFit ? 'text-sm md:text-base' : 'text-base'} ${
-          evidenceFit || casePostureFit || reviewFit
+        className={`mb-2 flex flex-col overflow-visible rounded-3xl border border-slate-200/90 bg-white shadow-card transition-shadow hover:shadow-card-hover dark:border-slate-700 dark:bg-slate-900/80 motion-reduce:hover:shadow-card md:overflow-hidden ${evidenceFit || casePostureFit || injuryDetailsFit || reviewFit ? 'p-3 md:p-4' : 'p-3 sm:p-4 md:p-6'} ${evidenceFit || casePostureFit || injuryDetailsFit || reviewFit ? 'text-sm md:text-base' : 'text-base'} ${
+          evidenceFit || casePostureFit || injuryDetailsFit || reviewFit
             ? "[&_button]:min-h-9 [&_button]:py-2 [&_button]:text-xs [&_button]:leading-tight md:[&_button]:min-h-10 md:[&_button]:text-sm [&_input:not([type='checkbox'])]:min-h-10 [&_input:not([type='checkbox'])]:text-sm [&_select]:min-h-10 [&_select]:text-sm [&_p.text-lg]:text-sm [&_p.text-sm]:text-xs [&_span.text-sm]:text-xs [&_textarea]:min-h-[3rem] [&_textarea]:py-2 [&_textarea]:text-sm"
             : "[&_button]:min-h-14 [&_button]:leading-snug [&_button]:text-base md:[&_button]:text-lg [&_input:not([type='checkbox'])]:min-h-12 [&_input:not([type='checkbox'])]:text-lg [&_label]:text-base [&_p.text-lg]:text-xl [&_p.text-sm]:text-base [&_p.text-xs]:text-sm [&_select]:min-h-12 [&_select]:text-lg [&_span.text-sm]:text-base [&_span.text-xs]:text-sm [&_textarea]:min-h-[4.75rem] [&_textarea]:py-2 [&_textarea]:text-base [&_textarea]:leading-snug"
         } ${stretchStepPanel ? 'min-h-0 md:flex-1' : 'shrink-0'}`}
       >
         {stretchStepPanel ? (
-          evidenceFit || casePostureFit || reviewFit ? (
-            renderStep()
-          ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]">
-              {renderStep()}
-            </div>
-          )
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pr-1 [-webkit-overflow-scrolling:touch]">
+            {renderStep()}
+          </div>
         ) : (
           renderStep()
         )}
@@ -1737,7 +2736,7 @@ export default function IntakeWizardQuick() {
             disabled={loading}
             className="min-h-12 rounded-xl bg-accent-600 px-7 py-3 text-base font-semibold text-white shadow-md transition-all hover:bg-accent-700 hover:shadow-lg disabled:opacity-50"
           >
-            {loading ? t('intake.submitting') : t('intake.viewReport')}
+            {loading ? t('intake.submitting') : 'Generate my case assessment'}
           </button>
         ) : showTapHint ? (
           <span className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-5 py-3 text-center text-base font-medium text-brand-800 shadow-sm dark:border-brand-800/70 dark:bg-brand-950/40 dark:text-brand-200">
@@ -1759,7 +2758,7 @@ export default function IntakeWizardQuick() {
             onClick={validateAndNext}
             className="inline-flex min-h-12 items-center justify-center rounded-xl bg-accent-600 px-7 py-3 text-base font-semibold text-white shadow-sm hover:bg-accent-700"
           >
-            {t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
+            {currentStep === 'review' ? 'Generate my case report' : t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
           </button>
         )}
       </div>

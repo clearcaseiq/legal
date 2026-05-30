@@ -104,6 +104,10 @@ export default function DocumentRequestsScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load() }} />
       }
     >
+      <TouchableOpacity style={styles.createButton} onPress={() => router.push('/(app)/request-docs')} activeOpacity={0.85}>
+        <Ionicons name="add-circle-outline" size={20} color="#fff" />
+        <Text style={styles.createButtonText}>Request documents</Text>
+      </TouchableOpacity>
       {actionMessage ? (
         <View
           style={[
@@ -183,6 +187,18 @@ export default function DocumentRequestsScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   content: { padding: space.lg, paddingBottom: space.xxl },
+  createButton: {
+    minHeight: 52,
+    borderRadius: radii.lg,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: space.sm,
+    marginBottom: space.md,
+    ...shadows.soft,
+  },
+  createButtonText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   empty: { alignItems: 'center', paddingVertical: 40 },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginTop: space.md },
   emptySub: { fontSize: 14, color: colors.textSecondary, marginTop: 8, textAlign: 'center', lineHeight: 21 },

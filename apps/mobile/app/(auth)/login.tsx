@@ -13,7 +13,7 @@ import {
 import { router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../../src/contexts/AuthContext'
-import { getApiErrorMessage, getApiTroubleshootingMessage } from '../../src/lib/api'
+import { getApiErrorMessage, getApiTroubleshootingMessage, normalizeAuthEmail } from '../../src/lib/api'
 import { BrandWordmark } from '../../src/components/BrandWordmark'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { colors, radii, shadows, space } from '../../src/theme/tokens'
@@ -34,8 +34,7 @@ export default function LoginScreen() {
     setLoading(true)
     setError(null)
     try {
-      const normalizedEmail = email.trim().toLowerCase()
-      await login(normalizedEmail, password)
+      await login(normalizeAuthEmail(email), password)
       router.replace('/(app)/(tabs)')
     } catch (err: unknown) {
       setError(getApiErrorMessage(err))

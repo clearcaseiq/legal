@@ -16,7 +16,27 @@ import * as Haptics from 'expo-haptics'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect, useLocalSearchParams, router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { getLeadDetails, decideLead, getApiErrorMessage, getLeadEvidenceFiles, getLeadQuality, toAbsoluteApiUrl, type LeadEvidenceFile, type LeadQualityDetails } from '../../../src/lib/api'
+import {
+  getLeadDetails,
+  decideLead,
+  getApiErrorMessage,
+  getLeadEvidenceFiles,
+  getLeadQuality,
+  getOrCreateAttorneyChatRoom,
+  createLeadContact,
+  createNegotiationEvent,
+  createSolTask,
+  getLeadCommandCenter,
+  getLeadNegotiations,
+  reviewLeadEvidenceFile,
+  runConflictCheck,
+  toAbsoluteApiUrl,
+  updateLeadStatus,
+  updatePlaintiffCaseStatus,
+  type LeadEvidenceFile,
+  type LeadQualityDetails,
+  type NegotiationEvent,
+} from '../../../src/lib/api'
 import { InlineErrorBanner } from '../../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../../src/components/ScreenState'
 import { useAttorneyDashboardData } from '../../../src/contexts/AttorneyDashboardContext'
@@ -24,6 +44,26 @@ import { navigateAttorneyQueueItem, type QueueActionType } from '../../../src/li
 import { DECLINE_REASONS, type DeclineReasonCode } from '../../../src/constants/declineReasons'
 import { colors, radii, space, shadows } from '../../../src/theme/tokens'
 import { formatClaimType, formatLifecycleState, formatStatus, parseFacts } from '../../../src/lib/formatLead'
+
+const PIPELINE_STATUSES = [
+  { value: 'contacted', label: 'Contacted' },
+  { value: 'consulted', label: 'Consulted' },
+  { value: 'retained', label: 'Retained' },
+] as const
+
+const PLAINTIFF_STATUSES = [
+  { value: 'UNDER_REVIEW', label: 'Under review' },
+  { value: 'NEGOTIATION', label: 'Negotiation' },
+  { value: 'SETTLED', label: 'Settled' },
+  { value: 'CLOSED', label: 'Closed' },
+] as const
+
+const NEGOTIATION_TYPES = [
+  { value: 'demand', label: 'Demand' },
+  { value: 'offer', label: 'Offer' },
+  { value: 'counter', label: 'Counter' },
+  { value: 'note', label: 'Note' },
+] as const
 
 export default function LeadDetailScreen() {
   const insets = useSafeAreaInsets()
@@ -47,6 +87,16 @@ export default function LeadDetailScreen() {
     tone: 'success' | 'error'
     text: string
   } | null>(null)
+  const [commandCenter, setCommandCenter] = useState<any>(null)
+  const [negotiations, setNegotiations] = useState<NegotiationEvent[]>([])
+  const [actionBusy, setActionBusy] = useState<string | null>(null)
+  const [plaintiffStatusOpen, setPlaintiffStatusOpen] = useState(false)
+  const [plaintiffStatus, setPlaintiffStatus] = useState<(typeof PLAINTIFF_STATUSES)[number]['value']>('UNDER_REVIEW')
+  const [plaintiffMessage, setPlaintiffMessage] = useState('')
+  const [negotiationOpen, setNegotiationOpen] = useState(false)
+  const [negotiationType, setNegotiationType] = useState<(typeof NEGOTIATION_TYPES)[number]['value']>('offer')
+  const [negotiationAmount, setNegotiationAmount] = useState('')
+  const [negotiationNotes, setNegotiationNotes] = useState('')
 
   const loadLead = useCallback(async () => {
     if (!id) return
@@ -65,10 +115,18 @@ export default function LeadDetailScreen() {
       getLeadQuality(id)
         .then(setLeadQuality)
         .catch(() => setLeadQuality(null))
+      getLeadCommandCenter(id)
+        .then(setCommandCenter)
+        .catch(() => setCommandCenter(null))
+      getLeadNegotiations(id)
+        .then(setNegotiations)
+        .catch(() => setNegotiations([]))
     } catch (err: unknown) {
       setLead(null)
       setEvidenceFiles([])
       setLeadQuality(null)
+      setCommandCenter(null)
+      setNegotiations([])
       setLoadError(getApiErrorMessage(err))
     } finally {
       setLoading(false)
@@ -125,6 +183,13 @@ export default function LeadDetailScreen() {
     `${assessment.user.firstName || ''} ${assessment.user.lastName || ''}`.trim()
   const plaintiffPhone = assessment.user?.phone || null
   const plaintiffEmail = assessment.user?.email || null
+  const checklistItems = Array.isArray(leadQuality?.evidenceChecklist?.required) ? leadQuality.evidenceChecklist.required : []
+  const checklistUploaded = checklistItems.filter((item) => item?.uploaded).length
+  const latestConflict = leadQuality?.conflicts?.find((item) => !item?.isResolved) || leadQuality?.conflicts?.[0]
+  const solDays = Number(leadQuality?.sol?.daysUntilExpiration ?? leadQuality?.sol?.daysRemaining ?? NaN)
+  const isSolUrgent = Boolean(leadQuality?.sol?.isUrgent) || (Number.isFinite(solDays) && solDays <= 90)
+  const negotiationSummary = commandCenter?.negotiationSummary || {}
+  const latestNegotiation = negotiations[0]
 
   const status = (lead?.status || '').toLowerCase()
   const lifecycleState = (lead?.lifecycleState || '').toLowerCase()
@@ -174,6 +239,153 @@ export default function LeadDetailScreen() {
       await Linking.openURL(url)
     } catch (err: unknown) {
       setDecisionError(getApiErrorMessage(err))
+    }
+  }
+
+  async function openAndLogContact(type: 'call' | 'sms' | 'email', value: string) {
+    if (!id) return
+    const url = type === 'call' ? `tel:${value}` : type === 'sms' ? `sms:${value}` : `mailto:${value}`
+    await openExternal(url)
+    createLeadContact(id, {
+      contactType: type,
+      contactMethod: value,
+      notes: `Quick ${type === 'sms' ? 'text' : type} action from mobile.`,
+    }).catch(() => {})
+  }
+
+  async function openInAppChat() {
+    const userId = assessment.userId || assessment.user?.id
+    if (!userId) {
+      setDecisionError('This case does not have a linked plaintiff account for in-app messaging yet.')
+      return
+    }
+    try {
+      const room = await getOrCreateAttorneyChatRoom({
+        userId,
+        assessmentId: assessment.id || lead?.assessmentId,
+      })
+      if (room.chatRoomId) {
+        router.push(`/(app)/chat/${room.chatRoomId}`)
+      }
+    } catch (err: unknown) {
+      setDecisionError(getApiErrorMessage(err))
+    }
+  }
+
+  function showSuccess(text: string) {
+    setDecisionNotice({ tone: 'success', text })
+  }
+
+  async function handleConflictCheck() {
+    if (!id) return
+    setActionBusy('conflict')
+    setDecisionError(null)
+    try {
+      const result = await runConflictCheck(id)
+      await getLeadQuality(id).then(setLeadQuality).catch(() => {})
+      const risk = result?.details?.riskLevel || result?.conflictCheck?.riskLevel || 'clear'
+      showSuccess(risk === 'high' ? 'Conflict check completed. Review required before accepting this case.' : 'Conflict check completed.')
+    } catch (err: unknown) {
+      setDecisionError(getApiErrorMessage(err))
+    } finally {
+      setActionBusy(null)
+    }
+  }
+
+  async function handlePipelineStatus(value: 'contacted' | 'consulted' | 'retained') {
+    if (!id) return
+    setActionBusy(`pipeline:${value}`)
+    setDecisionError(null)
+    try {
+      const updated = await updateLeadStatus(id, value)
+      setLead((current: any) => (current ? { ...current, ...updated } : updated))
+      await refreshDashboard({ force: true, silent: true })
+      showSuccess(`Pipeline updated to ${formatStatus(value)}.`)
+    } catch (err: unknown) {
+      setDecisionError(getApiErrorMessage(err))
+    } finally {
+      setActionBusy(null)
+    }
+  }
+
+  async function submitPlaintiffStatus() {
+    if (!id) return
+    setActionBusy('plaintiff-status')
+    setDecisionError(null)
+    try {
+      await updatePlaintiffCaseStatus(id, {
+        status: plaintiffStatus,
+        message: plaintiffMessage.trim() || undefined,
+      })
+      setLead((current: any) => current ? { ...current, assessment: { ...current.assessment, status: plaintiffStatus } } : current)
+      setPlaintiffStatusOpen(false)
+      setPlaintiffMessage('')
+      showSuccess('Plaintiff-facing case status was updated.')
+    } catch (err: unknown) {
+      setDecisionError(getApiErrorMessage(err))
+    } finally {
+      setActionBusy(null)
+    }
+  }
+
+  async function submitNegotiation() {
+    if (!id) return
+    const amount = Number(negotiationAmount.replace(/[$,]/g, ''))
+    setActionBusy('negotiation')
+    setDecisionError(null)
+    try {
+      await createNegotiationEvent(id, {
+        eventType: negotiationType,
+        amount: Number.isFinite(amount) && amount > 0 ? amount : undefined,
+        notes: negotiationNotes.trim() || undefined,
+      })
+      const [events, center] = await Promise.all([
+        getLeadNegotiations(id).catch(() => []),
+        getLeadCommandCenter(id).catch(() => null),
+      ])
+      setNegotiations(events)
+      setCommandCenter(center)
+      setNegotiationOpen(false)
+      setNegotiationAmount('')
+      setNegotiationNotes('')
+      showSuccess('Settlement tracker updated.')
+    } catch (err: unknown) {
+      setDecisionError(getApiErrorMessage(err))
+    } finally {
+      setActionBusy(null)
+    }
+  }
+
+  async function handleSolTask() {
+    if (!id) return
+    setActionBusy('sol')
+    setDecisionError(null)
+    try {
+      await createSolTask(id)
+      await refreshDashboard({ force: true, silent: true })
+      showSuccess('SOL alert task created.')
+    } catch (err: unknown) {
+      setDecisionError(getApiErrorMessage(err))
+    } finally {
+      setActionBusy(null)
+    }
+  }
+
+  async function handleReviewEvidence(file: LeadEvidenceFile, status: 'reviewed' | 'needs_follow_up') {
+    if (!id) return
+    setActionBusy(`review:${file.id}`)
+    setDecisionError(null)
+    try {
+      const updated = await reviewLeadEvidenceFile(id, file.id, {
+        status,
+        content: status === 'reviewed' ? 'Reviewed from mobile.' : 'Needs attorney follow-up from mobile review.',
+      })
+      setEvidenceFiles((current) => current.map((item) => item.id === file.id ? { ...item, ...updated } : item))
+      showSuccess(status === 'reviewed' ? 'Document marked reviewed.' : 'Document flagged for follow-up.')
+    } catch (err: unknown) {
+      setDecisionError(getApiErrorMessage(err))
+    } finally {
+      setActionBusy(null)
     }
   }
 
@@ -269,10 +481,12 @@ export default function LeadDetailScreen() {
             style={styles.nextStepCard}
             onPress={() =>
               id &&
-              navigateAttorneyQueueItem({
-                actionType: (suggestedNext.actionType || 'open_lead') as QueueActionType,
-                leadId: id,
-              })
+              (suggestedNext.actionType === 'request_documents'
+                ? router.push({ pathname: '/(app)/request-docs', params: { leadId: id } })
+                : navigateAttorneyQueueItem({
+                    actionType: (suggestedNext.actionType || 'open_lead') as QueueActionType,
+                    leadId: id,
+                  }))
             }
             activeOpacity={0.88}
           >
@@ -287,15 +501,27 @@ export default function LeadDetailScreen() {
         ) : null}
 
         <View style={styles.quickLinks}>
-          <TouchableOpacity style={styles.quickLink} onPress={() => router.push('/(app)/(tabs)/messages')} activeOpacity={0.85}>
+          <TouchableOpacity style={styles.quickLink} onPress={() => { void openInAppChat() }} activeOpacity={0.85}>
             <Ionicons name="chatbubbles-outline" size={18} color={colors.primary} />
-            <Text style={styles.quickLinkText}>Messages</Text>
+            <Text style={styles.quickLinkText}>Message</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.quickLink}
+            onPress={() => id && router.push({ pathname: '/(app)/schedule-consult', params: { leadId: id } })}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+            <Text style={styles.quickLinkText}>Schedule</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.quickLink} onPress={() => router.push('/(app)/tasks')} activeOpacity={0.85}>
             <Ionicons name="checkbox-outline" size={18} color={colors.primary} />
             <Text style={styles.quickLinkText}>Tasks</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.quickLink} onPress={() => router.push('/(app)/document-requests')} activeOpacity={0.85}>
+          <TouchableOpacity
+            style={styles.quickLink}
+            onPress={() => id && router.push({ pathname: '/(app)/request-docs', params: { leadId: id } })}
+            activeOpacity={0.85}
+          >
             <Ionicons name="document-attach-outline" size={18} color={colors.primary} />
             <Text style={styles.quickLinkText}>Doc requests</Text>
           </TouchableOpacity>
@@ -369,18 +595,18 @@ export default function LeadDetailScreen() {
             <View style={styles.contactActionRow}>
               {plaintiffPhone ? (
                 <>
-                  <TouchableOpacity style={styles.contactActionBtn} onPress={() => { void openExternal(`tel:${plaintiffPhone}`) }}>
+                  <TouchableOpacity style={styles.contactActionBtn} onPress={() => { void openAndLogContact('call', plaintiffPhone) }}>
                     <Ionicons name="call-outline" size={16} color={colors.primary} />
                     <Text style={styles.contactActionText}>Call</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.contactActionBtn} onPress={() => { void openExternal(`sms:${plaintiffPhone}`) }}>
+                  <TouchableOpacity style={styles.contactActionBtn} onPress={() => { void openAndLogContact('sms', plaintiffPhone) }}>
                     <Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.primary} />
                     <Text style={styles.contactActionText}>Text</Text>
                   </TouchableOpacity>
                 </>
               ) : null}
               {plaintiffEmail ? (
-                <TouchableOpacity style={styles.contactActionBtn} onPress={() => { void openExternal(`mailto:${plaintiffEmail}`) }}>
+                <TouchableOpacity style={styles.contactActionBtn} onPress={() => { void openAndLogContact('email', plaintiffEmail) }}>
                   <Ionicons name="mail-outline" size={16} color={colors.primary} />
                   <Text style={styles.contactActionText}>Email</Text>
                 </TouchableOpacity>
@@ -442,6 +668,96 @@ export default function LeadDetailScreen() {
 
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
+            <Text style={styles.cardTitle}>Conflict check</Text>
+            <Text style={[styles.badgeText, latestConflict?.riskLevel === 'high' && styles.badgeDanger]}>
+              {latestConflict ? `${latestConflict.riskLevel || 'review'} risk` : 'Not run'}
+            </Text>
+          </View>
+          <Text style={styles.qualitySummary}>
+            {latestConflict
+              ? `Latest result: ${latestConflict.conflictType || 'conflict'}${latestConflict.isResolved ? ' · resolved' : ''}.`
+              : 'Run a quick conflict screen before moving deeper into representation.'}
+          </Text>
+          <TouchableOpacity style={styles.inlineAction} onPress={handleConflictCheck} disabled={actionBusy === 'conflict'} activeOpacity={0.85}>
+            {actionBusy === 'conflict' ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.inlineActionText}>Run conflict check</Text>}
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Case status updates</Text>
+          <Text style={styles.qualitySummary}>Update your internal pipeline or send a plaintiff-facing stage update.</Text>
+          <View style={styles.chipRow}>
+            {PIPELINE_STATUSES.map((item) => (
+              <TouchableOpacity
+                key={item.value}
+                style={[styles.statusChip, lead.status?.toLowerCase() === item.value && styles.statusChipOn]}
+                onPress={() => { void handlePipelineStatus(item.value) }}
+                disabled={Boolean(actionBusy)}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.statusChipText, lead.status?.toLowerCase() === item.value && styles.statusChipTextOn]}>{item.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity style={styles.inlineAction} onPress={() => setPlaintiffStatusOpen(true)} activeOpacity={0.85}>
+            <Text style={styles.inlineActionText}>Update plaintiff status</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.cardTitle}>Document review checklist</Text>
+            <Text style={styles.sectionCount}>{checklistItems.length ? `${checklistUploaded}/${checklistItems.length}` : `${evidenceFiles.filter((file) => file.isVerified).length}/${evidenceFiles.length}`}</Text>
+          </View>
+          {checklistItems.length > 0 ? (
+            checklistItems.slice(0, 5).map((item) => (
+              <View key={`${item.name || item.label}`} style={styles.checkRow}>
+                <Ionicons name={item.uploaded ? 'checkmark-circle-outline' : 'ellipse-outline'} size={18} color={item.uploaded ? colors.success : colors.muted} />
+                <Text style={styles.checkText}>{item.name || item.label || 'Document'}</Text>
+                {item.critical ? <Text style={styles.criticalText}>Critical</Text> : null}
+              </View>
+            ))
+          ) : (
+            <Text style={styles.emptyEvidenceText}>Open files below and mark reviewed as you finish the document pass.</Text>
+          )}
+          <TouchableOpacity style={styles.inlineAction} onPress={() => id && router.push({ pathname: '/(app)/request-docs', params: { leadId: id } })} activeOpacity={0.85}>
+            <Text style={styles.inlineActionText}>Request missing documents</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.cardTitle}>Settlement tracker</Text>
+            <Text style={styles.sectionCount}>{negotiations.length}</Text>
+          </View>
+          <Row icon="trending-up-outline" label="Latest demand" value={formatMoney(negotiationSummary.latestDemand ?? negotiationSummary.latest?.demand)} />
+          <Row icon="cash-outline" label="Latest offer" value={formatMoney(negotiationSummary.latestOffer ?? negotiationSummary.latest?.offer)} />
+          {latestNegotiation ? <Text style={styles.signalText}>Last logged: {formatNegotiationType(latestNegotiation.eventType)} {latestNegotiation.amount ? `· ${formatMoney(latestNegotiation.amount)}` : ''}</Text> : null}
+          {negotiationSummary.recommendedMove || negotiationSummary.nextMove ? (
+            <Text style={styles.qualitySummary}>{negotiationSummary.recommendedMove || negotiationSummary.nextMove}</Text>
+          ) : null}
+          <TouchableOpacity style={styles.inlineAction} onPress={() => setNegotiationOpen(true)} activeOpacity={0.85}>
+            <Text style={styles.inlineActionText}>Log offer / demand</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.card, isSolUrgent && styles.warningCard]}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.cardTitle}>Statute of limitations alert</Text>
+            <Text style={[styles.badgeText, isSolUrgent && styles.badgeDanger]}>{Number.isFinite(solDays) ? `${solDays} days` : 'Check'}</Text>
+          </View>
+          <Text style={styles.qualitySummary}>
+            {isSolUrgent
+              ? 'SOL timing needs immediate task tracking.'
+              : 'Create a deadline task so the SOL stays visible in the attorney workflow.'}
+          </Text>
+          <TouchableOpacity style={styles.inlineAction} onPress={handleSolTask} disabled={actionBusy === 'sol'} activeOpacity={0.85}>
+            {actionBusy === 'sol' ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.inlineActionText}>Create SOL task</Text>}
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.sectionHeader}>
             <Text style={styles.cardTitle}>Evidence files</Text>
             <Text style={styles.sectionCount}>{evidenceFiles.length}</Text>
           </View>
@@ -451,23 +767,32 @@ export default function LeadDetailScreen() {
             <Text style={styles.emptyEvidenceText}>No evidence files are attached to this case yet.</Text>
           ) : (
             evidenceFiles.map((file) => (
-              <TouchableOpacity
-                key={file.id}
-                style={styles.fileRow}
-                onPress={() => {
-                  void openEvidenceFile(file)
-                }}
-                activeOpacity={0.85}
-              >
-                <View style={styles.fileIconWrap}>
-                  <Ionicons name="document-attach-outline" size={20} color={colors.primary} />
+              <View key={file.id} style={styles.fileReviewBlock}>
+                <TouchableOpacity
+                  style={styles.fileRow}
+                  onPress={() => {
+                    void openEvidenceFile(file)
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <View style={styles.fileIconWrap}>
+                    <Ionicons name={file.isVerified ? 'checkmark-done-outline' : 'document-attach-outline'} size={20} color={file.isVerified ? colors.success : colors.primary} />
+                  </View>
+                  <View style={styles.fileBody}>
+                    <Text style={styles.fileName}>{file.originalName || file.filename}</Text>
+                    <Text style={styles.fileMeta}>{formatEvidenceMeta(file)}{file.isVerified ? ' · Reviewed' : ''}</Text>
+                  </View>
+                  <Ionicons name="open-outline" size={18} color={colors.primary} />
+                </TouchableOpacity>
+                <View style={styles.fileReviewActions}>
+                  <TouchableOpacity style={styles.reviewButton} onPress={() => { void handleReviewEvidence(file, 'reviewed') }} disabled={actionBusy === `review:${file.id}`}>
+                    <Text style={styles.reviewButtonText}>Mark reviewed</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.reviewButton, styles.reviewButtonWarn]} onPress={() => { void handleReviewEvidence(file, 'needs_follow_up') }} disabled={actionBusy === `review:${file.id}`}>
+                    <Text style={styles.reviewButtonText}>Needs follow-up</Text>
+                  </TouchableOpacity>
                 </View>
-                <View style={styles.fileBody}>
-                  <Text style={styles.fileName}>{file.originalName || file.filename}</Text>
-                  <Text style={styles.fileMeta}>{formatEvidenceMeta(file)}</Text>
-                </View>
-                <Ionicons name="open-outline" size={18} color={colors.primary} />
-              </TouchableOpacity>
+              </View>
             ))
           )}
         </View>
@@ -632,6 +957,86 @@ export default function LeadDetailScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal visible={plaintiffStatusOpen} animationType="slide" transparent>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Update plaintiff status</Text>
+            <Text style={styles.modalSub}>This changes the stage the plaintiff sees in their case tracker.</Text>
+            <View style={styles.chipRow}>
+              {PLAINTIFF_STATUSES.map((item) => (
+                <TouchableOpacity
+                  key={item.value}
+                  style={[styles.statusChip, plaintiffStatus === item.value && styles.statusChipOn]}
+                  onPress={() => setPlaintiffStatus(item.value)}
+                >
+                  <Text style={[styles.statusChipText, plaintiffStatus === item.value && styles.statusChipTextOn]}>{item.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TextInput
+              style={styles.otherInput}
+              placeholder="Optional plaintiff update message"
+              placeholderTextColor={colors.muted}
+              value={plaintiffMessage}
+              onChangeText={setPlaintiffMessage}
+              multiline
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancel} onPress={() => setPlaintiffStatusOpen(false)} disabled={actionBusy === 'plaintiff-status'}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalAccept, actionBusy === 'plaintiff-status' && styles.modalSubmitDisabled]} onPress={submitPlaintiffStatus} disabled={actionBusy === 'plaintiff-status'}>
+                {actionBusy === 'plaintiff-status' ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalSubmitText}>Update</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal visible={negotiationOpen} animationType="slide" transparent>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Log settlement activity</Text>
+            <Text style={styles.modalSub}>Track demands, offers, counters, and negotiation notes from mobile.</Text>
+            <View style={styles.chipRow}>
+              {NEGOTIATION_TYPES.map((item) => (
+                <TouchableOpacity
+                  key={item.value}
+                  style={[styles.statusChip, negotiationType === item.value && styles.statusChipOn]}
+                  onPress={() => setNegotiationType(item.value)}
+                >
+                  <Text style={[styles.statusChipText, negotiationType === item.value && styles.statusChipTextOn]}>{item.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TextInput
+              style={styles.singleInput}
+              placeholder="Amount (optional)"
+              placeholderTextColor={colors.muted}
+              value={negotiationAmount}
+              onChangeText={setNegotiationAmount}
+              keyboardType="numeric"
+            />
+            <TextInput
+              style={styles.otherInput}
+              placeholder="Notes"
+              placeholderTextColor={colors.muted}
+              value={negotiationNotes}
+              onChangeText={setNegotiationNotes}
+              multiline
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancel} onPress={() => setNegotiationOpen(false)} disabled={actionBusy === 'negotiation'}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.modalAccept, actionBusy === 'negotiation' && styles.modalSubmitDisabled]} onPress={submitNegotiation} disabled={actionBusy === 'negotiation'}>
+                {actionBusy === 'negotiation' ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalSubmitText}>Log</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </>
   )
 }
@@ -646,6 +1051,17 @@ function Row({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMap; lab
       </View>
     </View>
   )
+}
+
+function formatMoney(value: unknown) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount) || amount <= 0) return '—'
+  return `$${Math.round(amount).toLocaleString()}`
+}
+
+function formatNegotiationType(value?: string | null) {
+  if (!value) return 'Activity'
+  return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, ' ')
 }
 
 const styles = StyleSheet.create({
@@ -725,10 +1141,43 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     ...shadows.soft,
   },
+  warningCard: {
+    borderColor: colors.warning + '77',
+    backgroundColor: colors.warningMuted,
+  },
   cardTitle: { fontSize: 14, fontWeight: '700', color: colors.textSecondary, marginBottom: space.sm },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: space.sm },
   sectionCount: { fontSize: 13, fontWeight: '700', color: colors.primary },
+  badgeText: { fontSize: 12, fontWeight: '800', color: colors.primary, textTransform: 'uppercase' },
+  badgeDanger: { color: colors.danger },
   qualitySummary: { fontSize: 15, lineHeight: 22, color: colors.text, marginBottom: space.md },
+  inlineAction: {
+    alignSelf: 'flex-start',
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.primary + '44',
+    backgroundColor: colors.primary + '10',
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    minHeight: 38,
+    justifyContent: 'center',
+  },
+  inlineActionText: { fontSize: 14, fontWeight: '800', color: colors.primaryDark },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginBottom: space.md },
+  statusChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    backgroundColor: colors.card,
+  },
+  statusChipOn: { borderColor: colors.primary, backgroundColor: colors.primary + '14' },
+  statusChipText: { fontSize: 13, fontWeight: '700', color: colors.textSecondary },
+  statusChipTextOn: { color: colors.primaryDark },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: 6 },
+  checkText: { flex: 1, fontSize: 14, color: colors.text },
+  criticalText: { fontSize: 11, fontWeight: '800', color: colors.danger, textTransform: 'uppercase' },
   signalBlock: {
     paddingTop: space.md,
     borderTopWidth: 1,
@@ -758,6 +1207,25 @@ const styles = StyleSheet.create({
   fileBody: { flex: 1 },
   fileName: { fontSize: 15, fontWeight: '700', color: colors.text },
   fileMeta: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
+  fileReviewBlock: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingBottom: space.sm,
+  },
+  fileReviewActions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, paddingBottom: space.sm },
+  reviewButton: {
+    borderRadius: radii.md,
+    backgroundColor: colors.successMuted,
+    borderWidth: 1,
+    borderColor: colors.success + '55',
+    paddingHorizontal: space.md,
+    paddingVertical: 8,
+  },
+  reviewButtonWarn: {
+    backgroundColor: colors.warningMuted,
+    borderColor: colors.warning + '55',
+  },
+  reviewButtonText: { fontSize: 12, fontWeight: '800', color: colors.text },
   row: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: space.md },
   rowIcon: { marginRight: space.md, marginTop: 2 },
   rowLabel: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
@@ -877,6 +1345,16 @@ const styles = StyleSheet.create({
     marginTop: space.md,
     minHeight: 72,
     textAlignVertical: 'top',
+    fontSize: 15,
+    color: colors.text,
+  },
+  singleInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    padding: space.md,
+    marginTop: space.sm,
+    marginBottom: space.sm,
     fontSize: 15,
     color: colors.text,
   },

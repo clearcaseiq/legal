@@ -1048,6 +1048,28 @@ function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
   }
 }
 
+function extractAttorneyVenueStates(attorney: any) {
+  const states = new Set<string>()
+  const addState = (value: unknown) => {
+    const text = String(value || '').trim().toUpperCase()
+    if (/^[A-Z]{2}$/.test(text)) states.add(text)
+  }
+
+  for (const venue of safeJsonParse<any[]>(attorney?.venues, [])) {
+    if (typeof venue === 'string') addState(venue)
+    else addState(venue?.state)
+  }
+
+  for (const jurisdiction of safeJsonParse<any[]>(attorney?.attorneyProfile?.jurisdictions, [])) {
+    addState(jurisdiction?.state)
+  }
+
+  addState(attorney?.attorneyProfile?.licenseState)
+  addState(attorney?.lawFirm?.state)
+
+  return Array.from(states)
+}
+
 const MEDICAL_EVIDENCE_CATEGORIES = new Set(['medical_records', 'bills', 'medical_bill'])
 const MEDICAL_SHARING_PENDING_MESSAGE =
   'Medical records and extracted treatment details are pending plaintiff account creation and HIPAA authorization. The visible case summary is based on intake answers only until the plaintiff authorizes medical document sharing.'
@@ -1255,7 +1277,12 @@ const intakeManualSchema = z.object({
   template: z.string().optional(),
   claimType: z.string().optional(),
   venueState: z.string().optional(),
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  plaintiffFirstName: z.string().optional(),
+  plaintiffLastName: z.string().optional(),
+  plaintiffEmail: z.string().email().optional(),
+  plaintiffPhone: z.string().optional(),
+  sendInvite: z.boolean().optional()
 })
 
 const intakeFromLeadSchema = z.object({
@@ -1293,7 +1320,14 @@ function getTemplateClaimType(template?: string) {
   }
 }
 
-async function createDraftAssessment(payload: { claimType?: string; venueState?: string }) {
+async function createDraftAssessment(payload: {
+  claimType?: string
+  venueState?: string
+  plaintiffFirstName?: string
+  plaintiffLastName?: string
+  plaintiffEmail?: string
+  plaintiffPhone?: string
+}) {
   const claimType = payload.claimType || 'auto'
   const venueState = payload.venueState || 'CA'
   const facts = {
@@ -1301,6 +1335,12 @@ async function createDraftAssessment(payload: { claimType?: string; venueState?:
     injuries: [],
     treatment: [],
     damages: {},
+    plaintiffContext: {
+      firstName: payload.plaintiffFirstName || '',
+      lastName: payload.plaintiffLastName || '',
+      email: payload.plaintiffEmail || '',
+      phone: payload.plaintiffPhone || ''
+    },
     consents: { tos: false, privacy: false, ml_use: false, hipaa: false }
   }
   return prisma.assessment.create({
@@ -2428,6 +2468,143 @@ router.get('/appointments', authMiddleware, async (req: any, res) => {
   }
 })
 
+router.get('/profile/preferences', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+
+    const attorney = await prisma.attorney.findUnique({
+      where: { id: auth.attorney.id },
+      include: {
+        attorneyProfile: true,
+        lawFirm: { select: { state: true } }
+      }
+    })
+
+    if (!attorney) {
+      return res.status(404).json({ error: 'Attorney profile not found' })
+    }
+
+    const venueStates = extractAttorneyVenueStates(attorney)
+    res.json({
+      attorneyId: attorney.id,
+      defaultVenueState: venueStates[0] || 'CA',
+      venueStates: venueStates.length > 0 ? venueStates : ['CA']
+    })
+  } catch (error: any) {
+    logger.error('Failed to load attorney profile preferences', { error: error.message, userId: req.user?.id })
+    res.status(500).json({ error: 'Failed to load attorney preferences' })
+  }
+})
+
+router.patch('/appointments/:appointmentId', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+
+    const { appointmentId } = req.params
+    const { scheduledAt, type, duration, notes, status } = req.body || {}
+    const existing = await prisma.appointment.findFirst({
+      where: { id: appointmentId, attorneyId: auth.attorney.id },
+      include: {
+        user: { select: { email: true, firstName: true, lastName: true } },
+        assessment: { select: { claimType: true } }
+      }
+    })
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Appointment not found' })
+    }
+
+    const nextScheduledAt = scheduledAt ? new Date(String(scheduledAt)) : existing.scheduledAt
+    if (Number.isNaN(nextScheduledAt.getTime())) {
+      return res.status(400).json({ error: 'Invalid appointment time' })
+    }
+
+    const appointment = await prisma.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        scheduledAt: nextScheduledAt,
+        type: typeof type === 'string' ? type : existing.type,
+        duration: Number.isFinite(Number(duration)) ? Number(duration) : existing.duration,
+        notes: typeof notes === 'string' ? notes : existing.notes,
+        status: typeof status === 'string' ? status : existing.status
+      }
+    })
+
+    if (existing.user?.email) {
+      const attorneyName = auth.attorney.name || 'Your attorney'
+      const dateText = appointment.scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      const timeText = appointment.scheduledAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      await createNotification(
+        existing.user.email,
+        'Your consultation was updated',
+        `Hi${existing.user.firstName ? ` ${existing.user.firstName}` : ''},\n\n${attorneyName} updated your consultation.\n\nDate: ${dateText}\nTime: ${timeText}\nType: ${appointment.type}\n\n${appointment.notes ? `Notes: ${appointment.notes}\n\n` : ''}Best regards,\nClearCaseIQ`,
+        {
+          appointmentId: appointment.id,
+          assessmentId: appointment.assessmentId,
+          scheduledAt: appointment.scheduledAt.toISOString()
+        }
+      )
+    }
+
+    res.json(appointment)
+  } catch (error: any) {
+    logger.error('Failed to update attorney appointment', { error: error.message, appointmentId: req.params.appointmentId })
+    res.status(500).json({ error: 'Failed to update appointment' })
+  }
+})
+
+router.post('/appointments/:appointmentId/cancel', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+
+    const { appointmentId } = req.params
+    const { reason } = req.body || {}
+    const existing = await prisma.appointment.findFirst({
+      where: { id: appointmentId, attorneyId: auth.attorney.id },
+      include: { user: { select: { email: true, firstName: true } } }
+    })
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Appointment not found' })
+    }
+
+    const appointment = await prisma.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        status: 'CANCELLED',
+        notes: reason ? `${existing.notes ? `${existing.notes}\n\n` : ''}Cancelled: ${reason}` : existing.notes
+      }
+    })
+
+    if (existing.user?.email) {
+      await createNotification(
+        existing.user.email,
+        'Your consultation was cancelled',
+        `Hi${existing.user.firstName ? ` ${existing.user.firstName}` : ''},\n\n${auth.attorney.name || 'Your attorney'} cancelled your consultation.${reason ? `\n\nReason: ${reason}` : ''}\n\nBest regards,\nClearCaseIQ`,
+        {
+          appointmentId: appointment.id,
+          assessmentId: appointment.assessmentId,
+          status: 'CANCELLED'
+        }
+      )
+    }
+
+    res.json(appointment)
+  } catch (error: any) {
+    logger.error('Failed to cancel attorney appointment', { error: error.message, appointmentId: req.params.appointmentId })
+    res.status(500).json({ error: 'Failed to cancel appointment' })
+  }
+})
+
 // Register Expo push token for the signed-in attorney user (same User row as JWT).
 router.post('/push/register', authMiddleware, async (req: any, res) => {
   try {
@@ -2920,11 +3097,16 @@ router.put('/settings', authMiddleware, async (req: any, res) => {
 // Get filtered leads based on attorney preferences
 router.get('/leads/filtered', authMiddleware, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const attorneyId = auth.attorney.id
     const { 
       caseType, 
       venueState, 
       venueCounty, 
+      status,
       minDamages, 
       maxDamages, 
       language, 
@@ -2959,6 +3141,18 @@ router.get('/leads/filtered', authMiddleware, async (req: any, res) => {
     if (hotnessLevel) whereClause.hotnessLevel = hotnessLevel
     if (isExclusive !== undefined) whereClause.isExclusive = isExclusive === 'true'
     if (sourceType) whereClause.sourceType = sourceType
+    if (status) {
+      const requestedStatuses = String(status)
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+      const activeAttorneyStatuses = ['accepted', 'contacted', 'consulted', 'retained']
+      const statusValues = requestedStatuses.includes('accepted')
+        ? Array.from(new Set([...requestedStatuses, ...activeAttorneyStatuses]))
+        : requestedStatuses
+      if (statusValues.length === 1) whereClause.status = statusValues[0]
+      else if (statusValues.length > 1) whereClause.status = { in: statusValues }
+    }
 
     const leads = await prisma.leadSubmission.findMany({
       where: whereClause,
@@ -3776,6 +3970,67 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
   }
 })
 
+router.post('/leads/:leadId/evidence/:fileId/review', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, fileId } = req.params
+    const { content, status } = req.body || {}
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead, attorney } = auth
+
+    const file = await prisma.evidenceFile.findFirst({
+      where: { id: fileId, assessmentId: lead.assessmentId },
+      select: { id: true }
+    })
+    if (!file) {
+      return res.status(404).json({ error: 'Evidence file not found' })
+    }
+
+    const reviewed = status !== 'needs_follow_up'
+    const updated = await prisma.evidenceFile.update({
+      where: { id: fileId },
+      data: {
+        isVerified: reviewed,
+        verifiedBy: reviewed ? attorney.id : null,
+        verifiedAt: reviewed ? new Date() : null,
+        description: content || undefined
+      },
+      select: {
+        id: true,
+        originalName: true,
+        filename: true,
+        mimetype: true,
+        size: true,
+        fileUrl: true,
+        category: true,
+        isVerified: true,
+        verifiedAt: true,
+        description: true,
+        createdAt: true,
+        updatedAt: true,
+      }
+    })
+
+    if (content && req.user?.id) {
+      await prisma.evidenceAnnotation.create({
+        data: {
+          evidenceFileId: fileId,
+          authorId: req.user.id,
+          content,
+          anchor: status || 'reviewed'
+        }
+      }).catch((error: any) => logger.warn('Failed to create evidence review annotation', { error: error?.message, fileId }))
+    }
+
+    res.json(updated)
+  } catch (error: any) {
+    logger.error('Failed to review evidence file', { error: error.message, leadId: req.params.leadId, fileId: req.params.fileId })
+    res.status(500).json({ error: 'Failed to review evidence file' })
+  }
+})
+
 // Upload a document to an accepted / assigned case (attorney adds to plaintiff file set)
 router.post(
   '/leads/:leadId/evidence',
@@ -3962,7 +4217,29 @@ router.post('/intake/manual', authMiddleware, async (req: any, res) => {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const claimType = payload.claimType || getTemplateClaimType(payload.template)
-    const assessment = await createDraftAssessment({ claimType, venueState: payload.venueState })
+    const assessment = await createDraftAssessment({
+      claimType,
+      venueState: payload.venueState,
+      plaintiffFirstName: payload.plaintiffFirstName,
+      plaintiffLastName: payload.plaintiffLastName,
+      plaintiffEmail: payload.plaintiffEmail,
+      plaintiffPhone: payload.plaintiffPhone
+    })
+    const inviteLink = `${process.env.APP_URL || process.env.FRONTEND_URL || process.env.WEB_URL || 'http://localhost:3000'}/evidence-upload/${assessment.id}`
+    const inviteRequested = Boolean(payload.sendInvite && payload.plaintiffEmail)
+    if (inviteRequested) {
+      const plaintiffName = [payload.plaintiffFirstName, payload.plaintiffLastName].filter(Boolean).join(' ') || 'there'
+      await createNotification(
+        payload.plaintiffEmail!,
+        'Your attorney invited you to complete your case intake',
+        `Hi ${plaintiffName},\n\n${auth.attorney.name || 'Your attorney'} created a draft case for you in ClearCaseIQ. Please use this secure link to upload documents and help complete your intake:\n\n${inviteLink}\n\nBest regards,\nClearCaseIQ`,
+        {
+          assessmentId: assessment.id,
+          attorneyId: auth.attorney.id,
+          kind: 'manual_case_invite'
+        }
+      )
+    }
     await prisma.caseIntakeRequest.create({
       data: {
         attorneyId: auth.attorney.id,
@@ -3972,7 +4249,13 @@ router.post('/intake/manual', authMiddleware, async (req: any, res) => {
           template: payload.template || null,
           claimType: assessment.claimType,
           venueState: assessment.venueState,
-          notes: payload.notes || null
+          notes: payload.notes || null,
+          plaintiffFirstName: payload.plaintiffFirstName || null,
+          plaintiffLastName: payload.plaintiffLastName || null,
+          plaintiffEmail: payload.plaintiffEmail || null,
+          plaintiffPhone: payload.plaintiffPhone || null,
+          inviteSent: inviteRequested,
+          inviteLink
         })
       }
     })
@@ -3980,7 +4263,10 @@ router.post('/intake/manual', authMiddleware, async (req: any, res) => {
       assessmentId: assessment.id,
       claimType: assessment.claimType,
       venueState: assessment.venueState,
-      notes: payload.notes || null
+      notes: payload.notes || null,
+      plaintiffEmail: payload.plaintiffEmail || null,
+      inviteSent: inviteRequested,
+      inviteLink
     })
   } catch (error: any) {
     logger.error('Failed to create manual intake', { error: error.message })
@@ -8169,6 +8455,47 @@ router.post('/leads/:leadId/status', authMiddleware, async (req: any, res) => {
   } catch (error: any) {
     logger.error('Failed to update lead status', { error: error.message })
     res.status(500).json({ error: 'Failed to update lead status' })
+  }
+})
+
+router.patch('/leads/:leadId/plaintiff-status', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const { status, message } = req.body || {}
+    const allowedStatuses = ['INTAKE', 'UNDER_REVIEW', 'FILED', 'NEGOTIATION', 'SETTLED', 'TRIAL', 'CLOSED']
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({ error: 'Invalid plaintiff status' })
+    }
+
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead, attorney } = auth
+
+    const assessment = await prisma.assessment.update({
+      where: { id: lead.assessmentId },
+      data: { status },
+      select: { id: true, status: true, userId: true }
+    })
+
+    if (message && assessment.userId) {
+      await prisma.caseNote.create({
+        data: {
+          assessmentId: assessment.id,
+          authorId: req.user.id,
+          authorName: attorney.name || attorney.email || 'Attorney',
+          authorEmail: attorney.email,
+          noteType: 'client_update',
+          message
+        }
+      }).catch((error: any) => logger.warn('Failed to record plaintiff status note', { error: error?.message, leadId }))
+    }
+
+    res.json({ leadId, assessmentId: assessment.id, status: assessment.status, message: message || null, updatedAt: new Date().toISOString() })
+  } catch (error: any) {
+    logger.error('Failed to update plaintiff status', { error: error.message, leadId: req.params.leadId })
+    res.status(500).json({ error: 'Failed to update plaintiff status' })
   }
 })
 

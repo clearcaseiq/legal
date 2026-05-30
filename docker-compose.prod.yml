@@ -30,7 +30,8 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 4000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-clearcaseiq}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-clearcaseiq}?schema=public
+      # Set DATABASE_URL in .env.prod to use Supabase; default is the local db container.
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-clearcaseiq}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-clearcaseiq}?schema=public}
       API_URL: https://api.clearcaseiq.com
       WEB_URL: https://www.clearcaseiq.com
       CORS_ORIGINS: https://www.clearcaseiq.com,https://clearcaseiq.com

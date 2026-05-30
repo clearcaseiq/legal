@@ -1987,7 +1987,7 @@ export default function IntakeWizard() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 md:px-6">
+    <div className="mx-auto max-w-6xl px-4 md:px-8">
       <div className="mb-8">
         <h1 className="text-4xl font-bold text-gray-900">
           {isEditMode ? 'Update Assessment' : 'Case Assessment'}
