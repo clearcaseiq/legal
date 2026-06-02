@@ -3033,6 +3033,7 @@ export default function IntakeWizardQuick() {
   /** Steps where the white panel should fill leftover viewport height (textarea growth or dense grids). */
   const stretchStepPanel =
     currentStep === 'narrative' ||
+    currentStep === 'medical' ||
     injuryDetailsFit ||
     casePostureFit ||
     currentStep === 'review' ||
