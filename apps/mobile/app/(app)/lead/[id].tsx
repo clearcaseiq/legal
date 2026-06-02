@@ -190,6 +190,42 @@ export default function LeadDetailScreen() {
   const isSolUrgent = Boolean(leadQuality?.sol?.isUrgent) || (Number.isFinite(solDays) && solDays <= 90)
   const negotiationSummary = commandCenter?.negotiationSummary || {}
   const latestNegotiation = negotiations[0]
+  const prediction = assessment.latestPrediction || {}
+  const bands = prediction.bands || {}
+  const settlementBands = bands.settlement || bands
+  const trialBands = bands.trial || {}
+  const settlementLow = Number(settlementBands.p25 ?? settlementBands.low ?? settlementBands.downside ?? 0)
+  const settlementHigh = Number(settlementBands.p75 ?? settlementBands.high ?? settlementBands.upside ?? 0)
+  const trialLow = Number(trialBands.p25 ?? (settlementHigh ? Math.round(settlementHigh * 1.35) : 0))
+  const trialHigh = Number(trialBands.p75 ?? (settlementHigh ? Math.round(settlementHigh * 3.25) : 0))
+  const viabilityBreakdown = leadQuality?.viabilityBreakdown || {}
+  const viabilityPercent = normalizePercent(lead.viabilityScore ?? viabilityBreakdown.overall ?? prediction.viability?.overall)
+  const liabilityPercent = normalizePercent(lead.liabilityScore ?? viabilityBreakdown.liability ?? prediction.viability?.liability)
+  const severityPercent = normalizePercent(
+    prediction.severity?.score ??
+      (typeof prediction.severity?.level === 'number' ? prediction.severity.level / 4 : undefined) ??
+      lead.damagesScore ??
+      viabilityBreakdown.damages
+  )
+  const caseCompletenessPercent = checklistItems.length
+    ? Math.round((checklistUploaded / checklistItems.length) * 100)
+    : Math.max(0, Math.min(100, Math.round(Number(leadQuality?.readinessScore || viabilityPercent || 0))))
+  const attorneyAcceptancePercent = buildAcceptanceProbability({
+    settlementLow,
+    settlementHigh,
+    liabilityPercent,
+    severityPercent,
+    completenessPercent: caseCompletenessPercent,
+    evidenceCount: evidenceFiles.length || assessment.evidenceCount || 0,
+  })
+  const caseStrengthLabel = scoreLabel(viabilityPercent, 'Strong', 'Moderate', 'Needs work')
+  const liabilityLabel = scoreLabel(liabilityPercent, 'Moderate-Strong', 'Mixed', 'Needs proof')
+  const severityLabel = scoreLabel(severityPercent, 'Moderate-Severe', 'Moderate', 'Developing')
+  const acceptanceLabel = scoreLabel(attorneyAcceptancePercent, 'Very Likely', 'Possible', 'Uncertain')
+  const hasMriSignal = hasTextSignal(facts, leadQuality, ['mri', 'imaging'])
+  const hasInjectionSignal = hasTextSignal(facts, leadQuality, ['injection', 'epidural'])
+  const hasSurgerySignal = hasTextSignal(facts, leadQuality, ['surgery', 'fusion'])
+  const hasTreatmentDurationSignal = Array.isArray(facts?.treatment) && facts.treatment.length >= 2
 
   const status = (lead?.status || '').toLowerCase()
   const lifecycleState = (lead?.lifecycleState || '').toLowerCase()
@@ -630,41 +666,58 @@ export default function LeadDetailScreen() {
           )}
         </View>
 
-        {leadQuality ? (
-          <View style={styles.card}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.cardTitle}>Mobile case intelligence</Text>
-              {leadQuality.qualityScore != null || leadQuality.readinessScore != null ? (
-                <Text style={styles.sectionCount}>
-                  {Math.round(Number(leadQuality.qualityScore ?? leadQuality.readinessScore ?? 0))}%
-                </Text>
-              ) : null}
-            </View>
-            {leadQuality.recommendation?.rationale ? (
-              <Text style={styles.qualitySummary}>{leadQuality.recommendation.rationale}</Text>
-            ) : leadQuality.demandReadiness?.label ? (
-              <Text style={styles.qualitySummary}>{leadQuality.demandReadiness.label}</Text>
-            ) : (
-              <Text style={styles.qualitySummary}>Use the signals below to triage this case from your phone.</Text>
-            )}
-            {Array.isArray(leadQuality.strengths) && leadQuality.strengths.length > 0 ? (
-              <View style={styles.signalBlock}>
-                <Text style={styles.signalTitle}>Strengths</Text>
-                {leadQuality.strengths.slice(0, 3).map((item) => (
-                  <Text key={item} style={styles.signalText}>• {item}</Text>
-                ))}
-              </View>
-            ) : null}
-            {Array.isArray(leadQuality.risks) && leadQuality.risks.length > 0 ? (
-              <View style={styles.signalBlock}>
-                <Text style={styles.signalTitle}>Watch items</Text>
-                {leadQuality.risks.slice(0, 3).map((item) => (
-                  <Text key={item} style={styles.signalText}>• {item}</Text>
-                ))}
-              </View>
-            ) : null}
+        <View style={styles.card}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.cardTitle}>Case Snapshot</Text>
+            <Text style={styles.sectionCount}>{acceptanceLabel}</Text>
           </View>
-        ) : null}
+          <Text style={styles.qualitySummary}>
+            Mobile attorney review now weighs case strength, liability, severity, economics, likely case cost, documents, and insurance recovery.
+          </Text>
+          <View style={styles.snapshotGrid}>
+            <SnapshotMetric label="Case Strength" value={`${viabilityPercent}/100`} helper={caseStrengthLabel} />
+            <SnapshotMetric label="Liability" value={`${liabilityPercent}%`} helper={liabilityLabel} />
+            <SnapshotMetric label="Injury Severity" value={`${severityPercent}%`} helper={severityLabel} />
+            <SnapshotMetric label="Settlement Value" value={formatRange(settlementLow, settlementHigh)} helper="Modeled range" />
+            <SnapshotMetric label="Trial Value" value={formatRange(trialLow, trialHigh)} helper="Litigation exposure" />
+            <SnapshotMetric label="Attorney Acceptance" value={`${attorneyAcceptancePercent}%`} helper={acceptanceLabel} accent />
+          </View>
+          <View style={styles.completenessCard}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.snapshotLabel}>Case Completeness</Text>
+              <Text style={styles.completenessValue}>{caseCompletenessPercent}%</Text>
+            </View>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${caseCompletenessPercent}%` }]} />
+            </View>
+          </View>
+          <View style={styles.signalBlock}>
+            <Text style={styles.signalTitle}>Severity factors</Text>
+            <FactorRow label="MRI findings" present={hasMriSignal} />
+            <FactorRow label="Treatment duration" present={hasTreatmentDurationSignal} />
+            <FactorRow label="Injections" present={hasInjectionSignal} />
+            <FactorRow label="Surgery" present={hasSurgerySignal} />
+          </View>
+          {leadQuality?.recommendation?.rationale ? (
+            <Text style={[styles.qualitySummary, styles.snapshotRationale]}>{leadQuality.recommendation.rationale}</Text>
+          ) : null}
+          {Array.isArray(leadQuality?.strengths) && leadQuality.strengths.length > 0 ? (
+            <View style={styles.signalBlock}>
+              <Text style={styles.signalTitle}>Why attorneys may like it</Text>
+              {leadQuality.strengths.slice(0, 3).map((item) => (
+                <Text key={item} style={styles.signalText}>✓ {item}</Text>
+              ))}
+            </View>
+          ) : null}
+          {Array.isArray(leadQuality?.risks) && leadQuality.risks.length > 0 ? (
+            <View style={styles.signalBlock}>
+              <Text style={styles.signalTitle}>Watch items</Text>
+              {leadQuality.risks.slice(0, 3).map((item) => (
+                <Text key={item} style={styles.signalText}>• {item}</Text>
+              ))}
+            </View>
+          ) : null}
+        </View>
 
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
@@ -1053,10 +1106,82 @@ function Row({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMap; lab
   )
 }
 
+function SnapshotMetric({ label, value, helper, accent }: { label: string; value: string; helper: string; accent?: boolean }) {
+  return (
+    <View style={[styles.snapshotMetric, accent && styles.snapshotMetricAccent]}>
+      <Text style={styles.snapshotLabel}>{label}</Text>
+      <Text style={[styles.snapshotValue, accent && styles.snapshotValueAccent]}>{value}</Text>
+      <Text style={styles.snapshotHelper}>{helper}</Text>
+    </View>
+  )
+}
+
+function FactorRow({ label, present }: { label: string; present: boolean }) {
+  return (
+    <View style={styles.factorRow}>
+      <Ionicons
+        name={present ? 'checkmark-circle-outline' : 'close-circle-outline'}
+        size={16}
+        color={present ? colors.success : colors.muted}
+      />
+      <Text style={styles.factorText}>{label}</Text>
+    </View>
+  )
+}
+
 function formatMoney(value: unknown) {
   const amount = Number(value)
   if (!Number.isFinite(amount) || amount <= 0) return '—'
   return `$${Math.round(amount).toLocaleString()}`
+}
+
+function formatRange(low: unknown, high: unknown) {
+  const lowAmount = Number(low)
+  const highAmount = Number(high)
+  if (!Number.isFinite(lowAmount) || !Number.isFinite(highAmount) || lowAmount <= 0 || highAmount <= 0) return '—'
+  return `${formatMoney(lowAmount)} - ${formatMoney(Math.max(lowAmount, highAmount))}`
+}
+
+function normalizePercent(value: unknown) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round(numeric <= 1 ? numeric * 100 : numeric)))
+}
+
+function scoreLabel(score: number, high: string, medium: string, low: string) {
+  if (score >= 75) return high
+  if (score >= 45) return medium
+  return low
+}
+
+function buildAcceptanceProbability(params: {
+  settlementLow: number
+  settlementHigh: number
+  liabilityPercent: number
+  severityPercent: number
+  completenessPercent: number
+  evidenceCount: number
+}) {
+  const expectedSettlement = Math.max(params.settlementLow, params.settlementHigh * 0.55)
+  const expectedFee = expectedSettlement * 0.33
+  const estimatedCost = params.severityPercent >= 80 ? 15000 : params.severityPercent >= 60 ? 10000 : 6500
+  const feeSpread = expectedFee - estimatedCost
+  const economics = feeSpread >= 25000 ? 30 : feeSpread >= 12000 ? 23 : feeSpread >= 4000 ? 15 : 6
+  const liability = params.liabilityPercent >= 75 ? 24 : params.liabilityPercent >= 55 ? 16 : 7
+  const severity = params.severityPercent >= 75 ? 18 : params.severityPercent >= 55 ? 12 : 6
+  const completeness = Math.min(14, Math.round(params.completenessPercent * 0.14))
+  const evidence = Math.min(8, params.evidenceCount * 2)
+  return Math.max(5, Math.min(98, Math.round(8 + economics + liability + severity + completeness + evidence)))
+}
+
+function hasTextSignal(facts: any, quality: LeadQualityDetails | null, keywords: string[]) {
+  const haystack = JSON.stringify({
+    facts,
+    strengths: quality?.strengths || [],
+    risks: quality?.risks || [],
+    recommendation: quality?.recommendation?.rationale || '',
+  }).toLowerCase()
+  return keywords.some((keyword) => haystack.includes(keyword.toLowerCase()))
 }
 
 function formatNegotiationType(value?: string | null) {
@@ -1151,6 +1276,38 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 12, fontWeight: '800', color: colors.primary, textTransform: 'uppercase' },
   badgeDanger: { color: colors.danger },
   qualitySummary: { fontSize: 15, lineHeight: 22, color: colors.text, marginBottom: space.md },
+  snapshotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginBottom: space.md },
+  snapshotMetric: {
+    width: '48%',
+    minHeight: 106,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: space.md,
+  },
+  snapshotMetricAccent: {
+    borderColor: colors.primary + '55',
+    backgroundColor: colors.primary + '10',
+  },
+  snapshotLabel: { fontSize: 11, fontWeight: '800', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.45 },
+  snapshotValue: { marginTop: 7, fontSize: 21, fontWeight: '900', color: colors.text, letterSpacing: -0.4 },
+  snapshotValueAccent: { color: colors.primaryDark },
+  snapshotHelper: { marginTop: 4, fontSize: 12, fontWeight: '700', color: colors.textSecondary, lineHeight: 16 },
+  snapshotRationale: { marginTop: space.md, marginBottom: 0 },
+  completenessCard: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.primary + '22',
+    backgroundColor: colors.card,
+    padding: space.md,
+    marginBottom: space.sm,
+  },
+  completenessValue: { fontSize: 13, fontWeight: '900', color: colors.primaryDark },
+  progressTrack: { height: 8, borderRadius: 999, backgroundColor: colors.border, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 999, backgroundColor: colors.primary },
+  factorRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: 6 },
+  factorText: { fontSize: 14, color: colors.text, fontWeight: '600' },
   inlineAction: {
     alignSelf: 'flex-start',
     borderRadius: radii.md,

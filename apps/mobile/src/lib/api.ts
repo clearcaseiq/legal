@@ -364,6 +364,12 @@ export async function getLeadDetails(leadId: string) {
 export type LeadQualityDetails = {
   qualityScore?: number
   readinessScore?: number
+  viabilityBreakdown?: {
+    overall?: number
+    liability?: number
+    causation?: number
+    damages?: number
+  }
   demandReadiness?: {
     score?: number
     label?: string
@@ -413,6 +419,12 @@ export async function getLeadQuality(leadId: string): Promise<LeadQualityDetails
   return {
     qualityScore: Number(qualityDetails?.qualityReports?.[0]?.qualityScore ?? viability.overall ?? 0) * (Number(viability.overall ?? 0) <= 1 ? 100 : 1),
     readinessScore: Number(viability.overall ?? 0) * (Number(viability.overall ?? 0) <= 1 ? 100 : 1),
+    viabilityBreakdown: {
+      overall: Number(viability.overall ?? 0),
+      liability: Number(viability.liability ?? 0),
+      causation: Number(viability.causation ?? 0),
+      damages: Number(viability.damages ?? 0),
+    },
     strengths,
     risks,
     missingItems,

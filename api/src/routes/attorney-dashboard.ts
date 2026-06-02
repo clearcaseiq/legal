@@ -8449,6 +8449,10 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
       where: { id: lead.assessmentId },
       include: {
         evidenceFiles: { take: 10 },
+        predictions: {
+          orderBy: { createdAt: 'desc' },
+          take: 1
+        },
         user: { select: { id: true, firstName: true, lastName: true, email: true } }
       }
     })
@@ -8474,6 +8478,12 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
             venueCounty: assessment.venueCounty,
             status: assessment.status,
             facts: assessment.facts,
+            latestPrediction: assessment.predictions?.[0]
+              ? {
+                  viability: safeJsonParse<any>(assessment.predictions[0].viability, {}),
+                  bands: safeJsonParse<any>(assessment.predictions[0].bands, {})
+                }
+              : null,
             evidenceCount: assessment.evidenceFiles?.length || 0,
             user: assessment.user,
             userId: assessment.userId
