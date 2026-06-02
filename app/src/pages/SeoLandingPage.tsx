@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { Activity, AlertTriangle, Calculator, CheckCircle, ChevronRight, FileText, Search, Shield, Stethoscope, TrendingUp } from 'lucide-react'
 import { landingPagesBySlug } from '../data/seoLandingPages'
@@ -399,6 +399,35 @@ function buildTopicDeepDive(page: { title: string; cluster: string; category: st
   ]
 }
 
+function uniqueItems(...groups: string[][]) {
+  return Array.from(new Set(groups.flat().filter(Boolean)))
+}
+
+function buildPlaintiffGuidance(page: TopicContent & { pageTitle: string; cluster: string; whatToTrack: string[] }) {
+  const earlyTimeline = page.timeline[0]?.[1]
+  const laterTimeline = page.timeline[page.timeline.length - 1]?.[1]
+  const firstTreatmentStep = page.treatmentProgression[0]
+  const escalationStep = page.treatmentProgression[page.treatmentProgression.length - 1]
+  const documentChecklist = uniqueItems(
+    page.whatToTrack,
+    page.settlementDrivers,
+    page.treatmentProgression.map((step) => step.label)
+  ).slice(0, 9)
+
+  return {
+    overview: `For ${page.pageTitle.toLowerCase()}, the most helpful plaintiff move is to preserve the timeline and proof. Start with the earliest documented facts: ${earlyTimeline || 'initial symptoms, accident facts, and first treatment.'} Then connect them to what happened later: ${laterTimeline || 'follow-up care, bills, restrictions, and insurance communications.'}`,
+    actions: [
+      `Write down the exact timeline for ${page.cluster.toLowerCase()}: what happened first, what changed, and what still affects daily life.`,
+      firstTreatmentStep ? `Collect the records tied to ${firstTreatmentStep.label.toLowerCase()}: ${firstTreatmentStep.copy}` : 'Collect first-treatment records, discharge papers, and bills.',
+      escalationStep ? `Flag escalation points such as ${escalationStep.label.toLowerCase()}: ${escalationStep.copy}` : 'Flag any referral, imaging, procedure, surgery discussion, or future-care recommendation.',
+      `Save insurance letters, adjuster emails, offers, denials, and any explanation that mentions ${page.insuranceProblems[0]?.toLowerCase() || 'fault, causation, treatment, or coverage'}.`,
+    ],
+    documentChecklist,
+    insurerPrep: page.insuranceProblems.slice(0, 5),
+    attorneyQuestions: page.intakeSteps.slice(0, 4),
+  }
+}
+
 export default function SeoLandingPage() {
   const location = useLocation()
   const page = landingPagesBySlug.get(location.pathname)
@@ -429,6 +458,20 @@ export default function SeoLandingPage() {
     )
   }
 
+  useEffect(() => {
+    if (!page) return
+    document.title = `${page.title} | ClearCaseIQ`
+    const description = document.querySelector('meta[name="description"]') || document.createElement('meta')
+    description.setAttribute('name', 'description')
+    description.setAttribute('content', page.description)
+    if (!description.parentElement) document.head.appendChild(description)
+
+    const canonical = document.querySelector('link[rel="canonical"]') || document.createElement('link')
+    canonical.setAttribute('rel', 'canonical')
+    canonical.setAttribute('href', `${window.location.origin}${page.slug}`)
+    if (!canonical.parentElement) document.head.appendChild(canonical)
+  }, [page])
+
   if (!page) return <Navigate to="/" replace />
 
   const tone = categoryTone[page.category] || 'from-brand-50 to-white border-brand-100 text-brand-950'
@@ -443,9 +486,31 @@ export default function SeoLandingPage() {
   const pageSettlementValueDetails = topicContent?.settlementValueDetails || settlementValueDetails
   const pageInsuranceProblems = topicContent?.insuranceProblems || insuranceProblems
   const pageIntakeSteps = topicContent?.intakeSteps || progressiveIntakeSteps
+  const plaintiffGuidance = buildPlaintiffGuidance({
+    ...(topicContent || {
+      scenario,
+      timeline: pageTimeline,
+      severityLadder: pageSeverityLadder,
+      treatmentProgression: pageTreatmentProgression,
+      settlementDrivers: pageSettlementDrivers,
+      settlementValueDetails: pageSettlementValueDetails,
+      insuranceProblems: pageInsuranceProblems,
+      intakeSteps: pageIntakeSteps,
+    }),
+    pageTitle: page.title,
+    cluster: page.cluster,
+    whatToTrack: page.sections.whatToTrack,
+  })
   const deepDiveSections = topicContent ? buildTopicDeepDive(page, topicContent) : []
   const relatedLinks = internalLinks.filter((link) => link.to !== location.pathname).slice(0, 6)
   const estimatorCta = location.pathname === '/tools/settlement-calculator' ? '/assessment/start' : '/tools/settlement-calculator'
+  const primaryCtaTo =
+    page.cta.toLowerCase().includes('calculator') ||
+    page.cta.toLowerCase().includes('settlement range') ||
+    location.pathname.startsWith('/average-') ||
+    location.pathname.includes('case-worth')
+      ? '/tools/settlement-calculator'
+      : '/assessment/start'
   const schema = {
     '@context': 'https://schema.org',
     '@graph': [
@@ -505,7 +570,7 @@ export default function SeoLandingPage() {
             </div>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <Link
-                to="/assessment/start"
+                to={primaryCtaTo}
                 className="inline-flex items-center justify-center rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
               >
                 {page.cta}
@@ -812,6 +877,61 @@ export default function SeoLandingPage() {
           </div>
         </section>
       )}
+
+      <section className="mt-8 rounded-3xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-white p-6 shadow-sm sm:p-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-indigo-700">Plaintiff action plan</p>
+        <h2 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">What to do next for {page.cluster.toLowerCase()}</h2>
+        <p className="mt-3 max-w-4xl text-sm leading-7 text-slate-700">{plaintiffGuidance.overview}</p>
+
+        <div className="mt-6 grid gap-4 lg:grid-cols-3">
+          <div className="rounded-2xl border border-indigo-100 bg-white p-5 shadow-sm">
+            <h3 className="text-base font-semibold text-slate-950">Practical next steps</h3>
+            <ul className="mt-3 space-y-3 text-sm leading-6 text-slate-700">
+              {plaintiffGuidance.actions.map((action) => (
+                <li key={action} className="flex gap-2">
+                  <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-indigo-700" aria-hidden />
+                  <span>{action}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 className="text-base font-semibold text-slate-950">Records and proof to gather</h3>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {plaintiffGuidance.documentChecklist.map((item) => (
+                <span key={item} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700">
+                  {item}
+                </span>
+              ))}
+            </div>
+            <p className="mt-4 text-xs leading-5 text-slate-500">
+              If a record is missing, note the provider, date range, and why it is not available yet. Missing-document explanations can matter.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm">
+            <h3 className="text-base font-semibold text-slate-950">Prepare for insurer pushback</h3>
+            <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+              {plaintiffGuidance.insurerPrep.map((item) => (
+                <li key={item} className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2">{item}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-white bg-white/80 p-5 shadow-sm">
+          <h3 className="text-base font-semibold text-slate-950">Questions that make this page attorney-ready</h3>
+          <div className="mt-3 grid gap-3 md:grid-cols-4">
+            {plaintiffGuidance.attorneyQuestions.map((step) => (
+              <div key={`${step.label}-${step.question}`} className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-indigo-700">{step.label}</p>
+                <p className="mt-2 text-sm font-semibold leading-6 text-slate-800">{step.question}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
       <section className="mt-8 grid gap-6 lg:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

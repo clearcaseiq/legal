@@ -9,6 +9,7 @@ const Login = lazy(() => import('./pages/Login'))
 const AttorneyLogin = lazy(() => import('./pages/AttorneyLogin'))
 const Register = lazy(() => import('./pages/Register'))
 const AttorneyRegister = lazy(() => import('./pages/AttorneyRegister'))
+const AttorneyNetwork = lazy(() => import('./pages/AttorneyNetwork'))
 const AttorneyLicenseUpload = lazy(() => import('./pages/AttorneyLicenseUpload'))
 const AdminLogin = lazy(() => import('./pages/AdminLogin'))
 const OAuthCallback = lazy(() => import('./pages/OAuthCallback'))
@@ -38,6 +39,7 @@ const DraftMessagePage = lazy(() => import('./pages/DraftMessagePage'))
 const EventsPage = lazy(() => import('./pages/EventsPage'))
 const CalendarPage = lazy(() => import('./pages/CalendarPage'))
 const FirmDashboard = lazy(() => import('./pages/FirmDashboard'))
+const AttorneyBilling = lazy(() => import('./pages/AttorneyBilling'))
 const LeadQuality = lazy(() => import('./pages/LeadQuality'))
 const AttorneyProfile = lazy(() => import('./pages/AttorneyProfile'))
 const AttorneyPreferences = lazy(() => import('./pages/AttorneyPreferences'))
@@ -165,6 +167,7 @@ function App() {
             <Route element={<GuestRoute role="attorney" />}>
               <Route path="/attorney-login" element={<AttorneyLogin />} />
               <Route path="/login/attorney" element={<AttorneyLogin />} />
+              <Route path="/attorney-network" element={<AttorneyNetwork />} />
               <Route path="/attorney-register" element={<AttorneyRegister />} />
               <Route path="/attorney-license-upload" element={<AttorneyLicenseUpload />} />
             </Route>
@@ -231,6 +234,54 @@ function App() {
             <Route path="/commercial/:slug" element={<SeoLandingPage />} />
             <Route path="/legal/:slug" element={<SeoLandingPage />} />
             <Route path="/education/:slug" element={<SeoLandingPage />} />
+            <Route path="/case-strength/:slug" element={<SeoLandingPage />} />
+            <Route path="/los-angeles-car-accident" element={<SeoLandingPage />} />
+            <Route path="/orange-county-car-accident" element={<SeoLandingPage />} />
+            <Route path="/san-diego-car-accident" element={<SeoLandingPage />} />
+            <Route path="/san-francisco-car-accident" element={<SeoLandingPage />} />
+            <Route path="/sacramento-car-accident" element={<SeoLandingPage />} />
+            <Route path="/san-jose-car-accident" element={<SeoLandingPage />} />
+            <Route path="/long-beach-car-accident" element={<SeoLandingPage />} />
+            <Route path="/anaheim-car-accident" element={<SeoLandingPage />} />
+            <Route path="/irvine-car-accident" element={<SeoLandingPage />} />
+            <Route path="/riverside-car-accident" element={<SeoLandingPage />} />
+            <Route path="/oakland-car-accident" element={<SeoLandingPage />} />
+            <Route path="/fresno-car-accident" element={<SeoLandingPage />} />
+            <Route path="/bakersfield-car-accident" element={<SeoLandingPage />} />
+            <Route path="/how-much-is-my-case-worth" element={<SeoLandingPage />} />
+            <Route path="/how-much-is-a-car-accident-case-worth" element={<SeoLandingPage />} />
+            <Route path="/how-much-is-a-whiplash-case-worth" element={<SeoLandingPage />} />
+            <Route path="/how-much-is-a-herniated-disc-case-worth" element={<SeoLandingPage />} />
+            <Route path="/how-much-is-a-tbi-case-worth" element={<SeoLandingPage />} />
+            <Route path="/how-much-is-a-back-surgery-case-worth" element={<SeoLandingPage />} />
+            <Route path="/how-much-is-a-motorcycle-accident-case-worth" element={<SeoLandingPage />} />
+            <Route path="/how-much-is-a-pedestrian-accident-case-worth" element={<SeoLandingPage />} />
+            <Route path="/average-car-accident-settlement-california" element={<SeoLandingPage />} />
+            <Route path="/average-whiplash-settlement-california" element={<SeoLandingPage />} />
+            <Route path="/average-herniated-disc-settlement-california" element={<SeoLandingPage />} />
+            <Route path="/average-tbi-settlement-california" element={<SeoLandingPage />} />
+            <Route path="/average-back-surgery-settlement-california" element={<SeoLandingPage />} />
+            <Route path="/average-motorcycle-settlement-california" element={<SeoLandingPage />} />
+            <Route path="/when-to-hire-a-lawyer-after-accident" element={<SeoLandingPage />} />
+            <Route path="/do-i-need-a-lawyer-after-a-car-accident" element={<SeoLandingPage />} />
+            <Route path="/how-much-do-personal-injury-lawyers-charge" element={<SeoLandingPage />} />
+            <Route path="/how-much-do-lawyers-take-from-settlement" element={<SeoLandingPage />} />
+            <Route path="/can-i-switch-lawyers-during-my-case" element={<SeoLandingPage />} />
+            <Route path="/case-strength-hit-and-run" element={<SeoLandingPage />} />
+            <Route path="/case-strength-uninsured-driver" element={<SeoLandingPage />} />
+            <Route path="/case-strength-commercial-truck" element={<SeoLandingPage />} />
+            <Route path="/case-strength-rideshare-accident" element={<SeoLandingPage />} />
+            <Route path="/case-strength-motorcycle-accident" element={<SeoLandingPage />} />
+            <Route path="/case-strength-pedestrian-accident" element={<SeoLandingPage />} />
+            <Route path="/california-statute-of-limitations-car-accident" element={<SeoLandingPage />} />
+            <Route path="/california-statute-of-limitations-personal-injury" element={<SeoLandingPage />} />
+            <Route path="/california-statute-of-limitations-wrongful-death" element={<SeoLandingPage />} />
+            <Route path="/missed-the-statute-of-limitations" element={<SeoLandingPage />} />
+            <Route path="/medical-records" element={<SeoLandingPage />} />
+            <Route path="/how-to-organize-medical-records" element={<SeoLandingPage />} />
+            <Route path="/how-to-build-a-medical-chronology" element={<SeoLandingPage />} />
+            <Route path="/what-medical-records-do-lawyers-need" element={<SeoLandingPage />} />
+            <Route path="/how-insurance-companies-review-medical-records" element={<SeoLandingPage />} />
             <Route element={<ProtectedRoute role="attorney" />}>
               <Route path="/attorney-dashboard" element={<AttorneyDashboard />} />
               <Route path="/attorney-dashboard/contacts" element={<ContactsPage />} />
@@ -248,6 +299,7 @@ function App() {
               <Route path="/attorney-dashboard/calendar" element={<CalendarPage />} />
               <Route path="/attorney-dashboard/lead/:leadId/:section" element={<AttorneyDashboard />} />
               <Route path="/firm-dashboard" element={<FirmDashboard />} />
+              <Route path="/attorney-billing" element={<AttorneyBilling />} />
               <Route path="/lead-quality" element={<LeadQuality />} />
               <Route path="/attorney-profile" element={<AttorneyProfile />} />
               <Route path="/attorney-preferences" element={<AttorneyPreferences />} />

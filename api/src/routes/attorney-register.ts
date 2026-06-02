@@ -7,6 +7,26 @@ import { generateToken } from '../lib/auth'
 
 const router = Router()
 
+function slugifyFirmName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'law-firm'
+}
+
+async function ensureUniqueFirmSlug(base: string) {
+  let candidate = base
+  let counter = 2
+
+  while (await (prisma as any).lawFirm.findUnique({ where: { slug: candidate } })) {
+    candidate = `${base}-${counter}`
+    counter += 1
+  }
+
+  return candidate
+}
+
 // Attorney registration schema (exported for tests / tooling)
 export const AttorneyRegisterSchema = z.object({
   email: z.preprocess(
@@ -150,6 +170,32 @@ router.post('/register', async (req, res) => {
           })
         : null
 
+    const primaryFirmLocation = firmLocations?.[0]
+    const lawFirm = firmName?.trim()
+      ? await (async () => {
+          const normalizedFirmName = firmName.trim()
+          const existing = await (prisma as any).lawFirm.findFirst({
+            where: { name: normalizedFirmName }
+          })
+          if (existing) return existing
+
+          const slug = await ensureUniqueFirmSlug(slugifyFirmName(normalizedFirmName))
+          return (prisma as any).lawFirm.create({
+            data: {
+              name: normalizedFirmName,
+              slug,
+              primaryEmail: email,
+              phone: primaryFirmLocation?.phone || phone || null,
+              website: firmWebsite || null,
+              address: primaryFirmLocation?.address || null,
+              city: primaryFirmLocation?.city || null,
+              state: primaryFirmLocation?.state || null,
+              zip: primaryFirmLocation?.zip || null
+            }
+          })
+        })()
+      : null
+
     const attorney = await prisma.attorney.create({
       data: {
         name,
@@ -163,6 +209,7 @@ router.post('/register', async (req, res) => {
         responseTimeHours: 24,
         averageRating: 0,
         totalReviews: 0,
+        lawFirmId: lawFirm?.id || null,
       },
     })
 
@@ -205,6 +252,32 @@ router.post('/register', async (req, res) => {
         subscriptionTier: subscriptionTier || null
       }
     })
+
+    if (lawFirm?.id) {
+      await (prisma as any).firmMember.upsert({
+        where: {
+          lawFirmId_userId: {
+            lawFirmId: lawFirm.id,
+            userId: user.id
+          }
+        },
+        update: {
+          attorneyId: attorney.id,
+          role: 'firm_admin',
+          status: 'active',
+          joinedAt: new Date()
+        },
+        create: {
+          lawFirmId: lawFirm.id,
+          userId: user.id,
+          attorneyId: attorney.id,
+          role: 'firm_admin',
+          title: 'Firm Admin',
+          status: 'active',
+          joinedAt: new Date()
+        }
+      })
+    }
 
     const token = generateToken(user.id)
 

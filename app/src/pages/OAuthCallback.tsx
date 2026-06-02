@@ -13,6 +13,7 @@ export default function OAuthCallback() {
   useEffect(() => {
     const token = searchParams.get('token')
     const provider = searchParams.get('provider')
+    const callbackRole = searchParams.get('role')
     const errorParam = searchParams.get('error')
 
     if (errorParam) {
@@ -23,9 +24,23 @@ export default function OAuthCallback() {
 
     if (token && provider) {
       try {
+        const intendedRole = callbackRole === 'attorney' || callbackRole === 'plaintiff'
+          ? callbackRole
+          : localStorage.getItem('oauth_intended_role') === 'attorney'
+            ? 'attorney'
+            : 'plaintiff'
         localStorage.setItem('auth_token', token)
         localStorage.setItem('auth_provider', provider)
-        localStorage.setItem('auth_role', 'plaintiff')
+        localStorage.setItem('auth_role', intendedRole)
+        localStorage.removeItem('oauth_intended_role')
+        if (intendedRole === 'plaintiff') {
+          localStorage.removeItem('attorney')
+          localStorage.setItem('user', JSON.stringify({ provider }))
+        }
+        if (intendedRole === 'attorney') {
+          navigate('/attorney-dashboard', { replace: true })
+          return
+        }
         resetCachedPlaintiffSessionSummary()
 
         setStatus('success')

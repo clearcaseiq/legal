@@ -113,6 +113,30 @@ const leadAttorneyEvidenceMulter = multer({
   },
 })
 
+const intakeImportUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 25 * 1024 * 1024,
+    files: 10,
+  },
+  fileFilter: (_req, file, cb) => {
+    const allowed = [
+      'text/csv',
+      'text/tab-separated-values',
+      'text/plain',
+      'application/json',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ]
+    const extension = path.extname(file.originalname).toLowerCase()
+    if (allowed.includes(file.mimetype) || ['.csv', '.tsv', '.txt', '.json', '.xls', '.xlsx'].includes(extension)) {
+      cb(null, true)
+      return
+    }
+    cb(new Error('Import files must be CSV, TSV, JSON, XLS, or XLSX exports'))
+  },
+})
+
 async function getAttorneyFromReq(req: any) {
   if (!req.user?.email) {
     return { error: { status: 401, message: 'Authentication required' } }
@@ -1290,11 +1314,11 @@ const intakeFromLeadSchema = z.object({
 })
 
 const intakeImportSchema = z.object({
-  source: z.string(),
-  includeDocuments: z.boolean().optional(),
-  includeHistory: z.boolean().optional(),
-  includeTasks: z.boolean().optional(),
-  includeMedical: z.boolean().optional(),
+  source: z.enum(['clio', 'filevine', 'needles', 'litify', 'spreadsheet']),
+  includeDocuments: z.coerce.boolean().optional(),
+  includeHistory: z.coerce.boolean().optional(),
+  includeTasks: z.coerce.boolean().optional(),
+  includeMedical: z.coerce.boolean().optional(),
   notes: z.string().optional(),
   files: z.array(z.object({ name: z.string(), size: z.number().optional() })).optional()
 })
@@ -1323,15 +1347,24 @@ function getTemplateClaimType(template?: string) {
 async function createDraftAssessment(payload: {
   claimType?: string
   venueState?: string
+  venueCounty?: string | null
   plaintiffFirstName?: string
   plaintiffLastName?: string
   plaintiffEmail?: string
   plaintiffPhone?: string
+  incidentDate?: string
+  narrative?: string
+  source?: string
+  externalId?: string | null
+  rawImport?: Record<string, unknown>
 }) {
   const claimType = payload.claimType || 'auto'
   const venueState = payload.venueState || 'CA'
   const facts = {
-    incident: { date: new Date().toISOString().split('T')[0], narrative: '' },
+    incident: {
+      date: payload.incidentDate || new Date().toISOString().split('T')[0],
+      narrative: payload.narrative || ''
+    },
     injuries: [],
     treatment: [],
     damages: {},
@@ -1341,17 +1374,244 @@ async function createDraftAssessment(payload: {
       email: payload.plaintiffEmail || '',
       phone: payload.plaintiffPhone || ''
     },
+    importSource: payload.source
+      ? {
+          source: payload.source,
+          externalId: payload.externalId || null,
+          raw: payload.rawImport || null
+        }
+      : undefined,
     consents: { tos: false, privacy: false, ml_use: false, hipaa: false }
   }
   return prisma.assessment.create({
     data: {
       claimType,
       venueState,
-      venueCounty: null,
+      venueCounty: payload.venueCounty || null,
       status: 'DRAFT',
       facts: JSON.stringify(facts)
     }
   })
+}
+
+type IntakeImportSource = z.infer<typeof intakeImportSchema>['source']
+
+type ParsedImportFile = {
+  fileName: string
+  rows: Record<string, string>[]
+  unsupportedReason?: string
+}
+
+type NormalizedImportedCase = {
+  externalId: string | null
+  claimType: string
+  venueState: string
+  venueCounty: string | null
+  plaintiffFirstName: string
+  plaintiffLastName: string
+  plaintiffEmail: string
+  plaintiffPhone: string
+  incidentDate?: string
+  narrative: string
+  taskTitle?: string
+  taskDueDate?: Date | null
+  raw: Record<string, string>
+}
+
+function parseBoolean(value: unknown, fallback = true) {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false
+  }
+  return fallback
+}
+
+function splitDelimitedLine(line: string, delimiter: ',' | '\t') {
+  const cells: string[] = []
+  let current = ''
+  let inQuotes = false
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]
+    const next = line[index + 1]
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"'
+      index += 1
+    } else if (char === '"') {
+      inQuotes = !inQuotes
+    } else if (char === delimiter && !inQuotes) {
+      cells.push(current.trim())
+      current = ''
+    } else {
+      current += char
+    }
+  }
+
+  cells.push(current.trim())
+  return cells
+}
+
+function parseDelimitedRows(content: string, delimiter: ',' | '\t') {
+  const lines = content
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0)
+  if (lines.length === 0) return []
+  const headers = splitDelimitedLine(lines[0], delimiter).map((header) => header.trim())
+  return lines.slice(1).map((line) => {
+    const values = splitDelimitedLine(line, delimiter)
+    return headers.reduce<Record<string, string>>((row, header, index) => {
+      row[header] = values[index] || ''
+      return row
+    }, {})
+  })
+}
+
+function parseJsonRows(content: string) {
+  const parsed = JSON.parse(content)
+  if (Array.isArray(parsed)) return parsed
+  if (Array.isArray(parsed.cases)) return parsed.cases
+  if (Array.isArray(parsed.matters)) return parsed.matters
+  if (Array.isArray(parsed.projects)) return parsed.projects
+  return [parsed]
+}
+
+function parseImportFile(file: Express.Multer.File): ParsedImportFile {
+  const extension = path.extname(file.originalname).toLowerCase()
+  if (['.xlsx', '.xls'].includes(extension)) {
+    return {
+      fileName: file.originalname,
+      rows: [],
+      unsupportedReason: 'XLS/XLSX files are stored with the import request. Export as CSV to auto-create cases.',
+    }
+  }
+
+  const content = file.buffer.toString('utf8')
+  if (extension === '.json' || file.mimetype === 'application/json') {
+    return {
+      fileName: file.originalname,
+      rows: parseJsonRows(content).map((row: unknown) => flattenImportRow(row)),
+    }
+  }
+
+  const delimiter = extension === '.tsv' || file.mimetype === 'text/tab-separated-values' ? '\t' : ','
+  return {
+    fileName: file.originalname,
+    rows: parseDelimitedRows(content, delimiter),
+  }
+}
+
+function flattenImportRow(value: unknown, prefix = ''): Record<string, string> {
+  if (!value || typeof value !== 'object') return {}
+  return Object.entries(value as Record<string, unknown>).reduce<Record<string, string>>((row, [key, nested]) => {
+    const nextKey = prefix ? `${prefix}.${key}` : key
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      Object.assign(row, flattenImportRow(nested, nextKey))
+    } else if (Array.isArray(nested)) {
+      row[nextKey] = nested.map((item) => typeof item === 'object' ? JSON.stringify(item) : String(item)).join('; ')
+    } else {
+      row[nextKey] = nested == null ? '' : String(nested)
+    }
+    return row
+  }, {})
+}
+
+function getImportField(row: Record<string, string>, candidates: string[]) {
+  const entries = Object.entries(row)
+  for (const candidate of candidates) {
+    const normalizedCandidate = candidate.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const match = entries.find(([key]) => key.toLowerCase().replace(/[^a-z0-9]/g, '') === normalizedCandidate)
+    if (match?.[1]) return match[1].trim()
+  }
+  return ''
+}
+
+function splitClientName(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return { firstName: '', lastName: '' }
+  if (parts.length === 1) return { firstName: parts[0], lastName: '' }
+  return { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1] }
+}
+
+function normalizeClaimType(value: string) {
+  const text = value.toLowerCase()
+  if (text.includes('premise') || text.includes('slip') || text.includes('fall')) return 'slip_and_fall'
+  if (text.includes('medical') || text.includes('malpractice') || text.includes('med mal')) return 'medmal'
+  if (text.includes('dog')) return 'dog_bite'
+  if (text.includes('auto') || text.includes('motor') || text.includes('vehicle') || text.includes('mva')) return 'auto'
+  return value ? value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') : 'auto'
+}
+
+function normalizeIncidentDate(value: string) {
+  if (!value) return undefined
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return undefined
+  return date.toISOString().split('T')[0]
+}
+
+function normalizeImportedCase(source: IntakeImportSource, row: Record<string, string>): NormalizedImportedCase {
+  const sourceSpecific: Record<IntakeImportSource, Record<string, string[]>> = {
+    clio: {
+      externalId: ['matter id', 'matter number', 'id', 'display number'],
+      clientName: ['client name', 'client', 'primary client'],
+      claimType: ['practice area', 'matter type', 'case type'],
+      narrative: ['description', 'matter description', 'notes'],
+    },
+    filevine: {
+      externalId: ['project id', 'projectId', 'project number', 'filevine id'],
+      clientName: ['client name', 'clientName', 'contact name', 'project name'],
+      claimType: ['project type', 'case type', 'phase name'],
+      narrative: ['project description', 'summary', 'facts', 'notes'],
+    },
+    needles: {
+      externalId: ['case number', 'case_num', 'file number', 'matter number'],
+      clientName: ['client', 'client name', 'party name'],
+      claimType: ['case type', 'matter type', 'classification'],
+      narrative: ['case facts', 'description', 'notes', 'memo'],
+    },
+    litify: {
+      externalId: ['matter id', 'litify id', 'matter name', 'case id'],
+      clientName: ['client name', 'client', 'account name', 'matter name'],
+      claimType: ['matter type', 'case type', 'practice area'],
+      narrative: ['description', 'case summary', 'facts', 'notes'],
+    },
+    spreadsheet: {
+      externalId: ['external id', 'case id', 'matter id', 'file number'],
+      clientName: ['client name', 'plaintiff name', 'name'],
+      claimType: ['claim type', 'case type', 'matter type'],
+      narrative: ['narrative', 'description', 'facts', 'notes'],
+    },
+  }
+  const mapping = sourceSpecific[source]
+  const clientName = getImportField(row, mapping.clientName)
+  const splitName = splitClientName(clientName)
+  const firstName = getImportField(row, ['plaintiff first name', 'first name', 'client first name', 'firstName']) || splitName.firstName
+  const lastName = getImportField(row, ['plaintiff last name', 'last name', 'client last name', 'lastName']) || splitName.lastName
+  const claimType = getImportField(row, ['claim type', 'case type', 'matter type', ...mapping.claimType])
+
+  return {
+    externalId: getImportField(row, ['external id', 'case id', 'matter id', ...mapping.externalId]) || null,
+    claimType: normalizeClaimType(claimType),
+    venueState: (getImportField(row, ['venue state', 'state', 'jurisdiction state']) || 'CA').toUpperCase(),
+    venueCounty: getImportField(row, ['venue county', 'county', 'jurisdiction county']) || null,
+    plaintiffFirstName: firstName,
+    plaintiffLastName: lastName,
+    plaintiffEmail: getImportField(row, ['plaintiff email', 'client email', 'email']),
+    plaintiffPhone: getImportField(row, ['plaintiff phone', 'client phone', 'phone', 'mobile']),
+    incidentDate: normalizeIncidentDate(getImportField(row, ['incident date', 'date of loss', 'dol', 'doi', 'accident date'])),
+    narrative: getImportField(row, ['narrative', 'description', 'facts', 'summary', ...mapping.narrative]),
+    taskTitle: getImportField(row, ['next task', 'task title', 'deadline name']),
+    taskDueDate: normalizeTaskDueDate(getImportField(row, ['task due date', 'deadline', 'due date'])),
+    raw: row,
+  }
+}
+
+function normalizeTaskDueDate(value: string) {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
 }
 
 async function applyTaskSlaTemplates(attorneyId: string, assessmentId: string, triggerStatus: string) {
@@ -2179,6 +2439,42 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       logger.warn('Case contacts count failed', { error: caseContactErr?.message })
     }
 
+    let importedCaseManagement = {
+      importedCases: 0,
+      pendingImports: 0,
+      latestImportAt: null as string | null,
+      bySource: {} as Record<string, number>
+    }
+    try {
+      const importSources = ['filevine', 'needles', 'litify', 'spreadsheet']
+      const importedRequests = await prisma.caseIntakeRequest.findMany({
+        where: {
+          attorneyId,
+          source: { in: importSources }
+        },
+        select: {
+          source: true,
+          status: true,
+          createdAt: true
+        },
+        orderBy: { createdAt: 'desc' }
+      })
+      importedCaseManagement = importedRequests.reduce((summary, request) => {
+        const source = request.source || 'unknown'
+        summary.importedCases += 1
+        summary.bySource[source] = (summary.bySource[source] || 0) + 1
+        if (request.status !== 'completed' && request.status !== 'created') {
+          summary.pendingImports += 1
+        }
+        if (!summary.latestImportAt && request.createdAt) {
+          summary.latestImportAt = request.createdAt.toISOString()
+        }
+        return summary
+      }, importedCaseManagement)
+    } catch (importCountErr: any) {
+      logger.warn('Imported case management summary failed', { error: importCountErr?.message })
+    }
+
     // Quick action counts (for attorney's cases)
     const assessmentIds = [...new Set((allLeadsForPipeline || []).map((l: any) => l.assessmentId).filter(Boolean))]
     const leadByAssessmentId = new Map(
@@ -2326,6 +2622,7 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       topCaseToday,
       recentContacts,
       caseContactsCount,
+      importedCaseManagement,
       quickActionCounts: {
         tasks: tasksCount,
         timeEntries: timeEntriesCount,
@@ -4331,45 +4628,143 @@ router.post('/intake/clone-template', authMiddleware, async (req: any, res) => {
   }
 })
 
-router.post('/intake/import', authMiddleware, async (req: any, res) => {
+router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 10), async (req: any, res) => {
   try {
-    const payload = intakeImportSchema.parse(req.body || {})
+    const uploadedFiles = (req.files || []) as Express.Multer.File[]
+    const bodyFiles = Array.isArray(req.body?.files) ? req.body.files : undefined
+    const payload = intakeImportSchema.parse({
+      ...(req.body || {}),
+      includeDocuments: parseBoolean(req.body?.includeDocuments, true),
+      includeHistory: parseBoolean(req.body?.includeHistory, true),
+      includeTasks: parseBoolean(req.body?.includeTasks, true),
+      includeMedical: parseBoolean(req.body?.includeMedical, true),
+      files: bodyFiles,
+    })
     const auth = await getAttorneyFromReq(req)
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    const assessment = await createDraftAssessment({ claimType: 'auto', venueState: 'CA' })
     const importId = crypto.randomUUID()
-    await prisma.caseIntakeRequest.create({
-      data: {
-        attorneyId: auth.attorney.id,
-        assessmentId: assessment.id,
-        kind: 'import',
-        source: payload.source,
-        payload: JSON.stringify({
+    const parsedFiles = uploadedFiles.map((file) => parseImportFile(file))
+    const fileRows = parsedFiles.flatMap((file) => file.rows.map((row) => ({ fileName: file.fileName, row })))
+    const uploadedFileSummaries = uploadedFiles.map((file) => ({
+      name: file.originalname,
+      size: file.size,
+      mimetype: file.mimetype,
+    }))
+    const metadataFiles = payload.files || []
+    const fileSummaries = uploadedFileSummaries.length > 0 ? uploadedFileSummaries : metadataFiles
+    const unsupportedFiles = parsedFiles
+      .filter((file) => file.unsupportedReason)
+      .map((file) => ({ name: file.fileName, reason: file.unsupportedReason }))
+    const createdAssessments: Array<{ id: string; fileName?: string; externalId: string | null }> = []
+
+    if (fileRows.length > 0) {
+      for (const item of fileRows) {
+        const importedCase = normalizeImportedCase(payload.source, item.row)
+        const assessment = await createDraftAssessment({
+          claimType: importedCase.claimType,
+          venueState: importedCase.venueState,
+          venueCounty: importedCase.venueCounty,
+          plaintiffFirstName: importedCase.plaintiffFirstName,
+          plaintiffLastName: importedCase.plaintiffLastName,
+          plaintiffEmail: importedCase.plaintiffEmail,
+          plaintiffPhone: importedCase.plaintiffPhone,
+          incidentDate: importedCase.incidentDate,
+          narrative: importedCase.narrative,
           source: payload.source,
-          includeDocuments: payload.includeDocuments ?? true,
-          includeHistory: payload.includeHistory ?? true,
-          includeTasks: payload.includeTasks ?? true,
-          includeMedical: payload.includeMedical ?? true,
-          notes: payload.notes || null,
-          files: payload.files || []
+          externalId: importedCase.externalId,
+          rawImport: importedCase.raw,
         })
+        await prisma.caseIntakeRequest.create({
+          data: {
+            attorneyId: auth.attorney.id,
+            assessmentId: assessment.id,
+            kind: 'import',
+            source: payload.source,
+            status: 'imported',
+            payload: JSON.stringify({
+              importId,
+              source: payload.source,
+              externalId: importedCase.externalId,
+              fileName: item.fileName,
+              includeDocuments: payload.includeDocuments ?? true,
+              includeHistory: payload.includeHistory ?? true,
+              includeTasks: payload.includeTasks ?? true,
+              includeMedical: payload.includeMedical ?? true,
+              notes: payload.notes || null,
+              importedCase,
+              files: fileSummaries,
+            })
+          }
+        })
+        if (payload.includeTasks && importedCase.taskTitle) {
+          await prisma.caseTask.create({
+            data: {
+              assessmentId: assessment.id,
+              title: importedCase.taskTitle,
+              dueDate: importedCase.taskDueDate || null,
+              priority: 'medium',
+              status: 'open',
+            }
+          })
+        }
+        await prisma.caseNote.create({
+          data: {
+            assessmentId: assessment.id,
+            authorName: auth.attorney.name || null,
+            authorEmail: auth.attorney.email || null,
+            noteType: 'update',
+            message: [
+              `${payload.source} import`,
+              importedCase.narrative,
+              payload.notes ? `Import notes: ${payload.notes}` : '',
+              importedCase.externalId ? `External ID: ${importedCase.externalId}` : '',
+            ].filter(Boolean).join('\n\n') || `Imported from ${payload.source}.`,
+          }
+        })
+        createdAssessments.push({ id: assessment.id, fileName: item.fileName, externalId: importedCase.externalId })
       }
-    })
+    } else {
+      const assessment = await createDraftAssessment({ claimType: 'auto', venueState: 'CA', source: payload.source })
+      await prisma.caseIntakeRequest.create({
+        data: {
+          attorneyId: auth.attorney.id,
+          assessmentId: assessment.id,
+          kind: 'import',
+          source: payload.source,
+          payload: JSON.stringify({
+            importId,
+            source: payload.source,
+            includeDocuments: payload.includeDocuments ?? true,
+            includeHistory: payload.includeHistory ?? true,
+            includeTasks: payload.includeTasks ?? true,
+            includeMedical: payload.includeMedical ?? true,
+            notes: payload.notes || null,
+            files: fileSummaries,
+            unsupportedFiles,
+          })
+        }
+      })
+      createdAssessments.push({ id: assessment.id, externalId: null })
+    }
+
     res.json({
       importId,
-      assessmentId: assessment.id,
+      assessmentId: createdAssessments[0]?.id,
+      assessmentIds: createdAssessments.map((assessment) => assessment.id),
+      createdCount: createdAssessments.length,
       source: payload.source,
       includeDocuments: payload.includeDocuments ?? true,
       includeHistory: payload.includeHistory ?? true,
       includeTasks: payload.includeTasks ?? true,
       includeMedical: payload.includeMedical ?? true,
-      files: payload.files || []
+      files: fileSummaries,
+      unsupportedFiles,
     })
   } catch (error: any) {
     logger.error('Failed to import case', { error: error.message })
-    res.status(400).json({ error: 'Failed to import case' })
+    res.status(400).json({ error: error.message || 'Failed to import case' })
   }
 })
 

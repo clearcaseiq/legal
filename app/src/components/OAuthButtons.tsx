@@ -5,9 +5,11 @@ import { getApiOrigin } from '../lib/runtimeEnv'
 interface OAuthButtonsProps {
   onError?: (error: string) => void
   disabled?: boolean
+  emphasizeGoogle?: boolean
+  role?: 'plaintiff' | 'attorney'
 }
 
-export default function OAuthButtons({ onError, disabled = false }: OAuthButtonsProps) {
+export default function OAuthButtons({ onError, disabled = false, emphasizeGoogle = false, role = 'plaintiff' }: OAuthButtonsProps) {
   const [loading, setLoading] = useState<'google' | 'apple' | null>(null)
   const apiUrl = getApiOrigin() || 'http://localhost:4000'
 
@@ -24,8 +26,12 @@ export default function OAuthButtons({ onError, disabled = false }: OAuthButtons
         return
       }
       
-      // Redirect to Google OAuth endpoint
-      window.location.href = `${apiUrl}/v1/auth/google`
+      localStorage.setItem('oauth_intended_role', role)
+      if (role === 'plaintiff') {
+        localStorage.removeItem('auth_role')
+        localStorage.removeItem('attorney')
+      }
+      window.location.href = `${apiUrl}/v1/auth/google?role=${encodeURIComponent(role)}`
     } catch (error: any) {
       setLoading(null)
       onError?.(error.message || 'Google login failed')
@@ -45,8 +51,12 @@ export default function OAuthButtons({ onError, disabled = false }: OAuthButtons
         return
       }
       
-      // Redirect to Apple OAuth endpoint
-      window.location.href = `${apiUrl}/v1/auth/apple`
+      localStorage.setItem('oauth_intended_role', role)
+      if (role === 'plaintiff') {
+        localStorage.removeItem('auth_role')
+        localStorage.removeItem('attorney')
+      }
+      window.location.href = `${apiUrl}/v1/auth/apple?role=${encodeURIComponent(role)}`
     } catch (error: any) {
       setLoading(null)
       onError?.(error.message || 'Apple login failed')
@@ -59,7 +69,11 @@ export default function OAuthButtons({ onError, disabled = false }: OAuthButtons
       <button
         onClick={handleGoogleLogin}
         disabled={disabled || loading === 'google'}
-        className="w-full flex items-center justify-center px-4 py-3 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className={`w-full flex items-center justify-center px-4 border rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${
+          emphasizeGoogle
+            ? 'py-3.5 border-brand-600 bg-brand-700 text-base font-semibold text-white hover:bg-brand-800'
+            : 'py-3 border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50'
+        }`}
       >
         {loading === 'google' ? (
           <Loader2 className="h-5 w-5 animate-spin mr-2" />
@@ -73,7 +87,7 @@ export default function OAuthButtons({ onError, disabled = false }: OAuthButtons
       <button
         onClick={handleAppleLogin}
         disabled={disabled || loading === 'apple'}
-        className="w-full flex items-center justify-center px-4 py-3 border border-gray-300 rounded-md shadow-sm bg-black text-sm font-medium text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="w-full flex items-center justify-center px-4 py-3 border border-gray-300 rounded-xl shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
         {loading === 'apple' ? (
           <Loader2 className="h-5 w-5 animate-spin mr-2" />

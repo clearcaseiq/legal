@@ -15,7 +15,7 @@ export default function ForAttorneys() {
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Link
-            to="/attorney-register"
+            to="/attorney-network"
             className="inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white bg-brand-600 rounded-xl hover:bg-brand-700 transition-colors"
           >
             Join the Attorney Network
@@ -195,7 +195,7 @@ export default function ForAttorneys() {
         </div>
         <div className="text-center">
           <Link
-            to="/attorney-register"
+            to="/attorney-network"
             className="inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white bg-brand-600 rounded-xl hover:bg-brand-700 transition-colors"
           >
             Apply to Join
@@ -227,7 +227,7 @@ export default function ForAttorneys() {
         <h2 className="text-2xl font-bold text-slate-900 mb-2">Join the ClearCaseIQ Attorney Network</h2>
         <p className="text-slate-600 mb-4">Receive matched personal injury cases.</p>
         <Link
-          to="/attorney-register"
+          to="/attorney-network"
           className="inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white bg-brand-600 rounded-xl hover:bg-brand-700 transition-colors"
         >
           Apply Now

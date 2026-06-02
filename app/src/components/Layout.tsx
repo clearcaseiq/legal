@@ -140,7 +140,7 @@ export default function Layout({ children }: LayoutProps) {
       {/* Header - single row, compact */}
       <header className="relative z-50 border-b border-slate-200/70 bg-white/78 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-2xl transition-colors dark:border-slate-800/80 dark:bg-slate-900/82 dark:shadow-[0_1px_0_rgba(255,255,255,0.03)] md:sticky md:top-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between h-14 md:h-16 py-2">
+            <div className="flex items-center justify-between h-[72px] md:h-20 py-1">
             {/* Left: Hamburger (mobile) + Logo */}
             <div className="flex items-center gap-2">
               <button
@@ -156,7 +156,7 @@ export default function Layout({ children }: LayoutProps) {
                 aria-label={t('common.appName')}
                 className="flex shrink-0 items-center rounded-xl px-1.5 py-1 transition-colors hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:hover:bg-slate-800/70 dark:focus-visible:ring-offset-slate-900"
               >
-                <BrandLogo appName={t('common.appName')} size="sm" />
+                <BrandLogo appName={t('common.appName')} size="xl" />
               </Link>
             </div>
 
@@ -236,13 +236,47 @@ export default function Layout({ children }: LayoutProps) {
                           {isAdminArea ? 'Cases' : t('common.myCases')}
                         </Link>
                         {!isAdmin && (
-                        <Link
-                          to={isAttorney ? '/attorney-profile' : '/profile'}
-                          onClick={() => setUserMenuOpen(false)}
-                          className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                        >
-                          Profile
-                        </Link>
+                          <>
+                            <Link
+                              to={isAttorney ? '/attorney-profile' : '/profile'}
+                              onClick={() => setUserMenuOpen(false)}
+                              className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                            >
+                              My Profile
+                            </Link>
+                            {isAttorney && (
+                              <>
+                                <Link
+                                  to="/attorney-dashboard?tab=profile"
+                                  onClick={() => setUserMenuOpen(false)}
+                                  className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                >
+                                  Profile Settings
+                                </Link>
+                                <Link
+                                  to="/firm-dashboard"
+                                  onClick={() => setUserMenuOpen(false)}
+                                  className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                >
+                                  Firm Dashboard
+                                </Link>
+                                <Link
+                                  to="/firm-dashboard"
+                                  onClick={() => setUserMenuOpen(false)}
+                                  className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                >
+                                  Firm Settings
+                                </Link>
+                                <Link
+                                  to="/attorney-billing"
+                                  onClick={() => setUserMenuOpen(false)}
+                                  className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                >
+                                  Billing
+                                </Link>
+                              </>
+                            )}
+                          </>
                         )}
                         <button
                           onClick={() => { setUserMenuOpen(false); handleLogout(); }}
@@ -361,6 +395,16 @@ export default function Layout({ children }: LayoutProps) {
                     <>
                       <Link to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Admin Dashboard' : 'Dashboard'}</Link>
                       <Link to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard?tab=leads' : navLinks.myCase} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Cases' : isAttorney ? 'My Cases' : (hasCase ? 'Continue My Case' : 'My Case')}</Link>
+                      {!isAdmin && (
+                        <Link to={isAttorney ? '/attorney-profile' : '/profile'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">My Profile</Link>
+                      )}
+                      {isAttorney && (
+                        <>
+                          <Link to="/attorney-dashboard?tab=profile" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Profile Settings</Link>
+                          <Link to="/firm-dashboard" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Dashboard</Link>
+                          <Link to="/firm-dashboard" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Settings</Link>
+                        </>
+                      )}
                   <Link to={navLinks.howItWorks} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.howItWorks')}</Link>
                   <Link to={navLinks.help} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.help')}</Link>
                     </>
@@ -446,65 +490,52 @@ export default function Layout({ children }: LayoutProps) {
       ) : (
       <footer className="mt-auto border-t border-slate-700/50 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-900">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-start">
-            <div className="lg:col-span-4">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-[1.5fr_repeat(4,auto)] md:items-start md:justify-between">
+            <div className="col-span-2 md:col-span-1">
               <Link to="/" className="inline-flex items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900">
-                <BrandLogo mode="footer" size="lg" appName={t('common.appName')} />
+                <BrandLogo mode="footer" size="md" appName={t('common.appName')} />
               </Link>
-              <p className="mt-1.5 max-w-md text-xs leading-relaxed text-slate-400">
-                {t('footer.tagline')}
+              <p className="mt-2 text-xs font-medium text-slate-300">
+                {t('footer.trustRowShort')}
               </p>
-              <p className="mt-1 max-w-md text-xs leading-relaxed text-slate-300">
-                {t('footer.privacyLine')}
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-2.5">
-                <a
-                  href="mailto:support@clearcaseiq.com?subject=Support%20Request"
-                  className="inline-flex items-center rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1 text-xs font-medium text-white transition-colors hover:border-slate-600 hover:bg-slate-800"
-                >
-                  {t('footer.contactSupport')}
-                </a>
-                <a href="mailto:support@clearcaseiq.com?subject=Support%20Request" className="text-xs text-slate-400 transition-colors hover:text-white">
-                  {t('footer.supportEmail')}
-                </a>
-              </div>
             </div>
-            <div className="lg:col-span-3">
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.forPlaintiffs')}</h3>
-              <ul className="space-y-1 text-sm">
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.forPlaintiffs')}</h3>
+              <ul className="space-y-1.5 text-sm">
                 <li><Link to={navLinks.startAssessment} className="text-slate-400 transition-colors hover:text-white">{t('footer.caseAssessment')}</Link></li>
                 <li><Link to="/case-tracker" className="text-slate-400 transition-colors hover:text-white">{t('footer.caseTracker')}</Link></li>
-                <li><Link to={navLinks.startAssessment} className="text-slate-400 transition-colors hover:text-white">{t('footer.selfHelpDemand')}</Link></li>
-                <li><Link to="/attorneys" className="text-slate-400 transition-colors hover:text-white">{t('footer.attorneyReview')}</Link></li>
               </ul>
             </div>
-            <div className="lg:col-span-2">
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.forAttorneys')}</h3>
-              <ul className="space-y-1 text-sm">
-                <li><Link to="/for-attorneys" className="text-slate-400 transition-colors hover:text-white">{t('footer.receiveCases')}</Link></li>
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.forAttorneys')}</h3>
+              <ul className="space-y-1.5 text-sm">
+                <li><Link to="/attorney-network" className="text-slate-400 transition-colors hover:text-white">{t('footer.joinAttorneyNetwork')}</Link></li>
                 <li><Link to="/attorney-login" className="text-slate-400 transition-colors hover:text-white">{t('footer.attorneyLogin')}</Link></li>
-                <li><Link to="/attorney-register" className="text-slate-400 transition-colors hover:text-white">{t('footer.attorneyRegister')}</Link></li>
               </ul>
             </div>
-            <div className="lg:col-span-3">
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.resources')}</h3>
-              <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
-                <Link to={navLinks.howItWorks} className="text-slate-400 transition-colors hover:text-white">{t('common.howItWorks')}</Link>
-                <Link to="/help" className="text-slate-400 transition-colors hover:text-white">{t('footer.helpCenter')}</Link>
-                <Link to="/help#getting-started" className="text-slate-400 transition-colors hover:text-white">{t('footer.gettingStarted')}</Link>
-                <Link to="/terms-of-service" className="text-slate-400 transition-colors hover:text-white">{t('footer.termsOfService')}</Link>
-                <Link to="/privacy-policy" className="text-slate-400 transition-colors hover:text-white">{t('footer.privacyPolicy')}</Link>
-                <Link to="/hipaa-authorization" className="text-slate-400 transition-colors hover:text-white">{t('footer.hipaaAuthorization')}</Link>
-              </div>
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.resources')}</h3>
+              <ul className="space-y-1.5 text-sm">
+                <li><Link to={navLinks.howItWorks} className="text-slate-400 transition-colors hover:text-white">{t('common.howItWorks')}</Link></li>
+                <li><a href="mailto:support@clearcaseiq.com?subject=Support%20Request" className="text-slate-400 transition-colors hover:text-white">{t('footer.support')}</a></li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.legal')}</h3>
+              <ul className="space-y-1.5 text-sm">
+                <li><Link to="/privacy-policy" className="text-slate-400 transition-colors hover:text-white">{t('footer.privacy')}</Link></li>
+                <li><Link to="/terms-of-service" className="text-slate-400 transition-colors hover:text-white">{t('footer.terms')}</Link></li>
+              </ul>
             </div>
           </div>
-          <div className="mt-3 border-t border-slate-700/50 pt-2.5">
-            <div className="flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between">
-              <div className="flex items-center gap-6 text-xs text-slate-400">
-                <span>{t('footer.copyright')}</span>
-              </div>
+          <div className="mt-4 border-t border-slate-700/50 pt-3">
+            <div className="flex flex-col gap-1.5 text-xs text-slate-400 md:flex-row md:items-center md:justify-between">
+              <span>{t('footer.copyright')}</span>
+              <a href="mailto:support@clearcaseiq.com?subject=Support%20Request" className="transition-colors hover:text-white">
+                {t('footer.supportEmail')}
+              </a>
             </div>
-            <div className="mt-1.5 text-center text-[10px] leading-relaxed text-slate-500 md:text-left">
+            <div className="mt-2 max-w-4xl text-[11px] leading-relaxed text-slate-500">
               <p>
                 {t('footer.disclaimer')}
               </p>

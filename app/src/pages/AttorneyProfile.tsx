@@ -12,15 +12,21 @@ import {
   Plus, 
   Trash2,
   Shield,
-  Zap,
   CheckCircle,
   AlertCircle
 } from 'lucide-react'
+import {
+  addAttorneyVerifiedVerdict,
+  getAttorneyDashboard,
+  getAttorneyProfilePerformance,
+  getMyAttorneyProfile,
+  updateAttorneyProfile,
+} from '../lib/api'
 
 interface AttorneyProfile {
   id: string
   bio: string
-  photoUrl: string
+  photoUrl: string | null
   specialties: string[]
   languages: string[]
   yearsExperience: number
@@ -33,23 +39,56 @@ interface AttorneyProfile {
   boostLevel: number
   totalReviews: number
   averageRating: number
+  attorney?: {
+    name?: string | null
+    email?: string | null
+  }
 }
 
-interface BoostOption {
-  level: number
-  name: string
-  price: number
-  duration: number
-  description: string
-  features: string[]
+type AttorneyPerformance = {
+  leadMetrics?: {
+    totalLeads?: number
+    acceptanceRate?: number
+    conversionRate?: number
+    overallConversionRate?: number
+  }
+  financialMetrics?: {
+    feesCollectedFromPayments?: number
+    averageFee?: number
+    platformSpend?: number
+    roi?: number
+  }
+  reviews?: {
+    totalReviews?: number
+    averageRating?: number
+  }
+}
+
+type AttorneyDashboardSnapshot = {
+  recentLeads?: Array<{ status?: string; submittedAt?: string }>
+  activeCases?: {
+    contacted?: number
+    consultScheduled?: number
+    retained?: number
+    closed?: number
+  }
+  dashboard?: {
+    totalLeadsReceived?: number
+    totalLeadsAccepted?: number
+    feesCollectedFromPayments?: number
+  }
 }
 
 export default function AttorneyProfile() {
   const [profile, setProfile] = useState<AttorneyProfile | null>(null)
+  const [performance, setPerformance] = useState<AttorneyPerformance | null>(null)
+  const [dashboard, setDashboard] = useState<AttorneyDashboardSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [editing, setEditing] = useState(false)
-  const [boostOptions, setBoostOptions] = useState<BoostOption[]>([])
   const [newVerdict, setNewVerdict] = useState({
     caseType: '',
     settlementAmount: '',
@@ -59,101 +98,87 @@ export default function AttorneyProfile() {
   })
 
   useEffect(() => {
-    loadProfile()
-    loadBoostOptions()
+    void loadProfile({ initial: true })
+    const intervalId = window.setInterval(() => {
+      void loadProfile({ initial: false })
+    }, 30000)
+    return () => window.clearInterval(intervalId)
   }, [])
 
-  const loadProfile = async () => {
+  const parseJsonArray = (value: unknown): any[] => {
+    if (Array.isArray(value)) return value
+    if (typeof value !== 'string' || !value.trim()) return []
     try {
-      setLoading(true)
-      // Mock data - will be replaced with actual API call
-      const mockProfile: AttorneyProfile = {
-        id: '1',
-        bio: 'Experienced personal injury attorney with 15 years of practice. Dedicated to helping clients get the compensation they deserve.',
-        photoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop&crop=face',
-        specialties: ['Personal Injury', 'Auto Accidents', 'Premises Liability', 'Medical Malpractice'],
-        languages: ['English', 'Spanish'],
-        yearsExperience: 15,
-        totalCases: 250,
-        totalSettlements: 25000000,
-        averageSettlement: 100000,
-        successRate: 92,
-        verifiedVerdicts: [
-          {
-            caseType: 'Auto Accident',
-            settlementAmount: 2500000,
-            description: 'Multi-vehicle accident resulting in severe injuries',
-            date: '2023-01-15',
-            venue: 'Los Angeles County',
-            status: 'verified'
-          },
-          {
-            caseType: 'Premises Liability',
-            settlementAmount: 1800000,
-            description: 'Slip and fall at commercial property',
-            date: '2022-08-22',
-            venue: 'Orange County',
-            status: 'verified'
-          }
-        ],
-        isFeatured: true,
-        boostLevel: 3,
-        totalReviews: 45,
-        averageRating: 4.8
-      }
-      
-      setProfile(mockProfile)
-    } catch (err) {
-      console.error('Failed to load profile:', err)
-    } finally {
-      setLoading(false)
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
     }
   }
 
-  const loadBoostOptions = async () => {
-    const options: BoostOption[] = [
-      {
-        level: 1,
-        name: 'Basic Boost',
-        price: 99,
-        duration: 30,
-        description: 'Slight increase in visibility for 30 days',
-        features: ['10% visibility boost', 'Priority in search results', 'Featured badge']
-      },
-      {
-        level: 2,
-        name: 'Standard Boost',
-        price: 199,
-        duration: 30,
-        description: 'Moderate increase in visibility for 30 days',
-        features: ['25% visibility boost', 'Top placement in results', 'Featured badge', 'Profile highlighting']
-      },
-      {
-        level: 3,
-        name: 'Premium Boost',
-        price: 399,
-        duration: 30,
-        description: 'Maximum visibility boost for 30 days',
-        features: ['50% visibility boost', 'Exclusive top placement', 'Premium badge', 'Profile highlighting', 'Email marketing inclusion']
-      },
-      {
-        level: 4,
-        name: 'Elite Boost',
-        price: 699,
-        duration: 30,
-        description: 'Elite placement with exclusive benefits',
-        features: ['75% visibility boost', 'Exclusive elite placement', 'Elite badge', 'Full profile highlighting', 'Email marketing inclusion', 'Direct lead routing']
-      },
-      {
-        level: 5,
-        name: 'Champion Boost',
-        price: 999,
-        duration: 30,
-        description: 'Ultimate visibility with all premium features',
-        features: ['100% visibility boost', 'Champion placement', 'Champion badge', 'Full profile highlighting', 'Email marketing inclusion', 'Direct lead routing', 'Priority support']
+  const normalizeProfile = (raw: any): AttorneyProfile => {
+    const specialties = parseJsonArray(raw?.specialties ?? raw?.attorney?.specialties)
+    const languages = parseJsonArray(raw?.languages)
+    const verifiedVerdicts = parseJsonArray(raw?.verifiedVerdicts)
+    const totalSettlements = Number(raw?.totalSettlements || 0)
+    const totalCases = Number(raw?.totalCases || 0)
+
+    return {
+      id: raw?.id || raw?.attorneyId || 'profile',
+      bio: raw?.bio || raw?.attorney?.profile || '',
+      photoUrl: raw?.photoUrl || null,
+      specialties: specialties.length ? specialties : ['Personal Injury'],
+      languages: languages.length ? languages : ['English'],
+      yearsExperience: Number(raw?.yearsExperience || 0),
+      totalCases,
+      totalSettlements,
+      averageSettlement: Number(raw?.averageSettlement || (totalCases > 0 ? totalSettlements / totalCases : 0)),
+      successRate: Number(raw?.successRate || 0),
+      verifiedVerdicts,
+      isFeatured: Boolean(raw?.isFeatured),
+      boostLevel: Number(raw?.boostLevel || 0),
+      totalReviews: Number(raw?.totalReviews || raw?.attorney?.totalReviews || 0),
+      averageRating: Number(raw?.averageRating || raw?.attorney?.averageRating || 0),
+      attorney: raw?.attorney,
+    }
+  }
+
+  const loadProfile = async ({ initial }: { initial: boolean }) => {
+    try {
+      if (initial) setLoading(true)
+      else setRefreshing(true)
+      setError(null)
+      const [profileData, performanceData, dashboardData] = await Promise.all([
+        getMyAttorneyProfile(),
+        getAttorneyProfilePerformance({ period: 'monthly' }).catch(() => null),
+        getAttorneyDashboard().catch(() => null),
+      ])
+
+      const normalized = normalizeProfile(profileData)
+      if (performanceData?.reviews) {
+        normalized.totalReviews = Number(performanceData.reviews.totalReviews ?? normalized.totalReviews)
+        normalized.averageRating = Number(performanceData.reviews.averageRating ?? normalized.averageRating)
       }
-    ]
-    setBoostOptions(options)
+      if (performanceData?.leadMetrics) {
+        normalized.totalCases = Number(performanceData.leadMetrics.totalLeads ?? normalized.totalCases)
+        normalized.successRate = Number(performanceData.leadMetrics.conversionRate ?? normalized.successRate)
+      }
+      if (performanceData?.financialMetrics) {
+        normalized.totalSettlements = Number(performanceData.financialMetrics.feesCollectedFromPayments ?? normalized.totalSettlements)
+        normalized.averageSettlement = Number(performanceData.financialMetrics.averageFee ?? normalized.averageSettlement)
+      }
+
+      setProfile(normalized)
+      setPerformance(performanceData)
+      setDashboard(dashboardData as unknown as AttorneyDashboardSnapshot | null)
+      setLastUpdatedAt(new Date())
+    } catch (err: any) {
+      console.error('Failed to load profile:', err)
+      setError(err?.response?.data?.error || 'Failed to load live attorney profile.')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
   }
 
   const formatCurrency = (amount: number) => {
@@ -170,24 +195,54 @@ export default function AttorneyProfile() {
   }
 
   const handleSaveProfile = async () => {
-    // Save profile changes
-    setEditing(false)
+    if (!profile) return
+    try {
+      const updated = await updateAttorneyProfile({
+        bio: profile.bio,
+        photoUrl: profile.photoUrl,
+        specialties: JSON.stringify(profile.specialties),
+        languages: JSON.stringify(profile.languages),
+        yearsExperience: profile.yearsExperience,
+        totalCases: profile.totalCases,
+        totalSettlements: profile.totalSettlements,
+        averageSettlement: profile.averageSettlement,
+        successRate: profile.successRate,
+        verifiedVerdicts: profile.verifiedVerdicts,
+      })
+      setProfile(normalizeProfile(updated))
+      setLastUpdatedAt(new Date())
+      setEditing(false)
+      setError(null)
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Failed to save profile changes.')
+    }
   }
 
   const handleAddVerdict = async () => {
     // Add new verified verdict
     if (newVerdict.caseType && newVerdict.settlementAmount) {
-      const verdict = {
-        ...newVerdict,
-        settlementAmount: parseInt(newVerdict.settlementAmount),
-        status: 'pending_verification'
-      }
-      
-      if (profile) {
-        setProfile({
-          ...profile,
-          verifiedVerdicts: [...profile.verifiedVerdicts, verdict]
+      try {
+        const response = await addAttorneyVerifiedVerdict({
+          caseType: newVerdict.caseType,
+          settlementAmount: parseInt(newVerdict.settlementAmount, 10),
+          caseDescription: newVerdict.caseDescription,
+          date: newVerdict.date,
+          venue: newVerdict.venue,
         })
+
+        if (response?.profile) {
+          setProfile(normalizeProfile(response.profile))
+        } else if (profile) {
+          setProfile({
+            ...profile,
+            verifiedVerdicts: [...profile.verifiedVerdicts, response?.verdict].filter(Boolean)
+          })
+        }
+        setLastUpdatedAt(new Date())
+        setError(null)
+      } catch (err: any) {
+        setError(err?.response?.data?.error || 'Failed to add verified verdict.')
+        return
       }
       
       setNewVerdict({
@@ -200,10 +255,26 @@ export default function AttorneyProfile() {
     }
   }
 
-  const handlePurchaseBoost = async (boostLevel: number) => {
-    // Purchase boost
-    console.log('Purchasing boost level:', boostLevel)
-  }
+  const currentYear = new Date().getFullYear()
+  const recentLeads = dashboard?.recentLeads || []
+  const totalCases = dashboard?.dashboard?.totalLeadsReceived ?? performance?.leadMetrics?.totalLeads ?? profile?.totalCases ?? 0
+  const casesThisYear = recentLeads.length
+    ? recentLeads.filter((lead) => {
+        const submittedAt = lead.submittedAt ? new Date(lead.submittedAt) : null
+        return submittedAt && !Number.isNaN(submittedAt.getTime()) && submittedAt.getFullYear() === currentYear
+      }).length
+    : Math.round(totalCases * 0.3)
+  const activeCases =
+    recentLeads.filter((lead) => ['contacted', 'consulted', 'retained'].includes(lead.status || '')).length ||
+    (dashboard?.activeCases?.contacted ?? 0) +
+      (dashboard?.activeCases?.consultScheduled ?? 0) +
+      (dashboard?.activeCases?.retained ?? 0)
+  const totalSettlements = performance?.financialMetrics?.feesCollectedFromPayments ?? dashboard?.dashboard?.feesCollectedFromPayments ?? profile?.totalSettlements ?? 0
+  const averageSettlement = performance?.financialMetrics?.averageFee ?? profile?.averageSettlement ?? 0
+  const largestSettlement = profile?.verifiedVerdicts?.reduce((max, verdict) => Math.max(max, Number(verdict.settlementAmount || 0)), 0) || averageSettlement
+  const successRate = performance?.leadMetrics?.conversionRate ?? profile?.successRate ?? 0
+  const clientSatisfaction = profile?.averageRating ?? 0
+  const repeatClientRate = performance?.leadMetrics?.acceptanceRate ?? 0
 
   if (loading) {
     return (
@@ -230,7 +301,16 @@ export default function AttorneyProfile() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-extrabold text-gray-900">Attorney Profile</h1>
-          <p className="mt-2 text-gray-600">Manage your professional profile and reputation</p>
+          <p className="mt-2 text-gray-600">
+            Manage your professional profile and reputation
+            {lastUpdatedAt ? (
+              <span className="ml-2 text-xs text-gray-400">
+                Live data updated {lastUpdatedAt.toLocaleTimeString()}
+                {refreshing ? ' - refreshing...' : ''}
+              </span>
+            ) : null}
+          </p>
+          {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
         </div>
         <div className="flex space-x-4">
           <button 
@@ -252,7 +332,7 @@ export default function AttorneyProfile() {
         <div className="flex items-start space-x-6">
           <div className="flex-shrink-0">
             <img
-              src={profile.photoUrl}
+              src={profile.photoUrl || 'https://ui-avatars.com/api/?name=Attorney&background=e0f2fe&color=075985'}
               alt="Profile"
               className="h-32 w-32 rounded-full object-cover"
             />
@@ -265,18 +345,18 @@ export default function AttorneyProfile() {
           </div>
           <div className="flex-1">
             <div className="flex items-center space-x-2 mb-2">
-              <h2 className="text-2xl font-bold text-gray-900">Your Profile</h2>
+              <h2 className="text-2xl font-bold text-gray-900">{profile.attorney?.name || 'Your Profile'}</h2>
               {profile.isFeatured && (
                 <div className="flex items-center space-x-1">
                   <Star className="h-5 w-5 text-yellow-500" />
                   <span className="text-sm font-medium text-yellow-600">Featured</span>
                 </div>
               )}
-              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                profile.boostLevel > 0 ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'
-              }`}>
-                Boost Level {profile.boostLevel}
-              </span>
+              {profile.boostLevel > 0 ? (
+                <span className="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800">
+                  Boost Level {profile.boostLevel}
+                </span>
+              ) : null}
             </div>
             {editing ? (
               <textarea
@@ -316,8 +396,7 @@ export default function AttorneyProfile() {
           {[
             { id: 'overview', name: 'Overview', icon: User },
             { id: 'performance', name: 'Performance', icon: TrendingUp },
-            { id: 'verdicts', name: 'Verified Verdicts', icon: Award },
-            { id: 'boost', name: 'Featured Placement', icon: Zap }
+            { id: 'verdicts', name: 'Verified Verdicts', icon: Award }
           ].map((tab) => {
             const Icon = tab.icon
             return (
@@ -418,19 +497,19 @@ export default function AttorneyProfile() {
               <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Stats</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div className="text-center p-4 bg-blue-50 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-600">{profile.totalCases}</div>
+                  <div className="text-2xl font-bold text-blue-600">{totalCases}</div>
                   <div className="text-sm text-blue-700">Total Cases</div>
                 </div>
                 <div className="text-center p-4 bg-green-50 rounded-lg">
-                  <div className="text-2xl font-bold text-green-600">{formatPercentage(profile.successRate)}</div>
+                  <div className="text-2xl font-bold text-green-600">{formatPercentage(successRate)}</div>
                   <div className="text-sm text-green-700">Success Rate</div>
                 </div>
                 <div className="text-center p-4 bg-purple-50 rounded-lg">
-                  <div className="text-2xl font-bold text-purple-600">{formatCurrency(profile.averageSettlement)}</div>
+                  <div className="text-2xl font-bold text-purple-600">{formatCurrency(averageSettlement)}</div>
                   <div className="text-sm text-purple-700">Avg Settlement</div>
                 </div>
                 <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                  <div className="text-2xl font-bold text-yellow-600">{formatCurrency(profile.totalSettlements)}</div>
+                  <div className="text-2xl font-bold text-yellow-600">{formatCurrency(totalSettlements)}</div>
                   <div className="text-sm text-yellow-700">Total Settlements</div>
                 </div>
               </div>
@@ -447,15 +526,15 @@ export default function AttorneyProfile() {
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Total Cases</span>
-                  <span className="font-semibold">{profile.totalCases}</span>
+                  <span className="font-semibold">{totalCases}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Cases This Year</span>
-                  <span className="font-semibold">{Math.floor(profile.totalCases * 0.3)}</span>
+                  <span className="font-semibold">{casesThisYear}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Active Cases</span>
-                  <span className="font-semibold">{Math.floor(profile.totalCases * 0.1)}</span>
+                  <span className="font-semibold">{activeCases}</span>
                 </div>
               </div>
             </div>
@@ -465,15 +544,15 @@ export default function AttorneyProfile() {
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Total Settlements</span>
-                  <span className="font-semibold">{formatCurrency(profile.totalSettlements)}</span>
+                  <span className="font-semibold">{formatCurrency(totalSettlements)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Average Settlement</span>
-                  <span className="font-semibold">{formatCurrency(profile.averageSettlement)}</span>
+                  <span className="font-semibold">{formatCurrency(averageSettlement)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Largest Settlement</span>
-                  <span className="font-semibold">{formatCurrency(profile.averageSettlement * 5)}</span>
+                  <span className="font-semibold">{formatCurrency(largestSettlement)}</span>
                 </div>
               </div>
             </div>
@@ -483,15 +562,15 @@ export default function AttorneyProfile() {
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Success Rate</span>
-                  <span className="font-semibold">{formatPercentage(profile.successRate)}</span>
+                  <span className="font-semibold">{formatPercentage(successRate)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Client Satisfaction</span>
-                  <span className="font-semibold">{profile.averageRating}/5.0</span>
+                  <span className="font-semibold">{clientSatisfaction.toFixed(1)}/5.0</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Repeat Clients</span>
-                  <span className="font-semibold">35%</span>
+                  <span className="font-semibold">{formatPercentage(repeatClientRate)}</span>
                 </div>
               </div>
             </div>
@@ -603,73 +682,6 @@ export default function AttorneyProfile() {
                 </div>
               </div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'boost' && (
-        <div className="space-y-6">
-          <div className="card">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h3 className="text-lg font-medium text-gray-900">Featured Placement Options</h3>
-                <p className="text-gray-600">Increase your visibility and get more leads</p>
-              </div>
-              {profile.isFeatured && (
-                <div className="text-right">
-                  <div className="text-sm text-gray-500">Current Boost Level</div>
-                  <div className="text-2xl font-bold text-purple-600">Level {profile.boostLevel}</div>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {boostOptions.map((option) => (
-                <div key={option.level} className={`border-2 rounded-lg p-6 ${
-                  option.level === profile.boostLevel ? 'border-purple-500 bg-purple-50' : 'border-gray-200'
-                }`}>
-                  <div className="flex justify-between items-center mb-4">
-                    <h4 className="text-lg font-semibold text-gray-900">{option.name}</h4>
-                    {option.level === profile.boostLevel && (
-                      <span className="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800">
-                        Current
-                      </span>
-                    )}
-                  </div>
-                  
-                  <div className="mb-4">
-                    <div className="text-3xl font-bold text-gray-900">{formatCurrency(option.price)}</div>
-                    <div className="text-sm text-gray-500">for {option.duration} days</div>
-                  </div>
-                  
-                  <p className="text-sm text-gray-600 mb-4">{option.description}</p>
-                  
-                  <ul className="space-y-2 mb-6">
-                    {option.features.map((feature, index) => (
-                      <li key={index} className="flex items-center text-sm text-gray-600">
-                        <CheckCircle className="h-4 w-4 text-green-500 mr-2 flex-shrink-0" />
-                        {feature}
-                      </li>
-                    ))}
-                  </ul>
-                  
-                  <button
-                    onClick={() => handlePurchaseBoost(option.level)}
-                    className={`w-full py-2 px-4 rounded-md font-medium ${
-                      option.level === profile.boostLevel
-                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                        : option.level > profile.boostLevel
-                        ? 'bg-primary-600 text-white hover:bg-primary-700'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                    disabled={option.level <= profile.boostLevel}
-                  >
-                    {option.level === profile.boostLevel ? 'Current Plan' : 
-                     option.level < profile.boostLevel ? 'Downgrade' : 'Upgrade'}
-                  </button>
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       )}

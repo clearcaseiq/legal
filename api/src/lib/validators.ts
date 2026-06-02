@@ -24,6 +24,9 @@ export const Damages = z.object({
   med_paid: z.number().optional(),
   wage_loss: z.number().optional(),
   services: z.number().optional(),
+  future_medical: z.number().optional(),
+  medical_bill_range: z.string().optional(),
+  future_medical_range: z.string().optional(),
   workImpact: z.string().optional()
 }).partial()
 

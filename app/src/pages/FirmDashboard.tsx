@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BarChart3, Users, DollarSign, AlertTriangle, Star, Building2, ArrowLeft, Plus } from 'lucide-react'
-import { addFirmAttorney, updateFirmAttorney } from '../lib/api'
+import { BarChart3, Users, DollarSign, AlertTriangle, Star, Building2, ArrowLeft, Plus, Briefcase, ClipboardList, ShieldCheck } from 'lucide-react'
+import { addFirmAttorney, addFirmMember, updateFirmAttorney } from '../lib/api'
 import { formatCurrency } from '../lib/formatters'
 import { US_STATES } from '../lib/constants'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
@@ -16,6 +16,21 @@ const CASE_TYPES = [
   { value: 'wrongful_death', label: 'Wrongful Death' },
   { value: 'high_severity_surgery', label: 'High-Severity / Surgery' }
 ]
+
+const FIRM_ROLES = [
+  { value: 'firm_admin', label: 'Firm Admin' },
+  { value: 'attorney', label: 'Attorney' },
+  { value: 'case_manager', label: 'Case Manager' },
+  { value: 'intake_specialist', label: 'Intake Specialist' },
+  { value: 'paralegal', label: 'Paralegal' },
+  { value: 'billing_admin', label: 'Billing/Admin' },
+  { value: 'legal_assistant', label: 'Legal Assistant' },
+  { value: 'demand_writer', label: 'Demand Writer' },
+  { value: 'medical_records', label: 'Medical Records' }
+]
+
+const formatRole = (role: string) =>
+  role.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
 
 interface FirmDashboardData {
   firm: {
@@ -39,8 +54,70 @@ interface FirmDashboardData {
     avgAttorneyRating: number
     totalReviews: number
     verifiedReviewCount: number
+    activeCases?: number
+    acceptedCases?: number
+    retainedCases?: number
+    operationsQueueCount?: number
     firmROI: number | null
   }
+  workspace?: {
+    currentRole: string
+    permissions: string[]
+    roleCapabilities: Record<string, string[]>
+    assignmentRoles: string[]
+    subscription: {
+      planName: string
+      includedSeats: number
+      seatMix: Record<string, number>
+    }
+  }
+  offices?: Array<{
+    id: string
+    name: string
+    city?: string | null
+    state?: string | null
+    countiesServed?: string[]
+    languages?: string[]
+    practiceAreas?: string[]
+    capacity?: number | null
+  }>
+  teams?: Array<{
+    id: string
+    name: string
+    teamType: string
+    office?: { id: string; name: string } | null
+    members: Array<{ id: string; role: string; name?: string; email?: string }>
+  }>
+  members?: Array<{
+    id: string
+    role: string
+    title?: string | null
+    office?: { id: string; name: string } | null
+    user?: {
+      id: string
+      email: string
+      firstName?: string
+      lastName?: string
+    }
+    attorney?: {
+      id: string
+      name: string
+      email?: string | null
+    } | null
+  }>
+  operationsQueue?: Array<{
+    id: string
+    assessmentId: string
+    title: string
+    taskType: string
+    assignedRole?: string | null
+    assignedTo?: string | null
+    priority: string
+    dueDate?: string | null
+    caseType: string
+    venueCounty?: string | null
+    leadStatus: string
+  }>
   attorneys: Array<{
     id: string
     name: string
@@ -74,6 +151,16 @@ export default function FirmDashboard() {
     specialties: [] as string[],
     jurisdictions: [] as string[]
   })
+  const [newMember, setNewMember] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    role: 'case_manager',
+    title: ''
+  })
+  const [memberSaving, setMemberSaving] = useState(false)
+  const [memberError, setMemberError] = useState<string | null>(null)
+  const [memberSuccess, setMemberSuccess] = useState<string | null>(null)
   const [stateSearchQuery, setStateSearchQuery] = useState('')
   const [editingAttorneyId, setEditingAttorneyId] = useState<string | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
@@ -210,6 +297,39 @@ export default function FirmDashboard() {
     }
   }
 
+  const handleAddStaffMember = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setMemberError(null)
+    setMemberSuccess(null)
+    if (!newMember.email.trim()) {
+      setMemberError('Team member email is required.')
+      return
+    }
+    try {
+      setMemberSaving(true)
+      await addFirmMember({
+        email: newMember.email.trim(),
+        firstName: newMember.firstName.trim() || undefined,
+        lastName: newMember.lastName.trim() || undefined,
+        role: newMember.role,
+        title: newMember.title.trim() || undefined
+      })
+      setMemberSuccess('Firm team member added.')
+      setNewMember({
+        firstName: '',
+        lastName: '',
+        email: '',
+        role: 'case_manager',
+        title: ''
+      })
+      invalidateFirmDashboardSummary()
+    } catch (err: any) {
+      setMemberError(err.response?.data?.error || 'Failed to add firm team member.')
+    } finally {
+      setMemberSaving(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -265,7 +385,13 @@ export default function FirmDashboard() {
     return null
   }
 
-  const { firm, metrics, attorneys } = data
+  const dashboardData = data as FirmDashboardData
+  const { firm, metrics, attorneys } = dashboardData
+  const members: NonNullable<FirmDashboardData['members']> = dashboardData.members || []
+  const offices: NonNullable<FirmDashboardData['offices']> = dashboardData.offices || []
+  const teams: NonNullable<FirmDashboardData['teams']> = dashboardData.teams || []
+  const operationsQueue: NonNullable<FirmDashboardData['operationsQueue']> = dashboardData.operationsQueue || []
+  const workspace = dashboardData.workspace
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
@@ -348,6 +474,186 @@ export default function FirmDashboard() {
               </p>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+        <div className="card">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Firm Cases</p>
+              <p className="mt-1 text-2xl font-bold text-gray-900">{metrics.activeCases || 0}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {metrics.acceptedCases || 0} accepted • {metrics.retainedCases || 0} retained
+              </p>
+            </div>
+            <Briefcase className="h-8 w-8 text-indigo-600" />
+          </div>
+        </div>
+        <div className="card">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Operations Queue</p>
+              <p className="mt-1 text-2xl font-bold text-gray-900">{metrics.operationsQueueCount || 0}</p>
+              <p className="text-xs text-gray-500 mt-1">Records, consults, reports, demands</p>
+            </div>
+            <ClipboardList className="h-8 w-8 text-amber-600" />
+          </div>
+        </div>
+        <div className="card">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500">Subscription Workspace</p>
+              <p className="mt-1 text-xl font-bold text-gray-900">
+                {workspace?.subscription?.planName || 'Professional Plan'}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                {workspace?.subscription?.includedSeats || 10} users included
+              </p>
+            </div>
+            <ShieldCheck className="h-8 w-8 text-emerald-600" />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-10">
+        <div className="card xl:col-span-2">
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Firm Operating Model</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Cases belong to the firm, then get assigned to attorneys and legal staff by role.
+              </p>
+            </div>
+            <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700">
+              Firm &gt; Office &gt; Team &gt; Cases
+            </span>
+          </div>
+          <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-lg border border-gray-200 p-4">
+              <p className="text-sm font-semibold text-gray-900">Offices</p>
+              <p className="mt-1 text-2xl font-bold text-gray-900">{offices.length}</p>
+              <p className="mt-1 text-xs text-gray-500">
+                {offices.length ? offices.map(office => office.name).slice(0, 3).join(', ') : 'Add offices for multi-office routing'}
+              </p>
+            </div>
+            <div className="rounded-lg border border-gray-200 p-4">
+              <p className="text-sm font-semibold text-gray-900">Teams</p>
+              <p className="mt-1 text-2xl font-bold text-gray-900">{teams.length}</p>
+              <p className="mt-1 text-xs text-gray-500">
+                Intake, litigation, records, demand writing, billing
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <h2 className="text-lg font-semibold text-gray-900">Role Permissions</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Your role: {formatRole(workspace?.currentRole || 'attorney')}
+          </p>
+          <div className="mt-4 space-y-3 max-h-80 overflow-y-auto">
+            {Object.entries(workspace?.roleCapabilities || {}).slice(0, 6).map(([role, permissions]) => (
+              <div key={role} className="rounded-lg border border-gray-100 p-3">
+                <p className="text-sm font-semibold text-gray-900">{formatRole(role)}</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  {permissions.slice(0, 4).map(permission => permission.replace(/_/g, ' ')).join(', ')}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-10">
+        <div className="bg-white shadow rounded-lg xl:col-span-2">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900">Firm Operations Queue</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Shared work for medical records, police reports, consultations, demand packages, and readiness tasks.
+            </p>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {operationsQueue.length === 0 ? (
+              <div className="px-6 py-6 text-sm text-gray-500">No open firm operations tasks yet.</div>
+            ) : (
+              operationsQueue.slice(0, 6).map(task => (
+                <div key={task.id} className="px-6 py-4 flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{task.title}</p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {task.caseType.replace(/_/g, ' ')}, {task.venueCounty || 'Venue pending'}, {task.leadStatus}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {task.assignedRole ? formatRole(task.assignedRole) : 'Unassigned'}{task.assignedTo ? `: ${task.assignedTo}` : ''}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700 capitalize">
+                    {task.priority}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white shadow rounded-lg">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900">Add Legal Staff</h2>
+            <p className="mt-1 text-sm text-gray-500">Invite case managers, intake, paralegals, billing, records, or demand writers.</p>
+          </div>
+          <form onSubmit={handleAddStaffMember} className="p-6 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                type="text"
+                value={newMember.firstName}
+                onChange={(e) => setNewMember({ ...newMember, firstName: e.target.value })}
+                placeholder="First name"
+                className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+              />
+              <input
+                type="text"
+                value={newMember.lastName}
+                onChange={(e) => setNewMember({ ...newMember, lastName: e.target.value })}
+                placeholder="Last name"
+                className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+              />
+            </div>
+            <input
+              type="email"
+              value={newMember.email}
+              onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
+              placeholder="Email"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              required
+            />
+            <select
+              value={newMember.role}
+              onChange={(e) => setNewMember({ ...newMember, role: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+            >
+              {FIRM_ROLES.filter(role => role.value !== 'attorney').map(role => (
+                <option key={role.value} value={role.value}>{role.label}</option>
+              ))}
+            </select>
+            <input
+              type="text"
+              value={newMember.title}
+              onChange={(e) => setNewMember({ ...newMember, title: e.target.value })}
+              placeholder="Title, e.g. Senior Case Manager"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+            />
+            {memberError && <p className="text-sm text-red-600">{memberError}</p>}
+            {memberSuccess && <p className="text-sm text-green-600">{memberSuccess}</p>}
+            <button
+              type="submit"
+              disabled={memberSaving}
+              className="w-full inline-flex items-center justify-center px-4 py-2 rounded-md bg-brand-600 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              {memberSaving ? 'Adding...' : 'Add Staff Member'}
+            </button>
+          </form>
         </div>
       </div>
 

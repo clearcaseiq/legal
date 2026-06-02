@@ -1,7 +1,7 @@
 import { useId } from 'react'
 import { clsx } from 'clsx'
 
-const MARK_PX = { sm: 28, md: 34, lg: 42 } as const
+const MARK_PX = { sm: 28, md: 34, lg: 42, xl: 58 } as const
 
 export type BrandLogoSize = keyof typeof MARK_PX
 
@@ -93,10 +93,16 @@ export default function BrandLogo({
   const base = split ? split[1] : appName
   const iqPart = split ? split[2] : null
   const wordSize =
-    size === 'lg' ? 'text-lg' : size === 'sm' ? 'text-sm' : 'text-base md:text-[1.05rem]'
+    size === 'xl'
+      ? 'text-2xl md:text-3xl'
+      : size === 'lg'
+        ? 'text-lg'
+        : size === 'sm'
+          ? 'text-sm'
+          : 'text-base md:text-[1.05rem]'
 
   return (
-    <span className={clsx('inline-flex items-center gap-2.5', className)}>
+    <span className={clsx('inline-flex items-center gap-2.5', size === 'xl' && 'gap-3.5', className)}>
       <BrandMark size={size} />
       {showWordmark && (
         <span className={clsx('font-display font-bold tracking-[-0.02em] leading-none', wordSize)}>

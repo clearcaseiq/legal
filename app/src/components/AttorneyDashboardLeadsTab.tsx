@@ -8,7 +8,7 @@ type CaseLeadsFilter = {
   pipelineStage: string
   evidenceLevel: string
   jurisdiction: string
-  routingInboxView?: 'awaitingDecision' | 'hotMatches' | 'staleMatches' | 'consultReady' | ''
+  routingInboxView: 'awaitingDecision' | 'hotMatches' | 'staleMatches' | 'consultReady' | ''
 }
 
 type PendingQuickAction = {
@@ -272,6 +272,7 @@ export default function AttorneyDashboardLeadsTab({
         const stage = caseLeadsFilter.pipelineStage
         const statusMap: Record<string, string[]> = {
           matched: ['submitted'],
+          active: ['contacted', 'consulted', 'retained'],
           accepted: ['contacted'],
           contacted: ['contacted'],
           consultScheduled: ['consulted'],
@@ -312,6 +313,7 @@ export default function AttorneyDashboardLeadsTab({
   }
 
   const filteredLeads = getFilteredAndSortedLeads()
+  const starredLeads = (dashboardData?.recentLeads || []).filter((lead: any) => starredLeadIds.has(lead.id))
   const routingInboxSummary = {
     awaitingDecision: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.status || '') === 'submitted').length,
     hotMatches: (dashboardData?.recentLeads || []).filter((lead: any) => getPriorityLabel(lead).label === 'Hot').length,
@@ -483,6 +485,7 @@ export default function AttorneyDashboardLeadsTab({
               const value = e.target.value
               const statusMap: Record<string, string> = {
                 matched: 'submitted',
+                active: '',
                 accepted: 'contacted',
                 contacted: 'contacted',
                 consultScheduled: 'consulted',
@@ -496,6 +499,7 @@ export default function AttorneyDashboardLeadsTab({
           >
             <option value="">All Stages</option>
             <option value="matched">Matched</option>
+            <option value="active">Active</option>
             <option value="accepted">Accepted</option>
             <option value="contacted">Contacted</option>
             <option value="consultScheduled">Consult Scheduled</option>
@@ -578,8 +582,39 @@ export default function AttorneyDashboardLeadsTab({
 
       {starredLeadIds.size > 0 && (
         <div className="card border-amber-200 bg-amber-50/30">
-          <h4 className="text-sm font-semibold text-gray-900 mb-2">Starred Cases</h4>
-          <p className="text-xs text-gray-500">Click the star on any row to save it here.</p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h4 className="text-sm font-semibold text-gray-900">Starred Cases</h4>
+              <p className="mt-1 text-xs text-gray-500">Quick access to cases you marked for follow-up.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setCaseLeadsFilter((prev) => ({ ...prev, routingInboxView: '' }))
+                setActivePipelineTile(null)
+              }}
+              className="text-xs font-medium text-amber-700 hover:underline"
+            >
+              Showing {starredLeads.length}
+            </button>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            {starredLeads.slice(0, 3).map((lead: any) => (
+              <button
+                type="button"
+                key={lead.id}
+                onClick={() => onOpenLead(lead)}
+                className="rounded-lg border border-amber-100 bg-white px-3 py-2 text-left text-sm hover:border-amber-200"
+              >
+                <span className="block font-medium text-gray-900">
+                  {claimLabel(lead.assessment?.claimType)} - {[lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || 'Venue pending'}
+                </span>
+                <span className="mt-1 block text-xs text-gray-500">
+                  {formatCurrency(getLeadBands(lead).low)}-{formatCurrency(getLeadBands(lead).high)} | {getPriorityLabel(lead).label}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -741,7 +776,7 @@ export default function AttorneyDashboardLeadsTab({
                                 Review
                               </button>
                               <button
-                                onClick={() => onOpenLead(lead)}
+                                onClick={() => onHandleQuickActionForLead(lead, 'addContact', 'communications')}
                                 className="inline-flex min-h-7 items-center justify-center gap-1 whitespace-nowrap rounded border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
                               >
                                 <Phone className="h-3 w-3" /> Call

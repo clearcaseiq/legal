@@ -84,8 +84,7 @@ export default function Login() {
       return
     } catch (err: any) {
       if (err.response?.data?.isAttorney) {
-        setError('This account is registered as an attorney. Please use the attorney login page.')
-        setTimeout(() => navigate('/attorney-login'), 2000)
+        setError('This email is registered as an attorney. To continue as a plaintiff, use Google sign-in or use a different email.')
       } else if (err.response?.data?.useOAuth) {
         setError(err.response?.data?.error || 'Please sign in with Google or Apple.')
       } else if (!err.response) {
@@ -103,8 +102,8 @@ export default function Login() {
 
   return (
     <LoginLayout
-      title="Plaintiff Login"
-      subtitle="Sign in to manage your case assessments"
+      title="Welcome Back"
+      subtitle="Continue your injury case"
       error={error}
       footerDividerText="New to ClearCaseIQ?"
       footerContent={
@@ -113,22 +112,27 @@ export default function Login() {
             to="/register"
             className="font-semibold text-blue-600 hover:text-blue-700 transition-colors block"
           >
-            Create a free account →
+            Start My Free Case Review →
           </Link>
-          <p className="text-xs text-slate-500 mt-2">
-            Are you an attorney?{' '}
+          <p className="mt-5 border-t border-slate-100 pt-4 text-xs text-slate-400">
+            Already an attorney?{' '}
             <Link
-              to="/attorney-register"
-              className="font-medium text-blue-600 hover:text-blue-700 transition-colors"
+              to="/attorney-login"
+              className="font-medium text-slate-500 hover:text-slate-700 transition-colors"
             >
-              Sign up here
+              Attorney Login →
             </Link>
           </p>
         </>
       }
     >
       <div className="mb-6">
-        <OAuthButtons onError={setError} disabled={isLoading} />
+        <OAuthButtons onError={setError} disabled={isLoading} emphasizeGoogle />
+        <div className="mt-4 grid gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <p>Free to use</p>
+          <p>No obligation to hire an attorney</p>
+          <p>Your information stays private</p>
+        </div>
       </div>
 
       <div className="relative mb-6">
@@ -136,7 +140,7 @@ export default function Login() {
           <div className="w-full border-t border-gray-300" />
         </div>
         <div className="relative flex justify-center text-sm">
-          <span className="px-2 bg-white text-gray-500">Or continue with email</span>
+          <span className="px-2 bg-white text-gray-500">or use email</span>
         </div>
       </div>
 
@@ -200,7 +204,7 @@ export default function Login() {
             </label>
           </div>
           <div className="text-sm">
-            <a href="#" className="font-medium text-brand-600 hover:text-brand-500">
+            <a href="mailto:support@clearcaseiq.com?subject=Password%20reset" className="font-medium text-brand-600 hover:text-brand-500">
               Forgot your password?
             </a>
           </div>
@@ -212,10 +216,25 @@ export default function Login() {
             disabled={isLoading}
             className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl text-base font-semibold text-white bg-gradient-to-r from-blue-600 to-brand-600 hover:from-blue-700 hover:to-brand-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/30 transition-all duration-200"
           >
-            {isLoading ? 'Signing in...' : 'Sign In'}
+            {isLoading ? 'Signing in...' : 'Continue My Case'}
           </button>
         </div>
       </form>
+
+      <div className="mt-6 rounded-xl border border-brand-100 bg-brand-50 px-4 py-4">
+        <h2 className="text-sm font-semibold text-brand-950">After you sign in</h2>
+        <div className="mt-3 space-y-2 text-sm text-brand-800">
+          <p>Review your case estimate</p>
+          <p>Upload medical records</p>
+          <p>Compare attorney matches</p>
+          <p>Track case progress</p>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-center">
+        <p className="text-sm font-semibold text-slate-800">Trusted by injury victims nationwide</p>
+        <p className="mt-1 text-xs text-slate-500">Used by plaintiffs and personal injury attorneys across multiple states.</p>
+      </div>
     </LoginLayout>
   )
 }

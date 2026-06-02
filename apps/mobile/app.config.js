@@ -39,14 +39,14 @@ module.exports = {
     },
     ios: {
       icon: './assets/icon.png',
-      supportsTablet: true,
+      supportsTablet: false,
       bundleIdentifier: 'com.caseiq.attorney',
-      buildNumber: '12',
+      buildNumber: '13',
       infoPlist: {
         NSFaceIDUsageDescription: 'Use Face ID to sign in to ClearCaseIQ',
         UIBackgroundModes: ['remote-notification'],
         ITSAppUsesNonExemptEncryption: false,
-        UIDeviceFamily: [1, 2],
+        UIDeviceFamily: [1],
       },
     },
     android: {

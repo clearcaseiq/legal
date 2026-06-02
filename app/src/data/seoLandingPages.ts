@@ -1,3 +1,9 @@
+import { requestedLandingPages } from './seoRequestedPages'
+import { priorityLandingPages } from './seoPriorityPages'
+import { conversionLandingPages } from './seoConversionPages'
+import { expansionLandingPages } from './seoExpansionPages'
+import { medicalRecordsLandingPages } from './seoMedicalRecordsPages'
+
 export type LandingPageCategory =
   | 'Symptoms'
   | 'Treatment'
@@ -471,4 +477,6 @@ export const landingPages: LandingPage[] = [
   },
 ]
 
-export const landingPagesBySlug = new Map(landingPages.map((page) => [page.slug, page]))
+export const allLandingPages = [...landingPages, ...requestedLandingPages, ...priorityLandingPages, ...conversionLandingPages, ...expansionLandingPages, ...medicalRecordsLandingPages]
+
+export const landingPagesBySlug = new Map(allLandingPages.map((page) => [page.slug, page]))

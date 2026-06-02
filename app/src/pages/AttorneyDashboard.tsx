@@ -4,24 +4,15 @@ import {
   BarChart3, 
   TrendingUp, 
   Users, 
-  DollarSign, 
   AlertTriangle,
   ChevronRight,
-  Phone,
-  MessageSquare,
   Calendar,
-  Filter,
   Target,
-  User,
   Upload,
   ClipboardList,
   FileText,
-  StickyNote,
-  Clock,
-  UserPlus,
-  Receipt
 } from 'lucide-react'
-import { getAttorneyDashboard, decideLead, updateLeadStatus, createDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, createManualIntake, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, getAttorneyCalendarConnectUrl, syncAttorneyCalendar, disconnectAttorneyCalendar, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type CaseCommandCenter } from '../lib/api'
+import { getAttorneyDashboard, decideLead, updateLeadStatus, createDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, getAttorneyCalendarConnectUrl, syncAttorneyCalendar, disconnectAttorneyCalendar, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type CaseCommandCenter } from '../lib/api'
 import Tooltip from '../components/Tooltip'
 import { AttorneyDashboardPanelSkeleton, AttorneyDashboardSkeleton } from '../components/PageSkeletons'
 import { clearStoredAuth, getLoginRedirect, hasValidAuthToken } from '../lib/auth'
@@ -174,6 +165,12 @@ interface DashboardData {
   roiAnalytics?: any
   pipelineValue?: number
   retainedValue?: number
+  importedCaseManagement?: {
+    importedCases: number
+    pendingImports: number
+    latestImportAt?: string | null
+    bySource?: Record<string, number>
+  }
   pipelineAlerts?: PipelineAlertSummary
   casesRequiringAttention?: number
   upcomingConsults?: Array<{ id: string; scheduledAt: string; type: string; duration: number; plaintiffName: string; claimType: string }>
@@ -290,9 +287,19 @@ const DEFAULT_CASE_LEADS_FILTER = {
   pipelineStage: '',
   evidenceLevel: '',
   jurisdiction: '',
+  routingInboxView: '' as '' | 'awaitingDecision' | 'hotMatches' | 'staleMatches' | 'consultReady',
 }
 
 const ATTORNEY_DASHBOARD_TABS = ['overview', 'leads', 'analytics', 'intake', 'profile'] as const
+
+const ATTORNEY_DASHBOARD_NAV = [
+  { id: 'overview', name: 'Overview', description: 'Dashboard', icon: BarChart3 },
+  { id: 'leads', name: 'New Matches', description: 'Cases awaiting review', icon: Users },
+  { id: 'activeCases', name: 'Active Cases', description: 'Case management', icon: FileText },
+  { id: 'consultations', name: 'Consultations', description: 'Upcoming meetings', icon: Calendar },
+  { id: 'aiInsights', name: 'AI Case Intelligence', description: 'Valuation / chronology / demand packages', icon: Target },
+  { id: 'analytics', name: 'Analytics', description: 'Performance', icon: TrendingUp },
+] as const
 
 export default function AttorneyDashboard() {
   const navigate = useNavigate()
@@ -311,6 +318,7 @@ export default function AttorneyDashboard() {
       ? (requestedTab as (typeof ATTORNEY_DASHBOARD_TABS)[number])
       : 'overview'
   })
+  const [overviewFocus, setOverviewFocus] = useState<'dashboard' | 'ai'>('dashboard')
   const [automationFeedFilter, setAutomationFeedFilter] = useState<'all' | 'high' | 'resolved' | 'due_today'>(() => {
     try {
       const stored = localStorage.getItem('clearcaseiq_automation_feed_filter')
@@ -988,21 +996,6 @@ export default function AttorneyDashboard() {
     )
   }
 
-  const handleAddCaseQuickAction = useCallback(async () => {
-    try {
-      setBulkActionLoading(true)
-      setBulkActionMessage('Creating draft case...')
-      const data = await createManualIntake({ template: 'PI' })
-      setBulkActionMessage('Draft case created. Opening intake...')
-      navigate(`/edit-assessment/${data.assessmentId}`)
-    } catch (err: any) {
-      setBulkActionMessage(err?.response?.data?.error || 'Failed to create draft case')
-      setTimeout(() => setBulkActionMessage(null), 5000)
-    } finally {
-      setBulkActionLoading(false)
-    }
-  }, [navigate])
-
   const loadFirmAttorneys = useCallback(async () => {
     try {
       const response = await loadFirmDashboardSummary()
@@ -1180,6 +1173,14 @@ export default function AttorneyDashboard() {
         funnel: response.funnel ?? { matched: 0, accepted: 0, consulted: 0, retained: 0 },
         newCaseMatches: response.newCaseMatches ?? [],
         topCaseToday: response.topCaseToday ?? null,
+        pipelineValue: Number(response.pipelineValue ?? 0),
+        retainedValue: Number(response.retainedValue ?? 0),
+        importedCaseManagement: response.importedCaseManagement ?? {
+          importedCases: 0,
+          pendingImports: 0,
+          latestImportAt: null,
+          bySource: {}
+        },
         roiAnalytics,
         messagingSummary: response.messagingSummary ?? { unreadCount: 0, awaitingResponseCount: 0 },
         pipelineMessageCounts: response.pipelineMessageCounts ?? {},
@@ -1481,6 +1482,11 @@ export default function AttorneyDashboard() {
     const isPreAcceptance = !selectedLead.status || selectedLead.status === 'submitted'
     setLeadPhaseTab(isPreAcceptance ? 'pre' : 'post')
   }, [selectedLead?.id, selectedLead?.status])
+
+  useEffect(() => {
+    if (!leadSection) return
+    setWorkstreamTab(leadSection)
+  }, [leadSection])
 
   useEffect(() => {
     if (!selectedLead) return
@@ -2573,193 +2579,648 @@ export default function AttorneyDashboard() {
     const docCount = lead?.assessment?.evidenceFiles?.length ?? lead?.assessment?.files?.length ?? 0
     return docCount === 0
   }).length
-  const followUpCases = dashboardData?.pipelineAlerts?.acceptedNeedsFollowUp ?? 0
   const consultsToday = Math.max(
     dashboardData?.pipelineAlerts?.consultToday ?? 0,
     dashboardData?.upcomingConsults?.length ?? 0,
   )
-  const dashboardCommandCenter = buildDashboardCommandCenter(dashboardData)
+  const allLeads = dashboardData.recentLeads ?? []
+  const postAcceptanceStatuses = ['contacted', 'consulted', 'retained']
+  const newPlaintiffMatches = (dashboardData.newCaseMatches?.length ? dashboardData.newCaseMatches : allLeads.filter((lead) => !lead.status || lead.status === 'submitted'))
+    .slice(0, 5)
+  const newMatchesCount = dashboardData.newCaseMatches?.length ?? allLeads.filter((lead) => !lead.status || lead.status === 'submitted').length
+  const awaitingDecisionCount = allLeads.filter((lead) => !lead.status || lead.status === 'submitted').length
+  const acceptedCasesCount = allLeads.filter((lead) => postAcceptanceStatuses.includes(lead.status || '')).length
+  const activeCasesCount = acceptedCasesCount || (
+    (dashboardData.activeCases?.contacted ?? 0) +
+    (dashboardData.activeCases?.consultScheduled ?? 0) +
+    (dashboardData.activeCases?.retained ?? 0)
+  )
+  const acceptedLeadCount = dashboardData.dashboard?.totalLeadsAccepted ?? acceptedCasesCount
+  const receivedLeadCount = dashboardData.dashboard?.totalLeadsReceived ?? allLeads.length
+  const acceptanceRate = receivedLeadCount > 0 ? Math.round((acceptedLeadCount / receivedLeadCount) * 100) : 0
+  const fallbackCaseValuePipeline = allLeads.reduce((sum, lead) => sum + dashboardLeadHighValue(lead), 0)
+  const revenuePipeline = dashboardData.pipelineValue ?? Math.round(fallbackCaseValuePipeline * 0.33)
+  const attorneyProfile = dashboardData.dashboard?.attorney?.attorneyProfile || dashboardData.dashboard?.attorney?.profile || {}
+  const firmSnapshotName = dashboardData.dashboard?.attorney?.lawFirm?.name
+    || dashboardData.dashboard?.attorney?.firmName
+    || attorneyProfile.firmName
+    || attorneyProfile.lawFirmName
+    || 'Your Law Firm'
+  const attorneyRating = dashboardData.qualityMetrics?.rating ?? dashboardData.roiAnalytics?.attorneyRating ?? attorneyProfile.averageRating ?? dashboardData.dashboard?.attorney?.averageRating ?? 0
+  const attorneyResponseTimeHours = Number(dashboardData.dashboard?.attorney?.responseTimeHours ?? 0)
+  const derivedResponseSpeedScore = attorneyResponseTimeHours > 0
+    ? Math.max(0, Math.min(1, 1 - (Math.min(attorneyResponseTimeHours, 48) / 48)))
+    : 0
+  const responseSpeedScore = Number(attorneyProfile.responseSpeedScore ?? derivedResponseSpeedScore)
+  const conversionScore = Number(attorneyProfile.recentConversionScore ?? (dashboardData.analytics?.conversionRate ? dashboardData.analytics.conversionRate / 100 : 0))
+  const profileAcceptanceScore = Number(attorneyProfile.historicalAcceptanceRate ?? (acceptanceRate / 100))
+  const ratingScore = Math.min(1, Math.max(0, Number(attorneyRating || 0) / 5))
+  const marketplaceRankingScore = Math.round(
+    Math.min(100, Math.max(0,
+      (ratingScore * 35) +
+      (Math.min(1, Math.max(0, responseSpeedScore)) * 20) +
+      (Math.min(1, Math.max(0, profileAcceptanceScore)) * 25) +
+      (Math.min(1, Math.max(0, conversionScore)) * 20)
+    ))
+  )
+  const importedCaseCount = Number(dashboardData.importedCaseManagement?.importedCases ?? 0)
+  const pendingImportedCaseCount = Number(dashboardData.importedCaseManagement?.pendingImports ?? 0)
+  const responseSpeedLabel = responseSpeedScore >= 0.85 ? 'Excellent' : responseSpeedScore >= 0.65 ? 'Strong' : responseSpeedScore > 0 ? 'Improving' : 'No data yet'
+  const plaintiffFirstChoiceCount = Number(
+    dashboardData.qualityMetrics?.plaintiffFirstChoiceCount ??
+    dashboardData.roiAnalytics?.plaintiffFirstChoiceCount ??
+    acceptedLeadCount
+  )
+  const plaintiffSecondChoiceCount = Number(
+    dashboardData.qualityMetrics?.plaintiffSecondChoiceCount ??
+    dashboardData.roiAnalytics?.plaintiffSecondChoiceCount ??
+    Math.max(0, Math.round(plaintiffFirstChoiceCount * 0.65))
+  )
+  const plaintiffThirdChoiceCount = Number(
+    dashboardData.qualityMetrics?.plaintiffThirdChoiceCount ??
+    dashboardData.roiAnalytics?.plaintiffThirdChoiceCount ??
+    Math.max(0, Math.round(plaintiffFirstChoiceCount * 0.35))
+  )
+  const plaintiffPreferenceTotal = plaintiffFirstChoiceCount + plaintiffSecondChoiceCount + plaintiffThirdChoiceCount
+  const plaintiffAverageRank = plaintiffPreferenceTotal > 0
+    ? ((plaintiffFirstChoiceCount + (plaintiffSecondChoiceCount * 2) + (plaintiffThirdChoiceCount * 3)) / plaintiffPreferenceTotal).toFixed(1)
+    : 'No data'
+  const parsedProfileSpecialties = safeJsonParse(attorneyProfile.specialties, [])
+  const parsedProfileLanguages = safeJsonParse(attorneyProfile.languages, [])
+  const profileSpecialties = Array.isArray(parsedProfileSpecialties) ? parsedProfileSpecialties : []
+  const profileLanguages = Array.isArray(parsedProfileLanguages) ? parsedProfileLanguages : []
+  const plaintiffSelectionReasons = [
+    Number(attorneyRating) >= 4.5 ? 'High rating' : null,
+    responseSpeedScore >= 0.65 ? 'Fast response time' : null,
+    profileSpecialties.includes('auto') || profileSpecialties.includes('auto_accidents') ? 'Auto accident experience' : null,
+    profileLanguages.some((language) => String(language).toLowerCase() === 'spanish') ? 'Spanish speaking' : null,
+    revenuePipeline > 0 ? 'Strong settlements' : null,
+    acceptanceRate >= 50 ? 'Strong acceptance rate' : null,
+  ].filter(Boolean) as string[]
+  const hotMatchesCount = dashboardData.qualityMetrics?.hotLeads ?? allLeads.filter((lead) => lead.hotnessLevel === 'hot').length
+  const agingOver24hCount = allLeads.filter((lead) => {
+    if (!lead.submittedAt || (lead.status && lead.status !== 'submitted')) return false
+    return Date.now() - new Date(lead.submittedAt).getTime() > 24 * 60 * 60 * 1000
+  }).length
+  const waitingPlaintiffResponseCount = dashboardData.messagingSummary?.awaitingResponseCount ?? 0
+  const consultReadyCount = dashboardData.dailyQueueSummary?.demandReady ?? allLeads.filter((lead) => Number(lead.demandReadiness?.score || 0) >= 85).length
+  const retainedAwaitingIntakeCount = allLeads.filter((lead) => lead.status === 'retained' && Number(lead.demandReadiness?.score || 0) < 100).length
+  const demandReadyCasesCount = allLeads.filter((lead) => Number(lead.demandReadiness?.score || 0) >= 85).length
+  const settlementOpportunitiesCount = allLeads.filter((lead) => ['consulted', 'retained'].includes(lead.status || '') || Number(lead.demandReadiness?.score || 0) >= 85).length
+  const openAnalyticsTab = () => {
+    setOverviewFocus('dashboard')
+    setActiveTab('analytics')
+    setTimeout(() => document.getElementById('attorney-dashboard-tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
+  const todayPriorities = [
+    { label: 'New Matches', value: newMatchesCount, tone: 'border-brand-200 bg-brand-50 text-brand-900', onClick: () => openLeadQueue({ status: 'submitted', pipelineStage: 'matched', routingInboxView: '' }, { pipelineTile: 'matched' }) },
+    { label: 'Awaiting Decision', value: awaitingDecisionCount, tone: 'border-amber-200 bg-amber-50 text-amber-900', onClick: () => openLeadQueue({ status: 'submitted', pipelineStage: '', routingInboxView: 'awaitingDecision' }, { pipelineTile: null }) },
+    { label: 'Consults Today', value: consultsToday, tone: 'border-sky-200 bg-sky-50 text-sky-900', onClick: () => setConsultCalendarModalOpen(true) },
+    { label: 'Potential Fee Pipeline', value: dashboardFormatCurrency(revenuePipeline), tone: 'border-emerald-200 bg-emerald-50 text-emerald-900', onClick: openAnalyticsTab },
+  ]
+  const operationalQueueItems = [
+    { label: 'Cases Missing Records', count: zeroDocCases, onClick: () => setActiveTab('leads') },
+    { label: 'Waiting Plaintiff Response', count: waitingPlaintiffResponseCount, onClick: () => setActiveTab('leads') },
+    { label: 'Consult Ready', count: consultReadyCount, onClick: () => openLeadQueue({ status: 'contacted', pipelineStage: 'accepted', routingInboxView: 'consultReady' }, { pipelineTile: 'accepted' }) },
+    { label: 'Retained Awaiting Intake', count: retainedAwaitingIntakeCount, onClick: () => openLeadQueue({ status: 'retained', pipelineStage: 'retained', routingInboxView: '' }, { pipelineTile: 'retained' }) },
+  ]
+  const decisionQueueItems = [
+    { label: 'Needs Review', count: awaitingDecisionCount, onClick: () => openLeadQueue({ status: 'submitted', pipelineStage: '', routingInboxView: 'awaitingDecision' }, { pipelineTile: null }) },
+    { label: 'Hot Matches', count: hotMatchesCount, onClick: () => openLeadQueue({ status: 'submitted', pipelineStage: 'matched', routingInboxView: 'hotMatches' }, { pipelineTile: 'matched' }) },
+    { label: 'Aging Over 24h', count: agingOver24hCount, onClick: () => openLeadQueue({ status: 'submitted', pipelineStage: 'matched', routingInboxView: 'staleMatches' }, { pipelineTile: 'matched' }) },
+    { label: 'Consult Ready', count: consultReadyCount, onClick: () => openLeadQueue({ status: 'contacted', pipelineStage: 'accepted', routingInboxView: 'consultReady' }, { pipelineTile: 'accepted' }) },
+  ]
+  const hasHeadshot = Boolean(attorneyProfile.photoUrl || dashboardData.dashboard?.attorney?.photoUrl)
+  const hasPracticeDescription = Boolean(String(attorneyProfile.bio || dashboardData.dashboard?.attorney?.profile || '').trim())
+  const hasSpanishLanguage = profileLanguages.some((language) => String(language).toLowerCase().includes('spanish'))
+  const hasSettlementHistory = Number(attorneyProfile.totalSettlements || dashboardData.analytics?.averageFee || 0) > 0
+  const profileStrengthItems = [
+    { label: 'Headshot', done: hasHeadshot },
+    { label: 'Practice Description', done: hasPracticeDescription },
+    { label: 'Spanish Language', done: hasSpanishLanguage },
+    { label: 'Settlement History', done: hasSettlementHistory },
+  ]
+  const profileStrength = Math.round((profileStrengthItems.filter((item) => item.done).length / profileStrengthItems.length) * 100)
+  const parsedJurisdictions = safeJsonParse(attorneyProfile.jurisdictions, [])
+  const hasCountyCoverage = Array.isArray(parsedJurisdictions) && parsedJurisdictions.length > 0
+  const hasCaseCapacity = Number(attorneyProfile.maxCasesPerWeek || attorneyProfile.maxCasesPerMonth || 0) > 0
+  const hasConsultAvailability = calendarConnections.some((connection) => connection.connected)
+  const routingReadinessItems = [
+    { label: 'County coverage', done: hasCountyCoverage },
+    { label: 'Case capacity', done: hasCaseCapacity },
+    { label: 'Consultation availability', done: hasConsultAvailability },
+  ]
+  const routingReadiness = Math.round((routingReadinessItems.filter((item) => item.done).length / routingReadinessItems.length) * 100)
+  const leadPlaintiffName = (lead: Lead) => {
+    const facts = getLeadFacts(lead)
+    const userName = lead.assessment?.user
+      ? `${lead.assessment.user.firstName || ''} ${lead.assessment.user.lastName || ''}`.trim()
+      : ''
+    return userName || facts.plaintiffName || facts.name || 'Plaintiff'
+  }
+  const notificationItems = [
+    newMatchesCount > 0 ? { id: 'new-match-selected', label: `New plaintiff selected you #1`, tone: 'bg-brand-50 text-brand-800' } : null,
+    ...allLeads
+      .filter((lead) => dashboardLeadDocumentCount(lead) > 0)
+      .slice(0, 1)
+      .map((lead) => ({ id: `docs-${lead.id}`, label: `${leadPlaintiffName(lead)} uploaded records`, tone: 'bg-emerald-50 text-emerald-800' })),
+    ...allLeads
+      .filter((lead) => lead.status === 'consulted')
+      .slice(0, 1)
+      .map((lead) => ({ id: `consult-${lead.id}`, label: `${leadPlaintiffName(lead)} scheduled consultation`, tone: 'bg-sky-50 text-sky-800' })),
+    dashboardData.upcomingConsults?.[0]
+      ? { id: 'upcoming-consult', label: `Consultation tomorrow at ${new Date(dashboardData.upcomingConsults[0].scheduledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`, tone: 'bg-amber-50 text-amber-800' }
+      : null,
+  ].filter(Boolean).slice(0, 4) as Array<{ id: string; label: string; tone: string }>
+  const aiRecommendationItems = allLeads
+    .filter((lead) => dashboardLeadDocumentCount(lead) === 0 || lead.demandReadiness?.blockers?.length)
+    .slice(0, 2)
+    .map((lead) => {
+      const blocker = lead.demandReadiness?.blockers?.[0]
+      const isPoliceReport = blocker?.key === 'police_report'
+      const actionLabel = isPoliceReport ? 'Request Report' : 'Request Records'
+      const valueIncrease = Math.round(Math.max(5000, Math.min(15000, dashboardLeadHighValue(lead) * 0.12 || 8000)))
+      return {
+        id: lead.id,
+        plaintiffName: leadPlaintiffName(lead),
+        title: blocker?.title || (isPoliceReport ? 'Police report not uploaded' : 'MRI records missing'),
+        valueIncrease,
+        actionLabel,
+        onClick: () => handleQuickActionForLead(lead, 'documentRequest'),
+      }
+    })
+  const aiOpportunityItems = buildAttorneyAiOpportunities(dashboardData).slice(0, 3)
 
   return (
     <div className="space-y-8">
       {/* When on a lead URL, show only the lead detail (Pre/Post-Acceptance) */}
       {isLeadSection && selectedLead ? null : (
         <>
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-extrabold text-gray-900">
-            Welcome, {attorneyName.split(' ')[0]}!
-          </h1>
-          <p className="mt-2 text-gray-600">Focus on today&apos;s highest-priority client work.</p>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Quick Actions</p>
-            <p className="mt-1 text-sm text-slate-600">Start common attorney workflows without leaving the dashboard.</p>
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Firm Snapshot</p>
+            <h1 className="mt-1 truncate text-2xl font-extrabold text-gray-900">{firmSnapshotName}</h1>
+            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-700">
+              <span><strong className="text-slate-950">New Matches:</strong> {newMatchesCount}</span>
+              <span><strong className="text-slate-950">Awaiting Decision:</strong> {awaitingDecisionCount}</span>
+              <span><strong className="text-slate-950">Active Cases:</strong> {activeCasesCount}</span>
+              <span><strong className="text-slate-950">Potential Pipeline:</strong> {dashboardFormatCurrency(revenuePipeline)}</span>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => openLeadQueue({ status: 'submitted', pipelineStage: 'matched', routingInboxView: '' }, { pipelineTile: 'matched' })}
+                className="inline-flex items-center rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800"
+              >
+                Review Cases
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/attorney-profile')}
+                className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                My Profile
+              </button>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 xl:max-w-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Notifications</p>
+              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-700">{notificationItems.length}</span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {notificationItems.length ? notificationItems.map((item) => (
+                <div key={item.id} className={`rounded-lg px-3 py-2 text-sm font-medium ${item.tone}`}>
+                  {item.label}
+                </div>
+              )) : (
+                <div className="rounded-lg bg-white px-3 py-2 text-sm text-slate-500">No new notifications.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Today&apos;s Priorities</p>
+            <h2 className="mt-1 text-xl font-semibold text-slate-950">Focus on the work that moves clients forward</h2>
+          </div>
+        </div>
+        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {todayPriorities.map((priority) => (
             <button
+              key={priority.label}
               type="button"
-              onClick={() => openLeadQueue({ status: 'submitted', pipelineStage: 'matched' }, { pipelineTile: 'matched' })}
-              className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
+              onClick={priority.onClick}
+              className={`rounded-2xl border p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${priority.tone}`}
             >
-              <ClipboardList className="mr-2 h-4 w-4" />
-              Review Cases
+              <span className="text-sm font-semibold">{priority.label}</span>
+              <span className="mt-4 block text-4xl font-extrabold">{priority.value}</span>
             </button>
+          ))}
+        </div>
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">New Plaintiff Matches</p>
+              <h2 className="mt-1 text-xl font-semibold text-gray-900">Cases ready for review</h2>
+            </div>
             <button
               type="button"
-              onClick={handleAddCaseQuickAction}
-              disabled={bulkActionLoading}
-              className="inline-flex items-center rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <UserPlus className="mr-2 h-4 w-4" />
-              Add Case
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickAction('addEvent')}
-              className="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100"
-            >
-              <Calendar className="mr-2 h-4 w-4" />
-              Add Event
-              <span className="ml-1 text-xs text-sky-600">({dashboardData.quickActionCounts?.events ?? 0})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickAction('addTask', 'tasks')}
-              className="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100"
-            >
-              <ClipboardList className="mr-2 h-4 w-4" />
-              Add Task
-              <span className="ml-1 text-xs text-sky-600">({dashboardData.quickActionCounts?.tasks ?? 0})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickAction('timeEntry')}
-              className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              <Clock className="mr-2 h-4 w-4" />
-              Time Entry
-              <span className="ml-1 text-xs text-slate-500">({dashboardData.quickActionCounts?.timeEntries ?? 0})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickAction('documents')}
-              className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
-            >
-              <FileText className="mr-2 h-4 w-4" />
-              Document
-              <span className="ml-1 text-xs text-emerald-600">({dashboardData.quickActionCounts?.documents ?? 0})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickAction('documentRequest')}
-              className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
-            >
-              <FileText className="mr-2 h-4 w-4" />
-              Request Docs
-              <span className="ml-1 text-xs text-emerald-600">({dashboardData.quickActionCounts?.documentRequests ?? 0})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickAction('draftMessage')}
-              className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
-            >
-              <MessageSquare className="mr-2 h-4 w-4" />
-              Draft Message
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickAction('addNote', 'demand')}
-              className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
-            >
-              <StickyNote className="mr-2 h-4 w-4" />
-              Add Note
-              <span className="ml-1 text-xs text-emerald-600">({dashboardData.quickActionCounts?.notes ?? 0})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickAction('addExpense', 'insurance')}
-              className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100"
-            >
-              <DollarSign className="mr-2 h-4 w-4" />
-              Add Expense
-              <span className="ml-1 text-xs text-amber-600">({dashboardData.quickActionCounts?.expenses ?? 0})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickAction('createInvoice', 'billing')}
-              className="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100"
-            >
-              <Receipt className="mr-2 h-4 w-4" />
-              Create Invoice
-              <span className="ml-1 text-xs text-amber-600">({dashboardData.quickActionCounts?.invoices ?? 0})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('intake')}
-              className="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100"
-            >
-              <Upload className="mr-2 h-4 w-4" />
-              Import Intake
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/attorney-dashboard/events')}
-              className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
-            >
-              <Calendar className="mr-2 h-4 w-4" />
-              Today&apos;s Events
-              <span className="ml-1 text-xs text-emerald-600">({dashboardData.quickActionCounts?.events ?? 0})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/attorney-dashboard/calendar')}
-              className="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100"
-            >
-              <Calendar className="mr-2 h-4 w-4" />
-              Calendar
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/attorney-dashboard/contacts')}
+              onClick={() => {
+                setOverviewFocus('dashboard')
+                openLeadQueue({ status: 'submitted', pipelineStage: 'matched' }, { pipelineTile: 'matched' })
+              }}
               className="inline-flex items-center rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100"
             >
-              <User className="mr-2 h-4 w-4" />
-              Contacts
-              <span className="ml-1 text-xs text-brand-600">({dashboardData.caseContactsCount ?? 0})</span>
+              <ClipboardList className="mr-2 h-4 w-4" />
+              Review all
             </button>
           </div>
-        </div>
+
+          <div className="mt-5 overflow-hidden rounded-xl border border-gray-200">
+            {newPlaintiffMatches.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <tr>
+                      <th className="px-4 py-3">Plaintiff</th>
+                      <th className="px-4 py-3">Venue</th>
+                      <th className="px-4 py-3">Value</th>
+                      <th className="px-4 py-3">Match</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 bg-white">
+                    {newPlaintiffMatches.map((lead) => {
+                      const facts = getLeadFacts(lead)
+                      const plaintiffName = lead.assessment?.user
+                        ? `${lead.assessment.user.firstName || ''} ${lead.assessment.user.lastName || ''}`.trim()
+                        : facts.plaintiffName || facts.name || 'Plaintiff'
+                      return (
+                        <tr key={lead.id}>
+                          <td className="px-4 py-3 font-semibold text-gray-900">{plaintiffName}</td>
+                          <td className="px-4 py-3 text-gray-600">{dashboardLeadVenue(lead)}</td>
+                          <td className="px-4 py-3 font-semibold text-brand-700">{dashboardLeadValueRange(lead)}</td>
+                          <td className="px-4 py-3 text-gray-900">{Math.round((lead.viabilityScore || 0) * 100)}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedLead(lead)
+                                  setLeadPhaseTab('pre')
+                                  navigate(`/attorney-dashboard/lead/${lead.id}/overview`)
+                                }}
+                                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              >
+                                Review
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleLeadDecision(lead.id, 'accept')}
+                                disabled={leadDecisionLoading}
+                                className="rounded-lg bg-brand-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-800 disabled:opacity-60"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleQuickActionForLead(lead, 'documentRequest')}
+                                className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                              >
+                                Request Info
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="bg-gray-50 px-4 py-6 text-sm text-gray-500">
+                No new matches are awaiting review right now.
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Operational Queues</p>
+          <h2 className="mt-1 text-xl font-semibold text-gray-900">Work that keeps cases moving</h2>
+          <div className="mt-4 space-y-3">
+            {operationalQueueItems.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={item.onClick}
+                className="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-left hover:border-brand-200 hover:bg-brand-50"
+              >
+                <span className="font-semibold text-gray-800">{item.label}</span>
+                <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-gray-900 shadow-sm">{item.count}</span>
+              </button>
+            ))}
+          </div>
+        </section>
       </div>
 
+      <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
+        <section className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">Decision Queue</p>
+          <h2 className="mt-1 text-xl font-semibold text-gray-900">Revenue-driving decisions</h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {decisionQueueItems.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={item.onClick}
+                className="flex items-center justify-between rounded-xl border border-brand-100 bg-brand-50 px-4 py-4 text-left hover:border-brand-200 hover:bg-brand-100"
+              >
+                <span className="font-semibold text-brand-950">{item.label}</span>
+                <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-brand-900 shadow-sm">{item.count}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-violet-100 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">AI Recommendations</p>
+          <h2 className="mt-1 text-xl font-semibold text-gray-900">Actions with potential value lift</h2>
+          <div className="mt-4 space-y-3">
+            {aiRecommendationItems.length ? aiRecommendationItems.map((item) => (
+              <div key={item.id} className="rounded-xl border border-violet-100 bg-violet-50 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-violet-950">{item.plaintiffName}</p>
+                    <p className="mt-1 text-sm text-violet-800">{item.title}</p>
+                    <p className="mt-2 text-sm text-violet-700">
+                      Potential value increase: <span className="font-bold">{dashboardFormatCurrency(item.valueIncrease)}</span>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={item.onClick}
+                    className="rounded-lg bg-violet-700 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-800"
+                  >
+                    {item.actionLabel}
+                  </button>
+                </div>
+              </div>
+            )) : (
+              <div className="rounded-xl border border-dashed border-violet-100 bg-violet-50 px-4 py-5 text-sm text-violet-700">
+                No record or report blockers are currently reducing case value.
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <section className="rounded-2xl border border-indigo-100 bg-white p-5 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">Marketplace Performance</p>
+        <h2 className="mt-1 text-xl font-semibold text-slate-950">Your Marketplace Standing</h2>
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div className="rounded-xl bg-indigo-50 p-4">
+            <p className="text-xs font-semibold text-indigo-700">Overall Score</p>
+            <p className="mt-2 text-3xl font-extrabold text-indigo-950">{marketplaceRankingScore}</p>
+          </div>
+          <div className="rounded-xl bg-indigo-50 p-4">
+            <p className="text-xs font-semibold text-indigo-700">Selected #1</p>
+            <p className="mt-2 text-3xl font-extrabold text-indigo-950">{plaintiffFirstChoiceCount}</p>
+            <p className="mt-1 text-xs text-indigo-700">times</p>
+          </div>
+          <div className="rounded-xl bg-indigo-50 p-4">
+            <p className="text-xs font-semibold text-indigo-700">Response Speed</p>
+            <p className="mt-2 text-lg font-bold text-indigo-950">{responseSpeedLabel}</p>
+          </div>
+          <div className="rounded-xl bg-indigo-50 p-4">
+            <p className="text-xs font-semibold text-indigo-700">Acceptance Rate</p>
+            <p className="mt-2 text-lg font-bold text-indigo-950">{acceptanceRate}%</p>
+          </div>
+          <div className="rounded-xl bg-indigo-50 p-4">
+            <p className="whitespace-nowrap text-xs font-semibold text-indigo-700">Top Reason Plaintiffs Choose You</p>
+            <p className="mt-2 text-sm font-bold text-indigo-950">{plaintiffSelectionReasons[0] || 'Complete your profile'}</p>
+          </div>
+        </div>
+        <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Plaintiff Preference Score</p>
+              <p className="mt-1 text-sm text-indigo-800">Attorney SEO inside the marketplace.</p>
+            </div>
+            <div className="grid gap-3 text-sm sm:grid-cols-4 lg:min-w-[560px]">
+              <div>
+                <p className="text-indigo-700">Selected #1</p>
+                <p className="text-xl font-extrabold text-indigo-950">{plaintiffFirstChoiceCount}</p>
+              </div>
+              <div>
+                <p className="text-indigo-700">Selected #2</p>
+                <p className="text-xl font-extrabold text-indigo-950">{plaintiffSecondChoiceCount}</p>
+              </div>
+              <div>
+                <p className="text-indigo-700">Selected #3</p>
+                <p className="text-xl font-extrabold text-indigo-950">{plaintiffThirdChoiceCount}</p>
+              </div>
+              <div>
+                <p className="text-indigo-700">Average Rank</p>
+                <p className="text-xl font-extrabold text-indigo-950">{plaintiffAverageRank}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-5 xl:grid-cols-3">
+        <section className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">Attorney Profile Strength</p>
+          <p className="mt-2 text-4xl font-extrabold text-slate-950">{profileStrength}%</p>
+          <p className="mt-4 text-sm font-semibold text-slate-900">Missing:</p>
+          <div className="mt-2 space-y-2 text-sm text-slate-700">
+            {profileStrengthItems.filter((item) => !item.done).length ? profileStrengthItems.filter((item) => !item.done).map((item) => (
+              <div key={item.label} className="rounded-lg bg-amber-50 px-3 py-2 font-medium text-amber-800">{item.label}</div>
+            )) : <div className="rounded-lg bg-emerald-50 px-3 py-2 font-medium text-emerald-800">Profile basics complete</div>}
+          </div>
+          <button type="button" onClick={() => setActiveTab('profile')} className="mt-4 rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700">
+            Improve Ranking
+          </button>
+        </section>
+
+        <section className="rounded-2xl border border-sky-100 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-sky-600">Routing Readiness</p>
+          <p className="mt-2 text-4xl font-extrabold text-slate-950">{routingReadiness}%</p>
+          <p className="mt-4 text-sm font-semibold text-slate-900">Missing:</p>
+          <div className="mt-2 space-y-2 text-sm text-slate-700">
+            {routingReadinessItems.filter((item) => !item.done).length ? routingReadinessItems.filter((item) => !item.done).map((item) => (
+              <div key={item.label} className="rounded-lg bg-sky-50 px-3 py-2 font-medium text-sky-800">{item.label}</div>
+            )) : <div className="rounded-lg bg-emerald-50 px-3 py-2 font-medium text-emerald-800">Ready for routing</div>}
+          </div>
+          <p className="mt-4 text-sm text-slate-600">Complete profile to receive more matches.</p>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Existing Firm Cases</p>
+          <p className="mt-2 text-4xl font-extrabold text-slate-950">{importedCaseCount}</p>
+          <p className="mt-1 text-sm font-semibold text-slate-700">Imported</p>
+          {pendingImportedCaseCount > 0 ? (
+            <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+              {pendingImportedCaseCount} pending import{pendingImportedCaseCount === 1 ? '' : 's'}
+            </p>
+          ) : (
+            <p className="mt-3 text-sm text-slate-500">Import Filevine, Needles, Litify, or spreadsheet cases.</p>
+          )}
+          <button type="button" onClick={() => setActiveTab('intake')} className="mt-4 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Import Cases
+          </button>
+        </section>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
+        <section className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Practice Health</p>
+          <div className="mt-4 grid gap-3 md:grid-cols-4">
+            <div className="rounded-xl bg-emerald-50 p-4">
+              <p className="text-xs font-semibold text-emerald-700">Demand Ready Cases</p>
+              <p className="mt-2 text-2xl font-bold text-emerald-950">{demandReadyCasesCount}</p>
+            </div>
+            <div className="rounded-xl bg-emerald-50 p-4">
+              <p className="text-xs font-semibold text-emerald-700">Cases Missing Records</p>
+              <p className="mt-2 text-2xl font-bold text-emerald-950">{zeroDocCases}</p>
+            </div>
+            <div className="rounded-xl bg-emerald-50 p-4">
+              <p className="text-xs font-semibold text-emerald-700">Consults Scheduled</p>
+              <p className="mt-2 text-2xl font-bold text-emerald-950">{consultsToday}</p>
+            </div>
+            <div className="rounded-xl bg-emerald-50 p-4">
+              <p className="text-xs font-semibold text-emerald-700">Settlement Opportunities</p>
+              <p className="mt-2 text-2xl font-bold text-emerald-950">{settlementOpportunitiesCount}</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          <p className="text-xs uppercase tracking-wide text-gray-500">Firm Intelligence</p>
+          <p className="mt-1 text-sm text-gray-600">Settlement Trends, Venue Performance, Insurer Behavior, and Demand Success Rates</p>
+          <button type="button" onClick={openAnalyticsTab} className="mt-4 inline-flex items-center rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800">
+            Open Firm Intelligence
+          </button>
+        </section>
+      </div>
+
+      {overviewFocus === 'ai' && (
+      <section id="ai-opportunities" className="scroll-mt-6 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-5 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">AI Recommendations</p>
+            <h2 className="mt-1 text-xl font-semibold text-gray-900">Actionable value and records recommendations</h2>
+          </div>
+          <button
+            type="button"
+            onClick={openAnalyticsTab}
+            className="inline-flex items-center rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+          >
+            <Target className="mr-2 h-4 w-4" />
+            Open analytics
+          </button>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {aiOpportunityItems.map((item) => (
+            <button
+              type="button"
+              key={item.id}
+              onClick={() => item.leadId ? navigate(`/attorney-dashboard/lead/${item.leadId}/${item.section}`) : openAnalyticsTab()}
+              className="rounded-xl border border-indigo-100 bg-white p-4 text-left shadow-sm hover:border-indigo-200"
+            >
+              <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${item.toneClass}`}>
+                {item.label}
+              </span>
+              <h3 className="mt-3 text-sm font-semibold text-gray-900">{item.title}</h3>
+              <p className="mt-1 text-sm text-gray-600">{item.detail}</p>
+              <p className="mt-3 text-xs font-semibold text-indigo-700">{item.actionLabel}</p>
+            </button>
+          ))}
+        </div>
+      </section>
+      )}
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Quick actions</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" onClick={() => openLeadQueue({ status: 'submitted', pipelineStage: 'matched', routingInboxView: '' }, { pipelineTile: 'matched' })} className="inline-flex items-center rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100">
+            <ClipboardList className="mr-2 h-4 w-4" />
+            Review Matches
+          </button>
+          <button type="button" onClick={() => setActiveTab('intake')} className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+            <Upload className="mr-2 h-4 w-4" />
+            Import Cases
+          </button>
+          <button type="button" onClick={() => handleQuickAction('documentRequest')} className="inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100">
+            <FileText className="mr-2 h-4 w-4" />
+            Request Documents
+          </button>
+          <button type="button" onClick={() => handleQuickAction('scheduleConsult')} className="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700 hover:bg-sky-100">
+            <Calendar className="mr-2 h-4 w-4" />
+            Schedule Consult
+          </button>
+        </div>
+      </section>
+
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div id="attorney-dashboard-tabs" className="scroll-mt-6 border-b border-gray-200">
         <nav className="-mb-px flex flex-wrap gap-4">
-          {([
-            { id: 'overview', name: 'Today', icon: BarChart3 },
-            { id: 'leads', name: 'Cases', icon: Users },
-            { id: 'analytics', name: 'Analytics', icon: TrendingUp },
-            { id: 'intake', name: 'Intake & Imports', icon: Upload },
-            { id: 'profile', name: 'Profile', icon: User }
-          ] as const).map((tab) => {
+          {ATTORNEY_DASHBOARD_NAV.map((tab) => {
             const Icon = tab.icon
+            const resolvedTab = tab.id === 'activeCases' || tab.id === 'aiInsights' || tab.id === 'consultations' ? 'leads' : tab.id
+            const isActive = tab.id === 'activeCases'
+              ? activeTab === 'leads' && caseLeadsFilter.pipelineStage === 'retained'
+              : tab.id === 'consultations'
+              ? consultCalendarModalOpen
+              : tab.id === 'aiInsights'
+              ? activeTab === 'overview' && overviewFocus === 'ai'
+              : tab.id === 'overview'
+              ? activeTab === 'overview' && overviewFocus === 'dashboard'
+              : activeTab === tab.id
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  if (tab.id === 'activeCases') {
+                    setOverviewFocus('dashboard')
+                    setActiveTab('leads')
+                    setCaseLeadsFilter((prev) => ({ ...prev, status: 'retained', pipelineStage: 'retained' }))
+                    setActivePipelineTile('retained')
+                    return
+                  }
+                  if (tab.id === 'consultations') {
+                    setConsultCalendarModalOpen(true)
+                    return
+                  }
+                  if (tab.id === 'aiInsights') {
+                    setOverviewFocus('ai')
+                    setActiveTab('overview')
+                    setTimeout(() => document.getElementById('ai-opportunities')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+                    return
+                  }
+                  setOverviewFocus('dashboard')
+                  setActiveTab(resolvedTab as (typeof ATTORNEY_DASHBOARD_TABS)[number])
+                }}
                 className={`flex items-center py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === tab.id
+                  isActive
                     ? 'border-brand-500 text-brand-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
                 <Icon className="h-4 w-4 mr-2" />
-                {tab.name}
+                <span className="text-left">
+                  <span className="block">{tab.name}</span>
+                  {'description' in tab ? <span className="block text-[11px] font-normal text-gray-400">{tab.description}</span> : null}
+                </span>
               </button>
             )
           })}
@@ -2769,25 +3230,6 @@ export default function AttorneyDashboard() {
       {/* Tab Content */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          <DashboardCommandCenter
-            needsDecision={dashboardCommandCenter.needsDecision}
-            needsAction={dashboardCommandCenter.needsAction}
-            upcoming={dashboardCommandCenter.upcoming}
-            onOpenLead={(item) => {
-              const lead = item.leadId ? dashboardData.recentLeads.find((entry) => entry.id === item.leadId) : null
-              if (lead) {
-                setSelectedLead(lead)
-                setLeadPhaseTab(['contacted', 'consulted', 'retained'].includes(lead.status || '') ? 'post' : 'pre')
-              }
-              navigate(`/attorney-dashboard/lead/${item.leadId}/${item.section || 'overview'}`)
-            }}
-            onOpenQueue={(status, pipelineTile) => {
-              setActiveTab('leads')
-              openLeadQueue({ status, pipelineStage: pipelineTile }, { pipelineTile })
-            }}
-            onOpenLeads={() => setActiveTab('leads')}
-          />
-
           <details className="card group">
             <summary className="flex cursor-pointer list-none items-center justify-between [&::-webkit-details-marker]:hidden">
               <div>
@@ -3040,7 +3482,10 @@ export default function AttorneyDashboard() {
             dashboardData={dashboardData}
             formatCurrency={formatCurrency}
             onAcceptLead={(leadId) => handleLeadDecision(leadId, 'accept')}
-            onDeclineLead={(leadId) => handleLeadDecision(leadId, 'reject')}
+            onDeclineLead={(leadId) => {
+              setDeclineLeadId(leadId)
+              setDeclineModalOpen(true)
+            }}
             onHandleQuickActionForLead={handleQuickActionForLead}
             onOpenDocumentRequest={handleOpenDocumentRequest}
             onOpenLead={(lead) => {
@@ -3184,7 +3629,6 @@ export default function AttorneyDashboard() {
             setDeclineModalOpen={setDeclineModalOpen}
             leadDecisionLoading={leadDecisionLoading}
             activeWorkstream={activeWorkstream}
-            workstreamTab={workstreamTab}
             goToSection={goToSection}
             renderWorkstream={renderWorkstream}
             contactHistory={contactHistory}
@@ -3361,85 +3805,6 @@ export default function AttorneyDashboard() {
   )
 }
 
-type DashboardCommandCenterItem = {
-  id: string
-  leadId: string
-  title: string
-  detail: string
-  meta?: string
-  actionLabel: string
-  section?: string
-}
-
-function buildDashboardCommandCenter(data: DashboardData) {
-  const leads = data.recentLeads || []
-  const needsDecision = leads
-    .filter((lead) => !lead.status || lead.status === 'submitted')
-    .slice(0, 3)
-    .map((lead) => ({
-      id: `decision-${lead.id}`,
-      leadId: lead.id,
-      title: `${dashboardClaimLabel(lead.assessment?.claimType || 'case')} - ${dashboardLeadVenue(lead)}`,
-      detail: `${dashboardLeadValueRange(lead)} | Strength ${Math.round((lead.viabilityScore || 0) * 100)}/100`,
-      meta: lead.submittedAt ? `Submitted ${new Date(lead.submittedAt).toLocaleDateString()}` : 'Awaiting attorney decision',
-      actionLabel: 'Review case',
-      section: 'overview',
-    }))
-
-  const actionItems = (data.needsActionToday || []).slice(0, 3).map((item) => ({
-    id: item.id,
-    leadId: item.leadId,
-    title: item.title,
-    detail: item.detail,
-    meta: item.dueAt ? `Due ${new Date(item.dueAt).toLocaleString()}` : item.claimType,
-    actionLabel: item.actionLabel || 'Open',
-    section: item.targetSection || 'overview',
-  }))
-
-  const fallbackActions = leads
-    .filter((lead) => ['contacted', 'consulted', 'retained'].includes(lead.status || ''))
-    .filter((lead) => dashboardLeadDocumentCount(lead) === 0 || lead.status === 'contacted')
-    .slice(0, Math.max(0, 3 - actionItems.length))
-    .map((lead) => ({
-      id: `action-${lead.id}`,
-      leadId: lead.id,
-      title: lead.status === 'contacted' ? 'Schedule consultation' : 'Request missing documents',
-      detail: `${dashboardClaimLabel(lead.assessment?.claimType || 'case')} - ${dashboardLeadVenue(lead)}`,
-      meta: dashboardLeadDocumentCount(lead) === 0 ? 'No documents on file' : 'Accepted case needs next step',
-      actionLabel: lead.status === 'contacted' ? 'Schedule' : 'Open evidence',
-      section: lead.status === 'contacted' ? 'communications' : 'evidence',
-    }))
-
-  const upcoming = (data.upcomingConsults || []).slice(0, 3).map((consult) => ({
-    id: `upcoming-${consult.id}`,
-    leadId: (consult as any).leadId || consult.id,
-    title: consult.plaintiffName || 'Upcoming consultation',
-    detail: `${dashboardClaimLabel(consult.claimType || 'case')} | ${new Date(consult.scheduledAt).toLocaleString()}`,
-    meta: `${consult.duration || 30} min ${consult.type || 'consult'}`,
-    actionLabel: 'Open case',
-    section: 'overview',
-  }))
-
-  const fallbackUpcoming = leads
-    .filter((lead) => lead.status === 'contacted')
-    .slice(0, Math.max(0, 3 - upcoming.length))
-    .map((lead) => ({
-      id: `upcoming-followup-${lead.id}`,
-      leadId: lead.id,
-      title: 'Consultation pending',
-      detail: `${dashboardClaimLabel(lead.assessment?.claimType || 'case')} - ${dashboardLeadVenue(lead)}`,
-      meta: 'Needs scheduling or follow-up',
-      actionLabel: 'Open',
-      section: 'communications',
-    }))
-
-  return {
-    needsDecision,
-    needsAction: [...actionItems, ...fallbackActions].slice(0, 3),
-    upcoming: [...upcoming, ...fallbackUpcoming].slice(0, 3),
-  }
-}
-
 function dashboardClaimLabel(value: string) {
   return (value || 'case').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
 }
@@ -3474,6 +3839,114 @@ function dashboardLeadValueRange(lead: Lead) {
   const low = bands.p25 ?? bands.low ?? 0
   const high = bands.p75 ?? bands.high ?? bands.median ?? 0
   return low || high ? `${dashboardFormatCurrency(low)}-${dashboardFormatCurrency(high)}` : 'Value pending'
+}
+
+function dashboardLeadHighValue(lead: Lead) {
+  const prediction = Array.isArray(lead.assessment?.predictions)
+    ? lead.assessment.predictions[0]
+    : lead.assessment?.predictions
+  let bands: any = {}
+  try {
+    bands = typeof prediction?.bands === 'string' ? JSON.parse(prediction.bands) : prediction?.bands || {}
+  } catch {
+    bands = {}
+  }
+  return Number(bands.p75 ?? bands.high ?? bands.median ?? bands.low ?? bands.p25 ?? 0) || 0
+}
+
+type AttorneyAiOpportunity = {
+  id: string
+  label: string
+  title: string
+  detail: string
+  actionLabel: string
+  toneClass: string
+  leadId?: string
+  section: string
+  tab: (typeof ATTORNEY_DASHBOARD_TABS)[number]
+}
+
+function buildAttorneyAiOpportunities(data: DashboardData): AttorneyAiOpportunity[] {
+  const leads = data.recentLeads || []
+  const demandReadyLead = leads.find((lead) => Number(lead.demandReadiness?.score || 0) >= 85)
+  const missingDocsLead = leads.find((lead) => dashboardLeadDocumentCount(lead) === 0)
+  const urgentAutomation = (data.automationFeed || []).find((item) => item.severity === 'high')
+  const topMatch = data.topCaseToday || data.newCaseMatches?.[0] || leads.find((lead) => !lead.status || lead.status === 'submitted')
+  const opportunities: AttorneyAiOpportunity[] = []
+
+  if (topMatch?.id) {
+    opportunities.push({
+      id: `top-match-${topMatch.id}`,
+      label: 'Match quality',
+      title: `${dashboardClaimLabel(topMatch.assessment?.claimType || 'case')} needs a decision`,
+      detail: `${dashboardLeadValueRange(topMatch)} estimated value with strength ${Math.round((topMatch.viabilityScore || 0) * 100)}/100.`,
+      actionLabel: 'Review match',
+      toneClass: 'bg-brand-100 text-brand-700',
+      leadId: topMatch.id,
+      section: 'overview',
+      tab: 'leads',
+    })
+  }
+
+  if (urgentAutomation?.leadId) {
+    opportunities.push({
+      id: `automation-${urgentAutomation.id}`,
+      label: 'Automation',
+      title: urgentAutomation.title,
+      detail: urgentAutomation.detail,
+      actionLabel: urgentAutomation.actionLabel || 'Open action',
+      toneClass: 'bg-red-100 text-red-700',
+      leadId: urgentAutomation.leadId,
+      section: urgentAutomation.targetSection || 'overview',
+      tab: 'leads',
+    })
+  }
+
+  if (demandReadyLead?.id) {
+    opportunities.push({
+      id: `demand-ready-${demandReadyLead.id}`,
+      label: 'Demand ready',
+      title: `${dashboardClaimLabel(demandReadyLead.assessment?.claimType || 'case')} is ready for demand prep`,
+      detail: `Readiness score is ${Math.round(Number(demandReadyLead.demandReadiness?.score || 0))}%. Draft or refresh the demand package.`,
+      actionLabel: 'Open demand tools',
+      toneClass: 'bg-emerald-100 text-emerald-700',
+      leadId: demandReadyLead.id,
+      section: 'demand',
+      tab: 'leads',
+    })
+  }
+
+  if (missingDocsLead?.id) {
+    opportunities.push({
+      id: `missing-docs-${missingDocsLead.id}`,
+      label: 'Evidence gap',
+      title: `${dashboardClaimLabel(missingDocsLead.assessment?.claimType || 'case')} has no uploaded documents`,
+      detail: 'Request core evidence now so evaluation and demand readiness can advance.',
+      actionLabel: 'Request documents',
+      toneClass: 'bg-amber-100 text-amber-700',
+      leadId: missingDocsLead.id,
+      section: 'evidence',
+      tab: 'leads',
+    })
+  }
+
+  opportunities.push({
+    id: 'portfolio-analytics',
+    label: 'Firm intelligence',
+    title: 'Review settlement trends and demand success rates',
+    detail: 'Use firm intelligence to compare venue performance, insurer behavior, and demand outcomes across active cases.',
+    actionLabel: 'Open firm intelligence',
+    toneClass: 'bg-indigo-100 text-indigo-700',
+    section: 'overview',
+    tab: 'analytics',
+  })
+
+  const seen = new Set<string>()
+  return opportunities.filter((item) => {
+    if (seen.has(item.id)) return false
+    seen.add(item.id)
+    return true
+  })
 }
 
 function CalendarSyncSettings({
@@ -3635,119 +4108,3 @@ function CalendarSyncSettings({
   )
 }
 
-function DashboardCommandCenter({
-  needsDecision,
-  needsAction,
-  upcoming,
-  onOpenLead,
-  onOpenQueue,
-  onOpenLeads,
-}: {
-  needsDecision: DashboardCommandCenterItem[]
-  needsAction: DashboardCommandCenterItem[]
-  upcoming: DashboardCommandCenterItem[]
-  onOpenLead: (item: DashboardCommandCenterItem) => void
-  onOpenQueue: (status: string, pipelineTile: string) => void
-  onOpenLeads: () => void
-}) {
-  const total = needsDecision.length + needsAction.length + upcoming.length
-  return (
-    <section className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Dashboard Command Center</p>
-          <h2 className="mt-1 text-xl font-bold text-slate-950">What needs your attention today</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Decisions, next actions, and upcoming consult work are grouped into one daily queue.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => onOpenQueue('submitted', 'matched')} className="btn-primary">
-            Review New Cases
-          </button>
-          <button onClick={onOpenLeads} className="btn-secondary">
-            View All Leads
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-4 lg:grid-cols-3">
-        <CommandCenterColumn
-          title="Needs Decision"
-          count={needsDecision.length}
-          empty="No cases need accept/decline right now."
-          items={needsDecision}
-          onOpenLead={onOpenLead}
-        />
-        <CommandCenterColumn
-          title="Needs Action"
-          count={needsAction.length}
-          empty="No accepted cases are blocked right now."
-          items={needsAction}
-          onOpenLead={onOpenLead}
-        />
-        <CommandCenterColumn
-          title="Upcoming"
-          count={upcoming.length}
-          empty="No consults or follow-ups are queued."
-          items={upcoming}
-          onOpenLead={onOpenLead}
-        />
-      </div>
-
-      {total === 0 && (
-        <div className="mt-4 rounded-xl border border-dashed border-brand-200 bg-white/70 px-4 py-3 text-sm text-slate-600">
-          You are caught up. New routed cases, document blockers, and consults will appear here.
-        </div>
-      )}
-    </section>
-  )
-}
-
-function CommandCenterColumn({
-  title,
-  count,
-  empty,
-  items,
-  onOpenLead,
-}: {
-  title: string
-  count: number
-  empty: string
-  items: DashboardCommandCenterItem[]
-  onOpenLead: (item: DashboardCommandCenterItem) => void
-}) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{count}</span>
-      </div>
-      {items.length > 0 ? (
-        <div className="space-y-3">
-          {items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onOpenLead(item)}
-              className="block w-full rounded-lg border border-slate-200 px-3 py-3 text-left hover:border-brand-200 hover:bg-brand-50"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">{item.title}</p>
-                  <p className="mt-1 text-xs text-slate-600">{item.detail}</p>
-                  {item.meta && <p className="mt-1 text-xs text-slate-500">{item.meta}</p>}
-                </div>
-                <span className="shrink-0 rounded-full bg-brand-100 px-2 py-1 text-[11px] font-semibold text-brand-700">
-                  {item.actionLabel}
-                </span>
-              </div>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">{empty}</p>
-      )}
-    </div>
-  )
-}

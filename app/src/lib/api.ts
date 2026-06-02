@@ -1032,6 +1032,34 @@ export async function updateAttorneyProfile(data: any) {
   return response
 }
 
+export async function getAttorneyProfilePerformance(params: {
+  period?: string
+  startDate?: string
+  endDate?: string
+} = {}) {
+  const { data } = await api.get('/v1/attorney-profile/performance', {
+    params: {
+      ...params,
+      t: Date.now(),
+    },
+    headers: {
+      'Cache-Control': 'no-store',
+    },
+  })
+  return data
+}
+
+export async function addAttorneyVerifiedVerdict(payload: {
+  caseType: string
+  settlementAmount: number
+  caseDescription?: string
+  date?: string
+  venue?: string
+}) {
+  const { data } = await api.post('/v1/attorney-profile/verified-verdicts', payload)
+  return data
+}
+
 // Get current authenticated attorney's profile
 export async function getMyAttorneyProfile() {
   const { data: response } = await api.get('/v1/attorney-profile/profile', {
@@ -1818,8 +1846,27 @@ export async function importCase(payload: {
   includeTasks?: boolean
   includeMedical?: boolean
   notes?: string
-  files?: { name: string; size?: number }[]
+  files?: File[] | { name: string; size?: number }[]
 }) {
+  const hasBrowserFiles =
+    typeof File !== 'undefined' &&
+    Array.isArray(payload.files) &&
+    payload.files.some((file) => file instanceof File)
+  if (hasBrowserFiles) {
+    const formData = new FormData()
+    formData.append('source', payload.source)
+    formData.append('includeDocuments', String(payload.includeDocuments ?? true))
+    formData.append('includeHistory', String(payload.includeHistory ?? true))
+    formData.append('includeTasks', String(payload.includeTasks ?? true))
+    formData.append('includeMedical', String(payload.includeMedical ?? true))
+    if (payload.notes) formData.append('notes', payload.notes)
+    ;(payload.files as File[]).forEach((file) => formData.append('files', file))
+    const { data } = await api.post('/v1/attorney-dashboard/intake/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return data
+  }
+
   const { data } = await api.post('/v1/attorney-dashboard/intake/import', payload)
   return data
 }
@@ -2576,6 +2623,57 @@ export async function addFirmAttorney(payload: {
   jurisdictions?: Array<{ state: string; counties?: string[] }>
 }) {
   const { data } = await api.post('/v1/firm-dashboard/attorneys', payload)
+  return data
+}
+
+export async function addFirmMember(payload: {
+  email: string
+  firstName?: string
+  lastName?: string
+  role: string
+  title?: string
+  officeId?: string
+  specialties?: string[]
+  venues?: string[]
+  jurisdictions?: Array<{ state: string; counties?: string[] }>
+}) {
+  const { data } = await api.post('/v1/firm-dashboard/members', payload)
+  return data
+}
+
+export async function addFirmOffice(payload: {
+  name: string
+  city?: string
+  state?: string
+  address?: string
+  phone?: string
+  countiesServed?: string[]
+  languages?: string[]
+  practiceAreas?: string[]
+  capacity?: number
+}) {
+  const { data } = await api.post('/v1/firm-dashboard/offices', payload)
+  return data
+}
+
+export async function addFirmTeam(payload: {
+  name: string
+  teamType?: string
+  description?: string
+  officeId?: string
+}) {
+  const { data } = await api.post('/v1/firm-dashboard/teams', payload)
+  return data
+}
+
+export async function assignFirmCase(assessmentId: string, payload: {
+  role: string
+  assignedUserId?: string
+  assignedAttorneyId?: string
+  notes?: string
+  dueDate?: string
+}) {
+  const { data } = await api.post(`/v1/firm-dashboard/cases/${assessmentId}/assignments`, payload)
   return data
 }
 

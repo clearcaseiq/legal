@@ -477,6 +477,7 @@ export default function Dashboard() {
 
   const hasInjuryPhotos = evidenceFiles.some((f: any) => f?.category === 'photos')
   const hasMedicalRecords = evidenceFiles.some((f: any) => f?.category === 'medical_records' || f?.category === 'bills')
+  const hasHospitalBill = evidenceFiles.some((f: any) => f?.category === 'bills' || f?.subcategory === 'medical_bill')
   const hasPoliceReport = evidenceFiles.some((f: any) => f?.category === 'police_report')
   const evidenceChecklist = [
     { label: 'Medical records', done: hasMedicalRecords },
@@ -635,6 +636,38 @@ export default function Dashboard() {
     { label: 'Police Report', done: hasPoliceReport, impact: '+8%' },
     { label: 'Wage Loss Proof', done: hasWageLoss, impact: '+15%' }
   ]
+  const attorneyActivity = routingStatus?.attorneyActivity ?? []
+  const latestAttorneyActivity = attorneyActivity[0]
+  const latestAttorneyActivityTime = latestAttorneyActivity?.timeAgo || (submittedForReview ? '10 minutes ago' : 'No attorney activity yet')
+  const reviewStageLabel = attorneyMatched ? 'Matched' : submittedForReview ? 'Attorney Review' : 'Assessment'
+  const reviewProgressItems = [
+    { label: 'Assessment', done: true, current: false },
+    { label: 'Submitted', done: submittedForReview || attorneyMatched, current: !submittedForReview && !attorneyMatched },
+    { label: 'Attorney Review', done: attorneyMatched, current: submittedForReview && !attorneyMatched },
+    { label: 'Matched', done: attorneyMatched, current: attorneyMatched && !hasUpcomingConsult },
+    { label: 'Consultation', done: hasUpcomingConsult, current: hasUpcomingConsult },
+  ]
+  const caseStrengthFriendly = caseScore >= 70 ? 'Strong' : caseScore >= 45 ? 'Good' : 'Developing'
+  const strengthOpportunities = [
+    !hasMedicalRecords && { label: 'Upload medical records', impact: 'Highest Impact' },
+    !hasHospitalBill && { label: 'Upload hospital bill', impact: 'Medium Impact' },
+    !hasPoliceReport && { label: 'Upload police report', impact: 'Medium Impact' },
+    !hasWageLoss && { label: 'Upload wage loss documents', impact: 'Helpful' },
+  ].filter(Boolean) as Array<{ label: string; impact: string }>
+  const hasErTreatment = Array.isArray(treatment) && treatment.some((item: any) =>
+    String(item?.type || item?.providerType || item || '').toLowerCase().includes('er') ||
+    String(item?.type || item?.providerType || item || '').toLowerCase().includes('emergency')
+  )
+  const potentialSettlementLow = Math.max(settlementHigh, Math.round(settlementHigh * 1.25 / 1000) * 1000)
+  const potentialSettlementHigh = Math.max(potentialSettlementLow + 5000, Math.round(settlementHigh * 1.8 / 1000) * 1000)
+  const similarCaseFactors = [
+    hasErTreatment && 'ER Treatment',
+    hasMedicalRecords && 'Medical Records',
+    hasHospitalBill && 'Hospital Bill',
+    hasPoliceReport && 'Police Report',
+    liabilityLabel === 'Strong' && 'Clear Responsibility',
+  ].filter(Boolean).slice(0, 3) as string[]
+  const commonSimilarFactors = similarCaseFactors.length > 0 ? similarCaseFactors : ['ER Treatment', 'MRI', 'Rear-End Collision']
 
   const pendingItems = checklist.filter(c => !c.done)
   const actionItemsCount = pendingItems.length
@@ -1094,7 +1127,9 @@ export default function Dashboard() {
             <div>
               <h1 className="font-display text-ui-2xl font-semibold text-slate-950 dark:text-slate-50">Hi {user.firstName}</h1>
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                {activeAssessment
+                {activeAssessment && submittedForReview
+                  ? `Your case is currently being reviewed. ${attorneyReviewCount} attorney${attorneyReviewCount !== 1 ? 's are' : ' is'} reviewing your information. Expected response: ${responseDeadlineLabel}. Current estimate: ${formatCurrency(settlementLow)}–${formatCurrency(settlementHigh)}.`
+                  : activeAssessment
                   ? `Your case is ${docPercent}% complete.${actionItemsCount > 0 ? ' Two more documents could significantly increase your case value.' : ''}`
                   : "Let's find out if you may have a personal injury case."}
               </p>
@@ -1141,8 +1176,48 @@ export default function Dashboard() {
                   lifecycleState={routingLifecycle}
                   statusMessage={plaintiffRoutingStatusMessage}
                 />
+                {submittedForReview && (
+                  <section className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-600 to-brand-700 p-6 text-white shadow-sm">
+                    <p className="text-sm font-semibold text-brand-100">Your Case Is Being Reviewed</p>
+                    <div className="mt-4 grid gap-4 md:grid-cols-3">
+                      <div>
+                        <p className="text-3xl font-bold">{attorneyReviewCount} Attorney{attorneyReviewCount !== 1 ? 's' : ''} Reviewing</p>
+                        <p className="mt-1 text-sm text-brand-100">Your information is in attorney review.</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-brand-100">Expected Response</p>
+                        <p className="mt-1 text-2xl font-bold">{responseDeadlineLabel}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-brand-100">Case Value</p>
+                        <p className="mt-1 text-2xl font-bold">{formatCurrency(settlementLow)} - {formatCurrency(settlementHigh)}</p>
+                      </div>
+                    </div>
+                    <div className="mt-6 flex gap-2 overflow-x-auto pb-1">
+                      {reviewProgressItems.map((step, index) => (
+                        <div key={step.label} className="flex min-w-[120px] items-center">
+                          <div className="flex flex-col">
+                            <span className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${
+                              step.done ? 'bg-white text-brand-700' : step.current ? 'bg-brand-100 text-brand-800 ring-2 ring-white/70' : 'bg-white/20 text-white'
+                            }`}>
+                              {step.done ? '✓' : index + 1}
+                            </span>
+                            <span className="mt-2 text-xs font-semibold text-brand-50">{step.label}{step.current ? ' (Current)' : ''}</span>
+                          </div>
+                          {index < reviewProgressItems.length - 1 && <div className={`mx-2 h-0.5 flex-1 ${step.done ? 'bg-white' : 'bg-white/25'}`} />}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+                {submittedForReview && (
+                  <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-4 text-sm text-blue-900">
+                    <span className="font-semibold">Attorney review does not obligate you.</span>{' '}
+                    You decide whether to speak with or hire any attorney who contacts you.
+                  </div>
+                )}
                 {/* Top status banner - changes when attorney accepts */}
-                {waitingBanner && (
+                {waitingBanner && !submittedForReview && (
                   <div className={`${waitingBanner.className} premium-panel px-6 py-5`}>
                     <p className="text-xl font-bold">{waitingBanner.title}</p>
                     <p className={`${waitingBanner.subClassName} text-sm mt-1`}>{waitingBanner.subtitle}</p>
@@ -1709,12 +1784,12 @@ export default function Dashboard() {
                           </>
                         )}
                       </div>
-                      <div className="bg-brand-600 rounded-xl p-5 min-h-[260px] flex flex-col">
-                        <h2 className="text-lg font-bold mb-2">Next Best Action</h2>
-                        <p className="text-lg text-brand-100 mb-1">{dailyAction.action}</p>
-                        <p className="text-sm text-brand-200 mb-3">{dailyAction.valueIncrease}</p>
+                      <div className="bg-brand-600 rounded-xl p-6 min-h-[260px] flex flex-col text-white">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-brand-100">Potential Value Increase</p>
+                        <h2 className="mt-1 text-2xl font-bold">{dailyAction.action}</h2>
+                        <p className="mt-2 text-sm font-semibold text-brand-100">Potential impact: {dailyAction.valueIncrease}</p>
                         {(dailyAction.action.toLowerCase().includes('bill') || dailyAction.action.toLowerCase().includes('medical') || dailyAction.action.toLowerCase().includes('urgent')) && (
-                          <p className="text-sm text-brand-200/90 mb-4">Medical bills strengthen damages claims and increase settlement value.</p>
+                          <p className="mt-4 text-sm leading-6 text-brand-100">Hospital records help attorneys evaluate damages faster.</p>
                         )}
                         <Link to={dailyAction.href} className="inline-flex items-center px-5 py-2.5 text-sm font-semibold bg-white text-brand-600 rounded-lg hover:bg-brand-50 mt-auto w-fit">
                           {submittedForReview ? <LayoutDashboard className="h-4 w-4 mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
@@ -1745,26 +1820,27 @@ export default function Dashboard() {
                       </div>
                     )}
 
-                    {submittedForReview && routingTimelineItems.length > 0 && (
-                      <details className="bg-white rounded-xl border border-gray-200 p-5">
-                        <summary className="cursor-pointer list-none">
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <h3 className="text-base font-bold text-gray-900">Detailed routing timeline</h3>
-                              <p className="text-sm text-gray-600">Open for recent routing milestones.</p>
-                            </div>
-                            <Activity className="h-5 w-5 text-brand-600" />
-                          </div>
-                        </summary>
-                        <div className="space-y-3 mt-4">
-                          {routingTimelineItems.map((item, index) => (
-                            <div key={`${item.title}-${index}`} className={`rounded-lg border px-4 py-3 ${item.tone}`}>
-                              <p className="text-sm font-semibold">{item.title}</p>
-                              <p className="text-xs mt-1 opacity-90">{item.detail}</p>
-                            </div>
-                          ))}
+                    {submittedForReview && (
+                      <div className="bg-white rounded-xl border border-gray-200 p-5">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Activity className="h-5 w-5 text-brand-600" />
+                          <h3 className="text-lg font-bold text-gray-900">Attorney Activity</h3>
                         </div>
-                      </details>
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div className="rounded-lg bg-brand-50 border border-brand-100 p-3">
+                            <p className="text-xs font-semibold text-brand-700">Last Update</p>
+                            <p className="mt-1 font-semibold text-gray-900">{latestAttorneyActivityTime}</p>
+                          </div>
+                          <div className="rounded-lg bg-gray-50 border border-gray-200 p-3">
+                            <p className="text-xs font-semibold text-gray-500">Reviewing</p>
+                            <p className="mt-1 font-semibold text-gray-900">{attorneyReviewCount} attorney{attorneyReviewCount !== 1 ? 's' : ''} reviewing</p>
+                          </div>
+                          <div className="rounded-lg bg-gray-50 border border-gray-200 p-3">
+                            <p className="text-xs font-semibold text-gray-500">Expected response</p>
+                            <p className="mt-1 font-semibold text-gray-900">{responseDeadlineLabel}</p>
+                          </div>
+                        </div>
+                      </div>
                     )}
                   </>
                 )}
@@ -1773,27 +1849,22 @@ export default function Dashboard() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Row 1: Upload Evidence | Case Progress */}
                   <div className="bg-white rounded-xl border border-gray-200 p-5 min-h-[280px] flex flex-col">
-                    <h3 className="text-lg font-bold text-gray-900 mb-3">
-                      {attorneyMatched ? 'Upload Evidence' : submittedForReview ? 'Evidence that can help while you wait' : 'Evidence Center'}
-                    </h3>
-                    {submittedForReview && (
-                      <p className="text-sm text-gray-600 mb-3">Medical records, photos, and reports can help attorneys understand the case faster.</p>
-                    )}
-                    <p className="text-sm font-medium text-gray-700 mb-2">Evidence Score: <span className="font-bold text-brand-600">{evidencePercent}%</span></p>
-                    <div className="h-2 bg-gray-200 rounded-full mb-3 overflow-hidden">
-                      <div className="h-full bg-brand-600 rounded-full transition-all" style={{ width: `${evidencePercent}%` }} />
-                    </div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-1">Ways To Strengthen Your Case</h3>
+                    <p className="text-sm text-gray-600 mb-4">Current Strength: <span className="font-semibold text-brand-700">{caseStrengthFriendly}</span></p>
                     <div className="space-y-3">
-                      {evidenceChecklist.map((e) => (
-                        <div key={e.label} className="flex items-center gap-2 text-sm">
-                          {e.done ? <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" /> : <Square className="h-4 w-4 text-gray-300 flex-shrink-0" />}
-                          <span className={e.done ? 'text-gray-700' : 'text-gray-500'}>{e.label}</span>
+                      {(strengthOpportunities.length > 0 ? strengthOpportunities : [{ label: 'Core documents uploaded', impact: 'Good progress' }]).map((item) => (
+                        <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm">
+                          <span className="flex items-center gap-2 text-gray-800">
+                            <Square className="h-4 w-4 text-gray-300" />
+                            {item.label}
+                          </span>
+                          <span className="text-xs font-semibold text-brand-700">{item.impact}</span>
                         </div>
                       ))}
                     </div>
                     <Link to={`/evidence-upload/${activeAssessment.id}`} className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-sm font-semibold text-white bg-brand-600 rounded-lg hover:bg-brand-700 w-fit">
                       <Upload className="h-4 w-4" />
-                      Upload Evidence
+                      Upload Document
                     </Link>
                     <Link to={`/demand/${activeAssessment.id}`} className="inline-flex items-center gap-2 mt-2 px-4 py-2 text-sm font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 w-fit">
                       <FileText className="h-4 w-4" />
@@ -1801,14 +1872,13 @@ export default function Dashboard() {
                     </Link>
                   </div>
                   <div className="bg-white rounded-xl border border-gray-200 p-5 min-h-[280px] flex flex-col">
-                    <h3 className="text-lg font-bold text-gray-900 mb-3">Next few steps</h3>
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">What Happens Next?</h3>
                     <div className="bg-gray-50 rounded-lg p-4 mb-4 border border-gray-200">
-                      <p className="text-sm font-semibold text-gray-900 mb-2">What happens next</p>
                       <ul className="text-sm text-gray-600 space-y-1">
-                        <li>Today → {attorneyMatched ? 'Working with attorney' : inManualReview ? 'Team review' : needsMoreInfo ? 'Waiting for more info' : notRoutableYet ? 'Strengthening case details' : submittedForReview ? 'Attorneys reviewing your case' : 'Case submitted'}</li>
-                        <li>1–2 days → {attorneyMatched && hasUpcomingConsult ? 'Your consultation' : 'Attorney consultation'}</li>
-                        <li>1–3 months → Negotiation</li>
-                        <li>6–12 months → Settlement</li>
+                        <li><span className="font-semibold text-gray-900">Today</span> - Attorney review</li>
+                        <li><span className="font-semibold text-gray-900">1-3 days</span> - Attorney contact</li>
+                        <li><span className="font-semibold text-gray-900">1-3 months</span> - Treatment and negotiation</li>
+                        <li><span className="font-semibold text-gray-900">6-12 months</span> - Potential resolution</li>
                       </ul>
                     </div>
                     <details className="mt-auto rounded-lg border border-gray-200 bg-white px-3 py-3">
@@ -1833,50 +1903,44 @@ export default function Dashboard() {
                     </details>
                   </div>
 
-                  {/* Row 2: Case Value History | Case Health */}
+                  {/* Row 2: Estimated Value | Strengthening Opportunities */}
                   <div className="bg-white rounded-xl border border-gray-200 p-5 min-h-[280px] flex flex-col">
                     <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
                       <TrendingUp className="h-5 w-5 text-brand-600" />
-                      Case Value History
+                      Estimated Value
                     </h3>
-                    <div className="flex items-end gap-2 mb-3">
-                      {caseValueHistory.map((entry, i) => {
-                        const barHeight = maxValue > 0 ? Math.max(16, Math.round((entry.value / maxValue) * 64)) : 16
-                        return (
-                          <div key={i} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-                            <div className="w-full flex flex-col justify-end" style={{ height: 64 }}>
-                              <div className="w-full bg-brand-500 rounded-t transition-all" style={{ height: barHeight }} />
-                            </div>
-                            <span className="text-xs text-gray-500" title={entry.label}>{entry.shortLabel}</span>
-                          </div>
-                        )
-                      })}
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-brand-100 bg-brand-50 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Current Estimate</p>
+                        <p className="mt-1 text-2xl font-bold text-brand-950">{formatCurrency(settlementLow)} - {formatCurrency(settlementHigh)}</p>
+                        <p className="mt-1 text-sm text-brand-700">Confidence: Medium</p>
+                      </div>
+                      <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Potential Estimate After Additional Records</p>
+                        <p className="mt-1 text-2xl font-bold text-emerald-950">{formatCurrency(potentialSettlementLow)} - {formatCurrency(potentialSettlementHigh)}</p>
+                      </div>
                     </div>
-                    <p className="text-sm text-gray-600 mt-auto">Current: <span className="font-semibold text-brand-600">{formatCurrency(settlementHigh)}</span></p>
                   </div>
                   <div className="bg-white rounded-xl border border-gray-200 p-5 min-h-[280px] flex flex-col">
-                    <h3 className="text-lg font-bold text-gray-900 mb-3">Case Health: {caseScore}%</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs font-medium text-gray-500">Liability</p>
-                        <p className={`font-semibold text-sm ${liabilityLabel === 'Strong' ? 'text-green-600' : liabilityLabel === 'Moderate' ? 'text-amber-600' : 'text-red-600'}`}>{liabilityLabel}</p>
-                      </div>
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs font-medium text-gray-500">Evidence</p>
-                        <p className={`font-semibold text-sm ${evidencePercent >= 75 ? 'text-green-600' : evidencePercent >= 25 ? 'text-amber-600' : 'text-red-600'}`}>{evidencePercent >= 75 ? 'Complete' : evidencePercent >= 25 ? 'Incomplete' : 'Missing'}</p>
-                      </div>
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs font-medium text-gray-500">Medical</p>
-                        <p className={`font-semibold text-sm ${treatment.length > 0 ? 'text-green-600' : 'text-amber-600'}`}>{treatment.length > 0 ? 'Good' : 'Missing'}</p>
-                      </div>
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs font-medium text-gray-500">Damages</p>
-                        <p className={`font-semibold text-sm ${damagesLabel === 'Documented' ? 'text-green-600' : 'text-amber-600'}`}>{damagesLabel === 'Documented' ? 'Documented' : 'Missing'}</p>
-                      </div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">Biggest Opportunities</h3>
+                    <div className="space-y-3">
+                      {strengthOpportunities.slice(0, 3).map((item) => (
+                        <div key={item.label} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                          <p className="text-sm font-semibold text-gray-900">{item.label}</p>
+                          <p className="text-xs text-brand-700 mt-1">{item.impact}</p>
+                        </div>
+                      ))}
+                      {strengthOpportunities.length === 0 && (
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                          <p className="text-sm font-semibold text-emerald-900">Your main documents are uploaded</p>
+                          <p className="text-xs text-emerald-700 mt-1">Attorneys have the core materials they need to review faster.</p>
+                        </div>
+                      )}
                     </div>
-                    {scoreFactors.some(f => f.improve) && (
-                      <p className="text-sm text-brand-600 font-medium mt-3">{scoreFactors.find(f => f.improve)?.improve}</p>
-                    )}
+                    <Link to={`/evidence-upload/${activeAssessment.id}`} className="mt-auto inline-flex w-fit items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700">
+                      <Upload className="h-4 w-4" />
+                      Upload Document
+                    </Link>
                   </div>
 
                   {/* Row 3: Attorney Messages (only when NOT attorney matched - we show Case Messages above when matched) | Cases like yours */}
@@ -1895,19 +1959,26 @@ export default function Dashboard() {
                     </div>
                   )}
                   <div className="bg-white rounded-xl border border-gray-200 p-5 min-h-[220px] flex flex-col">
-                    <h3 className="text-lg font-bold text-gray-900 mb-3">Cases like yours in {venueState}</h3>
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">Similar Cases in {venueState}</h3>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="p-3 bg-brand-50 rounded-lg">
                         <p className="text-xs font-medium text-brand-600">Typical settlement</p>
                         <p className="text-lg font-bold text-brand-900">{formatCurrency(settlementMedian)}</p>
                       </div>
                       <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs font-medium text-gray-500">Range</p>
-                        <p className="text-sm font-semibold text-gray-900">{formatCurrency(settlementLow)} – {formatCurrency(settlementHigh)}</p>
+                        <p className="text-xs font-medium text-gray-500">Typical resolution</p>
+                        <p className="text-sm font-semibold text-gray-900">6-12 months</p>
                       </div>
                       <div className="p-3 bg-gray-50 rounded-lg col-span-2">
-                        <p className="text-xs font-medium text-gray-500">Typical timeline</p>
-                        <p className="text-sm font-semibold text-gray-900">8 months</p>
+                        <p className="text-xs font-medium text-gray-500 mb-2">Most common factors</p>
+                        <div className="flex flex-wrap gap-2">
+                          {commonSimilarFactors.map((factor) => (
+                            <span key={factor} className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 border border-gray-200">
+                              <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
+                              {factor}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1929,6 +2000,41 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
+
+                {submittedForReview && (
+                  <details className="rounded-xl border border-gray-200 bg-white p-5">
+                    <summary className="cursor-pointer list-none text-sm font-semibold text-gray-700">Advanced Details</summary>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-xs font-medium text-gray-500">Case Health</p>
+                        <p className="font-semibold text-gray-900">{caseScore}%</p>
+                      </div>
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-xs font-medium text-gray-500">Liability</p>
+                        <p className="font-semibold text-gray-900">{liabilityLabel}</p>
+                      </div>
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-xs font-medium text-gray-500">Evidence Score</p>
+                        <p className="font-semibold text-gray-900">{evidencePercent}%</p>
+                      </div>
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                        <p className="text-xs font-medium text-gray-500">Damages</p>
+                        <p className="font-semibold text-gray-900">{damagesLabel}</p>
+                      </div>
+                    </div>
+                    {routingTimelineItems.length > 0 && (
+                      <div className="mt-4 space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Routing Timeline</p>
+                        {routingTimelineItems.map((item, index) => (
+                          <div key={`${item.title}-${index}`} className={`rounded-lg border px-4 py-3 ${item.tone}`}>
+                            <p className="text-sm font-semibold">{item.title}</p>
+                            <p className="text-xs mt-1 opacity-90">{item.detail}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </details>
+                )}
 
                 {/* My Cases - full width at bottom (only when user has 2+ cases) */}
                 {assessments.length > 1 && (

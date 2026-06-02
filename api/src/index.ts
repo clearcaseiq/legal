@@ -1,4 +1,5 @@
 import './lib/node-dom-polyfills'
+import './load-env'
 import { buildApp } from './build-app'
 import { ENV } from './env'
 import { logger } from './lib/logger'

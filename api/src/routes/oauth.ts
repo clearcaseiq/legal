@@ -2,14 +2,16 @@ import express from 'express'
 import passport from 'passport'
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20'
 import AppleStrategy from 'passport-apple'
-import jwt, { type Secret, type SignOptions } from 'jsonwebtoken'
 import { oauthConfig, frontendUrl } from '../config/oauth'
+import { generateToken } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { prisma } from '../lib/prisma'
 
 const router = express.Router()
-const JWT_SECRET: Secret = process.env.JWT_SECRET || 'development-secret'
-const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || '7d') as SignOptions['expiresIn']
+
+function getOAuthRole(value: unknown) {
+  return value === 'attorney' ? 'attorney' : 'plaintiff'
+}
 
 // Configure Google OAuth Strategy (only if credentials are available)
 if (oauthConfig.google.clientId && oauthConfig.google.clientSecret) {
@@ -194,9 +196,12 @@ passport.deserializeUser(async (id: string, done) => {
 
 // Google OAuth routes (only if configured)
 if (oauthConfig.google.clientId && oauthConfig.google.clientSecret) {
-  router.get('/google', passport.authenticate('google', {
-    scope: ['profile', 'email']
-  }))
+  router.get('/google', (req, res, next) => {
+    passport.authenticate('google', {
+      scope: ['profile', 'email'],
+      state: getOAuthRole(req.query.role)
+    })(req, res, next)
+  })
 
   router.get('/google/callback', 
     passport.authenticate('google', { failureRedirect: `${frontendUrl}/login?error=oauth_failed` }),
@@ -207,19 +212,10 @@ if (oauthConfig.google.clientId && oauthConfig.google.clientSecret) {
           return res.redirect(`${frontendUrl}/login?error=oauth_failed`)
         }
 
-        // Generate JWT token
-        const token = jwt.sign(
-          { 
-            id: user.id, 
-            email: user.email,
-            provider: user.provider 
-          },
-          JWT_SECRET,
-          { expiresIn: JWT_EXPIRES_IN }
-        )
+        const token = generateToken(user.id)
 
-        // Redirect to frontend with token
-        res.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=${user.provider}`)
+        const role = getOAuthRole(req.query.state)
+        res.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=${user.provider}&role=${role}`)
       } catch (error: any) {
         logger.error('Google OAuth callback error', { error: error.message })
         res.redirect(`${frontendUrl}/login?error=oauth_failed`)
@@ -230,7 +226,11 @@ if (oauthConfig.google.clientId && oauthConfig.google.clientSecret) {
 
 // Apple OAuth routes (only if configured)
 if (oauthConfig.apple.clientId && oauthConfig.apple.teamId && oauthConfig.apple.keyId && oauthConfig.apple.privateKey) {
-  router.get('/apple', passport.authenticate('apple'))
+  router.get('/apple', (req, res, next) => {
+    passport.authenticate('apple', {
+      state: getOAuthRole(req.query.role)
+    })(req, res, next)
+  })
 
   router.post('/apple/callback',
     passport.authenticate('apple', { failureRedirect: `${frontendUrl}/login?error=oauth_failed` }),
@@ -241,19 +241,10 @@ if (oauthConfig.apple.clientId && oauthConfig.apple.teamId && oauthConfig.apple.
           return res.redirect(`${frontendUrl}/login?error=oauth_failed`)
         }
 
-        // Generate JWT token
-        const token = jwt.sign(
-          { 
-            id: user.id, 
-            email: user.email,
-            provider: user.provider 
-          },
-          JWT_SECRET,
-          { expiresIn: JWT_EXPIRES_IN }
-        )
+        const token = generateToken(user.id)
 
-        // Redirect to frontend with token
-        res.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=${user.provider}`)
+        const role = getOAuthRole(req.query.state)
+        res.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=${user.provider}&role=${role}`)
       } catch (error: any) {
         logger.error('Apple OAuth callback error', { error: error.message })
         res.redirect(`${frontendUrl}/login?error=oauth_failed`)

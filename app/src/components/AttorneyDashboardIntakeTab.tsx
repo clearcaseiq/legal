@@ -20,7 +20,7 @@ export default function AttorneyDashboardIntakeTab({
     includeTasks: true,
     includeMedical: true,
     notes: '',
-    files: [] as { name: string; size?: number }[],
+    files: [] as File[],
   })
   const [smartIntakeConfig, setSmartIntakeConfig] = useState({
     dynamicQuestionnaires: true,
@@ -109,12 +109,13 @@ export default function AttorneyDashboardIntakeTab({
             <input
               type="file"
               multiple
+              accept=".csv,.tsv,.txt,.json,.xlsx,.xls"
               className="input"
               onChange={(e) => {
                 const files = Array.from(e.target.files || [])
                 setImportForm((prev) => ({
                   ...prev,
-                  files: files.map((file) => ({ name: file.name, size: file.size })),
+                  files,
                 }))
               }}
             />
@@ -164,7 +165,7 @@ export default function AttorneyDashboardIntakeTab({
               onClick={async () => {
                 try {
                   setImportMessage('Submitting import request...')
-                  await importCase({
+                  const data = await importCase({
                     source: importForm.source,
                     includeDocuments: importForm.includeDocuments,
                     includeHistory: importForm.includeHistory,
@@ -173,7 +174,12 @@ export default function AttorneyDashboardIntakeTab({
                     notes: importForm.notes,
                     files: importForm.files,
                   })
-                  setImportMessage('Import queued. We will hydrate the case once files are processed.')
+                  const createdCount = data.createdCount ?? data.assessmentIds?.length ?? 0
+                  setImportMessage(
+                    createdCount > 0
+                      ? `Imported ${createdCount} case${createdCount === 1 ? '' : 's'} from ${importForm.source}.`
+                      : 'Import queued. We will hydrate the case once files are processed.',
+                  )
                 } catch (err: any) {
                   setImportMessage(err.response?.data?.error || 'Failed to import case')
                 }

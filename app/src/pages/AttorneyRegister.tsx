@@ -23,8 +23,12 @@ const CASE_TYPES = [
   { value: 'wrongful_death', label: 'Wrongful Death' },
   { value: 'product', label: 'Product Liability' },
   { value: 'nursing_home_abuse', label: 'Nursing Home Abuse' },
-  { value: 'high_severity_surgery', label: 'High-Severity / Surgery' }
+  { value: 'high_severity_surgery', label: 'Catastrophic Injury' }
 ]
+
+const POPULAR_STATES = ['CA', 'NV', 'AZ']
+const PRACTICE_STATE_LIMIT = 9
+const MVP_CA_COUNTIES = ['Los Angeles', 'Orange', 'Riverside', 'San Bernardino', 'Ventura', 'San Diego']
 
 export default function AttorneyRegister() {
   const { t } = useLanguage()
@@ -47,8 +51,7 @@ export default function AttorneyRegister() {
   const firmName = form.firmName
   const specialties = form.specialties
   const venues = form.venues
-  const watchedSecondary = form.secondaryCaseTypes
-  const watchedCounties = form.preferredCounties
+  const selectedCounties = form.preferredCounties
 
   const updateField = <K extends keyof AttorneyRegisterFormInput>(
     field: K,
@@ -81,13 +84,10 @@ export default function AttorneyRegister() {
     const validation = validateAttorneyRegisterInput(form)
     const errors = validation.fieldErrors
 
-    if (currentStep === 1 && setStepError(errors, ['email', 'password', 'firstName', 'lastName', 'firmWebsite'])) return
+    if (currentStep === 1 && setStepError(errors, ['email', 'password', 'firstName', 'lastName'])) return
     if (currentStep === 2 && setStepError(errors, ['specialties', 'venues'])) return
-    if (
-      currentStep === 3 &&
-      setStepError(errors, ['minInjurySeverity', 'minDamagesRange', 'maxDamagesRange'])
-    ) return
-    if (currentStep === 4 && setStepError(errors, ['maxCasesPerWeek', 'maxCasesPerMonth'])) return
+    if (currentStep === 3 && setStepError(errors, ['preferredCounties'])) return
+    if (currentStep === 4 && setStepError(errors, ['maxCasesPerMonth'])) return
 
     setCurrentStep(nextStep)
   }
@@ -103,7 +103,7 @@ export default function AttorneyRegister() {
       const jurisdictions = data.venues.map((stateCode) => ({
         state: stateCode,
         counties: (data.preferredCounties || []).filter((c) => c),
-        cities: (data.preferredCities || '').split(',').map((s) => s.trim()).filter(Boolean)
+        cities: []
       }))
 
       const payload: any = {
@@ -223,6 +223,11 @@ export default function AttorneyRegister() {
       s.code.toLowerCase().includes(stateSearchQuery.toLowerCase()) ||
       s.name.toLowerCase().includes(stateSearchQuery.toLowerCase())
   )
+  const visibleStates = (stateSearchQuery ? filteredStates : US_STATES.filter((state) => POPULAR_STATES.includes(state.code)))
+    .slice(0, PRACTICE_STATE_LIMIT)
+  const selectedStates = US_STATES.filter((state) => venues.includes(state.code))
+  const visibleCaCounties = CA_COUNTIES.filter((county) => MVP_CA_COUNTIES.includes(county))
+  const completionPercent = Math.round((currentStep / 5) * 100)
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
@@ -309,65 +314,7 @@ export default function AttorneyRegister() {
                   />
                   {fieldErrors.email && <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>}
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Firm Name</label>
-                  <input
-                    type="text"
-                    value={form.firmName}
-                    onChange={(e) => updateField('firmName', e.target.value)}
-                    className="input"
-                    placeholder="Owens Law Firm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Firm Website</label>
-                  <input
-                    type="url"
-                    value={form.firmWebsite}
-                    onFocus={() => {
-                      if (!form.firmWebsite.trim()) updateField('firmWebsite', 'http://')
-                    }}
-                    onChange={(e) => updateField('firmWebsite', e.target.value)}
-                    className="input"
-                    placeholder="http://www.yourfirm.com"
-                  />
-                  {fieldErrors.firmWebsite && <p className="mt-1 text-xs text-red-600">{fieldErrors.firmWebsite}</p>}
-                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">State Bar Number</label>
-                    <input
-                      type="text"
-                      value={form.stateBarNumber}
-                      onChange={(e) => updateField('stateBarNumber', e.target.value)}
-                      className="input"
-                      placeholder="e.g., 123456"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
-                    <select
-                      value={form.stateBarState}
-                      onChange={(e) => updateField('stateBarState', e.target.value)}
-                      className="input"
-                    >
-                      <option value="">Select</option>
-                      {US_STATES.map((s) => (
-                        <option key={s.code} value={s.code}>{s.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                    <input
-                      type="tel"
-                      value={form.phone}
-                      onChange={(e) => updateField('phone', e.target.value)}
-                      className="input"
-                    />
-                  </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
                     <PasswordInputWithReveal
@@ -379,6 +326,50 @@ export default function AttorneyRegister() {
                     />
                     {fieldErrors.password && <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>}
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Firm Name</label>
+                    <input
+                      type="text"
+                      value={form.firmName}
+                      onChange={(e) => updateField('firmName', e.target.value)}
+                      className="input"
+                      placeholder="Owens Law Firm"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">State Bar #</label>
+                  <input
+                    type="text"
+                    value={form.stateBarNumber}
+                    onChange={(e) => {
+                      updateField('stateBarNumber', e.target.value)
+                      setLicenseNumber(e.target.value)
+                    }}
+                    className="input"
+                    placeholder="e.g., 123456"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">We can verify license details after account creation.</p>
+                </div>
+                <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800">
+                  Firm website and bar-state verification can be completed later.
+                </div>
+                <div hidden aria-hidden="true">
+                  <select
+                    value={form.stateBarState}
+                    onChange={(e) => updateField('stateBarState', e.target.value)}
+                    className="input"
+                  >
+                    <option value="">Select</option>
+                    {US_STATES.map((s) => (
+                      <option key={s.code} value={s.code}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div hidden aria-hidden="true">
+                  <div>
+                    <input type="url" value={form.firmWebsite} onChange={(e) => updateField('firmWebsite', e.target.value)} />
+                  </div>
                 </div>
                 <div className="flex justify-end pt-2">
                   <button type="button" onClick={() => goToStep(2)} className="btn-primary">
@@ -389,43 +380,32 @@ export default function AttorneyRegister() {
 
             {/* Step 2: Practice Areas */}
             <div hidden={currentStep !== 2} className="space-y-4">
-                <h3 className="text-lg font-medium text-gray-900">Practice Areas & Jurisdictions</h3>
+                <h3 className="text-lg font-medium text-gray-900">Practice Areas</h3>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Case Types You Accept *</label>
-                  <p className="text-xs text-gray-500 mb-2">Primary case types</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Which cases do you want? *</label>
+                  <div className="flex flex-wrap gap-2">
                     {CASE_TYPES.map((t) => (
-                      <label key={t.value} className="flex items-center gap-2 cursor-pointer">
+                      <label
+                        key={t.value}
+                        className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-sm transition ${
+                          specialties.includes(t.value) ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                        }`}
+                      >
                         <input
                           type="checkbox"
                           checked={specialties.includes(t.value)}
                           onChange={() => toggleArray('specialties', t.value)}
-                          className="rounded border-gray-300 text-brand-600"
+                          className="sr-only"
                         />
-                        <span className="text-sm">{t.label}</span>
+                        <span>{specialties.includes(t.value) ? '✓' : '+'}</span>
+                        <span>{t.label}</span>
                       </label>
                     ))}
                   </div>
                   {fieldErrors.specialties && <p className="mt-1 text-xs text-red-600">{fieldErrors.specialties}</p>}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Secondary Case Types</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {CASE_TYPES.filter((t) => !specialties.includes(t.value)).map((t) => (
-                      <label key={t.value} className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={watchedSecondary.includes(t.value)}
-                          onChange={() => toggleArray('secondaryCaseTypes', t.value)}
-                          className="rounded border-gray-300 text-brand-600"
-                        />
-                        <span className="text-sm">{t.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Jurisdictions (States) *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Where do you practice? *</label>
                   <input
                     type="text"
                     placeholder="Search states..."
@@ -433,175 +413,118 @@ export default function AttorneyRegister() {
                     onChange={(e) => setStateSearchQuery(e.target.value)}
                     className="input mb-2"
                   />
-                  <div className="border rounded-lg p-3 max-h-48 overflow-y-auto bg-gray-50 grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {filteredStates.map((s) => (
+                  {selectedStates.length > 0 && (
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {selectedStates.map((s) => (
+                        <button
+                          key={s.code}
+                          type="button"
+                          onClick={() => toggleArray('venues', s.code)}
+                          className="inline-flex items-center gap-1 rounded-full bg-brand-600 px-3 py-1.5 text-sm font-medium text-white"
+                        >
+                          {s.name}
+                          <span aria-hidden="true">×</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    {visibleStates.map((s) => (
                       <label
                         key={s.code}
-                        className={`flex items-center gap-2 cursor-pointer p-2 rounded ${
-                          venues.includes(s.code) ? 'bg-brand-50 border border-brand-200' : ''
+                        className={`inline-flex cursor-pointer items-center rounded-full border px-3 py-2 text-sm transition ${
+                          venues.includes(s.code) ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
                         }`}
                       >
                         <input
                           type="checkbox"
                           checked={venues.includes(s.code)}
                           onChange={() => toggleArray('venues', s.code)}
-                          className="rounded border-gray-300 text-brand-600"
+                          className="sr-only"
                         />
-                        <span className="text-sm">{s.code}</span>
+                        <span>{venues.includes(s.code) ? '✓ ' : ''}{s.name}</span>
                       </label>
                     ))}
                   </div>
+                  {!stateSearchQuery && (
+                    <p className="mt-2 text-xs text-gray-500">Start typing to find another state.</p>
+                  )}
                   {fieldErrors.venues && <p className="mt-1 text-xs text-red-600">{fieldErrors.venues}</p>}
                 </div>
-                {venues.includes('CA') && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Preferred Counties (CA)</label>
-                      <div className="border rounded-lg p-3 max-h-32 overflow-y-auto bg-gray-50 grid grid-cols-3 sm:grid-cols-4 gap-2">
-                        {CA_COUNTIES.map((c) => (
-                          <label key={c} className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={watchedCounties.includes(c)}
-                              onChange={() => toggleArray('preferredCounties', c)}
-                              className="rounded border-gray-300 text-brand-600"
-                            />
-                            <span className="text-sm">{c}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Cities</label>
-                      <input
-                        type="text"
-                        value={form.preferredCities}
-                        onChange={(e) => updateField('preferredCities', e.target.value)}
-                        className="input"
-                        placeholder="e.g., Los Angeles, San Diego, Irvine"
-                      />
-                    </div>
-                  </>
-                )}
                 <div className="flex justify-between pt-2">
                   <button type="button" onClick={() => setCurrentStep(1)} className="btn-secondary">
                     Back
                   </button>
                   <button type="button" onClick={() => goToStep(3)} className="btn-primary">
-                    Next: Case Preferences
+                    Next: Service Area
                   </button>
                 </div>
               </div>
 
-            {/* Step 3: Case Preferences */}
+            {/* Step 3: Service Area */}
             <div hidden={currentStep !== 3} className="space-y-4">
-                <h3 className="text-lg font-medium text-gray-900">Case Preferences</h3>
+                <h3 className="text-lg font-medium text-gray-900">Service Area</h3>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Insurance Required</label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        checked={form.insuranceRequired === 'yes'}
-                        onChange={() => updateField('insuranceRequired', 'yes')}
-                        className="text-brand-600"
-                      />
-                      <span className="text-sm">Yes</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        checked={form.insuranceRequired === 'no'}
-                        onChange={() => updateField('insuranceRequired', 'no')}
-                        className="text-brand-600"
-                      />
-                      <span className="text-sm">No</span>
-                    </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">How do you want to receive cases?</label>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {[
+                      { value: 'state', label: 'Entire State' },
+                      { value: 'counties', label: 'Selected Counties' },
+                    ].map((option) => (
+                      <label
+                        key={option.value}
+                        className={`cursor-pointer rounded-lg border px-3 py-3 text-center text-sm font-medium ${
+                          (option.value === 'state' && selectedCounties.length === 0) ||
+                          (option.value === 'counties' && selectedCounties.length > 0)
+                            ? 'border-brand-600 bg-brand-50 text-brand-700'
+                            : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          checked={(option.value === 'state' && selectedCounties.length === 0) || (option.value === 'counties' && selectedCounties.length > 0)}
+                          onChange={() => {
+                            if (option.value !== 'counties') updateField('preferredCounties', [])
+                          }}
+                          className="sr-only"
+                        />
+                        {option.label}
+                      </label>
+                    ))}
                   </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Must Have Medical Treatment</label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        checked={form.mustHaveMedicalTreatment === 'yes'}
-                        onChange={() => updateField('mustHaveMedicalTreatment', 'yes')}
-                        className="text-brand-600"
-                      />
-                      <span className="text-sm">Yes</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        checked={form.mustHaveMedicalTreatment === 'no'}
-                        onChange={() => updateField('mustHaveMedicalTreatment', 'no')}
-                        className="text-brand-600"
-                      />
-                      <span className="text-sm">No</span>
-                    </label>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={form.requirePoliceReport}
-                      onChange={(e) => updateField('requirePoliceReport', e.target.checked)}
-                      className="rounded text-brand-600"
-                    />
-                    <span className="text-sm">Require police report</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={form.requireMedicalRecords}
-                      onChange={(e) => updateField('requireMedicalRecords', e.target.checked)}
-                      className="rounded text-brand-600"
-                    />
-                    <span className="text-sm">Require medical records</span>
-                  </label>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {venues.includes('CA') ? (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Min Injury Severity</label>
-                    <select
-                      value={form.minInjurySeverity}
-                      onChange={(e) => updateField('minInjurySeverity', e.target.value)}
-                      className="input"
-                    >
-                      <option value="">No minimum</option>
-                      <option value={0}>None</option>
-                      <option value={1}>Mild</option>
-                      <option value={2}>Moderate</option>
-                      <option value={3}>Severe</option>
-                      <option value={4}>Catastrophic</option>
-                    </select>
-                    {fieldErrors.minInjurySeverity && <p className="mt-1 text-xs text-red-600">{fieldErrors.minInjurySeverity}</p>}
+                    <label className="block text-sm font-medium text-gray-700 mb-2">California counties</label>
+                    <p className="mb-3 text-xs text-gray-500">County matters most for PI routing. Cities can be added later in Settings.</p>
+                    <div className="flex flex-wrap gap-2">
+                      {visibleCaCounties.map((county) => (
+                        <label
+                          key={county}
+                          className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-sm ${
+                            selectedCounties.includes(county) ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedCounties.includes(county)}
+                            onChange={() => toggleArray('preferredCounties', county)}
+                            className="sr-only"
+                          />
+                          <span>{selectedCounties.includes(county) ? '✓' : '+'}</span>
+                          <span>{county} County</span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-xs text-gray-500">
+                      Advanced rules like minimum damages, treatment requirements, police report preferences, and consultation method live in Settings after onboarding.
+                    </p>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Min Damages ($)</label>
-                    <input
-                      type="number"
-                      value={form.minDamagesRange}
-                      onChange={(e) => updateField('minDamagesRange', e.target.value)}
-                      className="input"
-                      placeholder="0"
-                    />
-                    {fieldErrors.minDamagesRange && <p className="mt-1 text-xs text-red-600">{fieldErrors.minDamagesRange}</p>}
+                ) : (
+                  <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
+                    County preferences for your selected states can be added in Settings after verification.
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Max Damages ($)</label>
-                    <input
-                      type="number"
-                      value={form.maxDamagesRange}
-                      onChange={(e) => updateField('maxDamagesRange', e.target.value)}
-                      className="input"
-                      placeholder="No max"
-                    />
-                    {fieldErrors.maxDamagesRange && <p className="mt-1 text-xs text-red-600">{fieldErrors.maxDamagesRange}</p>}
-                  </div>
-                </div>
+                )}
                 <div className="flex justify-between pt-2">
                   <button type="button" onClick={() => setCurrentStep(2)} className="btn-secondary">
                     Back
@@ -614,19 +537,46 @@ export default function AttorneyRegister() {
 
             {/* Step 4: Capacity */}
             <div hidden={currentStep !== 4} className="space-y-4">
-                <h3 className="text-lg font-medium text-gray-900">Lead Capacity</h3>
+                <h3 className="text-lg font-medium text-gray-900">Capacity</h3>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Availability</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">How many new cases can you take?</label>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
                     {[
-                      { value: 'accept_immediately', label: 'Accept cases immediately' },
-                      { value: 'pause', label: 'Pause intake' },
-                      { value: 'vacation', label: 'Vacation mode' }
+                      { value: '5', label: '1-5/month' },
+                      { value: '10', label: '5-10/month' },
+                      { value: '25', label: '10-25/month' },
+                      { value: '50', label: '25+/month' },
                     ].map((o) => (
                       <label
                         key={o.value}
-                        className={`flex items-center p-3 border rounded-lg cursor-pointer ${
-                          form.intakeStatus === o.value ? 'border-brand-600 bg-brand-50' : 'border-gray-200'
+                        className={`cursor-pointer rounded-lg border px-3 py-3 text-center text-sm font-medium ${
+                          form.maxCasesPerMonth === o.value ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          checked={form.maxCasesPerMonth === o.value}
+                          onChange={() => updateField('maxCasesPerMonth', o.value)}
+                          className="sr-only"
+                        />
+                        {o.label}
+                      </label>
+                    ))}
+                  </div>
+                  {fieldErrors.maxCasesPerMonth && <p className="mt-1 text-xs text-red-600">{fieldErrors.maxCasesPerMonth}</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Current status</label>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    {[
+                      { value: 'accept_immediately', label: 'Accepting Cases', tone: 'text-emerald-700', dot: '●' },
+                      { value: 'vacation', label: 'Limited Capacity', tone: 'text-amber-700', dot: '●' },
+                      { value: 'pause', label: 'Pause Intake', tone: 'text-red-700', dot: '●' }
+                    ].map((o) => (
+                      <label
+                        key={o.value}
+                        className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 py-3 text-sm font-medium ${
+                          form.intakeStatus === o.value ? 'border-brand-600 bg-brand-50' : 'border-gray-200 hover:border-gray-300'
                         }`}
                       >
                         <input
@@ -635,82 +585,12 @@ export default function AttorneyRegister() {
                           onChange={() => updateField('intakeStatus', o.value as AttorneyRegisterFormInput['intakeStatus'])}
                           className="sr-only"
                         />
-                        <span className="text-sm">{o.label}</span>
+                        <span className={o.tone}>{o.dot}</span>
+                        <span>{o.label}</span>
                       </label>
                     ))}
                   </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Max Cases Per Week</label>
-                    <input
-                      type="number"
-                      value={form.maxCasesPerWeek}
-                      onChange={(e) => updateField('maxCasesPerWeek', e.target.value)}
-                      className="input"
-                      placeholder="No limit"
-                    />
-                    {fieldErrors.maxCasesPerWeek && <p className="mt-1 text-xs text-red-600">{fieldErrors.maxCasesPerWeek}</p>}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Max Cases Per Month</label>
-                    <input
-                      type="number"
-                      value={form.maxCasesPerMonth}
-                      onChange={(e) => updateField('maxCasesPerMonth', e.target.value)}
-                      className="input"
-                      placeholder="No limit"
-                    />
-                    {fieldErrors.maxCasesPerMonth && <p className="mt-1 text-xs text-red-600">{fieldErrors.maxCasesPerMonth}</p>}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Preferred Consultation Method</label>
-                  <div className="flex flex-wrap gap-4">
-                    {[
-                      { value: 'phone', label: 'Phone' },
-                      { value: 'zoom', label: 'Zoom' },
-                      { value: 'in_person', label: 'In-person' }
-                    ].map((o) => (
-                      <label key={o.value} className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="radio"
-                          checked={form.preferredConsultationMethod === o.value}
-                          onChange={() => updateField('preferredConsultationMethod', o.value as AttorneyRegisterFormInput['preferredConsultationMethod'])}
-                          className="text-brand-600"
-                        />
-                        <span className="text-sm">{o.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Pricing Model</label>
-                    <select
-                      value={form.pricingModel}
-                      onChange={(e) => updateField('pricingModel', e.target.value as AttorneyRegisterFormInput['pricingModel'])}
-                      className="input"
-                    >
-                      <option value="">Select</option>
-                      <option value="fixed_price">Fixed Price</option>
-                      <option value="auction">Auction</option>
-                      <option value="both">Both</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment Model</label>
-                    <select
-                      value={form.paymentModel}
-                      onChange={(e) => updateField('paymentModel', e.target.value as AttorneyRegisterFormInput['paymentModel'])}
-                      className="input"
-                    >
-                      <option value="">Select</option>
-                      <option value="subscription">Subscription</option>
-                      <option value="pay_per_case">Pay Per Case</option>
-                      <option value="both">Both</option>
-                    </select>
-                  </div>
+                  <p className="mt-2 text-xs text-gray-500">Consultation method, pricing, and payment settings can be edited later.</p>
                 </div>
                 <div className="flex justify-between pt-2">
                   <button type="button" onClick={() => setCurrentStep(3)} className="btn-secondary">
@@ -724,78 +604,44 @@ export default function AttorneyRegister() {
 
             {/* Step 5: License Verification */}
             <div hidden={currentStep !== 5} className="space-y-4">
-                <h3 className="text-lg font-medium text-gray-900">License Verification</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <button
-                    type="button"
-                    onClick={() => setVerificationMethod('state_bar_lookup')}
-                    className={`p-4 border-2 rounded-lg text-left ${
-                      verificationMethod === 'state_bar_lookup' ? 'border-brand-600 bg-brand-50' : 'border-gray-200'
-                    }`}
-                  >
-                    <div className="font-medium">State Bar Lookup</div>
-                    <div className="text-sm text-gray-500">Automated California Bar lookup</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setVerificationMethod('manual_upload')}
-                    className={`p-4 border-2 rounded-lg text-left ${
-                      verificationMethod === 'manual_upload' ? 'border-brand-600 bg-brand-50' : 'border-gray-200'
-                    }`}
-                  >
-                    <div className="font-medium">Manual Upload</div>
-                    <div className="text-sm text-gray-500">Upload license document</div>
-                  </button>
-                </div>
-                {verificationMethod === 'state_bar_lookup' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Bar Number</label>
-                      <input
-                        type="text"
-                        value={licenseNumber}
-                        onChange={(e) => setLicenseNumber(e.target.value)}
-                        className="input"
-                        placeholder="License number"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
-                      <select
-                        value={licenseState}
-                        onChange={(e) => setLicenseState(e.target.value)}
-                        className="input"
-                      >
-                        <option value="">Select</option>
-                        {US_STATES.map((s) => (
-                          <option key={s.code} value={s.code}>{s.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
-                {verificationMethod === 'manual_upload' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">License File</label>
-                    <div
-                      className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-lg hover:border-brand-400"
-                      onClick={() => document.getElementById('license-file')?.click()}
+                <h3 className="text-lg font-medium text-gray-900">Verify Your License</h3>
+                <p className="text-sm text-gray-600">
+                  Upload what you have now. Anything missing can be completed after your account is created.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {[
+                    { id: 'license-file', label: 'Bar Card', helper: selectedFile?.name || 'PDF or image' },
+                    { id: 'firm-website', label: 'Firm Website', helper: 'Add later from profile' },
+                    { id: 'government-id', label: 'Government ID', helper: 'Add later if requested' },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setVerificationMethod('manual_upload')
+                        if (item.id === 'license-file') document.getElementById('license-file')?.click()
+                      }}
+                      className="rounded-xl border border-gray-200 bg-white p-4 text-left hover:border-brand-300"
                     >
-                      <input
-                        id="license-file"
-                        type="file"
-                        className="sr-only"
-                        accept=".pdf,.jpg,.jpeg,.png,.gif"
-                        onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                      />
-                      {selectedFile ? (
-                        <span className="text-sm text-gray-700">{selectedFile.name}</span>
-                      ) : (
-                        <span className="text-sm text-gray-500">Click to upload PDF or image</span>
-                      )}
-                    </div>
-                  </div>
-                )}
+                      <div className="mb-2 text-2xl">{item.id === 'license-file' && selectedFile ? '✓' : '□'}</div>
+                      <div className="font-medium text-gray-900">{item.label}</div>
+                      <div className="mt-1 text-xs text-gray-500">{item.helper}</div>
+                    </button>
+                  ))}
+                </div>
+                <input
+                  id="license-file"
+                  type="file"
+                  className="sr-only"
+                  accept=".pdf,.jpg,.jpeg,.png,.gif"
+                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                />
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="text-sm font-semibold text-emerald-900">Expected approval: Within 1 business day</p>
+                  <p className="mt-1 text-sm text-emerald-800">
+                    After verification, you can review matched case intelligence and contact plaintiffs directly.
+                  </p>
+                </div>
 
                 {/* Profile Preview */}
                 <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
@@ -829,7 +675,7 @@ export default function AttorneyRegister() {
 
           <aside className="lg:w-72 flex-shrink-0">
             <div className="lg:sticky lg:top-8">
-              <AttorneyRegisterBenefits />
+              <AttorneyRegisterBenefits currentStep={currentStep} completionPercent={completionPercent} />
             </div>
           </aside>
         </div>

@@ -619,7 +619,7 @@ export default function InlineEvidenceUpload({
               ref={fileInputRef}
               type="file"
               multiple
-              accept="image/*,application/pdf,.doc,.docx,.txt"
+              accept="image/*,video/*,application/pdf,.doc,.docx,.txt"
               onChange={handleFileInput}
               className="hidden"
             />
@@ -845,7 +845,7 @@ export default function InlineEvidenceUpload({
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/*,application/pdf,.doc,.docx,.txt"
+          accept="image/*,video/*,application/pdf,.doc,.docx,.txt"
           onChange={handleFileInput}
           className="hidden"
         />

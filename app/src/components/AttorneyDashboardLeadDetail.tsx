@@ -62,7 +62,6 @@ type AttorneyDashboardLeadDetailProps = {
   setDeclineModalOpen: (value: boolean) => void
   leadDecisionLoading: boolean
   activeWorkstream: string
-  workstreamTab: string
   goToSection: (section: string) => void
   renderWorkstream: (sectionKey: string) => ReactNode
   contactHistory: any[]
@@ -137,7 +136,6 @@ export default function AttorneyDashboardLeadDetail({
   setDeclineModalOpen,
   leadDecisionLoading,
   activeWorkstream,
-  workstreamTab,
   goToSection,
   renderWorkstream,
   contactHistory,
@@ -193,7 +191,7 @@ export default function AttorneyDashboardLeadDetail({
             <div className="status-pill-info">
               {isPostAcceptance ? 'Post-Acceptance' : 'Pre-Acceptance'}
             </div>
-            {isPostAcceptance && (!selectedLead.status || selectedLead.status === 'submitted') ? (
+            {!isPostAcceptance && (!selectedLead.status || selectedLead.status === 'submitted') ? (
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => handleLeadDecision(selectedLead.id, 'reject')}
@@ -765,7 +763,7 @@ export default function AttorneyDashboardLeadDetail({
                     <button
                       onClick={() => goToSection('overview')}
                       className={`px-3 py-2 border-b-2 font-medium ${
-                        ['overview', 'retainer', 'collaboration', 'tasks', 'case-insights', 'demand', 'insurance', 'health', 'finance', 'referrals'].includes(workstreamTab)
+                        ['overview', 'retainer', 'collaboration', 'tasks', 'case-insights', 'demand', 'insurance', 'health', 'finance', 'referrals'].includes(activeWorkstream)
                           ? 'border-brand-500 text-brand-700'
                           : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                       }`}
@@ -775,7 +773,7 @@ export default function AttorneyDashboardLeadDetail({
                     <button
                       onClick={() => goToSection('evidence')}
                       className={`px-3 py-2 border-b-2 font-medium ${
-                        workstreamTab === 'evidence'
+                        activeWorkstream === 'evidence'
                           ? 'border-brand-500 text-brand-700'
                           : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                       }`}
@@ -785,7 +783,7 @@ export default function AttorneyDashboardLeadDetail({
                     <button
                       onClick={() => goToSection('chronology')}
                       className={`px-3 py-2 border-b-2 font-medium ${
-                        workstreamTab === 'chronology'
+                        activeWorkstream === 'chronology'
                           ? 'border-brand-500 text-brand-700'
                           : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                       }`}
@@ -795,7 +793,7 @@ export default function AttorneyDashboardLeadDetail({
                     <button
                       onClick={() => goToSection('negotiation')}
                       className={`px-3 py-2 border-b-2 font-medium ${
-                        workstreamTab === 'negotiation'
+                        activeWorkstream === 'negotiation'
                           ? 'border-brand-500 text-brand-700'
                           : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                       }`}
@@ -805,7 +803,7 @@ export default function AttorneyDashboardLeadDetail({
                     <button
                       onClick={() => goToSection('communications')}
                       className={`px-3 py-2 border-b-2 font-medium ${
-                        workstreamTab === 'communications'
+                        activeWorkstream === 'communications'
                           ? 'border-brand-500 text-brand-700'
                           : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                       }`}
@@ -815,7 +813,7 @@ export default function AttorneyDashboardLeadDetail({
                     <button
                       onClick={() => goToSection('billing')}
                       className={`px-3 py-2 border-b-2 font-medium ${
-                        workstreamTab === 'billing'
+                        activeWorkstream === 'billing'
                           ? 'border-brand-500 text-brand-700'
                           : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                       }`}

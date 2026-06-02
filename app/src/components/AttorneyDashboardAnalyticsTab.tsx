@@ -19,21 +19,73 @@ export default function AttorneyDashboardAnalyticsTab({
     ? Math.round(readinessLeads.reduce((sum: number, lead: any) => sum + Number(lead?.demandReadiness?.score || 0), 0) / readinessLeads.length)
     : 0
   const demandReadyCount = readinessLeads.filter((lead: any) => Number(lead?.demandReadiness?.score || 0) >= 85).length
-  const docBlockedCount = readinessLeads.filter((lead: any) => (lead?.demandReadiness?.blockers || []).some((blocker: any) => blocker.type === 'missing_documents')).length
+  const docBlockedCount = readinessLeads.filter((lead: any) => (lead?.demandReadiness?.blockers || []).some((blocker: any) => {
+    const key = blocker.key || blocker.type || ''
+    return key === 'missing_documents' || key.includes('document') || key.includes('records') || key.includes('report')
+  })).length
   const overdueTaskCount = readinessLeads.reduce((sum: number, lead: any) => sum + Number(lead?.demandReadiness?.overdueTaskCount || 0), 0)
-  const staleContactCount = readinessLeads.filter((lead: any) => (lead?.demandReadiness?.blockers || []).some((blocker: any) => blocker.type === 'stale_contact')).length
+  const staleContactCount = readinessLeads.filter((lead: any) => (lead?.demandReadiness?.blockers || []).some((blocker: any) => (blocker.key || blocker.type) === 'stale_contact')).length
   const funnel = dashboardData?.funnel || {}
-  const responseTimeHours = Number(profile?.responseTimeHours ?? profile?.attorney?.responseTimeHours ?? 24)
-  const responseBadge = responseTimeHours <= 2
-    ? 'Fast responder'
-    : responseTimeHours <= 8
-      ? 'Same-day replies'
-      : responseTimeHours <= 24
-        ? 'Replies within 24h'
-        : 'Replies within a few days'
-  const acceptanceRate = (funnel.matched ?? 0) > 0 ? Math.round(((funnel.accepted ?? 0) / (funnel.matched ?? 1)) * 100) : 0
-  const consultRate = (funnel.accepted ?? 0) > 0 ? Math.round(((funnel.consultScheduled ?? 0) / (funnel.accepted ?? 1)) * 100) : 0
-  const retainRate = (funnel.consultScheduled ?? 0) > 0 ? Math.round(((funnel.retained ?? 0) / (funnel.consultScheduled ?? 1)) * 100) : 0
+  const activeCases = dashboardData?.activeCases || {}
+  const leadsReceived = Number(funnel.matched ?? dashboardData?.dashboard?.totalLeadsReceived ?? readinessLeads.length ?? 0)
+  const acceptedLeads = Number(funnel.accepted ?? dashboardData?.dashboard?.totalLeadsAccepted ?? 0)
+  const consultedLeads = Number(funnel.consultScheduled ?? funnel.consulted ?? activeCases.consultScheduled ?? 0)
+  const retainedLeads = Number(funnel.retained ?? activeCases.retained ?? 0)
+  const acceptanceRate = leadsReceived > 0 ? Math.round((acceptedLeads / leadsReceived) * 100) : 0
+  const consultRate = acceptedLeads > 0 ? Math.round((consultedLeads / acceptedLeads) * 100) : 0
+  const retainRate = consultedLeads > 0 ? Math.round((retainedLeads / consultedLeads) * 100) : 0
+  const openCaseFeePipeline = Math.round(Number(dashboardData?.pipelineValue || 0))
+  const casesInNegotiation = readinessLeads.filter((lead: any) => ['consulted', 'retained'].includes(lead?.status || '')).length
+  const liveConversionRate = Number(dashboardData?.analytics?.conversionRate || 0) / 100
+  const observedRetainedRate = leadsReceived > 0 ? retainedLeads / leadsReceived : 0
+  const forecastRetainedRate = liveConversionRate || observedRetainedRate
+  const likelyRetainedThisMonth = Math.round(Math.max(acceptedLeads, consultedLeads) * forecastRetainedRate)
+  const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000)
+  const matchesLast30Days = readinessLeads.filter((lead: any) => {
+    const submittedAt = lead?.submittedAt ? new Date(lead.submittedAt).getTime() : 0
+    return submittedAt >= thirtyDaysAgo
+  }).length
+  const expectedNewMatchesNext30Days = Math.round(matchesLast30Days || Number(dashboardData?.newCaseMatches?.length || 0))
+  const expectedRetainedCases = Math.round(expectedNewMatchesNext30Days * forecastRetainedRate)
+  const averageFeePipeline = Number(dashboardData?.analytics?.averageFee || 0) || (acceptedLeads > 0 ? openCaseFeePipeline / acceptedLeads : 0)
+  const expectedFeePipeline = Math.round(expectedRetainedCases * averageFeePipeline)
+  const forecastConfidence = leadsReceived === 0 ? 'No data yet' : leadsReceived >= 20 ? 'High' : leadsReceived >= 5 ? 'Medium' : 'Low'
+  const attorneyProfile = dashboardData?.dashboard?.attorney?.attorneyProfile || dashboardData?.dashboard?.attorney?.profile || profile || {}
+  const attorneyRating = Number(
+    dashboardData?.qualityMetrics?.rating ??
+    dashboardData?.roiAnalytics?.attorneyRating ??
+    attorneyProfile?.averageRating ??
+    dashboardData?.dashboard?.attorney?.averageRating ??
+    0
+  )
+  const responseTimeHours = Number(dashboardData?.dashboard?.attorney?.responseTimeHours || 0)
+  const derivedResponseSpeedScore = responseTimeHours > 0
+    ? Math.max(0, Math.min(1, 1 - (Math.min(responseTimeHours, 48) / 48)))
+    : 0
+  const responseSpeedScore = Number(attorneyProfile?.responseSpeedScore ?? derivedResponseSpeedScore)
+  const profileAcceptanceScore = Number(attorneyProfile?.historicalAcceptanceRate ?? (acceptanceRate / 100))
+  const conversionScore = Number(attorneyProfile?.recentConversionScore ?? liveConversionRate)
+  const ratingScore = Math.min(1, Math.max(0, attorneyRating / 5))
+  const marketplaceScore = Math.round(
+    Math.min(100, Math.max(0,
+      (ratingScore * 35) +
+      (Math.min(1, Math.max(0, responseSpeedScore)) * 20) +
+      (Math.min(1, Math.max(0, profileAcceptanceScore)) * 25) +
+      (Math.min(1, Math.max(0, conversionScore)) * 20)
+    ))
+  )
+  const responseSpeedLabel = responseSpeedScore >= 0.85 ? 'Excellent' : responseSpeedScore >= 0.65 ? 'Strong' : responseSpeedScore > 0 ? 'Improving' : 'No data yet'
+  const acceptanceRateLabel = acceptanceRate >= 75 ? 'Excellent' : acceptanceRate >= 50 ? 'Strong' : acceptanceRate > 0 ? 'Improving' : 'No data yet'
+  const satisfactionLabel = attorneyRating >= 4.5 ? 'Excellent' : attorneyRating >= 4 ? 'Strong' : attorneyRating > 0 ? 'Improving' : 'No data yet'
+  const plaintiffRankingLabel = marketplaceScore >= 90
+    ? 'Top 5%'
+    : marketplaceScore >= 80
+    ? 'Top 10%'
+    : marketplaceScore >= 70
+    ? 'Top 25%'
+    : marketplaceScore > 0
+    ? 'Building rank'
+    : 'Not ranked yet'
 
   return (
     <div className="space-y-6">
@@ -52,13 +104,28 @@ export default function AttorneyDashboardAnalyticsTab({
             <div className="text-gray-500">Consult to retained</div>
             <div className="text-gray-900">{retainRate}%</div>
           </div>
-          <div className="rounded-md border border-gray-100 p-3">
-            <div className="text-gray-500">Public response badge</div>
-            <div className="text-gray-900">{responseBadge}</div>
+          <div className="rounded-md border border-gray-100 p-3 md:col-span-1">
+            <div className="text-gray-500">Marketplace Ranking</div>
+            <div className="text-gray-900">Overall Attorney Score: {marketplaceScore}</div>
           </div>
         </div>
-        <div className="mt-3 text-xs text-gray-500">
-          Based on your current funnel counts and public profile commitment of about {responseTimeHours} hours.
+        <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+          <div className="grid gap-3 text-sm md:grid-cols-4">
+            {[
+              ['Response Speed', responseSpeedLabel],
+              ['Acceptance Rate', acceptanceRateLabel],
+              ['Client Satisfaction', satisfactionLabel],
+              ['Plaintiff Ranking', plaintiffRankingLabel],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-lg bg-white/70 px-3 py-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-indigo-700">{label}</div>
+                <div className="mt-1 text-base font-semibold text-gray-900">{value}</div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-gray-600">
+            Ranking updates from live response, acceptance, satisfaction, and conversion signals.
+          </p>
         </div>
       </div>
 
@@ -174,72 +241,42 @@ export default function AttorneyDashboardAnalyticsTab({
           <div className="space-y-4">
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-600">Leads Received</span>
-              <span className="font-semibold">
-                {dashboardData.funnel?.matched ?? dashboardData.dashboard.totalLeadsReceived ?? 0}
-              </span>
+              <span className="font-semibold">{leadsReceived}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-600">Accepted</span>
-              <span className="font-semibold">
-                {dashboardData.funnel?.accepted ?? dashboardData.dashboard.totalLeadsAccepted ?? 0}
-              </span>
+              <span className="font-semibold">{acceptedLeads}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-600">Consulted</span>
-              <span className="font-semibold">{dashboardData.funnel?.consulted ?? 0}</span>
+              <span className="font-semibold">{consultedLeads}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-gray-600">Retained</span>
-              <span className="font-semibold">{dashboardData.funnel?.retained ?? 0}</span>
+              <span className="font-semibold">{retainedLeads}</span>
             </div>
           </div>
         </div>
 
         <div className="card">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Financial Performance</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Revenue Pipeline</h3>
           <div className="space-y-4">
             <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Total Fees Collected</span>
-              <span className="font-semibold">{formatCurrency(dashboardData.dashboard.feesCollectedFromPayments)}</span>
+              <span className="text-sm text-gray-600">Potential Fees (Open Cases)</span>
+              <span className="font-semibold">{formatCurrency(openCaseFeePipeline)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Platform Spend</span>
-              <span className="font-semibold">{formatCurrency(dashboardData.dashboard.totalPlatformSpend)}</span>
+              <span className="text-sm text-gray-600">Cases In Negotiation</span>
+              <span className="font-semibold">{casesInNegotiation}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-sm text-gray-600">Net Revenue</span>
-              <span className="font-semibold text-green-600">
-                {formatCurrency(dashboardData.dashboard.feesCollectedFromPayments - dashboardData.dashboard.totalPlatformSpend)}
-              </span>
+              <span className="text-sm text-gray-600">Demand Packages Sent</span>
+              <span className="font-semibold">{demandReadyCount}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-sm text-gray-600">ROI</span>
-              <span className="font-semibold text-green-600">
-                {formatPercentage((dashboardData.analytics.roi || 0) * 100)}
-              </span>
+              <span className="text-sm text-gray-600">Likely Retained This Month</span>
+              <span className="font-semibold text-green-600">{likelyRetainedThisMonth}</span>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">ROI Insights (Monthly)</h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
-          <div>
-            <div className="text-gray-500">Total Fees</div>
-            <div className="text-gray-900">{formatCurrency(dashboardData.roiAnalytics?.totalFees || 0)}</div>
-          </div>
-          <div>
-            <div className="text-gray-500">Total Spend</div>
-            <div className="text-gray-900">{formatCurrency(dashboardData.roiAnalytics?.totalSpend || 0)}</div>
-          </div>
-          <div>
-            <div className="text-gray-500">ROI</div>
-            <div className="text-gray-900">{formatPercentage(dashboardData.roiAnalytics?.roi || 0)}</div>
-          </div>
-          <div>
-            <div className="text-gray-500">Average Fee</div>
-            <div className="text-gray-900">{formatCurrency(dashboardData.roiAnalytics?.averageFee || 0)}</div>
           </div>
         </div>
       </div>
@@ -281,7 +318,7 @@ export default function AttorneyDashboardAnalyticsTab({
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="card">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">ROI by Insurer</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Revenue by Insurer</h3>
           <div className="space-y-2 text-sm">
             {analyticsIntel?.firmLevel?.roiByInsurer ? (
               Object.entries(analyticsIntel.firmLevel.roiByInsurer).map(([key, metrics]: any) => (
@@ -296,7 +333,7 @@ export default function AttorneyDashboardAnalyticsTab({
           </div>
         </div>
         <div className="card">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">ROI by Venue</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Revenue by Venue</h3>
           <div className="space-y-2 text-sm">
             {analyticsIntel?.firmLevel?.roiByVenue ? (
               Object.entries(analyticsIntel.firmLevel.roiByVenue).map(([key, metrics]: any) => (
@@ -311,7 +348,7 @@ export default function AttorneyDashboardAnalyticsTab({
           </div>
         </div>
         <div className="card">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">ROI by Adjuster</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Revenue by Adjuster</h3>
           <div className="space-y-2 text-sm">
             {analyticsIntel?.firmLevel?.roiByAdjuster ? (
               Object.entries(analyticsIntel.firmLevel.roiByAdjuster).map(([key, metrics]: any) => (
@@ -328,24 +365,30 @@ export default function AttorneyDashboardAnalyticsTab({
       </div>
 
       <div className="card">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Predictive Forecasting</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">AI Forecast</h3>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
           <div>
-            <div className="text-gray-500">Next quarter fees</div>
+            <div className="text-gray-500">Expected New Matches Next 30 Days</div>
             <div className="text-gray-900">
-              {formatCurrency(analyticsIntel?.firmLevel?.forecast?.nextQuarterFees || 0)}
+              {expectedNewMatchesNext30Days}
             </div>
           </div>
           <div>
-            <div className="text-gray-500">Next quarter spend</div>
+            <div className="text-gray-500">Expected Retained Cases</div>
             <div className="text-gray-900">
-              {formatCurrency(analyticsIntel?.firmLevel?.forecast?.nextQuarterSpend || 0)}
+              {expectedRetainedCases}
             </div>
           </div>
           <div>
-            <div className="text-gray-500">Projected ROI</div>
+            <div className="text-gray-500">Expected Fee Pipeline</div>
             <div className="text-gray-900">
-              {formatPercentage((analyticsIntel?.firmLevel?.forecast?.projectedRoi || 0) * 100)}
+              {formatCurrency(expectedFeePipeline)}
+            </div>
+          </div>
+          <div>
+            <div className="text-gray-500">Confidence</div>
+            <div className="text-gray-900">
+              {forecastConfidence}
             </div>
           </div>
         </div>

@@ -1,7 +1,7 @@
 const STEPS = [
   { num: 1, label: 'Account' },
   { num: 2, label: 'Practice Areas' },
-  { num: 3, label: 'Preferences' },
+  { num: 3, label: 'Service Area' },
   { num: 4, label: 'Capacity' },
   { num: 5, label: 'Verify' }
 ]
@@ -41,7 +41,7 @@ export default function AttorneyRegisterProgress({ currentStep }: AttorneyRegist
       <div className="flex justify-between mt-1 text-[10px] text-gray-500">
         <span>Account</span>
         <span>Practice</span>
-        <span>Preferences</span>
+        <span>Area</span>
         <span>Capacity</span>
         <span>Verify</span>
       </div>

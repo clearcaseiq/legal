@@ -1,3 +1,9 @@
+import { requestedTopicContentBySlug } from './seoRequestedPages'
+import { priorityTopicContentBySlug } from './seoPriorityPages'
+import { conversionTopicContentBySlug } from './seoConversionPages'
+import { expansionTopicContentBySlug } from './seoExpansionPages'
+import { medicalRecordsTopicContentBySlug } from './seoMedicalRecordsPages'
+
 export type TopicTreatmentStep = {
   label: string
   copy: string
@@ -735,3 +741,9 @@ export const topicContentBySlug: Record<string, TopicContent> = {
     ],
   },
 }
+
+Object.assign(topicContentBySlug, requestedTopicContentBySlug)
+Object.assign(topicContentBySlug, priorityTopicContentBySlug)
+Object.assign(topicContentBySlug, conversionTopicContentBySlug)
+Object.assign(topicContentBySlug, expansionTopicContentBySlug)
+Object.assign(topicContentBySlug, medicalRecordsTopicContentBySlug)
