@@ -199,12 +199,12 @@ export default function LeadDetailScreen() {
   const trialLow = Number(trialBands.p25 ?? (settlementHigh ? Math.round(settlementHigh * 1.35) : 0))
   const trialHigh = Number(trialBands.p75 ?? (settlementHigh ? Math.round(settlementHigh * 3.25) : 0))
   const viabilityBreakdown = leadQuality?.viabilityBreakdown || {}
-  const viabilityPercent = normalizePercent(lead.viabilityScore ?? viabilityBreakdown.overall ?? prediction.viability?.overall)
-  const liabilityPercent = normalizePercent(lead.liabilityScore ?? viabilityBreakdown.liability ?? prediction.viability?.liability)
+  const viabilityPercent = normalizePercent(lead?.viabilityScore ?? viabilityBreakdown.overall ?? prediction.viability?.overall)
+  const liabilityPercent = normalizePercent(lead?.liabilityScore ?? viabilityBreakdown.liability ?? prediction.viability?.liability)
   const severityPercent = normalizePercent(
     prediction.severity?.score ??
       (typeof prediction.severity?.level === 'number' ? prediction.severity.level / 4 : undefined) ??
-      lead.damagesScore ??
+      lead?.damagesScore ??
       viabilityBreakdown.damages
   )
   const caseCompletenessPercent = checklistItems.length
