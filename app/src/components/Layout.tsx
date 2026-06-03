@@ -36,6 +36,14 @@ const navLinks = {
   adminLogin: '/login/admin',
 }
 
+const organizationJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Organization',
+  name: 'ClearCaseIQ',
+  url: 'https://www.clearcaseiq.com',
+  logo: 'https://www.clearcaseiq.com/clearcaseiq-logo.png',
+}
+
 export default function Layout({ children }: LayoutProps) {
   const { t } = useLanguage()
   const location = useLocation()
@@ -133,6 +141,10 @@ export default function Layout({ children }: LayoutProps) {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.12),_transparent_32%),linear-gradient(135deg,_#f8fafc_0%,_#ffffff_45%,_rgba(224,242,254,0.6)_100%)] dark:bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.14),_transparent_26%),linear-gradient(135deg,_#020617_0%,_#020617_48%,_#0f172a_100%)] transition-colors duration-300">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+      />
       <RouteProgressBar />
       <a href="#main-content" className="skip-link">
         Skip to main content
