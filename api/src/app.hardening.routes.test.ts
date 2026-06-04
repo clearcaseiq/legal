@@ -161,8 +161,11 @@ describe('HTTP hardening regressions', () => {
 
     expect(res.body).toMatchObject({
       assessment_id: 'asm-1',
-      model_version: 'heuristic-v1.0',
-      viability: { overall: 0.82 },
+      model_version: 'ca-pi-underwriting-v1',
+      previous_model_version: 'heuristic-v1.0',
+      underwriting: expect.objectContaining({
+        modelVersion: 'ca-pi-underwriting-v1',
+      }),
     })
     expect(predictViabilityMock).toHaveBeenCalled()
   })
@@ -242,18 +245,21 @@ describe('HTTP hardening regressions', () => {
 
     expect(res.body).toMatchObject({
       assessment_id: 'asm-1',
-      model_version: 'heuristic-v1.0',
-      viability: { overall: 0.82 },
+      model_version: 'ca-pi-underwriting-v1',
+      previous_model_version: 'heuristic-v1.0',
+      underwriting: expect.objectContaining({
+        modelVersion: 'ca-pi-underwriting-v1',
+      }),
     })
     expect(computeFeaturesMock).toHaveBeenCalledWith(expect.objectContaining({ id: 'asm-1' }))
     expect(predictViabilityMock).toHaveBeenCalledWith({ claimType: 'auto' })
     expect(prisma.prediction.create).toHaveBeenCalledWith({
       data: {
         assessmentId: 'asm-1',
-        modelVersion: 'heuristic-v1.0',
-        viability: JSON.stringify({ overall: 0.82 }),
-        bands: JSON.stringify({ low: 10000, high: 25000 }),
-        explain: JSON.stringify({ drivers: ['rear_end'] }),
+        modelVersion: 'ca-pi-underwriting-v1',
+        viability: expect.any(String),
+        bands: expect.any(String),
+        explain: expect.any(String),
       },
     })
     expect(prisma.assessment.update).toHaveBeenCalledWith({

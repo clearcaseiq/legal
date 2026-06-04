@@ -55,6 +55,15 @@ function parseRequestedDocs(value: string | null | undefined): string[] {
   }
 }
 
+function parsePredictionExplain(value: string) {
+  const parsed = JSON.parse(value)
+  if (Array.isArray(parsed)) return { explainability: parsed, underwriting: null }
+  return {
+    explainability: Array.isArray(parsed?.explainability) ? parsed.explainability : parsed,
+    underwriting: parsed?.underwriting ?? null
+  }
+}
+
 // Create new assessment
 router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
@@ -339,6 +348,7 @@ router.get('/:id', async (req, res) => {
       const label = i === 0 ? 'Current' : i === 1 ? 'Previous' : `Version ${assessment.predictions.length - i}`
       return { label, value: bands.median, bands, createdAt: p.createdAt }
     })
+    const latestExplain = latest ? parsePredictionExplain(latest.explain) : null
 
     res.json({
       id: assessment.id,
@@ -356,7 +366,8 @@ router.get('/:id', async (req, res) => {
         model_version: latest.modelVersion,
         viability: JSON.parse(latest.viability),
         value_bands: JSON.parse(latest.bands),
-        explainability: JSON.parse(latest.explain),
+        explainability: latestExplain?.explainability ?? [],
+        underwriting: latestExplain?.underwriting ?? null,
         created_at: latest.createdAt
       } : null,
       caseValueHistory,
@@ -506,22 +517,27 @@ router.get('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       }
     })
 
-    res.json(assessments.map(a => ({
-      id: a.id,
-      claimType: a.claimType,
-      venue: { state: a.venueState, county: a.venueCounty },
-      status: a.status,
-      created_at: a.createdAt,
-      submittedForReview: !!a.leadSubmission,
-      latest_prediction: a.predictions[0] ? {
-        id: a.predictions[0].id,
-        model_version: a.predictions[0].modelVersion,
-        viability: JSON.parse(a.predictions[0].viability),
-        value_bands: JSON.parse(a.predictions[0].bands),
-        explainability: JSON.parse(a.predictions[0].explain),
-        created_at: a.predictions[0].createdAt
-      } : null
-    })))
+    res.json(assessments.map(a => {
+      const latest = a.predictions[0]
+      const latestExplain = latest ? parsePredictionExplain(latest.explain) : null
+      return {
+        id: a.id,
+        claimType: a.claimType,
+        venue: { state: a.venueState, county: a.venueCounty },
+        status: a.status,
+        created_at: a.createdAt,
+        submittedForReview: !!a.leadSubmission,
+        latest_prediction: latest ? {
+          id: latest.id,
+          model_version: latest.modelVersion,
+          viability: JSON.parse(latest.viability),
+          value_bands: JSON.parse(latest.bands),
+          explainability: latestExplain?.explainability ?? [],
+          underwriting: latestExplain?.underwriting ?? null,
+          created_at: latest.createdAt
+        } : null
+      }
+    }))
   } catch (error) {
     logger.error('Failed to list assessments', { error })
     res.status(500).json({ error: 'Internal server error' })

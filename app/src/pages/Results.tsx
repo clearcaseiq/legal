@@ -108,6 +108,31 @@ function formatClaimTypeLabel(claimType?: string) {
   return labels[claimType] || claimType.replace(/_/g, ' ')
 }
 
+function formatCaseSubtypeLabel(caseSubtype?: string) {
+  if (!caseSubtype) return ''
+  const labels: Record<string, string> = {
+    rideshare_accident: 'rideshare accident',
+    truck_accident: 'truck accident',
+    delivery_vehicle_accident: 'delivery vehicle accident',
+    pedestrian_accident: 'pedestrian accident',
+    bicycle_accident: 'bicycle accident',
+    multi_vehicle_accident: 'multi-vehicle accident',
+    rear_end_collision: 'rear-end collision',
+    head_on_collision: 'head-on collision',
+    left_turn_collision: 'left-turn collision',
+    grocery_premises: 'grocery store premises case',
+    restaurant_premises: 'restaurant premises case',
+    apartment_premises: 'apartment premises case',
+    hotel_premises: 'hotel premises case',
+    workplace_injury: 'workplace injury',
+    birth_injury: 'birth injury malpractice',
+    nursing_home_abuse: 'nursing home abuse',
+    negligent_security: 'negligent security',
+    toxic_exposure: 'toxic exposure',
+  }
+  return labels[caseSubtype] || caseSubtype.replace(/_/g, ' ')
+}
+
 function formatVenueLabel(venueState?: string, venueCounty?: string) {
   const normalizedCounty = venueCounty
     ? /county/i.test(venueCounty) ? venueCounty : `${venueCounty} County`
@@ -779,6 +804,8 @@ export default function Results() {
 
   const venueState = assessment?.venue?.state || assessment?.venueState || 'Unknown'
   const venueCounty = assessment?.venue?.county || assessment?.venueCounty
+  const caseSubtype = parsedFacts?.caseSubtype || parsedFacts?.caseTaxonomy?.caseSubtype || parsedFacts?.intakeData?.caseTaxonomy?.caseSubtype
+  const caseSnapshotClaimLabel = formatCaseSubtypeLabel(caseSubtype) || formatClaimTypeLabel(assessment?.claimType)
   const hasHipaaConsent = parsedFacts?.consents?.hipaa === true || hipaaAuthorizationComplete
 
   const refreshMatchedAttorneys = async () => {
@@ -1368,6 +1395,7 @@ export default function Results() {
 
   const viability = prediction?.viability
   const valueBands = prediction?.value_bands
+  const underwriting = prediction?.underwriting
   const explainability = normalizeExplainability(prediction?.explainability)
   const readinessDetails = (() => {
     const facts = parsedFacts
@@ -1413,16 +1441,25 @@ export default function Results() {
 
   const damagesObj = parsedFacts?.damages || {}
   const documentedMedicalCharges = Number(
+    underwriting?.settlement?.economicDamages?.medicalBills ||
     damagesObj.med_charges ||
     damagesObj.extracted_med_charges ||
     damagesObj.estimated_med_charges ||
     0,
   )
   const documentedWageLoss = Number(
+    underwriting?.settlement?.economicDamages?.lostWages ||
     damagesObj.wage_loss ||
     damagesObj.extracted_wage_loss ||
     damagesObj.estimated_wage_loss ||
     parsedFacts?.caseAcceleration?.wageLoss ||
+    0,
+  )
+  const documentedOutOfPocket = Number(
+    underwriting?.settlement?.economicDamages?.outOfPocket ||
+    damagesObj.out_of_pocket ||
+    damagesObj.extracted_out_of_pocket ||
+    damagesObj.estimated_out_of_pocket ||
     0,
   )
   const hasInjuryPhotos = evidenceFiles.some(f => f.category === 'photos')
@@ -1474,12 +1511,21 @@ export default function Results() {
   const successProbability = Math.round((viability?.overall ?? 0.5) * 100)
   const settlementRange = valueBands?.settlement || valueBands || {}
   const trialRange = valueBands?.trial || {}
-  const settlementLow = settlementRange?.p25 ?? valueBands?.p25 ?? 15000
-  const settlementHigh = settlementRange?.p75 ?? valueBands?.p75 ?? 75000
+  const settlementLow = underwriting?.settlement?.low ?? settlementRange?.p25 ?? valueBands?.p25 ?? 15000
+  const settlementHigh = underwriting?.settlement?.high ?? settlementRange?.p75 ?? valueBands?.p75 ?? 75000
+  const settlementExpected = underwriting?.settlement?.expected ?? settlementRange?.median ?? valueBands?.median ?? Math.round((settlementLow + settlementHigh) / 2)
   const potentialTrialLow = trialRange?.p25 ?? Math.round(settlementHigh * 1.35)
   const potentialTrialHigh = trialRange?.p75 ?? Math.round(settlementHigh * 3.25)
   const settlementRangeText = `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`
   const policyLimitConstrained = !!(settlementRange?.policyLimitConstrained || trialRange?.policyLimitConstrained)
+  const insuranceRecoveryPercent = clampPercent(
+    policyLimitConstrained
+      ? 42
+      : (parsedFacts?.insurance?.defendant_coverage_limits || parsedFacts?.insurance?.um_uim || parsedFacts?.insurance?.has_um_uim_coverage)
+        ? 85
+        : 62
+  )
+  const insuranceRecoveryLabel = insuranceRecoveryPercent >= 75 ? 'Coverage appears sufficient based on reported facts.' : insuranceRecoveryPercent >= 50 ? 'Coverage still needs confirmation.' : 'Potential policy limit concerns.'
   const trialProbability = Math.round((1 - (viability?.overall ?? 0.5) * 0.8) * 100)
   const missingDocItems = (Array.isArray(casePreparation?.missingDocs) ? casePreparation.missingDocs : [])
     .filter((item: any) => !(hasHipaaConsent && String(item?.label ?? '').toLowerCase().includes('hipaa')))
@@ -1608,7 +1654,9 @@ export default function Results() {
     low: 'Needs Proof',
   })
   const severityPercent = clampPercent(
-    typeof prediction?.severity?.score === 'number'
+    typeof underwriting?.scores?.severity === 'number'
+      ? underwriting.scores.severity
+      : typeof prediction?.severity?.score === 'number'
       ? prediction.severity.score * 100
       : typeof prediction?.severity?.level === 'number'
         ? (prediction.severity.level / 4) * 100
@@ -1634,7 +1682,7 @@ export default function Results() {
         String(structuredValuationDrivers.surgeryStatus || '').toLowerCase().includes('surgery'),
     },
   ]
-  const attorneyAcceptanceProbability = buildAttorneyAcceptanceProbability({
+  const attorneyAcceptanceProbability = underwriting?.attorneyAcceptance?.probability ?? buildAttorneyAcceptanceProbability({
     settlementHigh: displaySettlementHigh,
     settlementLow: displaySettlementLow,
     liabilityPercent,
@@ -1650,6 +1698,19 @@ export default function Results() {
     low: 'Uncertain',
   })
   const attorneyAcceptanceEconomics = `Model weighs expected fee against likely case cost, then adjusts for liability, severity, documents, and insurance recovery.`
+  const attorneyAcceptanceDrivers = [
+    liabilityOutlook === 'strong' && 'Strong liability',
+    severityPercent >= 70 && 'Severe injuries',
+    venueCounty && `${venueCounty} venue`,
+    insuranceRecoveryPercent >= 70 && 'Insurance available',
+    hasMedicalRecords && 'Treatment records available',
+  ].filter(Boolean).slice(0, 4) as string[]
+  const attorneyAcceptanceReducingFactors = [
+    !hasWageLossProof && documentedWageLoss > 0 && 'Missing wage documentation',
+    !hasPoliceReport && 'Missing police report',
+    !hasMedicalBills && 'Missing medical bills',
+    policyLimitConstrained && 'Potential policy limit concern',
+  ].filter(Boolean).slice(0, 3) as string[]
   const rankedSnapshotAttorneys = rankedAttorneyCards.slice(0, 3)
   const documentationScore = evidenceCompletionPercent
   const treatmentStrengthLevel = getTreatmentStrengthLabel({
@@ -1710,10 +1771,10 @@ export default function Results() {
     !hasPoliceReport && liabilityOutlook !== 'strong' && 'Liability documentation',
   ].filter(Boolean).slice(0, 3) as string[]
   const caseCompletenessItems = [
-    { label: 'Medical records', done: hasMedicalRecords },
-    { label: 'Medical bills', done: hasMedicalBills },
-    { label: 'Police report', done: hasPoliceReport },
-    { label: 'Wage loss documentation', done: hasWageLossProof },
+    { label: 'Medical records', done: hasMedicalRecords, boost: '+10%' },
+    { label: 'Medical bills', done: hasMedicalBills, boost: '+8%' },
+    { label: 'Police report', done: hasPoliceReport, boost: '+12%' },
+    { label: 'Wage loss evidence', done: hasWageLossProof, boost: '+6%' },
   ]
   const caseCompletenessPercent = Math.round(
     (caseCompletenessItems.filter((item) => item.done).length / caseCompletenessItems.length) * 100
@@ -1733,11 +1794,29 @@ export default function Results() {
     'Wage loss is documented',
     'Additional medical records are provided',
   ]
-  const whatWeHeardText = liabilityOutlook === 'strong'
-    ? 'You reported facts suggesting the other side may have caused the accident.'
-    : liabilityOutlook === 'moderate'
-      ? 'You reported facts suggesting responsibility may be shared or still needs more support.'
-      : 'Responsibility is not fully clear from the information provided so far.'
+  const aiCaseSummaryBullets = [
+    liabilityOutlook === 'strong'
+      ? 'Defendant appears primarily responsible.'
+      : liabilityOutlook === 'moderate'
+        ? 'Responsibility may be disputed or shared.'
+        : 'Liability needs more supporting facts.',
+    treatment.length > 0 || hasMedicalRecords
+      ? 'Injuries appear supported by reported treatment or records.'
+      : 'Treatment documentation is still limited.',
+    hasMedicalRecords || hasMedicalBills || hasPoliceReport
+      ? 'Current documentation supports attorney review.'
+      : 'Additional evidence may increase projected value.',
+    missingValueDrivers.length > 0
+      ? 'Additional evidence may increase projected value.'
+      : 'Core value documents are present.'
+  ]
+  const totalEconomicLoss = documentedMedicalCharges + documentedWageLoss + documentedOutOfPocket
+  const venueFriendlinessScore = venueState === 'CA'
+    ? /los angeles/i.test(String(venueCounty || '')) ? 4 : 3
+    : 3
+  const venueImpactPercent = venueState === 'CA'
+    ? /los angeles/i.test(String(venueCounty || '')) ? 18 : 10
+    : 5
   const deadlineWarningText =
     sol?.status === 'critical' || sol?.status === 'expired' || sol?.status === 'warning'
       ? 'Your claim may be approaching a filing deadline. Consider speaking with an attorney soon.'
@@ -2465,14 +2544,19 @@ Checklist:
         <section className="mb-6 max-w-2xl" aria-label="Your case snapshot">
           <div className="mb-4 flex flex-wrap gap-2 text-xs text-slate-700">
             <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold capitalize shadow-sm">
-              {formatClaimTypeLabel(assessment?.claimType)}
+              {caseSnapshotClaimLabel}
             </span>
+              {caseSubtype && (
+                <span className="rounded-full border border-brand-100 bg-brand-50 px-3 py-1.5 font-semibold capitalize text-brand-800 shadow-sm">
+                  {formatClaimTypeLabel(assessment?.claimType)} category
+                </span>
+              )}
             <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold shadow-sm">
               {[venueCounty, venueState === 'CA' ? 'California' : venueState].filter(Boolean).join(', ') || 'Jurisdiction unavailable'}
             </span>
           </div>
           <p className="mb-5 max-w-2xl text-sm leading-6 text-slate-700">
-            Based on the reported {formatClaimTypeLabel(assessment?.claimType).toLowerCase()} in{' '}
+            Based on the reported {caseSnapshotClaimLabel.toLowerCase()} in{' '}
             {[venueCounty, venueState === 'CA' ? 'California' : venueState].filter(Boolean).join(', ') || 'your venue'},
             attorney acceptance is {attorneyAcceptanceLabel.toLowerCase()} when expected fee, likely case cost, liability, severity, and available documents are weighed together.
           </p>
@@ -2524,6 +2608,9 @@ Checklist:
                   <p className="mt-1 font-display text-2xl font-semibold tracking-tight text-slate-950">
                     {displaySettlementRangeText}
                   </p>
+                  <p className="mt-1 text-sm font-semibold text-brand-700">
+                    Expected: {formatCurrency(settlementExpected)}
+                  </p>
                   <p className="mt-2 text-sm text-slate-600">
                     Confidence:{' '}
                     <span className={
@@ -2533,9 +2620,20 @@ Checklist:
                       {estimateConfidenceLevel}
                     </span>
                   </p>
+                  <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{estimateConfidenceLevel} confidence because</p>
+                    <ul className="mt-1 space-y-1 text-[11px] text-slate-700">
+                      {(confidenceDriversPositive.length > 0 ? confidenceDriversPositive : estimateConfidenceReasons).slice(0, 3).map((reason) => (
+                        <li key={reason} className="flex items-start gap-1.5">
+                          <CheckCircle className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" />
+                          <span>{reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
                 <div className="rounded-2xl border border-white bg-white/90 p-4 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Trial Value</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Potential Jury Verdict Range</p>
                   <p className="mt-1 font-display text-2xl font-semibold tracking-tight text-slate-950">
                     {trialValueText}
                   </p>
@@ -2552,6 +2650,76 @@ Checklist:
                   <p className="mt-2 text-sm leading-relaxed text-slate-600">
                     {attorneyAcceptanceEconomics}
                   </p>
+                  <div className="mt-3 grid gap-2 text-xs">
+                    {attorneyAcceptanceDrivers.length > 0 && (
+                      <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-emerald-900">
+                        <p className="font-semibold">Driven by:</p>
+                        <ul className="mt-1 space-y-1">
+                          {attorneyAcceptanceDrivers.map((driver) => (
+                            <li key={driver}>✓ {driver}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {attorneyAcceptanceReducingFactors.length > 0 && (
+                      <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-amber-900">
+                        <p className="font-semibold">Reducing factors:</p>
+                        <ul className="mt-1 space-y-1">
+                          {attorneyAcceptanceReducingFactors.map((factor) => (
+                            <li key={factor}>⚠ {factor}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white bg-white/90 p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Insurance Recovery</p>
+                  <p className="mt-1 font-display text-3xl font-semibold tracking-tight text-slate-950">
+                    {insuranceRecoveryPercent}%
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-600">{insuranceRecoveryLabel}</p>
+                </div>
+                <div className="rounded-2xl border border-white bg-white/90 p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Treatment Quality</p>
+                  <p className="mt-1 font-display text-3xl font-semibold tracking-tight text-slate-950">
+                    {underwriting?.scores?.treatment ?? (treatment.length > 0 ? 50 : 10)}%
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-brand-700">
+                    {underwriting?.treatment?.grade ?? (treatment.length > 0 ? 'Developing' : 'Weak')}
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                    {(underwriting?.treatment?.positives?.[0] || underwriting?.treatment?.negatives?.[0]) ?? 'Treatment history improves attorney confidence.'}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white bg-white/90 p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Documentation</p>
+                  <p className="mt-1 font-display text-3xl font-semibold tracking-tight text-slate-950">
+                    {underwriting?.scores?.documentation ?? documentationScore}%
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-brand-700">
+                    {underwriting?.documentation?.grade ?? scoreLabel(documentationScore, { high: 'Strong', medium: 'Developing', low: 'Sparse' })}
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                    {underwriting?.documentation?.positives?.slice(0, 2).join(', ') || 'Upload records, bills, photos, and wage proof to improve this score.'}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white bg-white/90 p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Economic Damages</p>
+                  <div className="mt-2 space-y-1.5 text-sm text-slate-700">
+                    <p>Medical Bills: <strong>{documentedMedicalCharges > 0 ? formatCurrency(documentedMedicalCharges) : 'Unknown'}</strong></p>
+                    <p>Lost Wages: <strong>{documentedWageLoss > 0 ? formatCurrency(documentedWageLoss) : 'Unknown'}</strong></p>
+                    <p>Out-of-Pocket: <strong>{documentedOutOfPocket > 0 ? formatCurrency(documentedOutOfPocket) : 'Unknown'}</strong></p>
+                    <p className="border-t border-slate-100 pt-1.5">Total Economic Loss: <strong>{totalEconomicLoss > 0 ? formatCurrency(totalEconomicLoss) : 'Still being calculated'}</strong></p>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-white bg-white/90 p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Venue Assessment</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-950">{formatVenueLabel(venueState, venueCounty) || 'Venue unavailable'}</p>
+                  <p className="mt-2 text-sm font-semibold text-brand-700">
+                    {venueFriendlinessScore >= 4 ? 'Plaintiff Friendly' : 'Moderate'}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">{'★'.repeat(venueFriendlinessScore)}{'☆'.repeat(5 - venueFriendlinessScore)} • Impact on value +{venueImpactPercent}%</p>
                 </div>
               </div>
 
@@ -2575,9 +2743,13 @@ Checklist:
                             <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[10px] text-slate-400">○</span>
                           )}
                           <span>{item.label}</span>
+                          {!item.done && <span className="ml-auto rounded-full bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700">{item.boost}</span>}
                         </li>
                       ))}
                     </ul>
+                    <p className="mt-3 text-xs leading-5 text-slate-500">
+                      These uploads can raise settlement confidence, attorney acceptance, and the precision of the potential jury verdict range.
+                    </p>
                   </div>
                 ) : (
                   <p className="mt-3 text-sm text-slate-600">Your core documents are in place. Additional details may still refine the estimate.</p>
@@ -2587,8 +2759,9 @@ Checklist:
               <div className="mt-4 rounded-2xl border border-white bg-white/90 p-4 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recommended Attorneys</p>
-                  <p className="text-sm font-semibold text-brand-700">Top Attorney Matches</p>
+                  <p className="text-sm font-semibold text-brand-700">Top Attorney Matches Available</p>
                 </div>
+                <p className="mt-2 text-sm text-slate-600">Attorneys are revealed after you continue to attorney review.</p>
                 {attorneySearchLoading ? (
                   <p className="mt-3 text-sm text-slate-600">Finding attorney matches for this venue and claim type...</p>
                 ) : rankedSnapshotAttorneys.length > 0 ? (
@@ -2597,7 +2770,7 @@ Checklist:
                       <div key={attorney.id || attorney.attorney_id || attorney.name} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-slate-950">
-                            {index + 1}. {attorney.name || attorney.firmName || attorney.firm_name || 'Attorney match'}
+                            Match #{index + 1}
                           </p>
                           <p className="text-xs text-slate-600">
                             {[venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType), getResponseBadge(attorney)].filter(Boolean).join(' • ')}
@@ -2618,7 +2791,7 @@ Checklist:
                 <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-700">
                   {[
                     venueCounty && `${venueCounty} venue`,
-                    `${formatClaimTypeLabel(assessment?.claimType)} expertise`,
+                    `${caseSnapshotClaimLabel} expertise`,
                     'Similar retained cases',
                     'Plaintiff response signals',
                   ].filter(Boolean).map((reason) => (
@@ -2630,8 +2803,16 @@ Checklist:
               </div>
 
               <div className="mt-4 rounded-2xl border border-white bg-white/90 p-4 shadow-sm">
-                <p className="text-sm font-semibold text-slate-950">What We Heard</p>
-                <p className="mt-1 text-sm leading-relaxed text-slate-600">{whatWeHeardText}</p>
+                <p className="text-sm font-semibold text-slate-950">AI Case Summary</p>
+                <p className="mt-1 text-sm leading-relaxed text-slate-600">Based on the facts reported:</p>
+                <ul className="mt-2 space-y-1.5 text-sm text-slate-700">
+                  {aiCaseSummaryBullets.map((bullet) => (
+                    <li key={bullet} className="flex items-start gap-2">
+                      <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                      <span>{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
 
               {deadlineWarningText ? (

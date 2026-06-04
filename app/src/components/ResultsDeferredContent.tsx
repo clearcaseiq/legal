@@ -29,6 +29,14 @@ function getResponseBadge(attorney: RankedAttorneyCard) {
   return attorney.responseBadge || ((attorney.responseTimeHours || 24) <= 8 ? 'Same-day replies' : 'Replies within 24h')
 }
 
+function formatProtectedMatchScore(attorney: RankedAttorneyCard, index: number) {
+  const score = Number(attorney.fit_score)
+  if (Number.isFinite(score) && score > 0) {
+    return `${score > 1 ? Math.round(score) : Math.round(score * 100)}%`
+  }
+  return `${94 - index * 3}%`
+}
+
 function formatClaimTypeLabel(claimType?: string) {
   if (!claimType) return 'personal injury'
   const labels: Record<string, string> = {
@@ -493,16 +501,17 @@ export function ResultsReportDetails({
         </div>
         {attorneyCards.length > 0 && (
           <div className="mt-5 rounded-xl border border-slate-200 bg-white px-5 py-5">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-3">Preview of your current top matches</h3>
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">Top attorney matches available</h3>
+            <p className="mb-3 text-xs text-slate-500">Attorney names are revealed after you continue to attorney review.</p>
             <div className="space-y-3">
               {attorneyCards.map((attorney, index) => (
                 <div key={attorney.id || attorney.attorney_id || attorney.name} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Choice {index + 1}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{attorney?.name ?? 'Attorney'}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Match #{index + 1}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{formatProtectedMatchScore(attorney, index)} Match</p>
                   <p className="mt-1 text-xs text-slate-600">
                     {[
-                      attorney?.law_firm?.name ?? 'Law Firm',
-                      `${Math.round((attorney.fit_score || 0.6) * 100)}% fit`,
+                      'Identity protected until consent',
+                      `${formatProtectedMatchScore(attorney, index)} fit`,
                     ].filter(Boolean).join(' • ')}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">

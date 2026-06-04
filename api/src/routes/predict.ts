@@ -4,6 +4,7 @@ import { computeFeatures, predictViability, simulateScenario } from '../lib/pred
 import { PredictionRequest, SimulationRequest } from '../lib/validators'
 import { logger } from '../lib/logger'
 import { authMiddleware, optionalAuthMiddleware, type AuthRequest } from '../lib/auth'
+import { underwriteCase } from '../lib/underwriting-engine'
 
 const router = Router()
 
@@ -33,7 +34,17 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
     const { assessmentId } = parsed.data
     const assessment = await prisma.assessment.findUnique({
       where: { id: assessmentId },
-      include: { user: { select: { email: true } } },
+      include: {
+        user: { select: { email: true } },
+        evidenceFiles: {
+          select: {
+            category: true,
+            originalName: true,
+            aiClassification: true,
+            aiSummary: true,
+          }
+        }
+      },
     })
 
     if (!assessment) {
@@ -54,7 +65,75 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
 
     const features = computeFeatures(assessment)
     const result = await predictViability(features)
+    const facts = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : assessment.facts
+    const underwriting = underwriteCase({
+      id: assessment.id,
+      claimType: assessment.claimType,
+      venueState: assessment.venueState,
+      venueCounty: assessment.venueCounty,
+      facts,
+      evidenceFiles: assessment.evidenceFiles,
+    })
+    const legacyValueBands = result.value_bands as any
+    const underwritingValueBands = {
+      ...legacyValueBands,
+      p25: underwriting.settlement.low,
+      median: underwriting.settlement.expected,
+      p75: underwriting.settlement.high,
+      settlement: {
+        ...(legacyValueBands?.settlement || {}),
+        p25: underwriting.settlement.low,
+        median: underwriting.settlement.expected,
+        p75: underwriting.settlement.high,
+        formula: underwriting.settlement.formula,
+      },
+      economics: {
+        ...(legacyValueBands?.economics || {}),
+        medicalBills: underwriting.settlement.economicDamages.medicalBills,
+        lostWages: underwriting.settlement.economicDamages.lostWages,
+        outOfPocket: underwriting.settlement.economicDamages.outOfPocket,
+        futureMedicalAdjusted: underwriting.settlement.economicDamages.futureMedicalAdjusted,
+        economicDamages: underwriting.settlement.economicDamages.total,
+        baseInjuryValue: underwriting.settlement.baseInjuryValue,
+      }
+    }
+    const underwritingResult = {
+      ...result,
+      viability: {
+        ...result.viability,
+        overall: underwriting.scores.caseStrength / 100,
+        liability: underwriting.scores.liability / 100,
+        damages: Math.max(result.viability.damages, underwriting.scores.severity / 100),
+        attorneyAcceptance: underwriting.attorneyAcceptance.probability / 100,
+      },
+      value_bands: underwritingValueBands,
+      underwriting,
+      severity: {
+        ...(result.severity || {}),
+        score: underwriting.scores.severity / 100,
+        underwritingScore: underwriting.scores.severity,
+        label: underwriting.severity.tier,
+        primaryInjury: underwriting.severity.primaryInjury,
+        factors: underwriting.severity.factors,
+      },
+      liability: {
+        ...(result.liability || {}),
+        score: underwriting.scores.liability / 100,
+        underwritingScore: underwriting.scores.liability,
+        strength: underwriting.liability.grade.toLowerCase().replace(/\s+/g, '_'),
+        factors: [...underwriting.liability.positives, ...underwriting.liability.negatives],
+      },
+      explainability: [
+        ...(Array.isArray(result.explainability) ? result.explainability : []),
+        { feature: 'attorney_acceptance_roi', direction: '+', impact: underwriting.attorneyAcceptance.roi },
+        { feature: 'documentation_score', direction: underwriting.documentation.score >= 55 ? '+' : '-', impact: underwriting.documentation.score / 100 },
+        { feature: 'treatment_quality', direction: underwriting.treatment.score >= 50 ? '+' : '-', impact: underwriting.treatment.score / 100 },
+      ],
+      modelVersion: 'ca-pi-underwriting-v1',
+      inferenceSource: 'underwriting_engine',
+    }
     const resolvedModelVersion = result.modelVersion || 'heuristic-v1.0'
+    const storedModelVersion = underwritingResult.modelVersion
     const shadowModelVersion =
       'shadowPrediction' in result ? result.shadowPrediction?.modelVersion : undefined
     
@@ -62,10 +141,13 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
     await prisma.prediction.create({
       data: {
         assessmentId: assessment.id,
-        modelVersion: resolvedModelVersion,
-        viability: JSON.stringify(result.viability),
-        bands: JSON.stringify(result.value_bands),
-        explain: JSON.stringify(result.explainability)
+        modelVersion: storedModelVersion,
+        viability: JSON.stringify(underwritingResult.viability),
+        bands: JSON.stringify(underwritingResult.value_bands),
+        explain: JSON.stringify({
+          explainability: underwritingResult.explainability,
+          underwriting,
+        })
       }
     })
 
@@ -77,18 +159,20 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
 
     logger.info('Prediction completed', { 
       assessmentId, 
-      viability: result.viability.overall,
-      severityLevel: result.severity?.level,
-      severityLabel: result.severity?.label,
-      modelVersion: resolvedModelVersion,
-      inferenceSource: result.inferenceSource || 'heuristic',
+      viability: underwritingResult.viability.overall,
+      severityLevel: underwritingResult.severity?.level,
+      severityLabel: underwritingResult.severity?.label,
+      attorneyAcceptance: underwriting.attorneyAcceptance.probability,
+      modelVersion: storedModelVersion,
+      inferenceSource: underwritingResult.inferenceSource,
       shadowModelVersion,
     })
 
     res.json({
-      ...result,
+      ...underwritingResult,
       assessment_id: assessmentId,
-      model_version: resolvedModelVersion
+      model_version: storedModelVersion,
+      previous_model_version: resolvedModelVersion,
     })
   } catch (error) {
     logger.error('Failed to predict', { error, assessmentId: req.body.assessmentId })

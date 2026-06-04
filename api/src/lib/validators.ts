@@ -9,6 +9,9 @@ const IncidentBase = z.object({
   date: z.string().min(1),
   location: z.string().optional(),
   narrative: z.string().optional(),
+  caseSubtype: z.string().optional(),
+  incidentTags: z.array(z.string()).optional(),
+  taxonomyPath: z.array(z.string()).optional(),
   parties: z.array(z.string()).optional(),
   timeline: z.array(z.object({
     label: z.string(),
@@ -70,9 +73,18 @@ export const ExpectationCheck = z.object({
   priority: z.enum(['fast_resolution', 'fair_compensation', 'understanding_rights', 'reducing_stress']).optional()
 }).partial()
 
+export const CaseTaxonomy = z.object({
+  caseSubtype: z.string().optional(),
+  incidentTags: z.array(z.string()).optional(),
+  taxonomyPath: z.array(z.string()).optional()
+}).partial()
+
 export const AssessmentWrite = z.object({
   userId: z.string().optional(),
   claimType: z.enum(['auto','slip_and_fall','dog_bite','medmal','product','nursing_home_abuse','wrongful_death','high_severity_surgery']),
+  caseSubtype: z.string().optional(),
+  incidentTags: z.array(z.string()).optional(),
+  taxonomyPath: z.array(z.string()).optional(),
   venue: Venue,
   incident: Incident,
   liability: z.record(z.any()).optional(),
@@ -85,11 +97,15 @@ export const AssessmentWrite = z.object({
   jurisdiction: JurisdictionIntelligence.optional(),
   plaintiffContext: PlaintiffContext.optional(),
   expectationCheck: ExpectationCheck.optional(),
+  caseTaxonomy: CaseTaxonomy.optional(),
   intakeData: z.record(z.any()).optional()
 })
 
 export const AssessmentUpdate = z.object({
   claimType: z.enum(['auto', 'slip_and_fall', 'dog_bite', 'medmal', 'product', 'nursing_home_abuse', 'wrongful_death', 'high_severity_surgery']).optional(),
+  caseSubtype: z.string().optional(),
+  incidentTags: z.array(z.string()).optional(),
+  taxonomyPath: z.array(z.string()).optional(),
   venue: Venue.optional(),
   incident: IncidentBase.partial().optional(),
   liability: z.record(z.any()).optional(),
@@ -102,6 +118,7 @@ export const AssessmentUpdate = z.object({
   jurisdiction: JurisdictionIntelligence.optional(),
   plaintiffContext: PlaintiffContext.optional(),
   expectationCheck: ExpectationCheck.optional(),
+  caseTaxonomy: CaseTaxonomy.optional(),
   intakeData: z.record(z.any()).optional()
 })
 

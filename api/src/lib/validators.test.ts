@@ -86,6 +86,38 @@ describe('AssessmentWrite', () => {
     })
     expect(ok.success).toBe(true)
   })
+
+  it('preserves case taxonomy fields', () => {
+    const ok = AssessmentWrite.safeParse({
+      claimType: 'auto',
+      caseSubtype: 'rideshare_accident',
+      incidentTags: ['auto', 'rideshare', 'commercial_policy'],
+      taxonomyPath: ['auto', 'rideshare_accident'],
+      caseTaxonomy: {
+        caseSubtype: 'rideshare_accident',
+        incidentTags: ['auto', 'rideshare', 'commercial_policy'],
+        taxonomyPath: ['auto', 'rideshare_accident'],
+      },
+      venue: { state: 'CA', county: 'Los Angeles' },
+      incident: {
+        date: '2026-01-01',
+        narrative: 'Rear-ended by a rideshare driver.',
+        caseSubtype: 'rideshare_accident',
+        incidentTags: ['auto', 'rideshare'],
+        taxonomyPath: ['auto', 'rideshare_accident'],
+      },
+      injuries: [{ x: 1 }],
+      damages: {},
+      consents: { tos: true, privacy: true, ml_use: true },
+    })
+
+    expect(ok.success).toBe(true)
+    if (ok.success) {
+      expect(ok.data.caseSubtype).toBe('rideshare_accident')
+      expect(ok.data.incident.caseSubtype).toBe('rideshare_accident')
+      expect(ok.data.caseTaxonomy?.incidentTags).toContain('rideshare')
+    }
+  })
 })
 
 describe('AssessmentUpdate', () => {

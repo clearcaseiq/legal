@@ -4,10 +4,10 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, analyzeCaseWithChatGPT, calculateSOL } from '../lib/api-plaintiff'
-import { ChevronRight, ChevronLeft, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, MapPin, Building2, Globe, Image, FileText, Shield, Dog, Package, AlertTriangle, Droplets } from 'lucide-react'
+import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, MapPin, Building2, Globe, Camera, Video, FileText, Shield, Mail, DollarSign, Dog, Package, AlertTriangle, Droplets } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import { useLanguage } from '../contexts/LanguageContext'
-import { CA_COUNTIES, injuryTypeToClaimType, sanitizeDetectedCounty } from '../lib/intakeQuickHelpers'
+import { CA_COUNTIES, buildCaseTaxonomy, injuryTypeToClaimType, sanitizeDetectedCounty } from '../lib/intakeQuickHelpers'
 
 type Step =
   | 'injury_type'
@@ -189,6 +189,7 @@ const TREATMENT_PAYER_OPTIONS = [
   { value: 'workers_comp', label: "Workers' compensation" },
   { value: 'auto_insurance', label: 'Auto insurance' },
   { value: 'attorney_lien', label: 'Attorney arranged treatment' },
+  { value: 'medical_lien', label: 'Medical lien' },
   { value: 'out_of_pocket', label: 'I paid myself' },
   { value: 'not_sure', label: 'Not sure' },
 ]
@@ -428,7 +429,6 @@ const STEPS: { key: Step; title: string }[] = [
   { key: 'branch_10', title: 'Case Details' },
   { key: 'evidence', title: 'Evidence Upload' },
   { key: 'insurance_financial', title: 'Medical Bills & Income Impact' },
-  { key: 'settlement_legal', title: 'Settlement & Legal Status' },
   { key: 'review', title: 'Review Your Case Story' },
   { key: 'consent', title: 'Your Case Report Is Ready' }
 ]
@@ -441,12 +441,19 @@ export default function IntakeWizardQuick() {
   const [assessmentId, setAssessmentId] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [pendingEvidenceFiles, setPendingEvidenceFiles] = useState<Record<string, any[]>>({})
+  const [openEvidenceSections, setOpenEvidenceSections] = useState<Record<string, boolean>>({
+    evidence: true,
+    medical: true,
+    insurance: false,
+    income_loss: false,
+  })
   const [returnToReviewFromStep, setReturnToReviewFromStep] = useState<Step | null>(null)
   const [customDate, setCustomDate] = useState('')
   const [detectedLocation, setDetectedLocation] = useState<{ city: string; county: string; state: string } | null>(null)
   const [locationAccepted, setLocationAccepted] = useState(false)
   const [solPreview, setSolPreview] = useState<any>(null)
   const [solPreviewError, setSolPreviewError] = useState<string | null>(null)
+  const [furthestReachedStepIndex, setFurthestReachedStepIndex] = useState(0)
 
   const [formData, setFormData] = useState({
     injuryType: '' as string,
@@ -477,6 +484,8 @@ export default function IntakeWizardQuick() {
       healthCoverage: '' as '' | 'yes' | 'no' | 'unsure',
       coverageTypes: [] as string[],
       medicarePlanType: '' as '' | 'original' | 'advantage' | 'unsure',
+      healthInsurancePaid: '' as string,
+      outOfPocketRange: '' as string,
       billPaymentSources: [] as string[],
       defendantCoverageLimits: '' as string,
       accidentExpenses: [] as string[],
@@ -490,6 +499,12 @@ export default function IntakeWizardQuick() {
   const currentStepIndex = STEPS.findIndex(s => s.key === currentStep)
   const progressPercent = Math.round(((currentStepIndex + 1) / STEPS.length) * 100)
   const uploadedEvidenceCount = Object.values(pendingEvidenceFiles).reduce((total, files) => total + (Array.isArray(files) ? files.length : 0), 0)
+
+  useEffect(() => {
+    if (currentStepIndex >= 0) {
+      setFurthestReachedStepIndex((previous) => Math.max(previous, currentStepIndex))
+    }
+  }, [currentStepIndex])
 
   const goToStepAfterEdit = (fallbackStep: Step) => {
     if (returnToReviewFromStep === currentStep) {
@@ -710,12 +725,6 @@ export default function IntakeWizardQuick() {
       helper: 'Coverage, liens, income impact, and policy limits can improve estimate accuracy.'
     },
     {
-      title: 'Settlement & legal status',
-      value: getLegalStatusSummary(),
-      step: 'settlement_legal' as Step,
-      helper: 'Offers, fault, insurance contact, and lawyer status help estimate negotiation posture.'
-    },
-    {
       title: 'Documents',
       value: uploadedEvidenceCount > 0 ? `${uploadedEvidenceCount} file${uploadedEvidenceCount === 1 ? '' : 's'} added` : 'No documents uploaded yet',
       step: 'evidence' as Step,
@@ -853,6 +862,14 @@ export default function IntakeWizardQuick() {
     setLoading(true)
     try {
       const claimType = injuryTypeToClaimType(formData.injuryType)
+      const caseTaxonomy = buildCaseTaxonomy({
+        injuryType: formData.injuryType,
+        claimType,
+        branch: formData.branch,
+        insuranceCoverage: formData.insuranceCoverage,
+        injuryDetails: formData.injuryDetails,
+        casePosture: formData.casePosture,
+      })
       const medicalSignalDefaults = {
         imaging: formData.injuryDetails.imaging.length > 0 ? 'answered' : 'unknown',
         procedures: formData.injuryDetails.procedures.length > 0 ? 'answered' : 'unknown',
@@ -863,11 +880,18 @@ export default function IntakeWizardQuick() {
       const futureMedicalEstimate = FUTURE_MEDICAL_RANGE_OPTIONS.find(option => option.value === formData.insuranceCoverage.futureMedicalRange)?.estimate || 0
       const payload = {
         claimType: claimType as any,
+        caseSubtype: caseTaxonomy.caseSubtype,
+        incidentTags: caseTaxonomy.incidentTags,
+        taxonomyPath: caseTaxonomy.taxonomyPath,
+        caseTaxonomy,
         venue: { state: formData.venue.state, county: formData.venue.county.trim() },
         incident: {
           date: getIncidentDate(),
           location: [formData.venue.city, formData.venue.county, formData.venue.state].filter(Boolean).join(', '),
-          narrative: buildNarrative()
+          narrative: buildNarrative(),
+          caseSubtype: caseTaxonomy.caseSubtype,
+          incidentTags: caseTaxonomy.incidentTags,
+          taxonomyPath: caseTaxonomy.taxonomyPath,
         },
         injuries: [
           {
@@ -934,6 +958,8 @@ export default function IntakeWizardQuick() {
             formData.insuranceCoverage.coverageTypes.includes('medicare')
               ? formData.insuranceCoverage.medicarePlanType || 'unsure'
               : undefined,
+          health_insurance_paid: formData.insuranceCoverage.healthInsurancePaid,
+          out_of_pocket_range: formData.insuranceCoverage.outOfPocketRange,
           bill_payment_sources: formData.insuranceCoverage.billPaymentSources,
           accident_expenses_paid: formData.insuranceCoverage.accidentExpenses,
           medical_bill_range: formData.insuranceCoverage.medicalBillRange,
@@ -984,6 +1010,7 @@ export default function IntakeWizardQuick() {
       }
       ;(payload as any).intakeData = {
         injuryType: formData.injuryType,
+        caseTaxonomy,
         narrative: formData.narrative,
         branch: formData.branch,
         injuryDetails: formData.injuryDetails,
@@ -1152,6 +1179,86 @@ export default function IntakeWizardQuick() {
   const isToxic = it === 'toxic'
   const isOther = it === 'other'
 
+  const hasSavedAnswerForStep = (step: Step) => {
+    switch (step) {
+      case 'injury_type':
+        return !!formData.injuryType
+      case 'when':
+        return !!formData.incidentDatePreset || !!formData.incidentDate
+      case 'where':
+        return !!formData.venue.state || !!formData.venue.county || !!formData.venue.city
+      case 'injury_severity':
+        return !!formData.injurySeverity
+      case 'medical_treatment':
+        return formData.medicalTreatment.length > 0
+      case 'injury_details':
+        return (
+          formData.injuryDetails.bodyParts.length > 0 ||
+          formData.injuryDetails.imaging.length > 0 ||
+          formData.injuryDetails.diagnoses.length > 0 ||
+          formData.injuryDetails.lifestyleImpact.length > 0 ||
+          !!formData.casePosture.missedWork
+        )
+      case 'branch_7':
+        return Boolean(
+          formData.branch.crashType ||
+          formData.branch.hazardType ||
+          formData.branch.errorType ||
+          formData.branch.dogOwned ||
+          formData.branch.productType ||
+          formData.branch.assaultType ||
+          formData.branch.substance ||
+          formData.branch.otherDetails
+        )
+      case 'branch_8':
+        return Boolean(
+          formData.branch.policeReport ||
+          formData.branch.ticketIssued ||
+          formData.branch.witnesses ||
+          formData.branch.photosVideo ||
+          formData.branch.videoEvidence ||
+          formData.branch.redLightViolation ||
+          formData.branch.duiOtherDriver ||
+          formData.branch.propertyType ||
+          formData.branch.providerType ||
+          formData.branch.biteLocation ||
+          formData.branch.productMalfunction ||
+          formData.branch.productRecalled ||
+          formData.branch.securityPresent ||
+          formData.branch.poorLighting ||
+          formData.branch.exposureDuration
+        )
+      case 'branch_9':
+        return Boolean(
+          formData.branch.propertyDamage ||
+          formData.branch.priorAggression ||
+          formData.branch.medicalTreatment ||
+          formData.branch.defectKnown ||
+          formData.branch.symptomsStarted
+        )
+      case 'branch_10':
+        return Boolean(
+          formData.branch.defendantType ||
+          formData.branch.dogMedical ||
+          formData.branch.warningLabel ||
+          formData.branch.doctorVisit
+        )
+      case 'insurance_financial':
+        return (
+          !!formData.insuranceCoverage.medicalBillRange ||
+          !!formData.insuranceCoverage.futureMedicalRange ||
+          !!formData.casePosture.missedWork ||
+          !!formData.insuranceCoverage.healthCoverage ||
+          !!formData.casePosture.financialHardship ||
+          (isVehicle && (!!formData.casePosture.autoInsuranceStatus || !!formData.insuranceCoverage.umUimCoverage))
+        )
+      case 'case_posture':
+        return Object.values(formData.casePosture).some(Boolean)
+      default:
+        return false
+    }
+  }
+
   const renderStep = () => {
     switch (currentStep) {
       case 'injury_type':
@@ -1295,7 +1402,7 @@ export default function IntakeWizardQuick() {
               <button
                 type="button"
                 onClick={() => goToStepAfterEdit('injury_severity')}
-                className="!min-h-0 h-auto w-full shrink-0 py-1 text-sm font-medium leading-tight text-gray-600 hover:text-brand-600"
+                className="inline-flex min-h-10 w-full shrink-0 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold leading-tight text-amber-900 shadow-sm transition-colors hover:border-amber-300 hover:bg-amber-100"
               >
                 I am not sure. I will add this later.
               </button>
@@ -1363,42 +1470,43 @@ export default function IntakeWizardQuick() {
         const hasBackInjury = formData.injuryDetails.bodyParts.includes('lower_back')
         const hasInjectionTreatment = formData.medicalTreatment.includes('injections') || formData.injuryDetails.procedures.some(item => item !== 'none')
         const hasSurgeryTreatment = formData.medicalTreatment.includes('surgery') || formData.injuryDetails.futureTreatment.includes('surgery') || !!formData.injuryDetails.surgeryStatus
-        const selectedDocumentationSignals = [
-          formData.injuryDetails.bodyParts.length > 0,
-          formData.injuryDetails.imaging.length > 0 && !formData.injuryDetails.imaging.includes('none'),
-          !!formData.casePosture.missedWork,
-          hasInjectionTreatment || hasSurgeryTreatment,
-          formData.injuryDetails.concussionSymptoms.length > 0 ||
-            formData.injuryDetails.diagnoses.length > 0 ||
-            formData.injuryDetails.shoulderFindings.length > 0 ||
-            formData.injuryDetails.backFindings.length > 0,
-        ].filter(Boolean).length
-        const documentationPercent = Math.min(100, Math.max(20, selectedDocumentationSignals * 20))
-        const documentationLabel = documentationPercent >= 80 ? 'Strong' : documentationPercent >= 50 ? 'Moderate' : 'Early'
+        const bodyPartDisplay: Record<string, string> = {
+          head_concussion: '🧠 Head',
+          neck: '🦴 Neck',
+          lower_back: '🦴 Back',
+          shoulder: '💪 Shoulder',
+          knee: '🦵 Knee',
+          hand_wrist: '✋ Hand/Wrist',
+          hip: '🦴 Hip',
+          other: 'Other',
+        }
+        const keyLifestyleImpactOptions = LIFESTYLE_IMPACT_OPTIONS.filter((option) =>
+          ['daily_pain', 'sleep_disruption', 'exercise_limitations'].includes(option.value)
+        )
         return (
           <div className="space-y-4">
             <div className="text-center">
-              <p className="font-display text-base font-semibold text-gray-900">Injury Documentation</p>
-              <p className="text-xs leading-5 text-gray-500">Answer the few details that usually matter most for case value.</p>
+              <p className="font-display text-base font-semibold text-gray-900">Help us understand your injuries</p>
+              <p className="text-xs leading-5 text-gray-500">These answers improve the accuracy of your case value estimate.</p>
             </div>
 
             <section className="rounded-2xl border border-brand-100 bg-brand-50/70 p-4 shadow-sm">
               <div className="flex items-center justify-between text-sm">
-                <span className="font-display font-semibold text-slate-950">Documentation Strength: {documentationLabel}</span>
-                <span className="font-semibold text-brand-700">{documentationPercent}%</span>
+                <span className="font-display font-semibold text-slate-950">Settlement Estimate Confidence</span>
+                <span className="font-semibold text-brand-700">{injuryConfidencePercent}%</span>
               </div>
               <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
-                <div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${documentationPercent}%` }} />
+                <div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${injuryConfidencePercent}%` }} />
               </div>
               <p className="mt-2 text-xs leading-5 text-slate-600">
-                Imaging, work impact, and surgery or injections usually make the assessment more useful.
+                Upload imaging or treatment records to improve accuracy.
               </p>
             </section>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div>
                 <p className="font-display text-sm font-semibold text-slate-950">Where are you injured?</p>
-                <p className="mt-0.5 text-xs text-slate-600">Select all that apply.</p>
+                <p className="mt-0.5 text-xs text-slate-600">Select all body regions that hurt or were diagnosed.</p>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
                 {BODY_PART_OPTIONS.map(({ value, label }) => {
@@ -1408,9 +1516,9 @@ export default function IntakeWizardQuick() {
                       key={value}
                       type="button"
                       onClick={() => toggleInjuryDetail('bodyParts', value)}
-                      className={`rounded-lg border px-2 py-2 text-left text-xs font-semibold ${selected ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                      className={`min-h-12 rounded-xl border px-3 py-2 text-left text-sm font-semibold leading-tight ${selected ? 'border-brand-600 bg-brand-50 text-brand-900 shadow-sm' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
                     >
-                      {label}
+                      {bodyPartDisplay[value] || label}
                     </button>
                   )
                 })}
@@ -1418,8 +1526,8 @@ export default function IntakeWizardQuick() {
             </section>
 
             <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">Have you had any imaging?</p>
-              <p className="mt-0.5 text-xs leading-5 text-slate-600">Imaging often helps verify injury severity.</p>
+              <p className="font-display text-sm font-semibold text-slate-950">Medical Treatment</p>
+              <p className="mt-0.5 text-xs leading-5 text-slate-600">Select any testing or treatment that has happened or is scheduled.</p>
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {IMAGING_OPTIONS.map(({ value, label }) => (
                   <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.imaging.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
@@ -1428,39 +1536,8 @@ export default function IntakeWizardQuick() {
                   </label>
                 ))}
               </div>
-            </section>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">Have doctors mentioned any of these diagnoses?</p>
-              <p className="mt-0.5 text-xs leading-5 text-slate-600">Select known findings like fractures, TBI, concussion, or herniation.</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {DIAGNOSIS_OPTIONS.map(({ value, label }) => (
-                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.diagnoses.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
-                    <input type="checkbox" checked={formData.injuryDetails.diagnoses.includes(value)} onChange={() => toggleInjuryDetail('diagnoses', value)} className="rounded border-gray-300" />
-                    <span className="text-xs font-semibold text-slate-800">{label}</span>
-                  </label>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">Has this affected your ability to work?</p>
-              <div className="mt-3 grid gap-2">
-                {MISSED_WORK_OPTIONS.map(({ value, label }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setCasePostureField('missedWork', value)}
-                    className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${formData.casePosture.missedWork === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">Any injections or surgery?</p>
+              <p className="mt-4 font-display text-sm font-semibold text-slate-950">Any injections or surgery?</p>
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
                   { value: 'injections', label: 'Injections' },
@@ -1503,6 +1580,43 @@ export default function IntakeWizardQuick() {
                     </button>
                   )
                 })}
+              </div>
+
+              <p className="mt-4 font-display text-sm font-semibold text-slate-950">Have doctors mentioned any of these diagnoses?</p>
+              <p className="mt-0.5 text-xs leading-5 text-slate-600">Select known findings like fractures, TBI, concussion, or herniation.</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {DIAGNOSIS_OPTIONS.map(({ value, label }) => (
+                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.diagnoses.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                    <input type="checkbox" checked={formData.injuryDetails.diagnoses.includes(value)} onChange={() => toggleInjuryDetail('diagnoses', value)} className="rounded border-gray-300" />
+                    <span className="text-xs font-semibold text-slate-800">{label}</span>
+                  </label>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="font-display text-sm font-semibold text-slate-950">How has this affected your life?</p>
+              <p className="mt-0.5 text-xs leading-5 text-slate-600">These details help estimate pain, daily disruption, and economic impact.</p>
+              <div className="mt-3 grid gap-2">
+                {MISSED_WORK_OPTIONS.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setCasePostureField('missedWork', value)}
+                    className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs font-semibold ${formData.casePosture.missedWork === value ? 'border-brand-600 bg-brand-50 text-brand-900 shadow-sm' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                  >
+                    <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${formData.casePosture.missedWork === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-300 text-transparent'}`}>✓</span>
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                {keyLifestyleImpactOptions.map(({ value, label }) => (
+                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 ${formData.injuryDetails.lifestyleImpact.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                    <input type="checkbox" checked={formData.injuryDetails.lifestyleImpact.includes(value)} onChange={() => toggleInjuryDetail('lifestyleImpact', value)} className="rounded border-gray-300" />
+                    <span className="text-xs font-semibold text-slate-800">{label}</span>
+                  </label>
+                ))}
               </div>
             </section>
 
@@ -1549,7 +1663,7 @@ export default function IntakeWizardQuick() {
             )}
 
             <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <summary className="cursor-pointer font-display text-sm font-semibold text-slate-950">Optional Details</summary>
+              <summary className="cursor-pointer font-display text-sm font-semibold text-slate-950">Additional Information (Optional)</summary>
               <div className="mt-4 space-y-4">
                 <section>
                   <p className="font-display text-sm font-semibold text-slate-950">Prior injuries to these areas?</p>
@@ -1572,14 +1686,16 @@ export default function IntakeWizardQuick() {
                 </section>
 
                 <section>
-                  <p className="font-display text-sm font-semibold text-slate-950">What challenges are you experiencing?</p>
+                  <p className="font-display text-sm font-semibold text-slate-950">Any other life impacts?</p>
                   <div className="mt-2 grid gap-2 md:grid-cols-2">
-                    {LIFESTYLE_IMPACT_OPTIONS.map(({ value, label }) => (
-                      <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.lifestyleImpact.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
-                        <input type="checkbox" checked={formData.injuryDetails.lifestyleImpact.includes(value)} onChange={() => toggleInjuryDetail('lifestyleImpact', value)} className="rounded border-gray-300" />
-                        <span className="text-xs font-semibold text-slate-800">{label}</span>
-                      </label>
-                    ))}
+                    {LIFESTYLE_IMPACT_OPTIONS
+                      .filter((option) => !['daily_pain', 'sleep_disruption', 'exercise_limitations'].includes(option.value))
+                      .map(({ value, label }) => (
+                        <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.lifestyleImpact.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                          <input type="checkbox" checked={formData.injuryDetails.lifestyleImpact.includes(value)} onChange={() => toggleInjuryDetail('lifestyleImpact', value)} className="rounded border-gray-300" />
+                          <span className="text-xs font-semibold text-slate-800">{label}</span>
+                        </label>
+                      ))}
                   </div>
                 </section>
 
@@ -2029,361 +2145,741 @@ export default function IntakeWizardQuick() {
         return null
 
       case 'evidence':
-        return (
-          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-            <div className="shrink-0 space-y-0.5 text-center">
-              <p className="text-sm font-medium leading-snug text-gray-900 md:text-base">Add documents if you have them handy.</p>
-              <p className="text-[11px] leading-snug text-gray-500 md:text-xs">
-                No problem if you do not have documents now — upload after your report.
-              </p>
+        {
+          const sections = [
+            {
+              id: 'evidence',
+              title: 'Evidence',
+              helper: 'Photos, videos, and official reports from the incident.',
+              items: [
+                { category: 'photos', subcategory: 'injury_photos', title: 'Photos', helper: 'Helps document injuries, vehicle damage, and scene conditions.', button: t('intake.uploadPhotos'), icon: Camera },
+                { category: 'video', subcategory: 'incident_video', title: 'Videos', helper: 'Helps show impact, fault, traffic signals, or unsafe conditions.', button: 'Upload Videos', icon: Video },
+                { category: 'police_report', subcategory: 'report', title: 'Police Report', helper: 'Helps determine liability and case strength.', button: t('intake.uploadReport'), icon: Shield },
+              ],
+            },
+            {
+              id: 'medical',
+              title: 'Medical',
+              helper: 'Bills and records that show treatment, diagnosis, and costs.',
+              items: [
+                { category: 'bills', subcategory: 'medical_bill', title: 'Medical Bills', helper: 'Helps improve your settlement estimate.', button: t('intake.uploadBills'), icon: FileText },
+                { category: 'medical_records', subcategory: 'records', title: 'Medical Records', helper: 'Helps assess injury severity and treatment needs.', button: t('intake.uploadRecords'), icon: FileText },
+              ],
+            },
+            {
+              id: 'insurance',
+              title: 'Insurance',
+              helper: 'Letters, denials, offers, and adjuster communications.',
+              items: [
+                { category: 'insurance_letters', subcategory: 'carrier_letters', title: 'Insurance Letters', helper: 'Helps identify denials, low offers, and coverage issues.', button: 'Upload Insurance Letters', icon: Mail },
+              ],
+            },
+            {
+              id: 'income_loss',
+              title: 'Income Loss',
+              helper: 'Documents that show missed work or reduced income.',
+              items: [
+                { category: 'wage_verification', subcategory: 'income_loss', title: 'Wage Verification', helper: 'Helps estimate lost income and economic damages.', button: 'Upload Wage Verification', icon: DollarSign },
+              ],
+            },
+          ]
+
+          return (
+            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+              <div className="shrink-0 space-y-0.5 text-center">
+                <p className="text-sm font-medium leading-snug text-gray-900 md:text-base">Supporting Documents (Optional)</p>
+                <p className="text-[11px] leading-snug text-gray-500 md:text-xs">
+                  Upload documents now or after receiving your report.
+                </p>
+              </div>
+
+              <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+                <section className="rounded-xl border border-brand-100 bg-brand-50/70 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-brand-950">Documents Uploaded</p>
+                    <p className="text-[10px] font-medium text-brand-700">{uploadedEvidenceCount} total</p>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {evidenceStatusItems.map((item) => {
+                      const count = pendingEvidenceFiles[item.category]?.length || 0
+                      return (
+                        <span
+                          key={item.category}
+                          className={`rounded-full px-2 py-1 text-[10px] font-semibold ${
+                            count > 0
+                              ? 'bg-white text-emerald-700 ring-1 ring-emerald-200'
+                              : 'bg-white/70 text-gray-500 ring-1 ring-gray-200'
+                          }`}
+                        >
+                          {count > 0 ? '✓' : '○'} {item.label}{count > 0 ? ` (${count})` : ''}
+                        </span>
+                      )
+                    })}
+                  </div>
+                </section>
+
+                {sections.map((section) => {
+                  const isOpen = openEvidenceSections[section.id]
+                  const sectionCount = section.items.reduce((total, item) => total + (pendingEvidenceFiles[item.category]?.length || 0), 0)
+
+                  return (
+                    <section key={section.id} className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50/60">
+                      <button
+                        type="button"
+                        onClick={() => setOpenEvidenceSections((prev) => ({ ...prev, [section.id]: !prev[section.id] }))}
+                        className="flex w-full items-center justify-between gap-3 bg-white/80 px-3 py-2 text-left hover:bg-white"
+                        aria-expanded={isOpen}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-semibold leading-tight text-gray-950">{section.title}</p>
+                            {sectionCount > 0 && (
+                              <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-bold text-brand-800">
+                                {sectionCount}
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-0.5 text-[10px] leading-snug text-gray-500 md:text-[11px]">{section.helper}</p>
+                        </div>
+                        <ChevronDown className={`h-4 w-4 shrink-0 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden />
+                      </button>
+
+                      {isOpen && (
+                        <div className="space-y-2 p-2">
+                          {section.items.map((item) => {
+                            const Icon = item.icon
+                            return (
+                              <div key={item.category} className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-white p-2 shadow-sm">
+                                <div className="mb-0.5 flex items-center gap-1.5">
+                                  <Icon className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+                                  <h4 className="text-[11px] font-semibold leading-tight text-gray-900 md:text-xs">{item.title}</h4>
+                                </div>
+                                <p className="mb-1 line-clamp-2 text-[10px] leading-snug text-gray-500 md:text-[11px]">
+                                  {item.helper}
+                                </p>
+                                <InlineEvidenceUpload
+                                  assessmentId={assessmentId || undefined}
+                                  category={item.category}
+                                  subcategory={item.subcategory}
+                                  description={item.title}
+                                  initialFiles={pendingEvidenceFiles[item.category] || []}
+                                  compact
+                                  tightChrome
+                                  hideCameraButton
+                                  alwaysShowUpload
+                                  hideHeader
+                                  uploadButtonLabel={item.button}
+                                  onFilesUploaded={(f) => handleEvidenceFiles(item.category, f)}
+                                />
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </section>
+                  )
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCurrentStep('insurance_financial')}
+                className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold leading-snug text-amber-900 shadow-sm transition-colors hover:border-amber-300 hover:bg-amber-100 md:text-base"
+              >
+                Continue without documents
+              </button>
             </div>
-
-            <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-hidden">
-              <div className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-gray-50/50 p-2">
-                <div className="mb-0.5 flex items-center gap-1">
-                  <Image className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
-                  <h4 className="text-[11px] font-semibold leading-tight text-gray-900 md:text-xs">{t('intake.photos')}</h4>
-                </div>
-                <p className="mb-1 line-clamp-2 text-[10px] leading-snug text-gray-500 md:text-[11px]">
-                  Injuries, damage, scene photos.
-                </p>
-                <InlineEvidenceUpload
-                  assessmentId={assessmentId || undefined}
-                  category="photos"
-                  subcategory="injury_photos"
-                  description="Injury or incident photos"
-                  compact
-                  tightChrome
-                  alwaysShowUpload
-                  hideHeader
-                  uploadButtonLabel={t('intake.uploadPhotos')}
-                  onFilesUploaded={(f) => handleEvidenceFiles('photos', f)}
-                />
-              </div>
-
-              <div className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-gray-50/50 p-2">
-                <div className="mb-0.5 flex items-center gap-1">
-                  <Image className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
-                  <h4 className="text-[11px] font-semibold leading-tight text-gray-900 md:text-xs">Video</h4>
-                </div>
-                <p className="mb-1 line-clamp-2 text-[10px] leading-snug text-gray-500 md:text-[11px]">
-                  Dashcam, surveillance, or phone video.
-                </p>
-                <InlineEvidenceUpload
-                  assessmentId={assessmentId || undefined}
-                  category="video"
-                  subcategory="incident_video"
-                  description="Incident video"
-                  compact
-                  tightChrome
-                  alwaysShowUpload
-                  hideHeader
-                  uploadButtonLabel="Upload Video"
-                  onFilesUploaded={(f) => handleEvidenceFiles('video', f)}
-                />
-              </div>
-
-              <div className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-gray-50/50 p-2">
-                <div className="mb-0.5 flex items-center gap-1">
-                  <FileText className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
-                  <h4 className="text-[11px] font-semibold leading-tight text-gray-900 md:text-xs">{t('intake.medicalBills')}</h4>
-                </div>
-                <p className="mb-1 line-clamp-2 text-[10px] leading-snug text-gray-500 md:text-[11px]">
-                  Bills and balances.
-                </p>
-                <InlineEvidenceUpload
-                  assessmentId={assessmentId || undefined}
-                  category="bills"
-                  subcategory="medical_bill"
-                  description="Medical bills"
-                  compact
-                  tightChrome
-                  alwaysShowUpload
-                  hideHeader
-                  uploadButtonLabel={t('intake.uploadBills')}
-                  onFilesUploaded={(f) => handleEvidenceFiles('bills', f)}
-                />
-              </div>
-
-              <div className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-gray-50/50 p-2">
-                <div className="mb-0.5 flex items-center gap-1">
-                  <FileText className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
-                  <h4 className="text-[11px] font-semibold leading-tight text-gray-900 md:text-xs">{t('intake.medicalRecords')}</h4>
-                </div>
-                <p className="mb-1 line-clamp-2 text-[10px] leading-snug text-gray-500 md:text-[11px]">
-                  Records, imaging, notes.
-                </p>
-                <InlineEvidenceUpload
-                  assessmentId={assessmentId || undefined}
-                  category="medical_records"
-                  subcategory="records"
-                  description="Medical records"
-                  compact
-                  tightChrome
-                  alwaysShowUpload
-                  hideHeader
-                  uploadButtonLabel={t('intake.uploadRecords')}
-                  onFilesUploaded={(f) => handleEvidenceFiles('medical_records', f)}
-                />
-              </div>
-
-              <div className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-gray-50/50 p-2">
-                <div className="mb-0.5 flex items-center gap-1">
-                  <Shield className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
-                  <h4 className="text-[11px] font-semibold leading-tight text-gray-900 md:text-xs">{t('intake.policeReport')}</h4>
-                </div>
-                <p className="mb-1 line-clamp-2 text-[10px] leading-snug text-gray-500 md:text-[11px]">
-                  Official report when available.
-                </p>
-                <InlineEvidenceUpload
-                  assessmentId={assessmentId || undefined}
-                  category="police_report"
-                  subcategory="report"
-                  description="Police report"
-                  compact
-                  tightChrome
-                  alwaysShowUpload
-                  hideHeader
-                  uploadButtonLabel={t('intake.uploadReport')}
-                  onFilesUploaded={(f) => handleEvidenceFiles('police_report', f)}
-                />
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setCurrentStep('insurance_financial')}
-              className="shrink-0 rounded-lg border border-dashed border-gray-300 py-2 text-[11px] font-medium leading-snug text-gray-600 transition-colors hover:border-brand-300 hover:text-brand-600 md:text-xs"
-            >
-              I do not have documents right now
-            </button>
-          </div>
-        )
+          )
+        }
 
       case 'insurance_financial':
         const icFinancial = formData.insuranceCoverage
         const cpFinancial = formData.casePosture || {}
         const hasIncomeImpact = cpFinancial.missedWork && cpFinancial.missedWork !== 'no'
         const knowsOtherInsurance = Boolean(cpFinancial.otherPartyInsuranceKnown === 'yes' || icFinancial.defendantCoverageLimits)
+        const medicalBillEstimate = MEDICAL_BILL_RANGE_OPTIONS.find((option) => option.value === icFinancial.medicalBillRange)?.estimate || 0
+        const futureMedicalEstimate = FUTURE_MEDICAL_RANGE_OPTIONS.find((option) => option.value === icFinancial.futureMedicalRange)?.estimate || 0
+        const healthCoverageAnswered = !!icFinancial.healthCoverage
+        const healthPaymentAnswered =
+          icFinancial.healthCoverage === 'yes'
+            ? icFinancial.coverageTypes.length > 0 && !!icFinancial.healthInsurancePaid && !!icFinancial.outOfPocketRange
+            : icFinancial.healthCoverage === 'no'
+              ? icFinancial.billPaymentSources.length > 0
+              : healthCoverageAnswered
+        const vehicleInsuranceAnswered = !isVehicle || !!cpFinancial.autoInsuranceStatus || !!icFinancial.umUimCoverage
+        const liabilityAnswered = !!cpFinancial.faultBelief && !!cpFinancial.comparativeFault
+        const representationAnswered = !!cpFinancial.attorneyStatus
+        const settlementAnswered = !!cpFinancial.acceptedSettlement
+        const completedFinancialFactors = [
+          !!icFinancial.medicalBillRange,
+          !!cpFinancial.missedWork,
+          !!icFinancial.futureMedicalRange,
+          healthCoverageAnswered,
+          healthPaymentAnswered,
+          !!cpFinancial.financialHardship,
+          vehicleInsuranceAnswered,
+          !!cpFinancial.insuranceContact || !!icFinancial.defendantCoverageLimits,
+          liabilityAnswered,
+          representationAnswered,
+          settlementAnswered,
+        ].filter(Boolean).length
+        const financialFactorTarget = isVehicle ? 10 : 8
+        const financialProgressPercent = Math.min(100, Math.max(15, Math.round((completedFinancialFactors / financialFactorTarget) * 100)))
+        const showCaseValueIncrease = medicalBillEstimate >= 30000 || futureMedicalEstimate >= 15000 || cpFinancial.lostWagesRange === 'over_10000'
+        const medicalBillCards = MEDICAL_BILL_RANGE_OPTIONS.map((option) => ({
+          ...option,
+          label: option.value === '2500_10000'
+            ? '$2,500 - $10,000'
+            : option.value === '10000_50000'
+              ? '$10,000 - $50,000'
+              : option.value === 'over_50000'
+                ? 'Over $50,000'
+                : option.label,
+        }))
+        const healthInsuranceTypeOptions = [
+          { value: 'employer_plan', label: 'Employer Plan' },
+          { value: 'medicare', label: 'Medicare' },
+          { value: 'medicaid', label: 'Medicaid' },
+          { value: 'covered_california', label: 'Covered California' },
+          { value: 'va_tricare', label: 'VA / Tricare' },
+          { value: 'other', label: 'Other' },
+        ]
+        const healthPaymentOptions = [
+          { value: 'yes', label: 'Yes' },
+          { value: 'no', label: 'No' },
+          { value: 'not_sure', label: 'Not Sure' },
+        ]
+        const outOfPocketRangeOptions = [
+          { value: 'none', label: 'None' },
+          { value: 'under_500', label: 'Under $500' },
+          { value: '500_2500', label: '$500 - $2,500' },
+          { value: 'over_2500', label: 'More than $2,500' },
+        ]
+        const noHealthTreatmentPayerOptions = [
+          { value: 'attorney_lien', label: 'Attorney arranged treatment' },
+          { value: 'out_of_pocket', label: 'I paid myself' },
+          { value: 'medical_lien', label: 'Medical lien' },
+          { value: 'workers_comp', label: "Workers' compensation" },
+          { value: 'not_sure', label: 'Not sure' },
+        ]
+        const autoInsuranceCarrierOptions = [
+          { value: 'state_farm', label: 'State Farm' },
+          { value: 'geico', label: 'GEICO' },
+          { value: 'progressive', label: 'Progressive' },
+          { value: 'allstate', label: 'Allstate' },
+          { value: 'other', label: 'Other' },
+          { value: 'not_sure', label: 'Not Sure' },
+        ]
+        const liabilityOptionsForClaim = FAULT_BELIEF_OPTIONS.map((option) => {
+          if (option.value !== 'other_party') return option
+          const label = isVehicle
+            ? 'Other driver'
+            : isSlipFall
+              ? 'Property owner/business'
+              : isMedmal
+                ? 'Provider/facility'
+                : 'Other party'
+          return { ...option, label }
+        })
+        const incidentNoun = isAssault ? 'assault' : isMedmal ? 'medical care' : isToxic ? 'exposure' : isProduct ? 'product injury' : isDogBite ? 'dog bite' : 'incident'
+        const missingFinancialFactors = [
+          !icFinancial.medicalBillRange ? 'Medical bills' : null,
+          !liabilityAnswered ? 'Liability' : null,
+          !cpFinancial.missedWork ? 'Work impact' : null,
+          !healthCoverageAnswered ? 'Insurance' : null,
+          isVehicle && !vehicleInsuranceAnswered ? 'Vehicle insurance' : null,
+        ].filter(Boolean)
         return (
-          <div className="mx-auto max-w-2xl space-y-4">
+          <div className="space-y-3">
             <div className="text-center">
-              <p className="font-display text-base font-semibold text-gray-900">Medical Bills & Income Impact</p>
+              <p className="font-display text-base font-semibold text-gray-900">How has this injury affected you financially?</p>
               <p className="text-xs leading-5 text-gray-500">
-                These details help estimate the financial impact of your injuries and improve attorney matching.
+                These answers help estimate the economic value of your case.
               </p>
             </div>
 
-            <section className="rounded-2xl border border-brand-100 bg-brand-50/50 p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">Has this injury affected your work or income?</p>
-              <div className="mt-3 grid gap-2">
-                {MISSED_WORK_OPTIONS.map(({ value, label }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => {
-                      setFormData(prev => ({
-                        ...prev,
-                        casePosture: {
-                          ...prev.casePosture,
-                          missedWork: value,
-                          ...(value === 'no' ? { lostWagesRange: '', lostWagesEstimate: '' } : {})
-                        }
-                      }))
-                    }}
-                    className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${cpFinancial.missedWork === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
-                  >
-                    {label}
-                  </button>
-                ))}
+            <section className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3 text-emerald-950 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold leading-tight">Case Value Confidence</p>
+                <p className="text-xs font-bold">{financialProgressPercent}%</p>
               </div>
-
-              {hasIncomeImpact && (
-                <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-                  <p className="font-display text-sm font-semibold text-slate-950">Approximately how much income did you lose?</p>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    {WAGE_LOSS_RANGE_OPTIONS.map(({ value, label, estimate }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => {
-                          setFormData(prev => ({
-                            ...prev,
-                            casePosture: {
-                              ...prev.casePosture,
-                              lostWagesRange: value,
-                              lostWagesEstimate: estimate
-                            }
-                          }))
-                        }}
-                        className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${cpFinancial.lostWagesRange === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
+                <div className="h-full rounded-full bg-emerald-600 transition-[width] duration-300" style={{ width: `${financialProgressPercent}%` }} />
+              </div>
+              {missingFinancialFactors.length > 0 ? (
+                <p className="mt-2 text-xs leading-5 text-emerald-800">Need: {missingFinancialFactors.join(' • ')}</p>
+              ) : (
+                <p className="mt-2 text-xs leading-5 text-emerald-800">You have completed the core information attorneys use to evaluate case value.</p>
               )}
             </section>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">Did you have health insurance when you received treatment?</p>
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                {(['yes', 'no', 'unsure'] as const).map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => updateForm({
-                      insuranceCoverage: {
-                        ...icFinancial,
-                        healthCoverage: value,
-                        ...(value !== 'yes' ? { coverageTypes: [], medicarePlanType: '' } : {})
-                      }
-                    })}
-                    className={`rounded-lg border px-2 py-2 text-xs font-semibold ${icFinancial.healthCoverage === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
-                  >
-                    {value === 'yes' ? 'Yes' : value === 'no' ? 'No' : 'Not sure'}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">Have you paid any accident-related expenses yourself?</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {ACCIDENT_EXPENSE_OPTIONS.map(({ value, label }) => (
-                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${icFinancial.accidentExpenses.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
-                    <input type="checkbox" checked={icFinancial.accidentExpenses.includes(value)} onChange={() => toggleAccidentExpense(value)} className="rounded border-gray-300" />
-                    <span className="text-xs font-semibold text-slate-800">{label}</span>
-                  </label>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">Approximate medical bills so far</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {MEDICAL_BILL_RANGE_OPTIONS.map(({ value, label }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, medicalBillRange: value } })}
-                    className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${icFinancial.medicalBillRange === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">Expected future medical costs</p>
-              <p className="mt-1 text-xs leading-5 text-slate-500">Use your best estimate if a doctor recommended more care.</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {FUTURE_MEDICAL_RANGE_OPTIONS.map(({ value, label }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, futureMedicalRange: value } })}
-                    className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${icFinancial.futureMedicalRange === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">Who helped pay for treatment?</p>
-              <p className="mt-1 text-xs leading-5 text-slate-500">Select what you know. It is okay to choose ?Not sure.?</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {TREATMENT_PAYER_OPTIONS.map(({ value, label }) => (
-                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${icFinancial.billPaymentSources.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
-                    <input type="checkbox" checked={icFinancial.billPaymentSources.includes(value)} onChange={() => toggleBillPaymentSource(value)} className="rounded border-gray-300" />
-                    <span className="text-xs font-semibold text-slate-800">{label}</span>
-                  </label>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">Has the accident caused financial hardship?</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                {FINANCIAL_HARDSHIP_OPTIONS.map(({ value, label }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setCasePostureField('financialHardship', value)}
-                    className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${cpFinancial.financialHardship === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <summary className="cursor-pointer font-display text-sm font-semibold text-slate-950">Optional: Insurance Information</summary>
-              <div className="mt-4 space-y-3">
-                <p className="font-display text-sm font-semibold text-slate-950">Do you know anything about the other party's insurance?</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { value: 'no', label: 'No' },
-                    { value: 'yes', label: 'Yes' },
-                  ].map(({ value, label }) => (
+            <div className="grid gap-3 lg:grid-cols-2">
+              <section className="order-2 rounded-2xl border border-brand-100 bg-brand-50/60 p-4 shadow-sm">
+                <div>
+                  <p className="font-display text-sm font-semibold text-slate-950">Work Impact</p>
+                  <p className="text-xs text-slate-600">Lost income can increase economic damages.</p>
+                </div>
+                <div className="mt-3 grid gap-2">
+                  {MISSED_WORK_OPTIONS.map(({ value, label }) => (
                     <button
                       key={value}
                       type="button"
                       onClick={() => {
                         setFormData(prev => ({
                           ...prev,
-                          casePosture: { ...prev.casePosture, otherPartyInsuranceKnown: value },
-                          insuranceCoverage: {
-                            ...prev.insuranceCoverage,
-                            ...(value === 'no' ? { defendantCoverageLimits: '' } : {})
+                          casePosture: {
+                            ...prev.casePosture,
+                            missedWork: value,
+                            ...(value === 'no' ? { lostWagesRange: '', lostWagesEstimate: '' } : {})
                           }
                         }))
                       }}
-                      className={`rounded-lg border px-3 py-2 text-xs font-semibold ${cpFinancial.otherPartyInsuranceKnown === value || (value === 'yes' && knowsOtherInsurance) ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                      className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs font-semibold ${cpFinancial.missedWork === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                    >
+                      <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${cpFinancial.missedWork === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-300 text-transparent'}`}>✓</span>
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {hasIncomeImpact && (
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+                    <p className="font-display text-sm font-semibold text-slate-950">Approximate lost income</p>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      {WAGE_LOSS_RANGE_OPTIONS.map(({ value, label, estimate }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => {
+                            setFormData(prev => ({
+                              ...prev,
+                              casePosture: {
+                                ...prev.casePosture,
+                                lostWagesRange: value,
+                                lostWagesEstimate: estimate
+                              }
+                            }))
+                          }}
+                          className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${cpFinancial.lostWagesRange === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+                  <p className="font-display text-sm font-semibold text-slate-950">Has the {incidentNoun} caused financial hardship?</p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                    {FINANCIAL_HARDSHIP_OPTIONS.map(({ value, label }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setCasePostureField('financialHardship', value)}
+                        className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${cpFinancial.financialHardship === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </section>
+
+              <section className="order-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div>
+                  <p className="font-display text-sm font-semibold text-slate-950">Medical Costs</p>
+                  <p className="text-xs text-slate-600">Medical bills and future care often drive case value.</p>
+                </div>
+
+                <p className="mt-3 font-display text-sm font-semibold text-slate-950">Medical bills so far</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {medicalBillCards.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, medicalBillRange: value } })}
+                      className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs font-semibold ${icFinancial.medicalBillRange === value ? 'border-brand-600 bg-brand-50 text-brand-900 shadow-sm' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                    >
+                      <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${icFinancial.medicalBillRange === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-300 text-transparent'}`}>✓</span>
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {showCaseValueIncrease && (
+                  <p className="mt-2 rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1.5 text-xs font-semibold text-emerald-800">↑ Case value signal increased</p>
+                )}
+
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950">Future treatment expected?</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {FUTURE_MEDICAL_RANGE_OPTIONS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, futureMedicalRange: value } })}
+                      className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${icFinancial.futureMedicalRange === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
                     >
                       {label}
                     </button>
                   ))}
                 </div>
 
-                {knowsOtherInsurance && (
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {[...DEFENDANT_COVERAGE_OPTIONS.filter(option => option.value !== 'not_sure'), { value: 'other', label: 'Other' }].map(({ value, label }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, defendantCoverageLimits: value } })}
-                        className={`rounded-lg border px-2 py-2 text-xs font-semibold ${icFinancial.defendantCoverageLimits === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950">Did you have health insurance when you received treatment?</p>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {(['yes', 'no', 'unsure'] as const).map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => updateForm({
+                        insuranceCoverage: {
+                          ...icFinancial,
+                          healthCoverage: value,
+                          ...(value !== 'yes' ? { coverageTypes: [], medicarePlanType: '', healthInsurancePaid: '', outOfPocketRange: '' } : {}),
+                          ...(value !== 'no' ? { billPaymentSources: icFinancial.billPaymentSources.filter((source) => !['attorney_lien', 'out_of_pocket', 'medical_lien', 'workers_comp', 'not_sure'].includes(source)) } : {})
+                        }
+                      })}
+                      className={`rounded-lg border px-2 py-2 text-xs font-semibold ${icFinancial.healthCoverage === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                    >
+                      {value === 'yes' ? 'Yes' : value === 'no' ? 'No' : 'Not Sure'}
+                    </button>
+                  ))}
+                </div>
+
+                {icFinancial.healthCoverage === 'yes' && (
+                  <div className="mt-4 space-y-4 rounded-xl border border-brand-100 bg-brand-50/50 p-3">
+                    <div>
+                      <p className="font-display text-sm font-semibold text-slate-950">What type of health insurance?</p>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {healthInsuranceTypeOptions.map(({ value, label }) => (
+                          <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border bg-white px-2 py-2 ${icFinancial.coverageTypes.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                            <input type="checkbox" checked={icFinancial.coverageTypes.includes(value)} onChange={() => toggleCoverageType(value)} className="rounded border-gray-300" />
+                            <span className="text-xs font-semibold text-slate-800">{label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="font-display text-sm font-semibold text-slate-950">Did health insurance pay any medical bills?</p>
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        {healthPaymentOptions.map(({ value, label }) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => {
+                              const nextSources = value === 'yes'
+                                ? Array.from(new Set([...icFinancial.billPaymentSources.filter((source) => source !== 'not_sure'), 'health_insurance']))
+                                : icFinancial.billPaymentSources.filter((source) => source !== 'health_insurance' && source !== 'not_sure')
+                              updateForm({
+                                insuranceCoverage: {
+                                  ...icFinancial,
+                                  healthInsurancePaid: value,
+                                  billPaymentSources: value === 'not_sure' ? ['not_sure'] : nextSources
+                                }
+                              })
+                            }}
+                            className={`rounded-lg border px-2 py-2 text-xs font-semibold ${icFinancial.healthInsurancePaid === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="font-display text-sm font-semibold text-slate-950">Approximate out-of-pocket expenses?</p>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {outOfPocketRangeOptions.map(({ value, label }) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, outOfPocketRange: value } })}
+                            className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${icFinancial.outOfPocketRange === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )}
 
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="font-display text-sm font-semibold text-slate-950">Do you have UM/UIM coverage on your own policy?</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">Uninsured/underinsured motorist coverage matters if the other driver has little or no insurance.</p>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    {UM_UIM_OPTIONS.map(({ value, label }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, umUimCoverage: value } })}
-                        className={`rounded-lg border px-2 py-2 text-xs font-semibold ${icFinancial.umUimCoverage === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                {icFinancial.healthCoverage === 'no' && (
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="font-display text-sm font-semibold text-slate-950">Who paid for your treatment?</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">This is very important to attorneys.</p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {noHealthTreatmentPayerOptions.map(({ value, label }) => (
+                        <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border bg-white px-2 py-2 ${icFinancial.billPaymentSources.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                          <input type="checkbox" checked={icFinancial.billPaymentSources.includes(value)} onChange={() => toggleBillPaymentSource(value)} className="rounded border-gray-300" />
+                          <span className="text-xs font-semibold text-slate-800">{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-2">
+              {isVehicle && (
+                <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <summary className="cursor-pointer font-display text-sm font-semibold text-slate-950">
+                    Vehicle Insurance
+                  </summary>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">Can help identify additional sources of recovery. Most people are not sure about these details.</p>
+                  <div className="mt-4 space-y-4">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="font-display text-sm font-semibold text-slate-950">Did you have auto insurance at the time?</p>
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        {(['yes', 'no', 'not_sure'] as const).map((value) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => {
+                              setFormData(prev => ({
+                                ...prev,
+                                casePosture: {
+                                  ...prev.casePosture,
+                                  autoInsuranceStatus: value,
+                                  ...(value !== 'yes' ? { autoInsuranceCarrier: '' } : {})
+                                },
+                                insuranceCoverage: {
+                                  ...prev.insuranceCoverage,
+                                  ...(value !== 'yes' ? { umUimCoverage: '' } : {})
+                                }
+                              }))
+                            }}
+                            className={`rounded-lg border px-2 py-2 text-xs font-semibold ${cpFinancial.autoInsuranceStatus === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                          >
+                            {value === 'yes' ? 'Yes' : value === 'no' ? 'No' : 'Not Sure'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {cpFinancial.autoInsuranceStatus === 'yes' && (
+                      <div className="rounded-xl border border-brand-100 bg-brand-50/50 p-3">
+                        <p className="font-display text-sm font-semibold text-slate-950">Do you know your carrier?</p>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                          {autoInsuranceCarrierOptions.map(({ value, label }) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setCasePostureField('autoInsuranceCarrier', value)}
+                              className={`rounded-lg border px-2 py-2 text-xs font-semibold ${cpFinancial.autoInsuranceCarrier === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {cpFinancial.autoInsuranceStatus === 'yes' && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="font-display text-sm font-semibold text-slate-950">Do you have UM/UIM coverage?</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">Uninsured/Underinsured Motorist coverage may provide additional compensation if the other driver has little or no insurance.</p>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                          {UM_UIM_OPTIONS.map(({ value, label }) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, umUimCoverage: value } })}
+                              className={`rounded-lg border px-2 py-2 text-xs font-semibold ${icFinancial.umUimCoverage === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <p className="font-display text-sm font-semibold text-slate-950">Do you know anything about the other party's insurance?</p>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        {[
+                          { value: 'no', label: 'No' },
+                          { value: 'yes', label: 'Yes' },
+                        ].map(({ value, label }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => {
+                            setFormData(prev => ({
+                              ...prev,
+                              casePosture: { ...prev.casePosture, otherPartyInsuranceKnown: value },
+                              insuranceCoverage: {
+                                ...prev.insuranceCoverage,
+                                ...(value === 'no' ? { defendantCoverageLimits: '' } : {})
+                              }
+                            }))
+                          }}
+                          className={`rounded-lg border px-3 py-2 text-xs font-semibold ${cpFinancial.otherPartyInsuranceKnown === value || (value === 'yes' && knowsOtherInsurance) ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                      </div>
+                    </div>
+
+                    {knowsOtherInsurance && (
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {[...DEFENDANT_COVERAGE_OPTIONS.filter(option => option.value !== 'not_sure'), { value: 'other', label: 'Other' }].map(({ value, label }) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, defendantCoverageLimits: value } })}
+                            className={`rounded-lg border px-2 py-2 text-xs font-semibold ${icFinancial.defendantCoverageLimits === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </details>
+              )}
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:col-span-2">
+                <h3 className="font-display text-sm font-semibold text-slate-950">Case Review & Liability</h3>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Help us understand how attorneys may evaluate your claim.</p>
+
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="font-display text-sm font-semibold text-slate-950">Who was mostly responsible?</p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      {liabilityOptionsForClaim.map(({ value, label }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setCasePostureField('faultBelief', value)}
+                          className={`rounded-lg border px-3 py-2 text-xs font-semibold ${cpFinancial.faultBelief === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <p className="mt-4 font-display text-sm font-semibold text-slate-950">Could someone claim you were partially at fault?</p>
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      {[
+                        { value: 'no', label: 'No' },
+                        { value: 'possibly', label: 'Possibly' },
+                        { value: 'yes', label: 'Yes' },
+                      ].map(({ value, label }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setCasePostureField('comparativeFault', value)}
+                          className={`rounded-lg border px-3 py-2 text-xs font-semibold ${cpFinancial.comparativeFault === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="font-display text-sm font-semibold text-slate-950">Insurance Status</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">Have you reported the accident to insurance?</p>
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      {INSURANCE_CONTACT_OPTIONS.map(({ value, label }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => {
+                            setFormData(prev => ({
+                              ...prev,
+                              casePosture: {
+                                ...prev.casePosture,
+                                insuranceContact: value,
+                                ...(value !== 'yes' ? { settlementOfferStatus: '', settlementOffer: '' } : {})
+                              }
+                            }))
+                          }}
+                          className={`rounded-lg border px-3 py-2 text-xs font-semibold ${cpFinancial.insuranceContact === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <p className="mt-4 font-display text-sm font-semibold text-slate-950">Do you currently have an attorney?</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      {ATTORNEY_STATUS_OPTIONS.map(({ value, label }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => {
+                            setFormData(prev => ({
+                              ...prev,
+                              casePosture: {
+                                ...prev.casePosture,
+                                attorneyStatus: value,
+                                ...(value !== 'hired' ? { attorneyName: '', secondOpinionInterest: '' } : {})
+                              }
+                            }))
+                          }}
+                          className={`rounded-lg border px-3 py-2 text-xs font-semibold ${cpFinancial.attorneyStatus === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {cpFinancial.attorneyStatus === 'hired' && (
+                      <div className="mt-3 rounded-lg border border-white bg-white/80 p-2">
+                        <label className="font-display text-xs font-semibold text-slate-950" htmlFor="attorney-name">Attorney Name (optional)</label>
+                        <input
+                          id="attorney-name"
+                          type="text"
+                          value={cpFinancial.attorneyName || ''}
+                          onChange={(e) => setCasePostureField('attorneyName', e.target.value)}
+                          placeholder="Attorney or law firm name"
+                          className="input mt-2 w-full text-sm"
+                        />
+                      </div>
+                    )}
+
+                    <p className="mt-4 font-display text-sm font-semibold text-slate-950">Have you accepted a settlement offer?</p>
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      {[
+                        { value: 'no', label: 'No' },
+                        { value: 'yes', label: 'Yes' },
+                        { value: 'not_sure', label: 'Not sure' },
+                      ].map(({ value, label }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => {
+                            setFormData(prev => ({
+                              ...prev,
+                              casePosture: {
+                                ...prev.casePosture,
+                                acceptedSettlement: value,
+                                ...(value !== 'yes' ? { acceptedSettlementAmount: '' } : {})
+                              }
+                            }))
+                          }}
+                          className={`rounded-lg border px-3 py-2 text-xs font-semibold ${cpFinancial.acceptedSettlement === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {cpFinancial.acceptedSettlement === 'yes' && (
+                      <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                        <p className="text-sm font-semibold">Case already settled</p>
+                        <p className="mt-1 text-xs leading-5">⚠ Settled cases may not qualify for attorney review.</p>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            </details>
+              </section>
+            </div>
           </div>
         )
 
@@ -2960,42 +3456,78 @@ export default function IntakeWizardQuick() {
 
       case 'consent':
         const consents = formData.consents || { tos: false, privacy: false, ml_use: false, hipaa: false }
+        {
+          const previewMedicalBillEstimate = MEDICAL_BILL_RANGE_OPTIONS.find(option => option.value === formData.insuranceCoverage.medicalBillRange)?.estimate || 0
+          const previewFutureMedicalEstimate = FUTURE_MEDICAL_RANGE_OPTIONS.find(option => option.value === formData.insuranceCoverage.futureMedicalRange)?.estimate || 0
+          const previewWageLossEstimate = Number(String(formData.casePosture.lostWagesEstimate || '').replace(/[$,]/g, '')) || 0
+          const previewKnownValue = previewMedicalBillEstimate + previewFutureMedicalEstimate + previewWageLossEstimate
+          const previewLow = previewKnownValue > 0 ? Math.max(5000, Math.round(previewKnownValue * 0.8)) : 0
+          const previewHigh = previewKnownValue > 0 ? Math.max(15000, Math.round(previewKnownValue * 2.4)) : 0
+          const previewSettlementRange = previewKnownValue > 0 ? `$${previewLow.toLocaleString()} - $${previewHigh.toLocaleString()}` : 'Preliminary estimate'
+          const previewConfidence = getEstimateConfidence()
+          const previewCaseStrength = previewConfidence === 'High' ? 'Strong' : previewConfidence === 'Moderate' ? 'Moderate' : 'Developing'
+          const previewAttorneyInterest =
+            formData.casePosture.acceptedSettlement === 'yes'
+              ? 'Limited'
+              : formData.casePosture.attorneyStatus === 'no' && (previewMedicalBillEstimate >= 7500 || previewFutureMedicalEstimate > 0 || previewWageLossEstimate > 0)
+                ? 'High'
+                : previewConfidence === 'High'
+                  ? 'High'
+                  : 'Developing'
         return (
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
-            <div className="rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50 to-white p-4">
-              <p className="text-sm font-semibold uppercase tracking-wide text-brand-700">Report ready</p>
-              <p className="mt-1 text-lg font-semibold text-gray-950">{t('intake.consent_intro')}</p>
-              <p className="mt-1 text-sm leading-6 text-gray-600">Confirm the required permissions and we’ll generate your ClearCaseIQ report.</p>
-              <div className="mt-4 rounded-xl border border-white/80 bg-white/85 p-3">
-                <p className="mb-2 font-display text-sm font-semibold text-gray-900">{t('intake.consent_includes')}</p>
-                <ul className="grid gap-2 text-sm text-gray-700 sm:grid-cols-2">
-                  <li className="flex items-center gap-2"><Check className="h-4 w-4 flex-shrink-0 text-green-600" /> {t('intake.consent_item1')}</li>
-                  <li className="flex items-center gap-2"><Check className="h-4 w-4 flex-shrink-0 text-green-600" /> {t('intake.consent_item2')}</li>
-                  <li className="flex items-center gap-2"><Check className="h-4 w-4 flex-shrink-0 text-green-600" /> {t('intake.consent_item3')}</li>
-                  <li className="flex items-center gap-2"><Check className="h-4 w-4 flex-shrink-0 text-green-600" /> {t('intake.consent_item4')}</li>
-                  <li className="flex items-center gap-2"><Check className="h-4 w-4 flex-shrink-0 text-green-600" /> {t('intake.consent_item5')}</li>
-                  <li className="flex items-center gap-2"><Check className="h-4 w-4 flex-shrink-0 text-green-600" /> {t('intake.consent_item6')}</li>
+            <div className="space-y-4">
+              <section className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-emerald-950">
+                <p className="text-sm font-semibold uppercase tracking-wide text-emerald-700">✓ Intake Complete</p>
+                <p className="mt-1 text-lg font-semibold">Your information has been analyzed.</p>
+                <p className="mt-1 text-sm leading-6 text-emerald-800">Your personalized report is ready.</p>
+              </section>
+
+              <section className="rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50 to-white p-4 shadow-sm">
+                <p className="text-sm font-semibold uppercase tracking-wide text-brand-700">Your report is being prepared</p>
+                <ul className="mt-3 grid gap-2 text-sm text-gray-700 sm:grid-cols-2">
+                  {['Case Strength Score', 'Estimated Settlement Range', 'Liability Analysis', 'Treatment & Medical Review', 'Attorney Match Potential'].map((item) => (
+                    <li key={item} className="flex items-center gap-2"><Check className="h-4 w-4 flex-shrink-0 text-green-600" /> {item}</li>
+                  ))}
                 </ul>
-              </div>
+
+                <div className="mt-4 rounded-xl border border-white/80 bg-white/90 p-3">
+                  <p className="font-display text-sm font-semibold text-gray-950">Your Report Will Estimate</p>
+                  <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                    <div className="rounded-lg bg-brand-50 px-3 py-2"><span className="block text-xs font-semibold uppercase tracking-wide text-brand-700">Case Strength</span><strong>{previewCaseStrength}</strong></div>
+                    <div className="rounded-lg bg-brand-50 px-3 py-2"><span className="block text-xs font-semibold uppercase tracking-wide text-brand-700">Settlement Range</span><strong>{previewSettlementRange}</strong></div>
+                    <div className="rounded-lg bg-brand-50 px-3 py-2"><span className="block text-xs font-semibold uppercase tracking-wide text-brand-700">Attorney Interest</span><strong>{previewAttorneyInterest}</strong></div>
+                    <div className="rounded-lg bg-brand-50 px-3 py-2"><span className="block text-xs font-semibold uppercase tracking-wide text-brand-700">Confidence</span><strong>{previewConfidence}</strong></div>
+                  </div>
+                </div>
+              </section>
+
+              <section className={`rounded-2xl border ${solPreviewTone} p-4`}>
+                <p className="text-sm font-semibold">Filing deadline reminder</p>
+                <p className="mt-1 text-sm leading-6">{solPreviewMessage}</p>
+              </section>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="text-base font-semibold text-gray-950">{t('intake.consent_confirm')}</p>
-              <p className="mt-1 text-sm leading-6 text-gray-500">These keep your intake private and allow AI-assisted case analysis.</p>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:self-start">
+              <p className="text-base font-semibold text-gray-950">Before viewing your report</p>
+              <p className="mt-1 text-sm leading-6 text-gray-500">Please confirm these permissions so we can display your case analysis.</p>
               <div className="mt-4 space-y-3">
                 <label className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition-all ${consents.tos && consents.privacy ? 'border-brand-300 bg-brand-50' : 'border-slate-200 bg-slate-50 hover:border-brand-200'}`}>
                   <input type="checkbox" checked={consents.tos && consents.privacy} onChange={e => { const checked = e.target.checked; updateForm({ consents: { ...consents, tos: checked, privacy: checked } }) }} className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-brand-600" />
-                  <span className="text-sm font-medium leading-6 text-gray-800">{t('intake.consent_tos')}</span>
+                  <span className="text-sm font-medium leading-6 text-gray-800">I agree to the Terms & Privacy Policy</span>
                 </label>
                 <label className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition-all ${consents.ml_use ? 'border-brand-300 bg-brand-50' : 'border-slate-200 bg-slate-50 hover:border-brand-200'}`}>
                   <input type="checkbox" checked={consents.ml_use} onChange={e => updateForm({ consents: { ...consents, ml_use: e.target.checked } })} className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-brand-600" />
-                  <span className="text-sm font-medium leading-6 text-gray-800">{t('intake.consent_ml')}</span>
+                  <span className="text-sm font-medium leading-6 text-gray-800">I consent to AI-assisted case analysis</span>
                 </label>
               </div>
+              <p className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">Your information remains private and secure.</p>
             </div>
-            {(errors.tos || errors.privacy || errors.ml_use) && <p className="text-sm text-red-600 text-center">{errors.tos || errors.privacy || errors.ml_use}</p>}
-            {errors.submit && <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{errors.submit}</div>}
+            {(errors.tos || errors.privacy || errors.ml_use) && <p className="text-sm text-red-600 text-center lg:col-span-2">{errors.tos || errors.privacy || errors.ml_use}</p>}
+            {errors.submit && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 lg:col-span-2">{errors.submit}</div>}
           </div>
         )
+        }
 
       default:
         return null
@@ -3014,9 +3546,8 @@ export default function IntakeWizardQuick() {
     branch_8: t('intake.stepTitles_branch_8'),
     branch_9: t('intake.stepTitles_branch_9'),
     branch_10: t('intake.stepTitles_branch_10'),
-    evidence: t('intake.stepTitles_evidence'),
-    insurance_financial: 'Insurance & financial details',
-    settlement_legal: 'Next steps & settlement status',
+    evidence: 'Supporting Documents (Optional)',
+    insurance_financial: 'How has this injury affected you financially?',
     case_posture: 'Claim details',
     review: 'Review your case story',
     consent: t('intake.stepTitles_consent')
@@ -3024,22 +3555,31 @@ export default function IntakeWizardQuick() {
 
   const isFirstStep = currentStep === 'injury_type'
   const autoAdvanceSteps = ['injury_type', 'when', 'injury_severity'].includes(currentStep)
-  const showTapHint = autoAdvanceSteps && !isFirstStep && !(currentStep === 'when' && formData.incidentDatePreset === 'custom')
-  const casePostureFit = currentStep === 'case_posture' || currentStep === 'insurance_financial' || currentStep === 'settlement_legal'
+  const isRevisitingAnsweredStep =
+    currentStepIndex >= 0 &&
+    currentStepIndex < furthestReachedStepIndex &&
+    hasSavedAnswerForStep(currentStep)
+  const showTapHint = autoAdvanceSteps && !isRevisitingAnsweredStep && !(currentStep === 'when' && formData.incidentDatePreset === 'custom')
+  const casePostureFit = currentStep === 'case_posture' || currentStep === 'insurance_financial'
   const injuryDetailsFit = currentStep === 'injury_details'
   const reviewFit = currentStep === 'review'
   const showReassurance = currentStep !== 'consent' && !casePostureFit && !injuryDetailsFit && !isFirstStep
   const evidenceFit = currentStep === 'evidence'
+  const savedAnswerHintExcludedSteps: Step[] = ['narrative', 'evidence', 'review', 'consent']
+  const showSavedAnswerHint =
+    isRevisitingAnsweredStep &&
+    !savedAnswerHintExcludedSteps.includes(currentStep) &&
+    hasSavedAnswerForStep(currentStep)
   /** Steps where the white panel should fill leftover viewport height (textarea growth or dense grids). */
   const stretchStepPanel =
     currentStep === 'narrative' ||
-    currentStep === 'medical' ||
+    currentStep === 'medical_treatment' ||
     injuryDetailsFit ||
     casePostureFit ||
     currentStep === 'review' ||
     evidenceFit
   const previewIncidentDate = getIncidentDate()
-  const shouldShowSolPreview = !!(previewIncidentDate || formData.incidentDatePreset) && !casePostureFit
+  const shouldShowSolPreview = !!(previewIncidentDate || formData.incidentDatePreset) && !casePostureFit && currentStep !== 'consent'
   const solPreviewTone = solPreview?.status === 'critical' || solPreview?.status === 'expired'
     ? 'bg-red-50 border-red-200 text-red-800'
     : solPreview?.status === 'warning'
@@ -3052,6 +3592,53 @@ export default function IntakeWizardQuick() {
     : formData.venue.state
       ? solPreviewError || 'We could not confirm the deadline from the current facts.'
       : 'Select the state and county to check your filing deadline early.'
+  const evidenceStatusItems = [
+    { category: 'photos', label: 'Photos', weight: 10 },
+    { category: 'video', label: 'Videos', weight: 0 },
+    { category: 'police_report', label: 'Police Report', weight: 15 },
+    { category: 'bills', label: 'Medical Bills', weight: 15 },
+    { category: 'medical_records', label: 'Medical Records', weight: 20 },
+    { category: 'insurance_letters', label: 'Insurance Letters', weight: 0 },
+    { category: 'wage_verification', label: 'Wage Verification', weight: 0 },
+  ]
+  const evidenceCompletenessScore = Math.min(
+    100,
+    evidenceStatusItems.reduce((score, item) => {
+      const count = pendingEvidenceFiles[item.category]?.length || 0
+      return count > 0 ? score + item.weight : score
+    }, 0),
+  )
+  const evidenceCompletenessDrivers = evidenceStatusItems.filter((item) => item.weight > 0)
+  const hasInjuryProcedureSignal =
+    formData.medicalTreatment.includes('injections') ||
+    formData.medicalTreatment.includes('surgery') ||
+    formData.injuryDetails.procedures.some((item) => item !== 'none') ||
+    !!formData.injuryDetails.surgeryStatus
+  const injuryConfidenceSignals = [
+    formData.injuryDetails.bodyParts.length > 0,
+    formData.injuryDetails.imaging.length > 0 && !formData.injuryDetails.imaging.includes('none'),
+    formData.injuryDetails.diagnoses.length > 0,
+    hasInjuryProcedureSignal,
+    !!formData.casePosture.missedWork && formData.casePosture.missedWork !== 'no',
+    formData.injuryDetails.lifestyleImpact.length > 0,
+    formData.injuryDetails.concussionSymptoms.length > 0 ||
+      formData.injuryDetails.shoulderFindings.length > 0 ||
+      formData.injuryDetails.backFindings.length > 0,
+  ].filter(Boolean).length
+  const injuryConfidencePercent = Math.min(100, Math.max(20, 20 + injuryConfidenceSignals * 10))
+  const liabilitySignalLabel =
+    formData.casePosture.faultBelief === 'other_party' || formData.branch.policeReport || formData.branch.ticketIssued
+      ? 'Strong'
+      : formData.casePosture.faultBelief
+        ? 'Developing'
+        : 'Unknown'
+  const injurySeveritySignalLabel =
+    hasInjuryProcedureSignal || formData.injuryDetails.diagnoses.length > 0
+      ? 'Strong'
+      : formData.injuryDetails.imaging.length > 0 || formData.medicalTreatment.length > 0
+        ? 'Moderate'
+        : 'Early'
+  const documentationSignalLabel = injuryConfidencePercent >= 70 ? 'Strong' : injuryConfidencePercent >= 40 ? 'Moderate' : 'Early'
 
   return (
     <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-7xl flex-col overflow-visible px-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:px-4 md:h-[calc(100dvh-7.5rem)] md:min-h-0 md:overflow-hidden md:px-8 md:py-3 ${isFirstStep ? 'py-1' : 'py-1.5 sm:py-2'}`}>
@@ -3105,6 +3692,12 @@ export default function IntakeWizardQuick() {
         </div>
       )}
 
+      {showSavedAnswerHint && (
+        <div className="mb-1 shrink-0 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs leading-5 text-emerald-900 sm:px-4 sm:py-2 sm:text-sm">
+          <span className="font-semibold">✓ Answer saved.</span> Tap another option to update your answer.
+        </div>
+      )}
+
       {shouldShowSolPreview && (
         <div className={`mb-1 shrink-0 rounded-xl border ${solPreviewTone} ${evidenceFit ? 'px-3 py-1.5' : 'px-3 py-2 sm:px-4'}`}>
           <div className={`flex items-start justify-between ${evidenceFit ? 'gap-2' : 'gap-3'}`}>
@@ -3129,6 +3722,50 @@ export default function IntakeWizardQuick() {
                 {String(solPreview.status).replace(/_/g, ' ')}
               </span>
             )}
+          </div>
+        </div>
+      )}
+
+      {evidenceFit && (
+        <div className="mb-1 shrink-0 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-emerald-950">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold leading-tight sm:text-sm">Case Assessment Completeness: {evidenceCompletenessScore}%</p>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-emerald-700">Documents help accuracy</p>
+          </div>
+          <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-emerald-100">
+            <div className="h-full rounded-full bg-emerald-600 transition-[width] duration-300" style={{ width: `${evidenceCompletenessScore}%` }} />
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {evidenceCompletenessDrivers.map((item) => {
+              const uploaded = (pendingEvidenceFiles[item.category]?.length || 0) > 0
+              return (
+                <span
+                  key={item.category}
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    uploaded ? 'bg-white text-emerald-800 ring-1 ring-emerald-200' : 'bg-emerald-100/70 text-emerald-700'
+                  }`}
+                >
+                  +{item.weight}% {item.label}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {injuryDetailsFit && (
+        <div className="mb-1 shrink-0 rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-brand-950">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold leading-tight sm:text-sm">Current Estimated Case Strength</p>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-brand-700">Confidence {injuryConfidencePercent}%</p>
+          </div>
+          <div className="mt-1.5 grid gap-1 text-[11px] sm:grid-cols-3">
+            <span className="rounded-lg bg-white/80 px-2 py-1 font-medium text-slate-700">Liability Signals: <strong>{liabilitySignalLabel}</strong></span>
+            <span className="rounded-lg bg-white/80 px-2 py-1 font-medium text-slate-700">Injury Severity: <strong>{injurySeveritySignalLabel}</strong></span>
+            <span className="rounded-lg bg-white/80 px-2 py-1 font-medium text-slate-700">Documentation: <strong>{documentationSignalLabel}</strong></span>
+          </div>
+          <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-white">
+            <div className="h-full rounded-full bg-brand-600 transition-[width] duration-300" style={{ width: `${injuryConfidencePercent}%` }} />
           </div>
         </div>
       )}
@@ -3166,7 +3803,7 @@ export default function IntakeWizardQuick() {
             if (currentStepIndex > 0) setCurrentStep(STEPS[currentStepIndex - 1].key)
           }}
           disabled={currentStepIndex === 0}
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300 dark:hover:bg-brand-950/40 dark:hover:text-brand-300 sm:min-h-11 sm:rounded-xl sm:px-5"
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-800 shadow-sm transition-colors hover:border-brand-400 hover:bg-brand-100 hover:text-brand-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-brand-800 dark:bg-brand-950/50 dark:text-brand-200 dark:hover:bg-brand-900/50 dark:hover:text-white sm:min-h-11 sm:rounded-xl sm:px-5"
         >
           <ChevronLeft className="h-4 w-4" aria-hidden /> {t('common.back')}
         </button>
@@ -3177,7 +3814,7 @@ export default function IntakeWizardQuick() {
             disabled={loading}
             className="min-h-10 rounded-lg bg-accent-600 px-5 py-2 text-sm font-semibold text-white shadow-md transition-all hover:bg-accent-700 hover:shadow-lg disabled:opacity-50 sm:min-h-11 sm:rounded-xl sm:px-6"
           >
-            {loading ? t('intake.submitting') : 'Generate my case assessment'}
+            {loading ? t('intake.submitting') : 'View My Case Report'}
           </button>
         ) : showTapHint ? (
           <span className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-4 py-2 text-center text-sm font-medium text-brand-800 shadow-sm dark:border-brand-800/70 dark:bg-brand-950/40 dark:text-brand-200 sm:min-h-11">

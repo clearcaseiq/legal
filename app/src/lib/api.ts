@@ -1062,15 +1062,22 @@ export async function addAttorneyVerifiedVerdict(payload: {
 
 // Get current authenticated attorney's profile
 export async function getMyAttorneyProfile() {
-  const { data: response } = await api.get('/v1/attorney-profile/profile', {
-    headers: {
-      'Cache-Control': 'no-store'
-    },
-    params: {
-      t: Date.now()
+  try {
+    const { data: response } = await api.get('/v1/attorney-profile/profile', {
+      headers: {
+        'Cache-Control': 'no-store'
+      },
+      params: {
+        t: Date.now()
+      }
+    })
+    return response
+  } catch (error: any) {
+    if (error?.response?.status === 404) {
+      return null
     }
-  })
-  return response
+    throw error
+  }
 }
 
 // Get attorney dashboard data

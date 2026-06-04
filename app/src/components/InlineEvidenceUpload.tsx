@@ -95,6 +95,7 @@ interface InlineEvidenceUploadProps {
   subcategory?: string
   description?: string
   title?: string
+  initialFiles?: EvidenceFile[]
   countOverride?: number
   compact?: boolean
   onFilesUploaded?: (files: EvidenceFile[]) => void
@@ -108,7 +109,11 @@ interface InlineEvidenceUploadProps {
   hideHeader?: boolean
   /** Smaller dashed zone + buttons for dense grids (quick intake evidence). */
   tightChrome?: boolean
+  /** Hide the camera capture button when the parent screen only wants upload actions. */
+  hideCameraButton?: boolean
 }
+
+const EMPTY_INITIAL_FILES: EvidenceFile[] = []
 
 export default function InlineEvidenceUpload({
   assessmentId,
@@ -116,6 +121,7 @@ export default function InlineEvidenceUpload({
   subcategory,
   description,
   title,
+  initialFiles = EMPTY_INITIAL_FILES,
   countOverride,
   compact = false,
   onFilesUploaded,
@@ -124,8 +130,9 @@ export default function InlineEvidenceUpload({
   alwaysShowUpload = false,
   hideHeader = false,
   tightChrome = false,
+  hideCameraButton = false,
 }: InlineEvidenceUploadProps) {
-  const [files, setFiles] = useState<EvidenceFile[]>([])
+  const [files, setFiles] = useState<EvidenceFile[]>(() => initialFiles)
   const [loading, setLoading] = useState(false)
   const [dragActive, setDragActive] = useState(false)
   const [showUpload, setShowUpload] = useState(false)
@@ -148,6 +155,12 @@ export default function InlineEvidenceUpload({
   useEffect(() => {
     if (files.length === 0) setShowTightManage(false)
   }, [files.length])
+
+  useEffect(() => {
+    if (!assessmentId) {
+      setFiles(initialFiles)
+    }
+  }, [assessmentId, initialFiles])
 
   // Load existing files - simplified to prevent infinite loops
   const loadFiles = useCallback(async () => {
@@ -588,31 +601,35 @@ export default function InlineEvidenceUpload({
         )}
 
         {showUploadArea && (
-          <div className={`rounded-lg border-2 border-dashed border-gray-300 ${tight ? 'p-2' : 'p-4'}`}>
-            <div className={`flex flex-wrap items-center justify-center ${tight ? 'gap-1.5' : 'gap-3'}`}>
+          <div className={hideCameraButton && tight ? 'py-0.5' : `rounded-lg border-2 border-dashed border-gray-300 ${tight ? 'p-2' : 'p-4'}`}>
+            <div className={`flex flex-wrap items-center justify-center ${tight ? 'gap-1.5' : 'gap-3'} ${hideCameraButton ? 'w-full' : ''}`}>
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={loading}
-                className={`flex items-center rounded-lg bg-brand-600 font-medium text-white hover:bg-brand-700 disabled:opacity-50 ${
-                  tight ? 'min-h-8 px-2.5 py-1 text-[11px]' : 'px-4 py-2 text-sm'
+                className={`flex items-center justify-center rounded-lg bg-brand-600 font-medium text-white hover:bg-brand-700 disabled:opacity-50 ${
+                  tight ? 'min-h-8 px-3 py-1 text-[11px]' : 'px-4 py-2 text-sm'
+                } ${
+                  hideCameraButton ? 'w-full' : ''
                 }`}
               >
                 <Upload className={`mr-1 shrink-0 ${tight ? 'h-3 w-3' : 'mr-2 h-4 w-4'}`} />
                 {uploadButtonLabel || 'Upload Files'}
               </button>
 
-              <button
-                type="button"
-                onClick={() => cameraInputRef.current?.click()}
-                disabled={loading}
-                className={`flex items-center rounded-lg bg-green-600 font-medium text-white hover:bg-green-700 disabled:opacity-50 ${
-                  tight ? 'min-h-8 px-2.5 py-1 text-[11px]' : 'px-4 py-2 text-sm'
-                }`}
-              >
-                <Camera className={`mr-1 shrink-0 ${tight ? 'h-3 w-3' : 'mr-2 h-4 w-4'}`} />
-                {tight ? 'Photo' : 'Take Photo'}
-              </button>
+              {!hideCameraButton && (
+                <button
+                  type="button"
+                  onClick={() => cameraInputRef.current?.click()}
+                  disabled={loading}
+                  className={`flex items-center rounded-lg bg-green-600 font-medium text-white hover:bg-green-700 disabled:opacity-50 ${
+                    tight ? 'min-h-8 px-2.5 py-1 text-[11px]' : 'px-4 py-2 text-sm'
+                  }`}
+                >
+                  <Camera className={`mr-1 shrink-0 ${tight ? 'h-3 w-3' : 'mr-2 h-4 w-4'}`} />
+                  {tight ? 'Photo' : 'Take Photo'}
+                </button>
+              )}
             </div>
 
             <input
@@ -624,15 +641,17 @@ export default function InlineEvidenceUpload({
               className="hidden"
             />
 
-            <input
-              ref={cameraInputRef}
-              type="file"
-              multiple
-              accept="image/*"
-              capture="environment"
-              onChange={handleCameraCapture}
-              className="hidden"
-            />
+            {!hideCameraButton && (
+              <input
+                ref={cameraInputRef}
+                type="file"
+                multiple
+                accept="image/*"
+                capture="environment"
+                onChange={handleCameraCapture}
+                className="hidden"
+              />
+            )}
           </div>
         )}
 
@@ -652,8 +671,8 @@ export default function InlineEvidenceUpload({
             </div>
 
             {files.length > 0 && !assessmentId && (
-              <p className="rounded bg-yellow-50 p-1 text-center text-[10px] leading-snug text-yellow-700">
-                Files will upload when you finish this intake.
+              <p className="rounded border border-emerald-100 bg-emerald-50 p-1 text-center text-[10px] font-medium leading-snug text-emerald-700">
+                ✓ Documents saved securely · Uploaded automatically when you submit
               </p>
             )}
 
@@ -788,8 +807,8 @@ export default function InlineEvidenceUpload({
             ))}
 
             {files.length > 0 && !assessmentId && (
-              <p className="rounded bg-yellow-50 p-2 text-center text-xs text-yellow-600">
-                Files will be uploaded when you complete the assessment
+              <p className="rounded border border-emerald-100 bg-emerald-50 p-2 text-center text-xs font-medium text-emerald-700">
+                ✓ Documents saved securely · Uploaded automatically when you submit
               </p>
             )}
           </div>

@@ -125,6 +125,7 @@ model Assessment {
   predictions   Prediction[]
   files         File[]
   introductions Introduction[]
+  attorneyCaseReviews AttorneyCaseReview[]
   demandLetters DemandLetter[]
   appointments  Appointment[]
   chatRooms     ChatRoom[]
@@ -583,6 +584,7 @@ model Attorney {
   updatedAt         DateTime @updatedAt
 
   introductions               Introduction[]
+  attorneyCaseReviews         AttorneyCaseReview[]
   favoriteAttorneys           FavoriteAttorney[]
   appointments                Appointment[]
   reviews                     AttorneyReview[]
@@ -1254,6 +1256,28 @@ model AttorneyReview {
 
   @@unique([attorneyId, userId])
   @@map("attorney_reviews")
+}
+
+model AttorneyCaseReview {
+  id                 String     @id @default(cuid())
+  attorneyId         String
+  attorney           Attorney   @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  caseId             String
+  case               Assessment @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  acceptCase         Boolean
+  settlementLow      Float?
+  settlementExpected Float?
+  settlementHigh     Float?
+  trialLow           Float?
+  trialHigh          Float?
+  confidence         Float?
+  notes              String?    @db.Text
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@index([attorneyId])
+  @@index([caseId])
+  @@map("attorney_case_reviews")
 }
 
 model AttorneyAvailability {
