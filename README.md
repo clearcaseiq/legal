@@ -4,6 +4,8 @@ A production-ready legal case assessment platform that uses AI to predict case v
 
 ## 🚀 Quick Start
 
+**Windows:** See [docs/WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md) for step-by-step local setup on a new machine.
+
 ### Automated Setup
 ```bash
 # Make scripts executable
