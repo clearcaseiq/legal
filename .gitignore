@@ -169,3 +169,9 @@ data/ml-labels/
 # OS/editor
 .DS_Store
 Thumbs.db
+
+# Local-only scratch/debug artifacts (screenshots, throwaway scripts, schema reports)
+tmp-*
+app/tmp-*
+api/_schema-diff-report.json
+COMMIT_MSG.txt
