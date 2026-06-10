@@ -1,5 +1,7 @@
 FROM node:20-alpine AS base
-RUN apk add --no-cache libc6-compat
+# openssl is required for Prisma to detect the OpenSSL version and load the
+# correct query engine (linux-musl-openssl-3.0.x) on Alpine.
+RUN apk add --no-cache libc6-compat openssl
 WORKDIR /repo
 RUN corepack enable
 
