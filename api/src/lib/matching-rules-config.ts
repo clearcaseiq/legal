@@ -94,6 +94,23 @@ export interface MatchingRulesConfig {
   capacity_score: number
   plaintiff_fit: number
   strategic_priority: number
+
+  // Attorney quality gate (routing rules applied after hard eligibility)
+  qualityGateMaxResponseHours: number
+  qualityGateHotCaseMaxResponseHours: number
+  qualityGateHotCaseViabilityThreshold: number
+  qualityGateMinContactRate: number
+  qualityGateMaxComplaintRate: number
+  qualityGateMaxCherryPickingScore: number
+}
+
+export interface QualityGateOptions {
+  maxResponseTimeHours: number
+  hotCaseMaxResponseHours: number
+  hotCaseViabilityThreshold: number
+  minContactRate: number
+  maxComplaintRate: number
+  maxCherryPickingScore: number
 }
 
 export type MatchingRulesWeights = Pick<
@@ -217,6 +234,12 @@ export const DEFAULT_MATCHING_RULES: MatchingRulesConfig = {
   capacity_score: 0.1,
   plaintiff_fit: 0.05,
   strategic_priority: 0.05,
+  qualityGateMaxResponseHours: 48,
+  qualityGateHotCaseMaxResponseHours: 24,
+  qualityGateHotCaseViabilityThreshold: 0.75,
+  qualityGateMinContactRate: 0.7,
+  qualityGateMaxComplaintRate: 0.05,
+  qualityGateMaxCherryPickingScore: 0.3,
 }
 
 export async function isRoutingEnabled(): Promise<boolean> {
@@ -355,6 +378,27 @@ export function formatAttorneyResponseDeadline(minutes: number): string {
     remainingMinutes > 0 ? `${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}` : '',
   ].filter(Boolean)
   return parts.join(' ')
+}
+
+export function getQualityGateOptions(config: MatchingRulesConfig): QualityGateOptions {
+  const clampRate = (value: number, fallback: number) => {
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric)) return fallback
+    return Math.max(0, Math.min(1, numeric))
+  }
+  const clampHours = (value: number, fallback: number) => {
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric) || numeric <= 0) return fallback
+    return numeric
+  }
+  return {
+    maxResponseTimeHours: clampHours(config.qualityGateMaxResponseHours, DEFAULT_MATCHING_RULES.qualityGateMaxResponseHours),
+    hotCaseMaxResponseHours: clampHours(config.qualityGateHotCaseMaxResponseHours, DEFAULT_MATCHING_RULES.qualityGateHotCaseMaxResponseHours),
+    hotCaseViabilityThreshold: clampRate(config.qualityGateHotCaseViabilityThreshold, DEFAULT_MATCHING_RULES.qualityGateHotCaseViabilityThreshold),
+    minContactRate: clampRate(config.qualityGateMinContactRate, DEFAULT_MATCHING_RULES.qualityGateMinContactRate),
+    maxComplaintRate: clampRate(config.qualityGateMaxComplaintRate, DEFAULT_MATCHING_RULES.qualityGateMaxComplaintRate),
+    maxCherryPickingScore: clampRate(config.qualityGateMaxCherryPickingScore, DEFAULT_MATCHING_RULES.qualityGateMaxCherryPickingScore),
+  }
 }
 
 export function getPreRoutingGateOptions(config: MatchingRulesConfig) {

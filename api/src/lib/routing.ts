@@ -314,7 +314,9 @@ export async function checkQualityGate(
   attorney: AttorneyForRouting,
   caseData: CaseForRouting,
   options?: {
-    maxResponseTimeHours?: number // For hot cases, default 24h
+    maxResponseTimeHours?: number // For regular cases, default 48h
+    hotCaseMaxResponseHours?: number // For hot cases, default 24h
+    hotCaseViabilityThreshold?: number // Viability that makes a case "hot", default 0.75
     minContactRate?: number // Minimum contact rate, default 70%
     maxComplaintRate?: number // Maximum complaint rate, default 5%
     maxCherryPickingScore?: number // Maximum cherry-picking score, default 0.3
@@ -322,15 +324,17 @@ export async function checkQualityGate(
 ): Promise<QualityGateResult> {
   const {
     maxResponseTimeHours = 48, // Default: 48 hours for regular cases
+    hotCaseMaxResponseHours = 24, // 24 hours for hot cases
+    hotCaseViabilityThreshold = 0.75, // High-viability cases are "hot"
     minContactRate = 0.70, // 70% minimum contact rate
     maxComplaintRate = 0.05, // 5% maximum complaint rate
     maxCherryPickingScore = 0.3 // 30% cherry-picking threshold
   } = options || {}
 
   // Determine if this is a "hot" case (Tier 3 or 4, or high viability)
-  const isHotCase = caseData.prediction?.viability?.overall && 
-                    caseData.prediction.viability.overall >= 0.75
-  const hotCaseMaxResponseTime = 24 // 24 hours for hot cases
+  const isHotCase = caseData.prediction?.viability?.overall &&
+                    caseData.prediction.viability.overall >= hotCaseViabilityThreshold
+  const hotCaseMaxResponseTime = hotCaseMaxResponseHours
 
   const metrics: QualityGateResult['metrics'] = {}
 

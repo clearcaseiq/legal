@@ -1,11 +1,20 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import * as SecureStore from 'expo-secure-store'
 import { AppState, type AppStateStatus } from 'react-native'
+import type { AttorneyDashboardResponse } from '../../../../shared/api-contracts'
 import { getAttorneyDashboard, getApiErrorMessage } from '../lib/api'
+import { flushQueue } from '../lib/offlineQueue'
 import { useAuth } from './AuthContext'
 
 const CACHE_MS = 20_000
 const STORE_PREFIX = 'attorney_dashboard_cache:'
+
+/**
+ * Known dashboard fields are typed via the shared contract; the intersection with
+ * Record<string, any> keeps the many screen-specific fields accessible without a
+ * cascade of `unknown` errors (the contract intentionally uses a loose index sig).
+ */
+export type DashboardData = AttorneyDashboardResponse & Record<string, any>
 
 type RefreshOptions = {
   force?: boolean
@@ -13,12 +22,12 @@ type RefreshOptions = {
 }
 
 type AttorneyDashboardContextValue = {
-  data: any | null
+  data: DashboardData | null
   loading: boolean
   error: string | null
   lastLoadedAt: number | null
   isOfflineSnapshot: boolean
-  refresh: (options?: RefreshOptions) => Promise<any | null>
+  refresh: (options?: RefreshOptions) => Promise<DashboardData | null>
 }
 
 const AttorneyDashboardContext = createContext<AttorneyDashboardContextValue | null>(null)
@@ -26,14 +35,14 @@ const AttorneyDashboardContext = createContext<AttorneyDashboardContextValue | n
 export function AttorneyDashboardProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
   const isAttorney = user?.role !== 'plaintiff'
-  const [data, setData] = useState<any | null>(null)
+  const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null)
   const [isOfflineSnapshot, setIsOfflineSnapshot] = useState(false)
-  const dataRef = useRef<any | null>(null)
+  const dataRef = useRef<DashboardData | null>(null)
   const lastLoadedAtRef = useRef<number | null>(null)
-  const inFlightRef = useRef<Promise<any | null> | null>(null)
+  const inFlightRef = useRef<Promise<DashboardData | null> | null>(null)
   const appStateRef = useRef<AppStateStatus>(AppState.currentState)
   const cacheKey = user?.id ? `${STORE_PREFIX}${user.id}` : `${STORE_PREFIX}default`
 
@@ -41,7 +50,7 @@ export function AttorneyDashboardProvider({ children }: { children: React.ReactN
     try {
       const raw = await SecureStore.getItemAsync(cacheKey)
       if (!raw) return null
-      const parsed = JSON.parse(raw) as { data?: any; savedAt?: number }
+      const parsed = JSON.parse(raw) as { data?: DashboardData; savedAt?: number }
       if (!parsed?.data) return null
       return parsed
     } catch {
@@ -49,7 +58,7 @@ export function AttorneyDashboardProvider({ children }: { children: React.ReactN
     }
   }, [cacheKey])
 
-  const writeStoredSnapshot = useCallback(async (next: any) => {
+  const writeStoredSnapshot = useCallback(async (next: DashboardData) => {
     try {
       await SecureStore.setItemAsync(cacheKey, JSON.stringify({ data: next, savedAt: Date.now() }))
     } catch {
@@ -98,6 +107,8 @@ export function AttorneyDashboardProvider({ children }: { children: React.ReactN
         setLastLoadedAt(Date.now())
         setIsOfflineSnapshot(false)
         void writeStoredSnapshot(next)
+        // Connectivity is confirmed working — drain any queued offline actions.
+        void flushQueue()
         return next
       })
       .catch(async (err: unknown) => {
@@ -142,6 +153,7 @@ export function AttorneyDashboardProvider({ children }: { children: React.ReactN
       const previousState = appStateRef.current
       appStateRef.current = nextState
       if ((previousState === 'inactive' || previousState === 'background') && nextState === 'active') {
+        void flushQueue()
         void refresh({ force: true, silent: true })
       }
     })

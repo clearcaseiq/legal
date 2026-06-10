@@ -776,16 +776,26 @@ router.get('/:fileId', authMiddleware, async (req: any, res) => {
 })
 
 // Process evidence file (OCR, NLP)
-router.post('/:fileId/process', authMiddleware, async (req: any, res) => {
+router.post('/:fileId/process', optionalAuthMiddleware, async (req: any, res) => {
   try {
     const { fileId } = req.params
-    const userId = req.user.id
+    const authedUserId = req.user?.id || null
 
-    const evidenceFile = await prisma.evidenceFile.findFirst({
-      where: { id: fileId, userId }
+    const evidenceFile = await prisma.evidenceFile.findUnique({
+      where: { id: fileId },
+      select: { id: true, userId: true, user: { select: { email: true } } }
     })
 
     if (!evidenceFile) {
+      return res.status(404).json({ error: 'Evidence file not found' })
+    }
+
+    // Access control: authenticated users may only process their own files.
+    // Guests (no token) finishing the intake flow may process files owned by a
+    // guest-case user — matching the upload endpoint, which is also guest-open.
+    const isOwner = !!authedUserId && evidenceFile.userId === authedUserId
+    const isGuestOwnedFile = !authedUserId && isGuestCaseUserEmail(evidenceFile.user?.email || '')
+    if (!isOwner && !isGuestOwnedFile) {
       return res.status(404).json({ error: 'Evidence file not found' })
     }
 

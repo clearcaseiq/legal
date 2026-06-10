@@ -16,6 +16,30 @@ Notifications.setNotificationHandler({
   }),
 })
 
+/** Interactive notification categories (action buttons). Identifiers are matched in PushNavigationHandler. */
+export const NEW_LEAD_CATEGORY = 'NEW_LEAD'
+export const ACCEPT_LEAD_ACTION = 'ACCEPT_LEAD'
+export const DECLINE_LEAD_ACTION = 'DECLINE_LEAD'
+
+async function registerNotificationCategories(): Promise<void> {
+  try {
+    await Notifications.setNotificationCategoryAsync(NEW_LEAD_CATEGORY, [
+      {
+        identifier: ACCEPT_LEAD_ACTION,
+        buttonTitle: 'Accept',
+        options: { opensAppToForeground: true },
+      },
+      {
+        identifier: DECLINE_LEAD_ACTION,
+        buttonTitle: 'Decline',
+        options: { opensAppToForeground: true, isDestructive: true },
+      },
+    ])
+  } catch {
+    // Categories are best-effort; the notification still works without action buttons.
+  }
+}
+
 type NotificationContextType = {
   expoPushToken: string | null
   permissionStatus: Notifications.PermissionStatus | 'unavailable'
@@ -64,6 +88,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           importance: Notifications.AndroidImportance.HIGH,
         })
       }
+
+      await registerNotificationCategories()
 
       const { status: existing } = await Notifications.getPermissionsAsync()
       let finalStatus = existing

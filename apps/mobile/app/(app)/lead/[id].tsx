@@ -18,8 +18,8 @@ import { useFocusEffect, useLocalSearchParams, router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import {
   getLeadDetails,
-  decideLead,
   getApiErrorMessage,
+  getResponseSlaHours,
   getLeadEvidenceFiles,
   getLeadQuality,
   getOrCreateAttorneyChatRoom,
@@ -39,8 +39,12 @@ import {
 } from '../../../src/lib/api'
 import { InlineErrorBanner } from '../../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../../src/components/ScreenState'
+import { SlaCountdown } from '../../../src/components/SlaCountdown'
 import { useAttorneyDashboardData } from '../../../src/contexts/AttorneyDashboardContext'
 import { navigateAttorneyQueueItem, type QueueActionType } from '../../../src/lib/attorneyQueueNav'
+import { runOrQueue } from '../../../src/lib/offlineQueue'
+import { DEFAULT_INTRO_TEMPLATE } from '../../../src/lib/quickReplies'
+import { addEventToCalendar } from '../../../src/lib/addToCalendar'
 import { DECLINE_REASONS, type DeclineReasonCode } from '../../../src/constants/declineReasons'
 import { colors, radii, space, shadows } from '../../../src/theme/tokens'
 import { formatClaimType, formatLifecycleState, formatStatus, parseFacts } from '../../../src/lib/formatLead'
@@ -67,7 +71,7 @@ const NEGOTIATION_TYPES = [
 
 export default function LeadDetailScreen() {
   const insets = useSafeAreaInsets()
-  const { id } = useLocalSearchParams<{ id: string }>()
+  const { id, action } = useLocalSearchParams<{ id: string; action?: string }>()
   const { data: dashboardData, refresh: refreshDashboard } = useAttorneyDashboardData()
   const hasFocusedOnceRef = useRef(false)
   const [lead, setLead] = useState<any>(null)
@@ -86,6 +90,7 @@ export default function LeadDetailScreen() {
   const [decisionNotice, setDecisionNotice] = useState<{
     tone: 'success' | 'error'
     text: string
+    canMessage?: boolean
   } | null>(null)
   const [commandCenter, setCommandCenter] = useState<any>(null)
   const [negotiations, setNegotiations] = useState<NegotiationEvent[]>([])
@@ -138,6 +143,20 @@ export default function LeadDetailScreen() {
     if (id) void loadLead()
   }, [id, loadLead])
 
+  const [slaHours, setSlaHours] = useState<number | null>(null)
+  useEffect(() => {
+    void getResponseSlaHours().then(setSlaHours)
+  }, [])
+
+  // Deep-linked from a "Decline" push action button: open the reason picker once.
+  const declineDeepLinkHandledRef = useRef(false)
+  useEffect(() => {
+    if (action === 'decline' && lead && !declineDeepLinkHandledRef.current) {
+      declineDeepLinkHandledRef.current = true
+      setDeclineOpen(true)
+    }
+  }, [action, lead])
+
   useFocusEffect(
     useCallback(() => {
       if (!id) return
@@ -188,6 +207,12 @@ export default function LeadDetailScreen() {
   const latestConflict = leadQuality?.conflicts?.find((item) => !item?.isResolved) || leadQuality?.conflicts?.[0]
   const solDays = Number(leadQuality?.sol?.daysUntilExpiration ?? leadQuality?.sol?.daysRemaining ?? NaN)
   const isSolUrgent = Boolean(leadQuality?.sol?.isUrgent) || (Number.isFinite(solDays) && solDays <= 90)
+  const solDeadlineRaw = leadQuality?.sol?.deadline || leadQuality?.sol?.expiresAt || null
+  const solDeadlineDate = useMemo(() => {
+    if (!solDeadlineRaw) return null
+    const d = new Date(solDeadlineRaw)
+    return Number.isFinite(d.getTime()) ? d : null
+  }, [solDeadlineRaw])
   const negotiationSummary = commandCenter?.negotiationSummary || {}
   const latestNegotiation = negotiations[0]
   const prediction = assessment.latestPrediction || {}
@@ -289,7 +314,7 @@ export default function LeadDetailScreen() {
     }).catch(() => {})
   }
 
-  async function openInAppChat() {
+  async function openInAppChat(options?: { prefill?: string }) {
     const userId = assessment.userId || assessment.user?.id
     if (!userId) {
       setDecisionError('This case does not have a linked plaintiff account for in-app messaging yet.')
@@ -301,7 +326,8 @@ export default function LeadDetailScreen() {
         assessmentId: assessment.id || lead?.assessmentId,
       })
       if (room.chatRoomId) {
-        router.push(`/(app)/chat/${room.chatRoomId}`)
+        const query = options?.prefill ? `?draft=${encodeURIComponent(options.prefill)}` : ''
+        router.push(`/(app)/chat/${room.chatRoomId}${query}`)
       }
     } catch (err: unknown) {
       setDecisionError(getApiErrorMessage(err))
@@ -407,6 +433,18 @@ export default function LeadDetailScreen() {
     }
   }
 
+  async function handleAddSolToCalendar() {
+    if (!solDeadlineDate) return
+    const label = plaintiff || formatClaimType(assessment.claimType) || 'case'
+    const ok = await addEventToCalendar({
+      title: `SOL deadline — ${label}`,
+      start: solDeadlineDate,
+      allDay: true,
+      details: `Statute of limitations deadline for ${label}. File before this date. (ClearCaseIQ)`,
+    })
+    if (!ok) setDecisionError('Could not open the calendar. Please try again.')
+  }
+
   async function handleReviewEvidence(file: LeadEvidenceFile, status: 'reviewed' | 'needs_follow_up') {
     if (!id) return
     setActionBusy(`review:${file.id}`)
@@ -431,8 +469,8 @@ export default function LeadDetailScreen() {
     setDecisionError(null)
     setDecisionNotice(null)
     try {
-      await decideLead(id, 'accept')
-      await refreshDashboard({ force: true, silent: true })
+      const { queued } = await runOrQueue({ type: 'lead_decision', payload: { leadId: id, decision: 'accept' } })
+      if (!queued) await refreshDashboard({ force: true, silent: true })
       setLead((current: any) => (current ? { ...current, status: 'ACCEPTED', lifecycleState: 'attorney_matched' } : current))
       setAcceptOpen(false)
       try {
@@ -440,7 +478,10 @@ export default function LeadDetailScreen() {
       } catch { /* no-op */ }
       setDecisionNotice({
         tone: 'success',
-        text: 'Case accepted. The plaintiff will be notified and this case will move into your active pipeline.',
+        canMessage: !queued,
+        text: queued
+          ? 'You are offline. This acceptance is saved and will sync automatically when you reconnect.'
+          : 'Case accepted. Send a quick intro to start strong, or the plaintiff will be notified shortly.',
       })
     } catch (err: unknown) {
       setDecisionError(getApiErrorMessage(err))
@@ -460,8 +501,11 @@ export default function LeadDetailScreen() {
     setDecisionNotice(null)
     setDeclineValidation(null)
     try {
-      await decideLead(id, 'reject', declineOther || undefined, declineReason)
-      await refreshDashboard({ force: true, silent: true })
+      const { queued } = await runOrQueue({
+        type: 'lead_decision',
+        payload: { leadId: id, decision: 'reject', notes: declineOther || undefined, declineReason },
+      })
+      if (!queued) await refreshDashboard({ force: true, silent: true })
       setLead((current: any) => (current ? { ...current, status: 'DECLINED', lifecycleState: 'routing_active' } : current))
       try {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
@@ -471,7 +515,9 @@ export default function LeadDetailScreen() {
       setDeclineOther('')
       setDecisionNotice({
         tone: 'success',
-        text: 'Case declined. Thanks for leaving feedback to improve future routing.',
+        text: queued
+          ? 'You are offline. This decline is saved and will sync automatically when you reconnect.'
+          : 'Case declined. Thanks for leaving feedback to improve future routing.',
       })
     } catch (err: unknown) {
       setDecisionError(getApiErrorMessage(err))
@@ -614,7 +660,14 @@ export default function LeadDetailScreen() {
               <TouchableOpacity onPress={() => setDecisionNotice(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <Text style={styles.noticeAction}>Dismiss</Text>
               </TouchableOpacity>
-              {decisionNotice.tone === 'success' ? (
+              {decisionNotice.canMessage ? (
+                <TouchableOpacity
+                  onPress={() => { setDecisionNotice(null); void openInAppChat({ prefill: DEFAULT_INTRO_TEMPLATE }) }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Text style={[styles.noticeAction, styles.noticeActionStrong]}>Message plaintiff</Text>
+                </TouchableOpacity>
+              ) : decisionNotice.tone === 'success' ? (
                 <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                   <Text style={styles.noticeAction}>Back</Text>
                 </TouchableOpacity>
@@ -623,6 +676,12 @@ export default function LeadDetailScreen() {
           </View>
         ) : null}
         {decisionError ? <InlineErrorBanner message={decisionError} onAction={() => setDecisionError(null)} actionLabel="Dismiss" /> : null}
+
+        {canDecide && slaHours ? (
+          <View style={styles.slaWrap}>
+            <SlaCountdown receivedAt={lead?.createdAt || lead?.receivedAt || assessment?.createdAt} slaHours={slaHours} />
+          </View>
+        ) : null}
 
         <View style={styles.card}>
           <Row icon="location-outline" label="Venue" value={[assessment.venueCounty, assessment.venueState].filter(Boolean).join(', ') || '—'} />
@@ -804,9 +863,17 @@ export default function LeadDetailScreen() {
               ? 'SOL timing needs immediate task tracking.'
               : 'Create a deadline task so the SOL stays visible in the attorney workflow.'}
           </Text>
-          <TouchableOpacity style={styles.inlineAction} onPress={handleSolTask} disabled={actionBusy === 'sol'} activeOpacity={0.85}>
-            {actionBusy === 'sol' ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.inlineActionText}>Create SOL task</Text>}
-          </TouchableOpacity>
+          <View style={styles.inlineActionRow}>
+            <TouchableOpacity style={styles.inlineAction} onPress={handleSolTask} disabled={actionBusy === 'sol'} activeOpacity={0.85}>
+              {actionBusy === 'sol' ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.inlineActionText}>Create SOL task</Text>}
+            </TouchableOpacity>
+            {solDeadlineDate ? (
+              <TouchableOpacity style={styles.inlineActionGhost} onPress={() => { void handleAddSolToCalendar() }} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel="Add the statute of limitations deadline to your calendar">
+                <Ionicons name="calendar-outline" size={15} color={colors.primary} />
+                <Text style={styles.inlineActionText}>Add to calendar</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
 
         <View style={styles.card}>
@@ -1320,6 +1387,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   inlineActionText: { fontSize: 14, fontWeight: '800', color: colors.primaryDark },
+  inlineActionRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm },
+  inlineActionGhost: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    alignSelf: 'flex-start',
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    minHeight: 38,
+    justifyContent: 'center',
+  },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginBottom: space.md },
   statusChip: {
     borderRadius: 999,
@@ -1433,6 +1514,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.primary,
   },
+  noticeActionStrong: {
+    fontWeight: '800',
+    color: colors.primaryDark,
+  },
+  slaWrap: { marginBottom: space.md },
   footerActions: {
     position: 'absolute',
     left: 0,

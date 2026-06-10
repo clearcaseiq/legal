@@ -1,8 +1,9 @@
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { Routes, Route, Navigate, Link, useLocation, useParams } from 'react-router-dom'
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import { GuestRoute, ProtectedRoute } from './components/AuthRoute'
+import { useLanguage } from './contexts/LanguageContext'
 
 const Home = lazy(() => import('./pages/Home'))
 const Login = lazy(() => import('./pages/Login'))
@@ -63,6 +64,7 @@ const AdminRoutingQueue = lazy(() => import('./pages/admin/AdminRoutingQueue'))
 const AdminAttorneys = lazy(() => import('./pages/admin/AdminAttorneys'))
 const AdminAttorneyDetail = lazy(() => import('./pages/admin/AdminAttorneyDetail'))
 const AdminMatchingRules = lazy(() => import('./pages/admin/AdminMatchingRules'))
+const AdminHeuristics = lazy(() => import('./pages/admin/AdminHeuristics'))
 const AdminManualReview = lazy(() => import('./pages/admin/AdminManualReview'))
 const AdminRoutingFeedback = lazy(() => import('./pages/admin/AdminRoutingFeedback'))
 const AdminCommunications = lazy(() => import('./pages/admin/AdminCommunications'))
@@ -147,6 +149,32 @@ function ResultsRouteBoundary() {
   )
 }
 
+const ATTORNEY_ROUTE_PREFIXES = [
+  '/attorney-dashboard',
+  '/attorney-profile',
+  '/attorney-preferences',
+  '/attorney-billing',
+  '/firm-dashboard',
+  '/lead-quality',
+  '/medical-providers',
+]
+
+// The attorney-facing product is English-only; switch back to English if the
+// shared language picker was left on Spanish/Chinese from the plaintiff flow.
+function AttorneyEnglishEnforcer() {
+  const location = useLocation()
+  const { language, setLanguage } = useLanguage()
+
+  useEffect(() => {
+    const isAttorneyRoute = ATTORNEY_ROUTE_PREFIXES.some((prefix) => location.pathname.startsWith(prefix))
+    if (isAttorneyRoute && language !== 'en') {
+      setLanguage('en')
+    }
+  }, [location.pathname, language, setLanguage])
+
+  return null
+}
+
 function App() {
   const allowLocalDevRoutes =
     typeof window !== 'undefined' &&
@@ -154,6 +182,7 @@ function App() {
 
   return (
     <ErrorBoundary>
+      <AttorneyEnglishEnforcer />
       <Layout>
         <Suspense fallback={<RouteFallback />}>
           <Routes>
@@ -197,6 +226,7 @@ function App() {
                 <Route path="attorneys" element={<AdminAttorneys />} />
                 <Route path="attorneys/:id" element={<AdminAttorneyDetail />} />
                 <Route path="matching-rules" element={<AdminMatchingRules />} />
+                <Route path="heuristics" element={<AdminHeuristics />} />
                 <Route path="manual-review" element={<AdminManualReview />} />
                 <Route path="routing-feedback" element={<AdminRoutingFeedback />} />
                 <Route path="communications" element={<AdminCommunications />} />

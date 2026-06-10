@@ -169,8 +169,28 @@ export async function attemptDelivery(notificationId: string): Promise<boolean> 
     }
 
     if (!delivered) {
-      // Preserve existing behavior in local/dev if real providers are not configured.
-      delivered = true
+      // Provider not configured or refused the message — record the truth instead
+      // of marking the event as sent (attorneys were "notified" without any email going out).
+      const reason = event.channel === 'email'
+        ? 'Email provider not configured or send failed (check RESEND_API_KEY / RESEND_FROM_EMAIL)'
+        : event.channel === 'sms'
+          ? 'SMS provider not configured or send failed'
+          : 'Delivery failed'
+      await prisma.platformNotificationAttempt.update({
+        where: { id: attempt.id },
+        data: { status: 'failed', errorMessage: reason },
+      })
+      await prisma.platformNotificationEvent.update({
+        where: { id: notificationId },
+        data: {
+          status: 'failed',
+          failedAt: new Date(),
+          failureReason: reason,
+          retryCount: { increment: 1 },
+        },
+      })
+      logger.warn('Notification not delivered', { eventId: notificationId, channel: event.channel, reason })
+      return false
     }
 
     await prisma.platformNotificationAttempt.update({

@@ -3,15 +3,34 @@ import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
+import { getHeuristics } from '../lib/heuristics-config'
 
 const router = Router()
+
+/**
+ * Leads are assigned to Attorney records, but req.user is a User record.
+ * The two share an email, not an id — resolving by email here keeps access
+ * checks correct (previously this compared a User id to assignedAttorneyId).
+ */
+async function resolveAttorneyId(req: any): Promise<string | null> {
+  const email = String(req.user?.email || '').trim()
+  if (!email) return null
+  const attorney = await prisma.attorney.findFirst({
+    where: { email: { equals: email, mode: 'insensitive' } },
+    select: { id: true },
+  })
+  return attorney?.id ?? null
+}
 
 // Quality Report endpoints
 
 // Report lead quality issue
 router.post('/report', authMiddleware, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveAttorneyId(req)
+    if (!attorneyId) {
+      return res.status(403).json({ error: 'No attorney record found for this account' })
+    }
     const { leadId, overallQuality, qualityScore, issues, isSpam, isDuplicate, reportReason } = req.body
 
     // Validate lead exists and attorney has access
@@ -69,7 +88,10 @@ router.post('/report', authMiddleware, async (req: any, res) => {
 // Get quality reports for attorney
 router.get('/reports', authMiddleware, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveAttorneyId(req)
+    if (!attorneyId) {
+      return res.status(403).json({ error: 'No attorney record found for this account' })
+    }
     const { status, page = 1, limit = 20 } = req.query
 
     const whereClause: any = {
@@ -113,7 +135,10 @@ router.get('/reports', authMiddleware, async (req: any, res) => {
 // Run conflict check for a lead
 router.post('/conflict-check', authMiddleware, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveAttorneyId(req)
+    if (!attorneyId) {
+      return res.status(403).json({ error: 'No attorney record found for this account' })
+    }
     const { leadId } = req.body
 
     // Get lead details
@@ -136,9 +161,9 @@ router.post('/conflict-check', authMiddleware, async (req: any, res) => {
 
     // Parse assessment facts to get case details
     const facts = JSON.parse(lead.assessment.facts)
-    
-    // Simulate conflict check (in real implementation, this would check against attorney's case database)
-    const conflictCheck = await simulateConflictCheck(attorneyId, facts)
+
+    // Deterministic screen against the attorney's existing caseload (no simulated randomness)
+    const conflictCheck = await runConflictCheck(attorneyId, leadId, facts)
 
     // Save conflict check result
     const savedCheck = await prisma.conflictCheck.create({
@@ -164,7 +189,10 @@ router.post('/conflict-check', authMiddleware, async (req: any, res) => {
 // Get conflict checks for attorney
 router.get('/conflict-checks', authMiddleware, async (req: any, res) => {
   try {
-    const attorneyId = req.user.id
+    const attorneyId = await resolveAttorneyId(req)
+    if (!attorneyId) {
+      return res.status(403).json({ error: 'No attorney record found for this account' })
+    }
     const { riskLevel, isResolved, page = 1, limit = 20 } = req.query
 
     const whereClause: any = {
@@ -208,7 +236,10 @@ router.get('/conflict-checks', authMiddleware, async (req: any, res) => {
 router.put('/conflict-checks/:checkId/resolve', authMiddleware, async (req: any, res) => {
   try {
     const { checkId } = req.params
-    const attorneyId = req.user.id
+    const attorneyId = await resolveAttorneyId(req)
+    if (!attorneyId) {
+      return res.status(403).json({ error: 'No attorney record found for this account' })
+    }
     const { resolutionNotes } = req.body
 
     const conflictCheck = await prisma.conflictCheck.findFirst({
@@ -244,7 +275,10 @@ router.put('/conflict-checks/:checkId/resolve', authMiddleware, async (req: any,
 router.put('/evidence-checklist/:leadId', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const attorneyId = req.user.id
+    const attorneyId = await resolveAttorneyId(req)
+    if (!attorneyId) {
+      return res.status(403).json({ error: 'No attorney record found for this account' })
+    }
     const { checklist } = req.body
 
     // Verify attorney has access to lead
@@ -293,40 +327,75 @@ router.get('/evidence-checklist/template', authMiddleware, async (req: any, res)
 
 // Helper functions
 
-async function simulateConflictCheck(attorneyId: string, facts: any) {
-  // This is a simplified simulation - in real implementation, this would:
-  // 1. Check against attorney's existing cases
-  // 2. Check against opposing parties
-  // 3. Check for concurrent representation conflicts
-  // 4. Check for adverse interests
+const normalizeName = (value: unknown) => String(value || '').trim().toLowerCase()
+const normalizePhone = (value: unknown) => String(value || '').replace(/\D/g, '')
 
-  const conflicts = []
+function extractParties(facts: any) {
+  return {
+    plaintiffName: normalizeName(facts?.contact?.name || facts?.plaintiff?.name || facts?.name),
+    plaintiffEmail: normalizeName(facts?.contact?.email || facts?.email),
+    plaintiffPhone: normalizePhone(facts?.contact?.phone || facts?.phone),
+    opposingParty: normalizeName(facts?.opposingParty || facts?.defendant?.name || facts?.defendant),
+  }
+}
+
+/**
+ * Deterministic preliminary conflict screen against the attorney's existing
+ * caseload on this platform. This replaces the old random simulation: it only
+ * flags conflicts supported by actual data, and the result is reproducible.
+ */
+async function runConflictCheck(attorneyId: string, leadId: string, facts: any) {
+  const conflicts: Array<{ type: string; description: string; severity: string }> = []
   let conflictType = 'none'
   let riskLevel = 'low'
 
-  // Simulate checking for opposing party conflicts
-  if (facts.opposingParty) {
-    // In real implementation, check if attorney represents opposing party
-    if (Math.random() > 0.9) { // 10% chance of conflict
+  const incoming = extractParties(facts)
+
+  const heuristics = await getHeuristics()
+  const otherLeads = await prisma.leadSubmission.findMany({
+    where: {
+      assignedAttorneyId: attorneyId,
+      id: { not: leadId },
+    },
+    include: { assessment: true },
+    orderBy: { createdAt: 'desc' },
+    take: Math.max(1, heuristics.conflictCheck.lookbackCases),
+  })
+
+  for (const other of otherLeads) {
+    let otherFacts: any = {}
+    try {
+      otherFacts = JSON.parse(other.assessment?.facts || '{}')
+    } catch {
+      continue
+    }
+    const existing = extractParties(otherFacts)
+
+    // Adverse interest: this lead's opposing party is an existing client of the attorney
+    if (incoming.opposingParty && existing.plaintiffName && incoming.opposingParty === existing.plaintiffName) {
       conflicts.push({
         type: 'opposing_party',
-        description: `Potential conflict with opposing party: ${facts.opposingParty}`,
+        description: `Opposing party "${facts?.opposingParty || facts?.defendant?.name || facts?.defendant}" matches an existing client on another matter`,
         severity: 'high'
       })
       conflictType = 'adverse'
       riskLevel = 'high'
     }
-  }
 
-  // Simulate checking for concurrent representation
-  if (Math.random() > 0.95) { // 5% chance of concurrent conflict
-    conflicts.push({
-      type: 'concurrent_representation',
-      description: 'Attorney may be representing multiple parties with conflicting interests',
-      severity: 'medium'
-    })
-    conflictType = 'concurrent'
-    riskLevel = 'medium'
+    // Same plaintiff already has another matter with this attorney
+    const sameEmail = incoming.plaintiffEmail && incoming.plaintiffEmail === existing.plaintiffEmail
+    const samePhone = incoming.plaintiffPhone && incoming.plaintiffPhone === existing.plaintiffPhone
+    if (sameEmail || samePhone) {
+      conflicts.push({
+        type: 'duplicate_party',
+        description: 'This plaintiff already has another matter assigned to you on the platform',
+        severity: 'medium'
+      })
+      if (conflictType === 'none') {
+        conflictType = 'duplicate_party'
+        riskLevel = 'medium'
+      }
+    }
   }
 
   return {
@@ -334,6 +403,8 @@ async function simulateConflictCheck(attorneyId: string, facts: any) {
     riskLevel,
     details: {
       conflicts,
+      scope: 'Preliminary automated screen against your leads on this platform only. Run your firm\'s full conflict check before engagement.',
+      casesScreened: otherLeads.length,
       checkedAt: new Date().toISOString(),
       attorneyId
     }

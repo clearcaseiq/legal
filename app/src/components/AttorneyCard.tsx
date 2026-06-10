@@ -79,24 +79,30 @@ export default function AttorneyCard({ attorney, onClick, showActions = true }: 
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-4">
-        <div className="flex items-center text-sm">
-          <Users className="h-4 w-4 text-gray-400 mr-2" />
-          <span className="text-gray-600">
-            {attorney.verified_outcomes.trials} trials
-          </span>
-        </div>
-        <div className="flex items-center text-sm">
-          <Award className="h-4 w-4 text-gray-400 mr-2" />
-          <span className="text-gray-600">
-            {attorney.verified_outcomes.settlements} settlements
-          </span>
-        </div>
-        <div className="flex items-center text-sm">
-          <DollarSign className="h-4 w-4 text-gray-400 mr-2" />
-          <span className="text-gray-600">
-            ${attorney.verified_outcomes.median_recovery.toLocaleString()}
-          </span>
-        </div>
+        {attorney.verified_outcomes.trials != null && (
+          <div className="flex items-center text-sm">
+            <Users className="h-4 w-4 text-gray-400 mr-2" />
+            <span className="text-gray-600">
+              {attorney.verified_outcomes.trials} trials
+            </span>
+          </div>
+        )}
+        {attorney.verified_outcomes.settlements != null && (
+          <div className="flex items-center text-sm">
+            <Award className="h-4 w-4 text-gray-400 mr-2" />
+            <span className="text-gray-600">
+              {attorney.verified_outcomes.settlements} settlements
+            </span>
+          </div>
+        )}
+        {attorney.verified_outcomes.median_recovery != null && (
+          <div className="flex items-center text-sm">
+            <DollarSign className="h-4 w-4 text-gray-400 mr-2" />
+            <span className="text-gray-600">
+              ${attorney.verified_outcomes.median_recovery.toLocaleString()}
+            </span>
+          </div>
+        )}
         <div className="flex items-center text-sm">
           <MapPin className="h-4 w-4 text-gray-400 mr-2" />
           <span className="text-gray-600">

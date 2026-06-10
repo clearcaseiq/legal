@@ -69,6 +69,7 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={styles.backgroundLayer}>
+        <View style={styles.topWash} />
         <View style={[styles.glowOrb, styles.glowOrbPrimary]} />
         <View style={[styles.glowOrb, styles.glowOrbAccent]} />
       </View>
@@ -192,30 +193,40 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.navDeep,
+    backgroundColor: colors.loginBg,
   },
   backgroundLayer: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.navDeep,
+    backgroundColor: colors.loginBg,
     overflow: 'hidden',
+  },
+  topWash: {
+    position: 'absolute',
+    top: -260,
+    left: -120,
+    right: -120,
+    height: 520,
+    borderRadius: 999,
+    backgroundColor: colors.loginBgElevated,
+    opacity: 0.55,
   },
   glowOrb: {
     position: 'absolute',
     borderRadius: 999,
   },
   glowOrbPrimary: {
-    width: 220,
-    height: 220,
-    top: -70,
-    right: -70,
-    backgroundColor: 'rgba(14,165,233,0.14)',
+    width: 260,
+    height: 260,
+    top: -90,
+    right: -80,
+    backgroundColor: 'rgba(56,189,248,0.20)',
   },
   glowOrbAccent: {
-    width: 180,
-    height: 180,
-    bottom: 80,
-    left: -80,
-    backgroundColor: 'rgba(34,211,238,0.1)',
+    width: 200,
+    height: 200,
+    bottom: 60,
+    left: -90,
+    backgroundColor: 'rgba(34,211,238,0.14)',
   },
   scrollContent: {
     flexGrow: 1,

@@ -33,6 +33,8 @@
     "seed:attorney-login": "node ../node_modules/tsx/dist/cli.mjs scripts/ensure-seed-attorney-login.ts",
     "seed:attorney-logins": "node ../node_modules/tsx/dist/cli.mjs scripts/ensure-seed-attorney-logins.ts",
     "data:compare-supabase-local": "node ../node_modules/tsx/dist/cli.mjs scripts/compare-supabase-local-data.ts",
+    "db:sync-supabase": "node ../node_modules/tsx/dist/cli.mjs scripts/migrate-supabase-app-core-sync.ts",
+    "db:sync-supabase:dry-run": "node ../node_modules/tsx/dist/cli.mjs scripts/migrate-supabase-app-core-sync.ts --dry-run",
     "data:export-ml-csv": "node ../node_modules/tsx/dist/cli.mjs scripts/export-ml-tables-csv.ts",
     "ml:pre-llm-cleanup": "node ../node_modules/tsx/dist/cli.mjs scripts/bulk-pre-llm-cleanup.ts",
     "ml:extract-cleaned": "node ../node_modules/tsx/dist/cli.mjs scripts/bulk-llm-extract-cleaned.ts",

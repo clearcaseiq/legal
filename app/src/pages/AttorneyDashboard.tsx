@@ -1866,6 +1866,14 @@ export default function AttorneyDashboard() {
     return { posture: 'lowball', risk: 'high' }
   }
 
+  const formatProviderLabel = (value?: string) => {
+    if (!value) return 'Provider not listed'
+    const acronyms: Record<string, string> = { er: 'ER', mri: 'MRI', ct: 'CT', pt: 'PT', icu: 'ICU' }
+    const key = value.trim().toLowerCase()
+    if (acronyms[key]) return acronyms[key]
+    return value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  }
+
   const buildMedicalChronology = (facts: any) => {
     const treatments = Array.isArray(facts?.treatment) ? facts.treatment : []
     const sorted = [...treatments].sort((a, b) => {
@@ -1874,15 +1882,15 @@ export default function AttorneyDashboard() {
       return aTime - bTime
     })
     const timeline = sorted.map((t: any) => {
-      const date = t?.date ? new Date(t.date).toLocaleDateString() : 'Date unknown'
-      const provider = t?.provider || t?.type || 'Provider unknown'
+      const provider = formatProviderLabel(t?.provider || t?.type)
       const diagnosis = t?.diagnosis ? ` • Dx: ${t.diagnosis}` : ''
       const treatment = t?.treatment ? ` • Tx: ${t.treatment}` : ''
-      return `${date} — ${provider}${diagnosis}${treatment}`
+      const date = t?.date ? `${new Date(t.date).toLocaleDateString()} — ` : ''
+      return `${date}${provider}${diagnosis}${treatment}`
     })
 
     const providerCounts = sorted.reduce((acc: Record<string, number>, t: any) => {
-      const key = t?.provider || t?.type || 'Provider unknown'
+      const key = formatProviderLabel(t?.provider || t?.type)
       acc[key] = (acc[key] || 0) + 1
       return acc
     }, {})
@@ -2595,9 +2603,18 @@ export default function AttorneyDashboard() {
     (dashboardData.activeCases?.consultScheduled ?? 0) +
     (dashboardData.activeCases?.retained ?? 0)
   )
-  const acceptedLeadCount = dashboardData.dashboard?.totalLeadsAccepted ?? acceptedCasesCount
-  const receivedLeadCount = dashboardData.dashboard?.totalLeadsReceived ?? allLeads.length
-  const acceptanceRate = receivedLeadCount > 0 ? Math.round((acceptedLeadCount / receivedLeadCount) * 100) : 0
+  // Accepted and received counts must come from the same source — mixing the
+  // cumulative profile total with the current page of leads produced rates >100%.
+  const hasLifetimeTotals = Number(dashboardData.dashboard?.totalLeadsReceived ?? 0) > 0
+  const acceptedLeadCount = hasLifetimeTotals
+    ? Number(dashboardData.dashboard?.totalLeadsAccepted ?? 0)
+    : acceptedCasesCount
+  const receivedLeadCount = hasLifetimeTotals
+    ? Number(dashboardData.dashboard?.totalLeadsReceived ?? 0)
+    : allLeads.length
+  const acceptanceRate = receivedLeadCount > 0
+    ? Math.min(100, Math.round((acceptedLeadCount / receivedLeadCount) * 100))
+    : 0
   const fallbackCaseValuePipeline = allLeads.reduce((sum, lead) => sum + dashboardLeadHighValue(lead), 0)
   const revenuePipeline = dashboardData.pipelineValue ?? Math.round(fallbackCaseValuePipeline * 0.33)
   const attorneyProfile = dashboardData.dashboard?.attorney?.attorneyProfile || dashboardData.dashboard?.attorney?.profile || {}
@@ -2802,6 +2819,65 @@ export default function AttorneyDashboard() {
         </div>
       </section>
 
+      {/* Tabs */}
+      <div id="attorney-dashboard-tabs" className="scroll-mt-6 border-b border-gray-200">
+        <nav className="-mb-px flex flex-wrap gap-4">
+          {ATTORNEY_DASHBOARD_NAV.map((tab) => {
+            const Icon = tab.icon
+            const resolvedTab = tab.id === 'activeCases' || tab.id === 'aiInsights' || tab.id === 'consultations' ? 'leads' : tab.id
+            const isActive = tab.id === 'activeCases'
+              ? activeTab === 'leads' && caseLeadsFilter.pipelineStage === 'retained'
+              : tab.id === 'consultations'
+              ? consultCalendarModalOpen
+              : tab.id === 'aiInsights'
+              ? activeTab === 'overview' && overviewFocus === 'ai'
+              : tab.id === 'overview'
+              ? activeTab === 'overview' && overviewFocus === 'dashboard'
+              : activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  if (tab.id === 'activeCases') {
+                    setOverviewFocus('dashboard')
+                    setActiveTab('leads')
+                    setCaseLeadsFilter((prev) => ({ ...prev, status: 'retained', pipelineStage: 'retained' }))
+                    setActivePipelineTile('retained')
+                    return
+                  }
+                  if (tab.id === 'consultations') {
+                    setConsultCalendarModalOpen(true)
+                    return
+                  }
+                  if (tab.id === 'aiInsights') {
+                    setOverviewFocus('ai')
+                    setActiveTab('overview')
+                    setTimeout(() => document.getElementById('ai-opportunities')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+                    return
+                  }
+                  setOverviewFocus('dashboard')
+                  setActiveTab(resolvedTab as (typeof ATTORNEY_DASHBOARD_TABS)[number])
+                }}
+                className={`flex items-center py-2 px-1 border-b-2 font-medium text-sm ${
+                  isActive
+                    ? 'border-brand-500 text-brand-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Icon className="h-4 w-4 mr-2" />
+                <span className="text-left">
+                  <span className="block">{tab.name}</span>
+                  {'description' in tab ? <span className="block text-[11px] font-normal text-gray-400">{tab.description}</span> : null}
+                </span>
+              </button>
+            )
+          })}
+        </nav>
+      </div>
+
+      {/* Overview modules render only on the Overview tab so other tabs aren't pushed below a repeated dashboard */}
+      {activeTab === 'overview' && (
+      <>
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
@@ -2868,7 +2944,11 @@ export default function AttorneyDashboard() {
                           <td className="px-4 py-3 font-semibold text-gray-900">{plaintiffName}</td>
                           <td className="px-4 py-3 text-gray-600">{dashboardLeadVenue(lead)}</td>
                           <td className="px-4 py-3 font-semibold text-brand-700">{dashboardLeadValueRange(lead)}</td>
-                          <td className="px-4 py-3 text-gray-900">{Math.round((lead.viabilityScore || 0) * 100)}</td>
+                          <td className="px-4 py-3 text-gray-900">{(() => {
+                            const raw = Number(lead.viabilityScore || 0)
+                            if (raw <= 0) return <span className="text-gray-400">Not scored</span>
+                            return `${raw <= 1 ? Math.round(raw * 100) : Math.min(100, Math.round(raw))}%`
+                          })()}</td>
                           <td className="px-4 py-3">
                             <div className="flex justify-end gap-2">
                               <button
@@ -2917,17 +2997,23 @@ export default function AttorneyDashboard() {
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Operational Queues</p>
           <h2 className="mt-1 text-xl font-semibold text-gray-900">Work that keeps cases moving</h2>
           <div className="mt-4 space-y-3">
-            {operationalQueueItems.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={item.onClick}
-                className="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-left hover:border-brand-200 hover:bg-brand-50"
-              >
-                <span className="font-semibold text-gray-800">{item.label}</span>
-                <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-gray-900 shadow-sm">{item.count}</span>
-              </button>
-            ))}
+            {operationalQueueItems.filter((item) => item.count > 0).length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+                No queued work right now — nothing needs your attention.
+              </div>
+            ) : (
+              operationalQueueItems.filter((item) => item.count > 0).map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={item.onClick}
+                  className="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-left hover:border-brand-200 hover:bg-brand-50"
+                >
+                  <span className="font-semibold text-gray-800">{item.label}</span>
+                  <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-gray-900 shadow-sm">{item.count}</span>
+                </button>
+              ))
+            )}
           </div>
         </section>
       </div>
@@ -2937,17 +3023,23 @@ export default function AttorneyDashboard() {
           <p className="text-xs font-semibold uppercase tracking-wide text-brand-600">Decision Queue</p>
           <h2 className="mt-1 text-xl font-semibold text-gray-900">Revenue-driving decisions</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {decisionQueueItems.map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={item.onClick}
-                className="flex items-center justify-between rounded-xl border border-brand-100 bg-brand-50 px-4 py-4 text-left hover:border-brand-200 hover:bg-brand-100"
-              >
-                <span className="font-semibold text-brand-950">{item.label}</span>
-                <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-brand-900 shadow-sm">{item.count}</span>
-              </button>
-            ))}
+            {decisionQueueItems.filter((item) => item.count > 0).length === 0 ? (
+              <div className="rounded-xl border border-dashed border-brand-100 bg-brand-50 px-4 py-5 text-sm text-brand-700 sm:col-span-2">
+                No pending decisions — new matches will appear here.
+              </div>
+            ) : (
+              decisionQueueItems.filter((item) => item.count > 0).map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={item.onClick}
+                  className="flex items-center justify-between rounded-xl border border-brand-100 bg-brand-50 px-4 py-4 text-left hover:border-brand-200 hover:bg-brand-100"
+                >
+                  <span className="font-semibold text-brand-950">{item.label}</span>
+                  <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-brand-900 shadow-sm">{item.count}</span>
+                </button>
+              ))
+            )}
           </div>
         </section>
 
@@ -3170,62 +3262,8 @@ export default function AttorneyDashboard() {
           </button>
         </div>
       </section>
-
-      {/* Tabs */}
-      <div id="attorney-dashboard-tabs" className="scroll-mt-6 border-b border-gray-200">
-        <nav className="-mb-px flex flex-wrap gap-4">
-          {ATTORNEY_DASHBOARD_NAV.map((tab) => {
-            const Icon = tab.icon
-            const resolvedTab = tab.id === 'activeCases' || tab.id === 'aiInsights' || tab.id === 'consultations' ? 'leads' : tab.id
-            const isActive = tab.id === 'activeCases'
-              ? activeTab === 'leads' && caseLeadsFilter.pipelineStage === 'retained'
-              : tab.id === 'consultations'
-              ? consultCalendarModalOpen
-              : tab.id === 'aiInsights'
-              ? activeTab === 'overview' && overviewFocus === 'ai'
-              : tab.id === 'overview'
-              ? activeTab === 'overview' && overviewFocus === 'dashboard'
-              : activeTab === tab.id
-            return (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  if (tab.id === 'activeCases') {
-                    setOverviewFocus('dashboard')
-                    setActiveTab('leads')
-                    setCaseLeadsFilter((prev) => ({ ...prev, status: 'retained', pipelineStage: 'retained' }))
-                    setActivePipelineTile('retained')
-                    return
-                  }
-                  if (tab.id === 'consultations') {
-                    setConsultCalendarModalOpen(true)
-                    return
-                  }
-                  if (tab.id === 'aiInsights') {
-                    setOverviewFocus('ai')
-                    setActiveTab('overview')
-                    setTimeout(() => document.getElementById('ai-opportunities')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
-                    return
-                  }
-                  setOverviewFocus('dashboard')
-                  setActiveTab(resolvedTab as (typeof ATTORNEY_DASHBOARD_TABS)[number])
-                }}
-                className={`flex items-center py-2 px-1 border-b-2 font-medium text-sm ${
-                  isActive
-                    ? 'border-brand-500 text-brand-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <Icon className="h-4 w-4 mr-2" />
-                <span className="text-left">
-                  <span className="block">{tab.name}</span>
-                  {'description' in tab ? <span className="block text-[11px] font-normal text-gray-400">{tab.description}</span> : null}
-                </span>
-              </button>
-            )
-          })}
-        </nav>
-      </div>
+      </>
+      )}
 
       {/* Tab Content */}
       {activeTab === 'overview' && (

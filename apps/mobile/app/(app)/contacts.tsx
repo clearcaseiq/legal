@@ -25,7 +25,7 @@ import {
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
 import { colors, radii, space, shadows } from '../../src/theme/tokens'
-import { formatClaimType, parseFacts } from '../../src/lib/formatLead'
+import { formatClaimType, leadLabel, leadMeta } from '../../src/lib/formatLead'
 
 function buildContactName(contact: AttorneyCaseContact) {
   return `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || contact.companyName || 'Contact'
@@ -35,25 +35,6 @@ function buildClaimLabel(contact: AttorneyCaseContact) {
   const claim = contact.lead?.assessment?.claimType ? formatClaimType(contact.lead.assessment.claimType) : 'Case'
   const venue = [contact.lead?.assessment?.venueCounty, contact.lead?.assessment?.venueState].filter(Boolean).join(', ')
   return venue ? `${claim} · ${venue}` : claim
-}
-
-function leadLabel(lead: any) {
-  const assessment = lead?.assessment || {}
-  const facts = parseFacts(assessment.facts)
-  const plaintiffContext = facts?.plaintiffContext || facts?.plaintiff || {}
-  const plaintiff = assessment.user
-    ? `${assessment.user.firstName || ''} ${assessment.user.lastName || ''}`.trim()
-    : lead?.plaintiffName ||
-      `${plaintiffContext.firstName || ''} ${plaintiffContext.lastName || ''}`.trim() ||
-      plaintiffContext.name
-  return plaintiff || formatClaimType(assessment.claimType) || `Case ${String(lead?.id || '').slice(-6)}`
-}
-
-function leadMeta(lead: any) {
-  const assessment = lead?.assessment || {}
-  const claim = formatClaimType(assessment.claimType)
-  const venue = [assessment.venueCounty, assessment.venueState].filter(Boolean).join(', ')
-  return [claim, venue].filter(Boolean).join(' · ')
 }
 
 export default function ContactsScreen() {

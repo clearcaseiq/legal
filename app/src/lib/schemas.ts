@@ -90,9 +90,9 @@ export const AttorneySummarySchema = z.object({
   venues: z.array(z.string()),
   fit_score: z.number().min(0).max(1),
   verified_outcomes: z.object({
-    trials: z.number(),
-    settlements: z.number(),
-    median_recovery: z.number()
+    trials: z.number().nullable(),
+    settlements: z.number().nullable(),
+    median_recovery: z.number().nullable()
   }),
   fee: z.object({
     contingency_min: z.number(),

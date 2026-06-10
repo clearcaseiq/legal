@@ -118,6 +118,19 @@ describe('AssessmentWrite', () => {
       expect(ok.data.caseTaxonomy?.incidentTags).toContain('rideshare')
     }
   })
+
+  it('rejects new assessments without affirmative consents', () => {
+    const base = {
+      claimType: 'auto',
+      venue: { state: 'CA', county: 'Los Angeles' },
+      incident: { date: '2026-01-01' },
+      damages: {},
+    }
+    expect(AssessmentWrite.safeParse({ ...base, consents: { tos: false, privacy: true, ml_use: true } }).success).toBe(false)
+    expect(AssessmentWrite.safeParse({ ...base, consents: { tos: true, privacy: false, ml_use: true } }).success).toBe(false)
+    expect(AssessmentWrite.safeParse({ ...base, consents: { tos: true, privacy: true, ml_use: false } }).success).toBe(false)
+    expect(AssessmentWrite.safeParse({ ...base, consents: { tos: true, privacy: true, ml_use: true, hipaa: false } }).success).toBe(true)
+  })
 })
 
 describe('AssessmentUpdate', () => {

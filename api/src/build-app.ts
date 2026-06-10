@@ -42,6 +42,8 @@ import adminCommunications from './routes/admin-communications'
 import supportTickets from './routes/support-tickets'
 import attorneyCalendar from './routes/attorney-calendar'
 import payments from './routes/payments'
+import intakeLeads from './routes/intake-leads'
+import heuristics from './routes/heuristics'
 
 /**
  * Fully configured Express app (no listen). Used by index.ts and integration tests.
@@ -70,6 +72,7 @@ export function buildApp(): Express {
   app.use('/v1/chatgpt', chatgpt)
   app.use('/v1/auth', oauth)
   app.use('/v1/assessments', assessments)
+  app.use('/v1/intake-leads', intakeLeads)
   app.use('/v1/rose', rose)
   app.use('/v1/case-insights', caseInsights)
   app.use('/v1/case-routing', caseRouting)
@@ -90,6 +93,7 @@ export function buildApp(): Express {
   app.use('/v1/compliance', compliance)
   app.use('/v1/attorney-calendar', attorneyCalendar)
   app.use('/v1/payments', payments)
+  app.use('/v1/heuristics', heuristics)
 
   app.get('/', (req, res) => {
     res.json({

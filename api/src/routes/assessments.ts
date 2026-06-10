@@ -24,6 +24,9 @@ const DamageEstimates = z.object({
   outOfPocketEstimate: z.number().min(0).optional(),
   propertyDamageEstimate: z.number().min(0).optional(),
   futureTreatmentEstimate: z.number().min(0).optional(),
+  // Whether the plaintiff confirms the uploaded bills cover all treatment so far.
+  // Drives the documented-vs-estimate decision rule in case recalculation.
+  billsComplete: z.boolean().optional(),
   notes: z.string().trim().max(1000).optional(),
 })
 
@@ -177,7 +180,10 @@ router.post('/:id/damage-estimates', optionalAuthMiddleware, async (req: AuthReq
       estimated_property_damage: estimates.propertyDamageEstimate ?? Number(damages.estimated_property_damage || 0),
       estimated_future_med_charges: estimates.futureTreatmentEstimate ?? Number(damages.estimated_future_med_charges || 0),
       damage_estimate_notes: estimates.notes ?? damages.damage_estimate_notes,
+      // Persist the self-reported figure and completeness signal; the authoritative
+      // med_charges/source/discrepancy are derived in runCaseRecalculation below.
       intake_med_charges: medicalEstimate,
+      bills_complete: estimates.billsComplete ?? damages.bills_complete ?? false,
       med_charges: Math.max(Number(damages.extracted_med_charges || 0), medicalEstimate),
       wage_loss: Math.max(Number(damages.extracted_wage_loss || 0), wageEstimate),
     }

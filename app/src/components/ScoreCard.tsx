@@ -1,5 +1,7 @@
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import { formatPercentage } from '../lib/formatters'
+import { useHeuristics } from '../contexts/HeuristicsContext'
+import { scoreTone } from '../lib/heuristics'
 
 interface ScoreCardProps {
   title: string
@@ -18,11 +20,13 @@ export default function ScoreCard({
   description,
   className = ''
 }: ScoreCardProps) {
+  const heuristics = useHeuristics()
   const percentage = (value / maxValue) * 100
-  
+  const tone = scoreTone(heuristics, percentage)
+
   const getColorClass = () => {
-    if (percentage >= 70) return 'text-green-600 bg-green-50'
-    if (percentage >= 40) return 'text-yellow-600 bg-yellow-50'
+    if (tone === 'green') return 'text-green-600 bg-green-50'
+    if (tone === 'amber') return 'text-yellow-600 bg-yellow-50'
     return 'text-red-600 bg-red-50'
   }
 
@@ -63,10 +67,10 @@ export default function ScoreCard({
         <div className="w-full bg-gray-200 rounded-full h-2">
           <div
             className={`h-2 rounded-full transition-all duration-300 ${
-              percentage >= 70 
-                ? 'bg-green-500' 
-                : percentage >= 40 
-                ? 'bg-yellow-500' 
+              tone === 'green'
+                ? 'bg-green-500'
+                : tone === 'amber'
+                ? 'bg-yellow-500'
                 : 'bg-red-500'
             }`}
             style={{ width: `${Math.min(percentage, 100)}%` }}

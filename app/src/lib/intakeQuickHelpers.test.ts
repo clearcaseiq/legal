@@ -28,6 +28,10 @@ describe('sanitizeDetectedCounty', () => {
     expect(sanitizeDetectedCounty('CA', 'los angeles county')).toBe('Los Angeles')
   })
 
+  it('keeps valid Colorado counties', () => {
+    expect(sanitizeDetectedCounty('CO', 'Denver County')).toBe('Denver')
+  })
+
   it('preserves non-CA counties', () => {
     expect(sanitizeDetectedCounty('IL', 'Cook County')).toBe('Cook')
   })

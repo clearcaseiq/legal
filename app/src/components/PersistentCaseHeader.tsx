@@ -10,7 +10,8 @@ import { formatCurrency } from '../lib/formatters'
 import { CallPlaintiffModal, MessagePlaintiffModal, ScheduleConsultModal } from './CaseCommandModals'
 
 function formatClaimType(s: string) {
-  return (s || 'unknown').replace(/_/g, ' ')
+  if (!s) return 'Personal injury'
+  return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 export interface PersistentCaseHeaderProps {

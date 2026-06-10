@@ -1,8 +1,11 @@
 import { useEffect } from 'react'
 import * as Notifications from 'expo-notifications'
+import * as Haptics from 'expo-haptics'
 import { useRouter } from 'expo-router'
 import { navigateAttorneyQueueItem, type QueueActionType } from '../lib/attorneyQueueNav'
 import { useAttorneyDashboardData } from '../contexts/AttorneyDashboardContext'
+import { ACCEPT_LEAD_ACTION, DECLINE_LEAD_ACTION } from '../contexts/NotificationContext'
+import { runOrQueue } from '../lib/offlineQueue'
 
 /**
  * Handles notification taps for deep linking (must render under the authenticated app stack).
@@ -18,6 +21,34 @@ export function PushNavigationHandler() {
 
     const handleResponse = (response: Notifications.NotificationResponse) => {
       const data = response.notification.request.content.data as Record<string, string> | undefined
+      const actionId = response.actionIdentifier
+
+      // One-tap Accept from the notification's action button.
+      if (actionId === ACCEPT_LEAD_ACTION && data?.leadId) {
+        void (async () => {
+          try {
+            await runOrQueue({ type: 'lead_decision', payload: { leadId: data.leadId, decision: 'accept' } })
+            try {
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+            } catch {
+              /* no-op */
+            }
+          } catch {
+            /* surfaced on the lead screen below */
+          }
+          router.push(`/(app)/lead/${data.leadId}`)
+          refreshAfterNavigation()
+        })()
+        return
+      }
+
+      // One-tap Decline opens the lead with the decline reason picker (reasons matter for routing).
+      if (actionId === DECLINE_LEAD_ACTION && data?.leadId) {
+        router.push(`/(app)/lead/${data.leadId}?action=decline`)
+        refreshAfterNavigation()
+        return
+      }
+
       if (!data?.type) return
       try {
         if (data.type === 'chat_message' && data.chatRoomId) {

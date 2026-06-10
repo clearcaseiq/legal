@@ -3,6 +3,7 @@
  * Uses SecureStore for auth token (biometric-protected).
  */
 import type { AttorneyCalendarEvent } from './calendar'
+import { normalizeScore } from './formatLead'
 import axios, { isAxiosError, type AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import * as SecureStore from 'expo-secure-store'
 import * as Device from 'expo-device'
@@ -71,6 +72,23 @@ export const api = axios.create({
 })
 
 /** User-facing message for failed API calls (timeouts, DNS, wrong host, etc.). */
+/**
+ * True when an error looks like a connectivity failure (no server response),
+ * as opposed to a 4xx/5xx the server actually returned. Used by the offline queue.
+ */
+export function isOfflineError(err: unknown): boolean {
+  if (!isAxiosError(err)) return false
+  const e = err as AxiosError
+  if (e.response) return false
+  const msg = (e.message || '').toLowerCase()
+  return (
+    e.code === 'ERR_NETWORK' ||
+    e.code === 'ECONNABORTED' ||
+    msg.includes('network error') ||
+    msg.includes('timeout')
+  )
+}
+
 export function getApiErrorMessage(err: unknown): string {
   if (isAxiosError(err)) {
     const e = err as AxiosError<{ error?: string }>
@@ -390,8 +408,71 @@ export type LeadQualityDetails = {
   sol?: { isUrgent?: boolean; daysUntilExpiration?: number; daysRemaining?: number; deadline?: string; expiresAt?: string }
 }
 
+/**
+ * Admin-configurable lead-signal thresholds (subset of /v1/heuristics).
+ * Defaults mirror the backend so the UI keeps working before/without a fetch.
+ */
+export type LeadSignalHeuristics = {
+  liabilityStrongMin: number
+  liabilityWeakMax: number
+  damagesStrongMin: number
+  damagesWeakMax: number
+  reviewDecisionMin: number
+}
+
+const DEFAULT_LEAD_SIGNALS: LeadSignalHeuristics = {
+  liabilityStrongMin: 0.65,
+  liabilityWeakMax: 0.45,
+  damagesStrongMin: 0.65,
+  damagesWeakMax: 0.45,
+  reviewDecisionMin: 0.6,
+}
+
+const DEFAULT_RESPONSE_SLA_HOURS = 24
+
+let cachedLeadSignals: LeadSignalHeuristics | null = null
+let cachedResponseSlaHours: number | null = null
+let leadSignalsFetchedAt = 0
+const LEAD_SIGNALS_TTL_MS = 5 * 60 * 1000
+
+/** Fetch the admin-configured lead-signal thresholds (+ SLA window), cached for 5 minutes. */
+export async function getLeadSignalHeuristics(): Promise<LeadSignalHeuristics> {
+  if (cachedLeadSignals && Date.now() - leadSignalsFetchedAt < LEAD_SIGNALS_TTL_MS) {
+    return cachedLeadSignals
+  }
+  try {
+    const { data } = await api.get('/v1/heuristics')
+    const signals = data?.leadSignals || {}
+    cachedLeadSignals = {
+      liabilityStrongMin: Number(signals.liabilityStrongMin ?? DEFAULT_LEAD_SIGNALS.liabilityStrongMin),
+      liabilityWeakMax: Number(signals.liabilityWeakMax ?? DEFAULT_LEAD_SIGNALS.liabilityWeakMax),
+      damagesStrongMin: Number(signals.damagesStrongMin ?? DEFAULT_LEAD_SIGNALS.damagesStrongMin),
+      damagesWeakMax: Number(signals.damagesWeakMax ?? DEFAULT_LEAD_SIGNALS.damagesWeakMax),
+      reviewDecisionMin: Number(signals.reviewDecisionMin ?? DEFAULT_LEAD_SIGNALS.reviewDecisionMin),
+    }
+    const sla = Number(data?.responseSlaHours)
+    cachedResponseSlaHours = Number.isFinite(sla) && sla > 0 ? sla : DEFAULT_RESPONSE_SLA_HOURS
+    leadSignalsFetchedAt = Date.now()
+    return cachedLeadSignals
+  } catch {
+    return cachedLeadSignals || DEFAULT_LEAD_SIGNALS
+  }
+}
+
+/** The admin-configured lead response SLA window in hours (cached; defaults to 24h). */
+export async function getResponseSlaHours(): Promise<number> {
+  if (cachedResponseSlaHours != null && Date.now() - leadSignalsFetchedAt < LEAD_SIGNALS_TTL_MS) {
+    return cachedResponseSlaHours
+  }
+  await getLeadSignalHeuristics()
+  return cachedResponseSlaHours ?? DEFAULT_RESPONSE_SLA_HOURS
+}
+
 export async function getLeadQuality(leadId: string): Promise<LeadQualityDetails | null> {
-  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/quality`)
+  const [{ data }, signals] = await Promise.all([
+    api.get(`/v1/attorney-dashboard/leads/${leadId}/quality`),
+    getLeadSignalHeuristics(),
+  ])
   const qualityDetails = data?.qualityDetails || data
   const viability = qualityDetails?.viabilityBreakdown || {}
   const required = Array.isArray(qualityDetails?.evidenceChecklist?.required)
@@ -404,32 +485,35 @@ export async function getLeadQuality(leadId: string): Promise<LeadQualityDetails
       detail: item?.critical ? 'Critical supporting document for mobile case review.' : 'Useful supporting document.',
       actionType: 'request_documents',
     }))
+  const liability = Number(viability.liability || 0)
+  const damages = Number(viability.damages || 0)
+  const overall = Number(viability.overall ?? 0)
   const strengths = [
-    Number(viability.liability || 0) >= 0.65 ? 'Liability signal is above routing threshold.' : null,
-    Number(viability.damages || 0) >= 0.65 ? 'Damages signal is strong enough for early review.' : null,
+    liability >= signals.liabilityStrongMin ? 'Liability signal is above routing threshold.' : null,
+    damages >= signals.damagesStrongMin ? 'Damages signal is strong enough for early review.' : null,
     qualityDetails?.hotness?.level === 'hot' ? 'Recently submitted and should be reviewed quickly.' : null,
   ].filter(Boolean) as string[]
   const risks = [
-    Number(viability.liability || 0) < 0.45 ? 'Liability is not yet clearly established.' : null,
-    Number(viability.damages || 0) < 0.45 ? 'Damages support may be thin.' : null,
+    liability < signals.liabilityWeakMax ? 'Liability is not yet clearly established.' : null,
+    damages < signals.damagesWeakMax ? 'Damages support may be thin.' : null,
     qualityDetails?.sol?.isUrgent ? 'Statute of limitations timing needs attention.' : null,
     missingItems.length > 0 ? `${missingItems.length} requested document${missingItems.length === 1 ? '' : 's'} still missing.` : null,
   ].filter(Boolean) as string[]
 
   return {
-    qualityScore: Number(qualityDetails?.qualityReports?.[0]?.qualityScore ?? viability.overall ?? 0) * (Number(viability.overall ?? 0) <= 1 ? 100 : 1),
-    readinessScore: Number(viability.overall ?? 0) * (Number(viability.overall ?? 0) <= 1 ? 100 : 1),
+    qualityScore: normalizeScore(Number(qualityDetails?.qualityReports?.[0]?.qualityScore ?? overall)),
+    readinessScore: normalizeScore(overall),
     viabilityBreakdown: {
-      overall: Number(viability.overall ?? 0),
-      liability: Number(viability.liability ?? 0),
+      overall,
+      liability,
       causation: Number(viability.causation ?? 0),
-      damages: Number(viability.damages ?? 0),
+      damages,
     },
     strengths,
     risks,
     missingItems,
     demandReadiness: {
-      score: Number(viability.overall ?? 0),
+      score: overall,
       label: qualityDetails?.hotness?.level
         ? `${String(qualityDetails.hotness.level).toUpperCase()} lead · ${qualityDetails.hotness.hoursSinceSubmission ?? 0}h since submission`
         : undefined,
@@ -442,8 +526,8 @@ export async function getLeadQuality(leadId: string): Promise<LeadQualityDetails
         : undefined,
     },
     recommendation: {
-      decision: Number(viability.overall || 0) >= 0.6 ? 'review' : 'watch',
-      confidence: Number(viability.overall || 0),
+      decision: overall >= signals.reviewDecisionMin ? 'review' : 'watch',
+      confidence: overall,
       rationale: risks.length > 0
         ? `Review with caution: ${risks[0]}`
         : strengths[0] || 'Case quality signals are available for mobile triage.',

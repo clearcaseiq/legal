@@ -7,7 +7,7 @@ import { sendExpoPushNotifications } from './expo-push'
  */
 export async function notifyAttorneyByUserEmail(
   email: string | null | undefined,
-  payload: { title: string; body: string; data?: Record<string, string> }
+  payload: { title: string; body: string; data?: Record<string, string>; categoryId?: string }
 ): Promise<void> {
   if (!email?.trim()) return
   try {

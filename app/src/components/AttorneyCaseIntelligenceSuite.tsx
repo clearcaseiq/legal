@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Bot, CalendarDays, ClipboardCheck, FileText, Receipt, ShieldCheck } from 'lucide-react'
 import { formatCurrency } from '../lib/formatters'
+import { useHeuristics } from '../contexts/HeuristicsContext'
+import { scoreTone } from '../lib/heuristics'
 import type {
   AttorneyDashboardFile,
   AttorneyDashboardLead,
@@ -304,7 +306,13 @@ export default function AttorneyCaseIntelligenceSuite({
 }
 
 function ReadinessCard({ label, value }: { label: string; value: number }) {
-  const tone = value >= 75 ? 'bg-green-50 border-green-200 text-green-700' : value >= 45 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-red-50 border-red-200 text-red-700'
+  const heuristics = useHeuristics()
+  const toneKey = scoreTone(heuristics, value)
+  const tone = toneKey === 'green'
+    ? 'bg-green-50 border-green-200 text-green-700'
+    : toneKey === 'amber'
+      ? 'bg-amber-50 border-amber-200 text-amber-700'
+      : 'bg-red-50 border-red-200 text-red-700'
   return (
     <div className={`metric-card ${tone}`}>
       <p className="text-xs font-semibold uppercase tracking-wide opacity-80">{label}</p>
@@ -352,10 +360,10 @@ function isCategory(file: AttorneyDashboardFile, categories: string[]) {
 }
 
 function formatMedicalChronologyEvent(event: any) {
-  const date = event?.date ? formatDate(event.date) : 'Date unknown'
-  const provider = event?.provider || event?.sourceFileName || 'Provider unknown'
+  const provider = event?.provider || event?.sourceFileName || 'Provider not listed'
   const label = event?.label ? `: ${event.label}` : ''
-  return `${date} — ${provider}${label}`
+  const date = event?.date ? `${formatDate(event.date)} — ` : ''
+  return `${date}${provider}${label}`
 }
 
 function buildTimeline({
@@ -380,7 +388,7 @@ function buildTimeline({
   return [
     {
       label: 'Case submitted',
-      detail: `${String(selectedLead.assessment?.claimType || 'Case').replace(/_/g, ' ')} in ${[selectedLead.assessment?.venueCounty, selectedLead.assessment?.venueState].filter(Boolean).join(', ') || 'unknown venue'}.`,
+      detail: `${String(selectedLead.assessment?.claimType || 'Case').replace(/_/g, ' ')} in ${[selectedLead.assessment?.venueCounty, selectedLead.assessment?.venueState].filter(Boolean).join(', ') || 'venue not provided'}.`,
       date: formatDate(selectedLead.submittedAt || selectedLead.assessment?.createdAt),
     },
     {

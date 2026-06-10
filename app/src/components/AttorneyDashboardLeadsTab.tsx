@@ -696,7 +696,8 @@ export default function AttorneyDashboardLeadsTab({
                   const attention = getAttentionLabel(lead)
                   const relationship = getRelationshipActivity(lead)
                   const evidenceCount = getLeadEvidenceCount(lead)
-                  const strength = Math.round((lead.viabilityScore || 0) * 100)
+                  const rawStrength = Number(lead.viabilityScore || 0)
+                  const strength = rawStrength <= 1 ? Math.round(rawStrength * 100) : Math.min(100, Math.round(rawStrength))
                   const offerCountdown = getOfferCountdown(lead)
 
                   return (
@@ -820,8 +821,14 @@ export default function AttorneyDashboardLeadsTab({
                         {bands.low && bands.high ? `${formatCurrency(bands.low)}-${formatCurrency(bands.high)}` : '—'}
                       </td>
                       <td className="px-4 py-3 align-top">
-                        <div className="text-sm font-medium">{strength}/100</div>
-                        <div className="text-xs text-gray-500 font-mono">{getCaseStrengthBar(lead.viabilityScore)}</div>
+                        {strength > 0 ? (
+                          <>
+                            <div className="text-sm font-medium">{strength}/100</div>
+                            <div className="text-xs text-gray-500 font-mono">{getCaseStrengthBar(lead.viabilityScore)}</div>
+                          </>
+                        ) : (
+                          <div className="text-sm text-gray-400">Not scored</div>
+                        )}
                       </td>
                       <td className="px-4 py-3 align-top text-sm text-gray-600">
                         {evidenceCount > 0 ? `${evidenceCount} docs` : 'No docs'}

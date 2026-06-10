@@ -2,6 +2,9 @@ import api from './http'
 import { clearStoredAuth } from './auth'
 import { apiDebug } from './debug'
 import type { AttorneyDashboardResponse } from '../../../shared/api-contracts'
+import type { HeuristicsConfig } from './heuristics'
+
+export type { HeuristicsConfig }
 
 // Test authentication
 export async function testAuth() {
@@ -1162,6 +1165,28 @@ export async function transferLeadToFirmAttorney(leadId: string, attorneyId: str
   return data
 }
 
+// Lead Quality & Transparency
+
+export async function getAttorneyFilteredLeads(params?: Record<string, string | number | boolean>) {
+  const { data } = await api.get('/v1/attorney-dashboard/leads/filtered', { params })
+  return data as { leads: any[]; totalCount: number; page: number; limit: number }
+}
+
+export async function getLeadQualityConflictChecks(params?: Record<string, string | number | boolean>) {
+  const { data } = await api.get('/v1/lead-quality/conflict-checks', { params })
+  return data as { conflictChecks: any[]; totalCount: number }
+}
+
+export async function getLeadQualityReports(params?: Record<string, string | number | boolean>) {
+  const { data } = await api.get('/v1/lead-quality/reports', { params })
+  return data as { reports: any[]; totalCount: number }
+}
+
+export async function runLeadConflictCheck(leadId: string) {
+  const { data } = await api.post('/v1/lead-quality/conflict-check', { leadId })
+  return data
+}
+
 // Attorney License Management
 
 // Upload attorney license file
@@ -2187,6 +2212,12 @@ export interface MatchingRulesConfig {
   capacity_score: number
   plaintiff_fit: number
   strategic_priority: number
+  qualityGateMaxResponseHours: number
+  qualityGateHotCaseMaxResponseHours: number
+  qualityGateHotCaseViabilityThreshold: number
+  qualityGateMinContactRate: number
+  qualityGateMaxComplaintRate: number
+  qualityGateMaxCherryPickingScore: number
 }
 
 export async function getAdminMatchingRules() {
@@ -2196,6 +2227,21 @@ export async function getAdminMatchingRules() {
 
 export async function saveAdminMatchingRules(config: Partial<MatchingRulesConfig>) {
   const { data } = await api.put<MatchingRulesConfig>('/v1/admin/matching-rules', config)
+  return data
+}
+
+export async function getAdminHeuristics() {
+  const { data } = await api.get<HeuristicsConfig>('/v1/admin/heuristics')
+  return data
+}
+
+export async function saveAdminHeuristics(config: Partial<HeuristicsConfig>) {
+  const { data } = await api.put<HeuristicsConfig>('/v1/admin/heuristics', config)
+  return data
+}
+
+export async function getHeuristics() {
+  const { data } = await api.get<HeuristicsConfig>('/v1/heuristics')
   return data
 }
 

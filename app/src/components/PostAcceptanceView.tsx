@@ -6,10 +6,13 @@
 import { useState } from 'react'
 import { Phone, MessageSquare, Calendar, Download, ChevronDown, ChevronRight, FileText } from 'lucide-react'
 import { formatCurrency } from '../lib/formatters'
+import { useHeuristics } from '../contexts/HeuristicsContext'
+import { caseStrengthLabel } from '../lib/heuristics'
 import { CallPlaintiffModal, MessagePlaintiffModal, ScheduleConsultModal } from './CaseCommandModals'
 
 function formatClaimType(s: string) {
-  return (s || 'unknown').replace(/_/g, ' ')
+  if (!s) return 'Personal injury'
+  return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 interface CollapsibleSectionProps {
@@ -120,6 +123,7 @@ export default function PostAcceptanceView({
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
   const [evidenceExpanded, setEvidenceExpanded] = useState(false)
   const [modalLoading, setModalLoading] = useState(false)
+  const heuristics = useHeuristics()
 
   const claimType = formatClaimType(selectedLead?.assessment?.claimType || '')
   const location = [selectedLead?.assessment?.venueCounty, selectedLead?.assessment?.venueState]
@@ -128,7 +132,7 @@ export default function PostAcceptanceView({
   const valueLow = bands?.p25 ?? bands?.low ?? 0
   const valueHigh = bands?.p75 ?? bands?.high ?? bands?.median ?? 0
   const caseScore = Math.round((selectedLead?.viabilityScore ?? 0) * 100)
-  const caseStrength = caseScore >= 70 ? 'Strong' : caseScore >= 40 ? 'Moderate' : 'Weak'
+  const caseStrength = caseStrengthLabel(heuristics, caseScore)
 
   const injury = injuryTypes.length > 0 ? injuryTypes[0] : 'Not documented'
   const treatment = treatments.length > 0 ? 'Yes' : 'No'

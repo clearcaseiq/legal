@@ -25,7 +25,8 @@ import {
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
 import { colors, radii, shadows, space } from '../../src/theme/tokens'
-import { formatClaimType, parseFacts } from '../../src/lib/formatLead'
+import { leadLabel, leadMeta } from '../../src/lib/formatLead'
+import { addEventToCalendar } from '../../src/lib/addToCalendar'
 
 const TIME_SLOTS = [
   '9:00 AM',
@@ -65,26 +66,6 @@ function addDays(dateText: string, delta: number) {
   return date.toISOString().slice(0, 10)
 }
 
-function leadLabel(lead: any) {
-  const assessment = lead?.assessment || lead?.lead?.assessment || {}
-  const facts = parseFacts(assessment.facts)
-  const plaintiffContext = facts?.plaintiffContext || facts?.plaintiff || {}
-  const plaintiff = assessment.user
-    ? `${assessment.user.firstName || ''} ${assessment.user.lastName || ''}`.trim()
-    : lead?.plaintiffName ||
-      `${plaintiffContext.firstName || ''} ${plaintiffContext.lastName || ''}`.trim() ||
-      plaintiffContext.name
-  return plaintiff || formatClaimType(assessment.claimType) || `Case ${String(lead?.id || '').slice(-6)}`
-}
-
-function leadMeta(lead: any) {
-  const assessment = lead?.assessment || lead?.lead?.assessment || {}
-  const claim = formatClaimType(assessment.claimType)
-  const venue = [assessment.venueCounty, assessment.venueState].filter(Boolean).join(', ')
-  const idSuffix = lead?.id ? `Case ${String(lead.id).slice(-6)}` : null
-  return [claim, venue, idSuffix].filter(Boolean).join(' · ')
-}
-
 function isSchedulableLead(lead: any) {
   const status = String(lead?.status || '').toLowerCase()
   const lifecycle = String(lead?.lifecycleState || '').toLowerCase()
@@ -114,9 +95,10 @@ export default function ScheduleConsultScreen() {
   const [manualTime, setManualTime] = useState(time)
   const [meetingType, setMeetingType] = useState(currentType || 'phone')
   const [notes, setNotes] = useState(currentNotes || '')
+  const [alsoAddToCalendar, setAlsoAddToCalendar] = useState(true)
 
   const selectedLeadName = useMemo(() => selectedLead ? leadLabel(selectedLead) : 'Select a case', [selectedLead])
-  const selectedLeadMeta = useMemo(() => selectedLead ? leadMeta(selectedLead) : '', [selectedLead])
+  const selectedLeadMeta = useMemo(() => selectedLead ? leadMeta(selectedLead, { includeId: true }) : '', [selectedLead])
 
   const load = useCallback(async () => {
     setError(null)
@@ -172,6 +154,17 @@ export default function ScheduleConsultScreen() {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
       } catch {
         // Haptics are best-effort.
+      }
+      if (alsoAddToCalendar) {
+        const scheduledDate = new Date(`${date} ${time}`)
+        if (!Number.isNaN(scheduledDate.getTime())) {
+          await addEventToCalendar({
+            title: `Consultation — ${selectedLeadName}`,
+            start: scheduledDate,
+            end: new Date(scheduledDate.getTime() + 30 * 60_000),
+            details: notes.trim() || `${meetingType} consultation (ClearCaseIQ)`,
+          })
+        }
       }
       router.replace('/(app)/(tabs)/calendar')
     } catch (err: unknown) {
@@ -259,6 +252,22 @@ export default function ScheduleConsultScreen() {
         </View>
 
         <TouchableOpacity
+          style={styles.calCheckRow}
+          onPress={() => setAlsoAddToCalendar((v) => !v)}
+          activeOpacity={0.8}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: alsoAddToCalendar }}
+          accessibilityLabel="Also add this consultation to my phone calendar"
+        >
+          <Ionicons
+            name={alsoAddToCalendar ? 'checkbox' : 'square-outline'}
+            size={22}
+            color={alsoAddToCalendar ? colors.primary : colors.muted}
+          />
+          <Text style={styles.calCheckText}>Also add to my calendar</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
           style={[styles.primaryButton, ((!selectedLeadId && !appointmentId) || saving) && styles.primaryButtonDisabled]}
           onPress={submit}
           disabled={(!selectedLeadId && !appointmentId) || saving}
@@ -305,7 +314,7 @@ export default function ScheduleConsultScreen() {
                 activeOpacity={0.85}
               >
                 <Text style={styles.leadTitle}>{leadLabel(item)}</Text>
-                <Text style={styles.leadMeta}>{leadMeta(item)}</Text>
+                <Text style={styles.leadMeta}>{leadMeta(item, { includeId: true })}</Text>
               </TouchableOpacity>
             )}
             ListEmptyComponent={
@@ -476,6 +485,14 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
     backgroundColor: colors.surface,
   },
+  calCheckRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingVertical: space.sm,
+    marginBottom: space.sm,
+  },
+  calCheckText: { fontSize: 15, fontWeight: '700', color: colors.text },
   primaryButton: {
     minHeight: 54,
     borderRadius: radii.lg,

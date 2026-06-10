@@ -6,7 +6,7 @@ import { logger } from './logger'
  */
 export async function sendExpoPushNotifications(
   expoPushTokens: string[],
-  payload: { title: string; body: string; data?: Record<string, string> }
+  payload: { title: string; body: string; data?: Record<string, string>; categoryId?: string }
 ): Promise<void> {
   const tokens = [...new Set(expoPushTokens.filter(Boolean))]
   if (tokens.length === 0) return
@@ -20,6 +20,8 @@ export async function sendExpoPushNotifications(
       title: payload.title,
       body: payload.body,
       data: payload.data || {},
+      // Maps to an interactive notification category (action buttons) on the device.
+      ...(payload.categoryId ? { categoryId: payload.categoryId } : {}),
     }))
     try {
       const res = await fetch('https://exp.host/--/api/v2/push/send', {

@@ -89,6 +89,7 @@ const MATCHING_RULE_TABS = [
   { id: 'routing', label: 'Routing' },
   { id: 'timing', label: 'Timing' },
   { id: 'gate', label: 'Pre-routing Gate' },
+  { id: 'quality', label: 'Attorney Rules' },
   { id: 'value', label: 'Value' },
   { id: 'pricing', label: 'Pricing' },
   { id: 'weights', label: 'Weights' },
@@ -1047,6 +1048,98 @@ export default function AdminMatchingRules() {
             <p className="text-xs font-medium text-slate-500">Overrides</p>
             <p className="mt-1 text-sm font-semibold text-slate-900">{overrideCount} configured</p>
           </div>
+        </div>
+      </section>
+      </>
+      )}
+
+      {activeSection === 'quality' && (
+      <>
+      {/* Attorney quality gate */}
+      <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="mb-1 text-lg font-semibold text-slate-800">Attorney quality gate</h2>
+        <p className="mb-4 text-sm text-slate-600">
+          After hard eligibility (jurisdiction, case type, capacity), attorneys must clear these quality rules before a case is routed to them. Tightening them routes to fewer, higher-quality attorneys; loosening them widens the pool.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Max response time — standard cases (hours)</span>
+            <input
+              type="number"
+              step={1}
+              min={1}
+              max={336}
+              value={config.qualityGateMaxResponseHours}
+              onChange={(e) => update({ qualityGateMaxResponseHours: parseInt(e.target.value, 10) || 0 })}
+              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <span className="mt-1 block text-xs text-slate-500">Attorneys slower than this are skipped for normal cases.</span>
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Max response time — hot cases (hours)</span>
+            <input
+              type="number"
+              step={1}
+              min={1}
+              max={336}
+              value={config.qualityGateHotCaseMaxResponseHours}
+              onChange={(e) => update({ qualityGateHotCaseMaxResponseHours: parseInt(e.target.value, 10) || 0 })}
+              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <span className="mt-1 block text-xs text-slate-500">Stricter SLA applied to high-viability cases.</span>
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Hot-case viability threshold (%)</span>
+            <input
+              type="number"
+              step={1}
+              min={0}
+              max={100}
+              value={Math.round(config.qualityGateHotCaseViabilityThreshold * 100)}
+              onChange={(e) => update({ qualityGateHotCaseViabilityThreshold: Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0)) / 100 })}
+              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <span className="mt-1 block text-xs text-slate-500">Cases at/above this overall viability use the hot-case SLA.</span>
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Minimum contact rate (%)</span>
+            <input
+              type="number"
+              step={1}
+              min={0}
+              max={100}
+              value={Math.round(config.qualityGateMinContactRate * 100)}
+              onChange={(e) => update({ qualityGateMinContactRate: Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0)) / 100 })}
+              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <span className="mt-1 block text-xs text-slate-500">Attorneys who historically contact fewer leads than this are skipped.</span>
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Maximum complaint rate (%)</span>
+            <input
+              type="number"
+              step={1}
+              min={0}
+              max={100}
+              value={Math.round(config.qualityGateMaxComplaintRate * 100)}
+              onChange={(e) => update({ qualityGateMaxComplaintRate: Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0)) / 100 })}
+              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <span className="mt-1 block text-xs text-slate-500">Attorneys above this complaint/poor-outcome rate are skipped.</span>
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Maximum cherry-picking score (%)</span>
+            <input
+              type="number"
+              step={1}
+              min={0}
+              max={100}
+              value={Math.round(config.qualityGateMaxCherryPickingScore * 100)}
+              onChange={(e) => update({ qualityGateMaxCherryPickingScore: Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0)) / 100 })}
+              className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <span className="mt-1 block text-xs text-slate-500">Attorneys who accept cases but rarely follow up above this rate are skipped.</span>
+          </label>
         </div>
       </section>
       </>

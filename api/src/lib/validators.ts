@@ -40,6 +40,14 @@ export const Consents = z.object({
   hipaa: z.boolean().optional()
 })
 
+// New assessments must carry affirmative consent; updates may echo stored values.
+export const ConsentsAccepted = z.object({
+  tos: z.literal(true, { errorMap: () => ({ message: 'Terms of service must be accepted' }) }),
+  privacy: z.literal(true, { errorMap: () => ({ message: 'Privacy policy must be accepted' }) }),
+  ml_use: z.literal(true, { errorMap: () => ({ message: 'AI analysis consent is required' }) }),
+  hipaa: z.boolean().optional()
+})
+
 export const CaseAcceleration = z.object({
   wageLoss: z.object({
     employerName: z.string().optional(),
@@ -92,7 +100,7 @@ export const AssessmentWrite = z.object({
   treatment: z.array(z.record(z.any())).optional(),
   damages: Damages,
   insurance: z.record(z.any()).optional(),
-  consents: Consents,
+  consents: ConsentsAccepted,
   caseAcceleration: CaseAcceleration.optional(),
   jurisdiction: JurisdictionIntelligence.optional(),
   plaintiffContext: PlaintiffContext.optional(),

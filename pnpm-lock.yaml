@@ -189,6 +189,9 @@ importers:
       react-router-dom:
         specifier: ^6.26.1
         version: 6.30.1(react-dom@19.1.0)(react@19.1.0)
+      typed-usa-states:
+        specifier: ^2.1.0
+        version: 2.1.0
       zod:
         specifier: ^3.23.8
         version: 3.25.76
@@ -13287,6 +13290,10 @@ packages:
     dependencies:
       media-typer: 0.3.0
       mime-types: 2.1.35
+    dev: false
+
+  /typed-usa-states@2.1.0:
+    resolution: {integrity: sha512-9HyajobhSjkrF/vg0f70AVBZUY7t9RqFowyyFtim2HmKQ+LtYh14AmIe+3dTfOH5zYrgSLgOlSR+luH9F0g6dw==}
     dev: false
 
   /typedarray@0.0.6:

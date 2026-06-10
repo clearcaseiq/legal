@@ -20,7 +20,7 @@ import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
 import { labelRequestedDoc } from '../../src/lib/docRequestLabels'
 import { colors, radii, shadows, space } from '../../src/theme/tokens'
-import { formatClaimType, parseFacts } from '../../src/lib/formatLead'
+import { leadLabel, leadMeta } from '../../src/lib/formatLead'
 
 const DOC_TYPES = ['police_report', 'medical_records', 'injury_photos', 'wage_loss', 'insurance', 'other']
 
@@ -32,26 +32,6 @@ function inferDocKey(label?: string) {
   if (text.includes('wage') || text.includes('income') || text.includes('work')) return 'wage_loss'
   if (text.includes('insurance')) return 'insurance'
   return null
-}
-
-function leadLabel(lead: any) {
-  const assessment = lead?.assessment || {}
-  const facts = parseFacts(assessment.facts)
-  const plaintiffContext = facts?.plaintiffContext || facts?.plaintiff || {}
-  const plaintiff = assessment.user
-    ? `${assessment.user.firstName || ''} ${assessment.user.lastName || ''}`.trim()
-    : lead?.plaintiffName ||
-      `${plaintiffContext.firstName || ''} ${plaintiffContext.lastName || ''}`.trim() ||
-      plaintiffContext.name
-  return plaintiff || formatClaimType(assessment.claimType) || `Case ${String(lead?.id || '').slice(-6)}`
-}
-
-function leadMeta(lead: any) {
-  const assessment = lead?.assessment || {}
-  const claim = formatClaimType(assessment.claimType)
-  const venue = [assessment.venueCounty, assessment.venueState].filter(Boolean).join(', ')
-  const idSuffix = lead?.id ? `Case ${String(lead.id).slice(-6)}` : null
-  return [claim, venue, idSuffix].filter(Boolean).join(' · ')
 }
 
 export default function RequestDocsScreen() {
@@ -178,7 +158,7 @@ export default function RequestDocsScreen() {
           <TouchableOpacity style={styles.caseSelector} onPress={() => setLeadPickerOpen(true)} activeOpacity={0.85}>
             <View style={styles.caseSelectorCopy}>
               <Text style={styles.caseName}>{selectedLead ? leadLabel(selectedLead) : 'Select a case'}</Text>
-              {selectedLead ? <Text style={styles.caseMeta}>{leadMeta(selectedLead)}</Text> : null}
+              {selectedLead ? <Text style={styles.caseMeta}>{leadMeta(selectedLead, { includeId: true })}</Text> : null}
             </View>
             <Ionicons name="chevron-down" size={20} color={colors.primary} />
           </TouchableOpacity>
@@ -256,7 +236,7 @@ export default function RequestDocsScreen() {
                 activeOpacity={0.85}
               >
                 <Text style={styles.leadTitle}>{leadLabel(item)}</Text>
-                <Text style={styles.leadMeta}>{leadMeta(item)}</Text>
+                <Text style={styles.leadMeta}>{leadMeta(item, { includeId: true })}</Text>
               </TouchableOpacity>
             )}
             ListEmptyComponent={

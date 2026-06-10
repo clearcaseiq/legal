@@ -4,6 +4,8 @@ import PreAcceptanceView from './PreAcceptanceView'
 import PersistentCaseHeader from './PersistentCaseHeader'
 import NextBestActionWidget from './NextBestActionWidget'
 import { formatCurrency, formatPercentage } from '../lib/formatters'
+import { useHeuristics } from '../contexts/HeuristicsContext'
+import { caseStrengthLabel } from '../lib/heuristics'
 import AttorneyCaseIntelligenceSuite from './AttorneyCaseIntelligenceSuite'
 import type {
   AttorneyDashboardContactCommandPayload,
@@ -160,6 +162,7 @@ export default function AttorneyDashboardLeadDetail({
   copilotAnswer,
   copilotLoading,
 }: AttorneyDashboardLeadDetailProps) {
+  const heuristics = useHeuristics()
   return (
     <div className={leadWrapperClass}>
       <div className={leadContainerClass}>
@@ -508,14 +511,16 @@ export default function AttorneyDashboardLeadDetail({
               )
             }
 
-            const claimType = (selectedLead?.assessment?.claimType || 'unknown').replace(/_/g, ' ')
+            const claimType = (selectedLead?.assessment?.claimType || 'personal injury')
+              .replace(/_/g, ' ')
+              .replace(/\b\w/g, (c: string) => c.toUpperCase())
             const location =
               [selectedLead?.assessment?.venueCounty, selectedLead?.assessment?.venueState].filter(Boolean).join(', ') ||
-              '—'
+              'Venue not provided'
             const valueLow = bands?.p25 ?? bands?.low ?? 0
             const valueHigh = bands?.p75 ?? bands?.high ?? bands?.median ?? 0
             const caseScore = Math.round((selectedLead?.viabilityScore ?? 0) * 100)
-            const caseStrength = caseScore >= 70 ? 'Strong' : caseScore >= 40 ? 'Moderate' : 'Weak'
+            const caseStrength = caseStrengthLabel(heuristics, caseScore)
             const treatment = treatments.length > 0 ? 'Yes' : 'No'
             const timelineEstimate = treatments.length >= 2 ? '8–14 months' : treatments.length === 1 ? '6–12 months' : '—'
             const firstName = selectedLead?.assessment?.user?.firstName || ''
@@ -571,6 +576,12 @@ export default function AttorneyDashboardLeadDetail({
               treatmentGaps,
               upcomingAppointments,
               medicalSpend,
+              medicalSpendSource: facts?.damages?.med_charges_source ?? null,
+              medicalSpendIsFloor: facts?.damages?.med_charges_is_floor === true,
+              medicalDiscrepancy: facts?.damages?.med_discrepancy ?? null,
+              medicalBillItems: Array.isArray(facts?.damages?.med_bill_items) ? facts.damages.med_bill_items : [],
+              documentedMedTotal: extractMoney(facts?.damages?.extracted_med_charges),
+              selfReportedMedEstimate: extractMoney(facts?.damages?.intake_med_charges),
               nextBestAction: nextActionsForWidget[0] || 'Review case and prepare demand letter',
               defenseRisks: [
                 !hasPolice ? 'No police report or incident report in file' : null,
@@ -910,6 +921,24 @@ function PostAcceptanceWorkupPanel({
     treatmentGaps: string[]
     upcomingAppointments: number
     medicalSpend: number
+    medicalSpendSource?: 'documented' | 'partially_documented' | 'self_reported' | null
+    medicalSpendIsFloor?: boolean
+    medicalDiscrepancy?: {
+      intake: number
+      extracted: number
+      ratio: number
+      direction: 'documented_higher' | 'self_reported_higher'
+      severity: 'medium' | 'high'
+    } | null
+    medicalBillItems?: Array<{
+      kind: 'document' | 'self_reported'
+      label: string
+      amount: number
+      fileId?: string
+      uploadedAt?: string | null
+    }>
+    documentedMedTotal?: number
+    selfReportedMedEstimate?: number
     nextBestAction: string
     defenseRisks: string[]
   }
@@ -997,12 +1026,14 @@ function PostAcceptanceWorkupPanel({
         />
         <CaseReadinessSignal
           label="Medical spend"
-          value={workup.medicalSpend > 0 ? formatCurrency(workup.medicalSpend) : '$0'}
-          helper={workup.medicalSpend > 0 ? 'Estimated from treatment and billing facts' : 'No medical spend captured yet'}
-          tone={workup.medicalSpend > 0 ? 'good' : 'neutral'}
+          value={workup.medicalSpend > 0 ? `${formatCurrency(workup.medicalSpend)}${workup.medicalSpendIsFloor ? '+' : ''}` : '$0'}
+          helper={medicalSpendHelper(workup)}
+          tone={workup.medicalDiscrepancy ? 'warn' : workup.medicalSpend > 0 ? 'good' : 'neutral'}
           onClick={() => onOpenWorkstream('billing')}
         />
       </div>
+
+      <MedicalSpecialsProvenance workup={workup} onOpenWorkstream={onOpenWorkstream} onRequestDocuments={onRequestDocuments} />
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr]">
         <div className="subtle-panel border-amber-200 bg-amber-50 p-4">
@@ -1228,6 +1259,11 @@ function extractMoney(value: unknown): number {
 }
 
 function estimateMedicalSpend(facts: any, treatments: any[]): number {
+  // The reconciliation pipeline writes the authoritative figure to damages.med_charges
+  // (documented bills, self-reported estimate, or the higher of the two). Prefer it.
+  const reconciled = extractMoney(facts?.damages?.med_charges)
+  if (reconciled > 0) return Math.round(reconciled)
+
   const treatmentSpend = treatments.reduce((sum, treatment) => {
     const values = [
       treatment?.amount,
@@ -1256,6 +1292,172 @@ function estimateMedicalSpend(facts: any, treatments: any[]): number {
   }, 0)
 
   return Math.round(treatmentSpend + factSpend)
+}
+
+type MedicalProvenanceWorkup = {
+  medicalSpend: number
+  medicalSpendSource?: 'documented' | 'partially_documented' | 'self_reported' | null
+  medicalSpendIsFloor?: boolean
+  medicalDiscrepancy?: {
+    intake: number
+    extracted: number
+    direction: 'documented_higher' | 'self_reported_higher'
+    severity: 'medium' | 'high'
+  } | null
+  medicalBillItems?: Array<{
+    kind: 'document' | 'self_reported'
+    label: string
+    amount: number
+    fileId?: string
+    uploadedAt?: string | null
+  }>
+  documentedMedTotal?: number
+  selfReportedMedEstimate?: number
+}
+
+function MedSourceBadge({ kind }: { kind: 'document' | 'self_reported' | 'needs_verification' }) {
+  const map = {
+    document: { label: 'Documented', cls: 'border-emerald-200 bg-emerald-50 text-emerald-700' },
+    self_reported: { label: 'Self-reported', cls: 'border-slate-200 bg-slate-50 text-slate-600' },
+    needs_verification: { label: 'Needs verification', cls: 'border-amber-200 bg-amber-50 text-amber-700' },
+  }[kind]
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${map.cls}`}>
+      {map.label}
+    </span>
+  )
+}
+
+function MedicalSpecialsProvenance({
+  workup,
+  onOpenWorkstream,
+  onRequestDocuments,
+}: {
+  workup: MedicalProvenanceWorkup
+  onOpenWorkstream: (section: string) => void
+  onRequestDocuments: () => void
+}) {
+  const items = workup.medicalBillItems || []
+  if (workup.medicalSpend <= 0 && items.length === 0) return null
+
+  const source = workup.medicalSpendSource ?? 'self_reported'
+  const documentedTotal = workup.documentedMedTotal || 0
+  const selfReported = workup.selfReportedMedEstimate || 0
+
+  // Honest "how this was calculated" notes — what was used and what would raise confidence.
+  const methodology: string[] = []
+  if (source === 'documented') {
+    methodology.push(`Total reflects ${items.filter((i) => i.kind === 'document').length} uploaded bill document(s), confirmed complete by the claimant.`)
+  } else if (source === 'partially_documented') {
+    methodology.push(`Higher of documented bills (${formatCurrency(documentedTotal)}) and the self-reported estimate (${formatCurrency(selfReported)}). Treated as a floor — more bills may exist.`)
+  } else {
+    methodology.push('Self-reported by the claimant; no medical bills have been uploaded yet.')
+  }
+  if (workup.medicalSpendIsFloor) methodology.push('Shown as a floor (+) — the true total is likely higher and should be confirmed with records.')
+
+  const raiseConfidence: string[] = []
+  if (source !== 'documented') raiseConfidence.push('Request and upload all medical bills')
+  if (source === 'partially_documented') raiseConfidence.push('Confirm with the claimant that all bills are submitted')
+  if (workup.medicalDiscrepancy) raiseConfidence.push('Reconcile the self-reported vs. documented mismatch')
+
+  return (
+    <div className="subtle-panel mt-5 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold text-slate-900">Medical specials — verifiable breakdown</h4>
+        <MedSourceBadge kind={workup.medicalDiscrepancy ? 'needs_verification' : source === 'documented' ? 'document' : 'self_reported'} />
+      </div>
+
+      {workup.medicalDiscrepancy && (
+        <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+          Mismatch: claimant self-reported {formatCurrency(workup.medicalDiscrepancy.intake)} but uploaded documents total {formatCurrency(workup.medicalDiscrepancy.extracted)}. Verify the bills before relying on this figure.
+        </p>
+      )}
+
+      <ul className="mt-3 divide-y divide-slate-100">
+        {items.length === 0 ? (
+          <li className="py-2 text-xs text-slate-500">No itemized sources captured yet.</li>
+        ) : (
+          items.map((item, index) => (
+            <li key={`${item.label}-${index}`} className="flex items-center justify-between gap-3 py-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <MedSourceBadge kind={item.kind === 'document' ? 'document' : 'self_reported'} />
+                {item.kind === 'document' && item.fileId ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenWorkstream('evidence')}
+                    className="truncate text-left text-xs font-medium text-brand-700 hover:underline"
+                    title={item.label}
+                  >
+                    {item.label}
+                  </button>
+                ) : (
+                  <span className="truncate text-xs font-medium text-slate-700" title={item.label}>{item.label}</span>
+                )}
+              </div>
+              <span className="shrink-0 text-xs font-semibold text-slate-900">{formatCurrency(item.amount)}</span>
+            </li>
+          ))
+        )}
+      </ul>
+
+      <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total used in valuation</span>
+        <span className="text-sm font-bold text-slate-900">{formatCurrency(workup.medicalSpend)}{workup.medicalSpendIsFloor ? '+' : ''}</span>
+      </div>
+
+      <details className="mt-3 group">
+        <summary className="cursor-pointer text-xs font-semibold text-brand-700 hover:underline">How this was calculated</summary>
+        <div className="mt-2 space-y-2 text-xs leading-5 text-slate-600">
+          <ul className="list-disc space-y-1 pl-4">
+            {methodology.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+          {raiseConfidence.length > 0 && (
+            <div>
+              <p className="font-semibold text-slate-700">To increase confidence:</p>
+              <ul className="mt-1 list-disc space-y-1 pl-4">
+                {raiseConfidence.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+              <button type="button" onClick={onRequestDocuments} className="btn-outline mt-2 text-xs">Request documents</button>
+            </div>
+          )}
+        </div>
+      </details>
+    </div>
+  )
+}
+
+function medicalSpendHelper(workup: {
+  medicalSpend: number
+  medicalSpendSource?: 'documented' | 'partially_documented' | 'self_reported' | null
+  medicalSpendIsFloor?: boolean
+  medicalDiscrepancy?: {
+    intake: number
+    extracted: number
+    direction: 'documented_higher' | 'self_reported_higher'
+    severity: 'medium' | 'high'
+  } | null
+}): string {
+  if (workup.medicalSpend <= 0) return 'No medical spend captured yet'
+  if (workup.medicalDiscrepancy) {
+    const { intake, extracted } = workup.medicalDiscrepancy
+    return `Mismatch: self-reported ${formatCurrency(intake)} vs documented ${formatCurrency(extracted)} — verify bills`
+  }
+  switch (workup.medicalSpendSource) {
+    case 'documented':
+      return 'Documented from uploaded bills'
+    case 'partially_documented':
+      return 'Partially documented — more bills may exist'
+    case 'self_reported':
+      return workup.medicalSpendIsFloor
+        ? 'Self-reported floor ($50k+) — request bills to refine'
+        : 'Self-reported estimate — not yet documented'
+    default:
+      return 'Estimated from treatment and billing facts'
+  }
 }
 
 function formatWorkspaceLabel(section: string) {

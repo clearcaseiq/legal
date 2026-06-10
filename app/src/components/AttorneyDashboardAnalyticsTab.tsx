@@ -1,5 +1,11 @@
 import { ChevronRight } from 'lucide-react'
 import { formatCurrency, formatPercentage } from '../lib/formatters'
+import { useHeuristics } from '../contexts/HeuristicsContext'
+import {
+  acceptanceRateLabel as computeAcceptanceRateLabel,
+  responseSpeedLabel as computeResponseSpeedLabel,
+  marketplaceRankLabel as computeMarketplaceRankLabel,
+} from '../lib/heuristics'
 
 type AttorneyDashboardAnalyticsTabProps = {
   dashboardData: any
@@ -14,11 +20,12 @@ export default function AttorneyDashboardAnalyticsTab({
   analyticsIntel,
   profile,
 }: AttorneyDashboardAnalyticsTabProps) {
+  const heuristics = useHeuristics()
   const readinessLeads = Array.isArray(dashboardData?.recentLeads) ? dashboardData.recentLeads : []
   const avgReadiness = readinessLeads.length
     ? Math.round(readinessLeads.reduce((sum: number, lead: any) => sum + Number(lead?.demandReadiness?.score || 0), 0) / readinessLeads.length)
     : 0
-  const demandReadyCount = readinessLeads.filter((lead: any) => Number(lead?.demandReadiness?.score || 0) >= 85).length
+  const demandReadyCount = readinessLeads.filter((lead: any) => Number(lead?.demandReadiness?.score || 0) >= heuristics.readinessLabels.demandReadyMin).length
   const docBlockedCount = readinessLeads.filter((lead: any) => (lead?.demandReadiness?.blockers || []).some((blocker: any) => {
     const key = blocker.key || blocker.type || ''
     return key === 'missing_documents' || key.includes('document') || key.includes('records') || key.includes('report')
@@ -31,9 +38,9 @@ export default function AttorneyDashboardAnalyticsTab({
   const acceptedLeads = Number(funnel.accepted ?? dashboardData?.dashboard?.totalLeadsAccepted ?? 0)
   const consultedLeads = Number(funnel.consultScheduled ?? funnel.consulted ?? activeCases.consultScheduled ?? 0)
   const retainedLeads = Number(funnel.retained ?? activeCases.retained ?? 0)
-  const acceptanceRate = leadsReceived > 0 ? Math.round((acceptedLeads / leadsReceived) * 100) : 0
-  const consultRate = acceptedLeads > 0 ? Math.round((consultedLeads / acceptedLeads) * 100) : 0
-  const retainRate = consultedLeads > 0 ? Math.round((retainedLeads / consultedLeads) * 100) : 0
+  const acceptanceRate = leadsReceived > 0 ? Math.min(100, Math.round((acceptedLeads / leadsReceived) * 100)) : 0
+  const consultRate = acceptedLeads > 0 ? Math.min(100, Math.round((consultedLeads / acceptedLeads) * 100)) : 0
+  const retainRate = consultedLeads > 0 ? Math.min(100, Math.round((retainedLeads / consultedLeads) * 100)) : 0
   const openCaseFeePipeline = Math.round(Number(dashboardData?.pipelineValue || 0))
   const casesInNegotiation = readinessLeads.filter((lead: any) => ['consulted', 'retained'].includes(lead?.status || '')).length
   const liveConversionRate = Number(dashboardData?.analytics?.conversionRate || 0) / 100
@@ -74,18 +81,10 @@ export default function AttorneyDashboardAnalyticsTab({
       (Math.min(1, Math.max(0, conversionScore)) * 20)
     ))
   )
-  const responseSpeedLabel = responseSpeedScore >= 0.85 ? 'Excellent' : responseSpeedScore >= 0.65 ? 'Strong' : responseSpeedScore > 0 ? 'Improving' : 'No data yet'
-  const acceptanceRateLabel = acceptanceRate >= 75 ? 'Excellent' : acceptanceRate >= 50 ? 'Strong' : acceptanceRate > 0 ? 'Improving' : 'No data yet'
+  const responseSpeedLabel = computeResponseSpeedLabel(heuristics, responseSpeedScore)
+  const acceptanceRateLabel = computeAcceptanceRateLabel(heuristics, acceptanceRate)
   const satisfactionLabel = attorneyRating >= 4.5 ? 'Excellent' : attorneyRating >= 4 ? 'Strong' : attorneyRating > 0 ? 'Improving' : 'No data yet'
-  const plaintiffRankingLabel = marketplaceScore >= 90
-    ? 'Top 5%'
-    : marketplaceScore >= 80
-    ? 'Top 10%'
-    : marketplaceScore >= 70
-    ? 'Top 25%'
-    : marketplaceScore > 0
-    ? 'Building rank'
-    : 'Not ranked yet'
+  const plaintiffRankingLabel = computeMarketplaceRankLabel(heuristics, marketplaceScore)
 
   return (
     <div className="space-y-6">

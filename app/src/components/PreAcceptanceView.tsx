@@ -6,9 +6,12 @@
 import { useEffect, useState } from 'react'
 import { formatCurrency } from '../lib/formatters'
 import { ChevronDown, ChevronRight, Clock } from 'lucide-react'
+import { useHeuristics } from '../contexts/HeuristicsContext'
+import { caseStrengthLabel, scoreTone } from '../lib/heuristics'
 
 function formatClaimType(s: string) {
-  return (s || 'unknown').replace(/_/g, ' ')
+  if (!s) return 'Personal injury'
+  return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 function formatCountdown(ms: number) {
@@ -77,6 +80,7 @@ export default function PreAcceptanceView({
   caseExpiresAt,
   accepted = false
 }: PreAcceptanceViewProps) {
+  const heuristics = useHeuristics()
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [requestInfoOpen, setRequestInfoOpen] = useState(false)
   const [requestInfoNotes, setRequestInfoNotes] = useState('')
@@ -92,7 +96,20 @@ export default function PreAcceptanceView({
   const claimType = formatClaimType(selectedLead?.assessment?.claimType || '')
   const location = [selectedLead?.assessment?.venueCounty, selectedLead?.assessment?.venueState]
     .filter(Boolean)
-    .join(', ') || '—'
+    .join(', ') || 'Venue not provided'
+  const insuranceSummary = (() => {
+    try {
+      const rawFacts = selectedLead?.assessment?.facts
+      const facts = typeof rawFacts === 'string' ? JSON.parse(rawFacts) : rawFacts
+      const insurance = facts?.insurance
+      if (!insurance || (typeof insurance === 'object' && Object.keys(insurance).length === 0)) return 'Not provided yet'
+      if (insurance.hasInsurance === false || insurance.otherPartyInsured === 'no') return 'No coverage reported'
+      const carrier = insurance.carrier || insurance.company || insurance.provider || insurance.insurerName
+      return carrier ? String(carrier) : 'Details on file'
+    } catch {
+      return 'Not provided yet'
+    }
+  })()
   const valueLow = bands?.p25 ?? bands?.low ?? 0
   const valueHigh = bands?.p75 ?? bands?.high ?? bands?.median ?? 0
   const routingPricing = selectedLead?.routingPricing
@@ -100,9 +117,10 @@ export default function PreAcceptanceView({
     ? formatCurrency(routingPricing.priceCents / 100)
     : null
   const routingTierLabel = routingPricing?.tierLabel || 'Pricing tier not assigned'
-  const caseScore = Math.round((selectedLead?.viabilityScore ?? viability?.overall ?? 0) * 100)
-  const caseStrength =
-    caseScore >= 70 ? 'Strong' : caseScore >= 40 ? 'Moderate' : 'Weak'
+  const rawCaseScore = Number(selectedLead?.viabilityScore ?? viability?.overall ?? 0)
+  const caseScore = rawCaseScore <= 1 ? Math.round(rawCaseScore * 100) : Math.min(100, Math.round(rawCaseScore))
+  const hasCaseScore = caseScore > 0
+  const caseStrength = !hasCaseScore ? 'Not scored yet' : caseStrengthLabel(heuristics, caseScore)
 
   // Evidence status
   const evidenceItems = Array.isArray(evidenceChecklist?.required) ? evidenceChecklist.required : []
@@ -190,10 +208,10 @@ export default function PreAcceptanceView({
         ? 'Accept if capacity and missing documents are manageable'
         : 'Review risks before accepting'
   const riskRows = [
-    { label: 'Treatment continuity', value: treatmentContinuity || 'Unknown', level: treatmentContinuity === 'Fragmented' || treatments.length <= 1 ? 'high' : 'low' },
+    { label: 'Treatment continuity', value: treatmentContinuity || 'Not assessed yet', level: treatmentContinuity === 'Fragmented' || treatments.length <= 1 ? 'high' : 'low' },
     { label: 'Documentation completeness', value: `${evidenceScore}%`, level: evidenceScore < 50 ? 'high' : evidenceScore < 75 ? 'medium' : 'low' },
     { label: 'Comparative fault', value: comparativeRisk, level: comparativeRisk === 'Yes' || comparativeRisk === 'Possible' ? 'medium' : 'low' },
-    { label: 'Confidence', value: `${confidenceScore}%`, level: confidenceScore < 50 ? 'medium' : 'low' },
+    { label: 'Value estimate confidence', value: `${confidenceScore}%`, level: confidenceScore < 50 ? 'medium' : 'low' },
   ]
 
   return (
@@ -233,7 +251,7 @@ export default function PreAcceptanceView({
           <div>
             <span className="text-gray-500">Case Strength:</span>
             <p className="font-semibold text-gray-900">
-              {caseStrength} ({caseScore}/100)
+              {hasCaseScore ? `${caseStrength} (${caseScore}/100)` : 'Not scored yet'}
             </p>
           </div>
           <div>
@@ -364,18 +382,22 @@ export default function PreAcceptanceView({
           {activeTab === 'snapshot' && (
             <div className="space-y-4">
               <div className="grid gap-3 md:grid-cols-4">
-                <DecisionMetric label="Acceptability" value={`${readinessScore}%`} helper={decisionRecommendation} tone={readinessScore >= 70 ? 'green' : readinessScore >= 45 ? 'amber' : 'red'} />
+                <DecisionMetric label="Acceptability" value={`${readinessScore}%`} helper={decisionRecommendation} tone={scoreTone(heuristics, readinessScore)} />
                 <DecisionMetric label="Attorney fit" value={`${attorneyFitScore}%`} helper={matchReasons[0] || 'Fit based on case and venue signals'} tone="blue" />
-                <DecisionMetric label="File completeness" value={`${evidenceScore}%`} helper={`${evidenceUploaded}/${evidenceTotal} key items uploaded`} tone={evidenceScore >= 75 ? 'green' : 'amber'} />
+                <DecisionMetric label="File completeness" value={`${evidenceScore}%`} helper={`${evidenceUploaded}/${evidenceTotal} key items uploaded`} tone={evidenceScore >= heuristics.evidenceCompleteness.highMin ? 'green' : 'amber'} />
                 <DecisionMetric label="Urgency" value={expiresIn || 'Normal'} helper={deadlineUrgency} tone={expiresIn ? 'amber' : 'slate'} />
               </div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                 <h3 className="text-sm font-semibold text-slate-900">60-second case story</h3>
                 <p className="mt-2 text-sm text-slate-700">
-                  {claimType} in {location}. Estimated value is{' '}
-                  {valueLow || valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : 'not available'} with{' '}
-                  {confidenceScore}% confidence. Liability is scored at {Math.round(liabilityScore * 100)}%, treatment is{' '}
-                  {hasMedical ? 'documented' : 'not yet documented'}, and {missingDocuments.length} key document
+                  {claimType} in {location}.{' '}
+                  {valueLow || valueHigh
+                    ? `Estimated value is ${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}${confidenceScore > 0 ? ` with ${confidenceScore}% confidence` : ''}.`
+                    : 'A value estimate is not available yet — more case details are needed.'}{' '}
+                  {liabilityScore > 0
+                    ? `Liability is scored at ${Math.round(liabilityScore * 100)}%,`
+                    : 'Liability has not been scored yet,'}{' '}
+                  treatment is {hasMedical ? 'documented' : 'not yet documented'}, and {missingDocuments.length} key document
                   {missingDocuments.length === 1 ? ' is' : 's are'} still missing.
                 </p>
                 {medicalSharingPending && (
@@ -456,8 +478,8 @@ export default function PreAcceptanceView({
                 <h3 className="text-sm font-semibold text-slate-900">Decision recommendation</h3>
                 <p className="mt-2 text-lg font-bold text-slate-900">{decisionRecommendation}</p>
                 <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                  <li>Case score: {caseScore}/100</li>
-                  <li>Liability: {Math.round(liabilityScore * 100)}%</li>
+                  <li>Case score: {hasCaseScore ? `${caseScore}/100` : 'Not scored yet'}</li>
+                  <li>Liability: {liabilityScore > 0 ? `${Math.round(liabilityScore * 100)}%` : 'Not scored yet'}</li>
                   <li>File completeness: {evidenceScore}%</li>
                   <li>Attorney fit: {attorneyFitScore}%</li>
                 </ul>
@@ -565,7 +587,7 @@ export default function PreAcceptanceView({
         {treatments.length > 0 || deterministicChronology.timeline.length > 0 ? (
           <div className="space-y-2 text-sm">
             <p className="text-gray-600">
-              Treatment continuity: {treatmentContinuity ? treatmentContinuity.charAt(0).toUpperCase() + treatmentContinuity.slice(1) : 'Unknown'}
+              Treatment continuity: {treatmentContinuity ? treatmentContinuity.charAt(0).toUpperCase() + treatmentContinuity.slice(1) : 'Not assessed yet'}
             </p>
             <p className="text-gray-600">
               First Visit: {firstVisit} • Last Visit: {lastVisit}
@@ -598,7 +620,7 @@ export default function PreAcceptanceView({
           </div>
           <div>
             <span className="text-gray-500">Insurance:</span>
-            <p className="font-medium">Unknown</p>
+            <p className="font-medium">{insuranceSummary}</p>
           </div>
         </div>
       </div>

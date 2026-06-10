@@ -28,6 +28,7 @@ import {
   getConfiguredWaveWaitHours,
   getMatchingRules,
   getPreRoutingGateOptions,
+  getQualityGateOptions,
   normalizeMatchingWeights,
   type MatchingRulesConfig,
   type MatchingRulesWeights,
@@ -553,8 +554,12 @@ export async function runRoutingEngine(
       }
     }
 
-    // 7. Quality gate
-    const { qualified, disqualified } = await filterQualifiedAttorneys(eligible, caseData)
+    // 7. Quality gate (admin-configurable routing rules)
+    const { qualified, disqualified } = await filterQualifiedAttorneys(
+      eligible,
+      caseData,
+      getQualityGateOptions(matchingRules)
+    )
     const qualityExcludedPreview = [
       ...excludedPreview,
       ...disqualified.slice(0, 12).map((item) => ({

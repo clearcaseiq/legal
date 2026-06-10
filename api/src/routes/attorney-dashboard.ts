@@ -21,6 +21,7 @@ import {
   syncDecisionMemoryForAssessment
 } from '../lib/routing-lifecycle'
 import { sendPlaintiffAttorneyAccepted } from '../lib/case-notifications'
+import { translateToEnglish, looksNonEnglish } from '../lib/translate'
 import { answerCommandCenterCopilot, buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
 import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
@@ -9261,14 +9262,23 @@ router.get('/messaging/chat-rooms', authMiddleware, async (req: any, res) => {
     )
     const unreadMap = Object.fromEntries(unreadByRoom.map(u => [u.chatRoomId, u._count.id]))
 
-    const parsed = chatRooms.map(room => ({
-      id: room.id,
-      leadId: room.assessmentId ? leadByAssessment[room.assessmentId] : null,
-      plaintiff: room.user ? { id: room.user.id, name: `${room.user.firstName || ''} ${room.user.lastName || ''}`.trim() || 'Plaintiff', email: room.user.email } : null,
-      assessment: room.assessment,
-      lastMessage: room.messages[0] ? { content: room.messages[0].content, senderType: room.messages[0].senderType, createdAt: room.messages[0].createdAt } : null,
-      lastMessageAt: room.lastMessageAt,
-      unreadCount: unreadMap[room.id] || 0
+    const parsed = await Promise.all(chatRooms.map(async room => {
+      let lastMessage = room.messages[0]
+        ? { content: room.messages[0].content, senderType: room.messages[0].senderType, createdAt: room.messages[0].createdAt }
+        : null
+      // Attorney-facing views are English-only: translate plaintiff previews when needed
+      if (lastMessage && lastMessage.senderType !== 'attorney' && lastMessage.content && looksNonEnglish(lastMessage.content)) {
+        lastMessage = { ...lastMessage, content: await translateToEnglish(lastMessage.content) }
+      }
+      return {
+        id: room.id,
+        leadId: room.assessmentId ? leadByAssessment[room.assessmentId] : null,
+        plaintiff: room.user ? { id: room.user.id, name: `${room.user.firstName || ''} ${room.user.lastName || ''}`.trim() || 'Plaintiff', email: room.user.email } : null,
+        assessment: room.assessment,
+        lastMessage,
+        lastMessageAt: room.lastMessageAt,
+        unreadCount: unreadMap[room.id] || 0
+      }
     }))
 
     res.json(parsed)
@@ -9324,6 +9334,16 @@ router.post('/messaging/chat-room', authMiddleware, async (req: any, res) => {
 
     chatRoom.messages = (chatRoom.messages as any[]).reverse()
 
+    // Attorney-facing views are English-only: translate plaintiff messages when needed
+    chatRoom.messages = await Promise.all(
+      (chatRoom.messages as any[]).map(async (m: any) => {
+        if (m.senderType !== 'attorney' && m.content && looksNonEnglish(m.content)) {
+          return { ...m, content: await translateToEnglish(m.content) }
+        }
+        return m
+      })
+    ) as any
+
     res.json({
       chatRoomId: chatRoom.id,
       plaintiff: chatRoom.user ? { id: chatRoom.user.id, name: `${chatRoom.user.firstName || ''} ${chatRoom.user.lastName || ''}`.trim() || 'Plaintiff', email: chatRoom.user.email } : null,
@@ -9361,7 +9381,17 @@ router.get('/messaging/chat-room/:chatRoomId/messages', authMiddleware, async (r
     })
     messages.reverse()
 
-    res.json(messages)
+    // Attorney-facing views are English-only: translate plaintiff messages when needed
+    const translated = await Promise.all(
+      messages.map(async (m: any) => {
+        if (m.senderType !== 'attorney' && m.content && looksNonEnglish(m.content)) {
+          return { ...m, content: await translateToEnglish(m.content) }
+        }
+        return m
+      })
+    )
+
+    res.json(translated)
   } catch (error: any) {
     logger.error('Failed to load messages', { error: error.message })
     res.status(500).json({ error: 'Failed to load messages' })

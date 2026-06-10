@@ -13,6 +13,7 @@ import { sendCaseOfferSms } from '../lib/sms'
 import { routeTier2Case } from '../lib/tier2-routing'
 import { assignCaseTier } from '../lib/case-tier-classifier'
 import { getConfiguredWaveWaitHours, getMatchingRules, saveMatchingRules } from '../lib/matching-rules-config'
+import { getHeuristics, saveHeuristics } from '../lib/heuristics-config'
 import { getAdminCalendarHealth } from '../lib/calendar-sync'
 
 const router: ExpressRouter = Router()
@@ -449,6 +450,38 @@ router.put('/matching-rules', authMiddleware, adminMiddleware, async (req: AuthR
     res.json(config)
   } catch (error) {
     logger.error('Failed to save matching rules', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Heuristics (scoring/labeling config)
+router.get('/heuristics', authMiddleware, adminMiddleware, async (_req: AuthRequest, res) => {
+  try {
+    const config = await getHeuristics()
+    res.json(config)
+  } catch (error: any) {
+    logger.error('Failed to get heuristics', { error, message: error?.message })
+    res.status(500).json({
+      error: 'Internal server error',
+      detail: process.env.NODE_ENV === 'development' ? error?.message : undefined,
+    })
+  }
+})
+
+router.put('/heuristics', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const config = await saveHeuristics(req.body)
+    await writeAdminAudit(req, {
+      action: 'heuristics_updated',
+      entityType: 'heuristics',
+      entityId: 'global',
+      metadata: {
+        updatedSections: Object.keys(req.body || {}),
+      },
+    })
+    res.json(config)
+  } catch (error) {
+    logger.error('Failed to save heuristics', { error })
     res.status(500).json({ error: 'Internal server error' })
   }
 })

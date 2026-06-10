@@ -1,17 +1,30 @@
 /**
  * Pure helpers for IntakeWizardQuick — unit-tested without React/i18n.
  */
+import { getCountiesForState } from './usLocationData'
 
+/**
+ * Maps intake injury types to the API claimType enum
+ * ('auto' | 'slip_and_fall' | 'dog_bite' | 'medmal' | 'product' |
+ *  'nursing_home_abuse' | 'wrongful_death' | 'high_severity_surgery').
+ *
+ * Types without an exact enum match map to the closest general
+ * personal-injury category so SOL deadlines and routing stay correct:
+ * - workplace → slip_and_fall (premises/general PI; workers'-comp tagged separately)
+ * - assault → slip_and_fall (negligent security is premises liability)
+ * - toxic → product (toxic torts route like product liability; same SOL rule)
+ * - other → slip_and_fall (general personal-injury SOL)
+ */
 export const INJURY_TO_CLAIM: Record<string, string> = {
   vehicle: 'auto',
   slip_fall: 'slip_and_fall',
-  workplace: 'high_severity_surgery',
+  workplace: 'slip_and_fall',
   medmal: 'medmal',
   dog_bite: 'dog_bite',
   product: 'product',
-  assault: 'wrongful_death',
+  assault: 'slip_and_fall',
   toxic: 'product',
-  other: 'product',
+  other: 'slip_and_fall',
 }
 
 export type CaseTaxonomy = {
@@ -170,11 +183,10 @@ export function sanitizeDetectedCounty(state: string, county: string): string {
   const normalizedCounty = normalizeCounty(county)
   if (!normalizedCounty) return ''
 
-  if (normalizedState === 'CA') {
-    return CA_COUNTIES.includes(normalizedCounty as (typeof CA_COUNTIES)[number]) ? normalizedCounty : ''
-  }
+  const counties = getCountiesForState(normalizedState)
+  if (counties.length === 0) return normalizedCounty
 
-  return normalizedCounty
+  return counties.find((entry) => entry.toLowerCase() === normalizedCounty.toLowerCase()) ?? ''
 }
 
 export function injuryTypeToClaimType(injuryType: string): string {

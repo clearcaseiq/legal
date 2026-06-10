@@ -7,27 +7,28 @@ const path = require('path')
 
 const hasGoogleServices = existsSync(path.join(__dirname, 'google-services.json'))
 
-// projectId from env, or from app.json (set by `eas init`), or EAS-created project
-let projectId =
-  process.env.EXPO_PUBLIC_PROJECT_ID ||
-  '01675e85-c537-4222-b5f1-1483b73f3591'
-if (!projectId) {
+// projectId resolution order: env -> app.json (set by `eas init`) -> known EAS fallback.
+function resolveProjectId() {
+  if (process.env.EXPO_PUBLIC_PROJECT_ID) return process.env.EXPO_PUBLIC_PROJECT_ID
   try {
     const appJsonPath = path.join(__dirname, 'app.json')
     if (existsSync(appJsonPath)) {
       const appJson = JSON.parse(readFileSync(appJsonPath, 'utf8'))
-      projectId = appJson.expo?.extra?.eas?.projectId
+      if (appJson.expo?.extra?.eas?.projectId) return appJson.expo.extra.eas.projectId
     }
   } catch (e) {}
+  return '01675e85-c537-4222-b5f1-1483b73f3591'
 }
+
+const projectId = resolveProjectId()
 
 module.exports = {
   expo: {
     name: 'ClearCaseIQ Attorney',
     slug: 'caseiq-attorney',
-    version: '1.0.0',
+    version: '1.0.2',
     orientation: 'portrait',
-    platforms: ['ios'],
+    platforms: ['ios', 'android'],
     userInterfaceStyle: 'automatic',
     scheme: 'caseiq',
     privacy: 'unlisted',
@@ -41,7 +42,7 @@ module.exports = {
       icon: './assets/icon.png',
       supportsTablet: false,
       bundleIdentifier: 'com.caseiq.attorney',
-      buildNumber: '14',
+      buildNumber: '17',
       infoPlist: {
         NSFaceIDUsageDescription: 'Use Face ID to sign in to ClearCaseIQ',
         UIBackgroundModes: ['remote-notification'],

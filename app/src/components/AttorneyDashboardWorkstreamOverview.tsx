@@ -1,5 +1,7 @@
 import { ChevronRight } from 'lucide-react'
 import { formatCurrency } from '../lib/formatters'
+import { useHeuristics } from '../contexts/HeuristicsContext'
+import { evidenceCompletenessLabel, opportunityLabel as computeOpportunityLabel } from '../lib/heuristics'
 import type {
   AttorneyDashboardLead,
   AttorneyDashboardLeadAnalysis,
@@ -40,6 +42,7 @@ export default function AttorneyDashboardWorkstreamOverview({
   handleStatusUpdate,
   handleCreateContactFromCommand,
 }: AttorneyDashboardWorkstreamOverviewProps) {
+  const heuristics = useHeuristics()
   const facts: any = selectedLeadFacts || {}
   const injuries = Array.isArray(facts?.injuries) ? facts.injuries : []
   const treatments = Array.isArray(facts?.treatment) ? facts.treatment : []
@@ -100,7 +103,7 @@ export default function AttorneyDashboardWorkstreamOverview({
     (selectedLead?.assessment?.venueState ? `Standard for ${selectedLead.assessment.venueState}` : '—')
   const evidenceScore = Math.round((evidenceList.filter((e) => e.status).length / evidenceList.length) * 100)
   const hasGaps = chrono.gapsAndRedFlags && chrono.gapsAndRedFlags.length > 0
-  const docCompleteness = evidenceScore >= 75 ? 'High' : evidenceScore >= 50 ? 'Moderate' : 'Low'
+  const docCompleteness = evidenceCompletenessLabel(heuristics, evidenceScore)
   const comparativeRiskLabel =
     (facts?.liability?.comparativeNegligence ?? facts?.liability?.comparative_negligence) === true
       ? 'Medium'
@@ -114,7 +117,7 @@ export default function AttorneyDashboardWorkstreamOverview({
       evidenceScore * 0.25 +
       (treatments.length >= 2 ? 25 : treatments.length === 1 ? 15 : 0),
   )
-  const opportunityLabel = opportunityScore >= 70 ? 'Strong' : opportunityScore >= 40 ? 'Moderate' : 'Weak'
+  const opportunityLabel = computeOpportunityLabel(heuristics, opportunityScore)
   const opportunityBar = Math.min(100, Math.max(0, opportunityScore))
   const nextActionKey = nextActions[0] || ''
   const nextActionContext =

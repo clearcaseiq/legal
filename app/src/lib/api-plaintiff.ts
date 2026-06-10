@@ -79,6 +79,28 @@ function extractAssessmentId(payload: any): string | undefined {
   return id && id !== 'undefined' && id !== 'null' ? id : undefined
 }
 
+export interface IntakeLeadPayload {
+  email?: string
+  phone?: string
+  injuryType?: string
+  venueState?: string
+  venueCounty?: string
+  currentStep?: string
+  formSnapshot?: Record<string, unknown>
+  assessmentId?: string
+  status?: 'in_progress' | 'completed'
+}
+
+export async function createIntakeLead(payload: IntakeLeadPayload): Promise<string> {
+  const { data } = await api.post('/v1/intake-leads', payload)
+  return data.id
+}
+
+export async function updateIntakeLead(id: string, payload: IntakeLeadPayload) {
+  const { data } = await api.patch(`/v1/intake-leads/${id}`, payload)
+  return data
+}
+
 export async function createAssessment(payload: any) {
   apiDebug.log('createAssessment called with payload:', payload)
   try {

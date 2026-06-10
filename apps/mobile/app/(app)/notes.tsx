@@ -34,7 +34,6 @@ export default function NotesScreen() {
   const [saving, setSaving] = useState(false)
   const [draft, setDraft] = useState('')
   const [noteType, setNoteType] = useState<(typeof NOTE_TYPES)[number]>('general')
-  const [voiceMode, setVoiceMode] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const inputRef = useRef<TextInput>(null)
@@ -64,7 +63,6 @@ export default function NotesScreen() {
 
   function selectNoteType(type: (typeof NOTE_TYPES)[number]) {
     setNoteType(type)
-    if (type !== 'call') setVoiceMode(false)
     setTimeout(() => inputRef.current?.focus(), 50)
   }
 
@@ -75,7 +73,6 @@ export default function NotesScreen() {
     try {
       await createLeadNote(leadId, { message: draft.trim(), noteType })
       setDraft('')
-      setVoiceMode(false)
       setNoteType('general')
       await load()
     } catch (err: unknown) {
@@ -108,20 +105,6 @@ export default function NotesScreen() {
           <Ionicons name="pricetag-outline" size={16} color={colors.primary} />
           <Text style={styles.selectedTypeText}>Saving as: {NOTE_TYPE_LABELS[noteType]}</Text>
         </View>
-        <TouchableOpacity
-          style={[styles.voiceButton, voiceMode && styles.voiceButtonOn]}
-          onPress={() => {
-            setVoiceMode(true)
-            selectNoteType('call')
-            setTimeout(() => inputRef.current?.focus(), 50)
-          }}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="mic-outline" size={18} color={voiceMode ? colors.primary : colors.textSecondary} />
-          <Text style={[styles.voiceButtonText, voiceMode && styles.voiceButtonTextOn]}>
-            {voiceMode ? 'Dictation ready - use the keyboard mic' : 'Voice note / dictation'}
-          </Text>
-        </TouchableOpacity>
         <View style={styles.chips}>
           {NOTE_TYPES.map((type) => (
             <TouchableOpacity
@@ -149,11 +132,7 @@ export default function NotesScreen() {
           value={draft}
           onChangeText={setDraft}
           multiline
-          placeholder={
-            voiceMode
-              ? 'Tap the microphone on your iPhone keyboard and dictate the call note...'
-              : `Type a ${NOTE_TYPE_LABELS[noteType].toLowerCase()} note...`
-          }
+          placeholder={`Type a ${NOTE_TYPE_LABELS[noteType].toLowerCase()} note...`}
           placeholderTextColor={colors.muted}
         />
         {saveError ? <InlineErrorBanner message={saveError} actionLabel="Dismiss" onAction={() => setSaveError(null)} /> : null}
@@ -228,21 +207,6 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   selectedTypeText: { fontSize: 14, fontWeight: '800', color: colors.primaryDark },
-  voiceButton: {
-    marginTop: space.md,
-    minHeight: 44,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingHorizontal: space.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-  },
-  voiceButtonOn: { borderColor: colors.primary + '55', backgroundColor: colors.primary + '10' },
-  voiceButtonText: { fontSize: 14, fontWeight: '800', color: colors.textSecondary },
-  voiceButtonTextOn: { color: colors.primaryDark },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.md, marginBottom: space.md },
   chip: {
     minHeight: 40,

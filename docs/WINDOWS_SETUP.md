@@ -144,7 +144,23 @@ cd ..
 
 ## 6. Start development servers
 
-### Option A — root script (recommended)
+### Option A — Windows setup script (first-time install)
+
+From the repo root:
+
+```powershell
+.\scripts\setup.ps1
+```
+
+Then start dev servers:
+
+```powershell
+.\scripts\start-dev.ps1
+```
+
+> Do **not** use `scripts/setup.sh` on Windows unless you are in Git Bash/WSL. Use `setup.ps1` instead.
+
+### Option B — start only (after setup)
 
 From the repo root:
 
@@ -154,7 +170,7 @@ From the repo root:
 
 This script frees port 4000 if needed, starts the database container when Docker is available, then runs `pnpm dev` for the API and web app.
 
-### Option B — separate terminals
+### Option C — separate terminals
 
 ```powershell
 # Terminal 1 — API
@@ -166,7 +182,7 @@ cd app
 pnpm dev
 ```
 
-### Option C — Turbo from root
+### Option D — Turbo from root
 
 ```powershell
 pnpm dev
@@ -233,6 +249,46 @@ docker compose up
 For day-to-day development, most developers run **only the database in Docker** and start API + web with `pnpm dev`.
 
 ## Troubleshooting
+
+### `setup.sh` fails with error 1012 / P1012
+
+If your friend ran `scripts/setup.sh` and saw **1012** or **P1012**, that is almost always a **Prisma** error during database setup—not a generic shell failure.
+
+Common causes:
+
+1. **Wrong env file** — Older `setup.sh` copied root `.env` instead of `api/.env`. Prisma needs `api/.env` with a PostgreSQL `DATABASE_URL`.
+2. **`docker-compose` not found** — Use Docker Desktop and `docker compose` (space), not only the legacy `docker-compose` binary.
+3. **Database not running** — Start Postgres before migrations: `docker compose up -d db`.
+4. **`migrate dev --name init` on an existing repo** — Use `migrate deploy`, not a new init migration.
+
+**Fix on Windows (recommended):**
+
+```powershell
+# From repo root — do NOT use setup.sh on Windows
+.\scripts\setup.ps1
+```
+
+**Manual fix if Prisma already failed:**
+
+```powershell
+Copy-Item api\.env.example api\.env -ErrorAction SilentlyContinue
+docker compose up -d db
+pnpm install
+cd api
+pnpm prisma generate
+pnpm prisma migrate deploy
+pnpm prisma db seed
+cd ..
+```
+
+Confirm `api\.env` contains:
+
+```env
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/injury_intelligence?schema=public"
+JWT_SECRET="your-local-dev-secret"
+```
+
+If P1012 mentions an invalid schema, paste the full Prisma error text—usually a missing env var or DB connection issue.
 
 ### Port already in use
 

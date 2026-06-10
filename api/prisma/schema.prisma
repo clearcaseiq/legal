@@ -1456,6 +1456,28 @@ model LeadSubmission {
   @@map("lead_submissions")
 }
 
+// Partial intake lead captured before the assessment is submitted.
+// Lets the team recover abandoned intakes that shared an email or phone.
+model IntakeLead {
+  id           String  @id @default(cuid())
+  email        String?
+  phone        String?
+  injuryType   String?
+  venueState   String?
+  venueCounty  String?
+  currentStep  String?
+  formSnapshot String? @db.Text // JSON of in-progress answers
+  status       String  @default("in_progress") // 'in_progress', 'completed'
+  assessmentId String? @unique // linked once the assessment is created
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([status, updatedAt])
+  @@map("intake_leads")
+}
+
 model DecisionMemory {
   id                    String         @id @default(cuid())
   leadId                String         @unique

@@ -270,6 +270,12 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
       const guestOnEvidence =
         !hadToken &&
         (pathname.startsWith('/evidence-upload/') || pathname.startsWith('/evidence-dashboard'))
+      // Guest intake: the final "Generate report" step fires optional background calls
+      // (e.g. evidence processing) that can 401 for guests. Those are caught and
+      // non-fatal, so never bounce an un-authenticated user out of the intake flow.
+      const guestOnIntake =
+        !hadToken &&
+        (pathname === '/assess' || pathname === '/intake')
       // Post-registration consent save: show error on /register instead of clearing session + sending to login
       const registerConsentSave =
         pathname.startsWith('/register') &&
@@ -300,7 +306,7 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
         throw error
       }
 
-      if (!onLoginPage && !guestOnResults && !guestOnEvidence) {
+      if (!onLoginPage && !guestOnResults && !guestOnEvidence && !guestOnIntake) {
         if (
           !(registerConsentSave && (status === 401 || status === 403)) &&
           !(consentStatusBootstrap && (status === 401 || status === 403)) &&

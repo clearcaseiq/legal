@@ -3,6 +3,7 @@ import { ActivityIndicator, View, Text, FlatList, Linking, StyleSheet, TextInput
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import * as DocumentPicker from 'expo-document-picker'
+import * as ImagePicker from 'expo-image-picker'
 import { getApiErrorMessage, getLeadEvidenceFiles, toAbsoluteApiUrl, uploadLeadEvidenceFile, type LeadEvidenceFile } from '../../src/lib/api'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
@@ -65,6 +66,20 @@ export default function FilesScreen() {
     }
   }
 
+  async function uploadAsset(asset: { uri: string; name: string; type: string }) {
+    if (!leadId) return
+    const formData = new FormData()
+    formData.append('category', category)
+    formData.append('description', 'Attorney mobile upload')
+    formData.append('file', {
+      uri: asset.uri,
+      name: asset.name,
+      type: asset.type,
+    } as any)
+    await uploadLeadEvidenceFile(leadId, formData)
+    await load()
+  }
+
   async function pickAndUpload() {
     if (!leadId || uploading) return
     setLoadError(null)
@@ -83,16 +98,40 @@ export default function FilesScreen() {
       })
       if (result.canceled || !result.assets?.[0]) return
       const asset = result.assets[0]
-      const formData = new FormData()
-      formData.append('category', category)
-      formData.append('description', 'Attorney mobile upload')
-      formData.append('file', {
+      await uploadAsset({
         uri: asset.uri,
         name: asset.name || `case-file-${Date.now()}`,
         type: asset.mimeType || 'application/octet-stream',
-      } as any)
-      await uploadLeadEvidenceFile(leadId, formData)
-      await load()
+      })
+    } catch (err: unknown) {
+      setLoadError(getApiErrorMessage(err))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function scanAndUpload() {
+    if (!leadId || uploading) return
+    setLoadError(null)
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync()
+      if (!permission.granted) {
+        setLoadError('Camera access is needed to scan documents. Enable it in Settings to capture photos.')
+        return
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.7,
+        allowsEditing: true,
+      })
+      if (result.canceled || !result.assets?.[0]) return
+      setUploading(true)
+      const asset = result.assets[0]
+      await uploadAsset({
+        uri: asset.uri,
+        name: asset.fileName || `scan-${Date.now()}.jpg`,
+        type: asset.mimeType || 'image/jpeg',
+      })
     } catch (err: unknown) {
       setLoadError(getApiErrorMessage(err))
     } finally {
@@ -133,15 +172,30 @@ export default function FilesScreen() {
             <Text style={styles.uploadTitle}>Upload case file</Text>
             <Text style={styles.uploadSub}>Attach records, bills, reports, photos, or notes to this case.</Text>
           </View>
-          <TouchableOpacity
-            style={[styles.uploadButton, uploading && styles.uploadButtonDisabled]}
-            onPress={pickAndUpload}
-            disabled={uploading}
-            activeOpacity={0.85}
-          >
-            {uploading ? <ActivityIndicator color="#fff" /> : <Ionicons name="cloud-upload-outline" size={20} color="#fff" />}
-            <Text style={styles.uploadButtonText}>{uploading ? 'Uploading' : 'Upload'}</Text>
-          </TouchableOpacity>
+          <View style={styles.uploadActions}>
+            <TouchableOpacity
+              style={[styles.scanButton, uploading && styles.uploadButtonDisabled]}
+              onPress={scanAndUpload}
+              disabled={uploading}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Scan a document with the camera"
+            >
+              <Ionicons name="camera-outline" size={20} color={colors.primary} />
+              <Text style={styles.scanButtonText}>Scan</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.uploadButton, uploading && styles.uploadButtonDisabled]}
+              onPress={pickAndUpload}
+              disabled={uploading}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Upload a file"
+            >
+              {uploading ? <ActivityIndicator color="#fff" /> : <Ionicons name="cloud-upload-outline" size={20} color="#fff" />}
+              <Text style={styles.uploadButtonText}>{uploading ? 'Uploading' : 'Upload'}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
         <View style={styles.categoryRow}>
           {['other', 'medical_records', 'bills', 'police_report', 'photos'].map((item) => (
@@ -230,7 +284,7 @@ const styles = StyleSheet.create({
   },
   uploadHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md },
   uploadTitle: { fontSize: 16, fontWeight: '800', color: colors.text },
-  uploadSub: { marginTop: 4, fontSize: 13, lineHeight: 18, color: colors.textSecondary, maxWidth: 210 },
+  uploadSub: { marginTop: 4, fontSize: 13, lineHeight: 18, color: colors.textSecondary, maxWidth: 150 },
   uploadButton: {
     minWidth: 94,
     minHeight: 42,
@@ -244,6 +298,20 @@ const styles = StyleSheet.create({
   },
   uploadButtonDisabled: { opacity: 0.65 },
   uploadButtonText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  uploadActions: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  scanButton: {
+    minHeight: 42,
+    borderRadius: radii.md,
+    backgroundColor: colors.primary + '14',
+    borderWidth: 1,
+    borderColor: colors.primary + '40',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: space.md,
+  },
+  scanButtonText: { color: colors.primaryDark, fontSize: 13, fontWeight: '800' },
   categoryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.md },
   categoryPill: {
     paddingHorizontal: space.sm,

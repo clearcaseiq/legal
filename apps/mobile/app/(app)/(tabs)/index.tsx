@@ -159,7 +159,11 @@ function AttorneyHomeDashboardScreen() {
 
   const recentLeads: Lead[] = payload?.recentLeads || []
   const needsReview = recentLeads.filter((l) => (l.status || '').toLowerCase() === 'submitted')
-  const messagingSummary = payload?.messagingSummary || { unreadCount: 0, awaitingResponseCount: 0 }
+  const messagingSummaryRaw = payload?.messagingSummary || {}
+  const messagingSummary = {
+    unreadCount: Number(messagingSummaryRaw.unreadCount ?? 0),
+    awaitingResponseCount: Number(messagingSummaryRaw.awaitingResponseCount ?? 0),
+  }
   const activeCases = payload?.activeCases || {}
   const quality = payload?.qualityMetrics || {}
   const automationFeed = Array.isArray(payload?.automationFeed) ? payload.automationFeed.slice(0, 4) : []

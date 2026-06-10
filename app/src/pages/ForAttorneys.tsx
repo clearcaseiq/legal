@@ -151,11 +151,11 @@ export default function ForAttorneys() {
         <div className="flex flex-wrap justify-center gap-8 md:gap-16">
           <div className="flex items-center gap-3">
             <BarChart3 className="h-6 w-6 text-brand-700" />
-            <span className="text-slate-800 font-medium">10,000+ injury cases analyzed</span>
+            <span className="text-slate-800 font-medium">Every case scored before it reaches you</span>
           </div>
           <div className="flex items-center gap-3">
             <FileText className="h-6 w-6 text-brand-700" />
-            <span className="text-slate-800 font-medium">Average case review time: &lt;5 minutes</span>
+            <span className="text-slate-800 font-medium">Case review designed to take minutes, not hours</span>
           </div>
         </div>
       </section>

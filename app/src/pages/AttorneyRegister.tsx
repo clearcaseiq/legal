@@ -266,7 +266,10 @@ export default function AttorneyRegister() {
                   <Link to="/attorney-login" className="text-sm font-semibold text-brand-600 hover:text-brand-700">
                     Sign in instead →
                   </Link>
-                  <a href="#" className="text-sm font-semibold text-brand-600 hover:text-brand-700">
+                  <a
+                    href="mailto:support@clearcaseiq.com?subject=Attorney%20password%20reset"
+                    className="text-sm font-semibold text-brand-600 hover:text-brand-700"
+                  >
                     Reset password →
                   </a>
                 </div>

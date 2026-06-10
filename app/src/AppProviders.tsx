@@ -3,6 +3,7 @@ import App from './App'
 import { LanguageProvider } from './contexts/LanguageContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './contexts/ToastContext'
+import { HeuristicsProvider } from './contexts/HeuristicsContext'
 
 export default function AppProviders() {
   return (
@@ -10,7 +11,9 @@ export default function AppProviders() {
       <BrowserRouter>
         <ThemeProvider>
           <ToastProvider>
-            <App />
+            <HeuristicsProvider>
+              <App />
+            </HeuristicsProvider>
           </ToastProvider>
         </ThemeProvider>
       </BrowserRouter>

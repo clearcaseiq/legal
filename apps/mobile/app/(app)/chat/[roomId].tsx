@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native'
 import { useLocalSearchParams, useFocusEffect } from 'expo-router'
 import * as Haptics from 'expo-haptics'
@@ -19,14 +20,14 @@ import {
   getChatMessages,
   getPlaintiffChatMessages,
   markPlaintiffChatRead,
-  sendPlaintiffMessage,
-  sendAttorneyMessage,
   markChatRead,
 } from '../../../src/lib/api'
+import { runOrQueue } from '../../../src/lib/offlineQueue'
 import { useAuth } from '../../../src/contexts/AuthContext'
 import { useAttorneyDashboardData } from '../../../src/contexts/AttorneyDashboardContext'
 import { InlineErrorBanner } from '../../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../../src/components/ScreenState'
+import { getAllQuickReplies, saveCustomQuickReply, type QuickReply } from '../../../src/lib/quickReplies'
 import { colors, radii, space, shadows } from '../../../src/theme/tokens'
 
 type Msg = {
@@ -34,48 +35,84 @@ type Msg = {
   content: string
   senderType: string
   createdAt: string
+  pending?: boolean
+}
+
+const POLL_INTERVAL_MS = 8000
+
+/** Merge fresh server rows with any still-pending optimistic messages. */
+function mergeMessages(serverRows: Msg[], prev: Msg[]): Msg[] {
+  const pendingTemps = prev.filter((m) => m.pending)
+  if (pendingTemps.length === 0) return serverRows
+  const serverKeys = new Set(serverRows.map((r) => `${r.senderType}|${r.content}`))
+  const keptTemps = pendingTemps.filter((t) => !serverKeys.has(`${t.senderType}|${t.content}`))
+  return [...serverRows, ...keptTemps]
 }
 
 export default function ChatThreadScreen() {
   const { user } = useAuth()
   const isAttorney = user?.role !== 'plaintiff'
-  const { roomId } = useLocalSearchParams<{ roomId: string }>()
+  const { roomId, draft: draftParam } = useLocalSearchParams<{ roomId: string; draft?: string }>()
   const insets = useSafeAreaInsets()
   const { refresh: refreshDashboard } = useAttorneyDashboardData()
   const [messages, setMessages] = useState<Msg[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [sending, setSending] = useState(false)
-  const [draft, setDraft] = useState('')
+  const [draft, setDraft] = useState(typeof draftParam === 'string' ? draftParam : '')
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [quickReplies, setQuickReplies] = useState<QuickReply[]>([])
+  const [savedHint, setSavedHint] = useState(false)
   const listRef = useRef<FlatList>(null)
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    if (!isAttorney) return
+    void getAllQuickReplies().then(setQuickReplies)
+  }, [isAttorney])
+
+  const onSaveQuickReply = useCallback(async () => {
+    const body = draft.trim()
+    if (!body) return
+    await saveCustomQuickReply(body.slice(0, 24), body)
+    setQuickReplies(await getAllQuickReplies())
+    setSavedHint(true)
+    setTimeout(() => setSavedHint(false), 1800)
+  }, [draft])
+
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!roomId) return
+    const silent = opts?.silent === true
     try {
-      setLoadError(null)
+      if (!silent) setLoadError(null)
       const rows = isAttorney ? await getChatMessages(roomId) : await getPlaintiffChatMessages(roomId)
-      setMessages(Array.isArray(rows) ? rows : [])
-      if (isAttorney) {
-        await markChatRead(roomId)
-        await refreshDashboard({ force: true, silent: true })
-      } else {
-        await markPlaintiffChatRead(roomId)
+      const serverRows = Array.isArray(rows) ? (rows as Msg[]) : []
+      setMessages((prev) => mergeMessages(serverRows, prev))
+      // Marking read + dashboard refresh only on explicit (non-poll) loads to avoid churn.
+      if (!silent) {
+        if (isAttorney) {
+          await markChatRead(roomId)
+          await refreshDashboard({ force: true, silent: true })
+        } else {
+          await markPlaintiffChatRead(roomId)
+        }
       }
     } catch (err: unknown) {
-      if (messages.length === 0) {
-        setMessages([])
-      }
-      setLoadError(getApiErrorMessage(err))
+      if (!silent) setLoadError(getApiErrorMessage(err))
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (!silent) {
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
-  }, [isAttorney, messages.length, refreshDashboard, roomId])
+  }, [isAttorney, refreshDashboard, roomId])
 
   useFocusEffect(
     useCallback(() => {
       void load()
+      const timer = setInterval(() => {
+        void load({ silent: true })
+      }, POLL_INTERVAL_MS)
+      return () => clearInterval(timer)
     }, [load])
   )
 
@@ -84,20 +121,37 @@ export default function ChatThreadScreen() {
     if (!text || !roomId || sending) return
     setSending(true)
     setDraft('')
+    // Optimistic message so the sender sees it immediately.
+    const tempId = `temp-${Date.now()}`
+    const optimistic: Msg = {
+      id: tempId,
+      content: text,
+      senderType: isAttorney ? 'attorney' : 'user',
+      createdAt: new Date().toISOString(),
+      pending: true,
+    }
+    setMessages((prev) => [...prev, optimistic])
     try {
-      if (isAttorney) {
-        await sendAttorneyMessage(roomId, text)
-        await refreshDashboard({ force: true, silent: true })
-      } else {
-        await sendPlaintiffMessage(roomId, text)
-      }
+      const { queued } = await runOrQueue(
+        isAttorney
+          ? { type: 'attorney_message', payload: { chatRoomId: roomId, content: text } }
+          : { type: 'plaintiff_message', payload: { chatRoomId: roomId, content: text } }
+      )
       try {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
       } catch {
         /* no-op */
       }
-      await load()
+      if (queued) {
+        // Offline: keep the optimistic bubble; it will sync when back online.
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: true } : m)))
+      } else {
+        if (isAttorney) await refreshDashboard({ force: true, silent: true })
+        await load({ silent: true })
+      }
     } catch {
+      // Real failure (not connectivity): roll back and restore the draft.
+      setMessages((prev) => prev.filter((m) => m.id !== tempId))
       setDraft(text)
     } finally {
       setSending(false)
@@ -164,18 +218,48 @@ export default function ChatThreadScreen() {
               <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleThem]}>
                 <Text style={[styles.bubbleText, mine && styles.bubbleTextMine]}>{item.content}</Text>
                 <Text style={[styles.time, mine && styles.timeMine]}>
-                  {new Date(item.createdAt).toLocaleString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: '2-digit',
-                  })}
+                  {item.pending
+                    ? 'Sending…'
+                    : new Date(item.createdAt).toLocaleString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
                 </Text>
               </View>
             </View>
           )
         }}
       />
+      {isAttorney ? (
+        <View style={styles.quickRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickContent} keyboardShouldPersistTaps="handled">
+            {draft.trim().length > 0 ? (
+              <TouchableOpacity
+                style={[styles.quickChip, styles.quickChipSave]}
+                onPress={() => { void onSaveQuickReply() }}
+                accessibilityRole="button"
+                accessibilityLabel="Save current message as a quick reply"
+              >
+                <Ionicons name={savedHint ? 'checkmark' : 'bookmark-outline'} size={13} color={colors.primaryDark} />
+                <Text style={styles.quickChipSaveText}>{savedHint ? 'Saved' : 'Save'}</Text>
+              </TouchableOpacity>
+            ) : null}
+            {quickReplies.map((qr) => (
+              <TouchableOpacity
+                key={qr.id}
+                style={styles.quickChip}
+                onPress={() => setDraft(qr.body)}
+                accessibilityRole="button"
+                accessibilityLabel={`Insert quick reply: ${qr.label}`}
+              >
+                <Text style={styles.quickChipText} numberOfLines={1}>{qr.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
       <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, space.md) }]}>
         <TextInput
           style={styles.input}
@@ -190,6 +274,9 @@ export default function ChatThreadScreen() {
           style={[styles.sendBtn, (!draft.trim() || sending) && styles.sendBtnOff]}
           onPress={onSend}
           disabled={!draft.trim() || sending}
+          accessibilityRole="button"
+          accessibilityLabel="Send message"
+          accessibilityState={{ disabled: !draft.trim() || sending }}
         >
           {sending ? (
             <ActivityIndicator color="#fff" size="small" />
@@ -222,6 +309,28 @@ const styles = StyleSheet.create({
   bubbleTextMine: { color: '#fff' },
   time: { fontSize: 11, color: colors.textSecondary, marginTop: 6 },
   timeMine: { color: 'rgba(255,255,255,0.85)' },
+  quickRow: {
+    backgroundColor: colors.card,
+  },
+  quickContent: { paddingHorizontal: space.md, paddingTop: space.sm, gap: space.sm, alignItems: 'center' },
+  quickChip: {
+    maxWidth: 150,
+    paddingHorizontal: space.md,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  quickChipText: { fontSize: 13, fontWeight: '700', color: colors.text },
+  quickChipSave: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.primary + '14',
+    borderColor: colors.primary + '40',
+  },
+  quickChipSaveText: { fontSize: 13, fontWeight: '800', color: colors.primaryDark },
   composer: {
     flexDirection: 'row',
     alignItems: 'flex-end',

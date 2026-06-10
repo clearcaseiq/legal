@@ -71,12 +71,22 @@ export async function sendCaseOfferToAttorney(
     `Liability: ${summary.liabilityConfidence}`
   ].join('\n')
 
+  // Deep-link to the lead detail page that actually exists in the web app
+  const lead = await prisma.leadSubmission.findFirst({
+    where: { assessmentId: summary.assessmentId },
+    select: { id: true },
+  })
+  const webUrl = process.env.WEB_URL || 'https://app.clearcaseiq.com'
+  const reviewUrl = lead?.id
+    ? `${webUrl}/attorney-dashboard/lead/${lead.id}/overview`
+    : `${webUrl}/attorney-dashboard`
+
   const fullMessage = [
     'New Case Match',
     '',
     caseSummary,
     '',
-    `Review Case: ${process.env.WEB_URL || 'https://app.clearcaseiq.com'}/attorney/cases/${introductionId}`
+    `Review Case: ${reviewUrl}`
   ].join('\n')
 
   let smsSent = false
@@ -158,13 +168,11 @@ export async function sendCaseOfferToAttorney(
 
   // 4. Mobile push (Expo)
   try {
-    const lead = await prisma.leadSubmission.findFirst({
-      where: { assessmentId: summary.assessmentId },
-      select: { id: true },
-    })
     await notifyAttorneyByUserEmail(attorney.email, {
       title: 'New case match',
       body: `${formatClaimType(summary.claimType)} — ${summary.jurisdiction}`,
+      // NEW_LEAD category renders one-tap Accept/Decline action buttons on the device.
+      categoryId: 'NEW_LEAD',
       data: {
         type: 'case_match',
         introductionId: String(introductionId),
@@ -434,7 +442,7 @@ export async function sendAttorneyCaseMaterialUpdate(
     '',
     `New case value estimate: ${valueStr}`,
     '',
-    `Review case: ${process.env.WEB_URL || 'https://app.clearcaseiq.com'}/attorney/cases`
+    `Review case: ${process.env.WEB_URL || 'https://app.clearcaseiq.com'}/attorney-dashboard`
   ].join('\n')
 
   let count = 0

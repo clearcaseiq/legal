@@ -2,6 +2,7 @@ export type ApiIsoDateString = string
 
 export type AttorneyDashboardSummary = {
   unreadCount?: number
+  awaitingResponseCount?: number
   [key: string]: unknown
 }
 

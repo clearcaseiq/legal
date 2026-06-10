@@ -15,6 +15,7 @@ import {
   Download
 } from 'lucide-react'
 import Tooltip from '../components/Tooltip'
+import { getAttorneyFilteredLeads, getLeadQualityConflictChecks, getLeadQualityReports } from '../lib/api'
 
 interface Lead {
   id: string
@@ -28,16 +29,39 @@ interface Lead {
   submittedAt: string
   status: string
   assessment: any
-  evidenceChecklist: any
+  evidenceChecklist: { required: any[] }
   conflictChecks: any[]
   qualityReports: any[]
 }
+
+// Scores are stored as 0-1 fractions in some records and 0-100 in others
+const toPercent = (value: number | null | undefined) => {
+  const n = Number(value ?? 0)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return Math.min(100, n <= 1 ? Math.round(n * 100) : Math.round(n))
+}
+
+const parseChecklist = (raw: any): { required: any[] } => {
+  let parsed = raw
+  if (typeof raw === 'string') {
+    try { parsed = JSON.parse(raw) } catch { parsed = null }
+  }
+  if (Array.isArray(parsed)) return { required: parsed }
+  if (parsed && Array.isArray(parsed.required)) return { required: parsed.required }
+  return { required: [] }
+}
+
+const formatClaimType = (claimType?: string | null) =>
+  (claimType || 'Case').replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
 
 export default function LeadQuality() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('overview')
+  const [conflictChecks, setConflictChecks] = useState<any[]>([])
+  const [qualityReports, setQualityReports] = useState<any[]>([])
   const [filters, setFilters] = useState({
     hotnessLevel: '',
     sourceType: '',
@@ -52,84 +76,52 @@ export default function LeadQuality() {
   const loadLeads = async () => {
     try {
       setLoading(true)
-      // Mock data - will be replaced with actual API call
-      const mockLeads: Lead[] = [
-        {
-          id: '1',
-          viabilityScore: 85,
-          liabilityScore: 90,
-          causationScore: 80,
-          damagesScore: 85,
-          isExclusive: true,
-          sourceType: 'organic_search',
-          hotnessLevel: 'hot',
-          submittedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-          status: 'submitted',
-          assessment: {
-            claimType: 'auto_accident',
-            venueState: 'CA',
-            venueCounty: 'Los Angeles',
-            facts: JSON.stringify({
-              incident: { date: '2023-10-15' },
-              medicalBills: 25000,
-              lostWages: 15000
-            })
-          },
-          evidenceChecklist: {
-            required: [
-              { name: 'Police Report', uploaded: true, critical: true },
-              { name: 'Medical Records', uploaded: true, critical: true },
-              { name: 'Insurance Information', uploaded: false, critical: false },
-              { name: 'Witness Statements', uploaded: false, critical: false }
-            ]
-          },
+      setLoadError(null)
+
+      const [leadsResult, conflictsResult, reportsResult] = await Promise.allSettled([
+        getAttorneyFilteredLeads({ limit: 100 }),
+        getLeadQualityConflictChecks({ limit: 50 }),
+        getLeadQualityReports({ limit: 50 })
+      ])
+
+      if (leadsResult.status === 'fulfilled') {
+        const mapped: Lead[] = (leadsResult.value.leads || []).map((lead: any) => ({
+          id: lead.id,
+          viabilityScore: toPercent(lead.viabilityScore),
+          liabilityScore: toPercent(lead.liabilityScore),
+          causationScore: toPercent(lead.causationScore),
+          damagesScore: toPercent(lead.damagesScore),
+          isExclusive: Boolean(lead.isExclusive),
+          sourceType: lead.sourceType || 'direct',
+          hotnessLevel: lead.hotnessLevel || 'warm',
+          submittedAt: lead.submittedAt,
+          status: lead.status,
+          assessment: lead.assessment || {},
+          evidenceChecklist: parseChecklist(lead.evidenceChecklist),
           conflictChecks: [],
           qualityReports: []
-        },
-        {
-          id: '2',
-          viabilityScore: 72,
-          liabilityScore: 75,
-          causationScore: 70,
-          damagesScore: 70,
-          isExclusive: false,
-          sourceType: 'paid_ad',
-          hotnessLevel: 'warm',
-          submittedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-          status: 'contacted',
-          assessment: {
-            claimType: 'slip_and_fall',
-            venueState: 'CA',
-            venueCounty: 'Orange',
-            facts: JSON.stringify({
-              incident: { date: '2023-09-20' },
-              medicalBills: 18000,
-              lostWages: 8000
-            })
-          },
-          evidenceChecklist: {
-            required: [
-              { name: 'Police Report', uploaded: false, critical: true },
-              { name: 'Medical Records', uploaded: true, critical: true },
-              { name: 'Insurance Information', uploaded: false, critical: false },
-              { name: 'Witness Statements', uploaded: false, critical: false }
-            ]
-          },
-          conflictChecks: [],
-          qualityReports: []
-        }
-      ]
-      
-      setLeads(mockLeads)
+        }))
+        setLeads(mapped)
+      } else {
+        setLoadError('We could not load your leads. Please refresh to try again.')
+      }
+
+      if (conflictsResult.status === 'fulfilled') {
+        setConflictChecks(conflictsResult.value.conflictChecks || [])
+      }
+      if (reportsResult.status === 'fulfilled') {
+        setQualityReports(reportsResult.value.reports || [])
+      }
     } catch (err) {
       console.error('Failed to load leads:', err)
+      setLoadError('We could not load your leads. Please refresh to try again.')
     } finally {
       setLoading(false)
     }
   }
 
   const formatPercentage = (value: number) => {
-    return `${value.toFixed(1)}%`
+    return `${Math.round(value)}%`
   }
 
   const getHotnessColor = (level: string) => {
@@ -289,6 +281,22 @@ export default function LeadQuality() {
             <div className="px-6 py-4 border-b border-gray-200">
               <h3 className="text-lg font-medium text-gray-900">Lead Quality Analysis</h3>
             </div>
+            {loadError && (
+              <div className="px-6 py-4 text-sm text-red-700 bg-red-50 border-b border-red-100">
+                {loadError}
+              </div>
+            )}
+            {!loadError && filteredLeads.length === 0 && (
+              <div className="px-6 py-12 text-center">
+                <Target className="mx-auto h-12 w-12 text-gray-400" />
+                <h3 className="mt-2 text-sm font-medium text-gray-900">No leads yet</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  {leads.length === 0
+                    ? 'New leads assigned to you will appear here with their quality scores.'
+                    : 'No leads match the current filters.'}
+                </p>
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
@@ -309,10 +317,10 @@ export default function LeadQuality() {
                         <div className="flex items-center">
                           <div>
                             <div className="text-sm font-medium text-gray-900">
-                              {lead.assessment.claimType.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                              {formatClaimType(lead.assessment?.claimType)}
                             </div>
                             <div className="text-sm text-gray-500">
-                              {lead.assessment.venueCounty}, {lead.assessment.venueState}
+                              {[lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || 'Venue not set'}
                             </div>
                           </div>
                           {lead.isExclusive && (
@@ -342,17 +350,21 @@ export default function LeadQuality() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          {lead.evidenceChecklist.required.filter((item: any) => item.uploaded).length}/
-                          {lead.evidenceChecklist.required.length}
-                          <div className="ml-2">
-                            {lead.evidenceChecklist.required.every((item: any) => item.uploaded) ? (
-                              <CheckCircle className="h-4 w-4 text-green-500" />
-                            ) : (
-                              <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                            )}
+                        {lead.evidenceChecklist.required.length > 0 ? (
+                          <div className="flex items-center">
+                            {lead.evidenceChecklist.required.filter((item: any) => item.uploaded).length}/
+                            {lead.evidenceChecklist.required.length}
+                            <div className="ml-2">
+                              {lead.evidenceChecklist.required.every((item: any) => item.uploaded) ? (
+                                <CheckCircle className="h-4 w-4 text-green-500" />
+                              ) : (
+                                <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                              )}
+                            </div>
                           </div>
-                        </div>
+                        ) : (
+                          <span className="text-sm text-gray-400">Not started</span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
@@ -399,12 +411,21 @@ export default function LeadQuality() {
 
       {activeTab === 'evidence' && (
         <div className="space-y-6">
+          {filteredLeads.length === 0 && (
+            <div className="card">
+              <div className="px-6 py-12 text-center">
+                <FileText className="mx-auto h-12 w-12 text-gray-400" />
+                <h3 className="mt-2 text-sm font-medium text-gray-900">No evidence checklists yet</h3>
+                <p className="mt-1 text-sm text-gray-500">Evidence checklists for your leads will appear here.</p>
+              </div>
+            </div>
+          )}
           {filteredLeads.map((lead) => (
             <div key={lead.id} className="card">
               <div className="px-6 py-4 border-b border-gray-200">
                 <div className="flex justify-between items-center">
                   <h3 className="text-lg font-medium text-gray-900">
-                    {lead.assessment.claimType.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())} - Evidence Checklist
+                    {formatClaimType(lead.assessment?.claimType)} - Evidence Checklist
                   </h3>
                   <div className="flex items-center space-x-2">
                     <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getHotnessColor(lead.hotnessLevel)}`}>
@@ -419,6 +440,9 @@ export default function LeadQuality() {
                 </div>
               </div>
               <div className="px-6 py-4">
+                {lead.evidenceChecklist.required.length === 0 && (
+                  <p className="text-sm text-gray-500">No evidence checklist has been generated for this lead yet.</p>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {lead.evidenceChecklist.required.map((item: any, index: number) => (
                     <div key={index} className="flex items-center space-x-3 p-3 border rounded-lg">
@@ -454,15 +478,57 @@ export default function LeadQuality() {
           <div className="card">
             <div className="px-6 py-4 border-b border-gray-200">
               <h3 className="text-lg font-medium text-gray-900">Conflict Check Results</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Preliminary automated screens against your leads on this platform. Always run your firm's full conflict check before engagement.
+              </p>
             </div>
             <div className="px-6 py-4">
-              <div className="text-center py-12">
-                <Shield className="mx-auto h-12 w-12 text-gray-400" />
-                <h3 className="mt-2 text-sm font-medium text-gray-900">No Conflicts Detected</h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  All leads have been checked for potential conflicts with existing cases.
-                </p>
-              </div>
+              {conflictChecks.length === 0 ? (
+                <div className="text-center py-12">
+                  <Shield className="mx-auto h-12 w-12 text-gray-400" />
+                  <h3 className="mt-2 text-sm font-medium text-gray-900">No conflict checks run yet</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Run a conflict check from a lead's detail page and the results will appear here.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {conflictChecks.map((check: any) => (
+                    <div key={check.id} className="flex items-start justify-between p-4 border rounded-lg">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">
+                          {formatClaimType(check.lead?.assessment?.claimType)}
+                          {check.lead?.assessment?.venueState ? ` — ${check.lead.assessment.venueState}` : ''}
+                        </div>
+                        <div className="mt-1 text-sm text-gray-500">
+                          {check.conflictType === 'none'
+                            ? 'No conflicts found in this screen'
+                            : `Flagged: ${String(check.conflictType).replace(/_/g, ' ')}`}
+                        </div>
+                        <div className="mt-1 text-xs text-gray-400">
+                          Checked {new Date(check.createdAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          check.riskLevel === 'high'
+                            ? 'bg-red-100 text-red-800'
+                            : check.riskLevel === 'medium'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : 'bg-green-100 text-green-800'
+                        }`}>
+                          {check.riskLevel} risk
+                        </span>
+                        {check.isResolved && (
+                          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+                            Resolved
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -475,18 +541,47 @@ export default function LeadQuality() {
               <h3 className="text-lg font-medium text-gray-900">Quality Reports</h3>
             </div>
             <div className="px-6 py-4">
-              <div className="text-center py-12">
-                <TrendingUp className="mx-auto h-12 w-12 text-gray-400" />
-                <h3 className="mt-2 text-sm font-medium text-gray-900">No Quality Issues Reported</h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  All leads meet quality standards. Report any issues for investigation.
-                </p>
-                <div className="mt-6">
-                  <button className="btn-primary">
-                    Report Quality Issue
-                  </button>
+              {qualityReports.length === 0 ? (
+                <div className="text-center py-12">
+                  <TrendingUp className="mx-auto h-12 w-12 text-gray-400" />
+                  <h3 className="mt-2 text-sm font-medium text-gray-900">No quality issues reported</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    If a lead is spam, a duplicate, or has quality problems, report it from the lead's detail page and it will be tracked here.
+                  </p>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-3">
+                  {qualityReports.map((report: any) => (
+                    <div key={report.id} className="flex items-start justify-between p-4 border rounded-lg">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">
+                          {formatClaimType(report.lead?.assessment?.claimType)}
+                        </div>
+                        <div className="mt-1 text-sm text-gray-500">
+                          {report.reportReason || report.resolution || 'Quality issue reported'}
+                        </div>
+                        <div className="mt-1 text-xs text-gray-400">
+                          Reported {new Date(report.createdAt).toLocaleDateString()}
+                          {report.isSpam ? ' · Spam' : ''}
+                          {report.isDuplicate ? ' · Duplicate' : ''}
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {Number(report.creditIssued) > 0 && (
+                          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                            ${report.creditIssued} credit
+                          </span>
+                        )}
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          report.status === 'resolved' ? 'bg-gray-100 text-gray-700' : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {report.status || 'open'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

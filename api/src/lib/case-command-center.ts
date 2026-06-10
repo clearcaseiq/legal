@@ -1,6 +1,7 @@
 import { prisma } from './prisma'
 import { buildMedicalChronology, computeCasePreparation } from './case-insights'
 import { buildMedicalCostBenchmarkSummary, type MedicalCostBenchmarkSummary } from './medical-cost-benchmarks'
+import { getHeuristics, getReadinessLabel, DEFAULT_HEURISTICS, type HeuristicsConfig } from './heuristics-config'
 
 type Priority = 'high' | 'medium' | 'low'
 
@@ -119,11 +120,8 @@ function summarizeGapDays(gapDays: number) {
   return 'noticeable'
 }
 
-function buildReadinessLabel(score: number) {
-  if (score >= 85) return 'Demand-ready'
-  if (score >= 65) return 'Attorney-review ready'
-  if (score >= 40) return 'Needs file strengthening'
-  return 'Early file'
+function buildReadinessLabel(score: number, config: HeuristicsConfig = DEFAULT_HEURISTICS) {
+  return getReadinessLabel(config, score)
 }
 
 function buildStage(params: {
@@ -483,6 +481,7 @@ export async function buildCaseCommandCenter(params: {
   assessmentId: string
   leadId?: string | null
 }): Promise<CaseCommandCenter> {
+  const heuristics = await getHeuristics()
   const assessment = await prisma.assessment.findUnique({
     where: { id: params.assessmentId },
     select: {
@@ -736,7 +735,7 @@ export async function buildCaseCommandCenter(params: {
     stage,
     readiness: {
       score: readinessScore,
-      label: buildReadinessLabel(readinessScore),
+      label: buildReadinessLabel(readinessScore, heuristics),
       detail: readinessScore >= 75
         ? 'The file is organized enough for deeper attorney work and fewer basic blockers remain.'
         : 'The file still needs a few substantive items before it will present cleanly for demand or negotiation work.',

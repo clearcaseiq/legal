@@ -10,9 +10,9 @@ const benefits = [
 ]
 
 const socialProof = [
-  'Trusted by PI Attorneys',
-  'Average attorney response time: 4.2 hours',
-  'Average retained rate: 31%',
+  'Built for PI attorneys',
+  'Pre-scored cases with full intake details',
+  'No pay-per-lead — review before you accept',
 ]
 
 const howItWorks = [

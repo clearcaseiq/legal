@@ -22,15 +22,25 @@ export interface RecalculationResult {
 /**
  * Merge evidence files' extracted data into assessment.facts for prediction
  */
+interface MedBillProvenanceItem {
+  kind: 'document' | 'self_reported'
+  label: string
+  amount: number
+  fileId?: string
+  uploadedAt?: string | null
+}
+
 function mergeEvidenceIntoFacts(
   facts: Record<string, unknown>,
   evidenceFiles: Array<{
+    id?: string
     originalName?: string | null
     category: string
     aiClassification?: string | null
     aiSummary?: string | null
     aiHighlights?: string | null
     ocrText?: string | null
+    createdAt?: Date | string | null
     extractedData?: Array<{
       totalAmount?: number | null
       dollarAmounts?: string | null
@@ -46,9 +56,16 @@ function mergeEvidenceIntoFacts(
 
   const intakeMedCharges = Number(damages.intake_med_charges ?? damages.med_charges) || 0
   const intakeMedPaid = Number(damages.intake_med_paid ?? damages.med_paid) || 0
+  const billRange = String(damages.medical_bill_range || '')
+  const billsComplete = damages.bills_complete === true
   let extractedMedCharges = 0
   let extractedMedPaid = 0
   let extractedWageLoss = 0
+  let medBillFileCount = 0
+  // Dedupe bill amounts so the same statement (or a re-upload) is not double-counted.
+  const seenBillKeys = new Set<string>()
+  // Per-document provenance so attorneys can verify every dollar against its source.
+  const billItems: MedBillProvenanceItem[] = []
 
   for (const file of evidenceFiles) {
     const cat = file.aiClassification || file.category
@@ -64,8 +81,20 @@ function mergeEvidenceIntoFacts(
         if (isLostWageEvidence(file)) {
           extractedWageLoss += extractWageLossAmount(file.ocrText || '', amt)
         } else if (isMedicalChargeEvidence(file)) {
-          extractedMedCharges += amt
-          extractedMedPaid += amt * 0.8 // Assume ~80% paid
+          const billKey = `${(file.originalName || '').trim().toLowerCase()}|${Math.round(amt)}`
+          if (!seenBillKeys.has(billKey)) {
+            seenBillKeys.add(billKey)
+            extractedMedCharges += amt
+            extractedMedPaid += amt * 0.8 // Charges are claimed; paid is tracked separately (~80% placeholder)
+            medBillFileCount += 1
+            billItems.push({
+              kind: 'document',
+              label: file.originalName || file.aiSummary || (file.category === 'bills' ? 'Medical bill' : 'Medical record'),
+              amount: Math.round(amt),
+              fileId: file.id,
+              uploadedAt: file.createdAt ? new Date(file.createdAt).toISOString() : null,
+            })
+          }
         }
       }
       if (ext.icdCodes && file.category === 'medical_records') {
@@ -86,8 +115,64 @@ function mergeEvidenceIntoFacts(
     }
   }
 
-  const totalMedCharges = Math.max(intakeMedCharges, extractedMedCharges)
-  const totalMedPaid = Math.max(intakeMedPaid, extractedMedPaid)
+  // --- Medical specials decision rule ---
+  // Documents are the source of truth when present and complete; the self-reported
+  // range is a fallback/floor. We never let a partial document upload *lower* the
+  // self-reported figure, but a complete upload replaces it.
+  const hasExtracted = extractedMedCharges > 0
+  const isTopBucket = billRange === 'over_50000'
+  let medSource: 'documented' | 'partially_documented' | 'self_reported'
+  let totalMedCharges: number
+  let totalMedPaid: number
+  let medChargesIsFloor = false
+
+  if (!hasExtracted) {
+    medSource = 'self_reported'
+    totalMedCharges = intakeMedCharges
+    totalMedPaid = intakeMedPaid
+    // The top "$50k+" bucket is a floor, not a ceiling — flag so the UI can prompt to refine.
+    medChargesIsFloor = isTopBucket
+  } else if (billsComplete) {
+    medSource = 'documented'
+    totalMedCharges = extractedMedCharges
+    totalMedPaid = extractedMedPaid
+  } else {
+    medSource = 'partially_documented'
+    totalMedCharges = Math.max(extractedMedCharges, intakeMedCharges)
+    totalMedPaid = Math.max(extractedMedPaid, intakeMedPaid)
+    medChargesIsFloor = true // more bills may exist
+  }
+
+  // --- Discrepancy flag for attorney review ---
+  // Only meaningful when both a self-reported number and a documented number exist.
+  let medDiscrepancy: Record<string, unknown> | null = null
+  if (hasExtracted && intakeMedCharges > 0) {
+    const diff = Math.abs(extractedMedCharges - intakeMedCharges)
+    const ratio = diff / Math.max(extractedMedCharges, intakeMedCharges)
+    if (diff >= 5000 && ratio >= 0.4) {
+      medDiscrepancy = {
+        intake: Math.round(intakeMedCharges),
+        extracted: Math.round(extractedMedCharges),
+        ratio: Number(ratio.toFixed(2)),
+        direction: extractedMedCharges > intakeMedCharges ? 'documented_higher' : 'self_reported_higher',
+        severity: ratio >= 0.7 ? 'high' : 'medium',
+      }
+    }
+  }
+
+  // --- Provenance breakdown (what makes the figure verifiable to an attorney) ---
+  // Documented line items first, then the self-reported portion only when it is the
+  // value actually being used (no docs, or it exceeds the documented total).
+  const provenanceItems: MedBillProvenanceItem[] = [...billItems]
+  const selfReportedInUse = !hasExtracted || (medSource === 'partially_documented' && intakeMedCharges > extractedMedCharges)
+  if (selfReportedInUse && intakeMedCharges > 0) {
+    provenanceItems.push({
+      kind: 'self_reported',
+      label: medChargesIsFloor && isTopBucket ? 'Self-reported ($50k+ range)' : 'Self-reported estimate',
+      amount: Math.round(intakeMedCharges),
+    })
+  }
+
   const intakeWageLoss = Number(damages.wage_loss) || 0
   const totalWageLoss = Math.max(intakeWageLoss, extractedWageLoss)
   merged.damages = {
@@ -97,8 +182,13 @@ function mergeEvidenceIntoFacts(
     extracted_med_charges: extractedMedCharges,
     extracted_med_paid: extractedMedPaid,
     extracted_wage_loss: extractedWageLoss,
+    med_bill_file_count: medBillFileCount,
     med_charges: totalMedCharges,
     med_paid: totalMedPaid,
+    med_charges_source: medSource,
+    med_charges_is_floor: medChargesIsFloor,
+    med_discrepancy: medDiscrepancy,
+    med_bill_items: provenanceItems,
     wage_loss: totalWageLoss,
   }
   merged.treatment = treatment
@@ -212,12 +302,14 @@ export async function runCaseRecalculation(
 
     const factsRaw = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : assessment.facts
     const evidenceFiles = assessment.evidenceFiles.map((f) => ({
+      id: f.id,
       originalName: f.originalName,
       category: f.category,
       aiClassification: f.aiClassification,
       aiSummary: f.aiSummary,
       aiHighlights: f.aiHighlights,
       ocrText: f.ocrText,
+      createdAt: f.createdAt,
       extractedData: f.extractedData?.length
         ? f.extractedData.map((ed) => ({
             totalAmount: ed.totalAmount,

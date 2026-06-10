@@ -60,6 +60,55 @@ export async function translateForPlaintiff(text: string, targetLang: string): P
   }
 }
 
+// CJK ranges plus common Spanish punctuation/stopwords — a cheap pre-filter so we
+// only spend an OpenAI call when text plausibly isn't English.
+const CJK_PATTERN = /[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af]/
+const SPANISH_HINT_PATTERN = /[¿¡]|\b(?:el|la|los|las|una?|que|porque|gracias|hola|usted|señor|años|también|está|estoy|tengo|necesito|abogado|accidente|lesión|lesiones)\b/i
+
+export function looksNonEnglish(text: string): boolean {
+  if (!text?.trim()) return false
+  if (CJK_PATTERN.test(text)) return true
+  return SPANISH_HINT_PATTERN.test(text)
+}
+
+/**
+ * Translate plaintiff-authored text into English for attorney-facing views.
+ * No-ops when the text already looks like English or OpenAI is not configured.
+ */
+export async function translateToEnglish(text: string): Promise<string> {
+  if (!text?.trim()) return text
+  if (!looksNonEnglish(text)) return text
+
+  if (!openai) {
+    logger.debug('OpenAI not configured, skipping English translation')
+    return text
+  }
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a professional legal translator. Translate the following message into English. Preserve the tone, formatting, and meaning. If the text is already English, return it unchanged. Return ONLY the translated text, no explanations.'
+        },
+        {
+          role: 'user',
+          content: text
+        }
+      ],
+      max_tokens: 1000,
+      temperature: 0.3
+    })
+
+    const translated = completion.choices?.[0]?.message?.content?.trim()
+    return translated || text
+  } catch (err: any) {
+    logger.warn('English translation failed, using original', { error: err?.message })
+    return text
+  }
+}
+
 /**
  * Get plaintiff's preferred language from request.
  * Checks: X-Language header, Accept-Language header, User.preferredLanguage (if available).
