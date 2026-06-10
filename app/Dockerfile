@@ -4,7 +4,7 @@ WORKDIR /repo
 RUN corepack enable
 
 FROM base AS deps
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* .npmrc ./
 COPY app/package.json ./app/package.json
 COPY api/package.json ./api/package.json
 RUN pnpm install --frozen-lockfile
