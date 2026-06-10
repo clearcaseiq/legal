@@ -36,4 +36,6 @@ COPY --from=builder /repo/app/node_modules ./node_modules
 USER nextjs
 EXPOSE 3000
 
-CMD ["pnpm", "start", "--", "--hostname", "0.0.0.0", "--port", "3000"]
+# Run Next directly (not `pnpm start`) so the runtime never invokes corepack/pnpm,
+# which would pull a pnpm version requiring a newer Node than this image provides.
+CMD ["node", "node_modules/next/dist/bin/next", "start", "--hostname", "0.0.0.0", "--port", "3000"]

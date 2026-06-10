@@ -37,4 +37,6 @@ USER nodejs
 
 EXPOSE 4000
 
-CMD ["pnpm", "start"]
+# Run Node directly (not `pnpm start`) so the runtime never invokes corepack/pnpm,
+# which would pull a pnpm version requiring a newer Node than this image provides.
+CMD ["node", "dist/index.js"]
