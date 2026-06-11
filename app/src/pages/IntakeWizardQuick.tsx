@@ -727,10 +727,15 @@ export default function IntakeWizardQuick() {
   }
 
   const setBranch = (key: string, value: any) => {
-    setFormData(prev => ({
-      ...prev,
-      branch: { ...prev.branch, [key]: value }
-    }))
+    setFormData(prev => {
+      // Re-selecting the same single-select value clears it (toggle off). Checkboxes/selects/
+      // textareas never resend an identical value, so this only affects re-clicked option buttons.
+      const current = (prev.branch as Record<string, any>)[key]
+      return {
+        ...prev,
+        branch: { ...prev.branch, [key]: current === value ? '' : value },
+      }
+    })
     setErrors({})
   }
 
@@ -1297,10 +1302,14 @@ export default function IntakeWizardQuick() {
   }
 
   const setCasePostureField = (key: string, value: any) => {
-    setFormData(prev => ({
-      ...prev,
-      casePosture: { ...prev.casePosture, [key]: value }
-    }))
+    setFormData(prev => {
+      // Re-selecting the same single-select value clears it (toggle off).
+      const current = (prev.casePosture as Record<string, any>)[key]
+      return {
+        ...prev,
+        casePosture: { ...prev.casePosture, [key]: current === value ? '' : value },
+      }
+    })
     setErrors({})
   }
 
@@ -1456,6 +1465,10 @@ export default function IntakeWizardQuick() {
                   type="button"
                   aria-pressed={formData.injuryType === value}
                   onClick={() => {
+                    if (formData.injuryType === value) {
+                      updateForm({ injuryType: '', claimType: '' })
+                      return
+                    }
                     updateForm({ injuryType: value, claimType: injuryTypeToClaimType(value) })
                     setCurrentStep('when')
                   }}
@@ -1479,14 +1492,15 @@ export default function IntakeWizardQuick() {
             <div className="space-y-3">
               <p className="text-center font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{tx('when_heading')}</p>
               <p className="text-gray-500 text-center text-sm">{tx('when_helper')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className={`grid grid-cols-2 gap-2 ${errors.incidentDate ? 'rounded-xl p-1.5 ring-1 ring-red-400' : ''}`}>
                 {WHEN_OPTIONS.map(({ value, labelKey, getDate }) => (
                   <button
                     key={value}
                     type="button"
                     aria-pressed={formData.incidentDatePreset === value}
                     onClick={() => {
-                      if (value === 'custom') updateForm({ incidentDatePreset: value })
+                      if (formData.incidentDatePreset === value) updateForm({ incidentDatePreset: '', incidentDate: '' })
+                      else if (value === 'custom') updateForm({ incidentDatePreset: value })
                       else updateForm({ incidentDatePreset: value, incidentDate: getDate() })
                     }}
                     className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${
@@ -1640,7 +1654,7 @@ export default function IntakeWizardQuick() {
                     key={value}
                     type="button"
                     aria-pressed={formData.injurySeverity === value}
-                    onClick={() => updateForm({ injurySeverity: value })}
+                    onClick={() => updateForm({ injurySeverity: formData.injurySeverity === value ? '' : value })}
                     className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${
                       formData.injurySeverity === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'
                     }`}
@@ -1828,7 +1842,7 @@ export default function IntakeWizardQuick() {
                       <button
                         key={value}
                         type="button"
-                        onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, priorInjury: value } })}
+                        onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, priorInjury: formData.injuryDetails.priorInjury === value ? '' : value } })}
                         className={`rounded-lg border px-2 py-2 text-xs font-semibold ${formData.injuryDetails.priorInjury === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
                       >
                         {label}
@@ -1873,7 +1887,7 @@ export default function IntakeWizardQuick() {
                         <button
                           key={value}
                           type="button"
-                          onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, surgeryStatus: value } })}
+                          onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, surgeryStatus: formData.injuryDetails.surgeryStatus === value ? '' : value } })}
                           className={`rounded-lg border px-2 py-2 text-xs font-semibold ${formData.injuryDetails.surgeryStatus === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
                         >
                           {label}
@@ -2524,7 +2538,7 @@ export default function IntakeWizardQuick() {
                       key={value}
                       type="button"
                       aria-pressed={icFinancial.medicalBillRange === value}
-                      onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, medicalBillRange: value } })}
+                      onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, medicalBillRange: icFinancial.medicalBillRange === value ? '' : value } })}
                       className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs font-semibold ${icFinancial.medicalBillRange === value ? 'border-brand-600 bg-brand-50 text-brand-900 shadow-sm' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
                     >
                       <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${icFinancial.medicalBillRange === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-300 text-transparent'}`}>✓</span>
@@ -2560,7 +2574,7 @@ export default function IntakeWizardQuick() {
                           key={value}
                           type="button"
                           aria-pressed={icFinancial.billsComplete === value}
-                          onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, billsComplete: value } })}
+                          onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, billsComplete: icFinancial.billsComplete === value ? '' : value } })}
                           className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${icFinancial.billsComplete === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
                         >
                           {label}
@@ -2582,7 +2596,7 @@ export default function IntakeWizardQuick() {
                       key={value}
                       type="button"
                       aria-pressed={icFinancial.futureMedicalRange === value}
-                      onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, futureMedicalRange: value } })}
+                      onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, futureMedicalRange: icFinancial.futureMedicalRange === value ? '' : value } })}
                       className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${icFinancial.futureMedicalRange === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
                     >
                       {label}
@@ -2608,7 +2622,7 @@ export default function IntakeWizardQuick() {
                           ...prev,
                           casePosture: {
                             ...prev.casePosture,
-                            missedWork: value,
+                            missedWork: prev.casePosture.missedWork === value ? '' : value,
                             ...(value === 'no' ? { lostWagesRange: '', lostWagesEstimate: '' } : {})
                           }
                         }))
@@ -2635,8 +2649,8 @@ export default function IntakeWizardQuick() {
                               ...prev,
                               casePosture: {
                                 ...prev.casePosture,
-                                lostWagesRange: value,
-                                lostWagesEstimate: estimate
+                                lostWagesRange: prev.casePosture.lostWagesRange === value ? '' : value,
+                                lostWagesEstimate: prev.casePosture.lostWagesRange === value ? '' : estimate
                               }
                             }))
                           }}
@@ -2672,13 +2686,14 @@ export default function IntakeWizardQuick() {
           { value: 'offer', label: tx('legal_contactWithOffer') },
         ]
         const setInsurerContact = (value: string) => {
+          const isToggleOff = insurerContactValue === value
           setFormData(prev => ({
             ...prev,
             casePosture: {
               ...prev.casePosture,
-              insuranceContact: value === 'no' ? 'no' : 'yes',
-              settlementOfferStatus: value === 'offer' ? 'yes' : 'no',
-              ...(value !== 'offer' ? { settlementOffer: '' } : {})
+              insuranceContact: isToggleOff ? '' : value === 'no' ? 'no' : 'yes',
+              settlementOfferStatus: isToggleOff ? '' : value === 'offer' ? 'yes' : 'no',
+              ...(isToggleOff || value !== 'offer' ? { settlementOffer: '' } : {})
             }
           }))
         }
@@ -2792,7 +2807,7 @@ export default function IntakeWizardQuick() {
                               ...prev,
                               casePosture: {
                                 ...prev.casePosture,
-                                attorneyStatus: value,
+                                attorneyStatus: prev.casePosture.attorneyStatus === value ? '' : value,
                                 ...(value !== 'hired' ? { attorneyName: '', secondOpinionInterest: '' } : {})
                               }
                             }))
@@ -2820,7 +2835,7 @@ export default function IntakeWizardQuick() {
                               ...prev,
                               casePosture: {
                                 ...prev.casePosture,
-                                acceptedSettlement: value,
+                                acceptedSettlement: prev.casePosture.acceptedSettlement === value ? '' : value,
                                 ...(value !== 'yes' ? { acceptedSettlementAmount: '' } : {})
                               }
                             }))
@@ -2856,7 +2871,7 @@ export default function IntakeWizardQuick() {
                           key={value}
                           type="button"
                           aria-pressed={icLegal.defendantCoverageLimits === value}
-                          onClick={() => updateForm({ insuranceCoverage: { ...icLegal, defendantCoverageLimits: value } })}
+                          onClick={() => updateForm({ insuranceCoverage: { ...icLegal, defendantCoverageLimits: icLegal.defendantCoverageLimits === value ? '' : value } })}
                           className={`rounded-lg border px-2 py-2 text-xs font-semibold ${icLegal.defendantCoverageLimits === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
                         >
                           {label}
@@ -2875,7 +2890,7 @@ export default function IntakeWizardQuick() {
                             key={value}
                             type="button"
                             aria-pressed={icLegal.umUimCoverage === value}
-                            onClick={() => updateForm({ insuranceCoverage: { ...icLegal, umUimCoverage: value } })}
+                            onClick={() => updateForm({ insuranceCoverage: { ...icLegal, umUimCoverage: icLegal.umUimCoverage === value ? '' : value } })}
                             className={`rounded-lg border px-2 py-2 text-xs font-semibold ${icLegal.umUimCoverage === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
                           >
                             {label}
@@ -3208,7 +3223,7 @@ export default function IntakeWizardQuick() {
         </div>
       )}
 
-      {showReassurance && !evidenceFit && (
+      {showReassurance && !evidenceFit && Object.keys(errors).length === 0 && (
         <div
           className={`mb-1 shrink-0 rounded-xl border border-brand-100 bg-brand-50 text-brand-900 ${
             evidenceFit ? 'px-3 py-1.5 text-xs leading-snug' : 'px-3 py-1.5 text-xs leading-5 sm:px-4 sm:py-2 sm:text-sm sm:leading-6'
@@ -3218,7 +3233,7 @@ export default function IntakeWizardQuick() {
         </div>
       )}
 
-      {showSavedAnswerHint && (
+      {showSavedAnswerHint && Object.keys(errors).length === 0 && (
         <div className="mb-1 shrink-0 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs leading-5 text-emerald-900 sm:px-4 sm:text-sm">
           <span className="font-semibold">✓ {tx('savedAnswer_title')}</span> {tx('savedAnswer_hint')}
         </div>
@@ -3300,17 +3315,10 @@ export default function IntakeWizardQuick() {
           ref={errorSummaryRef}
           role="alert"
           aria-live="assertive"
-          className="mb-1 shrink-0 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 sm:px-4 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
+          className="mb-1 flex shrink-0 items-start gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium leading-snug text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
         >
-          {Object.values(errors).filter(Boolean).length === 1 ? (
-            <p className="font-medium">{Object.values(errors).filter(Boolean)[0]}</p>
-          ) : (
-            <ul className="list-disc space-y-0.5 pl-5">
-              {Object.values(errors).filter(Boolean).map((message, index) => (
-                <li key={index} className="font-medium">{message}</li>
-              ))}
-            </ul>
-          )}
+          <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>{Object.values(errors).filter(Boolean).join(' · ')}</span>
         </div>
       )}
 

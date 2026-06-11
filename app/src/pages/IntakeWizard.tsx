@@ -2075,7 +2075,9 @@ export default function IntakeWizard() {
           <h2 className="text-2xl font-semibold text-gray-900">
             {steps[currentStepIndex].title}
           </h2>
-          <p className="mt-1 text-lg text-gray-600">{steps[currentStepIndex].description}</p>
+          {Object.keys(errors).length === 0 && (
+            <p className="mt-1 text-lg text-gray-600">{steps[currentStepIndex].description}</p>
+          )}
         </div>
 
         {Object.keys(errors).length > 0 && (
@@ -2083,17 +2085,9 @@ export default function IntakeWizard() {
             ref={errorSummaryRef}
             role="alert"
             aria-live="assertive"
-            className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+            className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium leading-snug text-red-700"
           >
-            {Object.values(errors).filter(Boolean).length === 1 ? (
-              <p className="font-medium">{Object.values(errors).filter(Boolean)[0]}</p>
-            ) : (
-              <ul className="list-disc space-y-0.5 pl-5">
-                {Object.values(errors).filter(Boolean).map((message, index) => (
-                  <li key={index} className="font-medium">{message}</li>
-                ))}
-              </ul>
-            )}
+            {Object.values(errors).filter(Boolean).join(' · ')}
           </div>
         )}
 
