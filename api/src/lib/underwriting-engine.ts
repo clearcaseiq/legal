@@ -222,6 +222,12 @@ export function calculateLiability(input: UnderwritingInput): LiabilityResult {
   const evidenceFiles = input.evidenceFiles || []
   const blob = textBlob(facts, evidenceFiles)
   const liability = facts?.liability || {}
+  // Verified-content evidence set produced by case-recalculation. When present, credit evidence
+  // from it (so a blank/unreadable upload does not raise liability via the settlement modifier).
+  // Use the narrative — not file names — for self-described evidence to avoid filename self-credit.
+  const evidenceSet = new Set<string>(Array.isArray(facts?.evidence) ? facts.evidence : [])
+  const hasVerifiedEvidence = evidenceSet.size > 0
+  const narrative = String(facts?.incident?.narrative || '').toLowerCase()
   const comparativeFaultPercent = Math.round(Number(liability.comparativeNegligence || 0) * 100) ||
     (liability.comparativeFault === 'yes' ? 35 : liability.comparativeFault === 'possibly' ? 15 : 0)
   const positives: string[] = []
@@ -244,7 +250,10 @@ export function calculateLiability(input: UnderwritingInput): LiabilityResult {
     score += 20
     positives.push('DUI or intoxication facts')
   }
-  if (hasEvidence(evidenceFiles, 'police_report', ['incident_report']) || /police report|incident report/.test(blob)) {
+  const policeReportPresent = evidenceSet.has('police_report') ||
+    (!hasVerifiedEvidence && hasEvidence(evidenceFiles, 'police_report', ['incident_report'])) ||
+    /police report|incident report/.test(narrative)
+  if (policeReportPresent) {
     score += 10
     positives.push('Police or incident report')
   }
@@ -252,7 +261,11 @@ export function calculateLiability(input: UnderwritingInput): LiabilityResult {
     score += 8
     positives.push('Witness evidence')
   }
-  if (hasEvidence(evidenceFiles, 'photos', ['photo', 'image']) || /photo|picture|video/.test(blob)) {
+  const photosPresent = evidenceSet.has('photos') ||
+    Number(facts?.damages?.photo_count || 0) > 0 ||
+    (!hasVerifiedEvidence && hasEvidence(evidenceFiles, 'photos', ['photo', 'image'])) ||
+    /photo|picture|video/.test(narrative)
+  if (photosPresent) {
     score += 5
     positives.push('Photos or video evidence')
   }
@@ -359,11 +372,22 @@ export function calculateDocumentation(input: UnderwritingInput): DocumentationR
   const missing: string[] = []
   let score = 0
 
-  const medicalRecords = hasEvidence(evidenceFiles, 'medical_records') || injuries.length > 0
-  const medicalBills = hasEvidence(evidenceFiles, 'bills') || Number(damages.med_charges || damages.med_paid || damages.estimated_med_charges || 0) > 0
-  const policeReport = hasEvidence(evidenceFiles, 'police_report', ['incident_report'])
-  const photos = hasEvidence(evidenceFiles, 'photos', ['photo', 'image'])
-  const wageProof = hasEvidence(evidenceFiles, 'wage_loss', ['paystub', 'payroll']) || Number(damages.wage_loss || damages.estimated_wage_loss || 0) > 0
+  // Prefer the verified-content evidence set from case-recalculation so unreadable/blank uploads
+  // do not earn documentation credit. Fall back to label-based presence only when no verified
+  // set exists yet (e.g. recalculation has not run for this assessment).
+  const evidenceSet = new Set<string>(Array.isArray((facts as any)?.evidence) ? (facts as any).evidence : [])
+  const hasVerifiedEvidence = evidenceSet.size > 0
+
+  const medicalRecords = evidenceSet.has('medical_records') || injuries.length > 0 ||
+    (!hasVerifiedEvidence && hasEvidence(evidenceFiles, 'medical_records'))
+  const medicalBills = evidenceSet.has('medical_bills') || Number(damages.extracted_med_charges || 0) > 0 ||
+    (!hasVerifiedEvidence && (hasEvidence(evidenceFiles, 'bills') || Number(damages.med_charges || damages.med_paid || damages.estimated_med_charges || 0) > 0))
+  const policeReport = evidenceSet.has('police_report') ||
+    (!hasVerifiedEvidence && hasEvidence(evidenceFiles, 'police_report', ['incident_report']))
+  const photos = evidenceSet.has('photos') || Number(damages.photo_count || 0) > 0 ||
+    (!hasVerifiedEvidence && hasEvidence(evidenceFiles, 'photos', ['photo', 'image']))
+  const wageProof = Number(damages.extracted_wage_loss || 0) > 0 ||
+    (!hasVerifiedEvidence && (hasEvidence(evidenceFiles, 'wage_loss', ['paystub', 'payroll']) || Number(damages.wage_loss || damages.estimated_wage_loss || 0) > 0))
   const dailyImpact = injuries.some((injury: any) => Array.isArray(injury?.lifestyleImpact) && injury.lifestyleImpact.length > 0)
 
   if (medicalRecords) { score += 25; positives.push('Medical records') } else missing.push('Medical records')
@@ -372,6 +396,11 @@ export function calculateDocumentation(input: UnderwritingInput): DocumentationR
   if (photos) { score += 10; positives.push('Photos') } else missing.push('Photos')
   if (wageProof) { score += 10; positives.push('Wage proof') } else missing.push('Wage proof')
   if (dailyImpact) { score += 15; positives.push('Daily impact statement') } else missing.push('Daily impact statement')
+
+  // Surface uploads we received but could not read, so the plaintiff knows a clearer copy helps.
+  if (Number(damages.evidence_unverified_count || 0) > 0) {
+    missing.push('Re-upload unreadable documents (a clearer scan or photo)')
+  }
 
   const normalized = clamp(score)
   const grade = normalized >= 80 ? 'Strong' : normalized >= 55 ? 'Good' : normalized >= 30 ? 'Developing' : 'Sparse'

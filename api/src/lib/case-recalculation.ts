@@ -30,6 +30,30 @@ interface MedBillProvenanceItem {
   uploadedAt?: string | null
 }
 
+/**
+ * Whether a document-type upload (bill, medical record, police report) actually carries
+ * usable content. A blank image, an unreadable scan, or a non-document photo returns false,
+ * so it never inflates case strength / liability / attorney-acceptance on presence alone.
+ */
+function fileHasUsableContent(file: {
+  ocrText?: string | null
+  extractedData?: Array<{
+    totalAmount?: number | null
+    dollarAmounts?: string | null
+    icdCodes?: string | null
+    dates?: string | null
+  }> | null
+}): boolean {
+  const ext = file.extractedData?.[0]
+  if (ext) {
+    if (Number(ext.totalAmount ?? 0) > 0) return true
+    const nonEmpty = (v?: string | null) => !!v && String(v).replace(/[[\]\s",]/g, '').length > 0
+    if (nonEmpty(ext.icdCodes) || nonEmpty(ext.dates) || nonEmpty(ext.dollarAmounts)) return true
+  }
+  if ((file.ocrText || '').trim().length >= 20) return true
+  return false
+}
+
 function mergeEvidenceIntoFacts(
   facts: Record<string, unknown>,
   evidenceFiles: Array<{
@@ -53,6 +77,11 @@ function mergeEvidenceIntoFacts(
   const damages = (merged.damages as Record<string, unknown>) || {}
   const treatment = (merged.treatment as Array<unknown>) || []
   const evidence = new Set<string>((merged.evidence as string[]) || [])
+  // These categories are (re)derived from the current files below, gated on usable content,
+  // so clear any stale presence-based credit from a previous run before re-evaluating.
+  for (const managed of ['police_report', 'medical_bills', 'medical_records', 'photos']) {
+    evidence.delete(managed)
+  }
 
   const intakeMedCharges = Number(damages.intake_med_charges ?? damages.med_charges) || 0
   const intakeMedPaid = Number(damages.intake_med_paid ?? damages.med_paid) || 0
@@ -66,13 +95,36 @@ function mergeEvidenceIntoFacts(
   const seenBillKeys = new Set<string>()
   // Per-document provenance so attorneys can verify every dollar against its source.
   const billItems: MedBillProvenanceItem[] = []
+  // Photos corroborate but carry no dollar value — dedupe them and let scoring cap the contribution.
+  const seenPhotoKeys = new Set<string>()
+  let photoCount = 0
+  // Uploads received but not yet readable/verified: never credit scores, but surface for follow-up.
+  let unverifiedUploads = 0
 
   for (const file of evidenceFiles) {
     const cat = file.aiClassification || file.category
-    if (cat === 'police_report' || file.category === 'police_report') evidence.add('police_report')
-    if (cat === 'bills' || file.category === 'bills') evidence.add('medical_bills')
-    if (cat === 'medical_records' || file.category === 'medical_records') evidence.add('medical_records')
-    if (cat === 'photos' || file.category === 'photos') evidence.add('photos')
+    const isPolice = cat === 'police_report' || file.category === 'police_report'
+    const isBills = cat === 'bills' || file.category === 'bills'
+    const isRecords = cat === 'medical_records' || file.category === 'medical_records'
+    const isPhotos = cat === 'photos' || file.category === 'photos'
+
+    if (isPhotos) {
+      const photoKey = String(file.originalName || file.id || `photo-${photoCount}`).trim().toLowerCase()
+      if (!seenPhotoKeys.has(photoKey)) {
+        seenPhotoKeys.add(photoKey)
+        photoCount += 1
+        evidence.add('photos')
+      }
+    } else if (isPolice || isBills || isRecords) {
+      // Document-type uploads only count toward strength once we can read usable content.
+      if (fileHasUsableContent(file)) {
+        if (isPolice) evidence.add('police_report')
+        if (isBills) evidence.add('medical_bills')
+        if (isRecords) evidence.add('medical_records')
+      } else {
+        unverifiedUploads += 1
+      }
+    }
 
     const ext = file.extractedData?.[0]
     if (ext) {
@@ -183,6 +235,8 @@ function mergeEvidenceIntoFacts(
     extracted_med_paid: extractedMedPaid,
     extracted_wage_loss: extractedWageLoss,
     med_bill_file_count: medBillFileCount,
+    photo_count: photoCount,
+    evidence_unverified_count: unverifiedUploads,
     med_charges: totalMedCharges,
     med_paid: totalMedPaid,
     med_charges_source: medSource,

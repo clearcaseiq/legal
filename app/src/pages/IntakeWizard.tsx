@@ -1,10 +1,10 @@
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { testAuth } from '../lib/api'
 import { createAssessment, updateAssessment, predict, getAssessment, getEvidenceFiles, analyzeCaseWithChatGPT, getSolRules, uploadEvidenceFile, processEvidenceFile } from '../lib/api-plaintiff'
 import { validateAssessmentSubmission } from '../lib/intakeValidation'
 import type { AssessmentWrite, JurisdictionIntelligence, PlaintiffContext, ExpectationCheck } from '../lib/schemas'
-import { AlertCircle, ChevronRight, Info } from 'lucide-react'
+import { ChevronRight, Info } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import Tooltip from '../components/Tooltip'
 
@@ -82,6 +82,13 @@ export default function IntakeWizard() {
   const [loading, setLoading] = useState(false)
   const [assessmentId, setAssessmentId] = useState<string | null>(routeAssessmentId || null)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  // Keep validation errors in one consistent place (top of the step) and bring it into view.
+  const errorSummaryRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (Object.keys(errors).length > 0) {
+      errorSummaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [errors])
   const [pendingEvidenceFiles, setPendingEvidenceFiles] = useState<Record<string, any[]>>({})
   const [previewFile, setPreviewFile] = useState<{url: string, name: string} | null>(null)
   const isEditMode = !!routeAssessmentId
@@ -827,9 +834,6 @@ export default function IntakeWizard() {
                 <option value="wrongful_death">Wrongful Death</option>
                 <option value="high_severity_surgery">High-Severity / Surgery</option>
               </select>
-              {errors.claimType && (
-                <p className="mt-1 text-sm text-red-600">{errors.claimType}</p>
-              )}
             </div>
 
             <div>
@@ -853,9 +857,6 @@ export default function IntakeWizard() {
                 <option value="NC">North Carolina</option>
                 <option value="MI">Michigan</option>
               </select>
-              {errors.venue && (
-                <p className="mt-1 text-sm text-red-600">{errors.venue}</p>
-              )}
             </div>
 
             <div>
@@ -869,9 +870,6 @@ export default function IntakeWizard() {
                 className={`input ${errors.venueCounty ? 'border-red-500' : ''}`}
                 placeholder="e.g., Los Angeles"
               />
-              {errors.venueCounty && (
-                <p className="mt-1 text-sm text-red-600">{errors.venueCounty}</p>
-              )}
             </div>
 
             <div className="rounded-md border border-gray-200 p-4 space-y-4">
@@ -1182,9 +1180,6 @@ export default function IntakeWizard() {
                 onChange={(e) => updateFormData({ incident: { ...formData.incident, date: e.target.value } })}
                 className={`input ${errors.incidentDate ? 'border-red-500' : ''}`}
               />
-              {errors.incidentDate && (
-                <p className="mt-1 text-sm text-red-600">{errors.incidentDate}</p>
-              )}
             </div>
 
             <div>
@@ -1198,9 +1193,6 @@ export default function IntakeWizard() {
                 rows={6}
                 placeholder="Please describe what happened in detail..."
               />
-              {errors.narrative && (
-                <p className="mt-1 text-sm text-red-600">{errors.narrative}</p>
-              )}
               <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                 <span className="font-medium">What happens if you skip this?</span>{' '}
                 Cases missing a clear incident story often settle for about 15% less.
@@ -1403,9 +1395,6 @@ export default function IntakeWizard() {
                 rows={4}
                 placeholder="Describe any injuries you sustained..."
               />
-              {errors.injuries && (
-                <p className="mt-1 text-sm text-red-600">{errors.injuries}</p>
-              )}
               <p className="mt-2 text-xs text-gray-500">
                 Why we ask: describing injuries helps us match your case to the right attorney and estimate value.
               </p>
@@ -1894,9 +1883,6 @@ export default function IntakeWizard() {
                     (Required)
                   </span>
                 </label>
-                {errors.tos && (
-                  <p className="ml-6 text-sm text-red-600">{errors.tos}</p>
-                )}
 
                 <label className="flex items-start">
                   <input
@@ -1919,9 +1905,6 @@ export default function IntakeWizard() {
                     (Required)
                   </span>
                 </label>
-                {errors.privacy && (
-                  <p className="ml-6 text-sm text-red-600">{errors.privacy}</p>
-                )}
 
                 <label className="flex items-start">
                   <input
@@ -1944,9 +1927,6 @@ export default function IntakeWizard() {
                     (Required)
                   </span>
                 </label>
-                {errors.ml_use && (
-                  <p className="ml-6 text-sm text-red-600">{errors.ml_use}</p>
-                )}
 
                 <label className="flex items-start">
                   <input
@@ -1972,12 +1952,6 @@ export default function IntakeWizard() {
               </div>
             </div>
 
-            {errors.submit && (
-              <div className="flex items-center p-4 bg-red-50 border border-red-200 rounded-lg">
-                <AlertCircle className="h-5 w-5 text-red-600 mr-3" />
-                <p className="text-sm text-red-600">{errors.submit}</p>
-              </div>
-            )}
           </div>
         )
 
@@ -2103,6 +2077,25 @@ export default function IntakeWizard() {
           </h2>
           <p className="mt-1 text-lg text-gray-600">{steps[currentStepIndex].description}</p>
         </div>
+
+        {Object.keys(errors).length > 0 && (
+          <div
+            ref={errorSummaryRef}
+            role="alert"
+            aria-live="assertive"
+            className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            {Object.values(errors).filter(Boolean).length === 1 ? (
+              <p className="font-medium">{Object.values(errors).filter(Boolean)[0]}</p>
+            ) : (
+              <ul className="list-disc space-y-0.5 pl-5">
+                {Object.values(errors).filter(Boolean).map((message, index) => (
+                  <li key={index} className="font-medium">{message}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         {renderStepContent()}
 

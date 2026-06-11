@@ -73,7 +73,22 @@
     "testimonial2Quote": "步骤清楚、语言直白，而且我知道信息是保密的。事故之后这很重要。",
     "testimonial2Attribution": "原告体验示例",
     "testimonial3Quote": "一天之内就联系到了真正做这类人身伤害案件的律所，而不是随机呼叫中心。",
-    "testimonial3Attribution": "原告体验示例"
+    "testimonial3Attribution": "原告体验示例",
+    "finalCtaHelper": "获取您的案件摘要、估值和后续步骤清单。",
+    "heroReassurance": "约需 60 秒 · 无需注册 · 100% 保密",
+    "securityBadge": "加密录入 · 按 HIPAA 标准处理医疗信息",
+    "ratingLabel": "示例用户评分 5 分（满分 5 分）",
+    "stickyCtaHelper": "免费 · 无义务",
+    "legalDisclaimer": "ClearCaseIQ 不是律师事务所，也不提供法律建议；使用本网站不构成律师与客户关系。案件估值仅供参考，不保证任何结果。律师审核为可选项，且仅在您同意后进行。",
+    "attorneyAdvertising": "律师广告",
+    "faqQ1": "案件评估真的是免费的吗？",
+    "faqA1": "是的。案件评估是免费的，开始时无需注册，并且没有聘请律师的义务。",
+    "faqQ2": "我的信息会分享给律师吗？",
+    "faqA2": "仅在您同意的情况下。您的录入信息是私密且加密的；只有当您选择请求律师审核或匹配时，我们才会与律师分享您的详细信息。",
+    "faqQ3": "案件估值有多准确？",
+    "faqA3": "该估值是基于相似伤害案件的模式以及您提供的事实得出的参考区间。它不是法律建议，也不保证任何具体结果。",
+    "faqQ4": "需要多长时间？",
+    "faqA4": "大多数人在约 60 秒内完成引导式问题，并立即获得案件摘要。"
   },
   "footer": {
     "tagline": "为加州原告提供免费伤害案件评估、自助索赔工具和可选律师审查。",
@@ -98,6 +113,7 @@
     "privacyPolicy": "隐私政策",
     "hipaaAuthorization": "HIPAA授权书",
     "copyright": "© 2026 ClearCaseIQ. 保留所有权利。",
+    "attorneyAdvertising": "律师广告",
     "disclaimer": "仅供参考。不是法律建议。签署任何免责协议或作出法律决定前，建议先由律师审查。"
   },
   "intake": {

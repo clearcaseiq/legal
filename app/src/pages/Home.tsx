@@ -1,16 +1,19 @@
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useLanguage } from '../contexts/LanguageContext'
-import HomeProductPreview from '../components/HomeProductPreview'
 import MarketingHeroArt from '../components/MarketingHeroArt'
 import {
   FileTextIcon,
   ShieldIcon,
+  ShieldCheckIcon,
   BarChart3Icon,
   UsersIcon,
   CheckCircleIcon,
   QuoteIcon,
+  StarIcon,
 } from '../components/StartupIcons'
+
+const HomeProductPreview = lazy(() => import('../components/HomeProductPreview'))
 
 export default function Home() {
   const { t } = useLanguage()
@@ -24,6 +27,16 @@ export default function Home() {
     { key: 'caseType5', href: '/assessment/start' },
   ]
 
+  const faqJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: [1, 2, 3, 4].map((n) => ({
+      '@type': 'Question',
+      name: t(`home.faqQ${n}`),
+      acceptedAnswer: { '@type': 'Answer', text: t(`home.faqA${n}`) },
+    })),
+  }
+
   useEffect(() => {
     if (hash === '#how-it-works') {
       const el = document.getElementById('how-it-works')
@@ -32,7 +45,11 @@ export default function Home() {
   }, [hash])
 
   return (
-    <div className="space-y-0">
+    <div className="space-y-0 pb-20 md:pb-0">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+      />
         {/* Hero — split layout + product preview */}
         <section className="py-8 md:py-14 lg:py-16">
           <div className="grid lg:grid-cols-2 gap-10 lg:gap-12 items-center">
@@ -67,11 +84,20 @@ export default function Home() {
                   {t('common.startAssessment')}
                 </Link>
               </div>
-              <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">{t('common.heroFooter')}</p>
+              <p className="mt-4 text-sm font-medium text-slate-600 dark:text-slate-300">{t('home.heroReassurance')}</p>
             </div>
 
             <div className="order-1 lg:order-2">
-              <HomeProductPreview />
+              <Suspense
+                fallback={
+                  <div
+                    className="aspect-[4/3] w-full animate-pulse rounded-2xl border border-slate-200/70 bg-slate-100/70 dark:border-slate-800 dark:bg-slate-900/50"
+                    aria-hidden
+                  />
+                }
+              >
+                <HomeProductPreview />
+              </Suspense>
             </div>
           </div>
         </section>
@@ -99,12 +125,23 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Security / privacy badge */}
+          <div className="mx-auto mb-10 flex max-w-xl items-center justify-center gap-2.5 rounded-full border border-emerald-200/70 bg-emerald-50/70 px-4 py-2 text-center text-xs font-medium text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">
+            <ShieldCheckIcon className="h-4 w-4 flex-shrink-0" aria-hidden />
+            <span>{t('home.securityBadge')}</span>
+          </div>
+
           <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
             {[1, 2, 3].map((n) => (
               <figure
                 key={n}
                 className="relative rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 p-5 hover:shadow-md transition-shadow duration-200"
               >
+                <div className="mb-2 flex items-center gap-0.5 text-amber-400" role="img" aria-label={t('home.ratingLabel')}>
+                  {[0, 1, 2, 3, 4].map((s) => (
+                    <StarIcon key={s} className="h-4 w-4" aria-hidden />
+                  ))}
+                </div>
                 <QuoteIcon className="h-8 w-8 text-brand-200 dark:text-brand-800 mb-2" aria-hidden />
                 <blockquote className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
                   “{t(`home.testimonial${n}Quote`)}”
@@ -201,10 +238,36 @@ export default function Home() {
               {t('common.startAssessment')}
             </Link>
             <p className="text-center text-sm text-slate-500 dark:text-slate-400">
-              Get your case summary, estimate, and next-step checklist.
+              {t('home.finalCtaHelper')}
             </p>
           </div>
         </section>
+
+        {/* Legal disclaimer + attorney advertising disclosure */}
+        <section className="py-6">
+          <div className="mx-auto max-w-3xl text-center">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
+              {t('home.attorneyAdvertising')}
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+              {t('home.legalDisclaimer')}
+            </p>
+          </div>
+        </section>
+
+        {/* Sticky mobile CTA */}
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-4px_20px_rgba(15,23,42,0.08)] backdrop-blur-xl md:hidden dark:border-slate-800 dark:bg-slate-900/95">
+          <Link
+            to="/assessment/start"
+            className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-6 py-3 text-base font-bold text-white shadow-lg shadow-accent-500/25"
+          >
+            <FileTextIcon className="h-5 w-5" aria-hidden />
+            {t('common.startAssessment')}
+          </Link>
+          <p className="mt-1 text-center text-[11px] font-medium text-slate-500 dark:text-slate-400">
+            {t('home.stickyCtaHelper')}
+          </p>
+        </div>
       </div>
   )
 }

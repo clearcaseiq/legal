@@ -73,7 +73,22 @@
     "testimonial2Quote": "Clear steps, plain language, and I knew my data was private. That mattered after the accident.",
     "testimonial2Attribution": "Example plaintiff experience",
     "testimonial3Quote": "Within a day I was connected to a firm that actually handles injury cases like mine—not a random call center.",
-    "testimonial3Attribution": "Example plaintiff experience"
+    "testimonial3Attribution": "Example plaintiff experience",
+    "finalCtaHelper": "Get your case summary, estimate, and next-step checklist.",
+    "heroReassurance": "Takes about 60 seconds · No signup required · 100% confidential",
+    "securityBadge": "Encrypted intake · HIPAA-aware handling of medical details",
+    "ratingLabel": "Rated 5 out of 5 by example users",
+    "stickyCtaHelper": "Free · No obligation",
+    "legalDisclaimer": "ClearCaseIQ is not a law firm and does not provide legal advice, and no attorney-client relationship is created by using this site. Case estimates are informational only and are not a guarantee of any outcome. Attorney review is optional and occurs only with your consent.",
+    "attorneyAdvertising": "Attorney Advertising",
+    "faqQ1": "Is the case assessment really free?",
+    "faqA1": "Yes. The case assessment is free, requires no signup to start, and there is no obligation to hire an attorney.",
+    "faqQ2": "Will my information be shared with attorneys?",
+    "faqA2": "Only with your consent. Your intake is private and encrypted, and we share your details with an attorney only if you choose to request attorney review or a match.",
+    "faqQ3": "How accurate is the estimated case value?",
+    "faqA3": "The estimate is an informational range based on patterns in similar injury cases and the facts you provide. It is not legal advice or a guarantee of any specific result.",
+    "faqQ4": "How long does it take?",
+    "faqA4": "Most people complete the guided questions in about 60 seconds and receive a case snapshot immediately."
   },
   "footer": {
     "tagline": "Free injury case assessments and attorney matching.",

@@ -656,6 +656,14 @@ export default function IntakeWizardQuick() {
     stepScrollRef.current?.scrollTo({ top: 0 })
   }, [currentStep])
 
+  // Keep validation errors in one consistent place (top of the step) and bring it into view.
+  const errorSummaryRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (Object.keys(errors).length > 0) {
+      errorSummaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [errors])
+
   // Only geolocate once the user reaches the location step — no lookup before it is needed.
   const geoRequestedRef = useRef(false)
   useEffect(() => {
@@ -1460,7 +1468,6 @@ export default function IntakeWizardQuick() {
                 </button>
               ))}
             </div>
-            {errors.injuryType && <p className="text-sm text-red-600 text-center">{errors.injuryType}</p>}
           </div>
         )
 
@@ -1496,7 +1503,6 @@ export default function IntakeWizardQuick() {
                   <input type="date" value={customDate} onChange={e => { const val = e.target.value; setCustomDate(val); if (val) updateForm({ incidentDate: val }) }} className="input w-full" autoFocus />
                 </div>
               )}
-              {errors.incidentDate && <p className="text-sm text-red-600 text-center">{errors.incidentDate}</p>}
             </div>
 
             <div className="space-y-3 border-t border-slate-100 pt-4">
@@ -1561,7 +1567,6 @@ export default function IntakeWizardQuick() {
                 </div>
               </div>
             )}
-            {(errors.state || errors.county) && <p className="text-sm text-red-600 text-center">{errors.state || errors.county}</p>}
             </div>
           </div>
         )
@@ -1604,7 +1609,6 @@ export default function IntakeWizardQuick() {
                   placeholder="you@example.com"
                   className={`input w-full ${errors.contactEmail ? 'border-red-500' : ''}`}
                 />
-                {errors.contactEmail && <p className="mt-1 text-sm text-red-600">{errors.contactEmail}</p>}
               </div>
               <div>
                 <label htmlFor="contact-phone" className="mb-1 flex items-center gap-2 text-sm font-medium text-gray-700">
@@ -1646,7 +1650,6 @@ export default function IntakeWizardQuick() {
                   </button>
                 ))}
               </div>
-              {errors.injurySeverity && <p className="text-sm text-red-600 text-center">{errors.injurySeverity}</p>}
             </div>
 
             <div className="space-y-3 border-t border-slate-100 pt-4">
@@ -3011,8 +3014,6 @@ export default function IntakeWizardQuick() {
               </div>
               <p className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">{tx('consent_privacySecure')}</p>
             </div>
-            {(errors.tos || errors.privacy || errors.ml_use) && <p className="text-sm text-red-600 text-center lg:col-span-2">{errors.tos || errors.privacy || errors.ml_use}</p>}
-            {errors.submit && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 lg:col-span-2">{errors.submit}</div>}
             {uploadFailures.length > 0 && assessmentId && (
               <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 lg:col-span-2">
                 <p className="text-sm font-semibold">
@@ -3291,6 +3292,25 @@ export default function IntakeWizardQuick() {
           <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-white">
             <div className="h-full rounded-full bg-brand-600 transition-[width] duration-300" style={{ width: `${injuryConfidencePercent}%` }} />
           </div>
+        </div>
+      )}
+
+      {Object.keys(errors).length > 0 && (
+        <div
+          ref={errorSummaryRef}
+          role="alert"
+          aria-live="assertive"
+          className="mb-1 shrink-0 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 sm:px-4 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
+        >
+          {Object.values(errors).filter(Boolean).length === 1 ? (
+            <p className="font-medium">{Object.values(errors).filter(Boolean)[0]}</p>
+          ) : (
+            <ul className="list-disc space-y-0.5 pl-5">
+              {Object.values(errors).filter(Boolean).map((message, index) => (
+                <li key={index} className="font-medium">{message}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 

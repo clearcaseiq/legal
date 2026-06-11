@@ -1,4 +1,4 @@
-import { ActivityIcon, ShieldCheckIcon, TrendingUpIcon } from './StartupIcons'
+import { ActivityIcon, ScaleIcon, ShieldCheckIcon, TrendingUpIcon } from './StartupIcons'
 
 /**
  * Abstract product preview for marketing hero — no live data.
@@ -30,6 +30,17 @@ export default function HomeProductPreview() {
               <ActivityIcon className="h-3.5 w-3.5" aria-hidden />
               Likely worth reviewing
             </span>
+          </div>
+          {/* Attorney acceptance — the signal injured people care about most */}
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-3 dark:border-emerald-800/60 dark:bg-emerald-950/40">
+            <div className="flex items-center gap-2">
+              <ScaleIcon className="h-5 w-5 text-emerald-700 dark:text-emerald-400 shrink-0" aria-hidden />
+              <div>
+                <p className="text-xs uppercase tracking-wide text-emerald-700/80 dark:text-emerald-400/80">Attorney acceptance</p>
+                <p className="text-base font-semibold text-emerald-900 dark:text-emerald-100">Very Likely</p>
+              </div>
+            </div>
+            <span className="font-display text-2xl font-bold tabular-nums text-emerald-800 dark:text-emerald-200">88%</span>
           </div>
           <div className="grid grid-cols-3 gap-2">
             <div className="rounded-xl bg-brand-50 dark:bg-brand-950/40 border border-brand-100 dark:border-brand-900/50 p-3 text-center">

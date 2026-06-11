@@ -73,7 +73,22 @@
     "testimonial2Quote": "Pasos claros, lenguaje sencillo y sabía que mis datos eran privados. Eso importó después del accidente.",
     "testimonial2Attribution": "Ejemplo de experiencia de un demandante",
     "testimonial3Quote": "En un día me conectaron con un bufete que realmente maneja casos como el mío—no un call center.",
-    "testimonial3Attribution": "Ejemplo de experiencia de un demandante"
+    "testimonial3Attribution": "Ejemplo de experiencia de un demandante",
+    "finalCtaHelper": "Obtenga el resumen de su caso, una estimación y una lista de próximos pasos.",
+    "heroReassurance": "Toma unos 60 segundos · Sin registro · 100% confidencial",
+    "securityBadge": "Admisión cifrada · Manejo de datos médicos conforme a HIPAA",
+    "ratingLabel": "Calificado 5 de 5 por usuarios de ejemplo",
+    "stickyCtaHelper": "Gratis · Sin compromiso",
+    "legalDisclaimer": "ClearCaseIQ no es un bufete de abogados y no brinda asesoría legal; el uso de este sitio no crea una relación abogado-cliente. Las estimaciones del caso son solo informativas y no garantizan ningún resultado. La revisión por un abogado es opcional y ocurre solo con su consentimiento.",
+    "attorneyAdvertising": "Publicidad de Abogados",
+    "faqQ1": "¿La evaluación del caso es realmente gratis?",
+    "faqA1": "Sí. La evaluación del caso es gratuita, no requiere registro para comenzar y no hay obligación de contratar a un abogado.",
+    "faqQ2": "¿Se compartirá mi información con abogados?",
+    "faqA2": "Solo con su consentimiento. Su admisión es privada y cifrada, y compartimos sus datos con un abogado únicamente si usted decide solicitar una revisión o coincidencia.",
+    "faqQ3": "¿Qué tan precisa es la estimación del valor del caso?",
+    "faqA3": "La estimación es un rango informativo basado en patrones de casos de lesiones similares y los datos que usted proporciona. No es asesoría legal ni una garantía de resultado.",
+    "faqQ4": "¿Cuánto tiempo toma?",
+    "faqA4": "La mayoría de las personas completan las preguntas guiadas en unos 60 segundos y reciben un resumen del caso de inmediato."
   },
   "footer": {
     "tagline": "Evaluaciones gratuitas de casos de lesiones, herramientas de demanda por cuenta propia y revisión opcional de abogados para demandantes en California.",
@@ -98,6 +113,7 @@
     "privacyPolicy": "Política de privacidad",
     "hipaaAuthorization": "Autorización HIPAA",
     "copyright": "© 2026 ClearCaseIQ. Todos los derechos reservados.",
+    "attorneyAdvertising": "Publicidad de Abogados",
     "disclaimer": "Solo con fines informativos. No es asesoramiento legal. Se recomienda revisión de abogado antes de firmar cualquier liberación o tomar decisiones legales."
   },
   "intake": {

@@ -549,6 +549,8 @@ export default function Layout({ children }: LayoutProps) {
             </div>
             <div className="mt-2 max-w-4xl text-[11px] leading-relaxed text-slate-500">
               <p>
+                <span className="font-semibold uppercase tracking-wide text-slate-400">{t('footer.attorneyAdvertising')}</span>
+                {' · '}
                 {t('footer.disclaimer')}
               </p>
             </div>
