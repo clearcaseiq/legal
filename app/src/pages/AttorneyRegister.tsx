@@ -292,7 +292,7 @@ export default function AttorneyRegister() {
                       type="text"
                       value={form.firstName}
                       onChange={(e) => updateField('firstName', e.target.value)}
-                      className="input"
+                      className={`input ${fieldErrors.firstName ? 'border-red-500' : ''}`}
                     />
                     {fieldErrors.firstName && <p className="mt-1 text-xs text-red-600">{fieldErrors.firstName}</p>}
                   </div>
@@ -302,7 +302,7 @@ export default function AttorneyRegister() {
                       type="text"
                       value={form.lastName}
                       onChange={(e) => updateField('lastName', e.target.value)}
-                      className="input"
+                      className={`input ${fieldErrors.lastName ? 'border-red-500' : ''}`}
                     />
                     {fieldErrors.lastName && <p className="mt-1 text-xs text-red-600">{fieldErrors.lastName}</p>}
                   </div>
@@ -313,7 +313,7 @@ export default function AttorneyRegister() {
                     type="email"
                     value={form.email}
                     onChange={(e) => updateField('email', e.target.value)}
-                    className="input"
+                    className={`input ${fieldErrors.email ? 'border-red-500' : ''}`}
                   />
                   {fieldErrors.email && <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>}
                 </div>
@@ -325,7 +325,7 @@ export default function AttorneyRegister() {
                       value={form.password}
                       onChange={(e) => updateField('password', e.target.value)}
                       disabled={isLoading}
-                      className="input"
+                      className={`input ${fieldErrors.password ? 'border-red-500' : ''}`}
                     />
                     {fieldErrors.password && <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>}
                   </div>

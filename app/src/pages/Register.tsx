@@ -222,7 +222,7 @@ export default function Register() {
                       setForm((current) => ({ ...current, firstName: event.target.value }))
                       setFieldErrors((current) => ({ ...current, firstName: undefined }))
                     }}
-                    className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm"
+                    className={`appearance-none block w-full px-3 py-2 border rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm ${fieldErrors.firstName ? 'border-red-500' : 'border-gray-300'}`}
                     placeholder="John"
                   />
                 </div>
@@ -244,7 +244,7 @@ export default function Register() {
                       setForm((current) => ({ ...current, lastName: event.target.value }))
                       setFieldErrors((current) => ({ ...current, lastName: undefined }))
                     }}
-                    className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm"
+                    className={`appearance-none block w-full px-3 py-2 border rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm ${fieldErrors.lastName ? 'border-red-500' : 'border-gray-300'}`}
                     placeholder="Doe"
                   />
                 </div>
@@ -267,7 +267,7 @@ export default function Register() {
                     setForm((current) => ({ ...current, email: event.target.value }))
                     setFieldErrors((current) => ({ ...current, email: undefined }))
                   }}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm"
+                  className={`appearance-none block w-full px-3 py-2 border rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm ${fieldErrors.email ? 'border-red-500' : 'border-gray-300'}`}
                   placeholder="john@example.com"
                 />
               </div>
@@ -290,7 +290,7 @@ export default function Register() {
                     setFieldErrors((current) => ({ ...current, password: undefined }))
                   }}
                   disabled={isLoading}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm"
+                  className={`appearance-none block w-full px-3 py-2 border rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm ${fieldErrors.password ? 'border-red-500' : 'border-gray-300'}`}
                   placeholder="••••••••"
                 />
               </div>
