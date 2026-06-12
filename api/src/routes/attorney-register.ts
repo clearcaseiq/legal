@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { z } from 'zod'
 import { generateToken } from '../lib/auth'
+import { optionalPhone } from '../lib/phone'
 
 const router = Router()
 
@@ -36,7 +37,7 @@ export const AttorneyRegisterSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters'),
   firstName: z.string().min(1, 'First name is required'),
   lastName: z.string().min(1, 'Last name is required'),
-  phone: z.string().optional(),
+  phone: optionalPhone,
   name: z.string().optional(), // Derived from firstName + lastName + " Esq." if not provided
   firmName: z.string().optional(),
   firmWebsite: z.union([z.string().url(), z.literal('')]).optional(),
@@ -55,7 +56,7 @@ export const AttorneyRegisterSchema = z.object({
     city: z.string(),
     state: z.string().length(2),
     zip: z.string(),
-    phone: z.string().optional()
+    phone: optionalPhone
   })).optional(),
   minInjurySeverity: z.number().min(0).max(4).optional(),
   excludedCaseTypes: z.array(z.string()).optional(),

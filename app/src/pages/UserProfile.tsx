@@ -4,6 +4,7 @@ import { updateProfile } from '../lib/api'
 import { User, Save, AlertCircle, CheckCircle, ArrowLeft, FileText, Activity } from 'lucide-react'
 import { getLoginRedirect, getStoredUser } from '../lib/auth'
 import { updateCachedPlaintiffUser, usePlaintiffSessionSummary } from '../hooks/usePlaintiffSessionSummary'
+import { formatPhoneInput, validatePhoneField } from '../lib/phone'
 
 interface UserProfile {
   id: string
@@ -53,6 +54,13 @@ export default function UserProfile() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    const phoneError = validatePhoneField(formData.phone)
+    if (phoneError) {
+      setError(phoneError)
+      return
+    }
+
     setSaving(true)
     setError(null)
     setSuccess(false)
@@ -258,7 +266,7 @@ export default function UserProfile() {
                     type="tel"
                     id="phone"
                     value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, phone: formatPhoneInput(e.target.value) })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500"
                     placeholder="(555) 123-4567"
                   />

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { optionalPhone } from './phone'
 
 export const Venue = z.object({ 
   state: z.string(), 
@@ -158,7 +159,7 @@ export const SubmitCaseForReview = z.object({
     (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
     z.string().email().optional()
   ),
-  phone: z.string().trim().min(1).optional(),
+  phone: optionalPhone,
   preferredContactMethod: z.enum(['phone', 'text', 'email']).optional(),
   hipaa: z.boolean().optional(),
   rankedAttorneyIds: z.array(z.string().trim().min(1)).max(3).optional(),
@@ -170,7 +171,7 @@ export const UserRegister = z.object({
   password: z.string().min(8),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
-  phone: z.string().optional()
+  phone: optionalPhone
 })
 
 export const UserLogin = z.object({
@@ -184,7 +185,7 @@ export const UserLogin = z.object({
 export const UserUpdate = z.object({
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
-  phone: z.string().optional()
+  phone: optionalPhone
 })
 
 export const FavoriteAttorneyRequest = z.object({

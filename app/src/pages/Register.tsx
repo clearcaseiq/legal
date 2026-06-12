@@ -11,6 +11,7 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { useToast } from '../contexts/ToastContext'
 import { resetCachedPlaintiffSessionSummary, updateCachedPlaintiffAssessments, updateCachedPlaintiffUser } from '../hooks/usePlaintiffSessionSummary'
 import { type RegisterFieldErrors, type RegisterInput, validateRegisterInput } from '../lib/registerValidation'
+import { formatPhoneInput } from '../lib/phone'
 
 export default function Register() {
   const { t } = useLanguage()
@@ -309,12 +310,14 @@ export default function Register() {
                   type="tel"
                   value={form.phone}
                   onChange={(event) => {
-                    setForm((current) => ({ ...current, phone: event.target.value }))
+                    setForm((current) => ({ ...current, phone: formatPhoneInput(event.target.value) }))
                     setFieldErrors((current) => ({ ...current, phone: undefined }))
                   }}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm"
+                  aria-invalid={!!fieldErrors.phone}
+                  className={`appearance-none block w-full px-3 py-2 border rounded-md placeholder-gray-400 focus:outline-none focus:ring-brand-500 focus:border-brand-500 sm:text-sm ${fieldErrors.phone ? 'border-red-500' : 'border-gray-300'}`}
                   placeholder="(555) 123-4567"
                 />
+                {fieldErrors.phone && <p className="mt-1 text-sm text-red-600">{fieldErrors.phone}</p>}
               </div>
             </div>
 

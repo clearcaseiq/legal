@@ -22,6 +22,7 @@ import {
 } from '../lib/routing-lifecycle'
 import { sendPlaintiffAttorneyAccepted } from '../lib/case-notifications'
 import { translateToEnglish, looksNonEnglish } from '../lib/translate'
+import { isValidPhone, normalizePhone, PHONE_ERROR_MESSAGE } from '../lib/phone'
 import { answerCommandCenterCopilot, buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
 import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
@@ -4068,6 +4069,12 @@ router.post('/leads/:leadId/case-contacts', authMiddleware, async (req: any, res
       return res.status(400).json({ error: 'First name and last name are required' })
     }
 
+    const rawPhone = body.phone?.trim() || ''
+    if (rawPhone && !isValidPhone(rawPhone)) {
+      return res.status(400).json({ error: PHONE_ERROR_MESSAGE })
+    }
+    const normalizedPhone = rawPhone ? normalizePhone(rawPhone) : null
+
     const contact = await prisma.caseContact.create({
       data: {
         leadId,
@@ -4075,7 +4082,7 @@ router.post('/leads/:leadId/case-contacts', authMiddleware, async (req: any, res
         firstName,
         lastName: lastName,
         email: body.email?.trim() || null,
-        phone: body.phone?.trim() || null,
+        phone: normalizedPhone,
         companyName: body.companyName?.trim() || null,
         companyUrl: body.companyUrl?.trim() || null,
         title: body.title?.trim() || null,
@@ -4124,7 +4131,13 @@ router.patch('/leads/:leadId/case-contacts/:contactId', authMiddleware, async (r
     if (body.firstName != null) update.firstName = String(body.firstName).trim()
     if (body.lastName != null) update.lastName = String(body.lastName).trim()
     if (body.email != null) update.email = body.email ? String(body.email).trim() : null
-    if (body.phone != null) update.phone = body.phone ? String(body.phone).trim() : null
+    if (body.phone != null) {
+      const trimmedPhone = String(body.phone).trim()
+      if (trimmedPhone && !isValidPhone(trimmedPhone)) {
+        return res.status(400).json({ error: PHONE_ERROR_MESSAGE })
+      }
+      update.phone = trimmedPhone ? normalizePhone(trimmedPhone) : null
+    }
     if (body.companyName != null) update.companyName = body.companyName ? String(body.companyName).trim() : null
     if (body.companyUrl != null) update.companyUrl = body.companyUrl ? String(body.companyUrl).trim() : null
     if (body.title != null) update.title = body.title ? String(body.title).trim() : null

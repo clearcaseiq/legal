@@ -1,3 +1,5 @@
+import { validatePhoneField } from './phone'
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const INTAKE_STATUS_OPTIONS = ['accept_immediately', 'pause', 'vacation'] as const
@@ -133,6 +135,11 @@ export function validateAttorneyRegisterInput(
 
   if (!input.lastName.trim()) {
     fieldErrors.lastName = 'Last name is required'
+  }
+
+  const phoneError = validatePhoneField(input.phone)
+  if (phoneError) {
+    fieldErrors.phone = phoneError
   }
 
   const firmWebsite = input.firmWebsite.trim()

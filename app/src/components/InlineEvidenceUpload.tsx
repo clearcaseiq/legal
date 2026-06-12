@@ -74,7 +74,7 @@ interface ProcessingJob {
 function tightUploadCountLabel(category: string | undefined, count: number): string {
   const n = count
   const p = (singular: string, plural: string) =>
-    `${n} ${n === 1 ? singular : plural} uploaded`
+    `${n} ${n === 1 ? singular : plural}`
   switch (category) {
     case 'photos':
       return p('photo', 'photos')
@@ -601,14 +601,14 @@ export default function InlineEvidenceUpload({
         )}
 
         {showUploadArea && (
-          <div className={hideCameraButton && tight ? 'py-0.5' : `rounded-lg border-2 border-dashed border-gray-300 ${tight ? 'p-2' : 'p-4'}`}>
-            <div className={`flex flex-wrap items-center justify-center ${tight ? 'gap-1.5' : 'gap-3'} ${hideCameraButton ? 'w-full' : ''}`}>
+          <div className={hideCameraButton && tight ? 'py-0' : `rounded-lg border-2 border-dashed border-gray-300 ${tight ? 'p-2' : 'p-4'}`}>
+            <div className={`flex flex-wrap items-center ${tight ? 'justify-center gap-1.5' : 'justify-center gap-3'} ${hideCameraButton ? 'w-full' : ''}`}>
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={loading}
-                className={`flex items-center justify-center rounded-lg bg-brand-600 font-medium text-white hover:bg-brand-700 disabled:opacity-50 ${
-                  tight ? 'min-h-8 px-3 py-1 text-[11px]' : 'px-4 py-2 text-sm'
+                className={`inline-flex items-center justify-center rounded-md bg-brand-600 font-medium text-white hover:bg-brand-700 disabled:opacity-50 ${
+                  tight ? 'min-h-0 px-2.5 py-1 text-[11px]' : 'px-4 py-2 text-sm'
                 } ${
                   hideCameraButton ? 'w-full' : ''
                 }`}
@@ -656,23 +656,23 @@ export default function InlineEvidenceUpload({
         )}
 
         {files.length > 0 && tight && (
-          <div className="space-y-1">
-            <div className="flex items-center justify-between gap-2 rounded-md border border-brand-200/80 bg-brand-50 px-2 py-1.5 dark:border-brand-800/60 dark:bg-brand-950/40">
-              <span className="min-w-0 text-[11px] font-semibold leading-tight text-brand-950 dark:text-brand-100">
+          <div className="space-y-0.5">
+            <div className="flex items-center justify-between gap-2 rounded border border-brand-200/80 bg-brand-50 px-2 py-0 leading-none dark:border-brand-800/60 dark:bg-brand-950/40">
+              <span className="min-w-0 truncate text-[11px] font-semibold leading-none text-brand-950 dark:text-brand-100">
                 {tightUploadCountLabel(category, files.length)}
               </span>
               <button
                 type="button"
                 onClick={() => setShowTightManage(true)}
-                className="shrink-0 rounded-md bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-brand-800 shadow-sm ring-1 ring-brand-200 hover:bg-brand-100 dark:bg-brand-900 dark:text-brand-100 dark:ring-brand-700 dark:hover:bg-brand-800"
+                className="my-1 shrink-0 rounded bg-white px-2 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide text-brand-800 shadow-sm ring-1 ring-brand-200 hover:bg-brand-100 dark:bg-brand-900 dark:text-brand-100 dark:ring-brand-700 dark:hover:bg-brand-800"
               >
                 Manage
               </button>
             </div>
 
             {files.length > 0 && !assessmentId && (
-              <p className="rounded border border-emerald-100 bg-emerald-50 p-1 text-center text-[10px] font-medium leading-snug text-emerald-700">
-                ✓ Documents saved securely · Uploaded automatically when you submit
+              <p className="text-center text-[10px] font-medium leading-tight text-emerald-700">
+                ✓ Saved securely · uploads when you submit
               </p>
             )}
 
@@ -687,14 +687,15 @@ export default function InlineEvidenceUpload({
                 }}
               >
                 <div className="flex max-h-[70vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
-                  <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-                    <h3 id={`tight-evidence-manage-${category ?? 'upload'}`} className="text-sm font-semibold text-gray-900">
-                      {tightUploadCountLabel(category, files.length)}
+                  <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
+                    <h3 id={`tight-evidence-manage-${category ?? 'upload'}`} className="flex min-w-0 items-center gap-2 text-sm font-semibold text-gray-900">
+                      <span className="truncate">{description || title || 'Manage files'}</span>
+                      <span className="shrink-0 rounded-full bg-brand-100 px-2 py-0.5 text-xs font-bold text-brand-700">{files.length}</span>
                     </h3>
                     <button
                       type="button"
                       onClick={() => setShowTightManage(false)}
-                      className="rounded-lg px-2 py-1 text-sm text-gray-600 hover:bg-gray-100"
+                      className="shrink-0 rounded-lg px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100"
                     >
                       Done
                     </button>
@@ -751,6 +752,17 @@ export default function InlineEvidenceUpload({
                         </div>
                       </div>
                     ))}
+                  </div>
+                  <div className="border-t border-gray-100 p-3">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={loading}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-100 disabled:opacity-50"
+                    >
+                      <Upload className="h-4 w-4 shrink-0" />
+                      {loading ? 'Uploading…' : (uploadButtonLabel || 'Add more files')}
+                    </button>
                   </div>
                 </div>
               </div>

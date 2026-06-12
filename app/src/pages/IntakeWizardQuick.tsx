@@ -4,12 +4,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, type IntakeLeadPayload } from '../lib/api-plaintiff'
-import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets } from 'lucide-react'
+import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import { useLanguage } from '../contexts/LanguageContext'
 import { buildCaseTaxonomy, injuryTypeToClaimType, sanitizeDetectedCounty } from '../lib/intakeQuickHelpers'
 import { US_STATES } from '../lib/constants'
 import { getCountiesForState } from '../lib/usLocationData'
+import { formatPhoneInput, validatePhoneField } from '../lib/phone'
 
 type Step =
   | 'injury_type'
@@ -36,14 +37,13 @@ const INJURY_TYPES = [
   { value: 'other', labelKey: 'injuryType_other', icon: HelpCircle }
 ]
 
-const WHEN_OPTIONS = [
-  { value: 'today', labelKey: 'today', getDate: () => new Date().toISOString().split('T')[0] },
-  { value: 'last_week', labelKey: 'lastWeek', getDate: () => { const d = new Date(); d.setDate(d.getDate() - 5); return d.toISOString().split('T')[0] } },
-  { value: 'last_month', labelKey: 'lastMonth', getDate: () => { const d = new Date(); d.setMonth(d.getMonth() - 1); return d.toISOString().split('T')[0] } },
-  { value: 'last_6_months', labelKey: 'last6Months', getDate: () => { const d = new Date(); d.setMonth(d.getMonth() - 3); return d.toISOString().split('T')[0] } },
-  { value: 'more_6_months', labelKey: 'more6Months', getDate: () => { const d = new Date(); d.setDate(d.getDate() - 365); return d.toISOString().split('T')[0] } },
-  { value: 'custom', labelKey: 'customDate', getDate: () => '' }
-]
+const isoToday = (): string => new Date().toISOString().split('T')[0]
+
+const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => ({
+  value: String(i + 1).padStart(2, '0'),
+  label: new Date(2000, i, 1).toLocaleString('en-US', { month: 'long' }),
+}))
+const YEAR_OPTIONS = Array.from({ length: 11 }, (_, i) => new Date().getFullYear() - i)
 
 const INJURY_SEVERITY_OPTIONS = [
   { value: 'minor', labelKey: 'minor' as const },
@@ -672,11 +672,27 @@ export default function IntakeWizardQuick() {
     let cancelled = false
     fetch('https://ipapi.co/json/')
       .then(r => r.json())
-      .then(data => {
+      .then(async data => {
         if (cancelled) return
         const city = data.city || ''
-        const county = sanitizeDetectedCounty(data.region_code || '', data.county || '')
         const state = data.region_code || ''
+        let county = sanitizeDetectedCounty(state, data.county || '')
+        // ipapi rarely returns a county; resolve it from coordinates via the
+        // free FCC census area API so "Use this location" can fill county too.
+        if (!county && data.latitude && data.longitude) {
+          try {
+            const fcc = await fetch(
+              `https://geo.fcc.gov/api/census/area?lat=${data.latitude}&lon=${data.longitude}&format=json`,
+            ).then(r => r.json())
+            const result = fcc?.results?.[0]
+            if (result?.county_name) {
+              county = sanitizeDetectedCounty(result.state_code || state, result.county_name)
+            }
+          } catch {
+            /* fall back to no county — user can pick it manually */
+          }
+        }
+        if (cancelled) return
         if (city || county || state) setDetectedLocation({ city, county, state })
       })
       .catch(() => {})
@@ -685,9 +701,7 @@ export default function IntakeWizardQuick() {
 
   useEffect(() => {
     const incidentDate =
-      formData.incidentDatePreset === 'custom'
-        ? customDate
-        : WHEN_OPTIONS.find((option) => option.value === formData.incidentDatePreset)?.getDate() || formData.incidentDate
+      formData.incidentDatePreset === 'custom' ? customDate : formData.incidentDate
     const claimType = formData.claimType || injuryTypeToClaimType(formData.injuryType)
     if (!incidentDate || !formData.venue.state || !claimType) {
       setSolPreview(null)
@@ -741,13 +755,11 @@ export default function IntakeWizardQuick() {
 
   const getIncidentDate = (): string => {
     if (formData.incidentDatePreset === 'custom') return customDate
-    const opt = WHEN_OPTIONS.find(o => o.value === formData.incidentDatePreset)
-    return opt ? opt.getDate() : formData.incidentDate
+    return formData.incidentDate
   }
 
-  /** Date presets like "Last 6 months" produce an estimated date — deadline math from them is approximate. */
-  const incidentDateIsApproximate =
-    !!formData.incidentDatePreset && formData.incidentDatePreset !== 'custom' && formData.incidentDatePreset !== 'today'
+  /** Month/year produces an estimated date — deadline math from it is approximate. */
+  const incidentDateIsApproximate = formData.incidentDatePreset === 'month_year'
 
   const formatVenueLocation = (venue: { city?: string; county?: string; state?: string }) =>
     [venue.city, venue.county, venue.state].filter(Boolean).join(', ')
@@ -986,12 +998,17 @@ export default function IntakeWizardQuick() {
     const err: Record<string, string> = {}
     if (currentStep === 'injury_type' && !formData.injuryType) err.injuryType = tx('error_selectInjuryType')
     if (currentStep === 'when') {
-      if (!formData.incidentDatePreset) err.incidentDate = tx('error_chooseDate')
-      else if (formData.incidentDatePreset === 'custom' && !customDate) err.incidentDate = tx('error_enterDate')
-      else if (formData.incidentDatePreset === 'custom' && customDate) updateForm({ incidentDate: customDate })
-      else if (formData.incidentDatePreset !== 'custom') {
-        const d = WHEN_OPTIONS.find(o => o.value === formData.incidentDatePreset)
-        updateForm({ incidentDate: d?.getDate() || '' })
+      const preset = formData.incidentDatePreset
+      if (!preset) {
+        err.incidentDate = tx('error_chooseDate')
+      } else if (preset === 'custom') {
+        if (!customDate) err.incidentDate = tx('error_enterDate')
+        else if (customDate > isoToday()) err.incidentDate = tx('error_futureDate')
+        else updateForm({ incidentDate: customDate })
+      } else if (preset === 'month_year') {
+        // Date was already set when both month and year were chosen.
+        if (!formData.incidentDate) err.incidentDate = tx('error_enterDate')
+        else if (formData.incidentDate > isoToday()) err.incidentDate = tx('error_futureDate')
       }
       if (!formData.venue.state) err.state = t('intake.selectStateError')
       if (!formData.venue.county?.trim()) err.county = t('intake.enterCounty')
@@ -1000,6 +1017,8 @@ export default function IntakeWizardQuick() {
       // Narrative text is optional but recommended; contact fields live here too.
       const email = formData.contact.email.trim()
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) err.contactEmail = tx('contact_emailError')
+      const phoneError = validatePhoneField(formData.contact.phone)
+      if (phoneError) err.contactPhone = tx('contact_phoneError')
     }
     if (currentStep === 'injury_severity' && !formData.injurySeverity) err.injurySeverity = t('intake.selectSeverity')
     if (currentStep === 'consent') {
@@ -1472,8 +1491,8 @@ export default function IntakeWizardQuick() {
                     updateForm({ injuryType: value, claimType: injuryTypeToClaimType(value) })
                     setCurrentStep('when')
                   }}
-                  className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border-2 px-1.5 py-1.5 transition-all sm:min-h-[4.5rem] sm:gap-1.5 sm:px-3 sm:py-2 ${
-                    formData.injuryType === value ? 'border-brand-600 bg-brand-50' : 'border-gray-200 hover:border-brand-300'
+                  className={`flex h-20 flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] px-1.5 py-1.5 shadow-sm transition-all active:scale-[0.99] sm:h-24 sm:gap-1.5 sm:px-3 sm:py-2 ${
+                    formData.injuryType === value ? 'border-brand-600 bg-brand-100 shadow' : 'border-gray-300 bg-white hover:border-brand-500 hover:shadow-md'
                   }`}
                 >
                   <Icon className="h-4 w-4 text-brand-600 sm:h-5 sm:w-5" />
@@ -1488,42 +1507,96 @@ export default function IntakeWizardQuick() {
         const detectedDisplay = detectedLocation ? [detectedLocation.city, detectedLocation.county, detectedLocation.state].filter(Boolean).join(', ') : ''
         const countyOptions = formData.venue.state ? getCountiesForState(formData.venue.state) : []
         return (
-          <div className="mx-auto w-full max-w-3xl space-y-5">
-            <div className="space-y-3">
-              <p className="text-center font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{tx('when_heading')}</p>
-              <p className="text-gray-500 text-center text-sm">{tx('when_helper')}</p>
-              <div className={`grid grid-cols-2 gap-2 ${errors.incidentDate ? 'rounded-xl p-1.5 ring-1 ring-red-400' : ''}`}>
-                {WHEN_OPTIONS.map(({ value, labelKey, getDate }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-pressed={formData.incidentDatePreset === value}
-                    onClick={() => {
-                      if (formData.incidentDatePreset === value) updateForm({ incidentDatePreset: '', incidentDate: '' })
-                      else if (value === 'custom') updateForm({ incidentDatePreset: value })
-                      else updateForm({ incidentDatePreset: value, incidentDate: getDate() })
-                    }}
-                    className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${
-                      formData.incidentDatePreset === value ? 'border-brand-700 bg-brand-100 ring-2 ring-brand-200' : 'border-gray-200 hover:border-brand-300'
-                    }`}
-                  >
-                    {t(`intake.${labelKey}`)}
-                    {formData.incidentDatePreset === value && <Check className="h-5 w-5 text-brand-600" />}
-                  </button>
-                ))}
-              </div>
-              {formData.incidentDatePreset === 'custom' && (
-                <div className="pt-2">
-                  <input type="date" value={customDate} onChange={e => { const val = e.target.value; setCustomDate(val); if (val) updateForm({ incidentDate: val }) }} className="input w-full" autoFocus />
-                </div>
-              )}
+          <div className="mx-auto w-full max-w-3xl space-y-3">
+            <div className="text-center">
+              <p className="font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{tx('when_heading')}</p>
+              <p className="mt-0.5 text-sm text-gray-500">{tx('when_helper')}</p>
             </div>
 
-            <div className="space-y-3 border-t border-slate-100 pt-4">
-              <p className="text-center font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{t('intake.where')}</p>
-              <p className="text-gray-500 text-center text-sm">{t('intake.whereHelp')}</p>
+            <div className="space-y-2">
+              {/* Exact date is the most accurate input and drives the filing deadline, so lead with it. */}
+              <div className={`rounded-xl border bg-slate-50 px-4 py-2.5 ${errors.incidentDate ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-200'}`}>
+                <label htmlFor="incident-exact-date" className="flex items-center gap-1.5 text-sm font-semibold text-gray-800">
+                  <CalendarDays className="h-4 w-4 text-brand-600" aria-hidden /> {tx('when_exactLabel')}
+                </label>
+                <p className="mt-0.5 text-xs text-gray-500">{tx('when_exactHelper')}</p>
+                <input
+                  id="incident-exact-date"
+                  type="date"
+                  max={isoToday()}
+                  value={formData.incidentDatePreset === 'custom' ? customDate : ''}
+                  onChange={e => {
+                    const val = e.target.value
+                    setCustomDate(val)
+                    if (val) updateForm({ incidentDatePreset: 'custom', incidentDate: val })
+                    else updateForm({ incidentDatePreset: '', incidentDate: '' })
+                  }}
+                  className="input mt-1.5 w-full border-gray-300"
+                />
+                {whenDeadlineConfirmed ? (
+                  <p className="mt-2 flex items-start gap-1.5 text-xs font-medium text-emerald-700">
+                    <Check className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
+                    <span>{tx('when_deadlineConfirmed').replace('{date}', whenDeadlineConfirmed)}</span>
+                  </p>
+                ) : whenDateChosen && !formData.venue.state ? (
+                  <p className="mt-2 text-xs text-gray-500">{tx('when_addLocationForDeadline')}</p>
+                ) : null}
+              </div>
+
+              {/* Month + year for older incidents where the day isn't remembered, but still bounded. */}
+              <div>
+                <button
+                  type="button"
+                  aria-pressed={formData.incidentDatePreset === 'month_year'}
+                  onClick={() => {
+                    if (formData.incidentDatePreset === 'month_year') updateForm({ incidentDatePreset: '', incidentDate: '' })
+                    else { setCustomDate(''); updateForm({ incidentDatePreset: 'month_year', incidentDate: '' }) }
+                  }}
+                  className="inline-flex items-center gap-1 text-sm font-medium text-brand-700 hover:text-brand-800"
+                >
+                  <ChevronDown className={`h-4 w-4 transition-transform ${formData.incidentDatePreset === 'month_year' ? 'rotate-180' : ''}`} aria-hidden />
+                  <span className="underline underline-offset-2">{tx('when_onlyMonthYear')}</span>
+                </button>
+                {formData.incidentDatePreset === 'month_year' && (
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <select
+                      aria-label={tx('when_month')}
+                      value={formData.incidentDate ? formData.incidentDate.split('-')[1] : ''}
+                      onChange={e => {
+                        const month = e.target.value
+                        const year = formData.incidentDate ? formData.incidentDate.split('-')[0] : ''
+                        updateForm({ incidentDate: month && year ? `${year}-${month}-01` : '' })
+                      }}
+                      className="input w-full border-gray-300"
+                    >
+                      <option value="">{tx('when_month')}</option>
+                      {MONTH_OPTIONS.map(m => (<option key={m.value} value={m.value}>{m.label}</option>))}
+                    </select>
+                    <select
+                      aria-label={tx('when_year')}
+                      value={formData.incidentDate ? formData.incidentDate.split('-')[0] : ''}
+                      onChange={e => {
+                        const year = e.target.value
+                        const month = formData.incidentDate ? formData.incidentDate.split('-')[1] : ''
+                        updateForm({ incidentDate: month && year ? `${year}-${month}-01` : '' })
+                      }}
+                      className="input w-full border-gray-300"
+                    >
+                      <option value="">{tx('when_year')}</option>
+                      {YEAR_OPTIONS.map(y => (<option key={y} value={String(y)}>{y}</option>))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2 border-t border-slate-100 pt-2.5">
+              <div className="text-center">
+                <p className="font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{t('intake.where')}</p>
+                <p className="mt-0.5 text-sm text-gray-500">{t('intake.whereHelp')}</p>
+              </div>
             {detectedLocation && !locationAccepted && !formData.venue.state && (
-              <div className="p-4 bg-brand-50 rounded-xl border border-brand-200">
+              <div className="p-3 bg-brand-50 rounded-xl border border-brand-200">
                 <p className="text-sm font-medium text-slate-900 mb-2">{t('intake.weDetectedLocation')} {detectedDisplay}</p>
                 <div className="flex gap-2">
                   <button
@@ -1546,7 +1619,7 @@ export default function IntakeWizardQuick() {
               </div>
             )}
             {(!detectedLocation || locationAccepted || formData.venue.state) && (
-              <div className="grid grid-cols-1 gap-3">
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
                 <div>
                   <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1"><MapPin className="h-4 w-4 text-brand-600" /> {t('intake.state')}</label>
                   <select
@@ -1558,7 +1631,7 @@ export default function IntakeWizardQuick() {
                         county: formData.venue.state !== state ? '' : formData.venue.county,
                       })
                     }}
-                    className={`input w-full ${errors.state ? 'border-red-500' : ''}`}
+                    className={`input w-full border-gray-300 ${errors.state ? 'border-red-500' : ''}`}
                   >
                     <option value="">{t('intake.selectState')}</option>
                     {US_STATES.map(s => (<option key={s.code} value={s.code}>{s.name}</option>))}
@@ -1567,17 +1640,17 @@ export default function IntakeWizardQuick() {
                 <div>
                   <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1"><Building2 className="h-4 w-4 text-brand-600" /> {t('intake.county')}</label>
                   {countyOptions.length > 0 ? (
-                    <select value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full ${errors.county ? 'border-red-500' : ''}`}>
+                    <select value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full border-gray-300 ${errors.county ? 'border-red-500' : ''}`}>
                       <option value="">{t('intake.searchCounty')}</option>
                       {(countyOptions ?? []).map(c => (<option key={c} value={c}>{c}</option>))}
                     </select>
                   ) : (
-                    <input type="text" value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full ${errors.county ? 'border-red-500' : ''}`} placeholder={tx('where_countyPlaceholder')} />
+                    <input type="text" value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full border-gray-300 ${errors.county ? 'border-red-500' : ''}`} placeholder={tx('where_countyPlaceholder')} />
                   )}
                 </div>
                 <div>
                   <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1"><MapPin className="h-4 w-4 text-brand-600" /> {t('intake.city')}</label>
-                  <input type="text" value={formData.venue.city} onChange={e => updateVenue({ city: e.target.value })} className="input w-full" placeholder={tx('where_cityPlaceholder')} />
+                  <input type="text" value={formData.venue.city} onChange={e => updateVenue({ city: e.target.value })} className="input w-full border-gray-300" placeholder={tx('where_cityPlaceholder')} />
                 </div>
               </div>
             )}
@@ -1597,8 +1670,8 @@ export default function IntakeWizardQuick() {
               value={formData.narrative}
               onChange={e => updateForm({ narrative: e.target.value })}
               placeholder={tx('narrative_placeholder')}
-              rows={6}
-              className="input w-full flex-1 resize-none py-3 text-base leading-relaxed !min-h-[10rem] md:!min-h-[12rem]"
+              rows={3}
+              className="input w-full resize-none border-gray-300 py-2.5 text-base leading-relaxed !min-h-[5rem] md:!min-h-[6rem]"
             />
             <p className="shrink-0 rounded-lg border border-brand-100 bg-brand-50 px-2 py-1.5 text-center text-[11px] leading-snug text-brand-800">
               {tx('narrative_tip')}
@@ -1621,7 +1694,7 @@ export default function IntakeWizardQuick() {
                   value={formData.contact.email}
                   onChange={e => updateForm({ contact: { ...formData.contact, email: e.target.value } })}
                   placeholder="you@example.com"
-                  className={`input w-full ${errors.contactEmail ? 'border-red-500' : ''}`}
+                  className={`input w-full border-gray-300 ${errors.contactEmail ? 'border-red-500' : ''}`}
                 />
               </div>
               <div>
@@ -1634,9 +1707,10 @@ export default function IntakeWizardQuick() {
                   inputMode="tel"
                   autoComplete="tel"
                   value={formData.contact.phone}
-                  onChange={e => updateForm({ contact: { ...formData.contact, phone: e.target.value } })}
+                  onChange={e => updateForm({ contact: { ...formData.contact, phone: formatPhoneInput(e.target.value) } })}
                   placeholder="(555) 555-0100"
-                  className="input w-full"
+                  aria-invalid={!!errors.contactPhone}
+                  className={`input w-full border-gray-300 ${errors.contactPhone ? 'border-red-500' : ''}`}
                 />
               </div>
             </div>
@@ -1645,18 +1719,20 @@ export default function IntakeWizardQuick() {
 
       case 'injury_severity':
         return (
-          <div className="mx-auto w-full max-w-3xl space-y-5">
-            <div className="space-y-3">
+          <div className="mx-auto w-full max-w-3xl space-y-3">
+            <div className="space-y-2">
               <p className="text-center font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{t('intake.injurySeverity')}</p>
-              <div className="grid grid-cols-1 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {INJURY_SEVERITY_OPTIONS.map(({ value, labelKey }) => (
                   <button
                     key={value}
                     type="button"
                     aria-pressed={formData.injurySeverity === value}
                     onClick={() => updateForm({ injurySeverity: formData.injurySeverity === value ? '' : value })}
-                    className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${
-                      formData.injurySeverity === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'
+                    className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${
+                      formData.injurySeverity === value
+                        ? 'border-brand-600 bg-brand-100 text-brand-900 shadow'
+                        : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'
                     }`}
                   >
                     {t(`intake.${labelKey}`)}
@@ -1666,18 +1742,20 @@ export default function IntakeWizardQuick() {
               </div>
             </div>
 
-            <div className="space-y-3 border-t border-slate-100 pt-4">
-              <p className="text-center font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{tx('treatment_heading')}</p>
-              <p className="text-gray-500 text-center text-sm">{tx('treatment_helper')}</p>
-              <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-2 border-t border-slate-100 pt-3">
+              <div className="text-center">
+                <p className="font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{tx('treatment_heading')}</p>
+                <p className="mt-0.5 text-xs text-gray-500">{tx('treatment_helper')}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {MEDICAL_TREATMENT_OPTIONS.map(({ value }) => (
                   <button
                     key={value}
                     type="button"
                     aria-pressed={formData.medicalTreatment.includes(value)}
                     onClick={() => toggleMedicalTreatment(value)}
-                    className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${
-                      formData.medicalTreatment.includes(value) ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'
+                    className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${
+                      formData.medicalTreatment.includes(value) ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'
                     }`}
                   >
                     {getOptionLabel(MEDICAL_TREATMENT_OPTIONS, value)}
@@ -1685,7 +1763,7 @@ export default function IntakeWizardQuick() {
                   </button>
                 ))}
               </div>
-              <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-800">
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
                 {tx('treatment_tip')}
               </div>
             </div>
@@ -1739,7 +1817,7 @@ export default function IntakeWizardQuick() {
                       type="button"
                       aria-pressed={selected}
                       onClick={() => toggleInjuryDetail('bodyParts', value)}
-                      className={`min-h-12 rounded-xl border px-3 py-2 text-left text-xs font-semibold leading-tight ${selected ? 'border-brand-600 bg-brand-50 text-brand-900 shadow-sm' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                      className={`min-h-12 rounded-xl border-[1.5px] px-3 py-2 text-left text-xs font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${selected ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                     >
                       {bodyPartDisplay[value]?.emoji && <span aria-hidden="true">{bodyPartDisplay[value].emoji} </span>}
                       {bodyPartDisplay[value]?.label || label}
@@ -1749,49 +1827,12 @@ export default function IntakeWizardQuick() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_medicalTreatment')}</p>
-              <p className="mt-0.5 text-xs leading-5 text-slate-600">{tx('injuryDetails_testingHelper')}</p>
-              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {IMAGING_OPTIONS.map(({ value, label }) => (
-                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.imaging.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
-                    <input type="checkbox" checked={formData.injuryDetails.imaging.includes(value)} onChange={() => toggleInjuryDetail('imaging', value, true)} className="rounded border-gray-300" />
-                    <span className="text-xs font-semibold text-slate-800">{label}</span>
-                  </label>
-                ))}
-              </div>
-
-              <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_diagnosesQuestion')}</p>
-              <p className="mt-0.5 text-xs leading-5 text-slate-600">{tx('injuryDetails_diagnosesHelper')}</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {relevantDiagnosisOptions.map(({ value, label }) => (
-                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.diagnoses.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
-                    <input type="checkbox" checked={formData.injuryDetails.diagnoses.includes(value)} onChange={() => toggleInjuryDetail('diagnoses', value)} className="rounded border-gray-300" />
-                    <span className="text-xs font-semibold text-slate-800">{label}</span>
-                  </label>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_lifeImpact')}</p>
-              <p className="mt-0.5 text-xs leading-5 text-slate-600">{tx('injuryDetails_lifeImpactHelper')}</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                {keyLifestyleImpactOptions.map(({ value, label }) => (
-                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 ${formData.injuryDetails.lifestyleImpact.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
-                    <input type="checkbox" checked={formData.injuryDetails.lifestyleImpact.includes(value)} onChange={() => toggleInjuryDetail('lifestyleImpact', value)} className="rounded border-gray-300" />
-                    <span className="text-xs font-semibold text-slate-800">{label}</span>
-                  </label>
-                ))}
-              </div>
-            </section>
-
             {hasHeadInjury && (
               <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-sm">
                 <p className="font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_headSymptoms')}</p>
                 <div className="mt-3 grid gap-2 md:grid-cols-2">
                   {CONCUSSION_SYMPTOM_OPTIONS.map(({ value, label }) => (
-                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.concussionSymptoms.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 shadow-sm transition-all ${formData.injuryDetails.concussionSymptoms.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
                       <input type="checkbox" checked={formData.injuryDetails.concussionSymptoms.includes(value)} onChange={() => toggleInjuryDetail('concussionSymptoms', value)} className="rounded border-gray-300" />
                       <span className="text-xs font-semibold text-slate-800">{label}</span>
                     </label>
@@ -1805,7 +1846,7 @@ export default function IntakeWizardQuick() {
                 <p className="text-sm font-semibold text-slate-950">{tx('injuryDetails_shoulderDetails')}</p>
                 <div className="mt-3 grid gap-2 md:grid-cols-3">
                   {SHOULDER_FINDING_OPTIONS.map(({ value, label }) => (
-                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.shoulderFindings.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 shadow-sm transition-all ${formData.injuryDetails.shoulderFindings.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
                       <input type="checkbox" checked={formData.injuryDetails.shoulderFindings.includes(value)} onChange={() => toggleInjuryDetail('shoulderFindings', value)} className="rounded border-gray-300" />
                       <span className="text-xs font-semibold text-slate-800">{label}</span>
                     </label>
@@ -1815,11 +1856,11 @@ export default function IntakeWizardQuick() {
             )}
 
             {hasBackInjury && (
-              <section className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4 shadow-sm">
+              <section className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
                 <p className="text-sm font-semibold text-slate-950">{tx('injuryDetails_backDetails')}</p>
                 <div className="mt-3 grid gap-2 md:grid-cols-2">
                   {BACK_FINDING_OPTIONS.map(({ value, label }) => (
-                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.backFindings.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 shadow-sm transition-all ${formData.injuryDetails.backFindings.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
                       <input type="checkbox" checked={formData.injuryDetails.backFindings.includes(value)} onChange={() => toggleInjuryDetail('backFindings', value)} className="rounded border-gray-300" />
                       <span className="text-xs font-semibold text-slate-800">{label}</span>
                     </label>
@@ -1827,6 +1868,43 @@ export default function IntakeWizardQuick() {
                 </div>
               </section>
             )}
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_medicalTreatment')}</p>
+              <p className="mt-0.5 text-xs leading-5 text-slate-600">{tx('injuryDetails_testingHelper')}</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {IMAGING_OPTIONS.map(({ value, label }) => (
+                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 shadow-sm transition-all ${formData.injuryDetails.imaging.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
+                    <input type="checkbox" checked={formData.injuryDetails.imaging.includes(value)} onChange={() => toggleInjuryDetail('imaging', value, true)} className="rounded border-gray-300" />
+                    <span className="text-xs font-semibold text-slate-800">{label}</span>
+                  </label>
+                ))}
+              </div>
+
+              <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_diagnosesQuestion')}</p>
+              <p className="mt-0.5 text-xs leading-5 text-slate-600">{tx('injuryDetails_diagnosesHelper')}</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {relevantDiagnosisOptions.map(({ value, label }) => (
+                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 shadow-sm transition-all ${formData.injuryDetails.diagnoses.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
+                    <input type="checkbox" checked={formData.injuryDetails.diagnoses.includes(value)} onChange={() => toggleInjuryDetail('diagnoses', value)} className="rounded border-gray-300" />
+                    <span className="text-xs font-semibold text-slate-800">{label}</span>
+                  </label>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_lifeImpact')}</p>
+              <p className="mt-0.5 text-xs leading-5 text-slate-600">{tx('injuryDetails_lifeImpactHelper')}</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                {keyLifestyleImpactOptions.map(({ value, label }) => (
+                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-xl border-[1.5px] px-3 py-2 shadow-sm transition-all ${formData.injuryDetails.lifestyleImpact.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
+                    <input type="checkbox" checked={formData.injuryDetails.lifestyleImpact.includes(value)} onChange={() => toggleInjuryDetail('lifestyleImpact', value)} className="rounded border-gray-300" />
+                    <span className="text-xs font-semibold text-slate-800">{label}</span>
+                  </label>
+                ))}
+              </div>
+            </section>
 
             <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <summary className="cursor-pointer font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_additionalInfo')}</summary>
@@ -1843,7 +1921,7 @@ export default function IntakeWizardQuick() {
                         key={value}
                         type="button"
                         onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, priorInjury: formData.injuryDetails.priorInjury === value ? '' : value } })}
-                        className={`rounded-lg border px-2 py-2 text-xs font-semibold ${formData.injuryDetails.priorInjury === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                        className={`rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${formData.injuryDetails.priorInjury === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                       >
                         {label}
                       </button>
@@ -1857,7 +1935,7 @@ export default function IntakeWizardQuick() {
                     {LIFESTYLE_IMPACT_OPTIONS
                       .filter((option) => !['daily_pain', 'sleep_disruption', 'exercise_limitations'].includes(option.value))
                       .map(({ value, label }) => (
-                        <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.lifestyleImpact.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                        <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 shadow-sm transition-all ${formData.injuryDetails.lifestyleImpact.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
                           <input type="checkbox" checked={formData.injuryDetails.lifestyleImpact.includes(value)} onChange={() => toggleInjuryDetail('lifestyleImpact', value)} className="rounded border-gray-300" />
                           <span className="text-xs font-semibold text-slate-800">{label}</span>
                         </label>
@@ -1870,7 +1948,7 @@ export default function IntakeWizardQuick() {
                     <p className="font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_injectionsMore')}</p>
                     <div className="mt-2 grid gap-2 md:grid-cols-2">
                       {PROCEDURE_OPTIONS.filter(option => option.value !== 'none').map(({ value, label }) => (
-                        <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 ${formData.injuryDetails.procedures.includes(value) ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+                        <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 shadow-sm transition-all ${formData.injuryDetails.procedures.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
                           <input type="checkbox" checked={formData.injuryDetails.procedures.includes(value)} onChange={() => toggleInjuryDetail('procedures', value)} className="rounded border-gray-300" />
                           <span className="text-xs font-semibold text-slate-800">{label}</span>
                         </label>
@@ -1888,7 +1966,7 @@ export default function IntakeWizardQuick() {
                           key={value}
                           type="button"
                           onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, surgeryStatus: formData.injuryDetails.surgeryStatus === value ? '' : value } })}
-                          className={`rounded-lg border px-2 py-2 text-xs font-semibold ${formData.injuryDetails.surgeryStatus === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                          className={`rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${formData.injuryDetails.surgeryStatus === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                         >
                           {label}
                         </button>
@@ -1908,9 +1986,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.vehicle_crashQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {VEHICLE_CRASH_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('crashType', value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.crashType === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={value} type="button" onClick={() => { setBranch('crashType', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.crashType === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {t(`intake.${labelKey}`)} {formData.branch.crashType === value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -1922,9 +2000,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.slip_hazardQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {SLIP_HAZARD_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('hazardType', value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.hazardType === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={value} type="button" onClick={() => { setBranch('hazardType', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.hazardType === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {t(`intake.${labelKey}`)} {formData.branch.hazardType === value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -1936,9 +2014,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.medmal_errorQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {MEDMAL_ERROR_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('errorType', value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.errorType === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={value} type="button" onClick={() => { setBranch('errorType', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.errorType === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {t(`intake.${labelKey}`)} {formData.branch.errorType === value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -1950,9 +2028,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.dog_ownershipQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {DOG_OWNERSHIP_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('dogOwned', value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.dogOwned === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={value} type="button" onClick={() => { setBranch('dogOwned', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.dogOwned === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {t(`intake.${labelKey}`)} {formData.branch.dogOwned === value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -1964,9 +2042,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.product_typeQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {PRODUCT_TYPE_OPTIONS.map((option) => (
-                  <button key={option.value} type="button" onClick={() => { setBranch('productType', option.value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.productType === option.value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={option.value} type="button" onClick={() => { setBranch('productType', option.value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.productType === option.value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {'labelKey' in option ? t(`intake.${option.labelKey}`) : option.label} {formData.branch.productType === option.value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -1978,9 +2056,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.assault_typeQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {ASSAULT_TYPE_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('assaultType', value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.assaultType === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={value} type="button" onClick={() => { setBranch('assaultType', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.assaultType === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {t(`intake.${labelKey}`)} {formData.branch.assaultType === value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -1992,9 +2070,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.toxic_substanceQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {TOXIC_SUBSTANCE_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('substance', value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.substance === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={value} type="button" onClick={() => { setBranch('substance', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.substance === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {t(`intake.${labelKey}`)} {formData.branch.substance === value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -2006,7 +2084,7 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.tellMore')}</p>
-              <textarea value={formData.branch.otherDetails || ''} onChange={e => setBranch('otherDetails', e.target.value)} placeholder={t('intake.otherDetailsPlaceholder')} rows={3} className="input w-full resize-none" />
+              <textarea value={formData.branch.otherDetails || ''} onChange={e => setBranch('otherDetails', e.target.value)} placeholder={t('intake.otherDetailsPlaceholder')} rows={3} className="input w-full resize-none border-gray-300" />
             </div>
           )
         }
@@ -2021,7 +2099,7 @@ export default function IntakeWizardQuick() {
               <p className="mt-0.5 text-xs leading-5 text-slate-600">
                 {tx('vehicle_evidenceHelper')}
               </p>
-              <div className="space-y-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.policeReport} onChange={e => setBranch('policeReport', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.vehicle_policeReport')}</span></label>
                 <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.ticketIssued} onChange={e => setBranch('ticketIssued', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.vehicle_ticket')}</span></label>
                 <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.witnesses} onChange={e => setBranch('witnesses', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.vehicle_witnesses')}</span></label>
@@ -2037,9 +2115,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.slip_propertyQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {SLIP_PROPERTY_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('propertyType', value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.propertyType === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={value} type="button" onClick={() => { setBranch('propertyType', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.propertyType === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {t(`intake.${labelKey}`)} {formData.branch.propertyType === value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -2051,9 +2129,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.medmal_providerQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {MEDMAL_PROVIDER_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('providerType', value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.providerType === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={value} type="button" onClick={() => { setBranch('providerType', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.providerType === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {t(`intake.${labelKey}`)} {formData.branch.providerType === value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -2065,9 +2143,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.dog_locationQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {DOG_LOCATION_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('biteLocation', value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.biteLocation === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={value} type="button" onClick={() => { setBranch('biteLocation', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.biteLocation === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {t(`intake.${labelKey}`)} {formData.branch.biteLocation === value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -2101,9 +2179,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.toxic_durationQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {EXPOSURE_DURATION_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('exposureDuration', value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.exposureDuration === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={value} type="button" onClick={() => { setBranch('exposureDuration', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.exposureDuration === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {t(`intake.${labelKey}`)} {formData.branch.exposureDuration === value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -2119,9 +2197,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.vehicle_propertyDamage')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {PROPERTY_DAMAGE_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('propertyDamage', value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.propertyDamage === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={value} type="button" onClick={() => { setBranch('propertyDamage', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.propertyDamage === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {t(`intake.${labelKey}`)} {formData.branch.propertyDamage === value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -2159,9 +2237,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.dog_priorAggressionQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {PRIOR_AGGRESSION_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('priorAggression', value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.priorAggression === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={value} type="button" onClick={() => { setBranch('priorAggression', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.priorAggression === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {t(`intake.${labelKey}`)} {formData.branch.priorAggression === value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -2173,7 +2251,7 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.product_injuryCauseQuestion')}</p>
-              <textarea value={formData.branch.injuryCause || ''} onChange={e => setBranch('injuryCause', e.target.value)} placeholder={t('intake.product_injuryPlaceholder')} rows={3} className="input w-full resize-none" />
+              <textarea value={formData.branch.injuryCause || ''} onChange={e => setBranch('injuryCause', e.target.value)} placeholder={t('intake.product_injuryPlaceholder')} rows={3} className="input w-full resize-none border-gray-300" />
             </div>
           )
         }
@@ -2192,7 +2270,7 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.toxic_symptomsQuestion')}</p>
-              <textarea value={formData.branch.symptoms || ''} onChange={e => setBranch('symptoms', e.target.value)} placeholder={t('intake.toxic_symptomsPlaceholder')} rows={3} className="input w-full resize-none" />
+              <textarea value={formData.branch.symptoms || ''} onChange={e => setBranch('symptoms', e.target.value)} placeholder={t('intake.toxic_symptomsPlaceholder')} rows={3} className="input w-full resize-none border-gray-300" />
             </div>
           )
         }
@@ -2204,9 +2282,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.vehicle_defendantQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {VEHICLE_DEFENDANT_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('defendantType', value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.defendantType === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={value} type="button" onClick={() => { setBranch('defendantType', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.defendantType === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {t(`intake.${labelKey}`)} {formData.branch.defendantType === value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -2267,7 +2345,7 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.assault_propertyOwnerQuestion')}</p>
-              <input type="text" value={formData.branch.propertyOwner || ''} onChange={e => setBranch('propertyOwner', e.target.value)} placeholder={t('intake.assault_propertyPlaceholder')} className="input w-full" />
+              <input type="text" value={formData.branch.propertyOwner || ''} onChange={e => setBranch('propertyOwner', e.target.value)} placeholder={t('intake.assault_propertyPlaceholder')} className="input w-full border-gray-300" />
             </div>
           )
         }
@@ -2275,9 +2353,9 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.toxic_doctorQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {YES_NO_NOT_SURE_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" aria-pressed={formData.branch.doctorLinked === value} onClick={() => { setBranch('doctorLinked', value) }} className={`flex items-center justify-center gap-2 p-3 rounded-xl border-2 font-medium transition-all ${formData.branch.doctorLinked === value ? 'border-brand-700 bg-brand-100' : 'border-gray-200 hover:border-brand-300'}`}>
+                  <button key={value} type="button" aria-pressed={formData.branch.doctorLinked === value} onClick={() => { setBranch('doctorLinked', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.doctorLinked === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
                     {t(`intake.${labelKey}`)} {formData.branch.doctorLinked === value && <Check className="h-5 w-5 text-brand-600" />}
                   </button>
                 ))}
@@ -2407,59 +2485,66 @@ export default function IntakeWizardQuick() {
                   </div>
                 </section>
 
+                <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-2">
                 {sections.map((section) => {
                   const isOpen = openEvidenceSections[section.id]
                   const sectionCount = section.items.reduce((total, item) => total + (pendingEvidenceFiles[item.category]?.length || 0), 0)
+                  const isWideSection = section.items.length > 1
 
                   return (
-                    <section key={section.id} className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50/60">
+                    <section key={section.id} className={`overflow-hidden rounded-xl border border-gray-200 bg-gray-50/60 ${isWideSection ? 'sm:col-span-2' : ''}`}>
                       <button
                         type="button"
                         onClick={() => setOpenEvidenceSections((prev) => ({ ...prev, [section.id]: !prev[section.id] }))}
-                        className="flex w-full items-center justify-between gap-3 bg-white/80 px-3 py-2 text-left hover:bg-white"
+                        className="flex w-full items-center justify-between gap-3 bg-white/80 px-2.5 py-1.5 text-left hover:bg-white"
                         aria-expanded={isOpen}
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <p className="text-base font-semibold leading-tight text-gray-950">{section.title}</p>
+                            <p className="text-sm font-semibold leading-tight text-gray-950">{section.title}</p>
                             {sectionCount > 0 && (
                               <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-bold text-brand-800">
                                 {sectionCount}
                               </span>
                             )}
                           </div>
-                          <p className="mt-0.5 text-xs leading-snug text-gray-500 md:text-sm">{section.helper}</p>
+                          <p className="mt-0.5 line-clamp-1 text-xs leading-snug text-gray-500">{section.helper}</p>
                         </div>
-                        <ChevronDown className={`h-5 w-5 shrink-0 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden />
+                        <ChevronDown className={`h-4 w-4 shrink-0 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden />
                       </button>
 
                       {isOpen && (
-                        <div className="space-y-2 p-2">
+                        <div className={isWideSection ? 'grid grid-cols-2 gap-1.5 p-1.5 sm:grid-cols-3' : 'p-1.5'}>
                           {section.items.map((item) => {
                             const Icon = item.icon
+                            const itemUploaded = (pendingEvidenceFiles[item.category]?.length || 0) > 0
                             return (
-                              <div key={item.category} className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-white p-2 shadow-sm">
-                                <div className="mb-0.5 flex items-center gap-1.5">
-                                  <Icon className="h-5 w-5 shrink-0 text-brand-600" aria-hidden />
-                                  <h4 className="text-sm font-semibold leading-tight text-gray-900 md:text-base">{item.title}</h4>
+                              <div key={item.category} className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-white p-1.5 shadow-sm">
+                                <div className="flex items-center gap-1.5">
+                                  <Icon className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+                                  <h4 className="truncate text-sm font-semibold leading-tight text-gray-900">{item.title}</h4>
                                 </div>
-                                <p className="mb-1 line-clamp-2 text-xs leading-snug text-gray-500 md:text-sm">
-                                  {item.helper}
-                                </p>
-                                <InlineEvidenceUpload
-                                  assessmentId={assessmentId || undefined}
-                                  category={item.category}
-                                  subcategory={item.subcategory}
-                                  description={item.title}
-                                  initialFiles={pendingEvidenceFiles[item.category] || []}
-                                  compact
-                                  tightChrome
-                                  hideCameraButton
-                                  alwaysShowUpload
-                                  hideHeader
-                                  uploadButtonLabel={item.button}
-                                  onFilesUploaded={(f) => handleEvidenceFiles(item.category, f)}
-                                />
+                                {!itemUploaded && (
+                                  <p className="mt-0.5 line-clamp-1 text-xs leading-snug text-gray-500">
+                                    {item.helper}
+                                  </p>
+                                )}
+                                <div className="mt-1">
+                                  <InlineEvidenceUpload
+                                    assessmentId={assessmentId || undefined}
+                                    category={item.category}
+                                    subcategory={item.subcategory}
+                                    description={item.title}
+                                    initialFiles={pendingEvidenceFiles[item.category] || []}
+                                    compact
+                                    tightChrome
+                                    hideCameraButton
+                                    alwaysShowUpload
+                                    hideHeader
+                                    uploadButtonLabel={item.button}
+                                    onFilesUploaded={(f) => handleEvidenceFiles(item.category, f)}
+                                  />
+                                </div>
                               </div>
                             )
                           })}
@@ -2468,15 +2553,8 @@ export default function IntakeWizardQuick() {
                     </section>
                   )
                 })}
+                </div>
               </div>
-
-              <button
-                type="button"
-                onClick={() => setCurrentStep('financial_impact')}
-                className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-base font-semibold leading-snug text-amber-900 shadow-sm transition-colors hover:border-amber-300 hover:bg-amber-100 md:text-lg"
-              >
-                {tx('evidence_continueWithout')}
-              </button>
             </div>
           )
         }
@@ -2539,9 +2617,9 @@ export default function IntakeWizardQuick() {
                       type="button"
                       aria-pressed={icFinancial.medicalBillRange === value}
                       onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, medicalBillRange: icFinancial.medicalBillRange === value ? '' : value } })}
-                      className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs font-semibold ${icFinancial.medicalBillRange === value ? 'border-brand-600 bg-brand-50 text-brand-900 shadow-sm' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                      className={`flex items-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-left text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${icFinancial.medicalBillRange === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                     >
-                      <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${icFinancial.medicalBillRange === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-300 text-transparent'}`}>✓</span>
+                      <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${icFinancial.medicalBillRange === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent'}`}>✓</span>
                       <span>{label}</span>
                     </button>
                   ))}
@@ -2550,7 +2628,7 @@ export default function IntakeWizardQuick() {
                 {icFinancial.medicalBillRange === 'over_50000' && (
                   <div className="mt-2">
                     <label htmlFor="medical-bill-exact" className="text-xs font-semibold text-slate-700">{tx('financial_exactAmountLabel')}</label>
-                    <div className="mt-1 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 focus-within:border-brand-400">
+                    <div className="mt-1 flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 focus-within:border-brand-500">
                       <span aria-hidden="true" className="text-sm text-slate-500">$</span>
                       <input
                         id="medical-bill-exact"
@@ -2575,7 +2653,7 @@ export default function IntakeWizardQuick() {
                           type="button"
                           aria-pressed={icFinancial.billsComplete === value}
                           onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, billsComplete: icFinancial.billsComplete === value ? '' : value } })}
-                          className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${icFinancial.billsComplete === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                          className={`rounded-lg border-[1.5px] px-3 py-1.5 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${icFinancial.billsComplete === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                         >
                           {label}
                         </button>
@@ -2597,7 +2675,7 @@ export default function IntakeWizardQuick() {
                       type="button"
                       aria-pressed={icFinancial.futureMedicalRange === value}
                       onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, futureMedicalRange: icFinancial.futureMedicalRange === value ? '' : value } })}
-                      className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${icFinancial.futureMedicalRange === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                      className={`rounded-lg border-[1.5px] px-3 py-2 text-left text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${icFinancial.futureMedicalRange === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                     >
                       {label}
                     </button>
@@ -2627,9 +2705,9 @@ export default function IntakeWizardQuick() {
                           }
                         }))
                       }}
-                      className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs font-semibold ${cpFinancial.missedWork === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                      className={`flex items-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-left text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpFinancial.missedWork === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                     >
-                      <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${cpFinancial.missedWork === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-300 text-transparent'}`}>✓</span>
+                      <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${cpFinancial.missedWork === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent'}`}>✓</span>
                       <span>{label}</span>
                     </button>
                   ))}
@@ -2654,7 +2732,7 @@ export default function IntakeWizardQuick() {
                               }
                             }))
                           }}
-                          className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold ${cpFinancial.lostWagesRange === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                          className={`rounded-lg border-[1.5px] px-3 py-2 text-left text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpFinancial.lostWagesRange === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                         >
                           {label}
                         </button>
@@ -2732,7 +2810,7 @@ export default function IntakeWizardQuick() {
                           type="button"
                           aria-pressed={cpLegal.faultBelief === value}
                           onClick={() => setCasePostureField('faultBelief', value)}
-                          className={`rounded-lg border px-3 py-2 text-xs font-semibold ${cpLegal.faultBelief === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                          className={`rounded-lg border-[1.5px] px-3 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.faultBelief === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                         >
                           {label}
                         </button>
@@ -2751,7 +2829,7 @@ export default function IntakeWizardQuick() {
                           type="button"
                           aria-pressed={cpLegal.comparativeFault === value}
                           onClick={() => setCasePostureField('comparativeFault', value)}
-                          className={`rounded-lg border px-3 py-2 text-xs font-semibold ${cpLegal.comparativeFault === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                          className={`rounded-lg border-[1.5px] px-3 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.comparativeFault === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                         >
                           {label}
                         </button>
@@ -2769,7 +2847,7 @@ export default function IntakeWizardQuick() {
                           type="button"
                           aria-pressed={insurerContactValue === value}
                           onClick={() => setInsurerContact(value)}
-                          className={`rounded-lg border px-3 py-2 text-xs font-semibold ${insurerContactValue === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                          className={`rounded-lg border-[1.5px] px-3 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${insurerContactValue === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                         >
                           {label}
                         </button>
@@ -2786,7 +2864,7 @@ export default function IntakeWizardQuick() {
                               type="button"
                               aria-pressed={cpLegal.settlementOffer === value}
                               onClick={() => setCasePostureField('settlementOffer', value)}
-                              className={`rounded-lg border px-2 py-2 text-xs font-semibold ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                              className={`rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                             >
                               {label}
                             </button>
@@ -2812,7 +2890,7 @@ export default function IntakeWizardQuick() {
                               }
                             }))
                           }}
-                          className={`rounded-lg border px-3 py-2 text-xs font-semibold ${cpLegal.attorneyStatus === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                          className={`rounded-lg border-[1.5px] px-3 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.attorneyStatus === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                         >
                           {label}
                         </button>
@@ -2840,7 +2918,7 @@ export default function IntakeWizardQuick() {
                               }
                             }))
                           }}
-                          className={`rounded-lg border px-3 py-2 text-xs font-semibold ${cpLegal.acceptedSettlement === value ? 'border-brand-600 bg-white text-brand-900 shadow-sm' : 'border-slate-200 bg-white/80 text-slate-700 hover:border-brand-300'}`}
+                          className={`rounded-lg border-[1.5px] px-3 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.acceptedSettlement === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                         >
                           {label}
                         </button>
@@ -2872,7 +2950,7 @@ export default function IntakeWizardQuick() {
                           type="button"
                           aria-pressed={icLegal.defendantCoverageLimits === value}
                           onClick={() => updateForm({ insuranceCoverage: { ...icLegal, defendantCoverageLimits: icLegal.defendantCoverageLimits === value ? '' : value } })}
-                          className={`rounded-lg border px-2 py-2 text-xs font-semibold ${icLegal.defendantCoverageLimits === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                          className={`rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${icLegal.defendantCoverageLimits === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                         >
                           {label}
                         </button>
@@ -2891,7 +2969,7 @@ export default function IntakeWizardQuick() {
                             type="button"
                             aria-pressed={icLegal.umUimCoverage === value}
                             onClick={() => updateForm({ insuranceCoverage: { ...icLegal, umUimCoverage: icLegal.umUimCoverage === value ? '' : value } })}
-                            className={`rounded-lg border px-2 py-2 text-xs font-semibold ${icLegal.umUimCoverage === value ? 'border-brand-600 bg-brand-50 text-brand-900' : 'border-slate-200 text-slate-700 hover:border-brand-300'}`}
+                            className={`rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${icLegal.umUimCoverage === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                           >
                             {label}
                           </button>
@@ -3115,16 +3193,25 @@ export default function IntakeWizardQuick() {
       ? solPreviewError || tx('sol_noDeadline')
       : tx('sol_selectState')
   const showExactDatePrompt = incidentDateIsApproximate && !!solPreview?.expiresAt
+  // Positive reinforcement: confirm the deadline once an exact date is entered.
+  const whenDeadlineConfirmed =
+    formData.incidentDatePreset && !incidentDateIsApproximate && solPreview?.expiresAt
+      ? new Date(solPreview.expiresAt).toLocaleDateString()
+      : ''
+  // A date has been provided (typed or month/year) but the deadline also needs venue.
+  const whenDateChosen =
+    (formData.incidentDatePreset === 'custom' && !!customDate) ||
+    (formData.incidentDatePreset === 'month_year' && !!formData.incidentDate)
   const promptForExactDate = () => {
     updateForm({ incidentDatePreset: 'custom' })
     setCurrentStep('when')
   }
   const evidenceStatusItems = [
-    { category: 'photos', label: tx('evidence_photos'), weight: 10 },
+    { category: 'photos', label: tx('evidence_photos'), weight: 20 },
     { category: 'video', label: tx('evidence_videos'), weight: 0 },
-    { category: 'police_report', label: tx('evidence_policeReport'), weight: 15 },
-    { category: 'bills', label: tx('evidence_medicalBills'), weight: 15 },
-    { category: 'medical_records', label: tx('evidence_medicalRecords'), weight: 20 },
+    { category: 'police_report', label: tx('evidence_policeReport'), weight: 25 },
+    { category: 'bills', label: tx('evidence_medicalBills'), weight: 25 },
+    { category: 'medical_records', label: tx('evidence_medicalRecords'), weight: 30 },
     { category: 'insurance_letters', label: tx('evidence_insuranceLetters'), weight: 0 },
     { category: 'wage_verification', label: tx('evidence_wageVerification'), weight: 0 },
   ]
@@ -3242,21 +3329,23 @@ export default function IntakeWizardQuick() {
       {shouldShowSolPreview && (
         <div className={`mb-1 shrink-0 rounded-lg border ${solPreviewTone} px-3 py-1.5 sm:px-4`}>
           <div className="flex items-center justify-between gap-3">
-            <p className="min-w-0 text-xs leading-5 sm:text-sm">
-              <span className="font-semibold">{tx('sol_earlyCheck')}:</span> {solPreviewMessage}
-              {solPreview?.daysRemaining != null && (
-                <> · {tx(Math.max(0, solPreview.daysRemaining) === 1 ? 'sol_dayRemaining' : 'sol_daysRemaining').replace('{days}', String(Math.max(0, solPreview.daysRemaining)))}</>
-              )}
+            <div className="min-w-0">
+              <p className="min-w-0 text-xs leading-5 sm:text-sm">
+                <span className="font-semibold">{tx('sol_earlyCheck')}:</span> {solPreviewMessage}
+                {solPreview?.daysRemaining != null && (
+                  <> · {tx(Math.max(0, solPreview.daysRemaining) === 1 ? 'sol_dayRemaining' : 'sol_daysRemaining').replace('{days}', String(Math.max(0, solPreview.daysRemaining)))}</>
+                )}
+              </p>
               {showExactDatePrompt && currentStep !== 'when' && (
-                <>
-                  {' '}· {tx('sol_approxNote')}{' '}
+                <p className="mt-0.5 text-xs leading-5 sm:text-sm">
+                  {tx('sol_approxNote')}{' '}
                   <button type="button" onClick={promptForExactDate} className="font-semibold underline underline-offset-2 hover:opacity-80">
                     {tx('sol_enterExactDate')}
                   </button>{' '}
                   {tx('sol_forAccuracy')}
-                </>
+                </p>
               )}
-            </p>
+            </div>
             {solPreview?.status && (
               <span className="inline-flex shrink-0 rounded-full bg-white/70 px-2.5 py-0.5 text-xs font-semibold uppercase">
                 {['safe', 'warning', 'critical'].includes(String(solPreview.status)) ? tx(`solStatus_${solPreview.status}`) : String(solPreview.status).replace(/_/g, ' ')}
@@ -3371,11 +3460,11 @@ export default function IntakeWizardQuick() {
             <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
             {t('intake.tapToContinue')}
           </span>
-        ) : currentStep === 'when' && formData.incidentDatePreset === 'custom' ? (
+        ) : currentStep === 'when' && (formData.incidentDatePreset === 'custom' || formData.incidentDatePreset === 'month_year') ? (
           <button
             type="button"
             onClick={validateAndNext}
-            disabled={!customDate}
+            disabled={formData.incidentDatePreset === 'custom' ? !customDate : !formData.incidentDate}
             className="inline-flex min-h-10 items-center justify-center rounded-lg bg-accent-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-accent-700 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-11 sm:rounded-xl sm:px-6"
           >
             {t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />

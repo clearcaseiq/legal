@@ -1,3 +1,5 @@
+import { validatePhoneField } from './phone'
+
 export type RegisterInput = {
   firstName: string
   lastName: string
@@ -19,6 +21,11 @@ export function validateRegisterInput(input: RegisterInput): RegisterFieldErrors
 
   if (!input.lastName.trim()) {
     errors.lastName = 'Last name is required'
+  }
+
+  const phoneError = validatePhoneField(input.phone)
+  if (phoneError) {
+    errors.phone = phoneError
   }
 
   const email = input.email.trim()
