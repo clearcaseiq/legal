@@ -25,6 +25,8 @@
     "activate:attorneys": "node ../node_modules/tsx/dist/cli.mjs scripts/activate-all-attorneys.ts",
     "import:users": "node ../node_modules/tsx/dist/cli.mjs scripts/import-user-data.ts",
     "import:legalmatch": "node ../node_modules/tsx/dist/cli.mjs scripts/import-legalmatch-attorneys.ts",
+    "scrape:lawyers": "node ../node_modules/tsx/dist/cli.mjs scripts/scrape-lawyers-com.ts",
+    "promote:production-attorneys": "node ../node_modules/tsx/dist/cli.mjs scripts/promote-production-attorneys.ts",
     "create:sample-cases": "node ../node_modules/tsx/dist/cli.mjs scripts/create-sample-cases-by-type.ts",
     "create:ca-cases": "node ../node_modules/tsx/dist/cli.mjs scripts/create-100-ca-cases.ts",
     "add:apple-evidence": "node ../node_modules/tsx/dist/cli.mjs scripts/add-evidence-for-apple.ts",

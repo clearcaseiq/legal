@@ -14,9 +14,16 @@ import { runCaseRecalculation } from '../lib/case-recalculation'
 import { getClientConsentCompliance, isGuestCaseUserEmail } from '../lib/client-consent-guard'
 import { ENV } from '../env'
 import { prisma } from '../lib/prisma'
-import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
+import { processEvidenceFileForExtraction, shouldAutoProcessEvidence, extractDataFromBuffer } from '../lib/evidence-processing'
+import { analyzeImageRelevance, analyzePdfRelevance, type VisionRelevanceResult } from '../lib/evidence-vision'
 
 const router = Router()
+
+// In-memory upload used only for the lightweight relevance pre-check (no persistence).
+const memoryUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+})
 
 async function resolveUploadUserId(userId: string | null, assessmentId?: string) {
   if (userId) return userId
@@ -365,6 +372,71 @@ router.post('/simple-test', upload.single('file'), async (req: any, res) => {
   }
 })
 
+// Lightweight image relevance pre-check (no persistence). Used during intake before an
+// assessment exists, so the UI can warn about obviously off-topic photos immediately.
+router.post('/vision-precheck', optionalAuthMiddleware, memoryUpload.single('file'), async (req: any, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' })
+    }
+    const category = (req.body?.category as string) || 'other'
+    const mimetype: string = req.file.mimetype || ''
+    const buffer: Buffer = req.file.buffer
+    const filename: string = req.file.originalname || ''
+    const looksLikeImage = mimetype.startsWith('image/')
+    // PDFs report application/pdf, or arrive as octet-stream with a %PDF header / .pdf name.
+    const isPdf =
+      mimetype === 'application/pdf' ||
+      /\.pdf$/i.test(filename) ||
+      (buffer && buffer.length > 4 && buffer.subarray(0, 5).toString('latin1') === '%PDF-')
+
+    if (isPdf) {
+      const vision = await analyzePdfRelevance({ category, buffer })
+      return res.status(200).json({ vision })
+    }
+
+    // Browsers often send picked images with an empty/octet-stream type; allow those
+    // through and let sharp validate. Only skip clearly non-image types (video, etc.).
+    const genericType = !mimetype || mimetype === 'application/octet-stream'
+    if (!looksLikeImage && !genericType) {
+      return res.status(200).json({ vision: { status: 'skipped', reason: 'not_an_image' } })
+    }
+    const vision = await analyzeImageRelevance({
+      category,
+      buffer,
+      // Pass mimetype only when it's a real image type, otherwise let sharp decide.
+      mimetype: looksLikeImage ? mimetype : undefined,
+    })
+    return res.status(200).json({ vision })
+  } catch (error: any) {
+    logger.error('Vision pre-check failed', { error: error?.message })
+    return res.status(200).json({ vision: { status: 'error', reason: 'precheck_failed' } })
+  }
+})
+
+/**
+ * Ephemeral document extraction for intake previews. OCRs the uploaded file in memory
+ * and returns parsed dollar amounts without persisting anything (mirrors vision-precheck).
+ */
+router.post('/extract-precheck', optionalAuthMiddleware, memoryUpload.single('file'), async (req: any, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' })
+    }
+    const category = (req.body?.category as string) || 'bills'
+    const result = await extractDataFromBuffer(
+      req.file.buffer,
+      req.file.mimetype || '',
+      category,
+      req.file.originalname || 'document',
+    )
+    return res.status(200).json({ extraction: { status: 'ok', ...result } })
+  } catch (error: any) {
+    logger.error('Document extract pre-check failed', { error: error?.message })
+    return res.status(200).json({ extraction: { status: 'error' } })
+  }
+})
+
 // Upload evidence file - temporarily disable auth for testing
 router.post('/upload', upload.single('file'), async (req: any, res) => {
   try {
@@ -452,6 +524,21 @@ router.post('/upload', upload.single('file'), async (req: any, res) => {
       }
     }
 
+    // Validate image content relevance (AWS Rekognition DetectLabels). Non-blocking:
+    // a poor verdict only attaches a warning + flags the file, it never rejects.
+    let visionResult: VisionRelevanceResult | null = null
+    if (req.file.mimetype.startsWith('image/')) {
+      try {
+        visionResult = await analyzeImageRelevance({
+          category: category || 'other',
+          filePath: req.file.path,
+          mimetype: req.file.mimetype,
+        })
+      } catch (visionError) {
+        logger.warn('Image relevance check failed', { error: visionError })
+      }
+    }
+
     const dataType = determineDataType(category || 'other', req.file.mimetype)
     const normalizedTags = typeof tags === 'string' && tags.length
       ? tags.split(',').map((t: string) => t.trim()).filter(Boolean)
@@ -475,7 +562,8 @@ router.post('/upload', upload.single('file'), async (req: any, res) => {
         description: description || null,
         dataType,
         tags: normalizedTags.length ? JSON.stringify(normalizedTags) : null,
-        relevanceScore: relevanceScore ? Number(relevanceScore) : 0,
+        relevanceScore: visionResult ? visionResult.score : (relevanceScore ? Number(relevanceScore) : 0),
+        visionLabels: visionResult ? JSON.stringify(visionResult) : null,
         uploadMethod: uploadMethod || 'drag_drop',
         captureDate: captureDate ? new Date(captureDate) : null,
         location: location || null,
@@ -529,7 +617,7 @@ router.post('/upload', upload.single('file'), async (req: any, res) => {
     if (assessmentId) {
       void runAnalysisForAssessment(assessmentId)
     }
-    res.status(201).json(evidenceFile)
+    res.status(201).json({ ...evidenceFile, vision: visionResult })
   } catch (error: any) {
     logger.error('Failed to upload evidence file', { 
       error: error.message, 
@@ -593,6 +681,19 @@ router.post('/upload-multiple', optionalAuthMiddleware, upload.array('files', 10
           thumbnailPath = await processImage(file.path, file.filename)
         }
 
+        let visionResult: VisionRelevanceResult | null = null
+        if (file.mimetype.startsWith('image/')) {
+          try {
+            visionResult = await analyzeImageRelevance({
+              category: category || 'other',
+              filePath: file.path,
+              mimetype: file.mimetype,
+            })
+          } catch (visionError) {
+            logger.warn('Image relevance check failed (batch)', { error: visionError, filename: file.originalname })
+          }
+        }
+
         const dataType = determineDataType(category || 'other', file.mimetype)
         const normalizedTags = typeof tags === 'string' && tags.length
           ? tags.split(',').map((t: string) => t.trim()).filter(Boolean)
@@ -616,7 +717,8 @@ router.post('/upload-multiple', optionalAuthMiddleware, upload.array('files', 10
             description: description || null,
             dataType,
             tags: normalizedTags.length ? JSON.stringify(normalizedTags) : null,
-            relevanceScore: relevanceScore ? Number(relevanceScore) : 0,
+            relevanceScore: visionResult ? visionResult.score : (relevanceScore ? Number(relevanceScore) : 0),
+            visionLabels: visionResult ? JSON.stringify(visionResult) : null,
             uploadMethod: 'drag_drop',
             exifData: exifData ? JSON.stringify(exifData) : null,
             processingStatus: 'pending',
@@ -648,7 +750,7 @@ router.post('/upload-multiple', optionalAuthMiddleware, upload.array('files', 10
           })
         }
 
-        results.push(evidenceFile)
+        results.push({ ...evidenceFile, vision: visionResult })
       } catch (fileError) {
         logger.error('Failed to process file in batch upload', { error: fileError, filename: file.originalname })
         results.push({ error: `Failed to process ${file.originalname}` })

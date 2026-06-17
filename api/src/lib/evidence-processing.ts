@@ -1,12 +1,14 @@
 import { spawn } from 'child_process'
+import os from 'os'
 import path from 'path'
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs'
 import mammoth from 'mammoth'
 import { loadPDFParse, type PDFParseInstance } from './pdf-parse-client'
 import { DetectDocumentTextCommand, TextractClient } from '@aws-sdk/client-textract'
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { runCaseRecalculation } from './case-recalculation'
+import { analyzeImageRelevance, shouldFlagForReview, type VisionRelevanceResult } from './evidence-vision'
 
 type StructuredMedicalEvent = {
   date: string | null
@@ -18,20 +20,68 @@ type StructuredMedicalEvent = {
   source: 'ocr' | 'upload_metadata'
 }
 
+const MONTH_NAMES: Record<string, number> = {
+  jan: 1, january: 1,
+  feb: 2, february: 2,
+  mar: 3, march: 3,
+  apr: 4, april: 4,
+  may: 5,
+  jun: 6, june: 6,
+  jul: 7, july: 7,
+  aug: 8, august: 8,
+  sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10,
+  nov: 11, november: 11,
+  dec: 12, december: 12,
+}
+
+function buildIsoDate(year: number, month: number, day: number): string | null {
+  const fullYear = year < 100 ? 2000 + year : year
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null
+  return `${fullYear}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
 function normalizeDate(value: string): string | null {
   const trimmed = value.trim()
-  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (isoMatch) return trimmed
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+  if (isoMatch) return buildIsoDate(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3]))
 
-  const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
-  if (!slashMatch) return null
+  const slashMatch = trimmed.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/)
+  if (slashMatch) return buildIsoDate(Number(slashMatch[3]), Number(slashMatch[1]), Number(slashMatch[2]))
 
-  const month = Number(slashMatch[1])
-  const day = Number(slashMatch[2])
-  const rawYear = Number(slashMatch[3])
-  const year = rawYear < 100 ? 2000 + rawYear : rawYear
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  // "June 10, 2026" / "Jun 10 2026" / "Sept. 5, 2025"
+  const monthFirst = trimmed.match(/^([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})$/)
+  if (monthFirst) {
+    const month = MONTH_NAMES[monthFirst[1].toLowerCase()]
+    if (month) return buildIsoDate(Number(monthFirst[3]), month, Number(monthFirst[2]))
+  }
+
+  // "10 June 2026" / "5th of March 2025"
+  const dayFirst = trimmed.match(/^(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([A-Za-z]{3,9})\.?,?\s+(\d{4})$/)
+  if (dayFirst) {
+    const month = MONTH_NAMES[dayFirst[2].toLowerCase()]
+    if (month) return buildIsoDate(Number(dayFirst[3]), month, Number(dayFirst[1]))
+  }
+
+  return null
+}
+
+/** Finds every recognizable date string in free text (numeric + month-name formats). */
+function findDateStrings(text: string): string[] {
+  const patterns = [
+    /\b\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}\b/g,
+    /\b\d{4}-\d{1,2}-\d{1,2}\b/g,
+    /\b[A-Za-z]{3,9}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}\b/g,
+    /\b\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?[A-Za-z]{3,9}\.?,?\s+\d{4}\b/g,
+  ]
+  const found: string[] = []
+  for (const pattern of patterns) {
+    const matches = text.match(pattern)
+    if (matches) found.push(...matches)
+  }
+  // Keep only strings that resolve to a real calendar date — this drops false
+  // positives like "00 Radiology 2025" where a non-month word sits between numbers.
+  return found.filter((candidate) => normalizeDate(candidate) !== null)
 }
 
 /** Stored paths may be relative to API cwd (upload handlers often persist relative paths). */
@@ -336,13 +386,40 @@ export function buildStructuredMedicalEvents(params: {
   }))
 }
 
+const parseMoney = (raw: string): number => {
+  const num = parseFloat(String(raw).replace(/[$,\s]/g, ''))
+  return Number.isFinite(num) ? num : 0
+}
+
+/**
+ * Document-level dollar total. Naively summing every "$x" double-counts line items
+ * AND the printed grand total (e.g. a $10,905 summary read as $21,810). When the text
+ * has explicitly labeled totals ("Total", "Amount Due", "Balance Due", etc.) we use the
+ * largest labeled figure; otherwise we fall back to summing all detected amounts.
+ */
+function computeDocumentTotal(ocrText: string, dollarAmounts: string[]): number {
+  const labeledTotalRegex =
+    /(grand total|total economic damages|total lost wages|total charges|total billed|total due|total amount|amount due|balance due|patient balance|total)[^$\n]{0,40}\$\s?([\d,]+(?:\.\d{1,2})?)/gi
+  const labeledTotals: number[] = []
+  let match: RegExpExecArray | null
+  while ((match = labeledTotalRegex.exec(ocrText)) !== null) {
+    const value = parseMoney(match[2])
+    if (value > 0) labeledTotals.push(value)
+  }
+
+  if (labeledTotals.length > 0) {
+    return Math.max(...labeledTotals)
+  }
+
+  return dollarAmounts.reduce((sum, amount) => sum + parseMoney(amount), 0)
+}
+
 async function processExtractedData(ocrText: string, category: string, originalName: string): Promise<any> {
   try {
     const moneyRegex = /\$[\d,]+\.?\d*/g
     const dollarAmounts = ocrText.match(moneyRegex) || []
 
-    const dateRegex = /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b/g
-    const dates = [...new Set(ocrText.match(dateRegex) || [])]
+    const dates = [...new Set(findDateStrings(ocrText))]
 
     const icdRegex = /\b[A-Z]\d{2}(?:\.\d+)?\b/g
     const icdCodes = [...new Set(ocrText.match(icdRegex) || [])]
@@ -350,10 +427,7 @@ async function processExtractedData(ocrText: string, category: string, originalN
     const cptRegex = /\b\d{5}(?:\.\d+)?\b/g
     const cptCodes = [...new Set(ocrText.match(cptRegex) || [])]
 
-    const totalAmount = dollarAmounts.reduce((sum, amount) => {
-      const num = parseFloat(amount.replace(/[$,]/g, ''))
-      return sum + (isNaN(num) ? 0 : num)
-    }, 0)
+    const totalAmount = computeDocumentTotal(ocrText, dollarAmounts)
 
     const medicalEvents = buildStructuredMedicalEvents({
       category,
@@ -406,6 +480,54 @@ function buildHighlights(extractedData: any, ocrText: string) {
     highlights.push(ocrText.split(/\s+/).slice(0, 15).join(' '))
   }
   return highlights
+}
+
+/**
+ * Ephemeral extraction for intake-time previews: OCRs an in-memory file buffer and
+ * returns the parsed dollar amounts WITHOUT persisting anything to the DB or storage.
+ * Used to surface document-derived figures (e.g. medical bills, wage loss) before the
+ * assessment is created. Mirrors the OCR branch of processEvidenceFileForExtraction.
+ */
+export async function extractDataFromBuffer(
+  buffer: Buffer,
+  mimetype: string,
+  category: string,
+  originalName: string,
+): Promise<{ dollarAmounts: string[]; totalAmount?: number }> {
+  const rasterOcrAllowed = process.env.ENABLE_OCR !== 'false'
+  const safeName = (originalName || 'document').replace(/[^\w.\-]/g, '_')
+  const tmpPath = path.join(os.tmpdir(), `extract_${Date.now()}_${Math.random().toString(36).slice(2)}_${safeName}`)
+  writeFileSync(tmpPath, buffer)
+  try {
+    let ocrText = ''
+    const mime = mimetype || ''
+    const isPdf =
+      mime === 'application/pdf' ||
+      /\.pdf$/i.test(originalName || '') ||
+      (buffer.length > 4 && buffer.subarray(0, 5).toString('latin1') === '%PDF-')
+
+    if (isPdf) {
+      ocrText = await extractPdfCombined(tmpPath, rasterOcrAllowed)
+    } else if (mime.startsWith('image/') && rasterOcrAllowed) {
+      ocrText = await performConfiguredOCR(tmpPath)
+    } else if (mime === DOCX_MIME) {
+      ocrText = await extractDocxPlainText(tmpPath)
+    } else if (mime === 'text/plain') {
+      ocrText = extractPlaintextFile(tmpPath)
+    }
+
+    const extracted = await processExtractedData(ocrText, category || 'bills', originalName || 'document')
+    return {
+      dollarAmounts: (extracted?.dollarAmounts as string[]) || [],
+      totalAmount: extracted?.totalAmount,
+    }
+  } finally {
+    try {
+      unlinkSync(tmpPath)
+    } catch {
+      /* best-effort temp cleanup */
+    }
+  }
 }
 
 export async function processEvidenceFileForExtraction(fileId: string) {
@@ -487,7 +609,26 @@ export async function processEvidenceFileForExtraction(fileId: string) {
     const aiClassification = classifyEvidence(evidenceFile.originalName, evidenceFile.category, ocrText)
     const aiSummary = summarizeText(ocrText)
     const aiHighlights = buildHighlights(extractedData, ocrText)
-    const manualReview = !ocrText || extractedData.confidence < 0.5
+
+    // Image relevance validation via AWS Rekognition DetectLabels. Reuse a verdict
+    // computed at upload time if present; otherwise compute it here.
+    let visionResult: VisionRelevanceResult | null = null
+    if (evidenceFile.visionLabels) {
+      try {
+        visionResult = JSON.parse(evidenceFile.visionLabels) as VisionRelevanceResult
+      } catch {
+        visionResult = null
+      }
+    }
+    if (!visionResult && mime.startsWith('image/')) {
+      visionResult = await analyzeImageRelevance({
+        category: evidenceFile.category,
+        filePath: resolvedPath,
+        mimetype: mime,
+      })
+    }
+    const visionFlag = visionResult ? shouldFlagForReview(visionResult) : false
+    const manualReview = !ocrText || extractedData.confidence < 0.5 || visionFlag
 
     await prisma.$transaction([
       prisma.evidenceFile.update({
@@ -498,6 +639,9 @@ export async function processEvidenceFileForExtraction(fileId: string) {
           aiClassification,
           aiSummary,
           aiHighlights: aiHighlights.length ? JSON.stringify(aiHighlights) : null,
+          ...(visionResult
+            ? { visionLabels: JSON.stringify(visionResult), relevanceScore: visionResult.score }
+            : {}),
         },
       }),
       prisma.extractedData.deleteMany({ where: { evidenceFileId: fileId } }),

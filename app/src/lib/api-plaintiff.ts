@@ -247,6 +247,26 @@ export async function uploadEvidenceFile(formData: FormData) {
   return data
 }
 
+/** Lightweight image relevance pre-check (no persistence). Returns { vision: {...} }. */
+export async function precheckEvidenceImage(formData: FormData) {
+  const { data } = await api.post('/v1/evidence/vision-precheck', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  })
+  return data
+}
+
+/** Ephemeral document extraction (no persistence). Returns { extraction: { status, dollarAmounts, totalAmount } }. */
+export async function extractEvidenceData(formData: FormData) {
+  const { data } = await api.post('/v1/evidence/extract-precheck', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  })
+  return data
+}
+
 export async function getEvidenceFiles(assessmentId?: string, category?: string, processingStatus?: string, query?: string) {
   const params = new URLSearchParams()
   if (assessmentId) params.append('assessmentId', assessmentId)

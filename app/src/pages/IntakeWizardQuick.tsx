@@ -3,8 +3,8 @@
  */
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, type IntakeLeadPayload } from '../lib/api-plaintiff'
-import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays } from 'lucide-react'
+import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, type IntakeLeadPayload } from '../lib/api-plaintiff'
+import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import { useLanguage } from '../contexts/LanguageContext'
 import { buildCaseTaxonomy, injuryTypeToClaimType, sanitizeDetectedCounty } from '../lib/intakeQuickHelpers'
@@ -39,11 +39,76 @@ const INJURY_TYPES = [
 
 const isoToday = (): string => new Date().toISOString().split('T')[0]
 
-const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => ({
-  value: String(i + 1).padStart(2, '0'),
-  label: new Date(2000, i, 1).toLocaleString('en-US', { month: 'long' }),
-}))
-const YEAR_OPTIONS = Array.from({ length: 11 }, (_, i) => new Date().getFullYear() - i)
+// Common email domains people mistype. Used to nudge ("Did you mean …?") rather than
+// hard-reject, since plausibly-valid TLDs like .co should still be accepted.
+const COMMON_EMAIL_DOMAINS = [
+  'gmail.com', 'googlemail.com', 'yahoo.com', 'ymail.com', 'hotmail.com', 'outlook.com',
+  'live.com', 'msn.com', 'icloud.com', 'me.com', 'aol.com', 'comcast.net', 'protonmail.com',
+  'proton.me', 'verizon.net', 'att.net', 'sbcglobal.net',
+]
+
+const levenshtein = (a: string, b: string): number => {
+  const m = a.length
+  const n = b.length
+  if (m === 0) return n
+  if (n === 0) return m
+  let prev = Array.from({ length: n + 1 }, (_, i) => i)
+  let curr = new Array<number>(n + 1)
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+    }
+    ;[prev, curr] = [curr, prev]
+  }
+  return prev[n]
+}
+
+/** Suggests a corrected email for likely domain typos (e.g. gmail.co → gmail.com). */
+const suggestEmail = (email: string): string | null => {
+  const trimmed = email.trim()
+  const at = trimmed.lastIndexOf('@')
+  if (at < 1 || at === trimmed.length - 1) return null
+  const local = trimmed.slice(0, at)
+  const domain = trimmed.slice(at + 1).toLowerCase()
+  if (!domain.includes('.') || /\s/.test(domain)) return null
+  if (COMMON_EMAIL_DOMAINS.includes(domain)) return null
+  let best: string | null = null
+  let bestDist = Infinity
+  for (const candidate of COMMON_EMAIL_DOMAINS) {
+    const dist = levenshtein(domain, candidate)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = candidate
+    }
+  }
+  // Only suggest for close misses so genuine custom domains aren't flagged.
+  if (best && bestDist > 0 && bestDist <= 2) return `${local}@${best}`
+  return null
+}
+
+/**
+ * Checks whether an email domain can actually receive mail by querying public
+ * DNS-over-HTTPS for MX (and A as fallback) records. Returns true if the domain
+ * looks deliverable OR if the lookup fails (we never block on network errors).
+ */
+const domainCanReceiveMail = async (domain: string): Promise<boolean> => {
+  const query = async (type: 'MX' | 'A'): Promise<boolean> => {
+    const res = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(domain)}&type=${type}`)
+    if (!res.ok) throw new Error('dns lookup failed')
+    const json = await res.json()
+    const wantType = type === 'MX' ? 15 : 1
+    return Array.isArray(json.Answer) && json.Answer.some((a: { type?: number }) => a.type === wantType)
+  }
+  try {
+    if (await query('MX')) return true
+    if (await query('A')) return true
+    return false
+  } catch {
+    return true
+  }
+}
 
 const INJURY_SEVERITY_OPTIONS = [
   { value: 'minor', labelKey: 'minor' as const },
@@ -64,6 +129,30 @@ const MEDICAL_TREATMENT_OPTION_DEFS = [
   { value: 'surgery', labelKey: 'treatment_surgery' },
   { value: 'none', labelKey: 'treatment_none' }
 ]
+
+// Icon per option so the injuries/treatment step can render visual tiles.
+const SEVERITY_ICONS: Record<string, LucideIcon> = {
+  minor: Activity,
+  moderate: Stethoscope,
+  serious: Hospital,
+  surgery: Scissors,
+  unsure: HelpCircle,
+}
+const TREATMENT_ICONS: Record<string, LucideIcon> = {
+  er: Ambulance,
+  chiro_pt: PersonStanding,
+  mri: Scan,
+  injections: Syringe,
+  pain_management: Pill,
+  surgery: Scissors,
+  none: CalendarDays,
+}
+
+/** Splits a label like "Minor (soreness or bruises)" into main + description. */
+const splitLabel = (label: string): { main: string; desc?: string } => {
+  const match = label.match(/^(.*?)\s*\(([^)]*)\)\s*$/)
+  return match ? { main: match[1].trim(), desc: match[2].trim() } : { main: label }
+}
 
 const PRIOR_INJURY_OPTION_DEFS = [
   { value: 'none', labelKey: 'prior_none' },
@@ -101,10 +190,28 @@ const PROCEDURE_OPTION_DEFS = [
 
 const FUTURE_TREATMENT_OPTION_DEFS = [
   { value: 'additional_pt', labelKey: 'future_pt' },
+  { value: 'mri', labelKey: 'future_mri' },
   { value: 'injections', labelKey: 'future_injections' },
   { value: 'surgery', labelKey: 'future_surgery' },
+  { value: 'specialist', labelKey: 'future_specialist' },
+  { value: 'additional_testing', labelKey: 'future_testing' },
   { value: 'long_term_treatment', labelKey: 'future_longTerm' },
   { value: 'none', labelKey: 'future_none' },
+  { value: 'not_sure', labelKey: 'future_notSure' },
+]
+
+const SYMPTOM_FREQUENCY_OPTION_DEFS = [
+  { value: 'daily', labelKey: 'symfreq_daily' },
+  { value: 'weekly', labelKey: 'symfreq_weekly' },
+  { value: 'occasionally', labelKey: 'symfreq_occasionally' },
+  { value: 'resolved', labelKey: 'symfreq_resolved' },
+]
+
+const SYMPTOM_TREND_OPTION_DEFS = [
+  { value: 'improving', labelKey: 'symtrend_improving' },
+  { value: 'same', labelKey: 'symtrend_same' },
+  { value: 'worse', labelKey: 'symtrend_worse' },
+  { value: 'not_sure', labelKey: 'optionNotSure' },
 ]
 
 const IMAGING_OPTION_DEFS = [
@@ -127,8 +234,12 @@ const LIFESTYLE_IMPACT_OPTION_DEFS = [
   { value: 'sleep_disruption', labelKey: 'impact_sleep' },
   { value: 'exercise_limitations', labelKey: 'impact_exercise' },
   { value: 'unable_to_work_normally', labelKey: 'impact_work' },
+  { value: 'driving_difficulty', labelKey: 'impact_driving' },
+  { value: 'household_chores', labelKey: 'impact_chores' },
   { value: 'parenting_difficulties', labelKey: 'impact_parenting' },
+  { value: 'missed_family', labelKey: 'impact_family' },
   { value: 'emotional_distress', labelKey: 'impact_emotional' },
+  { value: 'social_activities', labelKey: 'impact_social' },
 ]
 
 const SHOULDER_FINDING_OPTION_DEFS = [
@@ -145,10 +256,62 @@ const BACK_FINDING_OPTION_DEFS = [
 ]
 
 const DIAGNOSIS_OPTION_DEFS = [
+  { value: 'herniation', labelKey: 'diag_herniation' },
+  { value: 'radiculopathy', labelKey: 'diag_radiculopathy' },
+  { value: 'muscle_strain', labelKey: 'diag_strain' },
+  { value: 'tear', labelKey: 'diag_tear' },
+  { value: 'whiplash', labelKey: 'diag_whiplash' },
+  { value: 'concussion', labelKey: 'diag_concussion' },
   { value: 'fracture', labelKey: 'diag_fracture' },
   { value: 'tbi', labelKey: 'diag_tbi' },
-  { value: 'concussion', labelKey: 'diag_concussion' },
-  { value: 'herniation', labelKey: 'diag_herniation' },
+  { value: 'other_diagnosis', labelKey: 'diag_other' },
+]
+
+// "Treatment received" tiles on the Injury Details screen (stored in injuryDetails.imaging).
+const TREATMENT_RECEIVED_OPTION_DEFS = [
+  { value: 'mri', labelKey: 'treatrec_mri' },
+  { value: 'ct_scan', labelKey: 'treatrec_ct' },
+  { value: 'xray', labelKey: 'treatrec_xray' },
+  { value: 'physical_therapy', labelKey: 'treatrec_pt' },
+  { value: 'chiropractic', labelKey: 'treatrec_chiro' },
+  { value: 'injections', labelKey: 'treatrec_injections' },
+  { value: 'surgery', labelKey: 'treatrec_surgery' },
+  { value: 'other_treatment', labelKey: 'treatrec_other' },
+]
+
+const CURRENT_SYMPTOM_OPTION_DEFS = [
+  { value: 'pain', labelKey: 'sym_pain' },
+  { value: 'stiffness', labelKey: 'sym_stiffness' },
+  { value: 'limited_rom', labelKey: 'sym_rom' },
+  { value: 'numbness', labelKey: 'sym_numbness' },
+  { value: 'weakness', labelKey: 'sym_weakness' },
+  { value: 'headaches', labelKey: 'sym_headaches' },
+  { value: 'other', labelKey: 'optionOther' },
+]
+
+const RECOVERY_STATUS_OPTION_DEFS = [
+  { value: 'fully_recovered', labelKey: 'recov_full' },
+  { value: 'mostly_improved', labelKey: 'recov_mostly' },
+  { value: 'symptoms_ongoing', labelKey: 'recov_ongoing' },
+  { value: 'getting_worse', labelKey: 'recov_worse' },
+]
+
+// Six headline "areas of life affected" tiles (stored in injuryDetails.lifestyleImpact).
+const LIFE_AREA_OPTION_DEFS = [
+  { value: 'unable_to_work_normally', labelKey: 'life_work' },
+  { value: 'sleep_disruption', labelKey: 'life_sleep' },
+  { value: 'exercise_limitations', labelKey: 'life_exercise' },
+  { value: 'driving_difficulty', labelKey: 'life_driving' },
+  { value: 'household_chores', labelKey: 'life_household' },
+  { value: 'missed_family', labelKey: 'life_family' },
+]
+
+const BIGGEST_IMPACT_OPTION_DEFS = [
+  { value: 'work', labelKey: 'bigimpact_work' },
+  { value: 'pain', labelKey: 'bigimpact_pain' },
+  { value: 'mobility', labelKey: 'bigimpact_mobility' },
+  { value: 'daily_activities', labelKey: 'bigimpact_daily' },
+  { value: 'not_sure', labelKey: 'bigimpact_notSure' },
 ]
 
 const MISSED_WORK_OPTION_DEFS = [
@@ -351,13 +514,14 @@ const PRODUCT_TYPE_OPTION_DEFS = [
   { value: 'machinery', labelKey: 'product_machinery' }
 ]
 
-// Assault branch
+// Assault / negligent security branch — "where did it occur?"
 const ASSAULT_TYPE_OPTIONS = [
-  { value: 'assault', labelKey: 'assault_assault' },
-  { value: 'robbery', labelKey: 'assault_robbery' },
-  { value: 'bar_fight', labelKey: 'assault_bar_fight' },
-  { value: 'nightclub', labelKey: 'assault_nightclub' },
-  { value: 'apartment', labelKey: 'assault_apartment' }
+  { value: 'apartment', labelKey: 'assault_apartment' },
+  { value: 'hotel', labelKey: 'slip_hotel' },
+  { value: 'parking_lot', labelKey: 'assault_parkingLot' },
+  { value: 'store', labelKey: 'assault_store' },
+  { value: 'bar_nightclub', labelKey: 'assault_barNightclub' },
+  { value: 'other', labelKey: 'optionOther' }
 ]
 
 // Toxic branch
@@ -382,17 +546,72 @@ const YES_NO_NOT_SURE_OPTIONS = [
   { value: 'not_sure', labelKey: 'optionNotSure' }
 ]
 
+// Vehicle: who appears most at fault
+const FAULT_PARTY_OPTIONS = [
+  { value: 'other_driver', labelKey: 'fault_otherDriver' },
+  { value: 'shared', labelKey: 'fault_shared' },
+  { value: 'not_sure', labelKey: 'optionNotSure' }
+]
+
+// Workplace branch
+const WORKPLACE_CAUSE_OPTIONS = [
+  { value: 'fall', labelKey: 'wp_fall' },
+  { value: 'equipment', labelKey: 'wp_equipment' },
+  { value: 'vehicle', labelKey: 'wp_vehicle' },
+  { value: 'repetitive', labelKey: 'wp_repetitive' },
+  { value: 'chemical', labelKey: 'wp_chemical' },
+  { value: 'other', labelKey: 'optionOther' }
+]
+
+const WORKPLACE_THIRD_PARTY_OPTIONS = [
+  { value: 'contractor', labelKey: 'wp_contractor' },
+  { value: 'vendor', labelKey: 'wp_vendor' },
+  { value: 'equipment_mfr', labelKey: 'wp_equipmentMfr' },
+  { value: 'no', labelKey: 'optionNo' }
+]
+
+// Dog bite: animal type
+const ANIMAL_TYPE_OPTIONS = [
+  { value: 'dog', labelKey: 'animal_dog' },
+  { value: 'cat', labelKey: 'animal_cat' },
+  { value: 'other', labelKey: 'optionOther' }
+]
+
+// Toxic: where exposure occurred + who it was reported to
+const EXPOSURE_LOCATION_OPTIONS = [
+  { value: 'home', labelKey: 'exp_home' },
+  { value: 'apartment', labelKey: 'exp_apartment' },
+  { value: 'workplace', labelKey: 'slip_workplace' },
+  { value: 'school', labelKey: 'exp_school' },
+  { value: 'hotel', labelKey: 'slip_hotel' },
+  { value: 'other', labelKey: 'optionOther' }
+]
+
+const TOXIC_REPORTED_OPTIONS = [
+  { value: 'landlord', labelKey: 'report_landlord' },
+  { value: 'employer', labelKey: 'report_employer' },
+  { value: 'government', labelKey: 'report_government' },
+  { value: 'no', labelKey: 'optionNo' }
+]
+
+// Other injury: who caused it
+const WHO_CAUSED_OPTIONS = [
+  { value: 'another_person', labelKey: 'who_anotherPerson' },
+  { value: 'business', labelKey: 'who_business' },
+  { value: 'property_owner', labelKey: 'who_propertyOwner' },
+  { value: 'employer', labelKey: 'who_employer' },
+  { value: 'product', labelKey: 'who_product' },
+  { value: 'not_sure', labelKey: 'optionNotSure' }
+]
+
 const STEPS: { key: Step; title: string }[] = [
   { key: 'injury_type', title: 'Injury Type' },
-  { key: 'when', title: 'When & Where Did It Happen?' },
-  { key: 'narrative', title: 'What Happened?' },
-  { key: 'injury_severity', title: 'Injuries & Treatment' },
+  { key: 'when', title: 'Incident Facts' },
   { key: 'injury_details', title: 'Injury Details' },
   { key: 'case_details', title: 'Case Details' },
   { key: 'evidence', title: 'Evidence Upload' },
-  { key: 'financial_impact', title: 'Medical Bills & Income Impact' },
+  { key: 'financial_impact', title: 'Damages & Valuation' },
   { key: 'legal_status', title: 'Insurance & Legal Status' },
-  { key: 'review', title: 'Review Your Case Story' },
   { key: 'consent', title: 'Your Case Report Is Ready' }
 ]
 
@@ -402,8 +621,10 @@ const HIDDEN_STEPS_BY_INJURY: Record<string, Step[]> = {}
 /** Steps from older drafts that were merged into a single screen. */
 const LEGACY_STEP_MAP: Record<string, Step> = {
   where: 'when',
-  contact: 'narrative',
-  medical_treatment: 'injury_severity',
+  narrative: 'when',
+  contact: 'when',
+  injury_severity: 'when',
+  medical_treatment: 'when',
   branch_7: 'case_details',
   branch_8: 'case_details',
   branch_9: 'case_details',
@@ -428,12 +649,21 @@ export default function IntakeWizardQuick() {
   const SURGERY_STATUS_OPTIONS = localizeOptions(SURGERY_STATUS_OPTION_DEFS)
   const PROCEDURE_OPTIONS = localizeOptions(PROCEDURE_OPTION_DEFS)
   const FUTURE_TREATMENT_OPTIONS = localizeOptions(FUTURE_TREATMENT_OPTION_DEFS)
+  const SYMPTOM_FREQUENCY_OPTIONS = localizeOptions(SYMPTOM_FREQUENCY_OPTION_DEFS)
+  const SYMPTOM_TREND_OPTIONS = localizeOptions(SYMPTOM_TREND_OPTION_DEFS)
   const IMAGING_OPTIONS = localizeOptions(IMAGING_OPTION_DEFS)
   const CONCUSSION_SYMPTOM_OPTIONS = localizeOptions(CONCUSSION_SYMPTOM_OPTION_DEFS)
   const LIFESTYLE_IMPACT_OPTIONS = localizeOptions(LIFESTYLE_IMPACT_OPTION_DEFS)
   const SHOULDER_FINDING_OPTIONS = localizeOptions(SHOULDER_FINDING_OPTION_DEFS)
   const BACK_FINDING_OPTIONS = localizeOptions(BACK_FINDING_OPTION_DEFS)
   const DIAGNOSIS_OPTIONS = localizeOptions(DIAGNOSIS_OPTION_DEFS)
+  const TREATMENT_RECEIVED_OPTIONS = localizeOptions(TREATMENT_RECEIVED_OPTION_DEFS)
+  // Combined lookup so imaging-field values from either option set resolve to a label in summaries.
+  const IMAGING_LABEL_OPTIONS = [...TREATMENT_RECEIVED_OPTIONS, ...IMAGING_OPTIONS]
+  const CURRENT_SYMPTOM_OPTIONS = localizeOptions(CURRENT_SYMPTOM_OPTION_DEFS)
+  const RECOVERY_STATUS_OPTIONS = localizeOptions(RECOVERY_STATUS_OPTION_DEFS)
+  const LIFE_AREA_OPTIONS = localizeOptions(LIFE_AREA_OPTION_DEFS)
+  const BIGGEST_IMPACT_OPTIONS = localizeOptions(BIGGEST_IMPACT_OPTION_DEFS)
   const MISSED_WORK_OPTIONS = localizeOptions(MISSED_WORK_OPTION_DEFS)
   const ACCIDENT_EXPENSE_OPTIONS = localizeOptions(ACCIDENT_EXPENSE_OPTION_DEFS)
   const TREATMENT_PAYER_OPTIONS = localizeOptions(TREATMENT_PAYER_OPTION_DEFS)
@@ -455,19 +685,24 @@ export default function IntakeWizardQuick() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [uploadFailures, setUploadFailures] = useState<string[]>([])
   const [draftRestored, setDraftRestored] = useState(false)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [emailDeliverable, setEmailDeliverable] = useState<'unknown' | 'checking' | 'ok' | 'bad'>('unknown')
+  const [contactMethod, setContactMethod] = useState<'email' | 'phone'>('email')
   const [pendingEvidenceFiles, setPendingEvidenceFiles] = useState<Record<string, any[]>>({})
-  const [openEvidenceSections, setOpenEvidenceSections] = useState<Record<string, boolean>>({
-    evidence: true,
-    medical: true,
-    insurance: false,
-    income_loss: false,
-  })
+  const [manageEvidence, setManageEvidence] = useState<Record<string, boolean>>({})
+  type EvidenceWarning = { fileName: string; status: string; message: string; title?: string; action?: { label: string; onClick: () => void } }
+  const [evidenceWarnings, setEvidenceWarnings] = useState<Record<string, { items: EvidenceWarning[]; dismiss: (fileName: string) => void }>>({})
+  // Document-derived financial figures extracted from uploaded bills / wage docs during intake.
+  const [docFinancials, setDocFinancials] = useState<Record<string, { total: number; amounts: string[] }>>({})
+  // Tracks which uploaded files have already been sent for extraction so we don't re-OCR them.
+  const extractedFileSigRef = useRef<Map<string, { total: number; amounts: string[] }>>(new Map())
   const [returnToReviewFromStep, setReturnToReviewFromStep] = useState<Step | null>(null)
   const [customDate, setCustomDate] = useState('')
   const [detectedLocation, setDetectedLocation] = useState<{ city: string; county: string; state: string } | null>(null)
   const [locationAccepted, setLocationAccepted] = useState(false)
   const [solPreview, setSolPreview] = useState<any>(null)
   const [solPreviewError, setSolPreviewError] = useState<string | null>(null)
+  const [showDeadlineDetail, setShowDeadlineDetail] = useState(false)
   const [furthestReachedStepIndex, setFurthestReachedStepIndex] = useState(0)
 
   const [formData, setFormData] = useState({
@@ -489,9 +724,15 @@ export default function IntakeWizardQuick() {
       futureTreatment: [] as string[],
       concussionSymptoms: [] as string[],
       lifestyleImpact: [] as string[],
+      lifestyleOther: '' as string,
+      symptomFrequency: '' as string,
+      symptomTrend: '' as string,
       shoulderFindings: [] as string[],
       backFindings: [] as string[],
       diagnoses: [] as string[],
+      currentSymptoms: [] as string[],
+      recoveryStatus: '' as string,
+      biggestImpact: '' as string,
     },
     branch: {} as Record<string, any>,
     contact: { email: '', phone: '' },
@@ -664,16 +905,22 @@ export default function IntakeWizardQuick() {
     }
   }, [errors])
 
-  // Only geolocate once the user reaches the location step — no lookup before it is needed.
+  // Prefetch the IP-based location as soon as the wizard mounts (not when the user
+  // first reaches the "when/where" step). Resolving it ahead of time means step 2
+  // renders in its final state on first paint, instead of swapping the location
+  // fields for the "we detected your location" banner mid-view — which read as a jump.
+  // The ref guard runs the lookup once. We intentionally do NOT cancel the in-flight
+  // fetch on effect cleanup: under React StrictMode the cleanup fires between the
+  // double-invoked mount effects, and cancelling there would discard the only request,
+  // leaving the banner to never resolve. A late setState after a real unmount is a
+  // harmless no-op.
   const geoRequestedRef = useRef(false)
   useEffect(() => {
-    if (currentStep !== 'when' || geoRequestedRef.current || formData.venue.state) return
+    if (geoRequestedRef.current || formData.venue.state) return
     geoRequestedRef.current = true
-    let cancelled = false
     fetch('https://ipapi.co/json/')
       .then(r => r.json())
       .then(async data => {
-        if (cancelled) return
         const city = data.city || ''
         const state = data.region_code || ''
         let county = sanitizeDetectedCounty(state, data.county || '')
@@ -692,12 +939,38 @@ export default function IntakeWizardQuick() {
             /* fall back to no county — user can pick it manually */
           }
         }
-        if (cancelled) return
         if (city || county || state) setDetectedLocation({ city, county, state })
       })
       .catch(() => {})
-    return () => { cancelled = true }
-  }, [currentStep, formData.venue.state])
+  }, [formData.venue.state])
+
+  // Verify the email's domain can actually receive mail (debounced). This catches
+  // plausibly-formatted but non-deliverable domains (e.g. typo'd custom domains)
+  // that format/typo checks can't. Network failures never block the user.
+  useEffect(() => {
+    const email = formData.contact.email.trim()
+    const at = email.lastIndexOf('@')
+    const validFormat = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    if (!validFormat) {
+      setEmailDeliverable('unknown')
+      return
+    }
+    const domain = email.slice(at + 1).toLowerCase()
+    if (COMMON_EMAIL_DOMAINS.includes(domain)) {
+      setEmailDeliverable('ok')
+      return
+    }
+    let cancelled = false
+    setEmailDeliverable('checking')
+    const handle = setTimeout(async () => {
+      const ok = await domainCanReceiveMail(domain)
+      if (!cancelled) setEmailDeliverable(ok ? 'ok' : 'bad')
+    }, 500)
+    return () => {
+      cancelled = true
+      clearTimeout(handle)
+    }
+  }, [formData.contact.email])
 
   useEffect(() => {
     const incidentDate =
@@ -783,7 +1056,7 @@ export default function IntakeWizardQuick() {
     if (formData.injuryDetails.bodyParts.length) parts.push(`Body parts: ${labelsForValues(BODY_PART_OPTIONS, formData.injuryDetails.bodyParts)}`)
     if (formData.injuryDetails.priorInjury) parts.push(`Prior injuries: ${labelForValue(PRIOR_INJURY_OPTIONS, formData.injuryDetails.priorInjury)}`)
     if (formData.injuryDetails.surgeryStatus) parts.push(`Surgery status: ${labelForValue(SURGERY_STATUS_OPTIONS, formData.injuryDetails.surgeryStatus)}`)
-    if (formData.injuryDetails.imaging.length) parts.push(`Imaging: ${labelsForValues(IMAGING_OPTIONS, formData.injuryDetails.imaging)}`)
+    if (formData.injuryDetails.imaging.length) parts.push(`Imaging: ${labelsForValues(IMAGING_LABEL_OPTIONS, formData.injuryDetails.imaging)}`)
     if (formData.injuryDetails.procedures.length) parts.push(`Procedures: ${labelsForValues(PROCEDURE_OPTIONS, formData.injuryDetails.procedures)}`)
     if (formData.injuryDetails.futureTreatment.length) parts.push(`Future treatment: ${labelsForValues(FUTURE_TREATMENT_OPTIONS, formData.injuryDetails.futureTreatment)}`)
     if (formData.injuryDetails.shoulderFindings.length) parts.push(`Shoulder findings: ${labelsForValues(SHOULDER_FINDING_OPTIONS, formData.injuryDetails.shoulderFindings)}`)
@@ -825,7 +1098,7 @@ export default function IntakeWizardQuick() {
     const details = formData.injuryDetails
     const pieces = [
       details.bodyParts.length ? labelsForValues(BODY_PART_OPTIONS, details.bodyParts) : null,
-      details.imaging.length ? `${tx('sum_imaging')}: ${labelsForValues(IMAGING_OPTIONS, details.imaging)}` : null,
+      details.imaging.length ? `${tx('sum_imaging')}: ${labelsForValues(IMAGING_LABEL_OPTIONS, details.imaging)}` : null,
       details.surgeryStatus ? `${tx('sum_surgery')}: ${labelForValue(SURGERY_STATUS_OPTIONS, details.surgeryStatus)}` : null,
       details.procedures.length ? labelsForValues(PROCEDURE_OPTIONS, details.procedures) : null,
       details.diagnoses.length ? `${tx('sum_diagnoses')}: ${labelsForValues(DIAGNOSIS_OPTIONS, details.diagnoses)}` : null,
@@ -872,7 +1145,7 @@ export default function IntakeWizardQuick() {
     {
       title: tx('review_whatHappenedTitle'),
       value: formData.narrative || tx('review_whatHappenedEmpty'),
-      step: 'narrative' as Step,
+      step: 'when' as Step,
       helper: `${getIncidentDate() || tx('review_dateNotSet')}${formData.venue.state ? ` • ${formatVenueLocation(formData.venue)}` : ''}`
     },
     {
@@ -941,8 +1214,70 @@ export default function IntakeWizardQuick() {
     return 'early'
   }
 
+  /** Categories whose uploads we OCR at intake time to surface document-derived dollar figures. */
+  const FINANCIAL_DOC_CATEGORIES = ['bills', 'wage_verification']
+
   const handleEvidenceFiles = (category: string, files: any[]) => {
     setPendingEvidenceFiles(prev => ({ ...prev, [category]: files }))
+    if (FINANCIAL_DOC_CATEGORIES.includes(category)) {
+      void extractFinancialsForCategory(category, files)
+    }
+  }
+
+  /** OCRs newly-added bill/wage files (ephemerally, nothing persisted) and aggregates extracted totals. */
+  const extractFinancialsForCategory = async (category: string, files: any[]) => {
+    const arr = Array.isArray(files) ? files : []
+    for (const file of arr) {
+      const raw: File | undefined = file?.rawFile
+      if (!raw) continue
+      const sig = `${category}:${raw.name}:${raw.size}`
+      if (extractedFileSigRef.current.has(sig)) continue
+      // Reserve the signature immediately so rapid re-renders don't double-fire extraction.
+      extractedFileSigRef.current.set(sig, { total: 0, amounts: [] })
+      try {
+        const fd = new FormData()
+        fd.append('file', raw)
+        fd.append('category', category)
+        const res = await extractEvidenceData(fd)
+        const extraction = res?.extraction
+        const total = Number(extraction?.totalAmount) || 0
+        const amounts: string[] = Array.isArray(extraction?.dollarAmounts) ? extraction.dollarAmounts : []
+        extractedFileSigRef.current.set(sig, { total, amounts })
+      } catch {
+        extractedFileSigRef.current.set(sig, { total: 0, amounts: [] })
+      }
+    }
+    // Recompute the category aggregate from every still-queued file's cached extraction.
+    const aggregate = (Array.isArray(files) ? files : []).reduce(
+      (acc, file) => {
+        const raw: File | undefined = file?.rawFile
+        if (!raw) return acc
+        const cached = extractedFileSigRef.current.get(`${category}:${raw.name}:${raw.size}`)
+        if (cached && cached.total > 0) {
+          acc.total += cached.total
+          acc.amounts.push(...cached.amounts)
+        }
+        return acc
+      },
+      { total: 0, amounts: [] as string[] },
+    )
+    setDocFinancials(prev => ({ ...prev, [category]: aggregate }))
+  }
+
+  /** Relocate a queued file flagged as the wrong type (e.g. a video dropped on Photos) to a better-fit category. */
+  const handleMoveEvidence = (fromCategory: string, toCategory: string, fileName: string) => {
+    const subcategoryByCategory: Record<string, string> = { video: 'incident_video', photos: 'injury_photos' }
+    setPendingEvidenceFiles(prev => {
+      const fromList = Array.isArray(prev[fromCategory]) ? prev[fromCategory] : []
+      const moving = fromList.find(f => (f?.originalName || f?.filename || f?.name) === fileName)
+      if (!moving) return prev
+      const toList = Array.isArray(prev[toCategory]) ? prev[toCategory] : []
+      return {
+        ...prev,
+        [fromCategory]: fromList.filter(f => f !== moving),
+        [toCategory]: [...toList, { ...moving, category: toCategory, subcategory: subcategoryByCategory[toCategory] || moving?.subcategory }],
+      }
+    })
   }
 
   /** Uploads queued files, keeps only the failed ones queued, and returns the failed file names. */
@@ -1000,7 +1335,7 @@ export default function IntakeWizardQuick() {
     if (currentStep === 'when') {
       const preset = formData.incidentDatePreset
       if (!preset) {
-        err.incidentDate = tx('error_chooseDate')
+        err.incidentDate = tx('error_enterDate')
       } else if (preset === 'custom') {
         if (!customDate) err.incidentDate = tx('error_enterDate')
         else if (customDate > isoToday()) err.incidentDate = tx('error_futureDate')
@@ -1012,15 +1347,14 @@ export default function IntakeWizardQuick() {
       }
       if (!formData.venue.state) err.state = t('intake.selectStateError')
       if (!formData.venue.county?.trim()) err.county = t('intake.enterCounty')
-    }
-    if (currentStep === 'narrative') {
-      // Narrative text is optional but recommended; contact fields live here too.
+      // Narrative text is optional but recommended; contact fields live on this combined screen too.
       const email = formData.contact.email.trim()
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) err.contactEmail = tx('contact_emailError')
+      else if (email && emailDeliverable === 'bad') err.contactEmail = tx('contact_emailUndeliverable')
       const phoneError = validatePhoneField(formData.contact.phone)
       if (phoneError) err.contactPhone = tx('contact_phoneError')
     }
-    if (currentStep === 'injury_severity' && !formData.injurySeverity) err.injurySeverity = t('intake.selectSeverity')
+    if (currentStep === 'when' && !formData.injurySeverity) err.injurySeverity = t('intake.selectSeverity')
     if (currentStep === 'consent') {
       const c = formData.consents || {}
       if (!c.tos) err.tos = t('intake.acceptTos')
@@ -1029,12 +1363,12 @@ export default function IntakeWizardQuick() {
     }
     setErrors(err)
     if (Object.keys(err).length > 0) return
-    if (currentStep === 'narrative' && (formData.contact.email.trim() || formData.contact.phone.trim())) {
+    if (currentStep === 'when' && (formData.contact.email.trim() || formData.contact.phone.trim())) {
       void syncLead()
     }
     if (returnToReviewFromStep === currentStep) {
       setReturnToReviewFromStep(null)
-      setCurrentStep('review')
+      setCurrentStep('consent')
       return
     }
     if (currentStepIndex < visibleSteps.length - 1) {
@@ -1277,7 +1611,7 @@ export default function IntakeWizardQuick() {
   }
 
   const toggleInjuryDetail = (
-    field: 'bodyParts' | 'imaging' | 'procedures' | 'futureTreatment' | 'concussionSymptoms' | 'lifestyleImpact' | 'shoulderFindings' | 'backFindings' | 'diagnoses',
+    field: 'bodyParts' | 'imaging' | 'procedures' | 'futureTreatment' | 'concussionSymptoms' | 'lifestyleImpact' | 'shoulderFindings' | 'backFindings' | 'diagnoses' | 'currentSymptoms',
     value: string,
     exclusiveNone = false
   ) => {
@@ -1390,7 +1724,8 @@ export default function IntakeWizardQuick() {
 
   const it = formData.injuryType
   const isVehicle = it === 'vehicle'
-  const isSlipFall = it === 'slip_fall' || it === 'workplace'
+  const isSlipFall = it === 'slip_fall'
+  const isWorkplace = it === 'workplace'
   const isMedmal = it === 'medmal'
   const isDogBite = it === 'dog_bite'
   const isProduct = it === 'product'
@@ -1403,9 +1738,7 @@ export default function IntakeWizardQuick() {
       case 'injury_type':
         return !!formData.injuryType
       case 'when':
-        return !!formData.incidentDatePreset || !!formData.incidentDate || !!formData.venue.state || !!formData.venue.county || !!formData.venue.city
-      case 'injury_severity':
-        return !!formData.injurySeverity || formData.medicalTreatment.length > 0
+        return !!formData.incidentDatePreset || !!formData.incidentDate || !!formData.venue.state || !!formData.venue.county || !!formData.venue.city || !!formData.injurySeverity || formData.medicalTreatment.length > 0
       case 'injury_details':
         return (
           formData.injuryDetails.bodyParts.length > 0 ||
@@ -1446,7 +1779,29 @@ export default function IntakeWizardQuick() {
           formData.branch.defendantType ||
           formData.branch.dogMedical ||
           formData.branch.warningLabel ||
-          formData.branch.doctorVisit
+          formData.branch.doctorVisit ||
+          formData.branch.faultParty ||
+          formData.branch.workplaceCause ||
+          formData.branch.reportedToEmployer ||
+          formData.branch.missedWorkWC ||
+          formData.branch.wcClaimFiled ||
+          formData.branch.thirdParty ||
+          formData.branch.animalType ||
+          formData.branch.brokeSkin ||
+          formData.branch.dogPhotos ||
+          formData.branch.anotherDoctorConfirmed ||
+          formData.branch.productPhotos ||
+          formData.branch.productMedicalTreatment ||
+          formData.branch.exposureLocation ||
+          formData.branch.reportedTo ||
+          formData.branch.priorIncidents ||
+          formData.branch.securityCameras ||
+          formData.branch.injuriesTreated ||
+          formData.branch.incidentReport ||
+          formData.branch.slipPhotos ||
+          formData.branch.whoCaused ||
+          formData.branch.otherPhotos ||
+          formData.branch.otherMedicalTreatment
         )
       case 'financial_impact':
         return (
@@ -1474,7 +1829,7 @@ export default function IntakeWizardQuick() {
     switch (currentStep) {
       case 'injury_type':
         return (
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <p className="text-center font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{t('intake.injuryType')}</p>
             <p className="text-center text-[11px] leading-snug text-gray-500 sm:text-xs">{t('intake.injuryTypeHelp')}</p>
             <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
@@ -1483,19 +1838,23 @@ export default function IntakeWizardQuick() {
                   key={value}
                   type="button"
                   aria-pressed={formData.injuryType === value}
-                  onClick={() => {
+                  // Prevent the browser from scroll-jumping the tile into view on click,
+                  // while still keeping it focused (preventScroll) for keyboard users.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={(e) => {
+                    e.currentTarget.focus({ preventScroll: true })
                     if (formData.injuryType === value) {
                       updateForm({ injuryType: '', claimType: '' })
                       return
                     }
                     updateForm({ injuryType: value, claimType: injuryTypeToClaimType(value) })
-                    setCurrentStep('when')
                   }}
-                  className={`flex h-20 flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] px-1.5 py-1.5 shadow-sm transition-all active:scale-[0.99] sm:h-24 sm:gap-1.5 sm:px-3 sm:py-2 ${
-                    formData.injuryType === value ? 'border-brand-600 bg-brand-100 shadow' : 'border-gray-300 bg-white hover:border-brand-500 hover:shadow-md'
+                  className={`relative flex h-20 flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] px-1.5 py-1.5 shadow-sm transition-all focus-visible:ring-inset focus-visible:ring-offset-0 active:scale-[0.99] sm:h-24 sm:gap-1.5 sm:px-3 sm:py-2 ${
+                    formData.injuryType === value ? 'border-brand-600 bg-brand-50 shadow' : 'border-gray-300 bg-white hover:border-brand-500 hover:shadow-md'
                   }`}
                 >
-                  <Icon className="h-4 w-4 text-brand-600 sm:h-5 sm:w-5" />
+                  {formData.injuryType === value && <Check className="absolute right-1.5 top-1.5 h-4 w-4 text-brand-600" aria-hidden />}
+                  <Icon className={`h-4 w-4 sm:h-5 sm:w-5 ${formData.injuryType === value ? 'text-brand-700' : 'text-brand-600'}`} />
                   <span className="text-center text-[12px] font-semibold leading-tight sm:text-[16px] sm:font-medium sm:leading-snug">{t(`intake.${labelKey}`)}</span>
                 </button>
               ))}
@@ -1506,276 +1865,459 @@ export default function IntakeWizardQuick() {
       case 'when': {
         const detectedDisplay = detectedLocation ? [detectedLocation.city, detectedLocation.county, detectedLocation.state].filter(Boolean).join(', ') : ''
         const countyOptions = formData.venue.state ? getCountiesForState(formData.venue.state) : []
+        const emailSuggestion = suggestEmail(formData.contact.email)
+        const NARRATIVE_MAX = 1000
+        const narrativeLen = formData.narrative.length
+        // Helpful-detail prompts adapt to the incident type chosen in "What happened?".
+        const narrativeHints = isVehicle
+          ? [tx('hint_whoCaused'), tx('hint_policeCalled'), tx('hint_witnesses'), tx('hint_photos')]
+          : isSlipFall
+            ? [tx('hint_slip_cause'), tx('hint_slip_reported'), tx('hint_witnesses'), tx('hint_slip_photos')]
+            : isWorkplace
+            ? [tx('hint_wp_what'), tx('hint_wp_reported'), tx('hint_wp_missedWork'), tx('hint_wp_thirdParty')]
+            : isMedmal
+              ? [tx('hint_medmal_provider'), tx('hint_medmal_wrong'), tx('hint_medmal_when'), tx('hint_medmal_records')]
+              : isDogBite
+                ? [tx('hint_dog_owner'), tx('hint_dog_reported'), tx('hint_witnesses'), tx('hint_dog_photos')]
+                : isProduct
+                  ? [tx('hint_product_what'), tx('hint_product_malfunction'), tx('hint_product_have'), tx('hint_product_receipt')]
+                  : isAssault
+                    ? [tx('hint_assault_where'), tx('hint_policeCalled'), tx('hint_witnesses'), tx('hint_assault_security')]
+                    : isToxic
+                      ? [tx('hint_toxic_substance'), tx('hint_toxic_where'), tx('hint_toxic_symptoms'), tx('hint_medmal_records')]
+                      : [tx('hint_whatHappened'), tx('hint_whoCaused'), tx('hint_witnesses'), tx('hint_photos')]
+        const isoOffset = (opts: { days?: number; months?: number; years?: number }) => {
+          const d = new Date()
+          if (opts.days) d.setDate(d.getDate() - opts.days)
+          if (opts.months) d.setMonth(d.getMonth() - opts.months)
+          if (opts.years) d.setFullYear(d.getFullYear() - opts.years)
+          return d.toISOString().slice(0, 10)
+        }
+        const datePresets = [
+          { key: 'today', label: tx('datePreset_today'), iso: isoToday() },
+          { key: 'lastWeek', label: tx('datePreset_lastWeek'), iso: isoOffset({ days: 7 }) },
+          { key: 'lastMonth', label: tx('datePreset_lastMonth'), iso: isoOffset({ months: 1 }) },
+          { key: 'lastYear', label: tx('datePreset_lastYear'), iso: isoOffset({ years: 1 }) },
+        ]
+        const applyPresetDate = (iso: string) => {
+          setCustomDate(iso)
+          updateForm({ incidentDatePreset: 'custom', incidentDate: iso })
+        }
+        const venueStateName = US_STATES.find(s => s.code === formData.venue.state)?.name
+        const whyAskItems = [
+          { Icon: CalendarClock, title: tx('whyAsk_deadline_t'), desc: tx('whyAsk_deadline_d') },
+          { Icon: Users, title: tx('whyAsk_match_t'), desc: tx('whyAsk_match_d') },
+          { Icon: Activity, title: tx('whyAsk_local_t'), desc: tx('whyAsk_local_d') },
+        ]
         return (
-          <div className="mx-auto w-full max-w-3xl space-y-3">
-            <div className="text-center">
-              <p className="font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{tx('when_heading')}</p>
-              <p className="mt-0.5 text-sm text-gray-500">{tx('when_helper')}</p>
-            </div>
-
-            <div className="space-y-2">
-              {/* Exact date is the most accurate input and drives the filing deadline, so lead with it. */}
-              <div className={`rounded-xl border bg-slate-50 px-4 py-2.5 ${errors.incidentDate ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-200'}`}>
-                <label htmlFor="incident-exact-date" className="flex items-center gap-1.5 text-sm font-semibold text-gray-800">
-                  <CalendarDays className="h-4 w-4 text-brand-600" aria-hidden /> {tx('when_exactLabel')}
-                </label>
-                <p className="mt-0.5 text-xs text-gray-500">{tx('when_exactHelper')}</p>
-                <input
-                  id="incident-exact-date"
-                  type="date"
-                  max={isoToday()}
-                  value={formData.incidentDatePreset === 'custom' ? customDate : ''}
-                  onChange={e => {
-                    const val = e.target.value
-                    setCustomDate(val)
-                    if (val) updateForm({ incidentDatePreset: 'custom', incidentDate: val })
-                    else updateForm({ incidentDatePreset: '', incidentDate: '' })
-                  }}
-                  className="input mt-1.5 w-full border-gray-300"
-                />
-                {whenDeadlineConfirmed ? (
-                  <p className="mt-2 flex items-start gap-1.5 text-xs font-medium text-emerald-700">
-                    <Check className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
-                    <span>{tx('when_deadlineConfirmed').replace('{date}', whenDeadlineConfirmed)}</span>
-                  </p>
-                ) : whenDateChosen && !formData.venue.state ? (
-                  <p className="mt-2 text-xs text-gray-500">{tx('when_addLocationForDeadline')}</p>
-                ) : null}
-              </div>
-
-              {/* Month + year for older incidents where the day isn't remembered, but still bounded. */}
-              <div>
-                <button
-                  type="button"
-                  aria-pressed={formData.incidentDatePreset === 'month_year'}
-                  onClick={() => {
-                    if (formData.incidentDatePreset === 'month_year') updateForm({ incidentDatePreset: '', incidentDate: '' })
-                    else { setCustomDate(''); updateForm({ incidentDatePreset: 'month_year', incidentDate: '' }) }
-                  }}
-                  className="inline-flex items-center gap-1 text-sm font-medium text-brand-700 hover:text-brand-800"
-                >
-                  <ChevronDown className={`h-4 w-4 transition-transform ${formData.incidentDatePreset === 'month_year' ? 'rotate-180' : ''}`} aria-hidden />
-                  <span className="underline underline-offset-2">{tx('when_onlyMonthYear')}</span>
-                </button>
-                {formData.incidentDatePreset === 'month_year' && (
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <select
-                      aria-label={tx('when_month')}
-                      value={formData.incidentDate ? formData.incidentDate.split('-')[1] : ''}
-                      onChange={e => {
-                        const month = e.target.value
-                        const year = formData.incidentDate ? formData.incidentDate.split('-')[0] : ''
-                        updateForm({ incidentDate: month && year ? `${year}-${month}-01` : '' })
-                      }}
-                      className="input w-full border-gray-300"
-                    >
-                      <option value="">{tx('when_month')}</option>
-                      {MONTH_OPTIONS.map(m => (<option key={m.value} value={m.value}>{m.label}</option>))}
-                    </select>
-                    <select
-                      aria-label={tx('when_year')}
-                      value={formData.incidentDate ? formData.incidentDate.split('-')[0] : ''}
-                      onChange={e => {
-                        const year = e.target.value
-                        const month = formData.incidentDate ? formData.incidentDate.split('-')[1] : ''
-                        updateForm({ incidentDate: month && year ? `${year}-${month}-01` : '' })
-                      }}
-                      className="input w-full border-gray-300"
-                    >
-                      <option value="">{tx('when_year')}</option>
-                      {YEAR_OPTIONS.map(y => (<option key={y} value={String(y)}>{y}</option>))}
-                    </select>
+          <div className="mx-auto w-full max-w-6xl">
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-6">
+              {/* Main form */}
+              <div className="space-y-4">
+                {/* Section 1: When */}
+                <div>
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
+                      <CalendarDays className="h-5 w-5" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">1. {tx('when_heading')}</p>
+                      <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('when_helper')}</p>
+                    </div>
                   </div>
-                )}
-              </div>
-            </div>
+                  <div className="mt-2 grid grid-cols-1 gap-3 sm:pl-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,15rem)] lg:items-start">
+                    <div>
+                      {/* Exact date drives the filing deadline, so lead with it. */}
+                      <div className={`rounded-xl border px-3 py-1.5 transition-colors focus-within:border-brand-500 focus-within:ring-1 focus-within:ring-brand-500 ${errors.incidentDate ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-300 dark:border-slate-600'}`}>
+                        <label htmlFor="incident-exact-date" className="block !text-[11px] font-medium text-gray-500">{tx('when_selectDate')}</label>
+                        <input
+                          id="incident-exact-date"
+                          type="date"
+                          max={isoToday()}
+                          value={formData.incidentDatePreset === 'custom' ? customDate : ''}
+                          onChange={e => {
+                            const val = e.target.value
+                            setCustomDate(val)
+                            if (val) updateForm({ incidentDatePreset: 'custom', incidentDate: val })
+                            else updateForm({ incidentDatePreset: '', incidentDate: '' })
+                          }}
+                          className="!min-h-0 w-full !border-0 !bg-transparent !p-0 !text-base text-gray-900 focus:!ring-0 dark:text-slate-100"
+                        />
+                      </div>
+                      {/* Quick date presets */}
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {datePresets.map(p => {
+                          const active = formData.incidentDatePreset === 'custom' && customDate === p.iso
+                          return (
+                            <button
+                              key={p.key}
+                              type="button"
+                              onClick={() => applyPresetDate(p.iso)}
+                              className={`!min-h-0 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${active ? 'border-brand-500 bg-brand-50 text-brand-700 dark:border-brand-500/50 dark:bg-brand-500/15 dark:text-brand-300' : 'border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800/60'}`}
+                            >
+                              {p.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <div className="mt-2 min-h-[1.25rem]">
+                        {whenDateChosen && !formData.venue.state ? (
+                          <p className="text-xs text-gray-500">{tx('when_addLocationForDeadline')}</p>
+                        ) : !whenDateChosen ? (
+                          <p className="flex items-center gap-1.5 text-xs text-gray-500">
+                            <ShieldCheck className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('when_dateReassure')}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                    {/* Estimated filing deadline card */}
+                    {hasFilingDeadline && (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
+                        <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                          <CalendarClock className="h-4 w-4 shrink-0" aria-hidden /> {tx('sol_estimatedFilingDeadline')}
+                        </p>
+                        <p className="mt-1 font-display text-xl font-bold text-emerald-800 dark:text-emerald-200">{filingDeadlineLong}</p>
+                        {filingDaysRemaining != null && (
+                          <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                            {tx(filingDaysRemaining === 1 ? 'sol_dayRemainingShort' : 'sol_daysRemainingShort').replace('{days}', String(filingDaysRemaining))}
+                          </p>
+                        )}
+                        <p className="mt-1.5 text-[11px] leading-snug text-emerald-700/80 dark:text-emerald-300/80">{tx('whenCard_estimateNote').replace('{state}', venueStateName || tx('whenCard_yourState'))}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-            <div className="space-y-2 border-t border-slate-100 pt-2.5">
-              <div className="text-center">
-                <p className="font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{t('intake.where')}</p>
-                <p className="mt-0.5 text-sm text-gray-500">{t('intake.whereHelp')}</p>
-              </div>
-            {detectedLocation && !locationAccepted && !formData.venue.state && (
-              <div className="p-3 bg-brand-50 rounded-xl border border-brand-200">
-                <p className="text-sm font-medium text-slate-900 mb-2">{t('intake.weDetectedLocation')} {detectedDisplay}</p>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const county = sanitizeDetectedCounty(detectedLocation.state, detectedLocation.county)
-                      updateForm({ venue: { state: detectedLocation.state, county, city: detectedLocation.city } })
-                      setLocationAccepted(true)
-                      setDetectedLocation(null)
-                      if (!county) {
-                        setErrors((current) => ({ ...current, county: t('intake.enterCounty') }))
-                      }
-                    }}
-                    className="flex-1 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700"
-                  >
-                    {t('intake.useLocation')}
-                  </button>
-                  <button type="button" onClick={() => setDetectedLocation(null)} className="px-4 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50">{t('intake.change')}</button>
+                {/* Section 2: Briefly describe what happened */}
+                <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
+                      <MessageSquare className="h-5 w-5" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">2. {tx('narrative_heading')}</p>
+                      <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('narrative_helper')}</p>
+                    </div>
+                  </div>
+                  <div className="mt-2 sm:pl-12">
+                    <div className="relative">
+                      <textarea
+                        value={formData.narrative}
+                        onChange={e => updateForm({ narrative: e.target.value.slice(0, NARRATIVE_MAX) })}
+                        placeholder={tx('narrative_placeholder')}
+                        rows={3}
+                        maxLength={NARRATIVE_MAX}
+                        className="input w-full resize-none border-gray-300 py-2.5 pb-7 text-base leading-relaxed !min-h-[5.5rem] focus-visible:ring-inset focus-visible:ring-offset-0"
+                      />
+                      <span className="pointer-events-none absolute bottom-2 right-3 text-[11px] tabular-nums text-gray-400">
+                        {narrativeLen} / {NARRATIVE_MAX}
+                      </span>
+                    </div>
+                    {/* Helpful details */}
+                    <div className="mt-2 flex flex-nowrap items-center gap-x-2 rounded-lg bg-slate-50 px-2.5 py-1.5 dark:bg-slate-800/50">
+                      <span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-[10px] font-semibold text-slate-500">
+                        <Info className="h-3 w-3 text-slate-400" aria-hidden /> {tx('narrative_hintsLabel')}
+                      </span>
+                      {narrativeHints.map(hint => (
+                        <span key={hint} className="flex min-w-0 items-center gap-0.5 truncate text-[10px] text-slate-600 dark:text-slate-300">
+                          <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" aria-hidden /> {hint}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 3: Where */}
+                <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
+                      <MapPin className="h-5 w-5" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">3. {t('intake.where')}</p>
+                      <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{t('intake.whereHelp')}</p>
+                    </div>
+                  </div>
+                  <div className="mt-2 sm:pl-12">
+                    {detectedLocation && !locationAccepted && !formData.venue.state && (
+                      <div className="mb-3 rounded-xl border border-brand-200 bg-brand-50 p-3">
+                        <p className="mb-2 text-sm font-medium text-slate-900">{t('intake.weDetectedLocation')} {detectedDisplay}</p>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const county = sanitizeDetectedCounty(detectedLocation.state, detectedLocation.county)
+                              updateForm({ venue: { state: detectedLocation.state, county, city: detectedLocation.city } })
+                              setLocationAccepted(true)
+                              setDetectedLocation(null)
+                              if (!county) {
+                                setErrors((current) => ({ ...current, county: t('intake.enterCounty') }))
+                              }
+                            }}
+                            className="flex-1 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+                          >
+                            {t('intake.useLocation')}
+                          </button>
+                          <button type="button" onClick={() => setDetectedLocation(null)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">{t('intake.change')}</button>
+                        </div>
+                      </div>
+                    )}
+                    {(!detectedLocation || locationAccepted || formData.venue.state) && (
+                      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+                        <div>
+                          <label className="mb-1 flex items-center gap-2 text-sm font-medium text-gray-700"><MapPin className="h-4 w-4 text-brand-600" /> {t('intake.state')}</label>
+                          <select
+                            value={formData.venue.state}
+                            onChange={e => {
+                              const state = e.target.value
+                              updateVenue({
+                                state,
+                                county: formData.venue.state !== state ? '' : formData.venue.county,
+                              })
+                            }}
+                            className={`input w-full border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.state ? 'border-red-500' : ''}`}
+                          >
+                            <option value="">{t('intake.selectState')}</option>
+                            {US_STATES.map(s => (<option key={s.code} value={s.code}>{s.name}</option>))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 flex items-center gap-2 text-sm font-medium text-gray-700"><Building2 className="h-4 w-4 text-brand-600" /> {t('intake.county')}</label>
+                          {countyOptions.length > 0 ? (
+                            <select value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.county ? 'border-red-500' : ''}`}>
+                              <option value="">{t('intake.searchCounty')}</option>
+                              {(countyOptions ?? []).map(c => (<option key={c} value={c}>{c}</option>))}
+                            </select>
+                          ) : (
+                            <input type="text" value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.county ? 'border-red-500' : ''}`} placeholder={tx('where_countyPlaceholder')} />
+                          )}
+                        </div>
+                        <div>
+                          <label className="mb-1 flex items-center gap-2 text-sm font-medium text-gray-700"><MapPin className="h-4 w-4 text-brand-600" /> {t('intake.city')}</label>
+                          <input type="text" value={formData.venue.city} onChange={e => updateVenue({ city: e.target.value })} className="input w-full border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0" placeholder={tx('where_cityPlaceholder')} />
+                        </div>
+                      </div>
+                    )}
+                    <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-400">
+                      <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('where_reassure')}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Section 4: How serious are your injuries? */}
+                <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
+                      <HeartPulse className="h-5 w-5" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">4. {t('intake.injurySeverity')}</p>
+                      <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('injurySeverity_helper')}</p>
+                    </div>
+                  </div>
+                  <div className="mt-2 sm:pl-12">
+                    <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
+                      {INJURY_SEVERITY_OPTIONS.map(({ value, labelKey }) => {
+                        const { main, desc } = splitLabel(t(`intake.${labelKey}`))
+                        const Icon = SEVERITY_ICONS[value] ?? HelpCircle
+                        const selected = formData.injurySeverity === value
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => updateForm({ injurySeverity: selected ? '' : value })}
+                            className={`relative flex flex-col items-center justify-center gap-1.5 rounded-2xl border-[1.5px] px-2 py-2.5 text-center shadow-sm transition-all focus-visible:ring-inset focus-visible:ring-offset-0 active:scale-[0.99] ${
+                              selected ? 'border-brand-600 bg-brand-50 shadow' : 'border-gray-200 bg-white hover:border-brand-400 hover:shadow-md'
+                            }`}
+                          >
+                            {selected && <Check className="absolute right-1.5 top-1.5 h-4 w-4 text-brand-600" aria-hidden />}
+                            <span className={`flex h-9 w-9 items-center justify-center rounded-full ${selected ? 'bg-brand-100' : 'bg-brand-50'}`}>
+                              <Icon className={`h-5 w-5 ${selected ? 'text-brand-700' : 'text-brand-600'}`} aria-hidden />
+                            </span>
+                            <span className="text-[13px] font-semibold leading-tight text-gray-900">{main}</span>
+                            {desc && <span className="text-[11px] leading-tight text-gray-500">{desc}</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {errors.injurySeverity && <p className="mt-2 text-xs text-red-600">{errors.injurySeverity}</p>}
+                  </div>
+                </div>
+
+                {/* Section 5: What treatment have you received? */}
+                <div className="border-t border-slate-200 pt-3 dark:border-slate-700">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
+                      <Stethoscope className="h-5 w-5" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">5. {tx('treatment_heading')}</p>
+                      <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('treatment_helper')}</p>
+                    </div>
+                  </div>
+                  <div className="mt-2 sm:pl-12">
+                    <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
+                      {MEDICAL_TREATMENT_OPTIONS.map(({ value }) => {
+                        const Icon = TREATMENT_ICONS[value] ?? Check
+                        const selected = formData.medicalTreatment.includes(value)
+                        const fullWidth = value === 'none'
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => toggleMedicalTreatment(value)}
+                            className={`relative flex items-center justify-center shadow-sm transition-all focus-visible:ring-inset focus-visible:ring-offset-0 active:scale-[0.99] ${
+                              fullWidth
+                                ? 'col-span-3 flex-row gap-2 rounded-2xl border-[1.5px] px-3 py-2.5'
+                                : 'flex-col gap-1.5 rounded-2xl border-[1.5px] px-2 py-2.5'
+                            } ${
+                              selected ? 'border-brand-600 bg-brand-50 shadow' : 'border-gray-200 bg-white hover:border-brand-400 hover:shadow-md'
+                            }`}
+                          >
+                            {selected && !fullWidth && <Check className="absolute right-1.5 top-1.5 h-4 w-4 text-brand-600" aria-hidden />}
+                            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${selected ? 'bg-brand-100' : 'bg-brand-50'}`}>
+                              <Icon className={`h-5 w-5 ${selected ? 'text-brand-700' : 'text-brand-600'}`} aria-hidden />
+                            </span>
+                            <span className="text-[13px] font-semibold leading-tight text-gray-900">{getOptionLabel(MEDICAL_TREATMENT_OPTIONS, value)}</span>
+                            {selected && fullWidth && <Check className="h-4 w-4 text-brand-600" aria-hidden />}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <p className="mt-2 text-[11px] leading-snug text-gray-500">{tx('treatment_tip')}</p>
+                  </div>
+                </div>
+
+                {/* Save your progress (optional) */}
+                <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/40 sm:p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-5">
+                    <div className="flex items-start gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
+                        <Save className="h-5 w-5" aria-hidden />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('contact_saveTitle')}</p>
+                        <p className="mt-0.5 max-w-xs text-xs leading-snug text-gray-500">{tx('contact_saveDesc')}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2 lg:w-[56%] lg:shrink-0">
+                      {/* Email */}
+                      <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${contactMethod === 'email' ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
+                        <input
+                          type="radio"
+                          name="contact-method"
+                          checked={contactMethod === 'email'}
+                          onChange={() => setContactMethod('email')}
+                          aria-label={tx('contact_emailShort')}
+                          className="!h-4 !w-4 !min-h-0 shrink-0 accent-brand-600"
+                        />
+                        <Mail className={`h-4 w-4 shrink-0 ${contactMethod === 'email' ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
+                        <span className="shrink-0 text-sm font-medium text-gray-700 dark:text-slate-200">{tx('contact_emailShort')}</span>
+                        <input
+                          id="contact-email"
+                          type="email"
+                          inputMode="email"
+                          autoComplete="email"
+                          value={formData.contact.email}
+                          onFocus={() => setContactMethod('email')}
+                          onChange={e => updateForm({ contact: { ...formData.contact, email: e.target.value } })}
+                          placeholder="name@email.com"
+                          aria-invalid={!!errors.contactEmail}
+                          className="!min-h-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0 !text-sm text-gray-900 placeholder:text-gray-400 focus:!ring-0 dark:text-slate-100"
+                        />
+                      </div>
+                      {/* Phone */}
+                      <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${contactMethod === 'phone' ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
+                        <input
+                          type="radio"
+                          name="contact-method"
+                          checked={contactMethod === 'phone'}
+                          onChange={() => setContactMethod('phone')}
+                          aria-label={tx('contact_phoneShort')}
+                          className="!h-4 !w-4 !min-h-0 shrink-0 accent-brand-600"
+                        />
+                        <Phone className={`h-4 w-4 shrink-0 ${contactMethod === 'phone' ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
+                        <span className="shrink-0 text-sm font-medium text-gray-700 dark:text-slate-200">{tx('contact_phoneShort')}</span>
+                        <input
+                          id="contact-phone"
+                          type="tel"
+                          inputMode="tel"
+                          autoComplete="tel"
+                          value={formData.contact.phone}
+                          onFocus={() => setContactMethod('phone')}
+                          onChange={e => updateForm({ contact: { ...formData.contact, phone: formatPhoneInput(e.target.value) } })}
+                          placeholder="(555) 123-4567"
+                          aria-invalid={!!errors.contactPhone}
+                          className="!min-h-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0 !text-sm text-gray-900 placeholder:text-gray-400 focus:!ring-0 dark:text-slate-100"
+                        />
+                      </div>
+                      {errors.contactEmail && (
+                        <p className="text-xs text-red-600">{errors.contactEmail}</p>
+                      )}
+                      {!errors.contactEmail && emailSuggestion && (
+                        <p className="text-xs text-amber-700">
+                          {tx('contact_emailDidYouMean')}{' '}
+                          <button
+                            type="button"
+                            onClick={() => updateForm({ contact: { ...formData.contact, email: emailSuggestion } })}
+                            className="!min-h-0 font-semibold underline underline-offset-2 hover:opacity-80"
+                          >
+                            {emailSuggestion}
+                          </button>
+                          ?
+                        </p>
+                      )}
+                      {!errors.contactEmail && !emailSuggestion && emailDeliverable === 'bad' && (
+                        <p className="text-xs text-amber-700">{tx('contact_emailUndeliverable')}</p>
+                      )}
+                      {errors.contactPhone && (
+                        <p className="text-xs text-red-600">{errors.contactPhone}</p>
+                      )}
+                    </div>
+                  </div>
+                  {/* Trust badges */}
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-gray-400">
+                    <span className="flex items-center gap-1"><Lock className="h-3.5 w-3.5" aria-hidden /> {tx('badge_private')}</span>
+                    <span className="flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5" aria-hidden /> {tx('badge_neverShared')}</span>
+                    <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" aria-hidden /> {tx('badge_noObligation')}</span>
+                  </div>
                 </div>
               </div>
-            )}
-            {(!detectedLocation || locationAccepted || formData.venue.state) && (
-              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-                <div>
-                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1"><MapPin className="h-4 w-4 text-brand-600" /> {t('intake.state')}</label>
-                  <select
-                    value={formData.venue.state}
-                    onChange={e => {
-                      const state = e.target.value
-                      updateVenue({
-                        state,
-                        county: formData.venue.state !== state ? '' : formData.venue.county,
-                      })
-                    }}
-                    className={`input w-full border-gray-300 ${errors.state ? 'border-red-500' : ''}`}
-                  >
-                    <option value="">{t('intake.selectState')}</option>
-                    {US_STATES.map(s => (<option key={s.code} value={s.code}>{s.name}</option>))}
-                  </select>
+
+              {/* Right: Why we ask this */}
+              <aside className="space-y-3 lg:sticky lg:top-2 lg:self-start">
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 dark:border-slate-700 dark:bg-slate-800/40">
+                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('whyAsk_title')}</p>
+                  <ul className="mt-3 space-y-3">
+                    {whyAskItems.map(({ Icon, title, desc }) => (
+                      <li key={title} className="flex items-start gap-2.5">
+                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-500/15"><Icon className="h-4 w-4" aria-hidden /></span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-gray-800 dark:text-slate-200">{title}</p>
+                          <p className="mt-0.5 text-[11px] leading-snug text-gray-500">{desc}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                <div>
-                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1"><Building2 className="h-4 w-4 text-brand-600" /> {t('intake.county')}</label>
-                  {countyOptions.length > 0 ? (
-                    <select value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full border-gray-300 ${errors.county ? 'border-red-500' : ''}`}>
-                      <option value="">{t('intake.searchCounty')}</option>
-                      {(countyOptions ?? []).map(c => (<option key={c} value={c}>{c}</option>))}
-                    </select>
-                  ) : (
-                    <input type="text" value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full border-gray-300 ${errors.county ? 'border-red-500' : ''}`} placeholder={tx('where_countyPlaceholder')} />
-                  )}
+                <div className="rounded-xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
+                  <p className="flex items-center gap-1.5 text-sm font-semibold text-brand-700 dark:text-brand-300"><ShieldCheck className="h-4 w-4 shrink-0" aria-hidden /> {tx('whyAsk_secure_t')}</p>
+                  <p className="mt-1 text-[11px] leading-snug text-slate-600 dark:text-slate-300">{tx('whyAsk_secure_d')}</p>
                 </div>
-                <div>
-                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1"><MapPin className="h-4 w-4 text-brand-600" /> {t('intake.city')}</label>
-                  <input type="text" value={formData.venue.city} onChange={e => updateVenue({ city: e.target.value })} className="input w-full border-gray-300" placeholder={tx('where_cityPlaceholder')} />
-                </div>
-              </div>
-            )}
+              </aside>
             </div>
           </div>
         )
       }
 
-      case 'narrative':
-        return (
-          <div className="flex min-h-0 flex-1 flex-col gap-2">
-            <p className="shrink-0 text-center font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{tx('narrative_heading')}</p>
-            <p className="shrink-0 text-center text-xs leading-snug text-gray-500">
-              {tx('narrative_helper')}
-            </p>
-            <textarea
-              value={formData.narrative}
-              onChange={e => updateForm({ narrative: e.target.value })}
-              placeholder={tx('narrative_placeholder')}
-              rows={3}
-              className="input w-full resize-none border-gray-300 py-2.5 text-base leading-relaxed !min-h-[5rem] md:!min-h-[6rem]"
-            />
-            <p className="shrink-0 rounded-lg border border-brand-100 bg-brand-50 px-2 py-1.5 text-center text-[11px] leading-snug text-brand-800">
-              {tx('narrative_tip')}
-            </p>
-
-            <div className="mt-2 shrink-0 space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-              <div>
-                <p className="font-display text-sm font-semibold text-slate-950">{tx('contact_heading')}</p>
-                <p className="text-xs leading-5 text-gray-500">{tx('contact_helper')}</p>
-              </div>
-              <div>
-                <label htmlFor="contact-email" className="mb-1 flex items-center gap-2 text-sm font-medium text-gray-700">
-                  <Mail className="h-4 w-4 text-brand-600" aria-hidden /> {tx('contact_emailLabel')}
-                </label>
-                <input
-                  id="contact-email"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  value={formData.contact.email}
-                  onChange={e => updateForm({ contact: { ...formData.contact, email: e.target.value } })}
-                  placeholder="you@example.com"
-                  className={`input w-full border-gray-300 ${errors.contactEmail ? 'border-red-500' : ''}`}
-                />
-              </div>
-              <div>
-                <label htmlFor="contact-phone" className="mb-1 flex items-center gap-2 text-sm font-medium text-gray-700">
-                  <Phone className="h-4 w-4 text-brand-600" aria-hidden /> {tx('contact_phoneLabel')}
-                </label>
-                <input
-                  id="contact-phone"
-                  type="tel"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  value={formData.contact.phone}
-                  onChange={e => updateForm({ contact: { ...formData.contact, phone: formatPhoneInput(e.target.value) } })}
-                  placeholder="(555) 555-0100"
-                  aria-invalid={!!errors.contactPhone}
-                  className={`input w-full border-gray-300 ${errors.contactPhone ? 'border-red-500' : ''}`}
-                />
-              </div>
-            </div>
-          </div>
-        )
-
-      case 'injury_severity':
-        return (
-          <div className="mx-auto w-full max-w-3xl space-y-3">
-            <div className="space-y-2">
-              <p className="text-center font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{t('intake.injurySeverity')}</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {INJURY_SEVERITY_OPTIONS.map(({ value, labelKey }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-pressed={formData.injurySeverity === value}
-                    onClick={() => updateForm({ injurySeverity: formData.injurySeverity === value ? '' : value })}
-                    className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${
-                      formData.injurySeverity === value
-                        ? 'border-brand-600 bg-brand-100 text-brand-900 shadow'
-                        : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'
-                    }`}
-                  >
-                    {t(`intake.${labelKey}`)}
-                    {formData.injurySeverity === value && <Check className="h-5 w-5 text-brand-600" />}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-2 border-t border-slate-100 pt-3">
-              <div className="text-center">
-                <p className="font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{tx('treatment_heading')}</p>
-                <p className="mt-0.5 text-xs text-gray-500">{tx('treatment_helper')}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {MEDICAL_TREATMENT_OPTIONS.map(({ value }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-pressed={formData.medicalTreatment.includes(value)}
-                    onClick={() => toggleMedicalTreatment(value)}
-                    className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${
-                      formData.medicalTreatment.includes(value) ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'
-                    }`}
-                  >
-                    {getOptionLabel(MEDICAL_TREATMENT_OPTIONS, value)}
-                    {formData.medicalTreatment.includes(value) && <Check className="h-5 w-5 text-brand-600" />}
-                  </button>
-                ))}
-              </div>
-              <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                {tx('treatment_tip')}
-              </div>
-            </div>
-          </div>
-        )
-
       case 'injury_details':
         const hasHeadInjury = formData.injuryDetails.bodyParts.includes('head_concussion')
         const hasShoulderInjury = formData.injuryDetails.bodyParts.includes('shoulder')
         const hasBackInjury = formData.injuryDetails.bodyParts.includes('lower_back')
-        const hasInjectionTreatment = formData.medicalTreatment.includes('injections') || formData.injuryDetails.procedures.some(item => item !== 'none')
-        const hasSurgeryTreatment = formData.medicalTreatment.includes('surgery') || formData.injuryDetails.futureTreatment.includes('surgery') || !!formData.injuryDetails.surgeryStatus
+        const hasInjectionTreatment = formData.medicalTreatment.includes('injections') || formData.injuryDetails.imaging.includes('injections') || formData.injuryDetails.procedures.some(item => item !== 'none')
+        const hasSurgeryTreatment = formData.medicalTreatment.includes('surgery') || formData.injuryDetails.imaging.includes('surgery') || formData.injuryDetails.futureTreatment.includes('surgery') || !!formData.injuryDetails.surgeryStatus
         const bodyPartDisplay: Record<string, { emoji?: string; label: string }> = {
           head_concussion: { emoji: '🧠', label: tx('bodyShort_head') },
           neck: { emoji: '🦴', label: tx('bodyShort_neck') },
@@ -1784,189 +2326,425 @@ export default function IntakeWizardQuick() {
           knee: { emoji: '🦵', label: tx('bodyShort_knee') },
           hand_wrist: { emoji: '✋', label: tx('bodyShort_hand') },
           hip: { emoji: '🦴', label: tx('bodyShort_hip') },
-          other: { label: tx('optionOther') },
+          other: { emoji: '🩹', label: tx('optionOther') },
         }
-        const keyLifestyleImpactOptions = LIFESTYLE_IMPACT_OPTIONS.filter((option) =>
-          ['daily_pain', 'sleep_disruption', 'exercise_limitations'].includes(option.value)
-        )
-        // Only offer diagnoses that are plausible for the selected body parts (fracture is always plausible).
-        const selectedBodyParts = formData.injuryDetails.bodyParts
-        const relevantDiagnosisOptions = DIAGNOSIS_OPTIONS.filter(({ value }) => {
-          if (value === 'tbi' || value === 'concussion') return hasHeadInjury
-          if (value === 'herniation') return selectedBodyParts.includes('neck') || selectedBodyParts.includes('lower_back')
-          return true
-        })
+        const tileClass = (selected: boolean) =>
+          `flex items-center gap-2 rounded-xl border px-3 py-0.5 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10' : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`
+        const renderCheck = (on: boolean) =>
+          on ? (
+            <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+          ) : (
+            <span className="h-4 w-4 shrink-0" aria-hidden />
+          )
+        const treatmentIcons: Record<string, LucideIcon> = { mri: Activity, ct_scan: Scan, xray: Bone, physical_therapy: PersonStanding, chiropractic: Stethoscope, injections: Syringe, surgery: Scissors, other_treatment: Pill }
+        const symptomIcons: Record<string, LucideIcon> = { pain: HeartPulse, stiffness: Bone, limited_rom: RotateCw, numbness: Activity, weakness: Dumbbell, headaches: Brain, other: Pencil }
+        const lifeAreaIcons: Record<string, LucideIcon> = { unable_to_work_normally: Briefcase, sleep_disruption: Moon, exercise_limitations: Dumbbell, driving_difficulty: Car, household_chores: Building2, missed_family: CalendarDays }
+        const futureTreatmentIcons: Record<string, LucideIcon> = { additional_pt: PersonStanding, mri: Scan, injections: Syringe, surgery: Scissors, specialist: Stethoscope, additional_testing: ClipboardCheck, long_term_treatment: CalendarClock, none: Clock, not_sure: HelpCircle }
+        const radioDot = (on: boolean) =>
+          on ? (
+            <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+          ) : (
+            <span className="h-4 w-4 shrink-0" aria-hidden />
+          )
+        const radioCardClass = (selected: boolean) =>
+          `flex items-center gap-2 rounded-xl border px-3 py-0.5 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10' : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`
+
+        // --- Case Snapshot + sidebar metrics (derived from selections) ---
+        const idd = formData.injuryDetails
+        const treatmentsSelected = idd.imaging.filter(v => v !== 'none').length
+        const diagnosesSelected = idd.diagnoses.length
+        const symptomsSelected = idd.currentSymptoms.length
+        const lifeAreasSelected = idd.lifestyleImpact.length
+        const bodyCount = idd.bodyParts.length
+        const seriousDx = idd.diagnoses.some(d => ['tear', 'herniation', 'fracture', 'tbi'].includes(d))
+        let sevScore = bodyCount * 8 + treatmentsSelected * 6 + diagnosesSelected * 8 + lifeAreasSelected * 3 + symptomsSelected * 3
+        if (seriousDx) sevScore += 15
+        if (hasSurgeryTreatment) sevScore += 18
+        if (idd.recoveryStatus === 'getting_worse') sevScore += 10
+        if (idd.recoveryStatus === 'fully_recovered') sevScore -= 12
+        sevScore = Math.max(0, Math.min(100, sevScore))
+        const sevStars = Math.max(0, Math.min(5, Math.round(sevScore / 20)))
+        const sevLevel = sevScore === 0
+          ? tx('injuryDetails_sevUnknown')
+          : sevScore >= 67 ? tx('injuryDetails_sevSerious') : sevScore >= 34 ? tx('injuryDetails_sevModerate') : tx('injuryDetails_sevMinor')
+        const completenessGroups = [bodyCount > 0, treatmentsSelected > 0, diagnosesSelected > 0, symptomsSelected > 0, !!idd.recoveryStatus, lifeAreasSelected > 0, idd.futureTreatment.length > 0]
+        const filledGroups = completenessGroups.filter(Boolean).length
+        const valueConfidence = filledGroups === 0 ? 0 : Math.min(90, Math.round((filledGroups / completenessGroups.length) * 75) + 15)
+        const docLevel = filledGroups <= 2 ? tx('injuryDetails_docEarly') : filledGroups <= 4 ? tx('injuryDetails_docBuilding') : tx('injuryDetails_docStrong')
+        const bodyNames = idd.bodyParts.map(v => bodyPartDisplay[v]?.label || v)
+        const dxNames = DIAGNOSIS_OPTIONS.filter(o => idd.diagnoses.includes(o.value)).map(o => o.label)
+        const txNames = TREATMENT_RECEIVED_OPTIONS.filter(o => idd.imaging.includes(o.value)).map(o => o.label)
+        const recoveryLabel = RECOVERY_STATUS_OPTIONS.find(o => o.value === idd.recoveryStatus)?.label || ''
+        const hasAnySelection = bodyCount > 0 || treatmentsSelected > 0 || diagnosesSelected > 0 || symptomsSelected > 0
+        // Approximate marker coordinates on the body diagram (viewBox 0 0 140 250).
+        const bodyMarkers: Record<string, { cx: number; cy: number }> = {
+          head_concussion: { cx: 70, cy: 26 },
+          neck: { cx: 70, cy: 50 },
+          shoulder: { cx: 46, cy: 64 },
+          hand_wrist: { cx: 30, cy: 128 },
+          lower_back: { cx: 70, cy: 112 },
+          hip: { cx: 70, cy: 138 },
+          knee: { cx: 58, cy: 192 },
+          other: { cx: 70, cy: 92 },
+        }
+        const snapshotCards = [
+          { key: 'liability', icon: ShieldCheck, label: tx('injuryDetails_metricLiability'), value: tx('injuryDetails_metricUnknown'), sub: tx('injuryDetails_metricMoreInfo'), tone: 'text-slate-600 dark:text-slate-300' },
+          { key: 'severity', icon: Star, label: tx('injuryDetails_metricSeverity'), value: sevLevel, sub: '★★★★★'.slice(0, sevStars) + '☆☆☆☆☆'.slice(0, 5 - sevStars), tone: sevScore >= 67 ? 'text-rose-600' : sevScore >= 34 ? 'text-amber-600' : 'text-emerald-600' },
+          { key: 'doc', icon: FileText, label: tx('injuryDetails_metricDocumentation'), value: docLevel, sub: tx('injuryDetails_metricKeepBuilding'), tone: 'text-brand-600' },
+          { key: 'confidence', icon: TrendingUp, label: tx('injuryDetails_metricValueConfidence'), value: `${valueConfidence}%`, sub: tx('injuryDetails_metricMoreEvidence'), tone: 'text-brand-600' },
+        ]
         return (
           <div className="space-y-4">
-            <div className="text-center">
-              <p className="font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{tx('injuryDetails_heading')}</p>
-              <p className="text-xs leading-5 text-gray-500">{tx('injuryDetails_helper')}</p>
+            {/* Header */}
+            <div className="flex items-start gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white">
+                <HeartPulse className="h-5 w-5" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">{tx('injuryDetails_heading')}</p>
+                <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('injuryDetails_helper')}</p>
+              </div>
             </div>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div>
-                <p className="font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_whereInjured')}</p>
-                <p className="mt-0.5 text-xs text-slate-600">{tx('injuryDetails_whereInjuredHelper')}</p>
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
+            {/* Case Snapshot metric bar */}
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+              {snapshotCards.map(({ key, icon: Icon, label, value, sub, tone }) => (
+                <div key={key} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 dark:border-slate-700 dark:bg-slate-900/40">
+                  <div className="flex items-center gap-1 text-[9px] font-semibold uppercase leading-none tracking-wide text-gray-400">
+                    <Icon className="h-3 w-3 shrink-0" aria-hidden />
+                    <span className="truncate">{label}</span>
+                  </div>
+                  <p className={`mt-0.5 font-display text-[13px] font-bold leading-none ${tone}`}>{value}</p>
+                  <p className="mt-0.5 truncate text-[9px] leading-none text-gray-400">{sub}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Two-column body: form + sidebar */}
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
+              {/* ---------- Main column ---------- */}
+              <div className="space-y-4">
+
+            {/* 1. Where are you injured? */}
+            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+              <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">1. {tx('injuryDetails_whereInjured')}</p>
+              <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_whereInjuredHelper')}</p>
+              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                 {BODY_PART_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.bodyParts.includes(value)
+                  const disp = bodyPartDisplay[value]
                   return (
-                    <button
-                      key={value}
-                      type="button"
-                      aria-pressed={selected}
-                      onClick={() => toggleInjuryDetail('bodyParts', value)}
-                      className={`min-h-12 rounded-xl border-[1.5px] px-3 py-2 text-left text-xs font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${selected ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-                    >
-                      {bodyPartDisplay[value]?.emoji && <span aria-hidden="true">{bodyPartDisplay[value].emoji} </span>}
-                      {bodyPartDisplay[value]?.label || label}
+                    <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('bodyParts', value)} className={tileClass(selected)}>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs dark:bg-slate-800" aria-hidden>{disp?.emoji || '•'}</span>
+                      <span className="min-w-0 flex-1 text-xs font-semibold text-gray-800 dark:text-slate-200">{disp?.label || label}</span>
+                      {renderCheck(selected)}
                     </button>
                   )
                 })}
               </div>
-            </section>
 
-            {hasHeadInjury && (
-              <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-sm">
-                <p className="font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_headSymptoms')}</p>
-                <div className="mt-3 grid gap-2 md:grid-cols-2">
-                  {CONCUSSION_SYMPTOM_OPTIONS.map(({ value, label }) => (
-                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 shadow-sm transition-all ${formData.injuryDetails.concussionSymptoms.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
-                      <input type="checkbox" checked={formData.injuryDetails.concussionSymptoms.includes(value)} onChange={() => toggleInjuryDetail('concussionSymptoms', value)} className="rounded border-gray-300" />
-                      <span className="text-xs font-semibold text-slate-800">{label}</span>
-                    </label>
-                  ))}
+              {hasHeadInjury && (
+                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-500/30 dark:bg-amber-500/10">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_headSymptoms')}</p>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {CONCUSSION_SYMPTOM_OPTIONS.map(({ value, label }) => {
+                      const selected = formData.injuryDetails.concussionSymptoms.includes(value)
+                      return (
+                        <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('concussionSymptoms', value)} className={tileClass(selected)}>
+                          <span className="min-w-0 flex-1 text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                          {renderCheck(selected)}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
-              </section>
-            )}
+              )}
 
-            {hasShoulderInjury && (
-              <section className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4 shadow-sm">
-                <p className="text-sm font-semibold text-slate-950">{tx('injuryDetails_shoulderDetails')}</p>
-                <div className="mt-3 grid gap-2 md:grid-cols-3">
-                  {SHOULDER_FINDING_OPTIONS.map(({ value, label }) => (
-                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 shadow-sm transition-all ${formData.injuryDetails.shoulderFindings.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
-                      <input type="checkbox" checked={formData.injuryDetails.shoulderFindings.includes(value)} onChange={() => toggleInjuryDetail('shoulderFindings', value)} className="rounded border-gray-300" />
-                      <span className="text-xs font-semibold text-slate-800">{label}</span>
-                    </label>
-                  ))}
+              {hasShoulderInjury && (
+                <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/60 p-3 dark:border-indigo-500/30 dark:bg-indigo-500/10">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_shoulderDetails')}</p>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    {SHOULDER_FINDING_OPTIONS.map(({ value, label }) => {
+                      const selected = formData.injuryDetails.shoulderFindings.includes(value)
+                      return (
+                        <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('shoulderFindings', value)} className={tileClass(selected)}>
+                          <span className="min-w-0 flex-1 text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                          {renderCheck(selected)}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
-              </section>
-            )}
+              )}
 
-            {hasBackInjury && (
-              <section className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
-                <p className="text-sm font-semibold text-slate-950">{tx('injuryDetails_backDetails')}</p>
-                <div className="mt-3 grid gap-2 md:grid-cols-2">
-                  {BACK_FINDING_OPTIONS.map(({ value, label }) => (
-                    <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 shadow-sm transition-all ${formData.injuryDetails.backFindings.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
-                      <input type="checkbox" checked={formData.injuryDetails.backFindings.includes(value)} onChange={() => toggleInjuryDetail('backFindings', value)} className="rounded border-gray-300" />
-                      <span className="text-xs font-semibold text-slate-800">{label}</span>
-                    </label>
-                  ))}
+              {hasBackInjury && (
+                <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_backDetails')}</p>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {BACK_FINDING_OPTIONS.map(({ value, label }) => {
+                      const selected = formData.injuryDetails.backFindings.includes(value)
+                      return (
+                        <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('backFindings', value)} className={tileClass(selected)}>
+                          <span className="min-w-0 flex-1 text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                          {renderCheck(selected)}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
-              </section>
-            )}
+              )}
+            </div>
 
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_medicalTreatment')}</p>
-              <p className="mt-0.5 text-xs leading-5 text-slate-600">{tx('injuryDetails_testingHelper')}</p>
+            {/* 2. Treatment received */}
+            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+              <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">2. {tx('injuryDetails_treatmentReceived')}</p>
+              <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_treatmentReceivedHelper')}</p>
+              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                {TREATMENT_RECEIVED_OPTIONS.map(({ value, label }) => {
+                  const selected = formData.injuryDetails.imaging.includes(value)
+                  const Icon = treatmentIcons[value] || Stethoscope
+                  return (
+                    <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('imaging', value)} className={tileClass(selected)}>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
+                      <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      {renderCheck(selected)}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* 3. Diagnoses */}
+            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+              <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">3. {tx('injuryDetails_diagnosesQuestion')}</p>
+              <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_diagnosesHelper')}</p>
+              <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                {DIAGNOSIS_OPTIONS.map(({ value, label }) => {
+                  const selected = formData.injuryDetails.diagnoses.includes(value)
+                  return (
+                    <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('diagnoses', value)} className={tileClass(selected)}>
+                      <span className="min-w-0 flex-1 text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                      {renderCheck(selected)}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* 4. Current symptoms */}
+            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+              <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">4. {tx('injuryDetails_currentSymptomsQuestion')}</p>
+              <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_selectAllApply')}</p>
+              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                {CURRENT_SYMPTOM_OPTIONS.map(({ value, label }) => {
+                  const selected = formData.injuryDetails.currentSymptoms.includes(value)
+                  const Icon = symptomIcons[value] || Activity
+                  return (
+                    <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('currentSymptoms', value)} className={tileClass(selected)}>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
+                      <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      {renderCheck(selected)}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* 5. Recovery status + biggest impact */}
+            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+              <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">5. {tx('injuryDetails_recoveryQuestion')}</p>
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {RECOVERY_STATUS_OPTIONS.map(({ value, label }) => {
+                  const selected = formData.injuryDetails.recoveryStatus === value
+                  return (
+                    <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, recoveryStatus: selected ? '' : value } })} className={radioCardClass(selected)}>
+                      {radioDot(selected)}
+                      <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="mt-4 font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_biggestImpactQuestion')}</p>
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {IMAGING_OPTIONS.map(({ value, label }) => (
-                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 shadow-sm transition-all ${formData.injuryDetails.imaging.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
-                    <input type="checkbox" checked={formData.injuryDetails.imaging.includes(value)} onChange={() => toggleInjuryDetail('imaging', value, true)} className="rounded border-gray-300" />
-                    <span className="text-xs font-semibold text-slate-800">{label}</span>
-                  </label>
-                ))}
+                {BIGGEST_IMPACT_OPTIONS.map(({ value, label }) => {
+                  const selected = formData.injuryDetails.biggestImpact === value
+                  return (
+                    <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, biggestImpact: selected ? '' : value } })} className={radioCardClass(selected)}>
+                      {radioDot(selected)}
+                      <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                    </button>
+                  )
+                })}
               </div>
+            </div>
 
-              <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_diagnosesQuestion')}</p>
-              <p className="mt-0.5 text-xs leading-5 text-slate-600">{tx('injuryDetails_diagnosesHelper')}</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {relevantDiagnosisOptions.map(({ value, label }) => (
-                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 shadow-sm transition-all ${formData.injuryDetails.diagnoses.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
-                    <input type="checkbox" checked={formData.injuryDetails.diagnoses.includes(value)} onChange={() => toggleInjuryDetail('diagnoses', value)} className="rounded border-gray-300" />
-                    <span className="text-xs font-semibold text-slate-800">{label}</span>
-                  </label>
-                ))}
+            {/* 6. Impact on daily life */}
+            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+              <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">6. {tx('injuryDetails_dailyLifeQuestion')}</p>
+              <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_selectAllApply')}</p>
+              <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+                {LIFE_AREA_OPTIONS.map(({ value, label }) => {
+                  const selected = formData.injuryDetails.lifestyleImpact.includes(value)
+                  const Icon = lifeAreaIcons[value] || Activity
+                  return (
+                    <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('lifestyleImpact', value)} className={tileClass(selected)}>
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
+                      <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      {renderCheck(selected)}
+                    </button>
+                  )
+                })}
               </div>
-            </section>
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_lifeImpact')}</p>
-              <p className="mt-0.5 text-xs leading-5 text-slate-600">{tx('injuryDetails_lifeImpactHelper')}</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                {keyLifestyleImpactOptions.map(({ value, label }) => (
-                  <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-xl border-[1.5px] px-3 py-2 shadow-sm transition-all ${formData.injuryDetails.lifestyleImpact.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
-                    <input type="checkbox" checked={formData.injuryDetails.lifestyleImpact.includes(value)} onChange={() => toggleInjuryDetail('lifestyleImpact', value)} className="rounded border-gray-300" />
-                    <span className="text-xs font-semibold text-slate-800">{label}</span>
-                  </label>
-                ))}
+              <div className="mt-2.5 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/40">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Pencil className="h-3.5 w-3.5" aria-hidden /></span>
+                  <span className="text-xs font-semibold text-gray-800 dark:text-slate-200">{tx('injuryDetails_otherDescribe')}</span>
+                </div>
+                <input
+                  type="text"
+                  value={formData.injuryDetails.lifestyleOther}
+                  onChange={(e) => updateForm({ injuryDetails: { ...formData.injuryDetails, lifestyleOther: e.target.value } })}
+                  placeholder={tx('injuryDetails_otherPlaceholder')}
+                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                />
               </div>
-            </section>
+            </div>
 
-            <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <summary className="cursor-pointer font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_additionalInfo')}</summary>
-              <div className="mt-4 space-y-4">
-                <section>
-                  <p className="font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_priorQuestion')}</p>
-                  <div className="mt-2 grid grid-cols-3 gap-2">
+            {/* AI summary */}
+            <div className="rounded-2xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Sparkles className="h-4 w-4" aria-hidden /></span>
+                <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_aiSummaryTitle')}</p>
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-gray-700 dark:text-slate-300">
+                {hasAnySelection ? (
+                  <>
+                    {bodyNames.length > 0 && <>{tx('injuryDetails_aiInjuriesTo')} <strong>{bodyNames.join(', ')}</strong>. </>}
+                    {txNames.length > 0 && <>{tx('injuryDetails_aiTreatment')} <strong>{txNames.join(', ')}</strong>. </>}
+                    {dxNames.length > 0 && <>{tx('injuryDetails_aiDiagnoses')} <strong>{dxNames.join(', ')}</strong>. </>}
+                    {recoveryLabel && <>{tx('injuryDetails_aiRecovery')} <strong>{recoveryLabel.toLowerCase()}</strong>.</>}
+                  </>
+                ) : (
+                  <span className="text-gray-500">{tx('injuryDetails_aiEmpty')}</span>
+                )}
+              </p>
+            </div>
+
+            {/* Additional information (optional) */}
+            <details open className="group border-t border-slate-200 pt-4 dark:border-slate-700">
+              <summary className="flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden">
+                <span className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/10">
+                    <ClipboardCheck className="h-5 w-5" aria-hidden />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100">{tx('injuryDetails_additionalInfo')}</span>
+                    <span className="mt-0.5 block text-xs leading-snug text-gray-500">{tx('injuryDetails_additionalInfoHelper')}</span>
+                  </span>
+                </span>
+                <ChevronDown className="mt-1 h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" aria-hidden />
+              </summary>
+
+              <div className="mt-4 space-y-5">
+                {/* 1. Prior injuries */}
+                <section className="border-t border-slate-200 pt-4 dark:border-slate-700">
+                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">1. {tx('injuryDetails_priorBodyAreas')}</p>
+                  <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_priorHelper')}</p>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                     {[
                       { value: 'none', label: tx('optionNo') },
                       { value: 'similar', label: tx('optionYes') },
                       { value: 'not_sure', label: tx('optionNotSure') },
-                    ].map(({ value, label }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, priorInjury: formData.injuryDetails.priorInjury === value ? '' : value } })}
-                        className={`rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${formData.injuryDetails.priorInjury === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-                      >
-                        {label}
-                      </button>
-                    ))}
+                    ].map(({ value, label }) => {
+                      const selected = formData.injuryDetails.priorInjury === value
+                      return (
+                        <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, priorInjury: selected ? '' : value } })} className={radioCardClass(selected)}>
+                          {radioDot(selected)}
+                          <span className="min-w-0 flex-1 text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                        </button>
+                      )
+                    })}
                   </div>
                 </section>
 
-                <section>
-                  <p className="font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_otherImpacts')}</p>
-                  <div className="mt-2 grid gap-2 md:grid-cols-2">
-                    {LIFESTYLE_IMPACT_OPTIONS
-                      .filter((option) => !['daily_pain', 'sleep_disruption', 'exercise_limitations'].includes(option.value))
-                      .map(({ value, label }) => (
-                        <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 shadow-sm transition-all ${formData.injuryDetails.lifestyleImpact.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
-                          <input type="checkbox" checked={formData.injuryDetails.lifestyleImpact.includes(value)} onChange={() => toggleInjuryDetail('lifestyleImpact', value)} className="rounded border-gray-300" />
-                          <span className="text-xs font-semibold text-slate-800">{label}</span>
-                        </label>
-                      ))}
+                {/* 2 & 3. Symptom frequency + trend */}
+                <section className="grid gap-4 border-t border-slate-200 pt-4 dark:border-slate-700 sm:grid-cols-2">
+                  <div>
+                    <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">2. {tx('injuryDetails_symptomsStill')}</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      {SYMPTOM_FREQUENCY_OPTIONS.map(({ value, label }) => {
+                        const selected = formData.injuryDetails.symptomFrequency === value
+                        return (
+                          <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, symptomFrequency: selected ? '' : value } })} className={radioCardClass(selected)}>
+                            {radioDot(selected)}
+                            <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">3. {tx('injuryDetails_symptomsTrend')}</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      {SYMPTOM_TREND_OPTIONS.map(({ value, label }) => {
+                        const selected = formData.injuryDetails.symptomTrend === value
+                        return (
+                          <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, symptomTrend: selected ? '' : value } })} className={radioCardClass(selected)}>
+                            {radioDot(selected)}
+                            <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </section>
+
+                {/* 4. Future treatment */}
+                <section className="border-t border-slate-200 pt-4 dark:border-slate-700">
+                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">4. {tx('injuryDetails_futureTreatmentQuestion')}</p>
+                  <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_selectAllApply')}</p>
+                  <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+                    {FUTURE_TREATMENT_OPTIONS.map(({ value, label }) => {
+                      const selected = formData.injuryDetails.futureTreatment.includes(value)
+                      const Icon = futureTreatmentIcons[value] || Stethoscope
+                      return (
+                        <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('futureTreatment', value, value === 'none')} className={tileClass(selected)}>
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
+                          <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                          {renderCheck(selected)}
+                        </button>
+                      )
+                    })}
                   </div>
                 </section>
 
                 {hasInjectionTreatment && (
-                  <section>
-                    <p className="font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_injectionsMore')}</p>
-                    <div className="mt-2 grid gap-2 md:grid-cols-2">
-                      {PROCEDURE_OPTIONS.filter(option => option.value !== 'none').map(({ value, label }) => (
-                        <label key={value} className={`flex cursor-pointer items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 shadow-sm transition-all ${formData.injuryDetails.procedures.includes(value) ? 'border-brand-600 bg-brand-100' : 'border-gray-300 bg-white hover:border-brand-500 hover:bg-brand-50/50'}`}>
-                          <input type="checkbox" checked={formData.injuryDetails.procedures.includes(value)} onChange={() => toggleInjuryDetail('procedures', value)} className="rounded border-gray-300" />
-                          <span className="text-xs font-semibold text-slate-800">{label}</span>
-                        </label>
-                      ))}
+                  <section className="border-t border-slate-200 pt-4 dark:border-slate-700">
+                    <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_injectionsMore')}</p>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {PROCEDURE_OPTIONS.filter(option => option.value !== 'none').map(({ value, label }) => {
+                        const selected = formData.injuryDetails.procedures.includes(value)
+                        return (
+                          <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('procedures', value)} className={tileClass(selected)}>
+                            <span className="min-w-0 flex-1 text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                            {renderCheck(selected)}
+                          </button>
+                        )
+                      })}
                     </div>
                   </section>
                 )}
 
                 {hasSurgeryTreatment && (
-                  <section>
-                    <p className="font-display text-sm font-semibold text-slate-950">{tx('injuryDetails_surgeryDiscussed')}</p>
+                  <section className="border-t border-slate-200 pt-4 dark:border-slate-700">
+                    <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_surgeryDiscussed')}</p>
                     <div className="mt-2 grid grid-cols-2 gap-2">
                       {SURGERY_STATUS_OPTIONS.map(({ value, label }) => (
                         <button
                           key={value}
                           type="button"
                           onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, surgeryStatus: formData.injuryDetails.surgeryStatus === value ? '' : value } })}
-                          className={`rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${formData.injuryDetails.surgeryStatus === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
+                          className={`rounded-lg border px-2 py-2 text-center text-sm font-medium transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${formData.injuryDetails.surgeryStatus === value ? 'border-brand-500 bg-brand-50/70 text-brand-800' : 'border-slate-200 bg-white text-gray-800 hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200'}`}
                         >
                           {label}
                         </button>
@@ -1975,24 +2753,181 @@ export default function IntakeWizardQuick() {
                   </section>
                 )}
 
+                {/* Why this matters */}
+                <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">{tx('injuryDetails_whyMatters')}</p>
+                    <p className="mt-0.5 text-xs leading-snug text-emerald-800/90 dark:text-emerald-200/80">{tx('injuryDetails_whyMattersBody')}</p>
+                  </div>
+                </div>
               </div>
             </details>
+              </div>{/* end main column */}
+
+              {/* ---------- Sidebar (injury overview + insights) ---------- */}
+              <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+                {/* Injury overview + body diagram */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_overviewTitle')}</p>
+                  <div className="mt-3 flex justify-center">
+                    <svg viewBox="0 0 140 250" className="h-44 w-auto" role="img" aria-label={tx('injuryDetails_overviewTitle')}>
+                      <g className="fill-slate-200 dark:fill-slate-700">
+                        <circle cx="70" cy="26" r="15" />
+                        <rect x="64" y="40" width="12" height="11" rx="3" />
+                        <rect x="48" y="50" width="44" height="70" rx="14" />
+                        <rect x="31" y="54" width="14" height="72" rx="7" />
+                        <rect x="95" y="54" width="14" height="72" rx="7" />
+                        <rect x="52" y="116" width="36" height="26" rx="10" />
+                        <rect x="54" y="138" width="14" height="98" rx="7" />
+                        <rect x="72" y="138" width="14" height="98" rx="7" />
+                      </g>
+                      {formData.injuryDetails.bodyParts.map(part => {
+                        const m = bodyMarkers[part]
+                        if (!m) return null
+                        return (
+                          <g key={part}>
+                            <circle cx={m.cx} cy={m.cy} r="8" className="fill-brand-500/30" />
+                            <circle cx={m.cx} cy={m.cy} r="4.5" className="fill-brand-600 stroke-white" strokeWidth="1.5" />
+                          </g>
+                        )
+                      })}
+                    </svg>
+                  </div>
+                  {bodyNames.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {bodyNames.map(n => (
+                        <span key={n} className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700 dark:bg-brand-500/10 dark:text-brand-300">
+                          <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />{n}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-center text-xs text-gray-400">{tx('injuryDetails_overviewEmpty')}</p>
+                  )}
+                </div>
+
+                {/* Quick stats */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_quickStats')}</p>
+                  <div className="mt-3 space-y-2">
+                    {[
+                      { label: tx('injuryDetails_statTreatments'), value: treatmentsSelected },
+                      { label: tx('injuryDetails_statDiagnoses'), value: diagnosesSelected },
+                      { label: tx('injuryDetails_statSymptoms'), value: symptomsSelected },
+                      { label: tx('injuryDetails_statLifeAreas'), value: lifeAreasSelected },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600 dark:text-slate-400">{label}</span>
+                        <span className="font-display font-semibold text-gray-900 dark:text-slate-100">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Injury severity gauge */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/40">
+                  <div className="flex items-center justify-between">
+                    <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_metricSeverity')}</p>
+                    <span className="text-sm font-semibold text-amber-500">{'★★★★★'.slice(0, sevStars)}<span className="text-slate-300 dark:text-slate-600">{'★★★★★'.slice(0, 5 - sevStars)}</span></span>
+                  </div>
+                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gradient-to-r from-emerald-400 via-amber-400 to-rose-500">
+                    <div className="h-full bg-white/70 dark:bg-slate-900/70" style={{ marginLeft: `${sevScore}%`, width: `${100 - sevScore}%` }} />
+                  </div>
+                  <p className="mt-1.5 text-xs text-gray-500">{sevLevel}</p>
+                </div>
+
+                {/* Why this matters */}
+                <div className="rounded-2xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
+                  <div className="flex items-center gap-2">
+                    <Scale className="h-4 w-4 text-brand-600" aria-hidden />
+                    <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_whyMattersSidebar')}</p>
+                  </div>
+                  <ul className="mt-2 space-y-1.5 text-xs text-gray-600 dark:text-slate-400">
+                    {[tx('injuryDetails_whyBullet1'), tx('injuryDetails_whyBullet2'), tx('injuryDetails_whyBullet3'), tx('injuryDetails_whyBullet4')].map((b, i) => (
+                      <li key={i} className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-500" aria-hidden /><span>{b}</span></li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Tips for a stronger case */}
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
+                  <div className="flex items-center gap-2">
+                    <Lightbulb className="h-4 w-4 text-amber-500" aria-hidden />
+                    <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_tipsTitle')}</p>
+                  </div>
+                  <ul className="mt-2 space-y-1.5 text-xs text-amber-900/90 dark:text-amber-200/80">
+                    {[tx('injuryDetails_tip1'), tx('injuryDetails_tip2'), tx('injuryDetails_tip3')].map((b, i) => (
+                      <li key={i} className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />{b}</li>
+                    ))}
+                  </ul>
+                </div>
+              </aside>
+            </div>{/* end two-column grid */}
           </div>
         )
 
       case 'case_details': {
+        const cdTileClass = (selected: boolean) =>
+          `flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10' : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`
+        const cdSingleGrid = (opts: { value: string; label: string; icon?: LucideIcon }[], current: string, onPick: (v: string) => void) => (
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+            {opts.map(({ value, label, icon: Icon }) => {
+              const selected = current === value
+              return (
+                <button key={value} type="button" aria-pressed={selected} onClick={() => onPick(value)} className={cdTileClass(selected)}>
+                  {Icon && <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>}
+                  <span className="min-w-0 flex-1 text-sm font-medium leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                  {selected && <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />}
+                </button>
+              )
+            })}
+          </div>
+        )
+        const cdCheckList = (items: { key: string; label: string; checked: boolean; onToggle: (v: boolean) => void; icon?: LucideIcon }[]) => (
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            {items.map(({ key, label, checked, onToggle, icon: Icon }) => (
+              <button key={key} type="button" aria-pressed={checked} onClick={() => onToggle(!checked)} className={cdTileClass(checked)}>
+                {Icon && <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>}
+                <span className="min-w-0 flex-1 text-sm font-medium leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                {checked && <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />}
+              </button>
+            ))}
+          </div>
+        )
+        // Pill-style single-select grid matching the non-vehicle branch visuals.
+        const cdPillGrid = (opts: { value: string; labelKey: string }[], current: string, onPick: (v: string) => void) => (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {opts.map(({ value, labelKey }) => (
+              <button key={value} type="button" aria-pressed={current === value} onClick={() => onPick(value)} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${current === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
+                {t(`intake.${labelKey}`)} {current === value && <Check className="h-5 w-5 text-brand-600" />}
+              </button>
+            ))}
+          </div>
+        )
+        const cdNativeCheck = (key: string, label: string, checked: boolean) => (
+          <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={checked} onChange={e => setBranch(key, e.target.checked)} className="rounded border-gray-300 accent-brand-600" /><span className="text-sm">{label}</span></label>
+        )
+        const crashIcons: Record<string, LucideIcon> = { rear_end: Car, side_impact: Car, head_on: Car, left_turn: CornerUpLeft, multi_vehicle: Car, pedestrian: Footprints, bicycle: Bike, not_sure: HelpCircle }
+        const defendantIcons: Record<string, LucideIcon> = { private: User, uber_lyft: Car, delivery: Package, trucking: Truck, company: Briefcase, government: Landmark, not_sure: HelpCircle }
+        const damageIcons: Record<string, LucideIcon> = { minor: Car, moderate: Car, not_drivable: AlertTriangle, total_loss: Ban }
+        const vehOpts = (arr: { value: string; labelKey: string }[], icons?: Record<string, LucideIcon>) => arr.map(o => ({ value: o.value, label: t(`intake.${o.labelKey}`), icon: icons?.[o.value] }))
         const section1 = (() => {
         if (isVehicle) {
           return (
-            <div className="space-y-4">
-              <p className="font-display text-sm font-semibold text-slate-950">{t('intake.vehicle_crashQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {VEHICLE_CRASH_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('crashType', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.crashType === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
-                    {t(`intake.${labelKey}`)} {formData.branch.crashType === value && <Check className="h-5 w-5 text-brand-600" />}
-                  </button>
-                ))}
-              </div>
+            <div className="space-y-3">
+              <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{t('intake.vehicle_crashQuestion')}</p>
+              {cdSingleGrid(vehOpts(VEHICLE_CRASH_OPTIONS, crashIcons), formData.branch.crashType, (v) => setBranch('crashType', v))}
+              <p className="pt-1 font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('vehicle_faultQuestion')}</p>
+              {cdPillGrid(FAULT_PARTY_OPTIONS, formData.branch.faultParty, (v) => setBranch('faultParty', v))}
+            </div>
+          )
+        }
+        if (isWorkplace) {
+          return (
+            <div className="space-y-3">
+              <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('wp_causeQuestion')}</p>
+              {cdPillGrid(WORKPLACE_CAUSE_OPTIONS, formData.branch.workplaceCause, (v) => setBranch('workplaceCause', v))}
             </div>
           )
         }
@@ -2026,15 +2961,11 @@ export default function IntakeWizardQuick() {
         }
         if (isDogBite) {
           return (
-            <div className="space-y-4">
-              <p className="font-display text-sm font-semibold text-slate-950">{t('intake.dog_ownershipQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {DOG_OWNERSHIP_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('dogOwned', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.dogOwned === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
-                    {t(`intake.${labelKey}`)} {formData.branch.dogOwned === value && <Check className="h-5 w-5 text-brand-600" />}
-                  </button>
-                ))}
-              </div>
+            <div className="space-y-3">
+              <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('animal_typeQuestion')}</p>
+              {cdPillGrid(ANIMAL_TYPE_OPTIONS, formData.branch.animalType, (v) => setBranch('animalType', v))}
+              <p className="pt-1 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{t('intake.dog_ownershipQuestion')}</p>
+              {cdPillGrid(DOG_OWNERSHIP_OPTIONS, formData.branch.dogOwned, (v) => setBranch('dogOwned', v))}
             </div>
           )
         }
@@ -2054,29 +2985,21 @@ export default function IntakeWizardQuick() {
         }
         if (isAssault) {
           return (
-            <div className="space-y-4">
-              <p className="font-display text-sm font-semibold text-slate-950">{t('intake.assault_typeQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {ASSAULT_TYPE_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('assaultType', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.assaultType === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
-                    {t(`intake.${labelKey}`)} {formData.branch.assaultType === value && <Check className="h-5 w-5 text-brand-600" />}
-                  </button>
-                ))}
-              </div>
+            <div className="space-y-3">
+              <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('assault_whereQuestion')}</p>
+              {cdPillGrid(ASSAULT_TYPE_OPTIONS, formData.branch.assaultType, (v) => setBranch('assaultType', v))}
+              <p className="pt-1 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('assault_priorIncidentsQuestion')}</p>
+              {cdPillGrid(YES_NO_NOT_SURE_OPTIONS, formData.branch.priorIncidents, (v) => setBranch('priorIncidents', v))}
             </div>
           )
         }
         if (isToxic) {
           return (
-            <div className="space-y-4">
-              <p className="font-display text-sm font-semibold text-slate-950">{t('intake.toxic_substanceQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {TOXIC_SUBSTANCE_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('substance', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.substance === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
-                    {t(`intake.${labelKey}`)} {formData.branch.substance === value && <Check className="h-5 w-5 text-brand-600" />}
-                  </button>
-                ))}
-              </div>
+            <div className="space-y-3">
+              <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{t('intake.toxic_substanceQuestion')}</p>
+              {cdPillGrid(TOXIC_SUBSTANCE_OPTIONS, formData.branch.substance, (v) => setBranch('substance', v))}
+              <p className="pt-1 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('exp_locationQuestion')}</p>
+              {cdPillGrid(EXPOSURE_LOCATION_OPTIONS, formData.branch.exposureLocation, (v) => setBranch('exposureLocation', v))}
             </div>
           )
         }
@@ -2094,19 +3017,31 @@ export default function IntakeWizardQuick() {
         const section2 = (() => {
         if (isVehicle) {
           return (
-            <div className="space-y-4">
-              <p className="font-display text-sm font-semibold text-slate-950">{t('intake.vehicle_liabilityEvidence')}</p>
-              <p className="mt-0.5 text-xs leading-5 text-slate-600">
-                {tx('vehicle_evidenceHelper')}
-              </p>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.policeReport} onChange={e => setBranch('policeReport', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.vehicle_policeReport')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.ticketIssued} onChange={e => setBranch('ticketIssued', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.vehicle_ticket')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.witnesses} onChange={e => setBranch('witnesses', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.vehicle_witnesses')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.photosVideo} onChange={e => setBranch('photosVideo', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{tx('vehicle_photos')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.videoEvidence} onChange={e => setBranch('videoEvidence', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{tx('vehicle_video')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.redLightViolation} onChange={e => setBranch('redLightViolation', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{tx('vehicle_redLight')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.duiOtherDriver} onChange={e => setBranch('duiOtherDriver', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{tx('vehicle_dui')}</span></label>
+            <div className="space-y-3">
+              <div>
+                <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{t('intake.vehicle_liabilityEvidence')}</p>
+                <p className="mt-0.5 text-xs leading-snug text-gray-500">{tx('vehicle_evidenceHelper')}</p>
+              </div>
+              {cdCheckList([
+                { key: 'policeReport', label: t('intake.vehicle_policeReport'), checked: !!formData.branch.policeReport, onToggle: (v) => setBranch('policeReport', v), icon: FileText },
+                { key: 'ticketIssued', label: t('intake.vehicle_ticket'), checked: !!formData.branch.ticketIssued, onToggle: (v) => setBranch('ticketIssued', v), icon: Receipt },
+                { key: 'witnesses', label: t('intake.vehicle_witnesses'), checked: !!formData.branch.witnesses, onToggle: (v) => setBranch('witnesses', v), icon: Users },
+                { key: 'photosVideo', label: tx('vehicle_photos'), checked: !!formData.branch.photosVideo, onToggle: (v) => setBranch('photosVideo', v), icon: Camera },
+                { key: 'videoEvidence', label: tx('vehicle_video'), checked: !!formData.branch.videoEvidence, onToggle: (v) => setBranch('videoEvidence', v), icon: Video },
+                { key: 'redLightViolation', label: tx('vehicle_redLight'), checked: !!formData.branch.redLightViolation, onToggle: (v) => setBranch('redLightViolation', v), icon: AlertTriangle },
+                { key: 'duiOtherDriver', label: tx('vehicle_dui'), checked: !!formData.branch.duiOtherDriver, onToggle: (v) => setBranch('duiOtherDriver', v), icon: Wine },
+              ])}
+            </div>
+          )
+        }
+        if (isWorkplace) {
+          return (
+            <div className="space-y-3">
+              <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('wp_reportingQuestion')}</p>
+              <div className="space-y-2">
+                {cdNativeCheck('reportedToEmployer', tx('wp_reportedToEmployer'), !!formData.branch.reportedToEmployer)}
+                {cdNativeCheck('missedWorkWC', tx('wp_missedWork'), !!formData.branch.missedWorkWC)}
+                {cdNativeCheck('wcClaimFiled', tx('wp_claimFiled'), !!formData.branch.wcClaimFiled)}
               </div>
             </div>
           )
@@ -2158,8 +3093,8 @@ export default function IntakeWizardQuick() {
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.product_failureQuestion')}</p>
               <div className="space-y-2">
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.productMalfunction} onChange={e => setBranch('productMalfunction', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.product_malfunction')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.productRecalled} onChange={e => setBranch('productRecalled', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.product_recalled')}</span></label>
+                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.productMalfunction} onChange={e => setBranch('productMalfunction', e.target.checked)} className="rounded border-gray-300 accent-brand-600" /><span className="text-sm">{t('intake.product_malfunction')}</span></label>
+                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.productRecalled} onChange={e => setBranch('productRecalled', e.target.checked)} className="rounded border-gray-300 accent-brand-600" /><span className="text-sm">{t('intake.product_recalled')}</span></label>
               </div>
             </div>
           )
@@ -2169,8 +3104,10 @@ export default function IntakeWizardQuick() {
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.assault_securityQuestion')}</p>
               <div className="space-y-2">
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.securityPresent} onChange={e => setBranch('securityPresent', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.assault_securityPresent')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.poorLighting} onChange={e => setBranch('poorLighting', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.assault_poorLighting')}</span></label>
+                {cdNativeCheck('securityPresent', t('intake.assault_securityPresent'), !!formData.branch.securityPresent)}
+                {cdNativeCheck('securityCameras', tx('assault_securityCameras'), !!formData.branch.securityCameras)}
+                {cdNativeCheck('poorLighting', t('intake.assault_poorLighting'), !!formData.branch.poorLighting)}
+                {cdNativeCheck('injuriesTreated', tx('assault_injuriesTreated'), !!formData.branch.injuriesTreated)}
               </div>
             </div>
           )
@@ -2189,21 +3126,31 @@ export default function IntakeWizardQuick() {
             </div>
           )
         }
+        if (isOther) {
+          return (
+            <div className="space-y-3">
+              <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('who_causedQuestion')}</p>
+              {cdPillGrid(WHO_CAUSED_OPTIONS, formData.branch.whoCaused, (v) => setBranch('whoCaused', v))}
+            </div>
+          )
+        }
         return null
         })()
 
         const section3 = (() => {
         if (isVehicle) {
           return (
-            <div className="space-y-4">
-              <p className="font-display text-sm font-semibold text-slate-950">{t('intake.vehicle_propertyDamage')}</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {PROPERTY_DAMAGE_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('propertyDamage', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.propertyDamage === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
-                    {t(`intake.${labelKey}`)} {formData.branch.propertyDamage === value && <Check className="h-5 w-5 text-brand-600" />}
-                  </button>
-                ))}
-              </div>
+            <div className="space-y-3">
+              <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{t('intake.vehicle_propertyDamage')}</p>
+              {cdSingleGrid(vehOpts(PROPERTY_DAMAGE_OPTIONS, damageIcons), formData.branch.propertyDamage, (v) => setBranch('propertyDamage', v))}
+            </div>
+          )
+        }
+        if (isWorkplace) {
+          return (
+            <div className="space-y-3">
+              <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('wp_thirdPartyQuestion')}</p>
+              {cdPillGrid(WORKPLACE_THIRD_PARTY_OPTIONS, formData.branch.thirdParty, (v) => setBranch('thirdParty', v))}
             </div>
           )
         }
@@ -2215,9 +3162,9 @@ export default function IntakeWizardQuick() {
                 {tx('slip_awarenessHelper')}
               </p>
               <div className="space-y-2">
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.employeesKnew} onChange={e => setBranch('employeesKnew', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.slip_employeesKnew')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.warningSigns} onChange={e => setBranch('warningSigns', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.slip_warningSigns')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.hazardDuration} onChange={e => setBranch('hazardDuration', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.slip_hazardDuration')}</span></label>
+                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.employeesKnew} onChange={e => setBranch('employeesKnew', e.target.checked)} className="rounded border-gray-300 accent-brand-600" /><span className="text-sm">{t('intake.slip_employeesKnew')}</span></label>
+                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.warningSigns} onChange={e => setBranch('warningSigns', e.target.checked)} className="rounded border-gray-300 accent-brand-600" /><span className="text-sm">{t('intake.slip_warningSigns')}</span></label>
+                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.hazardDuration} onChange={e => setBranch('hazardDuration', e.target.checked)} className="rounded border-gray-300 accent-brand-600" /><span className="text-sm">{t('intake.slip_hazardDuration')}</span></label>
               </div>
             </div>
           )
@@ -2227,9 +3174,11 @@ export default function IntakeWizardQuick() {
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.medmal_harmSeverity')}</p>
               <div className="space-y-2">
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.additionalTreatment} onChange={e => setBranch('additionalTreatment', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.medmal_additionalTreatment')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.permanentInjury} onChange={e => setBranch('permanentInjury', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.medmal_permanentInjury')}</span></label>
+                {cdNativeCheck('additionalTreatment', t('intake.medmal_additionalTreatment'), !!formData.branch.additionalTreatment)}
+                {cdNativeCheck('permanentInjury', t('intake.medmal_permanentInjury'), !!formData.branch.permanentInjury)}
               </div>
+              <p className="pt-1 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('medmal_anotherDoctorQuestion')}</p>
+              {cdPillGrid(YES_NO_NOT_SURE_OPTIONS, formData.branch.anotherDoctorConfirmed, (v) => setBranch('anotherDoctorConfirmed', v))}
             </div>
           )
         }
@@ -2260,8 +3209,8 @@ export default function IntakeWizardQuick() {
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.assault_policeQuestion')}</p>
               <div className="space-y-2">
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.policeCalled} onChange={e => setBranch('policeCalled', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.assault_policeCalled')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.arrested} onChange={e => setBranch('arrested', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.assault_arrested')}</span></label>
+                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.policeCalled} onChange={e => setBranch('policeCalled', e.target.checked)} className="rounded border-gray-300 accent-brand-600" /><span className="text-sm">{t('intake.assault_policeCalled')}</span></label>
+                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.arrested} onChange={e => setBranch('arrested', e.target.checked)} className="rounded border-gray-300 accent-brand-600" /><span className="text-sm">{t('intake.assault_arrested')}</span></label>
               </div>
             </div>
           )
@@ -2274,21 +3223,26 @@ export default function IntakeWizardQuick() {
             </div>
           )
         }
+        if (isOther) {
+          return (
+            <div className="space-y-3">
+              <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('other_evidenceQuestion')}</p>
+              <div className="space-y-2">
+                {cdNativeCheck('otherPhotos', tx('other_photos'), !!formData.branch.otherPhotos)}
+                {cdNativeCheck('otherMedicalTreatment', tx('other_medicalTreatment'), !!formData.branch.otherMedicalTreatment)}
+              </div>
+            </div>
+          )
+        }
         return null
         })()
 
         const section4 = (() => {
         if (isVehicle) {
           return (
-            <div className="space-y-4">
-              <p className="font-display text-sm font-semibold text-slate-950">{t('intake.vehicle_defendantQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {VEHICLE_DEFENDANT_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('defendantType', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.defendantType === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
-                    {t(`intake.${labelKey}`)} {formData.branch.defendantType === value && <Check className="h-5 w-5 text-brand-600" />}
-                  </button>
-                ))}
-              </div>
+            <div className="space-y-3">
+              <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{t('intake.vehicle_defendantQuestion')}</p>
+              {cdSingleGrid(vehOpts(VEHICLE_DEFENDANT_OPTIONS, defendantIcons), formData.branch.defendantType, (v) => setBranch('defendantType', v))}
             </div>
           )
         }
@@ -2297,8 +3251,13 @@ export default function IntakeWizardQuick() {
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.slip_injuryImpact')}</p>
               <div className="space-y-2">
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.hitHead} onChange={e => setBranch('hitHead', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.slip_hitHead')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.ambulance} onChange={e => setBranch('ambulance', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.slip_ambulance')}</span></label>
+                {cdNativeCheck('hitHead', t('intake.slip_hitHead'), !!formData.branch.hitHead)}
+                {cdNativeCheck('ambulance', t('intake.slip_ambulance'), !!formData.branch.ambulance)}
+              </div>
+              <p className="pt-1 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('slip_documentationQuestion')}</p>
+              <div className="space-y-2">
+                {cdNativeCheck('incidentReport', tx('slip_incidentReport'), !!formData.branch.incidentReport)}
+                {cdNativeCheck('slipPhotos', tx('slip_photosTaken'), !!formData.branch.slipPhotos)}
               </div>
             </div>
           )
@@ -2308,8 +3267,8 @@ export default function IntakeWizardQuick() {
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.medmal_evidence')}</p>
               <div className="space-y-2">
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.hasMedicalRecords} onChange={e => setBranch('hasMedicalRecords', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.medmal_hasRecords')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.knowDoctorHospital} onChange={e => setBranch('knowDoctorHospital', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.medmal_knowProvider')}</span></label>
+                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.hasMedicalRecords} onChange={e => setBranch('hasMedicalRecords', e.target.checked)} className="rounded border-gray-300 accent-brand-600" /><span className="text-sm">{t('intake.medmal_hasRecords')}</span></label>
+                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.knowDoctorHospital} onChange={e => setBranch('knowDoctorHospital', e.target.checked)} className="rounded border-gray-300 accent-brand-600" /><span className="text-sm">{t('intake.medmal_knowProvider')}</span></label>
               </div>
             </div>
           )
@@ -2321,10 +3280,15 @@ export default function IntakeWizardQuick() {
               <div className="space-y-2">
                 {DOG_MEDICAL_OPTIONS.map(({ value, labelKey }) => (
                   <label key={value} className="flex items-center gap-3 cursor-pointer">
-                    <input type="checkbox" checked={formData.branch.dogMedical?.includes(value)} onChange={e => { const arr = formData.branch.dogMedical || []; const next = e.target.checked ? [...arr, value] : arr.filter((x: string) => x !== value); setBranch('dogMedical', next) }} className="rounded border-gray-300" />
+                    <input type="checkbox" checked={formData.branch.dogMedical?.includes(value)} onChange={e => { const arr = formData.branch.dogMedical || []; const next = e.target.checked ? [...arr, value] : arr.filter((x: string) => x !== value); setBranch('dogMedical', next) }} className="rounded border-gray-300 accent-brand-600" />
                     <span className="text-sm">{t(`intake.${labelKey}`)}</span>
                   </label>
                 ))}
+              </div>
+              <p className="pt-1 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('dog_detailsQuestion')}</p>
+              <div className="space-y-2">
+                {cdNativeCheck('brokeSkin', tx('dog_brokeSkin'), !!formData.branch.brokeSkin)}
+                {cdNativeCheck('dogPhotos', tx('dog_photosAvailable'), !!formData.branch.dogPhotos)}
               </div>
             </div>
           )
@@ -2334,9 +3298,11 @@ export default function IntakeWizardQuick() {
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.product_evidenceQuestion')}</p>
               <div className="space-y-2">
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.hasProduct} onChange={e => setBranch('hasProduct', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.product_hasProduct')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.hasPackaging} onChange={e => setBranch('hasPackaging', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.product_hasPackaging')}</span></label>
-                <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={!!formData.branch.hasReceipt} onChange={e => setBranch('hasReceipt', e.target.checked)} className="rounded border-gray-300" /><span className="text-sm">{t('intake.product_hasReceipt')}</span></label>
+                {cdNativeCheck('hasProduct', t('intake.product_hasProduct'), !!formData.branch.hasProduct)}
+                {cdNativeCheck('hasPackaging', t('intake.product_hasPackaging'), !!formData.branch.hasPackaging)}
+                {cdNativeCheck('hasReceipt', t('intake.product_hasReceipt'), !!formData.branch.hasReceipt)}
+                {cdNativeCheck('productPhotos', tx('product_photosAvailable'), !!formData.branch.productPhotos)}
+                {cdNativeCheck('productMedicalTreatment', tx('product_medicalTreatment'), !!formData.branch.productMedicalTreatment)}
               </div>
             </div>
           )
@@ -2352,14 +3318,10 @@ export default function IntakeWizardQuick() {
         if (isToxic) {
           return (
             <div className="space-y-4">
-              <p className="font-display text-sm font-semibold text-slate-950">{t('intake.toxic_doctorQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {YES_NO_NOT_SURE_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" aria-pressed={formData.branch.doctorLinked === value} onClick={() => { setBranch('doctorLinked', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.doctorLinked === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
-                    {t(`intake.${labelKey}`)} {formData.branch.doctorLinked === value && <Check className="h-5 w-5 text-brand-600" />}
-                  </button>
-                ))}
-              </div>
+              <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{t('intake.toxic_doctorQuestion')}</p>
+              {cdPillGrid(YES_NO_NOT_SURE_OPTIONS, formData.branch.doctorLinked, (v) => setBranch('doctorLinked', v))}
+              <p className="pt-1 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('toxic_reportedQuestion')}</p>
+              {cdPillGrid(TOXIC_REPORTED_OPTIONS, formData.branch.reportedTo, (v) => setBranch('reportedTo', v))}
             </div>
           )
         }
@@ -2369,42 +3331,63 @@ export default function IntakeWizardQuick() {
         const cdBranch = formData.branch
         const sectionAnswered = [
           Boolean(
-            cdBranch.crashType || cdBranch.hazardType || cdBranch.errorType || cdBranch.dogOwned ||
-            cdBranch.productType || cdBranch.assaultType || cdBranch.substance || (cdBranch.otherDetails || '').trim()
+            cdBranch.crashType || cdBranch.faultParty || cdBranch.workplaceCause || cdBranch.hazardType ||
+            cdBranch.errorType || cdBranch.dogOwned || cdBranch.animalType || cdBranch.productType ||
+            cdBranch.assaultType || cdBranch.priorIncidents || cdBranch.substance || cdBranch.exposureLocation ||
+            (cdBranch.otherDetails || '').trim()
           ),
           Boolean(
             cdBranch.policeReport || cdBranch.ticketIssued || cdBranch.witnesses || cdBranch.photosVideo ||
             cdBranch.videoEvidence || cdBranch.redLightViolation || cdBranch.duiOtherDriver ||
+            cdBranch.reportedToEmployer || cdBranch.missedWorkWC || cdBranch.wcClaimFiled ||
             cdBranch.propertyType || cdBranch.providerType || cdBranch.biteLocation ||
             cdBranch.productMalfunction || cdBranch.productRecalled || cdBranch.securityPresent ||
-            cdBranch.poorLighting || cdBranch.exposureDuration
+            cdBranch.securityCameras || cdBranch.injuriesTreated || cdBranch.poorLighting ||
+            cdBranch.exposureDuration || cdBranch.whoCaused
           ),
           Boolean(
-            cdBranch.propertyDamage || cdBranch.employeesKnew || cdBranch.warningSigns || cdBranch.hazardDuration ||
-            cdBranch.additionalTreatment || cdBranch.permanentInjury || cdBranch.priorAggression ||
-            (cdBranch.injuryCause || '').trim() || cdBranch.policeCalled || cdBranch.arrested || (cdBranch.symptoms || '').trim()
+            cdBranch.propertyDamage || cdBranch.thirdParty || cdBranch.employeesKnew || cdBranch.warningSigns ||
+            cdBranch.hazardDuration || cdBranch.additionalTreatment || cdBranch.permanentInjury ||
+            cdBranch.anotherDoctorConfirmed || cdBranch.priorAggression || (cdBranch.injuryCause || '').trim() ||
+            cdBranch.policeCalled || cdBranch.arrested || (cdBranch.symptoms || '').trim() ||
+            cdBranch.otherPhotos || cdBranch.otherMedicalTreatment
           ),
           Boolean(
-            cdBranch.defendantType || cdBranch.hitHead || cdBranch.ambulance || cdBranch.hasMedicalRecords ||
-            cdBranch.knowDoctorHospital || (cdBranch.dogMedical || []).length || cdBranch.hasProduct ||
-            cdBranch.hasPackaging || cdBranch.hasReceipt || (cdBranch.propertyOwner || '').trim() || cdBranch.doctorLinked
+            cdBranch.defendantType || cdBranch.hitHead || cdBranch.ambulance || cdBranch.incidentReport ||
+            cdBranch.slipPhotos || cdBranch.hasMedicalRecords || cdBranch.knowDoctorHospital ||
+            (cdBranch.dogMedical || []).length || cdBranch.brokeSkin || cdBranch.dogPhotos || cdBranch.hasProduct ||
+            cdBranch.hasPackaging || cdBranch.hasReceipt || cdBranch.productPhotos || cdBranch.productMedicalTreatment ||
+            (cdBranch.propertyOwner || '').trim() || cdBranch.doctorLinked || cdBranch.reportedTo
           ),
         ]
         const sectionEntries = [section1, section2, section3, section4]
           .map((node, index) => ({ node, answered: sectionAnswered[index] }))
           .filter((entry) => entry.node)
         const answeredCount = sectionEntries.filter((entry) => entry.answered).length
+        const pct = sectionEntries.length ? Math.round((answeredCount / sectionEntries.length) * 100) : 0
         return (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-brand-100 bg-brand-50/70 px-3 py-2">
-              <span className="font-display text-xs font-semibold text-brand-900">{tx('caseDetails_progressTitle')}</span>
-              <span className="shrink-0 text-xs font-semibold text-brand-700">
-                {tx('caseDetails_progressCount').replace('{answered}', String(answeredCount)).replace('{total}', String(sectionEntries.length))}
-              </span>
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3.5 dark:border-emerald-500/30 dark:bg-emerald-500/10">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
+                  <div className="min-w-0">
+                    <p className="font-display text-sm font-semibold leading-tight text-gray-900 dark:text-slate-100">{tx('caseDetails_progressTitle')}</p>
+                    <p className="mt-0.5 text-xs leading-snug text-gray-500">{tx('caseDetails_progressSubtitle')}</p>
+                  </div>
+                </div>
+                <span className="shrink-0 whitespace-nowrap text-xs font-semibold text-gray-500">
+                  {tx('caseDetails_progressCount').replace('{answered}', String(answeredCount)).replace('{total}', String(sectionEntries.length))}
+                </span>
+              </div>
+              <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-emerald-100 dark:bg-emerald-900/40">
+                <div className="h-full rounded-full bg-emerald-500 transition-all duration-300" style={{ width: `${pct}%` }} />
+              </div>
             </div>
             {sectionEntries.map((entry, index) => (
-              <div key={index} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                {entry.node}
+              <div key={index} className={`flex gap-2.5 ${index === 0 ? '' : 'border-t border-slate-200 pt-4 dark:border-slate-700'}`}>
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs font-bold text-white">{index + 1}</span>
+                <div className="min-w-0 flex-1">{entry.node}</div>
               </div>
             ))}
           </div>
@@ -2413,147 +3396,224 @@ export default function IntakeWizardQuick() {
 
       case 'evidence':
         {
-          const sections = [
-            {
-              id: 'evidence',
-              title: tx('evidence_sectionEvidence'),
-              helper: tx('evidence_sectionEvidenceHelper'),
-              items: [
-                { category: 'photos', subcategory: 'injury_photos', title: tx('evidence_photos'), helper: tx('evidence_photosHelper'), button: t('intake.uploadPhotos'), icon: Camera },
-                { category: 'video', subcategory: 'incident_video', title: tx('evidence_videos'), helper: tx('evidence_videosHelper'), button: tx('evidence_uploadVideos'), icon: Video },
-                { category: 'police_report', subcategory: 'report', title: tx('evidence_policeReport'), helper: tx('evidence_policeReportHelper'), button: t('intake.uploadReport'), icon: Shield },
-              ],
-            },
-            {
-              id: 'medical',
-              title: tx('evidence_sectionMedical'),
-              helper: tx('evidence_sectionMedicalHelper'),
-              items: [
-                { category: 'bills', subcategory: 'medical_bill', title: tx('evidence_medicalBills'), helper: tx('evidence_medicalBillsHelper'), button: t('intake.uploadBills'), icon: FileText },
-                { category: 'medical_records', subcategory: 'records', title: tx('evidence_medicalRecords'), helper: tx('evidence_medicalRecordsHelper'), button: t('intake.uploadRecords'), icon: FileText },
-              ],
-            },
-            {
-              id: 'insurance',
-              title: tx('evidence_sectionInsurance'),
-              helper: tx('evidence_sectionInsuranceHelper'),
-              items: [
-                { category: 'insurance_letters', subcategory: 'carrier_letters', title: tx('evidence_insuranceLetters'), helper: tx('evidence_insuranceLettersHelper'), button: tx('evidence_uploadInsuranceLetters'), icon: Mail },
-              ],
-            },
-            {
-              id: 'income_loss',
-              title: tx('evidence_sectionIncome'),
-              helper: tx('evidence_sectionIncomeHelper'),
-              items: [
-                { category: 'wage_verification', subcategory: 'income_loss', title: tx('evidence_wageVerification'), helper: tx('evidence_wageVerificationHelper'), button: tx('evidence_uploadWageVerification'), icon: DollarSign },
-              ],
-            },
+          type EvItem = { category: string; subcategory: string; title: string; helper: string; button: string; icon: LucideIcon }
+          const itemDefs: Record<string, EvItem> = {
+            photos: { category: 'photos', subcategory: 'injury_photos', title: tx('evidence_photos'), helper: tx('evidence_photosHelper'), button: t('intake.uploadPhotos'), icon: Camera },
+            video: { category: 'video', subcategory: 'incident_video', title: tx('evidence_videos'), helper: tx('evidence_videosHelper'), button: tx('evidence_uploadVideos'), icon: Video },
+            police_report: { category: 'police_report', subcategory: 'report', title: tx('evidence_policeReport'), helper: tx('evidence_policeReportHelper'), button: t('intake.uploadReport'), icon: Shield },
+            medical_records: { category: 'medical_records', subcategory: 'records', title: tx('evidence_medicalRecords'), helper: tx('evidence_medicalRecordsHelper'), button: t('intake.uploadRecords'), icon: Hospital },
+            bills: { category: 'bills', subcategory: 'medical_bill', title: tx('evidence_medicalBills'), helper: tx('evidence_medicalBillsHelper'), button: t('intake.uploadBills'), icon: FileText },
+            insurance_letters: { category: 'insurance_letters', subcategory: 'carrier_letters', title: tx('evidence_insuranceLetters'), helper: tx('evidence_insuranceLettersHelper'), button: tx('evidence_uploadInsuranceLetters'), icon: Mail },
+            wage_verification: { category: 'wage_verification', subcategory: 'income_loss', title: tx('evidence_wageVerification'), helper: tx('evidence_wageVerificationHelper'), button: tx('evidence_uploadWageVerification'), icon: DollarSign },
+          }
+          // Goal-centric grouping, highest-value documents first within each group.
+          const groupIcons: Record<string, LucideIcon> = { accident: Car, medical: HeartPulse, financial: DollarSign }
+          const evGroups = [
+            { id: 'accident', title: tx('evidence_groupAccident'), helper: tx('evidence_sectionEvidenceHelper'), items: [itemDefs.photos, itemDefs.video, itemDefs.police_report] },
+            { id: 'medical', title: tx('evidence_groupMedical'), helper: tx('evidence_sectionMedicalHelper'), items: [itemDefs.bills, itemDefs.medical_records] },
+            { id: 'financial', title: tx('evidence_groupFinancial'), helper: tx('evidence_groupFinancialHelper'), items: [itemDefs.wage_verification] },
           ]
+          const isUploaded = (cat: string) => (pendingEvidenceFiles[cat]?.length || 0) > 0
+          const weightFor = (cat: string) => evidenceStatusItems.find((it) => it.category === cat)?.weight || 0
+          const scoreDrivers = evGroups
+            .flatMap((g) => g.items)
+            .filter((it) => weightFor(it.category) > 0 && !isUploaded(it.category))
+            .sort((a, b) => weightFor(b.category) - weightFor(a.category))
+            .slice(0, 3)
+          const relativeUploadTime = (cat: string): string => {
+            const times = (pendingEvidenceFiles[cat] || [])
+              .map((f: any) => new Date(f?.createdAt || 0).getTime())
+              .filter((t: number) => t > 0)
+            if (!times.length) return ''
+            const diffMin = Math.max(0, Math.round((Date.now() - Math.max(...times)) / 60000))
+            if (diffMin < 1) return tx('evidence_justNow')
+            if (diffMin < 60) return tx('evidence_minAgo').replace('{n}', String(diffMin))
+            const diffHr = Math.round(diffMin / 60)
+            if (diffHr < 24) return tx('evidence_hrAgo').replace('{n}', String(diffHr))
+            return tx('evidence_dayAgo').replace('{n}', String(Math.round(diffHr / 24)))
+          }
+
+          // Circular readiness ring geometry.
+          const ringRadius = 34
+          const ringCirc = 2 * Math.PI * ringRadius
+          const ringOffset = ringCirc * (1 - Math.min(100, Math.max(0, evidenceCompletenessScore)) / 100)
+
+          const renderRow = (item: EvItem) => {
+            const Icon = item.icon
+            const uploaded = isUploaded(item.category)
+            const itemCount = pendingEvidenceFiles[item.category]?.length || 0
+            const managing = !!manageEvidence[item.category]
+            const setManaging = (open: boolean) => setManageEvidence((p) => ({ ...p, [item.category]: open }))
+            const rel = uploaded ? relativeUploadTime(item.category) : ''
+            const rowWarnings = evidenceWarnings[item.category]
+            return (
+              <div key={item.category} className="rounded-xl border border-slate-200 bg-white px-3 py-1 dark:border-slate-700 dark:bg-slate-900/40">
+                <div className="flex items-center gap-3">
+                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${uploaded ? 'bg-emerald-600 text-white' : 'border-2 border-slate-300 dark:border-slate-600'}`}>
+                    {uploaded && <Check className="h-3 w-3" aria-hidden />}
+                  </span>
+                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${uploaded ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'}`}>
+                    <Icon className="h-3.5 w-3.5" aria-hidden />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-slate-100">{item.title}</p>
+                    <p className="truncate text-xs text-gray-500">{item.helper}</p>
+                  </div>
+                  <div className="hidden shrink-0 text-right sm:block">
+                    {uploaded ? (
+                      <>
+                        <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">{tx('evidence_uploadedCount').replace('{count}', String(itemCount))}</p>
+                        <p className="text-[11px] text-gray-400">{rel ? tx('evidence_lastUpload').replace('{time}', rel) : tx('evidence_savedSecurely')}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs font-medium text-gray-500">{tx('evidence_notUploaded')}</p>
+                        <p className="text-[11px] text-gray-400">{tx('evidence_recommended')}</p>
+                      </>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {uploaded && (
+                      <button type="button" onClick={() => setManaging(true)} className="inline-flex !min-h-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-200">
+                        <FolderOpen className="h-3.5 w-3.5" aria-hidden /><span className="hidden sm:inline">{tx('evidence_manageShort')}</span>
+                      </button>
+                    )}
+                    <div className={uploaded ? '' : 'w-[100px]'}>
+                      <InlineEvidenceUpload
+                        assessmentId={assessmentId || undefined}
+                        category={item.category}
+                        subcategory={item.subcategory}
+                        description={item.title}
+                        initialFiles={pendingEvidenceFiles[item.category] || []}
+                        compact
+                        tightChrome
+                        hideCameraButton
+                        alwaysShowUpload={!uploaded}
+                        hideHeader
+                        hideTightSummary
+                        manageOpen={managing}
+                        onManageOpenChange={setManaging}
+                        uploadButtonLabel={tx('evidence_uploadAction')}
+                        onFilesUploaded={(f) => handleEvidenceFiles(item.category, f)}
+                        onMoveMismatch={(fileName, target) => handleMoveEvidence(item.category, target, fileName)}
+                        hideInlineWarnings
+                        onWarningsChange={(items, dismiss) => setEvidenceWarnings((prev) => ({ ...prev, [item.category]: { items, dismiss } }))}
+                      />
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" aria-hidden />
+                  </div>
+                </div>
+                {rowWarnings && rowWarnings.items.length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    {rowWarnings.items.map((warning) => (
+                      <div
+                        key={warning.fileName}
+                        className={`flex items-center gap-1.5 rounded-md border px-2 py-0 text-[12px] leading-none ${
+                          warning.status === 'relevant'
+                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200'
+                            : 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200'
+                        }`}
+                      >
+                        {warning.status === 'relevant' ? (
+                          <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden />
+                        ) : (
+                          <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+                        )}
+                        <p className="min-w-0 flex-1 truncate leading-none">
+                          <span className="font-semibold">{warning.title || warning.fileName}</span>
+                          <span className="opacity-90"> {warning.message}</span>
+                        </p>
+                        {warning.action && (
+                          <button type="button" onClick={warning.action.onClick} className="shrink-0 whitespace-nowrap px-1.5 py-0 !text-[12px] !leading-none font-semibold text-blue-700 underline-offset-2 hover:underline dark:text-blue-300">
+                            {warning.action.label}
+                          </button>
+                        )}
+                        <button type="button" onClick={() => rowWarnings.dismiss(warning.fileName)} className="shrink-0 rounded px-1.5 py-0 !text-[12px] !leading-none font-semibold text-slate-600 hover:text-slate-800 dark:text-slate-300">
+                          Dismiss
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          }
 
           return (
-            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-              <div className="shrink-0 space-y-0.5 text-center">
-                <p className="font-display text-[16px] font-semibold leading-snug text-gray-900 sm:text-[19px]">{tx('evidence_heading')}</p>
-                <p className="text-sm leading-snug text-gray-500 md:text-base">
-                  {tx('evidence_helper')}
-                </p>
-              </div>
-
-              <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
-                <section className="rounded-xl border border-brand-100 bg-brand-50/70 px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-brand-950">{tx('evidence_uploadedTitle')}</p>
-                    <p className="text-xs font-medium text-brand-700">{uploadedEvidenceCount} {tx('evidence_totalSuffix')}</p>
+            <div className="space-y-4">
+              {/* Attorney review readiness */}
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                  <div className="relative h-[88px] w-[88px] shrink-0">
+                    <svg className="h-full w-full -rotate-90" viewBox="0 0 80 80" aria-hidden>
+                      <circle cx="40" cy="40" r={ringRadius} fill="none" strokeWidth="7" className="stroke-slate-200 dark:stroke-slate-700" />
+                      <circle cx="40" cy="40" r={ringRadius} fill="none" strokeWidth="7" strokeLinecap="round" className="stroke-emerald-500" strokeDasharray={ringCirc} strokeDashoffset={ringOffset} />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="font-display text-lg font-bold leading-none text-gray-900 dark:text-slate-100">{evidenceCompletenessScore}%</span>
+                      <span className="text-[10px] font-medium text-gray-500">{tx('evidence_complete')}</span>
+                    </div>
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {evidenceStatusItems.map((item) => {
-                      const count = pendingEvidenceFiles[item.category]?.length || 0
-                      return (
-                        <span
-                          key={item.category}
-                          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                            count > 0
-                              ? 'bg-white text-emerald-700 ring-1 ring-emerald-200'
-                              : 'bg-white/70 text-gray-500 ring-1 ring-gray-200'
-                          }`}
-                        >
-                          {count > 0 ? '✓' : '○'} {item.label}{count > 0 ? ` (${count})` : ''}
-                        </span>
-                      )
-                    })}
-                  </div>
-                </section>
-
-                <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-2">
-                {sections.map((section) => {
-                  const isOpen = openEvidenceSections[section.id]
-                  const sectionCount = section.items.reduce((total, item) => total + (pendingEvidenceFiles[item.category]?.length || 0), 0)
-                  const isWideSection = section.items.length > 1
-
-                  return (
-                    <section key={section.id} className={`overflow-hidden rounded-xl border border-gray-200 bg-gray-50/60 ${isWideSection ? 'sm:col-span-2' : ''}`}>
-                      <button
-                        type="button"
-                        onClick={() => setOpenEvidenceSections((prev) => ({ ...prev, [section.id]: !prev[section.id] }))}
-                        className="flex w-full items-center justify-between gap-3 bg-white/80 px-2.5 py-1.5 text-left hover:bg-white"
-                        aria-expanded={isOpen}
-                      >
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-semibold leading-tight text-gray-950">{section.title}</p>
-                            {sectionCount > 0 && (
-                              <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-bold text-brand-800">
-                                {sectionCount}
-                              </span>
-                            )}
-                          </div>
-                          <p className="mt-0.5 line-clamp-1 text-xs leading-snug text-gray-500">{section.helper}</p>
-                        </div>
-                        <ChevronDown className={`h-4 w-4 shrink-0 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} aria-hidden />
-                      </button>
-
-                      {isOpen && (
-                        <div className={isWideSection ? 'grid grid-cols-2 gap-1.5 p-1.5 sm:grid-cols-3' : 'p-1.5'}>
-                          {section.items.map((item) => {
-                            const Icon = item.icon
-                            const itemUploaded = (pendingEvidenceFiles[item.category]?.length || 0) > 0
+                  <div className="min-w-0 flex-1">
+                    <p className="font-display text-[15px] font-semibold text-gray-900 dark:text-slate-100">{tx('evidence_readinessTitle')}</p>
+                    <p className="mt-0.5 text-xs leading-snug text-gray-500">{tx('evidence_readinessSubtitle')}</p>
+                    {scoreDrivers.length > 0 && (
+                      <>
+                        <p className="mt-3 text-xs font-semibold text-gray-700 dark:text-slate-300">{tx('evidence_topItems')}</p>
+                        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                          {scoreDrivers.map((it) => {
+                            const DriverIcon = it.icon
                             return (
-                              <div key={item.category} className="flex min-h-0 flex-col rounded-lg border border-gray-200 bg-white p-1.5 shadow-sm">
-                                <div className="flex items-center gap-1.5">
-                                  <Icon className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
-                                  <h4 className="truncate text-sm font-semibold leading-tight text-gray-900">{item.title}</h4>
+                              <div key={it.category} className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 dark:border-slate-700 dark:bg-slate-800/40">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-brand-600 shadow-sm dark:bg-slate-900"><DriverIcon className="h-3.5 w-3.5" aria-hidden /></span>
+                                  <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">+{weightFor(it.category)}%</span>
                                 </div>
-                                {!itemUploaded && (
-                                  <p className="mt-0.5 line-clamp-1 text-xs leading-snug text-gray-500">
-                                    {item.helper}
-                                  </p>
-                                )}
-                                <div className="mt-1">
-                                  <InlineEvidenceUpload
-                                    assessmentId={assessmentId || undefined}
-                                    category={item.category}
-                                    subcategory={item.subcategory}
-                                    description={item.title}
-                                    initialFiles={pendingEvidenceFiles[item.category] || []}
-                                    compact
-                                    tightChrome
-                                    hideCameraButton
-                                    alwaysShowUpload
-                                    hideHeader
-                                    uploadButtonLabel={item.button}
-                                    onFilesUploaded={(f) => handleEvidenceFiles(item.category, f)}
-                                  />
-                                </div>
+                                <p className="mt-1.5 text-xs font-semibold leading-tight text-gray-900 dark:text-slate-100">{it.title}</p>
+                                <p className="text-[11px] leading-tight text-gray-500">{it.helper}</p>
                               </div>
                             )
                           })}
                         </div>
-                      )}
-                    </section>
-                  )
-                })}
+                      </>
+                    )}
+                  </div>
                 </div>
+              </section>
+
+              {/* Grouped evidence accordions */}
+              {evGroups.map((group) => {
+                const GroupIcon = groupIcons[group.id] || FileText
+                const total = group.items.length
+                const done = group.items.filter((it) => isUploaded(it.category)).length
+                return (
+                  <details key={group.id} open className="group rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/40">
+                    <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-3 [&::-webkit-details-marker]:hidden">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/10"><GroupIcon className="h-4 w-4" aria-hidden /></span>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{group.title}</p>
+                        <p className="truncate text-xs text-gray-500">{group.helper}</p>
+                      </div>
+                      <span className="hidden shrink-0 text-xs font-medium text-gray-500 sm:inline">{tx('evidence_xOfYUploaded').replace('{done}', String(done)).replace('{total}', String(total))}</span>
+                      <ChevronDown className="h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" aria-hidden />
+                    </summary>
+                    <div className="space-y-2 border-t border-slate-200 p-3 dark:border-slate-700">
+                      {group.items.map((item) => renderRow(item))}
+                    </div>
+                  </details>
+                )
+              })}
+
+              {/* Secure footer */}
+              <div className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 dark:border-slate-700 dark:bg-slate-800/40">
+                <div className="flex items-start gap-2.5">
+                  <Lock className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('evidence_secureTitle')}</p>
+                    <p className="mt-0.5 text-xs leading-snug text-gray-500">{tx('evidence_secureBody')}</p>
+                  </div>
+                </div>
+                <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="hidden shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-brand-600 transition-colors hover:text-brand-700 sm:inline-flex">{tx('evidence_learnSecurity')}<ChevronRight className="h-3.5 w-3.5" aria-hidden /></a>
               </div>
             </div>
           )
@@ -2578,14 +3638,297 @@ export default function IntakeWizardQuick() {
           !cpFinancial.missedWork ? tx('financial_missingWork') : null,
           !icFinancial.futureMedicalRange ? tx('financial_missingFutureCare') : null,
         ].filter(Boolean)
+
+        // --- Live valuation (estimated from the ranges the user already entered) ---
+        const usd = (n: number) => '$' + Math.round(n).toLocaleString('en-US')
+        const parseMoney = (raw: string | undefined) => {
+          const n = parseFloat(String(raw ?? '').replace(/[^\d.]/g, ''))
+          return Number.isFinite(n) ? n : 0
+        }
+        const idet = formData.injuryDetails
+        const pastMedical = icFinancial.medicalBillRange === 'over_50000' && parseMoney(icFinancial.medicalBillExact) > 0
+          ? parseMoney(icFinancial.medicalBillExact)
+          : medicalBillEstimate
+        const futureMedical = futureMedicalEstimate
+        const lostWages = parseMoney(cpFinancial.lostWagesEstimate)
+        const propertyDamageMap: Record<string, number> = { minor: 1500, moderate: 4000, not_drivable: 9000, total_loss: 15000 }
+        const propertyDamage = isVehicle ? (propertyDamageMap[formData.branch.propertyDamage] || 0) : 0
+        const specials = pastMedical + futureMedical
+        const economicTotal = specials + lostWages + propertyDamage
+        const hasMRI = idet.imaging.includes('mri') || formData.medicalTreatment.includes('mri')
+        const hasSurgery = formData.medicalTreatment.includes('surgery') || idet.imaging.includes('surgery') || (idet.procedures?.some(p => p !== 'none') ?? false)
+        const hasInjections = formData.medicalTreatment.includes('injections') || idet.imaging.includes('injections')
+        const hasPT = formData.medicalTreatment.includes('physical_therapy') || formData.medicalTreatment.includes('chiropractic')
+        const hasDiagnoses = idet.diagnoses.length > 0
+        const hasOngoing = !!icFinancial.futureMedicalRange && icFinancial.futureMedicalRange !== 'none' && icFinancial.futureMedicalRange !== 'not_sure'
+        const severityMultiplierBase: Record<string, number> = { minor: 1.3, moderate: 1.8, serious: 2.4, major: 3.2, not_sure: 1.6 }
+        const painMultiplier = Math.min(5, Math.round(((severityMultiplierBase[formData.injurySeverity] || 1.6) + (hasSurgery ? 0.4 : 0) + (hasInjections ? 0.2 : 0)) * 10) / 10)
+        const nonEconomic = Math.round(specials * (painMultiplier - 1))
+        const mostLikely = economicTotal + nonEconomic
+        const roundTo = (n: number, step: number) => Math.max(step, Math.round(n / step) * step)
+        const lowEstimate = roundTo(mostLikely * 0.65, 500)
+        const highEstimate = roundTo(mostLikely * 1.4, 500)
+        const trialLow = roundTo(mostLikely * 2.2, 1000)
+        const trialHigh = roundTo(mostLikely * 4.8, 1000)
+
+        const hasPolice = !!formData.branch.policeReport
+        const hasWitnesses = !!formData.branch.witnesses
+        const sharedFault = (formData.casePosture?.faultBelief === 'shared_fault') || (formData.branch.faultParty === 'shared')
+
+        const dvConfidenceFactors: { label: string; status: 'included' | 'partial' | 'missing' }[] = [
+          { label: tx('dv_factorMedRecords'), status: idet.bodyParts.length > 0 ? 'included' : 'missing' },
+          { label: tx('dv_factorTreatmentHistory'), status: formData.medicalTreatment.length > 0 ? 'included' : 'missing' },
+          { label: tx('dv_factorMedBills'), status: (icFinancial.medicalBillRange && icFinancial.medicalBillRange !== 'not_sure') ? 'included' : 'missing' },
+          { label: tx('dv_factorPoliceReport'), status: hasPolice ? 'included' : (isVehicle ? 'missing' : 'partial') },
+          { label: tx('dv_factorWitness'), status: hasWitnesses ? 'included' : 'missing' },
+          { label: tx('dv_factorEmployment'), status: (cpFinancial.missedWork && cpFinancial.missedWork !== 'no') ? (cpFinancial.lostWagesRange ? 'included' : 'partial') : 'missing' },
+        ]
+        const confScore = Math.round(dvConfidenceFactors.reduce((acc, f) => acc + (f.status === 'included' ? 1 : f.status === 'partial' ? 0.5 : 0), 0) / dvConfidenceFactors.length * 100)
+        const confLabel = confScore >= 78 ? tx('dv_confHigh') : confScore >= 52 ? tx('dv_confMedium') : tx('dv_confLow')
+        const readinessNow = Math.min(95, Math.round(confScore * 0.85 + 12))
+        const readinessPotential = Math.min(98, readinessNow + 7)
+
+        const increasingFactors = [
+          hasMRI && tx('dv_incMRI'),
+          hasOngoing && tx('dv_incOngoing'),
+          hasDiagnoses && tx('dv_incDiagnosis'),
+          hasPT && tx('dv_incPT'),
+          hasSurgery && tx('dv_incSurgery'),
+          hasInjections && tx('dv_incInjections'),
+          hasPolice && tx('dv_incPolice'),
+          hasWitnesses && tx('dv_incWitnesses'),
+        ].filter(Boolean) as string[]
+        const reducingFactors = [
+          (isVehicle && !hasPolice) && tx('dv_redPolice'),
+          (!icFinancial.medicalBillRange || icFinancial.medicalBillRange === 'not_sure') && tx('dv_redBills'),
+          sharedFault && tx('dv_redShared'),
+          !hasWitnesses && tx('dv_redWitness'),
+          !hasMRI && tx('dv_redImaging'),
+          (!cpFinancial.missedWork || cpFinancial.missedWork === 'no') && tx('dv_redWage'),
+        ].filter(Boolean) as string[]
+        const increaseValueItems = [
+          (!icFinancial.medicalBillRange || icFinancial.medicalBillRange === 'not_sure') ? { label: tx('dv_addBills'), impact: '+$3,000' } : null,
+          (isVehicle && !hasPolice) ? { label: tx('dv_addPolice'), impact: '+10%' } : null,
+          (cpFinancial.missedWork && cpFinancial.missedWork !== 'no' && !cpFinancial.lostWagesRange) ? { label: tx('dv_addWage'), impact: '+$2,000' } : null,
+          !hasMRI ? { label: tx('dv_addMRI'), impact: '+5%' } : null,
+          !hasWitnesses ? { label: tx('dv_addWitness'), impact: '+8%' } : null,
+        ].filter(Boolean) as { label: string; impact: string }[]
+
+        const breakdownRows = [
+          { label: tx('dv_brMedical'), value: pastMedical },
+          { label: tx('dv_brFuture'), value: futureMedical },
+          { label: tx('dv_brWages'), value: lostWages },
+          { label: tx('dv_brProperty'), value: propertyDamage },
+        ].filter(r => r.value > 0)
+
+        const compMedianMap: Record<string, number> = { vehicle: 42000, slip_fall: 38000, workplace: 46000, medmal: 120000, dog_bite: 34000, product: 62000, toxic: 78000, assault: 54000, other: 31000 }
+        const compMedian = compMedianMap[formData.injuryType] || 38000
+        const compP25 = Math.round(compMedian * 0.55)
+        const compP75 = Math.round(compMedian * 1.85)
+        const timelineMonths = hasSurgery ? '12 – 24' : economicTotal > 30000 ? '9 – 18' : '7 – 14'
+        const dvHasValue = mostLikely > 0
+        const ringPct = Math.max(4, Math.min(100, confScore))
+        const ringCirc = 2 * Math.PI * 34
+
         return (
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div className="text-center">
-              <p className="font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{tx('financial_heading')}</p>
-              <p className="text-xs leading-5 text-gray-500">
-                {tx('financial_helper')}
-              </p>
+              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-slate-100 sm:text-xl">{tx('dv_title')}</h2>
+              <p className="mt-0.5 text-xs leading-5 text-slate-500">{tx('dv_subtitle')}</p>
             </div>
+
+            {dvHasValue ? (
+              <>
+                {/* Top metric cards */}
+                <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr_1fr]">
+                  {/* Estimated case value */}
+                  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{tx('dv_estValue')}</p>
+                    <div className="mt-2 flex items-end justify-between gap-2">
+                      <div className="text-center">
+                        <p className="text-[10px] text-slate-400">{tx('dv_low')}</p>
+                        <p className="text-sm font-semibold text-slate-600">{usd(lowEstimate)}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="flex items-center justify-center gap-1 text-[10px] font-semibold text-emerald-600"><Star className="h-3 w-3" aria-hidden /> {tx('dv_mostLikely')}</p>
+                        <p className="font-display text-2xl font-bold text-emerald-600 sm:text-3xl">{usd(mostLikely)}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[10px] text-slate-400">{tx('dv_high')}</p>
+                        <p className="text-sm font-semibold text-slate-600">{usd(highEstimate)}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
+                      <div className="relative h-1.5 flex-1 rounded-full bg-slate-200">
+                        <span className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-emerald-500 shadow" style={{ left: '50%' }} aria-hidden />
+                      </div>
+                    </div>
+                    <p className="mt-3 rounded-lg bg-emerald-50 px-2 py-1.5 text-center text-[11px] leading-snug text-emerald-700">{tx('dv_rangeNote')}</p>
+                  </section>
+
+                  {/* Confidence */}
+                  <section className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{tx('dv_confTitle')}</p>
+                    <div className="relative mx-auto mt-2 h-20 w-20">
+                      <svg viewBox="0 0 80 80" className="h-20 w-20 -rotate-90">
+                        <circle cx="40" cy="40" r="34" fill="none" stroke="#e2e8f0" strokeWidth="7" />
+                        <circle cx="40" cy="40" r="34" fill="none" stroke="#059669" strokeWidth="7" strokeLinecap="round" strokeDasharray={ringCirc} strokeDashoffset={ringCirc * (1 - ringPct / 100)} />
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="font-display text-xl font-bold text-slate-900">{confScore}</span>
+                        <span className="text-[9px] text-slate-400">/100</span>
+                      </div>
+                    </div>
+                    <p className="mt-1 text-xs font-semibold text-emerald-600">{confLabel}</p>
+                    <p className="mt-0.5 text-[10px] leading-snug text-slate-400">{tx('dv_confSub')}</p>
+                  </section>
+
+                  {/* Attorney readiness */}
+                  <section className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{tx('dv_attorneyReadiness')}</p>
+                    <p className="mt-2 text-[10px] text-slate-500">{tx('dv_currentLikelihood')}</p>
+                    <p className="font-display text-2xl font-bold text-brand-600">{readinessNow}%</p>
+                    <p className="mt-1 text-[10px] text-slate-500">{tx('dv_afterAdding')}</p>
+                    <p className="flex items-center justify-center gap-1 text-sm font-bold text-emerald-600"><TrendingUp className="h-3.5 w-3.5" aria-hidden /> {readinessPotential}%</p>
+                    <p className="mt-1 text-[10px] leading-snug text-slate-400">{tx('dv_readinessNote')}</p>
+                  </section>
+                </div>
+
+                {/* Factor columns */}
+                <div className="grid gap-3 lg:grid-cols-3">
+                  <section className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
+                    <p className="flex items-center gap-1.5 text-sm font-semibold text-emerald-700"><TrendingUp className="h-4 w-4" aria-hidden /> {tx('dv_increasingTitle')}</p>
+                    <ul className="mt-2 space-y-1.5">
+                      {increasingFactors.slice(0, 4).map(f => (
+                        <li key={f} className="flex items-start gap-2 text-xs text-slate-700"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden />{f}</li>
+                      ))}
+                      {increasingFactors.length === 0 && <li className="text-xs text-slate-400">{tx('dv_noneYet')}</li>}
+                    </ul>
+                    {increasingFactors.length > 4 && <p className="mt-2 text-[11px] font-semibold text-emerald-600">{tx('dv_viewAllPositive').replace('{n}', String(increasingFactors.length))}</p>}
+                  </section>
+
+                  <section className="rounded-2xl border border-rose-100 bg-white p-4 shadow-sm">
+                    <p className="flex items-center gap-1.5 text-sm font-semibold text-rose-700"><AlertTriangle className="h-4 w-4" aria-hidden /> {tx('dv_reducingTitle')}</p>
+                    <ul className="mt-2 space-y-1.5">
+                      {reducingFactors.slice(0, 4).map(f => (
+                        <li key={f} className="flex items-start gap-2 text-xs text-slate-700"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-400" aria-hidden />{f}</li>
+                      ))}
+                      {reducingFactors.length === 0 && <li className="text-xs text-slate-400">{tx('dv_noneYet')}</li>}
+                    </ul>
+                    {reducingFactors.length > 4 && <p className="mt-2 text-[11px] font-semibold text-rose-600">{tx('dv_viewAllRisk').replace('{n}', String(reducingFactors.length))}</p>}
+                  </section>
+
+                  <section className="rounded-2xl border border-brand-100 bg-white p-4 shadow-sm">
+                    <p className="flex items-center gap-1.5 text-sm font-semibold text-brand-700"><Sparkles className="h-4 w-4" aria-hidden /> {tx('dv_increaseTitle')}</p>
+                    <ul className="mt-2 space-y-1.5">
+                      {increaseValueItems.slice(0, 4).map(item => (
+                        <li key={item.label} className="flex items-center justify-between gap-2 text-xs text-slate-700">
+                          <span className="flex items-start gap-2"><FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-500" aria-hidden />{item.label}</span>
+                          <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">{item.impact}</span>
+                        </li>
+                      ))}
+                      {increaseValueItems.length === 0 && <li className="text-xs text-slate-400">{tx('dv_wellDocumented')}</li>}
+                    </ul>
+                  </section>
+                </div>
+
+                {/* Breakdown + settlement vs trial */}
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <p className="font-display text-sm font-semibold text-slate-900">{tx('dv_breakdownTitle')}</p>
+                    <div className="mt-3 space-y-2">
+                      {breakdownRows.map(r => (
+                        <div key={r.label} className="flex items-center justify-between text-xs"><span className="text-slate-600">{r.label}</span><span className="font-semibold text-slate-900">{usd(r.value)}</span></div>
+                      ))}
+                      <div className="flex items-center justify-between rounded-lg bg-brand-50 px-2 py-1.5 text-xs"><span className="font-medium text-brand-800">{tx('dv_brPainSuffering')}</span><span className="font-bold text-brand-700">{painMultiplier.toFixed(1)}x</span></div>
+                      <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm"><span className="font-semibold text-slate-900">{tx('dv_brTotal')}</span><span className="font-display font-bold text-emerald-600">{usd(mostLikely)}</span></div>
+                    </div>
+                  </section>
+
+                  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <p className="font-display text-sm font-semibold text-slate-900">{tx('dv_settleVsTrial')}</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 text-center">
+                        <Scale className="mx-auto h-4 w-4 text-emerald-600" aria-hidden />
+                        <p className="mt-1 text-[11px] font-medium text-slate-600">{tx('dv_settlementValue')}</p>
+                        <p className="mt-1 text-xs font-bold text-emerald-700">{usd(lowEstimate)} – {usd(highEstimate)}</p>
+                      </div>
+                      <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-3 text-center">
+                        <Landmark className="mx-auto h-4 w-4 text-violet-600" aria-hidden />
+                        <p className="mt-1 text-[11px] font-medium text-slate-600">{tx('dv_trialValue')}</p>
+                        <p className="mt-1 text-xs font-bold text-violet-700">{usd(trialLow)} – {usd(trialHigh)}</p>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-[11px] leading-snug text-slate-500">{tx('dv_settleNote')}</p>
+                  </section>
+                </div>
+
+                {/* Confidence factors + comparables + timeline */}
+                <div className="grid gap-3 lg:grid-cols-3">
+                  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <p className="font-display text-sm font-semibold text-slate-900">{tx('dv_confFactorsTitle')}</p>
+                    <ul className="mt-3 space-y-2">
+                      {dvConfidenceFactors.map(f => {
+                        const width = f.status === 'included' ? '100%' : f.status === 'partial' ? '55%' : '18%'
+                        const barColor = f.status === 'included' ? 'bg-emerald-500' : f.status === 'partial' ? 'bg-amber-400' : 'bg-rose-400'
+                        const tagColor = f.status === 'included' ? 'text-emerald-600' : f.status === 'partial' ? 'text-amber-600' : 'text-rose-500'
+                        const tagText = f.status === 'included' ? tx('dv_included') : f.status === 'partial' ? tx('dv_partial') : tx('dv_missing')
+                        return (
+                          <li key={f.label} className="space-y-1">
+                            <div className="flex items-center justify-between text-[11px]"><span className="text-slate-600">{f.label}</span><span className={`font-semibold ${tagColor}`}>{tagText}</span></div>
+                            <div className="h-1.5 rounded-full bg-slate-200"><div className={`h-full rounded-full ${barColor}`} style={{ width }} /></div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </section>
+
+                  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <p className="font-display text-sm font-semibold text-slate-900">{tx('dv_compTitle')}</p>
+                    <p className="mt-2 font-display text-xl font-bold text-slate-900">{usd(compMedian)}</p>
+                    <p className="text-[11px] text-slate-500">{tx('dv_compMedianLabel')}</p>
+                    <div className="mt-3 grid grid-cols-3 gap-1 text-center text-[10px]">
+                      <div><p className="text-slate-400">25th</p><p className="font-semibold text-slate-700">{usd(compP25)}</p></div>
+                      <div><p className="text-slate-400">{tx('dv_median')}</p><p className="font-semibold text-slate-700">{usd(compMedian)}</p></div>
+                      <div><p className="text-slate-400">75th</p><p className="font-semibold text-slate-700">{usd(compP75)}</p></div>
+                    </div>
+                    <p className="mt-2 text-[10px] leading-snug text-slate-400">{tx('dv_compNote')}</p>
+                  </section>
+
+                  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <p className="font-display text-sm font-semibold text-slate-900">{tx('dv_timelineTitle')}</p>
+                    <ol className="mt-3 space-y-2">
+                      {[tx('dv_tl1'), tx('dv_tl2'), tx('dv_tl3'), tx('dv_tl4'), tx('dv_tl5')].map((s, i) => (
+                        <li key={i} className="flex items-center gap-2 text-[11px] text-slate-600"><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[9px] font-bold text-brand-700">{i + 1}</span>{s}</li>
+                      ))}
+                    </ol>
+                    <div className="mt-3 rounded-xl bg-brand-50 p-2 text-center">
+                      <p className="text-[10px] text-slate-500">{tx('dv_estTimeline')}</p>
+                      <p className="font-display text-base font-bold text-brand-700">{timelineMonths} {tx('dv_months')}</p>
+                    </div>
+                  </section>
+                </div>
+
+                {/* How we calculated */}
+                <details className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-xs font-semibold text-slate-700">
+                    <span className="flex items-center gap-2"><Info className="h-4 w-4 text-brand-600" aria-hidden /> {tx('dv_howCalcTitle')}</span>
+                    <ChevronDown className="h-4 w-4 text-slate-400" aria-hidden />
+                  </summary>
+                  <p className="border-t border-slate-200 px-4 py-3 text-[11px] leading-5 text-slate-500">{tx('dv_howCalcBody')}</p>
+                </details>
+              </>
+            ) : (
+              <p className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-xs leading-5 text-slate-500">{tx('dv_emptyHint')}</p>
+            )}
+
+            {/* Edit your damage details (inputs) */}
+            <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm" open={!dvHasValue}>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-semibold text-slate-800">
+                <span className="flex items-center gap-2"><Pencil className="h-4 w-4 text-brand-600" aria-hidden /> {tx('dv_editInputs')}</span>
+                <ChevronDown className="h-4 w-4 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
+              </summary>
+              <div className="space-y-3 border-t border-slate-200 p-4">
 
             <section className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3 text-emerald-950 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2675,9 +4018,10 @@ export default function IntakeWizardQuick() {
                       type="button"
                       aria-pressed={icFinancial.futureMedicalRange === value}
                       onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, futureMedicalRange: icFinancial.futureMedicalRange === value ? '' : value } })}
-                      className={`rounded-lg border-[1.5px] px-3 py-2 text-left text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${icFinancial.futureMedicalRange === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
+                      className={`flex items-center gap-2 rounded-lg border-[1.5px] px-3 py-2 text-left text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${icFinancial.futureMedicalRange === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                     >
-                      {label}
+                      <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${icFinancial.futureMedicalRange === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent'}`}>✓</span>
+                      <span>{label}</span>
                     </button>
                   ))}
                 </div>
@@ -2732,9 +4076,10 @@ export default function IntakeWizardQuick() {
                               }
                             }))
                           }}
-                          className={`rounded-lg border-[1.5px] px-3 py-2 text-left text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpFinancial.lostWagesRange === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
+                          className={`flex items-center gap-2 rounded-lg border-[1.5px] px-3 py-2 text-left text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpFinancial.lostWagesRange === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                         >
-                          {label}
+                          <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${cpFinancial.lostWagesRange === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent'}`}>✓</span>
+                          <span>{label}</span>
                         </button>
                       ))}
                     </div>
@@ -2743,6 +4088,8 @@ export default function IntakeWizardQuick() {
 
               </section>
             </div>
+              </div>
+            </details>
           </div>
         )
       }
@@ -2758,11 +4105,6 @@ export default function IntakeWizardQuick() {
               : cpLegal.insuranceContact === 'no'
                 ? 'no'
                 : ''
-        const insurerContactOptions = [
-          { value: 'no', label: tx('optionNo') },
-          { value: 'contact_only', label: tx('legal_contactNoOffer') },
-          { value: 'offer', label: tx('legal_contactWithOffer') },
-        ]
         const setInsurerContact = (value: string) => {
           const isToggleOff = insurerContactValue === value
           setFormData(prev => ({
@@ -2786,252 +4128,308 @@ export default function IntakeWizardQuick() {
                 : tx('fault_otherPartyGeneric')
           return { ...option, label }
         })
+        // Insurance & legal status — redesigned two-card layout with icon choices.
+        const faultIconFor = (value: string): LucideIcon =>
+          value === 'shared_fault' ? Users : value === 'not_sure' ? HelpCircle : isVehicle ? Car : Users
+        const renderChoice = (
+          active: boolean,
+          onClick: () => void,
+          Icon: LucideIcon,
+          label: string,
+          opts?: { tone?: 'emerald' | 'amber' | 'red'; stack?: boolean; key?: string }
+        ) => {
+          const iconColor = active
+            ? 'text-brand-700'
+            : opts?.tone === 'emerald'
+              ? 'text-emerald-600'
+              : opts?.tone === 'amber'
+                ? 'text-amber-500'
+                : opts?.tone === 'red'
+                  ? 'text-rose-500'
+                  : 'text-slate-400'
+          return (
+            <button
+              key={opts?.key}
+              type="button"
+              aria-pressed={active}
+              onClick={onClick}
+              className={`relative flex ${opts?.stack ? 'flex-col items-center gap-1.5 text-center' : 'items-center gap-2'} rounded-xl border-[1.5px] px-3 py-2.5 text-xs font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${active ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
+            >
+              {active && <Check className="absolute right-1.5 top-1.5 h-3.5 w-3.5 text-brand-600" aria-hidden />}
+              <Icon className={`h-4 w-4 shrink-0 ${iconColor}`} aria-hidden />
+              <span>{label}</span>
+            </button>
+          )
+        }
+        const detailCard = (
+          active: boolean,
+          onClick: () => void,
+          Icon: LucideIcon,
+          title: string,
+          subtitle: string,
+          iconWrap: string,
+          key?: string
+        ) => (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={active}
+            onClick={onClick}
+            className={`flex items-center gap-2.5 rounded-xl border-[1.5px] px-3 py-2.5 text-left shadow-sm transition-all active:scale-[0.99] ${active ? 'border-brand-600 bg-brand-50 shadow' : 'border-gray-200 bg-white hover:border-brand-400 hover:bg-brand-50/40 hover:shadow-md'}`}
+          >
+            <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${active ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white'}`}>
+              {active && <Check className="h-3.5 w-3.5" aria-hidden />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-semibold leading-tight text-slate-900">{title}</span>
+              <span className="block text-[11px] leading-4 text-slate-500">{subtitle}</span>
+            </span>
+            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${iconWrap}`}><Icon className="h-4 w-4" aria-hidden /></span>
+          </button>
+        )
+        const coverageMeta: Record<string, { Icon: LucideIcon; sub: string; wrap: string }> = {
+          state_minimum: { Icon: Landmark, sub: tx('coverage_stateMinimum_sub'), wrap: 'bg-violet-100 text-violet-600' },
+          '50000': { Icon: DollarSign, sub: tx('coverage_50k_sub'), wrap: 'bg-emerald-100 text-emerald-600' },
+          '100000': { Icon: Shield, sub: tx('coverage_100k_sub'), wrap: 'bg-emerald-100 text-emerald-600' },
+          commercial_policy: { Icon: Briefcase, sub: tx('coverage_commercial_sub'), wrap: 'bg-blue-100 text-blue-600' },
+          umbrella_policy: { Icon: Umbrella, sub: tx('coverage_umbrella_sub'), wrap: 'bg-violet-100 text-violet-600' },
+          not_sure: { Icon: HelpCircle, sub: tx('coverage_notSure_sub'), wrap: 'bg-slate-100 text-slate-500' },
+        }
+        const umUimMeta: Record<string, { Icon: LucideIcon; sub: string; wrap: string }> = {
+          yes: { Icon: ShieldCheck, sub: tx('umuim_yes_sub'), wrap: 'bg-blue-100 text-blue-600' },
+          no: { Icon: XCircle, sub: tx('umuim_no_sub'), wrap: 'bg-rose-100 text-rose-500' },
+          not_sure: { Icon: HelpCircle, sub: tx('umuim_notSure_sub'), wrap: 'bg-slate-100 text-slate-500' },
+        }
         return (
           <div className="space-y-3">
-            <div className="text-center">
+            <div className="flex items-center justify-center gap-2 text-center">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
               <p className="font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{tx('legal_heading')}</p>
-              <p className="text-xs leading-5 text-gray-500">
-                {tx('legal_helper')}
-              </p>
             </div>
+            <p className="text-center text-xs leading-5 text-gray-500">{tx('legal_helper')}</p>
 
-            <div className="grid gap-3">
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <h3 className="font-display text-sm font-semibold text-slate-950">{tx('legal_caseReview')}</h3>
-                <p className="mt-1 text-xs leading-5 text-slate-500">{tx('legal_caseReviewHelper')}</p>
-
-                <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_responsibleQuestion')}</p>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                      {liabilityOptionsForClaim.map(({ value, label }) => (
-                        <button
-                          key={value}
-                          type="button"
-                          aria-pressed={cpLegal.faultBelief === value}
-                          onClick={() => setCasePostureField('faultBelief', value)}
-                          className={`rounded-lg border-[1.5px] px-3 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.faultBelief === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-
-                    <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_partialFaultQuestion')}</p>
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      {[
-                        { value: 'no', label: tx('optionNo') },
-                        { value: 'possibly', label: tx('optionPossibly') },
-                        { value: 'yes', label: tx('optionYes') },
-                      ].map(({ value, label }) => (
-                        <button
-                          key={value}
-                          type="button"
-                          aria-pressed={cpLegal.comparativeFault === value}
-                          onClick={() => setCasePostureField('comparativeFault', value)}
-                          className={`rounded-lg border-[1.5px] px-3 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.comparativeFault === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <section className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700"><Users className="h-5 w-5" aria-hidden /></span>
+                  <div className="min-w-0">
+                    <h3 className="font-display text-sm font-semibold text-slate-950">{tx('legal_caseReview')}</h3>
+                    <p className="text-xs leading-5 text-slate-500">{tx('legal_caseReviewHelper')}</p>
                   </div>
+                </div>
 
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_insuranceStatus')}</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">{tx('legal_insurerContactQuestion')}</p>
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      {insurerContactOptions.map(({ value, label }) => (
-                        <button
-                          key={value}
-                          type="button"
-                          aria-pressed={insurerContactValue === value}
-                          onClick={() => setInsurerContact(value)}
-                          className={`rounded-lg border-[1.5px] px-3 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${insurerContactValue === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_responsibleQuestion')}</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {liabilityOptionsForClaim.map(({ value, label }) =>
+                    renderChoice(cpLegal.faultBelief === value, () => setCasePostureField('faultBelief', value), faultIconFor(value), label, { stack: true, key: value })
+                  )}
+                </div>
 
-                    {insurerContactValue === 'offer' && (
-                      <div className="mt-3 rounded-lg border border-brand-100 bg-brand-50/50 p-2">
-                        <p className="font-display text-xs font-semibold text-slate-950">{tx('legal_offerAmountQuestion')}</p>
-                        <div className="mt-2 grid grid-cols-2 gap-2">
-                          {SETTLEMENT_OFFER_OPTIONS.filter((option) => option.value !== 'no').map(({ value, label }) => (
-                            <button
-                              key={value}
-                              type="button"
-                              aria-pressed={cpLegal.settlementOffer === value}
-                              onClick={() => setCasePostureField('settlementOffer', value)}
-                              className={`rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_partialFaultQuestion')}</p>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {renderChoice(cpLegal.comparativeFault === 'no', () => setCasePostureField('comparativeFault', 'no'), CheckCircle2, tx('optionNo'), { tone: 'emerald', stack: true })}
+                  {renderChoice(cpLegal.comparativeFault === 'possibly', () => setCasePostureField('comparativeFault', 'possibly'), HelpCircle, tx('optionPossibly'), { tone: 'amber', stack: true })}
+                  {renderChoice(cpLegal.comparativeFault === 'yes', () => setCasePostureField('comparativeFault', 'yes'), XCircle, tx('optionYes'), { tone: 'red', stack: true })}
+                </div>
 
-                    <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_attorneyQuestion')}</p>
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      {ATTORNEY_STATUS_OPTIONS.map(({ value, label }) => (
-                        <button
-                          key={value}
-                          type="button"
-                          aria-pressed={cpLegal.attorneyStatus === value}
-                          onClick={() => {
-                            setFormData(prev => ({
-                              ...prev,
-                              casePosture: {
-                                ...prev.casePosture,
-                                attorneyStatus: prev.casePosture.attorneyStatus === value ? '' : value,
-                                ...(value !== 'hired' ? { attorneyName: '', secondOpinionInterest: '' } : {})
-                              }
-                            }))
-                          }}
-                          className={`rounded-lg border-[1.5px] px-3 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.attorneyStatus === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-
-                    <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_acceptedQuestion')}</p>
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      {[
-                        { value: 'no', label: tx('optionNo') },
-                        { value: 'yes', label: tx('optionYes') },
-                        { value: 'not_sure', label: tx('optionNotSure') },
-                      ].map(({ value, label }) => (
-                        <button
-                          key={value}
-                          type="button"
-                          aria-pressed={cpLegal.acceptedSettlement === value}
-                          onClick={() => {
-                            setFormData(prev => ({
-                              ...prev,
-                              casePosture: {
-                                ...prev.casePosture,
-                                acceptedSettlement: prev.casePosture.acceptedSettlement === value ? '' : value,
-                                ...(value !== 'yes' ? { acceptedSettlementAmount: '' } : {})
-                              }
-                            }))
-                          }}
-                          className={`rounded-lg border-[1.5px] px-3 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.acceptedSettlement === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {cpLegal.acceptedSettlement === 'yes' && (
-                      <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
-                        <p className="text-sm font-semibold">{tx('legal_settledTitle')}</p>
-                        <p className="mt-1 text-xs leading-5">⚠ {tx('legal_settledWarning')}</p>
-                      </div>
-                    )}
-                  </div>
+                <div className="mt-4 flex items-start gap-2 rounded-xl bg-blue-50 px-3 py-2 text-[11px] leading-5 text-blue-800">
+                  <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span>{tx('legal_whyLiability')}</span>
                 </div>
               </section>
 
-              <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <summary className="cursor-pointer font-display text-sm font-semibold text-slate-950">
-                  {tx('legal_insuranceDetails')}
-                </summary>
-                <p className="mt-2 text-xs leading-5 text-slate-500">{tx('legal_vehicleInsuranceHelper')}</p>
-                <div className="mt-4 space-y-4">
-                  <div>
-                    <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_coverageLimitsQuestion')}</p>
-                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {DEFENDANT_COVERAGE_OPTIONS.map(({ value, label }) => (
+              <section className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700"><ShieldCheck className="h-5 w-5" aria-hidden /></span>
+                  <div className="min-w-0">
+                    <h3 className="font-display text-sm font-semibold text-slate-950">{tx('legal_insuranceStatus')}</h3>
+                    <p className="text-xs leading-5 text-slate-500">{tx('legal_insuranceStatusHelper')}</p>
+                  </div>
+                </div>
+
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_insurerContactQuestion')}</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {renderChoice(insurerContactValue === 'no', () => setInsurerContact('no'), Phone, tx('optionNo'))}
+                  {renderChoice(insurerContactValue === 'contact_only', () => setInsurerContact('contact_only'), Clock, tx('legal_contactNoOffer'))}
+                  {renderChoice(insurerContactValue === 'offer', () => setInsurerContact('offer'), ClipboardCheck, tx('legal_contactWithOffer'))}
+                </div>
+
+                {insurerContactValue === 'offer' && (
+                  <div className="mt-3 rounded-xl border border-brand-100 bg-brand-50/50 p-2">
+                    <p className="font-display text-xs font-semibold text-slate-950">{tx('legal_offerAmountQuestion')}</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {SETTLEMENT_OFFER_OPTIONS.filter((option) => option.value !== 'no').map(({ value, label }) => (
                         <button
                           key={value}
                           type="button"
-                          aria-pressed={icLegal.defendantCoverageLimits === value}
-                          onClick={() => updateForm({ insuranceCoverage: { ...icLegal, defendantCoverageLimits: icLegal.defendantCoverageLimits === value ? '' : value } })}
-                          className={`rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${icLegal.defendantCoverageLimits === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
+                          aria-pressed={cpLegal.settlementOffer === value}
+                          onClick={() => setCasePostureField('settlementOffer', value)}
+                          className={`flex items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                         >
-                          {label}
+                          <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent'}`}>✓</span>
+                          <span>{label}</span>
                         </button>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_attorneyQuestion')}</p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {ATTORNEY_STATUS_OPTIONS.map(({ value, label }) =>
+                    renderChoice(
+                      cpLegal.attorneyStatus === value,
+                      () => {
+                        setFormData(prev => ({
+                          ...prev,
+                          casePosture: {
+                            ...prev.casePosture,
+                            attorneyStatus: prev.casePosture.attorneyStatus === value ? '' : value,
+                            ...(value !== 'hired' ? { attorneyName: '', secondOpinionInterest: '' } : {})
+                          }
+                        }))
+                      },
+                      value === 'hired' ? User : UserX,
+                      label,
+                      { key: value }
+                    )
+                  )}
+                </div>
+
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_acceptedQuestion')}</p>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {([
+                    { value: 'no', label: tx('optionNo'), Icon: CheckCircle2, tone: 'emerald' as const },
+                    { value: 'yes', label: tx('optionYes'), Icon: CheckCircle2, tone: 'amber' as const },
+                    { value: 'not_sure', label: tx('optionNotSure'), Icon: HelpCircle, tone: undefined },
+                  ]).map(({ value, label, Icon, tone }) =>
+                    renderChoice(
+                      cpLegal.acceptedSettlement === value,
+                      () => {
+                        setFormData(prev => ({
+                          ...prev,
+                          casePosture: {
+                            ...prev.casePosture,
+                            acceptedSettlement: prev.casePosture.acceptedSettlement === value ? '' : value,
+                            ...(value !== 'yes' ? { acceptedSettlementAmount: '' } : {})
+                          }
+                        }))
+                      },
+                      Icon,
+                      label,
+                      { tone, key: value }
+                    )
+                  )}
+                </div>
+
+                {cpLegal.acceptedSettlement === 'yes' && (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                    <p className="text-sm font-semibold">{tx('legal_settledTitle')}</p>
+                    <p className="mt-1 text-xs leading-5">⚠ {tx('legal_settledWarning')}</p>
+                  </div>
+                )}
+
+                <div className="mt-4 flex items-start gap-2 rounded-xl bg-violet-50 px-3 py-2 text-[11px] leading-5 text-violet-800">
+                  <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span>{tx('legal_whyInsurance')}</span>
+                </div>
+              </section>
+            </div>
+
+            <details className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <summary className="flex cursor-pointer list-none items-center gap-3 [&::-webkit-details-marker]:hidden">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600"><ShieldCheck className="h-5 w-5" aria-hidden /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-display text-sm font-semibold text-slate-950">{tx('legal_insuranceDetails')}</span>
+                    <span className="block text-xs leading-5 text-slate-500">{tx('legal_insuranceDetailsSubtitle')}</span>
+                  </span>
+                  <ChevronDown className="h-5 w-5 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
+                </summary>
+                <div className="mt-4 space-y-5">
+                  <div className="border-t border-slate-100 pt-4">
+                    <div className="flex items-center gap-2">
+                      <Umbrella className="h-4 w-4 shrink-0 text-violet-500" aria-hidden />
+                      <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_coverageLimitsQuestion')}</p>
+                    </div>
+                    <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_coverageLimitsHelper')}</p>
+                    <div className="mt-3 grid gap-3 lg:grid-cols-4">
+                      <div className="grid gap-2 sm:grid-cols-2 lg:col-span-3 lg:grid-cols-3">
+                        {DEFENDANT_COVERAGE_OPTIONS.map(({ value, label }) => {
+                          const meta = coverageMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
+                          return detailCard(
+                            icLegal.defendantCoverageLimits === value,
+                            () => updateForm({ insuranceCoverage: { ...icLegal, defendantCoverageLimits: icLegal.defendantCoverageLimits === value ? '' : value } }),
+                            meta.Icon,
+                            label,
+                            meta.sub,
+                            meta.wrap,
+                            value
+                          )
+                        })}
+                      </div>
+                      <div className="flex flex-col justify-center rounded-xl bg-indigo-50 p-3 lg:col-span-1">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-700">
+                          <Lightbulb className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whyMattersTitle')}
+                        </div>
+                        <p className="mt-1.5 text-[11px] leading-4 text-indigo-800/90">{tx('legal_whyLimits')}</p>
+                      </div>
                     </div>
                   </div>
 
                   {isVehicle && (
-                    <div>
-                      <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_umUimQuestion')}</p>
-                      <p className="mt-1 text-xs leading-5 text-slate-500">{tx('legal_umUimHelper')}</p>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                        {UM_UIM_OPTIONS.map(({ value, label }) => (
-                          <button
-                            key={value}
-                            type="button"
-                            aria-pressed={icLegal.umUimCoverage === value}
-                            onClick={() => updateForm({ insuranceCoverage: { ...icLegal, umUimCoverage: icLegal.umUimCoverage === value ? '' : value } })}
-                            className={`rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${icLegal.umUimCoverage === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-                          >
-                            {label}
-                          </button>
-                        ))}
+                    <div className="border-t border-slate-100 pt-4">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4 shrink-0 text-blue-500" aria-hidden />
+                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_umUimQuestion')}</p>
+                      </div>
+                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_umUimHelper')}</p>
+                      <div className="mt-3 grid gap-3 lg:grid-cols-4">
+                        <div className="grid gap-2 sm:grid-cols-3 lg:col-span-3">
+                          {UM_UIM_OPTIONS.map(({ value, label }) => {
+                            const meta = umUimMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
+                            return detailCard(
+                              icLegal.umUimCoverage === value,
+                              () => updateForm({ insuranceCoverage: { ...icLegal, umUimCoverage: icLegal.umUimCoverage === value ? '' : value } }),
+                              meta.Icon,
+                              label,
+                              meta.sub,
+                              meta.wrap,
+                              value
+                            )
+                          })}
+                        </div>
+                        <div className="flex flex-col justify-center rounded-xl bg-blue-50 p-3 lg:col-span-1">
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-700">
+                            <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whatUmUimTitle')}
+                          </div>
+                          <p className="mt-1.5 text-[11px] leading-4 text-blue-800/90">{tx('legal_whatUmUim')}</p>
+                        </div>
                       </div>
                     </div>
                   )}
+
+                  <div className="flex flex-col gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="flex items-start gap-2 text-[11px] leading-4 text-slate-600">
+                      <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                      <span>{tx('legal_policyNote')}</span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={(e) => { const d = e.currentTarget.closest('details'); if (d) d.open = false }}
+                      className="inline-flex shrink-0 items-center gap-1 self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 sm:self-auto"
+                    >
+                      {tx('legal_addDetailsLater')} <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </div>
+
+                  <p className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
+                    <Lock className="h-3 w-3 shrink-0" aria-hidden /> {tx('legal_secureNote')}
+                  </p>
                 </div>
               </details>
-            </div>
           </div>
         )
       }
-
-      case 'review':
-        const preliminaryInsights = getPreliminaryInsights()
-        const estimateConfidence = getEstimateConfidence()
-        return (
-          <div className="space-y-3">
-            <div className="text-center">
-              <p className="font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{tx('review_heading')}</p>
-              <p className="text-xs text-gray-500">{tx('review_helper')}</p>
-            </div>
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
-              <div className="rounded-2xl border border-brand-100 bg-brand-50/60 p-4 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">{tx('review_observations')}</p>
-                <ul className="mt-3 grid gap-2 text-sm text-brand-950 sm:grid-cols-2">
-                  {preliminaryInsights.map((insight) => (
-                    <li key={insight} className="flex gap-2 rounded-xl bg-white/80 px-3 py-2">
-                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
-                      <span>{insight}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('review_confidence')}</p>
-                <p className="mt-2 text-2xl font-bold text-slate-950">{tx(`confidence_${estimateConfidence}`)}</p>
-                <p className="mt-2 text-xs leading-5 text-slate-500">{tx('review_confidenceHelper')}</p>
-              </div>
-            </div>
-            <div className="grid gap-2 md:grid-cols-2">
-              {getReviewItems().map(item => (
-                <div key={item.title} className="rounded-xl border border-gray-200 bg-gray-50/60 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{item.title}</p>
-                      <p className="mt-1 line-clamp-2 text-sm font-medium leading-5 text-gray-900">{item.value}</p>
-                      <p className="mt-1 line-clamp-1 text-[11px] leading-4 text-gray-500">{item.helper}</p>
-                    </div>
-                    <button type="button" onClick={() => editReviewStep(item.step)} className="shrink-0 rounded-full bg-white px-2 py-1 text-xs font-medium text-brand-600 ring-1 ring-brand-100 hover:text-brand-700">
-                      {tx('review_edit')}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
-              {tx('review_ready')}
-            </div>
-          </div>
-        )
 
       case 'consent':
         const consents = formData.consents || { tos: false, privacy: false, ml_use: false }
@@ -3044,71 +4442,197 @@ export default function IntakeWizardQuick() {
           const previewHigh = previewKnownValue > 0 ? Math.max(15000, Math.round(previewKnownValue * 2.4)) : 0
           const previewSettlementRange = previewKnownValue > 0 ? `$${previewLow.toLocaleString()} - $${previewHigh.toLocaleString()}` : tx('preliminaryEstimate')
           const previewConfidence = getEstimateConfidence()
-          const previewCaseStrength = previewConfidence === 'high' ? tx('strength_strong') : previewConfidence === 'moderate' ? tx('strength_moderate') : tx('strength_developing')
-          const previewAttorneyInterest =
-            formData.casePosture.acceptedSettlement === 'yes'
-              ? tx('interest_limited')
-              : formData.casePosture.attorneyStatus === 'no' && (previewMedicalBillEstimate >= 7500 || previewFutureMedicalEstimate > 0 || previewWageLossEstimate > 0)
-                ? tx('interest_high')
-                : previewConfidence === 'high'
-                  ? tx('interest_high')
-                  : tx('interest_developing')
+
+          const evCount = (cat: string) => (pendingEvidenceFiles[cat]?.length || 0)
+          const anyEvidence = uploadedEvidenceCount > 0 || Object.values(pendingEvidenceFiles).some((arr: any) => (arr?.length || 0) > 0)
+          const profileChecks = [
+            !!formData.injuryType,
+            !!getIncidentDate(),
+            !!formData.venue.state,
+            !!formData.narrative.trim(),
+            !!formData.injurySeverity,
+            formData.medicalTreatment.length > 0,
+            formData.injuryDetails.bodyParts.length > 0,
+            !!formData.insuranceCoverage.medicalBillRange,
+            !!formData.casePosture.missedWork,
+            !!formData.casePosture.faultBelief,
+            anyEvidence,
+          ]
+          const profilePercent = Math.max(20, Math.round((profileChecks.filter(Boolean).length / profileChecks.length) * 100))
+          const ringCirc = 2 * Math.PI * 15.5
+          const readinessLabel = previewConfidence === 'high' ? tx('readiness_high') : previewConfidence === 'moderate' ? tx('readiness_moderate') : tx('readiness_building')
+          const strengthenItems = ([
+            evCount('police_report') === 0 ? { label: tx('strengthen_police'), step: 'evidence' as Step } : null,
+            evCount('medical_records') === 0 ? { label: tx('strengthen_records'), step: 'evidence' as Step } : null,
+            (!formData.casePosture.missedWork || formData.casePosture.missedWork === 'no') ? { label: tx('strengthen_income'), step: 'financial_impact' as Step } : null,
+          ].filter(Boolean) as { label: string; step: Step }[]).slice(0, 3)
+
+          const incidentLines = [
+            getIncidentDate() || tx('notAnsweredYet'),
+            formatVenueLocation(formData.venue) || tx('notAnsweredYet'),
+            getOptionLabel(INJURY_TYPES, formData.injuryType),
+            formData.casePosture.faultBelief ? labelForValue(FAULT_BELIEF_OPTIONS, formData.casePosture.faultBelief) : null,
+          ].filter(Boolean) as string[]
+          const injuryLines = [
+            formData.injuryDetails.bodyParts.length ? `${tx('card_primary')}: ${labelsForValues(BODY_PART_OPTIONS, formData.injuryDetails.bodyParts.slice(0, 1))}` : null,
+            formData.injurySeverity ? getOptionLabel(INJURY_SEVERITY_OPTIONS, formData.injurySeverity) : null,
+            formData.medicalTreatment.length ? getMedicalTreatmentSummary() : null,
+            (formData.injuryDetails.imaging.length && !formData.injuryDetails.imaging.includes('none')) ? labelsForValues(IMAGING_LABEL_OPTIONS, formData.injuryDetails.imaging) : null,
+          ].filter(Boolean) as string[]
+          const injuryCount = formData.injuryDetails.bodyParts.length
+          const billsDocTotal = docFinancials['bills']?.total || 0
+          const wageDocTotal = docFinancials['wage_verification']?.total || 0
+          const fmtMoney = (n: number) => `$${Math.round(n).toLocaleString()}`
+          const financialLines = [
+            billsDocTotal > 0
+              ? { k: tx('card_medicalBills'), v: fmtMoney(billsDocTotal), doc: true }
+              : { k: tx('card_medicalBills'), v: formData.insuranceCoverage.medicalBillRange ? labelForValue(MEDICAL_BILL_RANGE_OPTIONS, formData.insuranceCoverage.medicalBillRange) : tx('notAnsweredYet'), doc: false },
+            { k: tx('card_futureMedical'), v: formData.insuranceCoverage.futureMedicalRange ? labelForValue(FUTURE_MEDICAL_RANGE_OPTIONS, formData.insuranceCoverage.futureMedicalRange) : tx('notAnsweredYet'), doc: false },
+            wageDocTotal > 0
+              ? { k: tx('card_lostIncome'), v: fmtMoney(wageDocTotal), doc: true }
+              : { k: tx('card_lostIncome'), v: formData.casePosture.missedWork ? labelForValue(MISSED_WORK_OPTIONS, formData.casePosture.missedWork) : tx('notAnsweredYet'), doc: false },
+          ]
+          const docRows = [
+            { k: tx('evidence_photos'), n: evCount('photos') },
+            { k: tx('evidence_videos'), n: evCount('video') },
+            { k: tx('evidence_policeReport'), n: evCount('police_report') },
+          ]
+          const legalLines = [
+            { k: tx('card_settlementOffer'), v: formData.casePosture.settlementOfferStatus ? (formData.casePosture.settlementOfferStatus === 'yes' ? tx('optionYes') : formData.casePosture.settlementOfferStatus === 'no' ? tx('optionNo') : tx('optionNotSure')) : tx('notAnsweredYet') },
+            { k: tx('card_reportedInsurance'), v: formData.casePosture.insuranceContact ? labelForValue(INSURANCE_CONTACT_OPTIONS, formData.casePosture.insuranceContact) : tx('notAnsweredYet') },
+            { k: tx('card_lawyerRetained'), v: formData.casePosture.attorneyStatus ? labelForValue(ATTORNEY_STATUS_OPTIONS, formData.casePosture.attorneyStatus) : tx('notAnsweredYet') },
+            { k: tx('card_fault'), v: formData.casePosture.faultBelief ? labelForValue(FAULT_BELIEF_OPTIONS, formData.casePosture.faultBelief) : tx('notAnsweredYet') },
+          ]
+          const notesText = formData.narrative.trim() || tx('notAnsweredYet')
+          const priorNote = formData.injuryDetails.priorInjury ? `${tx('sum_prior')}: ${labelForValue(PRIOR_INJURY_OPTIONS, formData.injuryDetails.priorInjury)}` : null
+
+          const renderCard = (opts: { title: string; icon: LucideIcon; step: Step; count?: string; children: JSX.Element }) => {
+            const { title, icon: Icon, step, count, children } = opts
+            return (
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-gray-900 dark:text-slate-100">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-900/40"><Icon className="h-4 w-4" aria-hidden /></span>
+                    <span className="truncate">{title}</span>
+                  </span>
+                  <button type="button" onClick={() => editReviewStep(step)} className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold text-brand-600 hover:text-brand-700"><Pencil className="h-3 w-3" aria-hidden />{tx('review_edit')}</button>
+                </div>
+                <div className="mt-2 space-y-1 text-[13px] leading-snug text-gray-600 dark:text-slate-300">{children}</div>
+                <button type="button" onClick={() => editReviewStep(step)} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">{count || tx('card_viewDetails')} <ChevronRight className="h-3 w-3" aria-hidden /></button>
+              </div>
+            )
+          }
+
         return (
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.8fr)]">
-            <div className="space-y-4">
-              <section className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-emerald-950">
-                <p className="text-sm font-semibold uppercase tracking-wide text-emerald-700">✓ {tx('consent_intakeComplete')}</p>
-                <p className="mt-1 font-display text-[16px] font-semibold sm:text-[19px]">{tx('consent_analyzed')}</p>
-                <p className="mt-1 text-sm leading-6 text-emerald-800">{tx('consent_reportReady')}</p>
-              </section>
+          <div className="space-y-3">
+            <p className="text-center text-sm leading-snug text-gray-500 dark:text-slate-400">{tx('report_subtitle')}</p>
 
-              <section className="rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50 to-white p-4 shadow-sm">
-                <p className="text-sm font-semibold uppercase tracking-wide text-brand-700">{tx('consent_preparing')}</p>
-                <ul className="mt-3 grid gap-2 text-sm text-gray-700 sm:grid-cols-2">
-                  {[tx('consent_item1'), tx('consent_item2'), tx('consent_item3'), tx('consent_item4'), tx('consent_item5')].map((item) => (
-                    <li key={item} className="flex items-center gap-2"><Check className="h-4 w-4 flex-shrink-0 text-green-600" /> {item}</li>
-                  ))}
-                </ul>
-
-                <div className="mt-4 rounded-xl border border-white/80 bg-white/90 p-3">
-                  <p className="font-display text-sm font-semibold text-gray-950">{tx('consent_willEstimate')}</p>
-                  <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-                    <div className="rounded-lg bg-brand-50 px-3 py-2"><span className="block text-xs font-semibold uppercase tracking-wide text-brand-700">{tx('consent_caseStrength')}</span><strong>{previewCaseStrength}</strong></div>
-                    <div className="rounded-lg bg-brand-50 px-3 py-2"><span className="block text-xs font-semibold uppercase tracking-wide text-brand-700">{tx('consent_settlementRange')}</span><strong>{previewSettlementRange}</strong></div>
-                    <div className="rounded-lg bg-brand-50 px-3 py-2"><span className="block text-xs font-semibold uppercase tracking-wide text-brand-700">{tx('consent_attorneyInterest')}</span><strong>{previewAttorneyInterest}</strong></div>
-                    <div className="rounded-lg bg-brand-50 px-3 py-2"><span className="block text-xs font-semibold uppercase tracking-wide text-brand-700">{tx('consent_confidence')}</span><strong>{tx(`confidence_${previewConfidence}`)}</strong></div>
+            <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('profile_complete')}</p>
+                <div className="mt-2 flex items-center justify-center gap-3">
+                  <span className="font-display text-2xl font-bold text-emerald-600">{profilePercent}%</span>
+                  <div className="relative h-12 w-12">
+                    <svg className="h-12 w-12 -rotate-90" viewBox="0 0 36 36">
+                      <circle cx="18" cy="18" r="15.5" fill="none" className="stroke-slate-200 dark:stroke-slate-700" strokeWidth="3" />
+                      <circle cx="18" cy="18" r="15.5" fill="none" className="stroke-emerald-500" strokeWidth="3" strokeLinecap="round" strokeDasharray={ringCirc} strokeDashoffset={ringCirc * (1 - profilePercent / 100)} />
+                    </svg>
                   </div>
                 </div>
-              </section>
+                <p className="mt-1 text-xs text-gray-500">{tx('profile_almostDone')}</p>
+                <p className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />{tx('profile_readyReview')}</p>
+              </div>
 
-              <section className={`rounded-2xl border ${solPreviewTone} p-4`}>
-                <p className="text-sm font-semibold">{tx('consent_deadlineReminder')}</p>
-                <p className="mt-1 text-sm leading-6">{solPreviewMessage}</p>
-                {incidentDateIsApproximate && solPreview?.expiresAt && (
-                  <p className="mt-1 text-xs leading-5">
-                    {tx('consent_approxDate')}
-                  </p>
-                )}
-              </section>
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('est_settlementRange')}</p>
+                <p className="mt-2 font-display text-xl font-bold text-emerald-700">{previewSettlementRange}</p>
+                <p className="mt-1 inline-flex items-center gap-1 text-xs text-gray-500"><Info className="h-3.5 w-3.5" aria-hidden />{tx('preliminaryEstimate')}</p>
+                <p className="mt-1 text-xs text-gray-400">{tx('est_moreAccurate')}</p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('readiness_title')}</p>
+                <div className="mt-2 flex items-center justify-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-100 text-violet-600 dark:bg-violet-500/20"><Star className="h-4 w-4" aria-hidden /></span>
+                  <span className="font-display text-xl font-bold text-violet-700 dark:text-violet-300">{readinessLabel}</span>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">{tx('readiness_desc')}</p>
+              </div>
+
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-3 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">{tx('strengthen_title')}</p>
+                <ul className="mt-2 space-y-1">
+                  {strengthenItems.length ? strengthenItems.map((it) => (
+                    <li key={it.label}>
+                      <button type="button" onClick={() => editReviewStep(it.step)} className="flex w-full items-center gap-1.5 text-left text-xs font-medium text-amber-900 hover:underline dark:text-amber-200">
+                        <HelpCircle className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />{it.label}
+                      </button>
+                    </li>
+                  )) : (
+                    <li className="flex items-center gap-1.5 text-xs font-medium text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />{tx('strengthen_allGood')}</li>
+                  )}
+                </ul>
+                <button type="button" onClick={() => editReviewStep('evidence')} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">{tx('strengthen_nextSteps')} <ChevronRight className="h-3 w-3" aria-hidden /></button>
+              </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:self-start">
-              <p className="text-base font-semibold text-gray-950">{tx('consent_beforeViewing')}</p>
-              <p className="mt-1 text-sm leading-6 text-gray-500">{tx('consent_confirmHelper')}</p>
-              <div className="mt-4 space-y-3">
-                <label className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition-all ${consents.tos && consents.privacy ? 'border-brand-300 bg-brand-50' : 'border-slate-200 bg-slate-50 hover:border-brand-200'}`}>
-                  <input type="checkbox" checked={consents.tos && consents.privacy} onChange={e => { const checked = e.target.checked; updateForm({ consents: { ...consents, tos: checked, privacy: checked } }) }} className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-brand-600" />
-                  <span className="text-sm font-medium leading-6 text-gray-800">{tx('consent_agreeTerms')}</span>
+            <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+              {renderCard({ title: tx('card_incident'), icon: Car, step: 'when', children: (
+                <>{incidentLines.map((l, i) => <p key={i} className="truncate">{l}</p>)}</>
+              ) })}
+              {renderCard({ title: tx('card_injury'), icon: HeartPulse, step: 'injury_details', count: injuryCount > 0 ? `${tx('card_viewAllInjuries')} (${injuryCount})` : undefined, children: (
+                <>{injuryLines.length ? injuryLines.map((l, i) => <p key={i} className="flex items-center gap-1.5"><CheckCircle2 className="h-3 w-3 shrink-0 text-brand-500" aria-hidden /><span className="truncate">{l}</span></p>) : <p>{tx('notAnsweredYet')}</p>}</>
+              ) })}
+              {renderCard({ title: tx('card_financial'), icon: DollarSign, step: 'financial_impact', children: (
+                <>{financialLines.map((row) => (
+                  <p key={row.k} className="flex items-center justify-between gap-2">
+                    <span className="text-gray-500">{row.k}</span>
+                    <span className="flex items-center gap-1 text-right font-medium text-gray-800 dark:text-slate-200">
+                      {row.doc && <FileText className="h-3 w-3 shrink-0 text-emerald-600" aria-label={tx('card_fromDocuments')} />}
+                      {row.v}
+                    </span>
+                  </p>
+                ))}</>
+              ) })}
+              {renderCard({ title: tx('card_documents'), icon: FileText, step: 'evidence', count: tx('card_viewAllEvidence'), children: (
+                <>{docRows.map((row) => <p key={row.k} className="flex items-center justify-between gap-2"><span className="text-gray-500">{row.k}</span>{row.n > 0 ? <span className="font-medium text-emerald-700">{row.n} {row.n === 1 ? tx('card_file') : tx('card_files')}</span> : <span className="text-gray-400">{tx('evidence_notUploaded')}</span>}</p>)}</>
+              ) })}
+              {renderCard({ title: tx('card_legal'), icon: Scale, step: 'legal_status', children: (
+                <>{legalLines.map((row) => <p key={row.k} className="flex items-center justify-between gap-2"><span className="text-gray-500">{row.k}</span><span className="text-right font-medium text-gray-800 dark:text-slate-200">{row.v}</span></p>)}</>
+              ) })}
+              {renderCard({ title: tx('card_notes'), icon: Pencil, step: 'when', children: (
+                <><p className="line-clamp-3">{notesText}</p>{priorNote && <p className="mt-1 text-gray-500">{priorNote}</p>}</>
+              ) })}
+            </div>
+
+            <section className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/5">
+              <p className="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300"><ShieldCheck className="h-4 w-4" aria-hidden />{tx('report_includeTitle')}</p>
+              <ul className="mt-2 grid gap-1.5 text-xs text-emerald-900/90 dark:text-emerald-200 sm:grid-cols-2 lg:grid-cols-3">
+                {[tx('report_inc1'), tx('report_inc2'), tx('report_inc3'), tx('report_inc4'), tx('report_inc5'), tx('report_inc6')].map((it) => (
+                  <li key={it} className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />{it}</li>
+                ))}
+              </ul>
+            </section>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className={`flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2 transition-all ${consents.tos && consents.privacy ? 'border-brand-300 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-200 bg-slate-50 hover:border-brand-200 dark:border-slate-700 dark:bg-slate-800/40'}`}>
+                  <input type="checkbox" checked={!!(consents.tos && consents.privacy)} onChange={e => { const checked = e.target.checked; updateForm({ consents: { ...consents, tos: checked, privacy: checked } }) }} className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600" />
+                  <span className="text-xs leading-snug text-gray-700 dark:text-slate-300">{tx('consent_agreeTerms')} <span className="font-semibold text-red-500" aria-hidden>*</span></span>
                 </label>
-                <label className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition-all ${consents.ml_use ? 'border-brand-300 bg-brand-50' : 'border-slate-200 bg-slate-50 hover:border-brand-200'}`}>
-                  <input type="checkbox" checked={consents.ml_use} onChange={e => updateForm({ consents: { ...consents, ml_use: e.target.checked } })} className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-brand-600" />
-                  <span className="text-sm font-medium leading-6 text-gray-800">{tx('consent_agreeAi')}</span>
+                <label className={`flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2 transition-all ${consents.ml_use ? 'border-brand-300 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-200 bg-slate-50 hover:border-brand-200 dark:border-slate-700 dark:bg-slate-800/40'}`}>
+                  <input type="checkbox" checked={!!consents.ml_use} onChange={e => updateForm({ consents: { ...consents, ml_use: e.target.checked } })} className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600" />
+                  <span className="text-xs leading-snug text-gray-700 dark:text-slate-300">{tx('consent_agreeAi')} <span className="font-semibold text-red-500" aria-hidden>*</span></span>
                 </label>
               </div>
-              <p className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">{tx('consent_privacySecure')}</p>
+              {(errors.tos || errors.privacy || errors.ml_use) && (
+                <p className="mt-2 text-xs font-medium text-red-600">{errors.tos || errors.privacy || errors.ml_use}</p>
+              )}
+              <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-400"><Lock className="h-3 w-3" aria-hidden />{tx('consent_privacySecure')}</p>
             </div>
+
             {uploadFailures.length > 0 && assessmentId && (
-              <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 lg:col-span-2">
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
                 <p className="text-sm font-semibold">
                   {tx(uploadFailures.length === 1 ? 'uploadFailed_one' : 'uploadFailed_many').replace('{count}', String(uploadFailures.length))}
                 </p>
@@ -3144,32 +4668,27 @@ export default function IntakeWizardQuick() {
 
   const stepTitles: Record<string, string> = {
     injury_type: t('intake.stepTitles_injury_type'),
-    when: tx('stepTitles_when_where'),
+    when: tx('stepTitles_incidentFacts'),
     narrative: t('intake.stepTitles_narrative'),
-    injury_severity: tx('stepTitles_injuries_treatment'),
     injury_details: tx('stepTitles_injury_details'),
     case_details: t('intake.stepTitles_branch_7'),
     evidence: tx('stepTitles_evidence'),
-    financial_impact: tx('stepTitles_financial_impact'),
+    financial_impact: tx('stepTitles_damagesValuation'),
     legal_status: tx('stepTitles_legal_status'),
-    review: tx('stepTitles_review'),
     consent: t('intake.stepTitles_consent')
   }
 
   const isFirstStep = currentStep === 'injury_type'
-  const autoAdvanceSteps = currentStep === 'injury_type'
   const isRevisitingAnsweredStep =
     currentStepIndex >= 0 &&
     currentStepIndex < furthestReachedStepIndex &&
     hasSavedAnswerForStep(currentStep)
-  const showTapHint = autoAdvanceSteps && !isRevisitingAnsweredStep
   const casePostureFit = currentStep === 'financial_impact' || currentStep === 'legal_status'
   const injuryDetailsFit = currentStep === 'injury_details'
-  const reviewFit = currentStep === 'review'
   const showReassurance = currentStep !== 'consent' && !casePostureFit && !injuryDetailsFit && !isFirstStep
   const evidenceFit = currentStep === 'evidence'
-  const denseStepFit = reviewFit
-  const savedAnswerHintExcludedSteps: Step[] = ['narrative', 'evidence', 'review', 'consent']
+  const denseStepFit = currentStep === 'consent'
+  const savedAnswerHintExcludedSteps: Step[] = ['injury_type', 'when', 'evidence', 'consent']
   const showSavedAnswerHint =
     isRevisitingAnsweredStep &&
     !savedAnswerHintExcludedSteps.includes(currentStep) &&
@@ -3179,7 +4698,6 @@ export default function IntakeWizardQuick() {
    * exceeds the leftover viewport height — so the Back/Next bar always stays visible.
    */
   const previewIncidentDate = getIncidentDate()
-  const shouldShowSolPreview = !!(previewIncidentDate || formData.incidentDatePreset) && !casePostureFit && currentStep !== 'consent'
   const solPreviewTone = solPreview?.status === 'critical' || solPreview?.status === 'expired'
     ? 'bg-red-50 border-red-200 text-red-800'
     : solPreview?.status === 'warning'
@@ -3193,11 +4711,22 @@ export default function IntakeWizardQuick() {
       ? solPreviewError || tx('sol_noDeadline')
       : tx('sol_selectState')
   const showExactDatePrompt = incidentDateIsApproximate && !!solPreview?.expiresAt
-  // Positive reinforcement: confirm the deadline once an exact date is entered.
-  const whenDeadlineConfirmed =
-    formData.incidentDatePreset && !incidentDateIsApproximate && solPreview?.expiresAt
-      ? new Date(solPreview.expiresAt).toLocaleDateString()
-      : ''
+  // Compact, always-available filing deadline chip (shown on every step once a deadline is known).
+  const filingDeadlineDate = solPreview?.expiresAt ? new Date(solPreview.expiresAt) : null
+  const hasFilingDeadline = !!filingDeadlineDate && !isNaN(filingDeadlineDate.getTime())
+  const filingDeadlineShort = hasFilingDeadline
+    ? filingDeadlineDate!.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    : ''
+  const filingDeadlineLong = hasFilingDeadline
+    ? filingDeadlineDate!.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+    : ''
+  const filingDaysRemaining = solPreview?.daysRemaining != null ? Math.max(0, solPreview.daysRemaining) : null
+  const filingDeadlineDotTone =
+    solPreview?.status === 'critical' || solPreview?.status === 'expired'
+      ? 'bg-red-500'
+      : solPreview?.status === 'warning'
+        ? 'bg-amber-500'
+        : 'bg-emerald-500'
   // A date has been provided (typed or month/year) but the deadline also needs venue.
   const whenDateChosen =
     (formData.incidentDatePreset === 'custom' && !!customDate) ||
@@ -3213,7 +4742,7 @@ export default function IntakeWizardQuick() {
     { category: 'bills', label: tx('evidence_medicalBills'), weight: 25 },
     { category: 'medical_records', label: tx('evidence_medicalRecords'), weight: 30 },
     { category: 'insurance_letters', label: tx('evidence_insuranceLetters'), weight: 0 },
-    { category: 'wage_verification', label: tx('evidence_wageVerification'), weight: 0 },
+    { category: 'wage_verification', label: tx('evidence_wageVerification'), weight: 15 },
   ]
   const evidenceCompletenessScore = Math.min(
     100,
@@ -3222,7 +4751,6 @@ export default function IntakeWizardQuick() {
       return count > 0 ? score + item.weight : score
     }, 0),
   )
-  const evidenceCompletenessDrivers = evidenceStatusItems.filter((item) => item.weight > 0)
   const hasInjuryProcedureSignal =
     formData.medicalTreatment.includes('injections') ||
     formData.medicalTreatment.includes('surgery') ||
@@ -3264,7 +4792,7 @@ export default function IntakeWizardQuick() {
           {isFirstStep ? t('intake.startHeadline') : stepTitles[currentStep] || visibleSteps[currentStepIndex]?.title}
         </h1>
         {isFirstStep && (
-          <p className="mx-auto mt-1 hidden max-w-2xl text-center text-xs leading-5 text-slate-600 dark:text-slate-300 sm:block sm:text-sm sm:leading-6 md:text-base md:leading-7">
+          <p className="mx-auto mt-0.5 hidden max-w-2xl text-center text-xs leading-5 text-slate-600 dark:text-slate-300 sm:block sm:text-sm sm:leading-6 md:text-base md:leading-6">
             {t('intake.startHelper')}
           </p>
         )}
@@ -3272,10 +4800,20 @@ export default function IntakeWizardQuick() {
           <span>
             {t('intake.step')} {currentStepIndex + 1} {t('intake.of')} {visibleSteps.length}
           </span>
-          <span>
-            {currentStepIndex + 1 < visibleSteps.length
-              ? `• ${t('intake.progressTime')}`
-              : `• ${t('intake.almostDone')}`}
+          <span className="flex items-center gap-3">
+            <span>
+              {currentStepIndex + 1 < visibleSteps.length
+                ? `• ${t('intake.progressTime')}`
+                : `• ${t('intake.almostDone')}`}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowResetConfirm(true)}
+              className="inline-flex items-center gap-1 font-semibold text-blue-600 transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+            >
+              {tx('draft_startOver')}
+              <RotateCw className="h-3.5 w-3.5" aria-hidden />
+            </button>
           </span>
         </div>
         <div
@@ -3294,19 +4832,68 @@ export default function IntakeWizardQuick() {
           </div>
         </div>
         <p className="sr-only">{Math.round(progressPercent)} {tx('progress_percentComplete')}</p>
+        {hasFilingDeadline && (
+          <div className="relative mt-2 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setShowDeadlineDetail((v) => !v)}
+              aria-expanded={showDeadlineDetail}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            >
+              <span className={`h-2 w-2 rounded-full ${filingDeadlineDotTone}`} aria-hidden />
+              <span>{tx('sol_filingDeadline')}: {filingDeadlineShort}</span>
+              <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform ${showDeadlineDetail ? 'rotate-180' : ''}`} aria-hidden />
+            </button>
+            {showDeadlineDetail && (
+              <>
+                <button
+                  type="button"
+                  aria-hidden
+                  tabIndex={-1}
+                  onClick={() => setShowDeadlineDetail(false)}
+                  className="fixed inset-0 z-40 cursor-default"
+                />
+                <div className="absolute top-full z-50 mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-xl dark:border-slate-700 dark:bg-slate-800">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{tx('sol_estimatedFilingDeadline')}</p>
+                  <p className="mt-1 font-display text-lg font-bold text-slate-900 dark:text-slate-50">{filingDeadlineLong}</p>
+                  {filingDaysRemaining != null && (
+                    <p className={`mt-0.5 text-sm font-semibold ${
+                      solPreview?.status === 'critical' || solPreview?.status === 'expired'
+                        ? 'text-red-600'
+                        : solPreview?.status === 'warning'
+                          ? 'text-amber-600'
+                          : 'text-emerald-600'
+                    }`}>
+                      {tx(filingDaysRemaining === 1 ? 'sol_dayRemainingShort' : 'sol_daysRemainingShort').replace('{days}', String(filingDaysRemaining))}
+                    </p>
+                  )}
+                  <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">{tx('sol_basedOnAnswers')}</p>
+                  {showExactDatePrompt && (
+                    <p className="mt-2 text-[11px] leading-4 text-slate-500 dark:text-slate-400">
+                      {tx('sol_approxNote')}{' '}
+                      <button
+                        type="button"
+                        onClick={() => { promptForExactDate(); setShowDeadlineDetail(false) }}
+                        className="font-semibold text-blue-600 underline underline-offset-2 hover:text-blue-700"
+                      >
+                        {tx('sol_enterExactDate')}
+                      </button>
+                    </p>
+                  )}
+                  <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">{tx('sol_notLegalAdvice')}</p>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {draftRestored && (
         <div className="mb-1 flex shrink-0 items-center justify-between gap-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-1.5 text-xs leading-5 text-sky-900 sm:px-4 sm:py-2 sm:text-sm">
           <span><span className="font-semibold">{tx('draft_welcomeBack')}</span> {tx('draft_savedProgress')}</span>
-          <span className="flex shrink-0 items-center gap-3">
-            <button type="button" onClick={discardDraftAndRestart} className="font-semibold underline underline-offset-2 hover:opacity-80">
-              {tx('draft_startOver')}
-            </button>
-            <button type="button" onClick={() => setDraftRestored(false)} aria-label={tx('draft_dismiss')} className="rounded-full px-1 text-sky-700 hover:text-sky-900">
-              ✕
-            </button>
-          </span>
+          <button type="button" onClick={() => setDraftRestored(false)} aria-label={tx('draft_dismiss')} className="shrink-0 rounded-full px-1 text-sky-700 hover:text-sky-900">
+            ✕
+          </button>
         </div>
       )}
 
@@ -3326,59 +4913,15 @@ export default function IntakeWizardQuick() {
         </div>
       )}
 
-      {shouldShowSolPreview && (
-        <div className={`mb-1 shrink-0 rounded-lg border ${solPreviewTone} px-3 py-1.5 sm:px-4`}>
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="min-w-0 text-xs leading-5 sm:text-sm">
-                <span className="font-semibold">{tx('sol_earlyCheck')}:</span> {solPreviewMessage}
-                {solPreview?.daysRemaining != null && (
-                  <> · {tx(Math.max(0, solPreview.daysRemaining) === 1 ? 'sol_dayRemaining' : 'sol_daysRemaining').replace('{days}', String(Math.max(0, solPreview.daysRemaining)))}</>
-                )}
-              </p>
-              {showExactDatePrompt && currentStep !== 'when' && (
-                <p className="mt-0.5 text-xs leading-5 sm:text-sm">
-                  {tx('sol_approxNote')}{' '}
-                  <button type="button" onClick={promptForExactDate} className="font-semibold underline underline-offset-2 hover:opacity-80">
-                    {tx('sol_enterExactDate')}
-                  </button>{' '}
-                  {tx('sol_forAccuracy')}
-                </p>
-              )}
-            </div>
-            {solPreview?.status && (
-              <span className="inline-flex shrink-0 rounded-full bg-white/70 px-2.5 py-0.5 text-xs font-semibold uppercase">
-                {['safe', 'warning', 'critical'].includes(String(solPreview.status)) ? tx(`solStatus_${solPreview.status}`) : String(solPreview.status).replace(/_/g, ' ')}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {evidenceFit && (
-        <div className="mb-1 shrink-0 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-emerald-950">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold leading-tight sm:text-base">{tx('evidence_completeness')}: {evidenceCompletenessScore}%</p>
-            <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">{tx('evidence_docsHelpAccuracy')}</p>
-          </div>
-          <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-emerald-100">
-            <div className="h-full rounded-full bg-emerald-600 transition-[width] duration-300" style={{ width: `${evidenceCompletenessScore}%` }} />
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {evidenceCompletenessDrivers.map((item) => {
-              const uploaded = (pendingEvidenceFiles[item.category]?.length || 0) > 0
-              return (
-                <span
-                  key={item.category}
-                  className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                    uploaded ? 'bg-white text-emerald-800 ring-1 ring-emerald-200' : 'bg-emerald-100/70 text-emerald-700'
-                  }`}
-                >
-                  +{item.weight}% {item.label}
-                </span>
-              )
-            })}
-          </div>
+      {/* Step 1: reserve the hint's space so returning to an answered first step doesn't shift the layout. */}
+      {isFirstStep && Object.keys(errors).length === 0 && (
+        <div
+          aria-hidden={!isRevisitingAnsweredStep}
+          className={`mb-1 shrink-0 rounded-lg border px-3 py-1 text-xs leading-5 sm:px-4 sm:text-sm ${
+            isRevisitingAnsweredStep ? 'border-emerald-100 bg-emerald-50 text-emerald-900' : 'invisible border-transparent'
+          }`}
+        >
+          <span className="font-semibold">✓ {tx('savedAnswer_title')}</span> {tx('savedAnswer_hint')}
         </div>
       )}
 
@@ -3412,7 +4955,7 @@ export default function IntakeWizardQuick() {
       )}
 
       <div
-        className={`mb-1 flex flex-col overflow-visible rounded-2xl border border-slate-200/90 bg-white shadow-card transition-shadow hover:shadow-card-hover dark:border-slate-700 dark:bg-slate-900/80 motion-reduce:hover:shadow-card md:overflow-hidden md:rounded-3xl ${denseStepFit ? 'p-2.5 md:p-4' : casePostureFit ? 'p-3 sm:p-4 md:p-5' : 'p-3 sm:p-4 md:p-6'} ${denseStepFit ? 'text-sm md:text-base' : 'text-base'} ${
+        className={`mb-1 flex flex-col overflow-visible rounded-2xl border border-slate-200/90 bg-white shadow-card transition-shadow hover:shadow-card-hover dark:border-slate-700 dark:bg-slate-900/80 motion-reduce:hover:shadow-card md:overflow-hidden md:rounded-3xl ${denseStepFit ? 'p-2.5 md:p-4' : casePostureFit ? 'p-3 sm:p-4 md:p-5' : 'p-3 sm:p-4 md:p-6'} ${isFirstStep ? 'py-2 sm:py-2.5 md:py-3' : ''} ${denseStepFit ? 'text-sm md:text-base' : 'text-base'} ${
           denseStepFit
             ? "[&_button]:min-h-9 [&_button]:py-2 [&_button]:text-xs [&_button]:leading-tight md:[&_button]:min-h-10 md:[&_button]:text-sm [&_input:not([type='checkbox'])]:min-h-10 [&_input:not([type='checkbox'])]:text-sm [&_select]:min-h-10 [&_select]:text-sm [&_p.text-lg]:text-sm [&_p.text-sm]:text-xs [&_span.text-sm]:text-xs [&_textarea]:min-h-[3rem] [&_textarea]:py-2 [&_textarea]:text-sm"
             : casePostureFit
@@ -3420,7 +4963,7 @@ export default function IntakeWizardQuick() {
               : "[&_button]:min-h-14 [&_button]:leading-snug [&_button]:text-base md:[&_button]:text-lg [&_input:not([type='checkbox'])]:min-h-12 [&_input:not([type='checkbox'])]:text-lg [&_label]:text-base [&_p.text-lg]:text-xl [&_p.text-sm]:text-base [&_p.text-xs]:text-sm [&_select]:min-h-12 [&_select]:text-lg [&_span.text-sm]:text-base [&_span.text-xs]:text-sm [&_textarea]:min-h-[4.75rem] [&_textarea]:py-2 [&_textarea]:text-base [&_textarea]:leading-snug"
         } min-h-0`}
       >
-        <div ref={stepScrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain pr-1 [-webkit-overflow-scrolling:touch]">
+        <div ref={stepScrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-2 [-webkit-overflow-scrolling:touch]">
           {renderStep()}
         </div>
       </div>
@@ -3429,14 +4972,17 @@ export default function IntakeWizardQuick() {
         {t('intake.privacyNote')}
       </p>
 
-      <div className={`z-20 shrink-0 rounded-xl border border-slate-200/80 bg-white/95 p-1.5 pb-[max(0.375rem,calc(0.375rem+env(safe-area-inset-bottom)))] shadow-lg shadow-slate-200/70 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 sm:rounded-2xl ${isFirstStep ? 'hidden sm:block' : ''}`}>
+      <div className="z-20 shrink-0 rounded-xl border border-slate-200/80 bg-white/95 p-1.5 pb-[max(0.375rem,calc(0.375rem+env(safe-area-inset-bottom)))] shadow-lg shadow-slate-200/70 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 sm:rounded-2xl">
       <div className="flex flex-col items-stretch gap-1.5 sm:flex-row sm:items-center sm:justify-between">
         <button
           type="button"
           onClick={() => {
+            // Clear any validation errors from the current step so they don't linger
+            // in the error summary after navigating to a different step.
+            setErrors({})
             if (returnToReviewFromStep === currentStep) {
               setReturnToReviewFromStep(null)
-              setCurrentStep('review')
+              setCurrentStep('consent')
               return
             }
             if (currentStepIndex > 0) setCurrentStep(visibleSteps[currentStepIndex - 1].key)
@@ -3455,11 +5001,6 @@ export default function IntakeWizardQuick() {
           >
             {loading ? t('intake.submitting') : tx('viewMyReport')}
           </button>
-        ) : showTapHint ? (
-          <span className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-brand-100 bg-brand-50 px-4 py-2 text-center text-sm font-medium text-brand-800 shadow-sm dark:border-brand-800/70 dark:bg-brand-950/40 dark:text-brand-200 sm:min-h-11">
-            <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
-            {t('intake.tapToContinue')}
-          </span>
         ) : currentStep === 'when' && (formData.incidentDatePreset === 'custom' || formData.incidentDatePreset === 'month_year') ? (
           <button
             type="button"
@@ -3469,17 +5010,72 @@ export default function IntakeWizardQuick() {
           >
             {t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
           </button>
+        ) : currentStep === 'evidence' ? (
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={validateAndNext}
+              className="!min-h-0 text-sm font-semibold text-slate-500 underline-offset-2 transition-colors hover:text-slate-700 hover:underline dark:text-slate-400 dark:hover:text-slate-200"
+            >
+              {tx('evidence_skipForNow')}
+            </button>
+            <button
+              type="button"
+              onClick={validateAndNext}
+              className="inline-flex min-h-10 items-center justify-center rounded-lg bg-accent-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-accent-700 sm:min-h-11 sm:rounded-xl sm:px-6"
+            >
+              {t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
+            </button>
+          </div>
         ) : (
           <button
             type="button"
             onClick={validateAndNext}
             className="inline-flex min-h-10 items-center justify-center rounded-lg bg-accent-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-accent-700 sm:min-h-11 sm:rounded-xl sm:px-6"
           >
-            {currentStep === 'review' ? tx('generateReport') : t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
+            {t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
           </button>
         )}
       </div>
       </div>
+
+      {showResetConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reset-confirm-title"
+          onClick={() => setShowResetConfirm(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="reset-confirm-title" className="text-base font-semibold text-slate-900 dark:text-slate-50">
+              {tx('reset_confirmTitle')}
+            </h2>
+            <p className="mt-1.5 text-sm leading-6 text-slate-600 dark:text-slate-300">
+              {tx('reset_confirmBody')}
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(false)}
+                className="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              >
+                {tx('reset_cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={discardDraftAndRestart}
+                className="inline-flex min-h-10 items-center justify-center rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-700"
+              >
+                {tx('reset_confirmCta')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

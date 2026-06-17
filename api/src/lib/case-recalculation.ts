@@ -267,6 +267,9 @@ function isLostWageEvidence(file: {
   aiSummary?: string | null
   aiHighlights?: string | null
 }) {
+  // A damages-summary rolls up wage + medical + out-of-pocket; counting it here would
+  // double-count the standalone wage document, so exclude it like we do for medical charges.
+  if (isDamagesSummaryEvidence(file)) return false
   return /\b(wage|wages|lost wages|payroll|pay stub|employer|income|earnings)\b/.test(evidenceText(file))
 }
 
@@ -292,10 +295,15 @@ function isMedicalChargeEvidence(file: {
 }
 
 function extractWageLossAmount(ocrText: string, fallback: number) {
-  const match = ocrText.match(/\b(?:total\s+)?(?:wage\s+loss|lost\s+wages)\b[^$]{0,80}\$([\d,]+(?:\.\d{1,2})?)/i)
-  if (!match) return fallback
-  const amount = Number(match[1].replace(/,/g, ''))
-  return Number.isFinite(amount) && amount > 0 ? amount : fallback
+  // Prefer an explicitly labeled total ("Total Lost Wages: $3,120") so we don't grab a
+  // single column line item (e.g. the first weekly "$240") that follows a "Lost Wages" header.
+  const totalMatch = ocrText.match(/\btotal\s+(?:wage\s+loss|lost\s+wages)\b[^$]{0,40}\$([\d,]+(?:\.\d{1,2})?)/i)
+  if (totalMatch) {
+    const amount = Number(totalMatch[1].replace(/,/g, ''))
+    if (Number.isFinite(amount) && amount > 0) return amount
+  }
+  // Otherwise fall back to the document total (already labeled-total aware upstream).
+  return fallback
 }
 
 /**

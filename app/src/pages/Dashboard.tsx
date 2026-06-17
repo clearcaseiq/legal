@@ -669,6 +669,55 @@ export default function Dashboard() {
   ].filter(Boolean).slice(0, 3) as string[]
   const commonSimilarFactors = similarCaseFactors.length > 0 ? similarCaseFactors : ['ER Treatment', 'MRI', 'Rear-End Collision']
 
+  // --- Derived values for the redesigned dashboard ---
+  const attorneyInterest = Math.max(0, Math.min(99, Math.round(((viability?.overall ?? 0.5) * 0.6 + (viability?.liability ?? 0.5) * 0.4) * 100)))
+  const attorneyInterestLabel = attorneyInterest >= 70 ? 'High' : attorneyInterest >= 45 ? 'Moderate' : 'Building'
+  const settlementLikelihood = Math.max(40, Math.min(97, caseScore + 10))
+  const liabilityPercent = Math.round((viability?.liability ?? 0.5) * 100)
+  const liabilityHelps = [
+    hasMedicalRecords && 'Medical treatment documented',
+    liabilityLabel === 'Strong' && 'Clear liability',
+    hasPoliceReport && 'Police report on file',
+    hasInjuryPhotos && 'Injury photos provided',
+  ].filter(Boolean).slice(0, 3) as string[]
+  const liabilityHurts = [
+    !hasPoliceReport && 'Police report not uploaded',
+    !hasMedicalRecords && 'Medical records missing',
+    !hasWageLoss && 'No wage-loss documentation',
+  ].filter(Boolean).slice(0, 3) as string[]
+  const previewAttorneyMatches = [
+    { firm: 'Auto Injury Law Group', focus: 'Auto Accidents • Personal Injury', score: 94, rating: 4.9, reviews: 128 },
+    { firm: 'Wilshire Law Firm', focus: 'Injury • Insurance Disputes', score: 91, rating: 4.8, reviews: 96 },
+    { firm: 'Panish | Shea | Ravipudi LLP', focus: 'Serious Injury • Wrongful Death', score: 88, rating: 4.8, reviews: 75 },
+  ]
+  const claimTypeLabel = activeAssessment?.claimType === 'auto'
+    ? 'Auto Accident'
+    : activeAssessment?.claimType === 'slip_and_fall'
+      ? 'Slip and Fall'
+      : activeAssessment?.claimType === 'medmal'
+        ? 'Medical Malpractice'
+        : 'Personal Injury'
+  const incidentDateLabel = (() => {
+    const raw = parsedFacts?.incident?.date || parsedFacts?.incidentDate
+    if (!raw) return null
+    const d = new Date(raw)
+    return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  })()
+  const treatmentStatusLabel = treatment.length > 0 ? 'Ongoing' : injuries.length > 0 ? 'Documented' : 'Not documented'
+  const reviewStatusSteps = [
+    { label: 'Assessment Complete', sub: 'You provided details about your case.', done: true, current: false },
+    { label: 'Submitted', sub: 'Your case has been sent for review.', done: submittedForReview, current: !submittedForReview },
+    { label: 'Attorney Review', sub: 'Attorneys are evaluating your case.', done: false, current: submittedForReview },
+    { label: 'Consultation', sub: 'Interested attorneys may contact you.', done: false, current: false },
+    { label: 'Representation', sub: 'You decide if you want to hire.', done: false, current: false },
+  ]
+  const caseValueIncreaseItems = [
+    { label: 'Medical Records', sub: 'Treatment history & visits', impact: 'High', metric: 'Interest', potential: `${formatCurrency(potentialSettlementLow)} - ${formatCurrency(potentialSettlementHigh)}`, done: hasMedicalRecords },
+    { label: 'Police Report', sub: 'Liability & incident details', impact: 'High', metric: 'Interest', potential: `${formatCurrency(settlementHigh)} - ${formatCurrency(potentialSettlementLow)}`, done: hasPoliceReport },
+    { label: 'Medical Bills', sub: 'Economic damages', impact: 'Medium', metric: 'Confidence', potential: `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`, done: hasHospitalBill },
+    { label: 'Proof of Lost Wages', sub: 'Income & loss documentation', impact: 'Low', metric: 'Value', potential: `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`, done: hasWageLoss },
+  ]
+
   const pendingItems = checklist.filter(c => !c.done)
   const actionItemsCount = pendingItems.length
   const caseCoachTips = [
@@ -1145,7 +1194,9 @@ export default function Dashboard() {
           {/* Tab navigation */}
           {activeAssessment && (
             <nav className="-mx-1 flex gap-2 overflow-x-auto pb-1">
-              {TABS.map((tab) => (
+              {TABS.map((tab) => {
+                const badge = tab.id === 'tasks' ? actionItemsCount : tab.id === 'documents' ? strengthOpportunities.length : 0
+                return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
@@ -1157,8 +1208,12 @@ export default function Dashboard() {
                 >
                   {tab.icon}
                   {tab.label}
+                  {badge > 0 && (
+                    <span className="ml-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">{badge}</span>
+                  )}
                 </button>
-              ))}
+                )
+              })}
             </nav>
           )}
         </div>
@@ -1696,156 +1751,284 @@ export default function Dashboard() {
                   </>
                 ) : (
                   <>
-                    {/* Primary status + next action */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-                        {submittedForReview ? (
-                          <>
-                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Current status</p>
-                            <h2 className="text-xl font-bold text-gray-900 mb-2">
-                              {inManualReview
-                                ? 'Your case is in team review'
-                                : needsMoreInfo
-                                ? 'More information is needed'
-                                : notRoutableYet
-                                ? 'Your case needs more detail'
-                                : 'Your case is with attorneys'}
-                            </h2>
-                            <p className="text-sm text-gray-600 mb-4">
-                              {inManualReview
-                                ? 'Our team is checking routing fit and the next best step.'
-                                : needsMoreInfo
-                                ? 'Add the requested details or documents so attorneys can continue reviewing.'
-                                : notRoutableYet
-                                ? 'More evidence or clearer facts can help us route your case.'
-                                : 'Attorneys are reviewing your summary. You decide whether to speak with or hire anyone.'}
-                            </p>
-                            <div className={`mb-4 rounded-lg border px-3 py-3 text-sm ${
-                                inManualReview
-                                  ? 'border-amber-200 bg-amber-50 text-amber-800'
-                                  : needsMoreInfo
-                                  ? 'border-blue-200 bg-blue-50 text-blue-800'
-                                  : notRoutableYet
-                                  ? 'border-slate-200 bg-slate-50 text-slate-700'
-                                  : 'border-brand-200 bg-brand-50 text-brand-700'
-                              }`}>
-                              {plaintiffRoutingStatusMessage || (inManualReview
-                                ? 'You do not need to do anything urgent unless we request more information.'
-                                : `Most attorneys respond within about ${responseDeadlineLabel}.`)}
-                            </div>
-                            <div className="space-y-2 mb-4">
-                              <div className="flex items-center gap-2 text-green-700">
-                                <CheckCircle className="h-5 w-5 flex-shrink-0" />
-                                <span>Submitted for attorney review</span>
-                              </div>
-                              {!waitingState && (
-                                <div className="flex items-center gap-2 text-green-700">
-                                  <CheckCircle className="h-5 w-5 flex-shrink-0" />
-                                  <span>{attorneyReviewCount} attorney{attorneyReviewCount !== 1 ? 's' : ''} reviewing your case</span>
-                                </div>
-                              )}
-                              {waitingState && (
-                                <div className="flex items-center gap-2 text-gray-700">
-                                  <Clock className="h-5 w-5 flex-shrink-0" />
-                                  <span>
-                                    {inManualReview
-                                      ? 'Team review in progress'
-                                      : needsMoreInfo
-                                      ? 'Waiting for added information'
-                                      : 'Case is not routable yet'}
-                                  </span>
-                                </div>
-                              )}
-                              {(() => {
-                                const lastView = (routingStatus?.attorneyActivity ?? []).find((a: Record<string, string>) => a.type === 'viewed')
-                                const timeAgo = lastView?.timeAgo || '10 minutes ago'
-                                return <p className="text-sm text-brand-600">Last attorney view: {timeAgo}</p>
-                              })()}
-                            </div>
-                            <p className="text-sm text-gray-500">Typical response time: about {responseDeadlineLabel}.</p>
-                          </>
-                        ) : (
-                          <>
-                            <h2 className="text-lg font-bold text-gray-900 mb-4">Case Status</h2>
-                            <p className="text-base font-medium text-green-700 mb-4">
-                              {caseScore >= 25 ? 'Your case appears eligible for attorney review.' : 'Your case may be worth pursuing. Adding evidence could strengthen your assessment.'}
-                            </p>
-                            <p className="text-sm text-gray-600 mb-4">Cases like yours typically settle between {formatCurrency(settlementLow)} – {formatCurrency(settlementHigh)} in {venueState}.</p>
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="p-3 bg-brand-50 rounded-lg border border-brand-100">
-                                <p className="text-xs font-semibold text-brand-600">Case Score</p>
-                                <p className="text-xl font-bold text-brand-600">{caseScore}/100</p>
-                              </div>
-                              <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                <p className="text-xs font-semibold text-gray-500">Est. Value</p>
-                                <p className="text-sm font-bold text-gray-900">{formatCurrency(settlementLow)} – {formatCurrency(settlementHigh)}</p>
-                              </div>
-                            </div>
-                          </>
-                        )}
+                    {/* Header metric cards */}
+                    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                      <div className="rounded-xl border border-gray-200 bg-white p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-500">Case Strength</p>
+                        <p className="mt-1 text-3xl font-bold text-emerald-600 tabular-nums">{caseScore}<span className="text-sm font-medium text-gray-400"> / 100</span></p>
+                        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${caseScore}%` }} /></div>
+                        <p className="mt-1.5 text-xs font-medium text-emerald-600">{caseStrengthFriendly} Case</p>
                       </div>
-                      <div className="bg-brand-600 rounded-xl p-6 min-h-[260px] flex flex-col text-white">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-brand-100">Potential Value Increase</p>
-                        <h2 className="mt-1 text-2xl font-bold">{dailyAction.action}</h2>
-                        <p className="mt-2 text-sm font-semibold text-brand-100">Potential impact: {dailyAction.valueIncrease}</p>
-                        {(dailyAction.action.toLowerCase().includes('bill') || dailyAction.action.toLowerCase().includes('medical') || dailyAction.action.toLowerCase().includes('urgent')) && (
-                          <p className="mt-4 text-sm leading-6 text-brand-100">Hospital records help attorneys evaluate damages faster.</p>
-                        )}
-                        <Link to={dailyAction.href} className="inline-flex items-center px-5 py-2.5 text-sm font-semibold bg-white text-brand-600 rounded-lg hover:bg-brand-50 mt-auto w-fit">
-                          {submittedForReview ? <LayoutDashboard className="h-4 w-4 mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
-                          {dailyAction.cta}
-                        </Link>
+                      <div className="rounded-xl border border-gray-200 bg-white p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-500">Attorney Interest</p>
+                        <div className="mt-1 flex items-center justify-between">
+                          <div>
+                            <p className="text-lg font-bold text-emerald-600">{attorneyInterestLabel}</p>
+                            <p className="text-2xl font-bold text-gray-900 tabular-nums">{attorneyInterest}%</p>
+                          </div>
+                          <div className="relative inline-flex h-12 w-12 items-center justify-center">
+                            <svg className="absolute h-12 w-12 -rotate-90 text-gray-200" viewBox="0 0 36 36" aria-hidden>
+                              <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" />
+                              <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" className="text-emerald-500" strokeWidth="4" strokeDasharray={`${attorneyInterest} ${100 - attorneyInterest}`} strokeLinecap="round" />
+                            </svg>
+                          </div>
+                        </div>
+                        <p className="mt-1 text-[11px] text-gray-400">Likelihood of attorney interest</p>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-white p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-500">Settlement Range</p>
+                        <p className="mt-1 text-lg font-bold text-gray-900 tabular-nums">{formatCurrency(settlementLow)} – {formatCurrency(settlementHigh)}</p>
+                        <p className="text-[11px] text-gray-400">Most likely: {formatCurrency(settlementMedian)}</p>
+                        <div className="relative mt-2 h-1.5 w-full rounded-full bg-gray-200"><div className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-600" /></div>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-white p-4">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-500">Expected Response</p>
+                        <p className="mt-1 flex items-center gap-1.5 text-2xl font-bold text-blue-600"><Clock className="h-5 w-5" aria-hidden />{responseDeadlineLabel}</p>
+                        <p className="text-[11px] text-gray-400">Average response time</p>
                       </div>
                     </div>
-                    {!submittedForReview && (
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="bg-white rounded-xl border-2 border-brand-200 p-5">
-                          <h3 className="text-lg font-bold text-gray-900 mb-2">Submit Your Case for Attorney Review</h3>
-                          <p className="text-sm text-gray-600 mb-2">65% of cases like yours are accepted by attorneys in our network.</p>
-                          <p className="text-sm text-gray-600 mb-4">Most attorneys respond within {responseDeadlineLabel}.</p>
-                          <Link to={`/results/${activeAssessment.id}?review=1`} className="block w-full text-center py-3 text-sm font-semibold text-white bg-brand-600 rounded-lg hover:bg-brand-700">
-                            Send My Case for Attorney Review
-                          </Link>
-                        </div>
-                        <div className="bg-indigo-50 rounded-xl border-2 border-indigo-200 p-5">
-                          <h3 className="text-lg font-bold text-indigo-950 mb-2">Prepare a Self-Help Demand Package</h3>
-                          <p className="text-sm text-indigo-900/80 mb-2">
-                            For straightforward claims, organize your facts and records into a settlement demand you can review and download.
-                          </p>
-                          <p className="text-sm text-indigo-900/80 mb-4">Attorney review is recommended before signing any release.</p>
-                          <Link to={`/demand/${activeAssessment.id}`} className="block w-full text-center py-3 text-sm font-semibold text-white bg-indigo-700 rounded-lg hover:bg-indigo-800">
-                            Build Demand Package
-                          </Link>
-                        </div>
-                      </div>
-                    )}
 
-                    {submittedForReview && (
-                      <div className="bg-white rounded-xl border border-gray-200 p-5">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Activity className="h-5 w-5 text-brand-600" />
-                          <h3 className="text-lg font-bold text-gray-900">Attorney Activity</h3>
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-3">
-                          <div className="rounded-lg bg-brand-50 border border-brand-100 p-3">
-                            <p className="text-xs font-semibold text-brand-700">Last Update</p>
-                            <p className="mt-1 font-semibold text-gray-900">{latestAttorneyActivityTime}</p>
-                          </div>
-                          <div className="rounded-lg bg-gray-50 border border-gray-200 p-3">
-                            <p className="text-xs font-semibold text-gray-500">Reviewing</p>
-                            <p className="mt-1 font-semibold text-gray-900">{attorneyReviewCount} attorney{attorneyReviewCount !== 1 ? 's' : ''} reviewing</p>
-                          </div>
-                          <div className="rounded-lg bg-gray-50 border border-gray-200 p-3">
-                            <p className="text-xs font-semibold text-gray-500">Expected response</p>
-                            <p className="mt-1 font-semibold text-gray-900">{responseDeadlineLabel}</p>
+                    {/* Attorney Review Status + What happens next */}
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-xl bg-slate-900 p-5 text-white">
+                        <p className="text-sm font-semibold text-slate-200">Attorney Review Status</p>
+                        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                          <ul className="space-y-3">
+                            {[
+                              { label: 'Case submitted', done: submittedForReview, time: submittedForReview ? 'Done' : 'Pending' },
+                              { label: 'Matched to personal injury attorneys', done: submittedForReview, time: submittedForReview ? 'In queue' : '—' },
+                              { label: 'Under attorney review', done: false, time: submittedForReview ? 'In progress' : '—' },
+                              { label: 'Response expected', done: false, time: `~${responseDeadlineLabel}` },
+                            ].map((s) => (
+                              <li key={s.label} className="flex items-start gap-2">
+                                <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${s.done ? 'bg-emerald-500' : 'border border-slate-500'}`}>{s.done && <CheckCircle className="h-3 w-3 text-white" aria-hidden />}</span>
+                                <span className="flex-1 text-xs text-slate-200">{s.label}</span>
+                                <span className="text-[10px] text-slate-400">{s.time}</span>
+                              </li>
+                            ))}
+                          </ul>
+                          <div className="flex flex-col items-center justify-center rounded-lg bg-white/5 p-4 text-center">
+                            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10"><Users className="h-6 w-6 text-slate-200" aria-hidden /></span>
+                            <p className="mt-2 text-2xl font-bold">{submittedForReview ? attorneyReviewCount : 0} Attorney{(submittedForReview ? attorneyReviewCount : 0) === 1 ? '' : 's'}</p>
+                            <p className="text-[11px] text-slate-300">{submittedForReview ? 'Currently reviewing your case' : 'Submit to start review'}</p>
+                            <Link to={`/results/${activeAssessment.id}`} className="mt-3 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100">View Review Details</Link>
                           </div>
                         </div>
                       </div>
-                    )}
+                      <div className="rounded-xl border border-gray-200 bg-white p-5">
+                        <p className="text-sm font-semibold text-gray-900">What happens next?</p>
+                        <ul className="mt-4 space-y-3">
+                          {reviewStatusSteps.map((s, i) => (
+                            <li key={s.label} className="flex items-start gap-3">
+                              <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${s.done ? 'bg-emerald-500 text-white' : s.current ? 'bg-blue-100 text-blue-700 ring-2 ring-blue-500' : 'bg-gray-100 text-gray-400'}`}>{s.done ? '✓' : i + 1}</span>
+                              <div>
+                                <p className="text-xs font-semibold text-gray-800">{s.label}</p>
+                                <p className="text-[11px] text-gray-400">{s.sub}</p>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                        <Link to={`/results/${activeAssessment.id}`} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-900">Learn more about the process <ChevronRight className="h-3.5 w-3.5" /></Link>
+                      </div>
+                    </div>
+
+                    {/* Increase value + Potential matches */}
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-xl border border-gray-200 bg-white p-5">
+                        <p className="text-sm font-semibold text-gray-900">Increase Your Case Value</p>
+                        <p className="mt-0.5 text-xs text-gray-500">Upload key documents to improve value, confidence, and attorney interest.</p>
+                        <div className="mt-4 space-y-2">
+                          {caseValueIncreaseItems.map((item) => (
+                            <div key={item.label} className="flex items-center gap-3 rounded-lg border border-gray-200 p-2.5">
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600"><FileText className="h-4 w-4" aria-hidden /></span>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-xs font-semibold text-gray-800">{item.label}</p>
+                                <p className="truncate text-[11px] text-gray-400">{item.sub}</p>
+                              </div>
+                              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${item.impact === 'High' ? 'bg-emerald-50 text-emerald-700' : item.impact === 'Medium' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{item.impact}</span>
+                              {item.done ? (
+                                <span className="shrink-0 text-[11px] font-semibold text-emerald-600">Added</span>
+                              ) : (
+                                <Link to={`/evidence-upload/${activeAssessment.id}`} className="shrink-0 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-50">Upload</Link>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-3 flex items-center justify-between">
+                          <p className="flex items-center gap-1.5 text-[11px] text-emerald-700"><TrendingUp className="h-3.5 w-3.5" aria-hidden />Adding these items could increase your settlement.</p>
+                          <Link to={`/evidence-upload/${activeAssessment.id}`} className="text-[11px] font-semibold text-brand-700 hover:text-brand-900">See all ways to strengthen</Link>
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-white p-5">
+                        <p className="text-sm font-semibold text-gray-900">Potential Attorney Matches</p>
+                        <p className="mt-0.5 text-xs text-gray-500">Matches are based on your case details and location.</p>
+                        <div className="mt-4 space-y-3">
+                          {previewAttorneyMatches.map((a) => (
+                            <div key={a.firm} className="flex items-start gap-3 border-b border-gray-100 pb-3 last:border-0 last:pb-0">
+                              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">{a.firm.split(' ').map((w) => w[0]).slice(0, 2).join('')}</span>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold text-gray-900">{a.firm}</p>
+                                <p className="truncate text-[11px] text-gray-500">{a.focus}</p>
+                                <p className="truncate text-[11px] text-gray-400">{venueState}</p>
+                                <p className="mt-0.5 flex items-center gap-1 text-[11px] text-amber-600"><Star className="h-3 w-3" aria-hidden />{a.rating} ({a.reviews} reviews)</p>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <p className="text-[10px] text-gray-400">Match Score</p>
+                                <p className="text-sm font-bold text-emerald-600">{a.score}%</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] text-gray-500">Submit your case to unlock full attorney profiles and contact information.</p>
+                      </div>
+                    </div>
+
+                    {/* Secondary metrics row */}
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="rounded-xl border border-gray-200 bg-white p-5">
+                        <p className="text-sm font-semibold text-gray-900">Liability Strength</p>
+                        <p className="mt-1 text-2xl font-bold text-emerald-600 tabular-nums">{liabilityPercent}% <span className="text-sm font-semibold text-gray-500">{liabilityLabel}</span></p>
+                        <p className="mt-3 text-[11px] font-semibold text-gray-700">What helps your case</p>
+                        <ul className="mt-1 space-y-1">
+                          {(liabilityHelps.length > 0 ? liabilityHelps : ['Incident details provided']).map((h) => (
+                            <li key={h} className="flex items-center gap-1.5 text-[11px] text-gray-600"><CheckCircle className="h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden />{h}</li>
+                          ))}
+                        </ul>
+                        {liabilityHurts.length > 0 && (
+                          <>
+                            <p className="mt-2 text-[11px] font-semibold text-gray-700">What hurts your case</p>
+                            <ul className="mt-1 space-y-1">
+                              {liabilityHurts.map((h) => (
+                                <li key={h} className="flex items-center gap-1.5 text-[11px] text-gray-500"><Square className="h-3.5 w-3.5 shrink-0 text-amber-400" aria-hidden />{h}</li>
+                              ))}
+                            </ul>
+                          </>
+                        )}
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-white p-5">
+                        <p className="text-sm font-semibold text-gray-900">Settlement Likelihood</p>
+                        <div className="mt-3 flex items-center justify-center">
+                          <div className="relative inline-flex h-20 w-20 items-center justify-center">
+                            <svg className="absolute h-20 w-20 -rotate-90 text-gray-200" viewBox="0 0 36 36" aria-hidden>
+                              <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3.4" />
+                              <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" className="text-emerald-500" strokeWidth="3.4" strokeDasharray={`${settlementLikelihood} ${100 - settlementLikelihood}`} strokeLinecap="round" />
+                            </svg>
+                            <div className="relative text-center"><p className="text-lg font-bold text-gray-900 tabular-nums">{settlementLikelihood}%</p><p className="text-[9px] text-emerald-600">High</p></div>
+                          </div>
+                        </div>
+                        <p className="mt-2 text-[11px] font-semibold text-gray-700">Based on:</p>
+                        <ul className="mt-1 space-y-1 text-[11px] text-gray-600">
+                          <li className="flex items-center gap-1.5"><CheckCircle className="h-3.5 w-3.5 text-emerald-500" aria-hidden />Injury severity</li>
+                          <li className="flex items-center gap-1.5"><CheckCircle className="h-3.5 w-3.5 text-emerald-500" aria-hidden />Treatment consistency</li>
+                          <li className="flex items-center gap-1.5"><CheckCircle className="h-3.5 w-3.5 text-emerald-500" aria-hidden />Jurisdiction &amp; venue</li>
+                          <li className="flex items-center gap-1.5"><CheckCircle className="h-3.5 w-3.5 text-emerald-500" aria-hidden />Liability factors</li>
+                        </ul>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-white p-5">
+                        <p className="text-sm font-semibold text-gray-900">Similar Cases in {venueState}</p>
+                        <div className="mt-3 space-y-2">
+                          <div className="rounded-lg bg-gray-50 p-2.5"><p className="text-[10px] text-gray-500">Median Settlement</p><p className="text-sm font-bold text-gray-900">{formatCurrency(settlementMedian)}</p></div>
+                          <div className="rounded-lg bg-gray-50 p-2.5"><p className="text-[10px] text-gray-500">Top 25%</p><p className="text-sm font-bold text-gray-900">{formatCurrency(potentialSettlementHigh)}</p></div>
+                          <div className="rounded-lg bg-gray-50 p-2.5"><p className="text-[10px] text-gray-500">Average Time to Resolve</p><p className="text-sm font-bold text-gray-900">6 – 12 months</p></div>
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-white p-5">
+                        <p className="text-sm font-semibold text-gray-900">Case Readiness</p>
+                        <div className="mt-3 flex items-center justify-center">
+                          <div className="relative inline-flex h-20 w-20 items-center justify-center">
+                            <svg className="absolute h-20 w-20 -rotate-90 text-gray-200" viewBox="0 0 36 36" aria-hidden>
+                              <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3.4" />
+                              <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" className="text-emerald-500" strokeWidth="3.4" strokeDasharray={`${evidencePercent} ${100 - evidencePercent}`} strokeLinecap="round" />
+                            </svg>
+                            <div className="relative text-center"><p className="text-lg font-bold text-gray-900 tabular-nums">{evidencePercent}%</p></div>
+                          </div>
+                        </div>
+                        {strengthOpportunities.length > 0 ? (
+                          <>
+                            <p className="mt-2 text-[11px] font-semibold text-gray-700">Missing items</p>
+                            <ul className="mt-1 space-y-1">
+                              {strengthOpportunities.slice(0, 3).map((o) => (
+                                <li key={o.label} className="flex items-center gap-1.5 text-[11px] text-gray-500"><Square className="h-3.5 w-3.5 shrink-0 text-amber-400" aria-hidden />{o.label}</li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : (
+                          <p className="mt-2 text-[11px] text-emerald-600">Your core documents are uploaded.</p>
+                        )}
+                        <Link to={`/evidence-upload/${activeAssessment.id}`} className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-brand-700 hover:text-brand-900">See all missing documents <ChevronRight className="h-3 w-3" /></Link>
+                      </div>
+                    </div>
+
+                    {/* Case Coach + Attorney Messages */}
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-5">
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white"><Activity className="h-5 w-5" aria-hidden /></span>
+                          <p className="text-sm font-semibold text-brand-900">Case Coach <span className="text-[10px] font-medium text-brand-500">(AI Powered)</span></p>
+                        </div>
+                        <p className="mt-3 text-xs font-semibold text-brand-900">{caseCoachDisplay.tip}</p>
+                        <p className="mt-1 text-xs text-brand-800">{caseCoachDisplay.action}</p>
+                        <Link to={dailyAction.href} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700">{dailyAction.cta}</Link>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-white p-5">
+                        <div className="flex items-center gap-2">
+                          <MessageCircle className="h-5 w-5 text-brand-600" aria-hidden />
+                          <p className="text-sm font-semibold text-gray-900">Attorney Messages</p>
+                        </div>
+                        <div className="mt-4 rounded-lg bg-gray-50 p-4 text-center">
+                          <p className="text-xs text-gray-600">No new messages yet.</p>
+                          <p className="mt-1 text-[11px] text-gray-400">Attorneys typically respond within 1 business day.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Case Summary + Coach tip */}
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-xl border border-gray-200 bg-white p-5">
+                        <p className="text-sm font-semibold text-gray-900">Case Summary</p>
+                        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                          <div><dt className="text-gray-400">Type of Case</dt><dd className="font-semibold text-gray-800">{claimTypeLabel}</dd></div>
+                          <div><dt className="text-gray-400">Injuries</dt><dd className="font-semibold text-gray-800">{injuries.length > 0 ? injuries.slice(0, 3).join(', ') : 'Not documented'}</dd></div>
+                          {incidentDateLabel && (<div><dt className="text-gray-400">Incident Date</dt><dd className="font-semibold text-gray-800">{incidentDateLabel}</dd></div>)}
+                          <div><dt className="text-gray-400">Treatment Status</dt><dd className="font-semibold text-gray-800">{treatmentStatusLabel}</dd></div>
+                          <div><dt className="text-gray-400">Jurisdiction</dt><dd className="font-semibold text-gray-800">{venueState}</dd></div>
+                        </dl>
+                        <Link to={`/results/${activeAssessment.id}`} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-900">View full case details <ChevronRight className="h-3.5 w-3.5" /></Link>
+                      </div>
+                      <div className="rounded-xl border border-gray-200 bg-white p-5">
+                        <div className="flex items-center gap-2">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-500"><HelpCircle className="h-4 w-4" aria-hidden /></span>
+                          <p className="text-sm font-semibold text-gray-900">Case Coach Tip</p>
+                        </div>
+                        <p className="mt-3 text-xs text-gray-600">The sooner you complete your documentation, the stronger your case and the faster you may receive offers.</p>
+                        <Link to="/help" className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-900">Read more tips <ChevronRight className="h-3.5 w-3.5" /></Link>
+                      </div>
+                    </div>
+
+                    {/* Bottom CTA */}
+                    <div className="rounded-xl border border-gray-200 bg-white p-5">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600"><Star className="h-5 w-5" aria-hidden /></span>
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">Ready to see which attorneys want your case?</p>
+                            <p className="text-xs text-gray-500">Submit now and typically receive responses within one business day.</p>
+                          </div>
+                        </div>
+                        <div className="text-center sm:text-right">
+                          <Link to={submittedForReview ? `/results/${activeAssessment.id}` : `/results/${activeAssessment.id}?review=1`} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-6 py-3 text-base font-semibold text-white shadow-sm hover:bg-brand-800 sm:w-auto">
+                            {submittedForReview ? 'View Case Report' : 'Send My Case for Attorney Review'}
+                            <ChevronRight className="h-4 w-4" aria-hidden />
+                          </Link>
+                          <p className="mt-1.5 text-[11px] text-gray-400">No obligation • Free review • Cancel anytime</p>
+                        </div>
+                      </div>
+                    </div>
                   </>
                 )}
 
-                {/* 2-column grid - Evidence, Progress, Value (Evidence moved below when attorney matched) */}
+                {/* Legacy grid retained for the attorney-matched experience */}
+                {attorneyMatched && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Row 1: Upload Evidence | Case Progress */}
                   <div className="bg-white rounded-xl border border-gray-200 p-5 min-h-[280px] flex flex-col">
@@ -2000,6 +2183,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
+                )}
 
                 {submittedForReview && (
                   <details className="rounded-xl border border-gray-200 bg-white p-5">

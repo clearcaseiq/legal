@@ -24,6 +24,7 @@ import attorneyDashboard from './routes/attorney-dashboard'
 import leadQuality from './routes/lead-quality'
 import attorneyProfile from './routes/attorney-profile'
 import attorneyRegister from './routes/attorney-register'
+import attorneyClaim from './routes/attorney-claim'
 import medicalProviders from './routes/medical-providers'
 import evidence from './routes/evidence'
 import oauth from './routes/oauth'
@@ -66,6 +67,7 @@ export function buildApp(): Express {
   app.use('/v1/lead-quality', leadQuality)
   app.use('/v1/attorney-profile', attorneyProfile)
   app.use('/v1/attorney-register', attorneyRegister)
+  app.use('/v1/attorney-claim', attorneyClaim)
   app.use('/v1/medical-providers', medicalProviders)
   app.use('/v1/evidence', evidence)
   app.use('/v1/consent', consent)

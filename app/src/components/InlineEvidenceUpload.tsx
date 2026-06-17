@@ -4,7 +4,8 @@ import {
   uploadMultipleEvidenceFiles, 
   getEvidenceFiles, 
   processEvidenceFile, 
-  deleteEvidenceFile
+  deleteEvidenceFile,
+  precheckEvidenceImage
 } from '../lib/api'
 import { TrashIcon } from './TrashIcon'
 import { 
@@ -20,6 +21,23 @@ import {
   DollarSign,
   Settings
 } from 'lucide-react'
+
+type VisionVerdict = {
+  status?: string
+  message?: string | null
+  expected?: string
+  topLabels?: { name: string; confidence: number }[]
+}
+
+type VisionWarning = {
+  fileName: string
+  status: string
+  message: string
+  /** Optional bold heading shown above the message (falls back to fileName). */
+  title?: string
+  /** Optional primary action (e.g. "Move to Videos") rendered next to Dismiss. */
+  action?: { label: string; onClick: () => void }
+}
 
 interface EvidenceFile {
   id: string
@@ -111,6 +129,22 @@ interface InlineEvidenceUploadProps {
   tightChrome?: boolean
   /** Hide the camera capture button when the parent screen only wants upload actions. */
   hideCameraButton?: boolean
+  /** Hide the component's own tight summary row + "Manage" trigger (parent renders its own trigger). */
+  hideTightSummary?: boolean
+  /** Controlled open state for the manage-files modal popup. */
+  manageOpen?: boolean
+  /** Called when the manage-files modal popup requests to open/close. */
+  onManageOpenChange?: (open: boolean) => void
+  /**
+   * Called when the user opts to move a file flagged as the wrong type
+   * (e.g. a video dropped onto a document/photo section) to a better-fit
+   * category. The parent owns cross-category file state, so it performs the move.
+   */
+  onMoveMismatch?: (fileName: string, targetCategory: string) => void
+  /** When true, the component does not render its own relevance warnings (a parent renders them instead). */
+  hideInlineWarnings?: boolean
+  /** Receives the current relevance warnings plus a dismiss handler so a parent can render them elsewhere. */
+  onWarningsChange?: (warnings: VisionWarning[], dismiss: (fileName: string) => void) => void
 }
 
 const EMPTY_INITIAL_FILES: EvidenceFile[] = []
@@ -131,6 +165,12 @@ export default function InlineEvidenceUpload({
   hideHeader = false,
   tightChrome = false,
   hideCameraButton = false,
+  hideTightSummary = false,
+  manageOpen,
+  onManageOpenChange,
+  onMoveMismatch,
+  hideInlineWarnings = false,
+  onWarningsChange,
 }: InlineEvidenceUploadProps) {
   const [files, setFiles] = useState<EvidenceFile[]>(() => initialFiles)
   const [loading, setLoading] = useState(false)
@@ -139,6 +179,14 @@ export default function InlineEvidenceUpload({
   const [processingFiles, setProcessingFiles] = useState<Set<string>>(new Set())
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const [showTightManage, setShowTightManage] = useState(false)
+  const [visionWarnings, setVisionWarnings] = useState<VisionWarning[]>([])
+
+  const isManageControlled = manageOpen !== undefined
+  const manageModalOpen = isManageControlled ? manageOpen : showTightManage
+  const setManageModalOpen = (open: boolean) => {
+    if (isManageControlled) onManageOpenChange?.(open)
+    else setShowTightManage(open)
+  }
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
@@ -152,8 +200,91 @@ export default function InlineEvidenceUpload({
     })
   }, [onFilesUploaded])
 
+  const addVisionWarning = useCallback((fileName: string, vision: VisionVerdict | null | undefined) => {
+    if (!vision) return
+    const status = vision.status || ''
+    if (status === 'relevant') {
+      // Positive confirmation so the user can see the check ran and passed.
+      setVisionWarnings((prev) => [
+        ...prev.filter((w) => w.fileName !== fileName),
+        { fileName, status, message: 'Looks good — this matches what we expected for this section.' },
+      ])
+      return
+    }
+    if (status !== 'mismatch' && status !== 'review') return
+    const message = vision.message || `This file may not match ${vision.expected || 'the selected category'}.`
+    setVisionWarnings((prev) => [...prev.filter((w) => w.fileName !== fileName), { fileName, status, message }])
+  }, [])
+
+  const dismissVisionWarning = useCallback((fileName: string) => {
+    setVisionWarnings((prev) => prev.filter((w) => w.fileName !== fileName))
+  }, [])
+
   useEffect(() => {
-    if (files.length === 0) setShowTightManage(false)
+    onWarningsChange?.(visionWarnings, dismissVisionWarning)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visionWarnings])
+
+  const runVisionPrecheck = useCallback(async (file: File) => {
+    // Some browsers (notably on Windows) report an empty MIME type for picked
+    // images, so fall back to the file extension before skipping the check.
+    const isImage =
+      file.type.startsWith('image/') ||
+      (!file.type && /\.(jpe?g|png|gif|bmp|webp|heic|heif|tiff?)$/i.test(file.name))
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
+    const isVideo =
+      file.type.startsWith('video/') ||
+      (!file.type && /\.(mp4|mov|avi|wmv|mkv|webm|m4v|3gp|flv|mpe?g|ogv)$/i.test(file.name))
+
+    // A video only belongs in the dedicated "video" section. Anywhere else
+    // (police report, medical records, bills, etc.) it's almost certainly the
+    // wrong kind of file, so surface a non-blocking mismatch warning and offer
+    // a one-tap move to the Videos section when the parent supports it.
+    if (isVideo) {
+      if (category && category !== 'video') {
+        const canMove = typeof onMoveMismatch === 'function'
+        setVisionWarnings((prev) => [
+          ...prev.filter((w) => w.fileName !== file.name),
+          {
+            fileName: file.name,
+            status: 'mismatch',
+            title: `${file.name} looks like a video.`,
+            message: canMove
+              ? 'Move it to Videos for the right place?'
+              : 'Videos belong in the Videos section.',
+            action: canMove
+              ? {
+                  label: 'Move to Videos',
+                  onClick: () => {
+                    onMoveMismatch?.(file.name, 'video')
+                    dismissVisionWarning(file.name)
+                  },
+                }
+              : undefined,
+          },
+        ])
+      }
+      return
+    }
+
+    if (!isImage && !isPdf) return
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('category', category || 'other')
+      const res = await precheckEvidenceImage(fd)
+      addVisionWarning(file.name, res?.vision)
+    } catch {
+      // Non-blocking: relevance pre-check failures never interrupt the upload.
+    }
+  }, [category, addVisionWarning, dismissVisionWarning, onMoveMismatch])
+
+  useEffect(() => {
+    if (files.length === 0) {
+      setShowTightManage(false)
+      if (isManageControlled && manageOpen) onManageOpenChange?.(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files.length])
 
   useEffect(() => {
@@ -220,6 +351,7 @@ export default function InlineEvidenceUpload({
       }
       
       prependFiles([tempFile])
+      void runVisionPrecheck(file)
       return
     }
     
@@ -254,6 +386,7 @@ export default function InlineEvidenceUpload({
       const uploadedFile = await uploadEvidenceFile(formData)
       console.log('File uploaded successfully:', uploadedFile)
       prependFiles([uploadedFile])
+      addVisionWarning(uploadedFile.originalName || file.name, uploadedFile.vision)
       
       // Auto-process the file
       await processFile(uploadedFile.id)
@@ -347,6 +480,7 @@ export default function InlineEvidenceUpload({
       }))
       console.log('Storing temp files locally:', tempFiles.length)
       prependFiles(tempFiles)
+      fileList.forEach((file) => void runVisionPrecheck(file))
       return
     }
 
@@ -386,6 +520,10 @@ export default function InlineEvidenceUpload({
       const result = await uploadMultipleEvidenceFiles(formData)
       console.log('Files uploaded successfully:', result)
       prependFiles(result.files || [])
+
+      for (const file of (result.files || [])) {
+        addVisionWarning(file.originalName || file.filename, file.vision)
+      }
 
       for (const file of result.files) {
         if (file.id) {
@@ -596,6 +734,50 @@ export default function InlineEvidenceUpload({
           </div>
         )}
 
+        {!hideInlineWarnings && visionWarnings.length > 0 && (
+          <div className="space-y-1.5">
+            {visionWarnings.map((warning) => (
+              <div
+                key={warning.fileName}
+                className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-[11px] leading-snug ${
+                  warning.status === 'mismatch'
+                    ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200'
+                    : warning.status === 'relevant'
+                      ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200'
+                      : 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-300'
+                }`}
+              >
+                {warning.status === 'relevant' ? (
+                  <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                ) : (
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold">{warning.title || warning.fileName}</p>
+                  <p>{warning.message}</p>
+                </div>
+                {warning.action && (
+                  <button
+                    type="button"
+                    onClick={warning.action.onClick}
+                    className="shrink-0 rounded px-1 text-[11px] font-bold text-amber-800 underline-offset-2 hover:underline dark:text-amber-200"
+                  >
+                    {warning.action.label}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => dismissVisionWarning(warning.fileName)}
+                  className="shrink-0 rounded px-1 text-[10px] font-bold uppercase tracking-wide opacity-70 hover:opacity-100"
+                  aria-label="Dismiss"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {impactHint && (
           <p className={`font-medium text-green-600 ${tight ? 'text-[11px]' : 'text-xs'}`}>{impactHint}</p>
         )}
@@ -608,12 +790,12 @@ export default function InlineEvidenceUpload({
                 onClick={() => fileInputRef.current?.click()}
                 disabled={loading}
                 className={`inline-flex items-center justify-center rounded-md bg-brand-600 font-medium text-white hover:bg-brand-700 disabled:opacity-50 ${
-                  tight ? 'min-h-0 px-2.5 py-1 text-[11px]' : 'px-4 py-2 text-sm'
+                  tight ? 'min-h-0 h-[10px] px-2.5 py-0 text-[8px] leading-none' : 'px-4 py-2 text-sm'
                 } ${
                   hideCameraButton ? 'w-full' : ''
                 }`}
               >
-                <Upload className={`mr-1 shrink-0 ${tight ? 'h-3 w-3' : 'mr-2 h-4 w-4'}`} />
+                <Upload className={`mr-1 shrink-0 ${tight ? 'h-2 w-2' : 'mr-2 h-4 w-4'}`} />
                 {uploadButtonLabel || 'Upload Files'}
               </button>
 
@@ -631,31 +813,31 @@ export default function InlineEvidenceUpload({
                 </button>
               )}
             </div>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*,video/*,application/pdf,.doc,.docx,.txt"
-              onChange={handleFileInput}
-              className="hidden"
-            />
-
-            {!hideCameraButton && (
-              <input
-                ref={cameraInputRef}
-                type="file"
-                multiple
-                accept="image/*"
-                capture="environment"
-                onChange={handleCameraCapture}
-                className="hidden"
-              />
-            )}
           </div>
         )}
 
-        {files.length > 0 && tight && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*,video/*,application/pdf,.doc,.docx,.txt"
+          onChange={handleFileInput}
+          className="hidden"
+        />
+
+        {!hideCameraButton && (
+          <input
+            ref={cameraInputRef}
+            type="file"
+            multiple
+            accept="image/*"
+            capture="environment"
+            onChange={handleCameraCapture}
+            className="hidden"
+          />
+        )}
+
+        {files.length > 0 && tight && !hideTightSummary && (
           <div className="space-y-0.5">
             <div className="flex items-center justify-between gap-2 rounded border border-brand-200/80 bg-brand-50 px-2 py-0 leading-none dark:border-brand-800/60 dark:bg-brand-950/40">
               <span className="min-w-0 truncate text-[11px] font-semibold leading-none text-brand-950 dark:text-brand-100">
@@ -663,7 +845,7 @@ export default function InlineEvidenceUpload({
               </span>
               <button
                 type="button"
-                onClick={() => setShowTightManage(true)}
+                onClick={() => setManageModalOpen(true)}
                 className="my-1 shrink-0 rounded bg-white px-2 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide text-brand-800 shadow-sm ring-1 ring-brand-200 hover:bg-brand-100 dark:bg-brand-900 dark:text-brand-100 dark:ring-brand-700 dark:hover:bg-brand-800"
               >
                 Manage
@@ -675,15 +857,19 @@ export default function InlineEvidenceUpload({
                 ✓ Saved securely · uploads when you submit
               </p>
             )}
+          </div>
+        )}
 
-            {showTightManage && (
+        {tight && (
+          <>
+            {manageModalOpen && (
               <div
                 className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 p-4 sm:items-center"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={`tight-evidence-manage-${category ?? 'upload'}`}
                 onClick={(e) => {
-                  if (e.target === e.currentTarget) setShowTightManage(false)
+                  if (e.target === e.currentTarget) setManageModalOpen(false)
                 }}
               >
                 <div className="flex max-h-[70vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
@@ -694,7 +880,7 @@ export default function InlineEvidenceUpload({
                     </h3>
                     <button
                       type="button"
-                      onClick={() => setShowTightManage(false)}
+                      onClick={() => setManageModalOpen(false)}
                       className="shrink-0 rounded-lg px-2 py-1 text-sm font-medium text-gray-600 hover:bg-gray-100"
                     >
                       Done
@@ -767,7 +953,7 @@ export default function InlineEvidenceUpload({
                 </div>
               </div>
             )}
-          </div>
+          </>
         )}
 
         {files.length > 0 && !tight && (

@@ -576,6 +576,10 @@ model Attorney {
   profile           String?  @db.Text // Enhanced profile data (JSON)
   isActive          Boolean  @default(true)
   isVerified        Boolean  @default(false)
+  // Yelp-style profile claiming: unclaimed | pending | claimed
+  claimStatus       String   @default("unclaimed")
+  claimedByUserId   String?
+  claimedAt         DateTime?
   responseTimeHours Int      @default(24)
   averageRating     Float    @default(0.0)
   totalReviews      Int      @default(0)
@@ -622,6 +626,7 @@ model Attorney {
   smsWebhookReceipts          SmsWebhookReceipt[]
   reputationScore             AttorneyReputationScore?
   importSources               AttorneyImportSource[]
+  profileClaims               ProfileClaim[]
   calendarConnections         AttorneyCalendarConnection[]
   calendarBusyBlocks          AttorneyCalendarBusyBlock[]
   platformPayments            PlatformPayment[]
@@ -1726,6 +1731,84 @@ model AttorneyImportSource {
   @@map("attorney_import_sources")
 }
 
+/// Staging table for attorneys/firms harvested from external directories
+/// (e.g. lawyers.com). Kept separate from the live `Attorney` table so scraped
+/// data can be reviewed and promoted without polluting production records.
+model ProductionAttorney {
+  id            String  @id @default(cuid())
+  source        String  @default("lawyers.com")
+  // Stable dedupe key: hash of profileUrl when present, otherwise normalized name+location.
+  dedupeHash    String  @db.VarChar(64)
+  externalId    String?
+
+  name          String
+  firmName      String?
+  email         String?
+  phone         String?
+  website       String? @db.VarChar(1024)
+  profileUrl    String? @db.VarChar(1024)
+
+  street        String?
+  city          String?
+  state         String?
+  zip           String?
+  county        String?
+  practiceAreas String? @db.Text // JSON array of practice areas
+
+  rating        Float?
+  reviewCount   Int?
+
+  // Pipeline state: scraped -> reviewed -> promoted | rejected
+  status        String  @default("scraped")
+  // When promoted into the live `Attorney` table, the resulting attorney id.
+  promotedAttorneyId String?
+
+  sourcePage    Int?
+  rawPayload    String? @db.Text // Original parsed record as JSON
+  scrapedAt     DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([source, dedupeHash])
+  @@index([source, status])
+  @@index([state, city])
+  @@index([phone])
+  @@map("production_attorneys")
+}
+
+/// Yelp-style "claim your profile" flow. Each row is one claim attempt against
+/// an unclaimed (scraped/imported) Attorney record, with a single-use token and
+/// an OTP/bar-number verification step before an account is linked.
+model ProfileClaim {
+  id              String    @id @default(cuid())
+  attorneyId      String
+  attorney        Attorney  @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  // Single-use token embedded in the claim/invite link.
+  token           String    @unique
+  // Channel the invite / verification code was sent to.
+  email           String?
+  phone           String?
+  // email_code | sms_code | bar_number | manual
+  method          String?
+  // Hashed one-time passcode (bcrypt). Never store the raw code.
+  codeHash        String?
+  codeExpiresAt   DateTime?
+  attempts        Int       @default(0)
+  // sent | verified | completed | expired | rejected
+  status          String    @default("sent")
+  claimedByUserId String?
+  verifiedAt      DateTime?
+  completedAt     DateTime?
+  expiresAt       DateTime
+  meta            String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([attorneyId, status])
+  @@index([status])
+  @@map("profile_claims")
+}
+
 model CaseTier {
   id          String @id @default(cuid())
   tierNumber  Int    @unique // 1, 2, 3, 4
@@ -2077,6 +2160,7 @@ model EvidenceFile {
   aiSummary        String?
   aiClassification String?
   aiHighlights     String? // JSON array of highlight snippets
+  visionLabels     String? // JSON: AWS Rekognition relevance verdict + detected labels
 
   // HIPAA Compliance
   isHIPAA          Boolean   @default(false)

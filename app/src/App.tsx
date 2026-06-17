@@ -10,6 +10,7 @@ const Login = lazy(() => import('./pages/Login'))
 const AttorneyLogin = lazy(() => import('./pages/AttorneyLogin'))
 const Register = lazy(() => import('./pages/Register'))
 const AttorneyRegister = lazy(() => import('./pages/AttorneyRegister'))
+const ClaimProfile = lazy(() => import('./pages/ClaimProfile'))
 const AttorneyNetwork = lazy(() => import('./pages/AttorneyNetwork'))
 const AttorneyLicenseUpload = lazy(() => import('./pages/AttorneyLicenseUpload'))
 const AdminLogin = lazy(() => import('./pages/AdminLogin'))
@@ -250,6 +251,7 @@ function App() {
             <Route path="/help" element={<Help />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/for-attorneys" element={<ForAttorneys />} />
+            <Route path="/claim/:token" element={<ClaimProfile />} />
             <Route path="/assessment/start" element={<Navigate to="/assess?fresh=1" replace />} />
             <Route path="/ai-ml-consent" element={<AiMlConsent />} />
             <Route path="/hipaa-authorization" element={<HipaaAuthorization />} />

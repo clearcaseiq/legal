@@ -477,7 +477,7 @@ export default function Layout({ children }: LayoutProps) {
         id="main-content"
         className={`mx-auto w-full max-w-7xl overflow-x-clip sm:px-6 lg:px-8 ${
           ['/assess', '/intake'].includes(location.pathname)
-            ? 'h-[calc(100dvh-3.5rem)] overflow-y-auto overscroll-y-contain py-2 md:h-[calc(100dvh-4rem)]'
+            ? 'h-[calc(100dvh-4.5rem-1px)] overflow-y-auto overscroll-y-contain py-2 md:h-[calc(100dvh-5rem-1px)]'
             : 'py-8'
         }`}
       >
