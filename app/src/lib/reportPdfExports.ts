@@ -141,7 +141,7 @@ function createPdfDocument() {
   const pages: string[][] = [[]]
   const bodySize = 12
   let pageIndex = 0
-  let cursorTop = PAGE.marginTop
+  let cursorTop: number = PAGE.marginTop
 
   const currentPage = () => pages[pageIndex]
 
@@ -302,7 +302,7 @@ const CONTENT_WIDTH = PAGE.width - PAGE.marginX * 2
 function createRichDocument() {
   const pages: string[][] = [[]]
   let pageIndex = 0
-  let cursorTop = PAGE.marginTop
+  let cursorTop: number = PAGE.marginTop
   const currentPage = () => pages[pageIndex]
 
   const newPage = () => {
