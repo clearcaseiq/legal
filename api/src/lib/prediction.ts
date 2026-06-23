@@ -488,7 +488,7 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
   // Police report indicators
   if (narrative.includes('police') || narrative.includes('officer') || narrative.includes('citation') || narrative.includes('ticket')) {
     score += 0.05
-    factors.push('Police involvement - may provide objective evidence')
+    factors.push('Police involvement may provide objective evidence of fault')
   }
   
   // ===== EVIDENCE QUALITY FACTORS =====

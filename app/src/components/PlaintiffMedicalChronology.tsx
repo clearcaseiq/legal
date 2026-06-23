@@ -292,16 +292,7 @@ export default function PlaintiffMedicalChronology({
         </div>
       )}
 
-      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-        <button
-          type="button"
-          onClick={onSaveDraft}
-          disabled={saving}
-          className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Save my updates
-        </button>
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <button
           type="button"
           onClick={onConfirm}
@@ -317,11 +308,23 @@ export default function PlaintiffMedicalChronology({
           type="button"
           onClick={onSkip}
           disabled={saving}
-          className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {skipButtonLabel}
         </button>
+        <button
+          type="button"
+          onClick={onSaveDraft}
+          disabled={saving}
+          className="inline-flex items-center justify-center rounded-xl px-2 py-2.5 text-sm font-semibold text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          Save my updates
+        </button>
       </div>
+      <p className="mt-2 text-xs text-slate-500">
+        Not ready to confirm? <span className="font-medium text-slate-700">Skipping is fine</span> — attorneys can still review your case now and follow up if anything is needed.
+      </p>
     </section>
   )
 }

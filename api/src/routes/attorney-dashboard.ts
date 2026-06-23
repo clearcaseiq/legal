@@ -26,6 +26,7 @@ import { isValidPhone, normalizePhone, PHONE_ERROR_MESSAGE } from '../lib/phone'
 import { answerCommandCenterCopilot, buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
 import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
+import { exportCaseToConnectionSafe } from '../lib/cms'
 import {
   formatAttorneyResponseDeadline,
   getAttorneyResponseDeadlineMinutes,
@@ -8623,6 +8624,30 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
         )
       } catch (notifyErr: any) {
         logger.error('Failed to notify plaintiff of acceptance', { error: notifyErr.message })
+      }
+
+      // Phase 0+: auto-export the accepted case to the firm's connected CMS platforms.
+      try {
+        const acceptingAttorney = await prisma.attorney.findUnique({
+          where: { id: attorneyId },
+          select: { lawFirmId: true },
+        })
+        const firmId = acceptingAttorney?.lawFirmId
+        if (firmId) {
+          const cmsConnections = await prisma.cmsConnection.findMany({
+            where: { lawFirmId: firmId, status: 'connected' },
+            select: { id: true },
+          })
+          for (const conn of cmsConnections) {
+            void exportCaseToConnectionSafe({
+              connectionId: conn.id,
+              assessmentId: existingLead.assessmentId,
+              actorAttorneyId: attorneyId,
+            })
+          }
+        }
+      } catch (cmsErr: any) {
+        logger.warn('CMS auto-export trigger failed', { error: cmsErr?.message })
       }
 
       try {

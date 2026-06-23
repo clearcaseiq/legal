@@ -66,14 +66,37 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
     const features = computeFeatures(assessment)
     const result = await predictViability(features)
     const facts = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : assessment.facts
-    const underwriting = underwriteCase({
-      id: assessment.id,
-      claimType: assessment.claimType,
-      venueState: assessment.venueState,
-      venueCounty: assessment.venueCounty,
-      facts,
-      evidenceFiles: assessment.evidenceFiles,
-    })
+
+    // Underwriting refines the heuristic estimate, but it must never block a
+    // valuation. Sparse cases (e.g. a dog-bite claim with no medical records
+    // uploaded yet) should still return a preliminary estimate rather than a
+    // 500. If underwriting throws, fall back to the heuristic value bands.
+    let underwriting: ReturnType<typeof underwriteCase> | null = null
+    let underwritingResult: any
+    try {
+      underwriting = underwriteCase({
+        id: assessment.id,
+        claimType: assessment.claimType,
+        venueState: assessment.venueState,
+        venueCounty: assessment.venueCounty,
+        facts,
+        evidenceFiles: assessment.evidenceFiles,
+      })
+    } catch (underwritingError) {
+      logger.error('Underwriting failed; returning preliminary heuristic estimate', {
+        underwritingError,
+        assessmentId: assessment.id,
+      })
+    }
+
+    if (!underwriting) {
+      underwritingResult = {
+        ...result,
+        modelVersion: result.modelVersion || 'heuristic-v1.0',
+        inferenceSource: 'heuristic_fallback',
+        preliminary: true,
+      }
+    } else {
     const legacyValueBands = result.value_bands as any
     const underwritingValueBands = {
       ...legacyValueBands,
@@ -97,7 +120,7 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
         baseInjuryValue: underwriting.settlement.baseInjuryValue,
       }
     }
-    const underwritingResult = {
+    underwritingResult = {
       ...result,
       viability: {
         ...result.viability,
@@ -132,6 +155,7 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       modelVersion: 'ca-pi-underwriting-v1',
       inferenceSource: 'underwriting_engine',
     }
+    }
     const resolvedModelVersion = result.modelVersion || 'heuristic-v1.0'
     const storedModelVersion = underwritingResult.modelVersion
     const shadowModelVersion =
@@ -162,7 +186,7 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       viability: underwritingResult.viability.overall,
       severityLevel: underwritingResult.severity?.level,
       severityLabel: underwritingResult.severity?.label,
-      attorneyAcceptance: underwriting.attorneyAcceptance.probability,
+      attorneyAcceptance: underwriting?.attorneyAcceptance?.probability ?? null,
       modelVersion: storedModelVersion,
       inferenceSource: underwritingResult.inferenceSource,
       shadowModelVersion,

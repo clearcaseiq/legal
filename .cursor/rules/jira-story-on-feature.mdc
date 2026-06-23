@@ -1,0 +1,37 @@
+---
+description: Create a Jira story whenever a new feature or function is added
+alwaysApply: true
+---
+
+# Auto-create Jira stories for new features
+
+When you implement a **new user-facing feature or a new function/capability** in this
+repo, create a corresponding **Story** in Jira using the Atlassian MCP server
+(`atlassian`). Do this after the change is written, then report the created issue key/URL.
+
+## When to create a story
+- A new feature, page, endpoint, workstream, or meaningful capability is added.
+- Do **NOT** create a story for: bug fixes, refactors, formatting, comments, tests,
+  docs-only edits, or dependency bumps. (Mention you skipped it.)
+- If unsure whether something qualifies, ask the user before creating.
+
+## Before creating — avoid duplicates
+1. Search Jira for an existing matching story (by summary/keywords) first.
+2. If a close match exists, comment on / link to it instead of creating a duplicate.
+
+## Story content (use this template)
+- **Project**: `ClearCaseIQ` (project key `CP`).
+- **Issue type**: Story.
+- **Summary**: short imperative title of the feature (e.g., "Add SOL email reminders").
+- **Description** (use this body):
+  - `As a <role>, I want <capability> so that <benefit>.`
+  - `Acceptance Criteria:` 2–4 bullet points describing observable behavior.
+  - `Source:` the key files/paths changed.
+- **Parent/Epic**: link to the most relevant existing epic (Claimant Intake, Attorney
+  Dashboard & Workstreams, Matching & Routing, etc.) when one fits.
+- **Labels**: a domain label (e.g., `intake`, `attorney`, `routing`) plus `auto-created`.
+
+## After creating
+- Print the new issue key and URL.
+- If MCP isn't connected/authenticated, tell the user to authenticate the `atlassian`
+  MCP server instead of silently skipping.

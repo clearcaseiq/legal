@@ -48,6 +48,27 @@ export const ENV = {
   APPLE_TEAM_ID: process.env.APPLE_TEAM_ID,
   APPLE_KEY_ID: process.env.APPLE_KEY_ID,
   APPLE_PRIVATE_KEY: process.env.APPLE_PRIVATE_KEY,
+  // ---- CMS integrations (Phase 0+) ----
+  /** Key used to encrypt CMS tokens at rest; falls back to JWT_SECRET if unset. */
+  CMS_TOKEN_ENCRYPTION_KEY: process.env.CMS_TOKEN_ENCRYPTION_KEY,
+  /** Clio Manage API (OAuth 2.0 Authorization Code). Self-serve developer app. */
+  CLIO_CLIENT_ID: process.env.CLIO_CLIENT_ID,
+  CLIO_CLIENT_SECRET: process.env.CLIO_CLIENT_SECRET,
+  CLIO_REDIRECT_URI: process.env.CLIO_REDIRECT_URI,
+  /** Region base, e.g. https://app.clio.com (US) or https://eu.app.clio.com. */
+  CLIO_API_BASE: process.env.CLIO_API_BASE ?? 'https://app.clio.com',
+  /** Filevine API gateway. Client id/secret are issued by Filevine Partnerships. */
+  FILEVINE_CLIENT_ID: process.env.FILEVINE_CLIENT_ID,
+  FILEVINE_CLIENT_SECRET: process.env.FILEVINE_CLIENT_SECRET,
+  FILEVINE_PAT: process.env.FILEVINE_PAT,
+  FILEVINE_IDENTITY_BASE: process.env.FILEVINE_IDENTITY_BASE ?? 'https://identity.filevine.com',
+  FILEVINE_API_BASE: process.env.FILEVINE_API_BASE ?? 'https://api.filevineapp.com',
+  /** SmartAdvocate — partner program; base URL is firm-specific. */
+  SMARTADVOCATE_API_BASE: process.env.SMARTADVOCATE_API_BASE,
+  SMARTADVOCATE_API_KEY: process.env.SMARTADVOCATE_API_KEY,
+  /** CasePeer (8am) — partner program. */
+  CASEPEER_API_BASE: process.env.CASEPEER_API_BASE ?? 'https://api.casepeer.com',
+  CASEPEER_API_KEY: process.env.CASEPEER_API_KEY,
   /** Comma-separated emails treated as admin in JWT role resolution */
   ADMIN_EMAILS: process.env.ADMIN_EMAILS ?? 'admin@caseiq.com',
   /** When true, sensitive plaintiff routes require user.emailVerified */

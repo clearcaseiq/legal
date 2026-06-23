@@ -101,6 +101,22 @@ export async function updateIntakeLead(id: string, payload: IntakeLeadPayload) {
   return data
 }
 
+export interface IntakeLeadResume {
+  id: string
+  status?: string | null
+  currentStep?: string | null
+  injuryType?: string | null
+  venueState?: string | null
+  venueCounty?: string | null
+  assessmentId?: string | null
+  formSnapshot?: Record<string, unknown> | null
+}
+
+export async function getIntakeLead(id: string): Promise<IntakeLeadResume> {
+  const { data } = await api.get(`/v1/intake-leads/${id}`)
+  return data
+}
+
 export async function createAssessment(payload: any) {
   apiDebug.log('createAssessment called with payload:', payload)
   try {

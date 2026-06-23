@@ -632,6 +632,7 @@ model Attorney {
   platformPayments            PlatformPayment[]
   firmMemberships             FirmMember[]
   firmCaseAssignments         FirmCaseAssignment[]
+  cmsConnections              CmsConnection[]
 
   // Phase 2: Communications
   platformNotificationEvents PlatformNotificationEvent[]
@@ -668,6 +669,7 @@ model LawFirm {
   members         FirmMember[]
   cases           Assessment[]
   caseAssignments FirmCaseAssignment[]
+  cmsConnections  CmsConnection[]
 
   @@map("law_firms")
 }
@@ -2483,4 +2485,76 @@ model SettlementRecord {
   @@index([venueState])
   @@index([injurySeverity])
   @@map("settlement_records")
+}
+
+// ---------------------------------------------------------------------------
+// CMS Integrations (Phase 0): connections to external case-management systems
+// (Clio, Filevine, SmartAdvocate, CasePeer) and an audit log of every sync.
+// Mirrors the AttorneyCalendarConnection pattern; tokens are stored encrypted.
+// ---------------------------------------------------------------------------
+model CmsConnection {
+  id        String   @id @default(cuid())
+  lawFirmId String
+  lawFirm   LawFirm  @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+  // Optional owning attorney (a firm may have one shared connection or per-attorney).
+  attorneyId String?
+  attorney   Attorney? @relation(fields: [attorneyId], references: [id], onDelete: SetNull)
+  createdByUserId String?
+
+  provider String // clio, filevine, smartadvocate, casepeer, zapier
+  authType String // oauth, pat, partner, webhook
+
+  // External identifiers returned by the provider.
+  externalAccountId    String?
+  externalAccountEmail String?
+  externalOrgId        String?
+  externalUserId       String?
+
+  // OAuth / PAT tokens — encrypted at rest (AES-256-GCM).
+  accessToken    String?   @db.Text
+  refreshToken   String?   @db.Text
+  tokenExpiresAt DateTime?
+  scopes         String?   @db.Text // JSON array
+
+  // Provider-specific configuration (region base URL, webhook target, etc.).
+  // Any secrets inside are individually encrypted before serialization.
+  apiBaseUrl String?
+  config     String? @db.Text // JSON
+
+  status       String    @default("disconnected") // disconnected, connected, error
+  lastError    String?   @db.Text
+  lastSyncedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  syncLogs CmsSyncLog[]
+
+  @@unique([lawFirmId, provider, externalAccountId])
+  @@index([lawFirmId])
+  @@index([attorneyId])
+  @@index([provider, status])
+  @@map("cms_connections")
+}
+
+model CmsSyncLog {
+  id           String        @id @default(cuid())
+  connectionId String
+  connection   CmsConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  assessmentId String?
+
+  direction    String // outbound, inbound
+  operation    String // export_case, upsert_contact, create_matter, upload_document, status_update
+  status       String // success, error, skipped
+  externalType String? // matter, contact, document
+  externalId   String?
+  message      String? @db.Text
+  payloadHash  String? // idempotency / change detection
+
+  createdAt DateTime @default(now())
+
+  @@index([connectionId])
+  @@index([assessmentId])
+  @@index([operation, status])
+  @@map("cms_sync_logs")
 }

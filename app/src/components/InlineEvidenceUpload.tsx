@@ -145,6 +145,15 @@ interface InlineEvidenceUploadProps {
   hideInlineWarnings?: boolean
   /** Receives the current relevance warnings plus a dismiss handler so a parent can render them elsewhere. */
   onWarningsChange?: (warnings: VisionWarning[], dismiss: (fileName: string) => void) => void
+  /**
+   * Optional external element to use as the drag-and-drop target instead of the
+   * component's own (often tiny) root. When provided, the parent can make a much
+   * larger surface — e.g. an entire card/row — accept dropped files. The
+   * component's own root drag handlers are disabled to avoid double-handling.
+   */
+  dropTargetRef?: React.RefObject<HTMLElement | null>
+  /** Notifies the parent when files are being dragged over the external drop target (for highlight UI). */
+  onDragStateChange?: (active: boolean) => void
 }
 
 const EMPTY_INITIAL_FILES: EvidenceFile[] = []
@@ -171,6 +180,8 @@ export default function InlineEvidenceUpload({
   onMoveMismatch,
   hideInlineWarnings = false,
   onWarningsChange,
+  dropTargetRef,
+  onDragStateChange,
 }: InlineEvidenceUploadProps) {
   const [files, setFiles] = useState<EvidenceFile[]>(() => initialFiles)
   const [loading, setLoading] = useState(false)
@@ -190,6 +201,7 @@ export default function InlineEvidenceUpload({
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
+  const dragDepth = useRef(0)
 
   const prependFiles = useCallback((incomingFiles: EvidenceFile[]) => {
     if (incomingFiles.length === 0) return
@@ -436,23 +448,86 @@ export default function InlineEvidenceUpload({
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    if (e.type === "dragenter" || e.type === "dragover") {
+    if (e.type === "dragenter") {
+      dragDepth.current += 1
+      setDragActive(true)
+    } else if (e.type === "dragover") {
+      // Required so the browser fires a `drop` event on this element
       setDragActive(true)
     } else if (e.type === "dragleave") {
-      setDragActive(false)
+      dragDepth.current = Math.max(0, dragDepth.current - 1)
+      if (dragDepth.current === 0) setDragActive(false)
     }
   }, [])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    dragDepth.current = 0
     setDragActive(false)
-    
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const fileList = Array.from(e.dataTransfer.files)
-      handleMultipleUpload(fileList)
+
+    const dropped = e.dataTransfer?.files
+    if (dropped && dropped.length > 0) {
+      handleMultipleUpload(Array.from(dropped))
     }
   }, [])
+
+  // Latest callbacks held in refs so the external drop-target listener effect can
+  // stay attached (deps: [dropTargetRef]) without re-binding on every render.
+  const latestDropRef = useRef<(files: File[]) => void>(() => {})
+  latestDropRef.current = (files: File[]) => { void handleMultipleUpload(files) }
+  const onDragStateChangeRef = useRef(onDragStateChange)
+  onDragStateChangeRef.current = onDragStateChange
+
+  // Bind drag-and-drop to an external element (e.g. a whole card/row) when the
+  // parent supplies one, so users can drop anywhere on that surface — not just
+  // the component's small button area.
+  useEffect(() => {
+    const el = dropTargetRef?.current
+    if (!el) return
+
+    const setActive = (active: boolean) => {
+      setDragActive(active)
+      onDragStateChangeRef.current?.(active)
+    }
+    const onDragEnter = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragDepth.current += 1
+      setActive(true)
+    }
+    const onDragOver = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+      setActive(true)
+    }
+    const onDragLeave = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragDepth.current = Math.max(0, dragDepth.current - 1)
+      if (dragDepth.current === 0) setActive(false)
+    }
+    const onDropNative = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragDepth.current = 0
+      setActive(false)
+      const files = e.dataTransfer?.files
+      if (files && files.length > 0) latestDropRef.current(Array.from(files))
+    }
+
+    el.addEventListener('dragenter', onDragEnter)
+    el.addEventListener('dragover', onDragOver)
+    el.addEventListener('dragleave', onDragLeave)
+    el.addEventListener('drop', onDropNative)
+    return () => {
+      el.removeEventListener('dragenter', onDragEnter)
+      el.removeEventListener('dragover', onDragOver)
+      el.removeEventListener('dragleave', onDragLeave)
+      el.removeEventListener('drop', onDropNative)
+    }
+  }, [dropTargetRef])
 
   // Handle multiple file upload
   const handleMultipleUpload = async (fileList: File[]) => {
@@ -711,7 +786,18 @@ export default function InlineEvidenceUpload({
     const showUploadArea = alwaysShowUpload || showUpload
     const tight = tightChrome
     return (
-      <div className={tight ? 'space-y-1.5' : 'space-y-3'}>
+      <div
+        onDragEnter={dropTargetRef ? undefined : handleDrag}
+        onDragLeave={dropTargetRef ? undefined : handleDrag}
+        onDragOver={dropTargetRef ? undefined : handleDrag}
+        onDrop={dropTargetRef ? undefined : handleDrop}
+        className={`relative rounded-lg transition-colors ${tight ? 'space-y-1.5' : 'space-y-3'} ${dragActive && !dropTargetRef ? 'ring-2 ring-brand-400 ring-offset-2' : ''}`}
+      >
+        {dragActive && !dropTargetRef && (
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg border-2 border-dashed border-brand-500 bg-brand-50/90 text-xs font-semibold text-brand-700">
+            Drop your files to upload
+          </div>
+        )}
         {!hideHeader && (
           <div className="flex items-center justify-between">
             <h4 className={`font-medium text-gray-700 ${tight ? 'text-xs' : 'text-sm'}`}>
@@ -783,7 +869,15 @@ export default function InlineEvidenceUpload({
         )}
 
         {showUploadArea && (
-          <div className={hideCameraButton && tight ? 'py-0' : `rounded-lg border-2 border-dashed border-gray-300 ${tight ? 'p-2' : 'p-4'}`}>
+          <div
+            className={`rounded-lg border-2 border-dashed transition-colors ${
+              dragActive
+                ? 'border-brand-500 bg-brand-50'
+                : hideCameraButton && tight
+                  ? 'border-transparent'
+                  : 'border-gray-300'
+            } ${hideCameraButton && tight ? 'p-0' : tight ? 'p-2' : 'p-4'}`}
+          >
             <div className={`flex flex-wrap items-center ${tight ? 'justify-center gap-1.5' : 'justify-center gap-3'} ${hideCameraButton ? 'w-full' : ''}`}>
               <button
                 type="button"
@@ -813,6 +907,11 @@ export default function InlineEvidenceUpload({
                 </button>
               )}
             </div>
+            {!tight && (
+              <p className="mt-2 text-center text-xs text-gray-500">
+                {dragActive ? 'Drop your files to upload' : 'or drag and drop files here'}
+              </p>
+            )}
           </div>
         )}
 

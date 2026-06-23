@@ -45,6 +45,7 @@ const AttorneyBilling = lazy(() => import('./pages/AttorneyBilling'))
 const LeadQuality = lazy(() => import('./pages/LeadQuality'))
 const AttorneyProfile = lazy(() => import('./pages/AttorneyProfile'))
 const AttorneyPreferences = lazy(() => import('./pages/AttorneyPreferences'))
+const Integrations = lazy(() => import('./pages/Integrations'))
 const MedicalProviders = lazy(() => import('./pages/MedicalProviders'))
 const EvidenceUpload = lazy(() => import('./pages/EvidenceUpload'))
 const EvidenceDashboard = lazy(() => import('./pages/EvidenceDashboard'))
@@ -154,6 +155,7 @@ const ATTORNEY_ROUTE_PREFIXES = [
   '/attorney-dashboard',
   '/attorney-profile',
   '/attorney-preferences',
+  '/integrations',
   '/attorney-billing',
   '/firm-dashboard',
   '/lead-quality',
@@ -335,6 +337,7 @@ function App() {
               <Route path="/lead-quality" element={<LeadQuality />} />
               <Route path="/attorney-profile" element={<AttorneyProfile />} />
               <Route path="/attorney-preferences" element={<AttorneyPreferences />} />
+              <Route path="/integrations" element={<Integrations />} />
               <Route path="/medical-providers" element={<MedicalProviders />} />
             </Route>
             <Route path="/evidence-upload/:assessmentId" element={<EvidenceUpload />} />

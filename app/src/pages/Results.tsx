@@ -806,6 +806,9 @@ export default function Results() {
   )
   const [sendHipaaConsent, setSendHipaaConsent] = useState(false)
   const [contactFormError, setContactFormError] = useState<string | null>(null)
+  // Send modal: collapse heavy/optional steps so the form reads as "send as… + consent + send".
+  const [showAttorneyRanking, setShowAttorneyRanking] = useState(false)
+  const [showContactEdit, setShowContactEdit] = useState(false)
   const [commandCenter, setCommandCenter] = useState<CaseCommandCenter | null>(null)
   const [activeResultsTab, setActiveResultsTab] = useState<ResultsTab>('overview')
   const medicalReviewRef = useRef<HTMLDivElement | null>(null)
@@ -866,6 +869,8 @@ export default function Results() {
 
     setContactFormError(null)
     setSendHipaaConsent(hasHipaaConsent)
+    setShowAttorneyRanking(false)
+    setShowContactEdit(false)
     if (isLoggedIn) {
       loadPlaintiffSessionSummary().then((session) => {
         const user = session.user
@@ -1091,12 +1096,20 @@ export default function Results() {
         setAssessment(assessmentData)
         setCaseSubmittedForReview(!!assessmentData.submittedForReview)
         
-        // Get prediction if not already available
-        if (!assessmentData.latest_prediction) {
-          const predictionData = await predict(resolvedAssessmentId)
-          setPrediction(predictionData)
-        } else {
+        // Get prediction if not already available. A valuation failure must
+        // never blank the whole results page — fall back to whatever the
+        // assessment already carries so the UI can still show a preliminary
+        // estimate (and the missing-data note) instead of an error screen.
+        if (assessmentData.latest_prediction) {
           setPrediction(assessmentData.latest_prediction)
+        } else {
+          try {
+            const predictionData = await predict(resolvedAssessmentId)
+            setPrediction(predictionData)
+          } catch (predictErr) {
+            console.error('Prediction unavailable; rendering preliminary view', predictErr)
+            setPrediction(null)
+          }
         }
         
         // Calculate SOL
@@ -1618,7 +1631,22 @@ export default function Results() {
   const displaySettlementHigh = isEarlyStageEstimate
     ? roundEstimateForDisplay(Math.min(settlementHigh * 0.5, settlementLow * 1.05))
     : settlementHigh
-  const displaySettlementRangeText = `${formatCurrency(displaySettlementLow)} - ${formatCurrency(Math.max(displaySettlementLow + 5000, displaySettlementHigh))}`
+  const displaySettlementHighValue = Math.max(displaySettlementLow + 5000, displaySettlementHigh)
+  const displaySettlementRangeText = `${formatCurrency(displaySettlementLow)} - ${formatCurrency(displaySettlementHighValue)}`
+  // Keep the "most likely" point inside the displayed range. When the range is
+  // scaled down for early-stage estimates, map the raw expected's relative
+  // position into the displayed range so it never falls outside the bounds.
+  const rawSettlementSpan = Math.max(1, settlementHigh - settlementLow)
+  const settlementExpectedFraction = Math.min(1, Math.max(0, (settlementExpected - settlementLow) / rawSettlementSpan))
+  const displaySettlementExpected = isEarlyStageEstimate
+    ? Math.min(
+        displaySettlementHighValue,
+        Math.max(
+          displaySettlementLow,
+          Math.round((displaySettlementLow + settlementExpectedFraction * (displaySettlementHighValue - displaySettlementLow)) / 1000) * 1000,
+        ),
+      )
+    : Math.min(displaySettlementHighValue, Math.max(displaySettlementLow, settlementExpected))
   const treatment = Array.isArray(parsedFacts?.treatment) ? parsedFacts.treatment : []
   const structuredValuationDrivers = valueBands?.drivers || {}
   const hasErTreatment = hasErTreatmentReported(treatment, parsedFacts)
@@ -1678,6 +1706,46 @@ export default function Results() {
     medium: 'Moderate',
     low: 'Developing',
   })
+
+  // ---- Potential litigation costs (itemized, informational) ----
+  // Pre-suit items are typically incurred even when a case settles without a
+  // lawsuit; deposition + expert items only apply if the case is litigated.
+  const hasValuation = displaySettlementExpected > 0
+  const costFilingFees = hasValuation ? 400 : 0
+  const costServiceFees = hasValuation ? 125 : 0
+  const costRecordRetrieval = hasValuation ? Math.min(Math.max(medicalDocumentFiles.length * 75, 150), 1500) : 0
+  const costOtherExpenses = hasValuation ? 350 : 0
+  const costDeposition = hasValuation ? (severityPercent >= 66 ? 3000 : severityPercent >= 40 ? 2000 : 1200) : 0
+  const costExpertWitness = hasValuation ? (severityPercent >= 66 ? 7500 : severityPercent >= 40 ? 4000 : 1800) : 0
+  const litigationCostItems = [
+    { label: 'Court filing fees', amount: costFilingFees, stage: 'pre' as const },
+    { label: 'Service / citation fees', amount: costServiceFees, stage: 'pre' as const },
+    { label: 'Medical record retrieval', amount: costRecordRetrieval, stage: 'pre' as const },
+    { label: 'Deposition expenses', amount: costDeposition, stage: 'litigation' as const },
+    { label: 'Expert witness fees', amount: costExpertWitness, stage: 'litigation' as const },
+    { label: 'Other litigation expenses', amount: costOtherExpenses, stage: 'pre' as const },
+  ]
+  const litigationCostTotal = litigationCostItems.reduce((sum, item) => sum + item.amount, 0)
+  // Pre-suit subset feeds the net-recovery deduction so the headline figure is
+  // not penalized by costs that only occur if the case is actively litigated.
+  const preSuitCaseExpenses = litigationCostItems
+    .filter((item) => item.stage === 'pre')
+    .reduce((sum, item) => sum + item.amount, 0)
+
+  // ---- Estimated net recovery ("take-home") ----
+  const netAttorneyFee = Math.round(displaySettlementExpected * 0.33)
+  const netMedicalLiens = Math.round(Math.min(documentedMedicalCharges, displaySettlementExpected))
+  const netCaseExpenses = preSuitCaseExpenses
+  const netEstimatedRecovery = Math.max(0, displaySettlementExpected - netAttorneyFee - netMedicalLiens - netCaseExpenses)
+
+  // Inputs that would most improve a sparse valuation (shown as a missing-data note).
+  const valuationMissingInputs = [
+    !hasMedicalRecords && 'medical records',
+    !hasMedicalBills && 'medical bills',
+    treatment.length === 0 && medicalChronology.length === 0 && 'treatment history',
+    documentedWageLoss === 0 && 'proof of lost wages',
+  ].filter(Boolean) as string[]
+
   const trialValueText = `${formatCurrency(potentialTrialLow)} - ${formatCurrency(potentialTrialHigh)}${trialRange?.policyLimitConstrained ? '' : '+'}`
   const severityFactorRows = [
     { label: 'MRI findings', present: hasMriReportedFlag },
@@ -1895,7 +1963,7 @@ export default function Results() {
       solDeadline,
       estimatedTimeline,
       settlementRangeText: displaySettlementRangeText,
-      settlementExpectedText: formatCurrency(settlementExpected),
+      settlementExpectedText: formatCurrency(displaySettlementExpected),
       estimateConfidenceLevel,
       trialValueText,
       trialExpectedText: formatCurrency(Math.round((potentialTrialLow + potentialTrialHigh) / 2)),
@@ -2211,6 +2279,7 @@ Checklist:
     setSaveReviewPromptOpen(false)
     setReviewPromptDismissed(true)
   }
+  const contactComplete = Boolean(contactForm.firstName.trim() && contactForm.email.trim() && contactForm.phone.trim())
 
   // Post-submission layout — transition from assessment to case tracking
   if (caseSubmittedForReview) {
@@ -2288,6 +2357,41 @@ Checklist:
       })),
     { title: 'Continue consistent treatment', desc: 'Ongoing treatment improves case value.', boost: '+5%', icon: Calendar, cta: 'Learn more' },
   ].slice(0, 4)
+
+  // ---- "Your next step" guidance: the single linear path the plaintiff should follow ----
+  const nextStepItems: Array<{
+    title: string
+    desc: string
+    done: boolean
+    optional?: boolean
+    cta: string
+    action?: () => void
+    href?: string
+  }> = [
+    {
+      title: 'Review your treatment timeline',
+      desc: 'Confirm or adjust your medical story so attorneys see an accurate timeline.',
+      done: !medicalReviewPending,
+      cta: 'Review',
+      action: () => openAnchoredResultsSection('#medical-story-review'),
+    },
+    {
+      title: 'Send your case for attorney review',
+      desc: 'Attorneys who handle cases like yours review it — free, with no obligation.',
+      done: false,
+      cta: 'Send for review',
+      action: openAttorneyReviewFlow,
+    },
+    {
+      title: 'Add supporting documents',
+      desc: 'Medical records, injury photos, and wage-loss proof can raise your case value.',
+      done: hasMedicalRecords && hasInjuryPhotos && hasWageLossProof,
+      optional: true,
+      cta: 'Add documents',
+      href: assessment?.id ? `/evidence-upload/${assessment.id}` : '/evidence-upload',
+    },
+  ]
+  const currentNextStepIndex = nextStepItems.findIndex((s) => !s.done && !s.optional)
 
   // ---- Full Case Report: Case Overview tab derived values ----
   const overviewQualityScore = (Math.round(caseStrengthScore / 10 * 10) / 10).toFixed(1)
@@ -2486,6 +2590,10 @@ Checklist:
   ]
   const medAiSummary = `Based on the information and records reviewed so far, ${(treatment.length > 0 || hasMedicalRecords) ? 'you sought treatment shortly after the accident' : 'treatment documentation is still limited'}. ${medTreatmentEvents.length > 0 ? `Your care includes ${hasErTreatment ? 'emergency treatment, ' : ''}${hasMriReportedFlag ? 'diagnostic imaging, ' : ''}and physical therapy for neck and back injuries` : 'Adding records will help build your treatment timeline'}. Symptoms appear consistent with the reported injuries.`
 
+  // "What to do now" banner state for the Medical Story tab.
+  const medReviewStatusValue = plaintiffMedicalReview?.review.status ?? 'pending'
+  const medHasAnyRecords = hasMedicalRecords || hasMedicalBills || medTimelineRows.length > 0
+
   // Pre-submission layout — full case report
   return (
     <div className="page-shell max-w-5xl">
@@ -2544,6 +2652,17 @@ Checklist:
               Attorneys need your contact information and a saved case record before they review the file.
             </p>
             <div className="space-y-3">
+              {contactComplete && !showContactEdit ? (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Sending as</p>
+                    <p className="truncate text-sm font-semibold text-slate-900">{contactForm.firstName}</p>
+                    <p className="truncate text-xs text-slate-600">{contactForm.email}{'  \u00B7  '}{contactForm.phone}{'  \u00B7  prefers '}{contactForm.preferredContactMethod}</p>
+                  </div>
+                  <button type="button" onClick={() => setShowContactEdit(true)} className="shrink-0 text-xs font-semibold text-brand-700 hover:text-brand-800">Edit</button>
+                </div>
+              ) : (
+              <>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">First Name *</label>
                 <input
@@ -2591,14 +2710,26 @@ Checklist:
                   ))}
                 </div>
               </div>
+              </>
+              )}
               {attorneySearchLoading && (
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
                   Finding the best attorney matches for your case...
                 </div>
               )}
               {!attorneySearchLoading && rankedAttorneyCards.length > 0 && (
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Rank your top 3 attorney matches</label>
+                <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-700">We&apos;ll send to your 3 best matches</p>
+                      <p className="mt-0.5 truncate text-xs text-slate-500">{rankedAttorneyCards.map((a: any, i) => `${i + 1}. ${a?.name ?? 'Attorney'}`).join('  \u00B7  ')}</p>
+                    </div>
+                    <button type="button" onClick={() => setShowAttorneyRanking((v) => !v)} className="shrink-0 whitespace-nowrap text-xs font-semibold text-brand-700 hover:text-brand-800">
+                      {showAttorneyRanking ? 'Done' : 'Customize order'}
+                    </button>
+                  </div>
+                  {showAttorneyRanking && (
+                  <div className="mt-3">
                   <p className="mb-3 text-xs text-slate-500">
                     We matched these attorneys based on venue, matter type, response signals, and profile fit. Dragging is not required; use Up/Down to reorder.
                   </p>
@@ -2684,6 +2815,8 @@ Checklist:
                   <p className="mt-2 text-xs text-slate-500">
                     We will contact Choice 1 first. If they decline or time out, we automatically move to the next choice.
                   </p>
+                  </div>
+                  )}
                 </div>
               )}
               {!attorneySearchLoading && rankedAttorneyCards.length === 0 && (
@@ -2806,8 +2939,65 @@ Checklist:
           </div>
         </header>
 
-        <div className="px-6 sm:px-10 py-9 sm:py-10">
+        <div className="px-6 sm:px-10 pt-9 pb-28 sm:pt-10 lg:pb-10">
         <section className="mb-6 space-y-5" aria-label="Your case snapshot">
+          {/* Your next step — the single primary guidance card */}
+          <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-5 shadow-sm">
+            <p className="flex items-center gap-1.5 font-display text-base font-semibold text-slate-900">
+              <ClipboardList className="h-4 w-4 text-brand-700" aria-hidden /> Your next step
+            </p>
+            <p className="mt-0.5 text-sm text-slate-600">Follow these steps to get your case in front of attorneys.</p>
+            <ol className="mt-4 space-y-2.5">
+              {nextStepItems.map((step, i) => {
+                const isCurrent = i === currentNextStepIndex
+                const isDone = step.done
+                const showAction = (isCurrent || (step.optional && !isDone)) && (step.action || step.href)
+                return (
+                  <li
+                    key={step.title}
+                    className={`flex items-center gap-3 rounded-xl border px-3.5 py-3 ${isCurrent ? 'border-brand-300 bg-white shadow-sm' : 'border-transparent bg-white/60'}`}
+                  >
+                    <span
+                      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                        isDone ? 'bg-emerald-100 text-emerald-700' : isCurrent ? 'bg-brand-700 text-white' : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {isDone ? <CheckCircle className="h-4 w-4" aria-hidden /> : i + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className={`flex flex-wrap items-center gap-1.5 text-sm font-semibold ${isDone ? 'text-slate-400' : 'text-slate-900'}`}>
+                        <span className={isDone ? 'line-through' : undefined}>{step.title}</span>
+                        {step.optional && (
+                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">Optional</span>
+                        )}
+                      </p>
+                      <p className="text-xs text-slate-500">{step.desc}</p>
+                    </div>
+                    {showAction && step.href ? (
+                      <Link
+                        to={step.href}
+                        className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50"
+                      >
+                        {step.cta}
+                      </Link>
+                    ) : showAction && step.action ? (
+                      <button
+                        type="button"
+                        onClick={step.action}
+                        className={`inline-flex shrink-0 items-center gap-1 rounded-lg px-3.5 py-2 text-xs font-semibold shadow-sm ${
+                          isCurrent ? 'bg-brand-700 text-white hover:bg-brand-800' : 'border border-slate-200 bg-white text-brand-700 hover:bg-brand-50'
+                        }`}
+                      >
+                        {step.cta}
+                        {isCurrent && <ChevronRight className="h-3.5 w-3.5" aria-hidden />}
+                      </button>
+                    ) : null}
+                  </li>
+                )
+              })}
+            </ol>
+          </div>
+
           {/* Fact row */}
           <div className="grid grid-cols-1 gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:grid-cols-3 sm:gap-4">
             <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
@@ -2834,17 +3024,34 @@ Checklist:
               </div>
               <p className="mt-4 text-xs text-slate-500">Most likely range</p>
               <p className="font-display text-2xl font-bold text-emerald-600">{displaySettlementRangeText}</p>
-              <p className="mt-1 text-sm text-slate-600">Most likely: <span className="font-semibold text-slate-900">{formatCurrency(settlementExpected)}</span></p>
-              <div className="mt-3 flex items-center gap-2">
+              <p className="mt-1 text-sm text-slate-600">Most likely: <span className="font-semibold text-slate-900">{formatCurrency(displaySettlementExpected)}</span></p>
+              {netEstimatedRecovery > 0 && (
+                <p className="mt-1 text-xs text-slate-500">
+                  After fees &amp; costs, you keep about <span className="font-semibold text-emerald-700">{formatCurrency(netEstimatedRecovery)}</span>.{' '}
+                  <button type="button" onClick={() => { document.getElementById('net-recovery')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }} className="font-semibold text-brand-700 hover:text-brand-800">See breakdown</button>
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="text-xs text-slate-500">Confidence:</span>
                 <span className={estimateConfidenceLevel === 'High' ? 'text-xs font-semibold text-emerald-700' : estimateConfidenceLevel === 'Medium' ? 'text-xs font-semibold text-amber-600' : 'text-xs font-semibold text-rose-600'}>{estimateConfidenceLevel}</span>
+                {estimateConfidenceLevel !== 'High' && (
+                  <span className="text-[11px] text-slate-500">&mdash; add medical records &amp; bills to sharpen this</span>
+                )}
               </div>
+              {valuationMissingInputs.length > 0 && (
+                <div className="mt-3 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2">
+                  <p className="text-[11px] font-semibold text-amber-800">Preliminary estimate</p>
+                  <p className="mt-0.5 text-[11px] leading-5 text-amber-700">
+                    This range is based on the information available so far. Add {valuationMissingInputs.slice(0, 3).join(', ')} to refine it.
+                  </p>
+                </div>
+              )}
               <div className="mt-4 border-t border-slate-100 pt-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">If your case goes to trial</p>
                 <p className="mt-1 text-xs text-slate-500">Trial range</p>
                 <p className="font-display text-xl font-bold text-slate-900">{trialValueText}</p>
                 <p className="mt-1 text-sm text-slate-600">Most likely: <span className="font-semibold text-slate-900">{formatCurrency(Math.round((potentialTrialLow + potentialTrialHigh) / 2))}</span></p>
-                <p className="mt-2 text-xs leading-5 text-slate-500">Trials can result in higher awards, but carry more time, risk, and uncertainty.</p>
+                <p className="mt-2 text-xs leading-5 text-slate-500">This is a <span className="font-semibold text-slate-600">gross figure before attorney fees and costs</span>, and an uncommon outcome &mdash; most cases settle. Trials add time, risk, and expense.</p>
                 <button
                   type="button"
                   onClick={() => { const el = fullReportDetailsRef.current; if (el) { el.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }) } }}
@@ -2909,6 +3116,70 @@ Checklist:
             </div>
           </div>
 
+          {/* Estimated net recovery */}
+          {displaySettlementExpected > 0 && (
+          <div id="net-recovery" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><DollarSign className="h-4 w-4" aria-hidden /></span>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Estimated Net Recovery</p>
+            </div>
+            <p className="mt-3 text-sm text-slate-600">What you might actually take home from a <span className="font-semibold text-slate-900">{formatCurrency(displaySettlementExpected)}</span> settlement, after the deductions that typically come out of a personal-injury recovery.</p>
+            <div className="mt-4 space-y-2.5">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-600">Settlement (most likely)</span>
+                <span className="font-semibold text-slate-900">{formatCurrency(displaySettlementExpected)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-600">Attorney fee (33% contingency)</span>
+                <span className="font-medium text-rose-600">&ndash; {formatCurrency(netAttorneyFee)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-600">Medical bills / liens{documentedMedicalCharges > 0 ? '' : ' (est.)'}</span>
+                <span className="font-medium text-rose-600">&ndash; {formatCurrency(netMedicalLiens)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-600">Case expenses (est.)</span>
+                <span className="font-medium text-rose-600">&ndash; {formatCurrency(netCaseExpenses)}</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-200 pt-3">
+                <span className="text-sm font-semibold text-slate-900">Estimated net to you</span>
+                <span className="font-display text-xl font-bold text-emerald-600">{formatCurrency(netEstimatedRecovery)}</span>
+              </div>
+            </div>
+            <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-500">
+              <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+              Illustrative only. Attorney fees, medical liens, and case costs vary by case and are often negotiated down &mdash; your attorney will confirm the final numbers.
+            </p>
+          </div>
+          )}
+
+          {/* Potential litigation costs */}
+          {hasValuation && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500"><Scale className="h-4 w-4" aria-hidden /></span>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Potential Litigation Costs</p>
+            </div>
+            <p className="mt-3 text-sm text-slate-600">Typical case costs, separate from the attorney fee. Pre-suit items usually apply even if you settle; deposition and expert costs apply only if your case is actively litigated. These are normally advanced by your attorney and repaid from the settlement.</p>
+            <div className="mt-4 space-y-2.5">
+              {litigationCostItems.map((item) => (
+                <div key={item.label} className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2 text-slate-600">
+                    {item.label}
+                    {item.stage === 'litigation' && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">If litigated</span>}
+                  </span>
+                  <span className="font-medium text-slate-900">{formatCurrency(item.amount)}</span>
+                </div>
+              ))}
+              <div className="flex items-center justify-between border-t border-slate-200 pt-3">
+                <span className="text-sm font-semibold text-slate-900">Estimated total if litigated</span>
+                <span className="font-display text-lg font-bold text-slate-900">{formatCurrency(litigationCostTotal)}</span>
+              </div>
+            </div>
+            <p className="mt-3 text-[11px] leading-5 text-slate-500">Estimates only. Court filing (~$400) and service (~$125) fees are fairly standard; medical record retrieval, depositions, and expert witnesses vary widely by case and venue.</p>
+          </div>
+          )}
+
           {/* Top actions */}
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div>
@@ -2936,16 +3207,43 @@ Checklist:
             </div>
           </div>
 
-          {/* Case details + attorney matches */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="font-display text-base font-semibold text-slate-900">Case Details Breakdown</p>
-              <p className="mt-0.5 text-sm text-slate-500">Key factors that influence your case evaluation.</p>
-              <div className="mt-4 space-y-3">
+          {/* Your case strength — unified narrative, quality score, and factor/value breakdown */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="font-display text-base font-semibold text-slate-900">Your Case Strength</p>
+                <p className="mt-0.5 text-sm text-slate-500">A plain-language read on your case and the factors that drive its value.</p>
+              </div>
+              <div className="flex shrink-0 flex-col items-center">
+                <p className="text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">Overall Quality</p>
+                <div className="relative mt-1.5 h-16 w-16">
+                  <svg viewBox="0 0 36 36" className="h-16 w-16 -rotate-90">
+                    <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#e2e8f0" strokeWidth="3.4" />
+                    <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#10b981" strokeWidth="3.4" strokeLinecap="round" strokeDasharray={`${caseStrengthScore} ${100 - caseStrengthScore}`} />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="font-display text-base font-bold text-slate-900">{overviewQualityScore}</span>
+                  </div>
+                </div>
+                <span className="text-[10px] font-medium text-emerald-600">{overviewQualityLabel}</span>
+              </div>
+            </div>
+            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+              {aiCaseSummaryBullets.map((bullet) => (
+                <li key={bullet} className="flex items-start gap-2 text-sm text-slate-700"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>{bullet}</span></li>
+              ))}
+            </ul>
+            <div className="mt-5 border-t border-slate-100 pt-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Key factors &amp; value drivers</p>
+                <span className="text-[11px] text-slate-400">What shapes your estimate</span>
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {([
                   { icon: Scale, label: 'Fault / Liability', value: liabilitySnapshotLabel, tone: liabilityOutlook === 'strong' ? 'strong' : liabilityOutlook === 'moderate' ? 'moderate' : 'weak', desc: liabilitySummary || 'Based on the reported facts.' },
-                  { icon: Activity, label: 'Injuries Severity', value: severitySnapshotLabel, tone: severityPercent >= 66 ? 'strong' : severityPercent >= 40 ? 'moderate' : 'weak', desc: 'Reported injuries and treatment so far.' },
+                  { icon: Activity, label: 'Injury Severity', value: severitySnapshotLabel, tone: severityPercent >= 66 ? 'strong' : severityPercent >= 40 ? 'moderate' : 'weak', desc: 'Reported injuries and pain & suffering.' },
                   { icon: Calendar, label: 'Treatment History', value: treatmentStrengthLevel, tone: treatmentStrengthLevel === 'High' ? 'strong' : treatmentStrengthLevel === 'Medium' ? 'moderate' : 'weak', desc: treatment.length > 0 ? `${treatment.length} treatment record${treatment.length === 1 ? '' : 's'} on file.` : 'No treatment records yet.' },
+                  { icon: DollarSign, label: 'Lost Income', value: documentedWageLoss > 0 ? 'Documented' : 'Not added', tone: documentedWageLoss > 0 ? 'moderate' : 'weak', desc: documentedWageLoss > 0 ? `${formatCurrency(documentedWageLoss)} in wage loss reported.` : 'Add wage-loss proof to capture this.' },
                   { icon: Shield, label: 'Insurance Coverage', value: insuranceRecoveryPercent >= 75 ? 'Sufficient' : insuranceRecoveryPercent >= 50 ? 'Developing' : 'Unclear', tone: insuranceRecoveryPercent >= 75 ? 'strong' : insuranceRecoveryPercent >= 50 ? 'moderate' : 'weak', desc: insuranceRecoveryLabel },
                   { icon: FileText, label: 'Documentation', value: scoreLabel(documentationScore, { high: 'Strong', medium: 'Developing', low: 'Low' }), tone: documentationScore >= 66 ? 'strong' : documentationScore >= 40 ? 'moderate' : 'weak', desc: `${documentationScore}% of key documents added.` },
                   { icon: MapPin, label: 'Venue (Location)', value: venueFriendlinessScore >= 4 ? 'Favorable' : 'Moderate', tone: venueFriendlinessScore >= 4 ? 'strong' : 'moderate', desc: formatVenueLabel(venueState, venueCounty) || 'Venue unavailable' },
@@ -2953,11 +3251,11 @@ Checklist:
                   const Icon = row.icon
                   const tone = row.tone === 'strong' ? 'bg-emerald-50 text-emerald-700' : row.tone === 'moderate' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'
                   return (
-                    <div key={row.label} className="flex items-center gap-3">
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-500"><Icon className="h-4 w-4" aria-hidden /></span>
+                    <div key={row.label} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm"><Icon className="h-4 w-4" aria-hidden /></span>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-slate-800">{row.label}</p>
-                        <p className="truncate text-xs text-slate-500">{row.desc}</p>
+                        <p className="text-xs leading-5 text-slate-500">{row.desc}</p>
                       </div>
                       <span className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-semibold capitalize ${tone}`}>{row.value}</span>
                     </div>
@@ -2965,64 +3263,41 @@ Checklist:
                 })}
               </div>
             </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="font-display text-base font-semibold text-slate-900">Likely Attorney Matches</p>
-              <p className="mt-0.5 text-sm text-slate-500">Attorneys who regularly handle cases like yours.</p>
-              <div className="mt-4 space-y-3">
-                {(rankedSnapshotAttorneys.length > 0
-                  ? rankedSnapshotAttorneys.map((a: any, i: number) => ({
-                      name: a?.name ?? a?.law_firm?.name ?? `Top Match #${i + 1}`,
-                      line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '),
-                      meta: [getResponseBadge(a), 'Free consultation'].filter(Boolean).join(' • '),
-                      score: formatMatchScore(a?.matchScore ?? a?.match_score ?? a?.score, 94 - i * 3),
-                    }))
-                  : [
-                      { name: 'Top Local Match', line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: 'Responds within 24 hrs • Free consultation', score: '94%' },
-                      { name: 'Experienced Injury Attorney', line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: 'Personal injury • Bilingual', score: '91%' },
-                      { name: 'Local Trial Attorney', line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: 'Local experts', score: '88%' },
-                    ]
-                ).map((m, i) => (
-                  <div key={`${m.name}-${i}`} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700"><User className="h-5 w-5" aria-hidden /></span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-slate-900">{m.name}</p>
-                      <p className="truncate text-xs text-slate-500">{m.line}</p>
-                      <p className="truncate text-[11px] text-slate-400">{m.meta}</p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <span className="inline-flex rounded-md bg-emerald-50 px-2 py-1 text-sm font-bold text-emerald-700">{m.score}</span>
-                      <p className="mt-0.5 text-[10px] text-slate-400">Match Score</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <button type="button" onClick={openAttorneyReviewFlow} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">See more attorney matches <ChevronRight className="h-3 w-3" /></button>
-            </div>
           </div>
 
-          {/* AI summary + value drivers */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="font-display text-base font-semibold text-slate-900">AI Case Summary</p>
-              <p className="mt-0.5 text-sm text-slate-500">Based on the facts you've provided so far.</p>
-              <ul className="mt-3 space-y-2">
-                {aiCaseSummaryBullets.map((bullet) => (
-                  <li key={bullet} className="flex items-start gap-2 text-sm text-slate-700"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>{bullet}</span></li>
-                ))}
-              </ul>
-            </div>
-            <div className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-5 shadow-sm">
-              <p className="font-display text-base font-semibold text-slate-900">Value Drivers</p>
-              <div className="mt-3 space-y-2.5">
-                {valueDriverRows.map((row) => (
-                  <div key={row.label} className="flex items-center justify-between gap-3">
-                    <span className="flex items-center gap-2 text-sm text-slate-700"><TrendingUp className="h-4 w-4 shrink-0 text-emerald-500" /> {row.label}</span>
-                    <span className={row.level === 'High' ? 'text-xs font-semibold text-emerald-700' : row.level === 'Medium' ? 'text-xs font-semibold text-amber-600' : 'text-xs font-semibold text-slate-400'}>{impactWord(row.level)}</span>
+          {/* Likely attorney matches */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="font-display text-base font-semibold text-slate-900">Likely Attorney Matches</p>
+            <p className="mt-0.5 text-sm text-slate-500">Attorneys who regularly handle cases like yours.</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {(rankedSnapshotAttorneys.length > 0
+                ? rankedSnapshotAttorneys.map((a: any, i: number) => ({
+                    name: a?.name ?? a?.law_firm?.name ?? `Top Match #${i + 1}`,
+                    line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '),
+                    meta: [getResponseBadge(a), 'Free consultation'].filter(Boolean).join(' • '),
+                    score: formatMatchScore(a?.matchScore ?? a?.match_score ?? a?.score, 94 - i * 3),
+                  }))
+                : [
+                    { name: 'Top Local Match', line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: 'Responds within 24 hrs • Free consultation', score: '94%' },
+                    { name: 'Experienced Injury Attorney', line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: 'Personal injury • Bilingual', score: '91%' },
+                    { name: 'Local Trial Attorney', line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: 'Local experts', score: '88%' },
+                  ]
+              ).map((m, i) => (
+                <div key={`${m.name}-${i}`} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700"><User className="h-5 w-5" aria-hidden /></span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-900">{m.name}</p>
+                    <p className="truncate text-xs text-slate-500">{m.line}</p>
+                    <p className="truncate text-[11px] text-slate-400">{m.meta}</p>
                   </div>
-                ))}
-              </div>
+                  <div className="shrink-0 text-right">
+                    <span className="inline-flex rounded-md bg-emerald-50 px-2 py-1 text-sm font-bold text-emerald-700">{m.score}</span>
+                    <p className="mt-0.5 text-[10px] text-slate-400">Match Score</p>
+                  </div>
+                </div>
+              ))}
             </div>
+            <button type="button" onClick={openAttorneyReviewFlow} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">See more attorney matches <ChevronRight className="h-3 w-3" /></button>
           </div>
 
           {deadlineWarningText ? (
@@ -3129,75 +3404,8 @@ Checklist:
 
         {activeResultsTab === 'overview' && (
         <div className="mb-8 space-y-5" aria-label="Case overview">
-          {/* Four metric cards */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {/* Settlement estimate */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Settlement Estimate</p>
-              <p className="mt-3 text-[11px] text-slate-500">Most likely range</p>
-              <p className="font-display text-xl font-bold text-emerald-600">{displaySettlementRangeText}</p>
-              <p className="mt-1 text-xs text-slate-600">Most likely: <span className="font-semibold text-slate-900">{formatCurrency(settlementExpected)}</span></p>
-              <div className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Confidence: {estimateConfidenceLevel}</div>
-              <p className="mt-3 text-[11px] leading-5 text-slate-500">Based on similar cases, injuries, treatment, and economic damages in {venueCounty || (venueState === 'CA' ? 'California' : venueState) || 'your area'}.</p>
-              <button type="button" onClick={() => setActiveResultsTab('value')} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">How we calculate this <ChevronRight className="h-3 w-3" /></button>
-            </div>
-            {/* Liability strength */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Liability Strength</p>
-              <p className="mt-3 font-display text-2xl font-bold text-brand-700">{liabilityPercent}%</p>
-              <p className="text-xs font-semibold text-brand-600">{liabilityOutlook === 'strong' ? 'Moderate to Strong' : liabilityOutlook === 'moderate' ? 'Mixed' : 'Needs Proof'}</p>
-              <p className="mt-2 text-[11px] leading-5 text-slate-500">{liabilitySummary || 'Evidence suggests the other party is likely at fault.'}</p>
-              <div className="mt-2 space-y-1">
-                {overviewLiabilityChecks.map((c) => (
-                  <div key={c.label} className="flex items-center justify-between gap-2 text-[11px]">
-                    <span className="flex items-center gap-1.5 text-slate-700">{c.ok ? <CheckCircle className="h-3.5 w-3.5 text-emerald-600" /> : <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />} {c.label}</span>
-                    <span className={c.ok ? 'font-semibold text-emerald-600' : 'font-semibold text-amber-600'}>{c.value}</span>
-                  </div>
-                ))}
-              </div>
-              <button type="button" onClick={() => setActiveResultsTab('liability')} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">View liability analysis <ChevronRight className="h-3 w-3" /></button>
-            </div>
-            {/* Attorney readiness */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Attorney Readiness</p>
-              <p className="mt-3 font-display text-2xl font-bold text-violet-700">{attorneyAcceptanceProbability}%</p>
-              <p className="text-xs font-semibold text-violet-600">{attorneyAcceptanceProbability >= 70 ? 'High Potential' : attorneyAcceptanceProbability >= 45 ? 'Building' : 'Early'}</p>
-              <p className="mt-2 text-[11px] leading-5 text-slate-500">Your case looks promising. A few key documents could increase attorney interest and value.</p>
-              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-violet-500" style={{ width: `${clampPercent(attorneyAcceptanceProbability)}%` }} /></div>
-              <button type="button" onClick={() => setActiveResultsTab('documents')} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">See what's missing <ChevronRight className="h-3 w-3" /></button>
-            </div>
-            {/* If case goes to trial */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">If Case Goes to Trial</p>
-              <p className="mt-3 text-[11px] text-slate-500">Estimated jury range</p>
-              <p className="font-display text-xl font-bold text-slate-900">{trialValueText}</p>
-              <p className="mt-1 text-xs text-slate-600">Most likely: <span className="font-semibold text-slate-900">{formatCurrency(Math.round((potentialTrialLow + potentialTrialHigh) / 2))}</span></p>
-              <p className="mt-3 rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] leading-5 text-amber-700">Trials involve risk, cost, and delay. Many cases settle before trial.</p>
-              <button type="button" onClick={() => setActiveResultsTab('value')} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">Learn more about trial value <ChevronRight className="h-3 w-3" /></button>
-            </div>
-          </div>
-
-          {/* AI Case Summary + quality score */}
-          <div className="rounded-2xl border border-brand-100 bg-brand-50/40 p-5 shadow-sm">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><BarChart3 className="h-4 w-4 text-brand-600" aria-hidden /> AI Case Summary</p>
-                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-700">{overviewNarrative}</p>
-              </div>
-              <div className="flex shrink-0 flex-col items-center">
-                <p className="text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">Overall Case<br />Quality Score</p>
-                <div className="relative mt-2 h-24 w-24">
-                  <svg viewBox="0 0 36 36" className="h-24 w-24 -rotate-90">
-                    <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#e2e8f0" strokeWidth="3" />
-                    <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeDasharray={`${caseStrengthScore} ${100 - caseStrengthScore}`} />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="font-display text-2xl font-bold text-slate-900">{overviewQualityScore}</span>
-                    <span className="text-[11px] font-medium text-emerald-600">{overviewQualityLabel}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3">
+            <p className="text-sm text-slate-600">Your case summary, settlement estimate, and attorney matches are at the top of this page. Below is a deeper look at the records and gaps behind those numbers.</p>
           </div>
 
           {/* Medical timeline | Damages | What's missing */}
@@ -3241,8 +3449,8 @@ Checklist:
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Settlement Range</p>
                 <div className="mt-1 grid grid-cols-3 text-center">
                   <div><p className="text-[10px] text-slate-500">Low</p><p className="text-sm font-bold text-slate-700">{formatCurrency(displaySettlementLow)}</p></div>
-                  <div><p className="text-[10px] text-slate-500">Most Likely</p><p className="text-sm font-bold text-emerald-600">{formatCurrency(settlementExpected)}</p></div>
-                  <div><p className="text-[10px] text-slate-500">High</p><p className="text-sm font-bold text-slate-700">{formatCurrency(displaySettlementHigh)}</p></div>
+                  <div><p className="text-[10px] text-slate-500">Most Likely</p><p className="text-sm font-bold text-emerald-600">{formatCurrency(displaySettlementExpected)}</p></div>
+                  <div><p className="text-[10px] text-slate-500">High</p><p className="text-sm font-bold text-slate-700">{formatCurrency(displaySettlementHighValue)}</p></div>
                 </div>
               </div>
             </div>
@@ -3263,53 +3471,6 @@ Checklist:
                 )}
               </div>
               <button type="button" onClick={() => setActiveResultsTab('documents')} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">Upload docs to increase value <ChevronRight className="h-3 w-3" /></button>
-            </div>
-          </div>
-
-          {/* Likely attorney matches */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="font-display text-base font-semibold text-slate-900">Likely Attorney Matches</p>
-                <p className="text-sm text-slate-500">Attorneys who regularly handle cases like yours{venueCounty ? ` in ${venueCounty}` : ''}.</p>
-              </div>
-              <button type="button" onClick={openAttorneyReviewFlow} className="text-xs font-semibold text-brand-700 hover:text-brand-800">View more matches</button>
-            </div>
-            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-              {(rankedSnapshotAttorneys.length > 0
-                ? rankedSnapshotAttorneys.map((a: any, i: number) => ({
-                    name: a?.name ?? a?.law_firm?.name ?? `Top Match #${i + 1}`,
-                    line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '),
-                    meta: [getResponseBadge(a), 'Free consultation'].filter(Boolean).join(' • '),
-                    score: formatMatchScore(a?.matchScore ?? a?.match_score ?? a?.score, 94 - i * 3),
-                  }))
-                : [
-                    { name: 'Top Local Match', line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: 'Responds within 24 hrs • Free consultation', score: '94%' },
-                    { name: 'Experienced Injury Attorney', line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: 'Personal injury • Bilingual', score: '91%' },
-                    { name: 'Local Trial Attorney', line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: 'Aggressive negotiation', score: '88%' },
-                  ]
-              ).map((m, i) => (
-                <div key={`${m.name}-${i}`} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700"><User className="h-5 w-5" aria-hidden /></span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900">{m.name}</p>
-                      <p className="truncate text-[11px] text-slate-500">{m.line}</p>
-                    </div>
-                  </div>
-                  <p className="mt-2 truncate text-[11px] text-slate-500">{m.meta}</p>
-                  <div className="mt-3 flex items-center justify-between">
-                    <div>
-                      <p className="text-[10px] text-slate-400">Match Score</p>
-                      <span className="inline-flex rounded-md bg-emerald-50 px-2 py-0.5 text-sm font-bold text-emerald-700">{m.score}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button type="button" onClick={openAttorneyReviewFlow} className="text-xs font-semibold text-brand-700 hover:text-brand-800">View profile</button>
-                      <button type="button" onClick={openAttorneyReviewFlow} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">Select</button>
-                    </div>
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
 
@@ -3601,6 +3762,69 @@ Checklist:
             <p className="mt-1 text-sm text-slate-600">Review your treatment timeline, records, and injuries before attorney handoff.</p>
           </div>
 
+          {/* What to do now — single, prominent next step for this tab */}
+          {medReviewStatusValue === 'confirmed' ? (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white"><CheckCircle className="h-5 w-5" aria-hidden /></span>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">You&apos;re all set</p>
+                    <p className="mt-0.5 font-display text-base font-bold text-slate-900">Your medical story is confirmed</p>
+                    <p className="mt-1 text-sm text-slate-600">Attorneys will see your treatment timeline as accurate. You can still upload more records anytime to strengthen your case.</p>
+                  </div>
+                </div>
+                <Link to={`/evidence-upload/${resolvedAssessmentId || assessment?.id}`} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50">
+                  <Upload className="h-4 w-4" aria-hidden /> Upload more records
+                </Link>
+              </div>
+            </div>
+          ) : medHasAnyRecords ? (
+            <div className="rounded-2xl border border-brand-200 bg-brand-50/60 p-5 shadow-sm">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white"><ClipboardList className="h-5 w-5" aria-hidden /></span>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">What to do now</p>
+                    <p className="mt-0.5 font-display text-base font-bold text-slate-900">Review your treatment timeline</p>
+                    <p className="mt-1 text-sm text-slate-600">Check the timeline below and confirm it&apos;s accurate before attorneys see your case. Add any missing visits or more records to strengthen it.</p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+                  <button type="button" onClick={() => persistPlaintiffMedicalReview({ status: 'confirmed' })} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800">
+                    <CheckCircle className="h-4 w-4" aria-hidden /> Confirm timeline
+                  </button>
+                  <div className="flex gap-3 text-xs font-semibold">
+                    <Link to={`/evidence-upload/${resolvedAssessmentId || assessment?.id}`} className="text-brand-700 hover:text-brand-800">Upload more records</Link>
+                    <button type="button" onClick={() => persistPlaintiffMedicalReview({ status: 'skipped' })} className="text-slate-500 hover:text-slate-700">I&apos;ll do this later</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white"><Upload className="h-5 w-5" aria-hidden /></span>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">What to do now</p>
+                    <p className="mt-0.5 font-display text-base font-bold text-slate-900">Start by adding your medical records</p>
+                    <p className="mt-1 text-sm text-slate-600">Attorneys need your treatment records and bills to review your case. No documents yet? Enter quick estimates instead &mdash; you can replace them later.</p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+                  <Link to={`/evidence-upload/${resolvedAssessmentId || assessment?.id}`} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                    <Upload className="h-4 w-4" aria-hidden /> Upload medical records &amp; bills
+                  </Link>
+                  <div className="flex gap-3 text-xs font-semibold">
+                    <button type="button" onClick={() => { const el = document.getElementById('medical-estimates') as HTMLDetailsElement | null; if (el) { el.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }) } }} className="text-brand-700 hover:text-brand-800">Enter estimates</button>
+                    <button type="button" onClick={() => persistPlaintiffMedicalReview({ status: 'skipped' })} className="text-slate-500 hover:text-slate-700">I&apos;ll do this later</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Five metric cards */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
             {/* Treatment strength */}
@@ -3844,7 +4068,7 @@ Checklist:
           <p className="flex items-center justify-center gap-1.5 text-center text-xs text-slate-400"><Lock className="h-3.5 w-3.5" aria-hidden /> Your information is private and secure. We only share your case with attorneys if you choose to continue.</p>
 
           {/* Edit / correct workflow (preserves review + estimate functionality) */}
-          <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <details id="medical-estimates" className="group scroll-mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
             <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 text-sm font-semibold text-slate-900">
               <span className="flex items-center gap-2"><Pencil className="h-4 w-4 text-slate-400" aria-hidden /> Review &amp; correct your medical details and estimates</span>
               <ChevronDown className="h-4 w-4 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
@@ -4848,6 +5072,26 @@ Checklist:
                 </button>
                 <p className="mt-1.5 text-[11px] text-slate-400">No obligation • Free review • Cancel anytime</p>
               </div>
+            </div>
+          </div>
+
+          {/* Sticky next-step bar (mobile) — keeps the single primary action always visible */}
+          <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)] backdrop-blur lg:hidden">
+            <div className="mx-auto flex max-w-lg items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Next step</p>
+                <p className="truncate text-sm font-semibold text-slate-900">
+                  {medicalReviewPending ? 'Review your treatment timeline' : 'Send your case for attorney review'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={openAttorneyReviewFlow}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
+              >
+                {medicalReviewPending ? 'Review' : 'Send for review'}
+                <ChevronRight className="h-4 w-4" aria-hidden />
+              </button>
             </div>
           </div>
         </section>
