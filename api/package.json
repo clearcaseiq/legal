@@ -52,6 +52,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.1068.0",
+    "@aws-sdk/client-sesv2": "^3.1068.0",
     "@aws-sdk/client-textract": "^3.1041.0",
     "@google-cloud/local-auth": "^3.0.1",
     "@prisma/client": "^5.17.0",

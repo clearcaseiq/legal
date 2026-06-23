@@ -69,6 +69,15 @@ export const ENV = {
   /** CasePeer (8am) — partner program. */
   CASEPEER_API_BASE: process.env.CASEPEER_API_BASE ?? 'https://api.casepeer.com',
   CASEPEER_API_KEY: process.env.CASEPEER_API_KEY,
+  // ---- Transactional email ----
+  /** AWS region for SES (and other AWS SDK clients). */
+  AWS_REGION: process.env.AWS_REGION ?? 'us-east-1',
+  /** Email provider: 'ses' | 'resend'. Auto-detects when unset (SES if SES_FROM_EMAIL set). */
+  EMAIL_PROVIDER: process.env.EMAIL_PROVIDER,
+  /** Verified SES sender identity, e.g. "ClearCaseIQ <noreply@clearcaseiq.com>". */
+  SES_FROM_EMAIL: process.env.SES_FROM_EMAIL,
+  /** Optional SES configuration set for engagement/bounce tracking. */
+  SES_CONFIGURATION_SET: process.env.SES_CONFIGURATION_SET,
   /** Comma-separated emails treated as admin in JWT role resolution */
   ADMIN_EMAILS: process.env.ADMIN_EMAILS ?? 'admin@caseiq.com',
   /** When true, sensitive plaintiff routes require user.emailVerified */
