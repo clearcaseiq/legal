@@ -7,6 +7,12 @@ const workspaceNodeModules = path.resolve(__dirname, '../node_modules')
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Emit a self-contained server (.next/standalone) so the Docker runtime doesn't
+  // depend on the pnpm workspace node_modules symlink layout.
+  output: 'standalone',
+  // The app lives in a pnpm workspace; trace from the repo root so workspace
+  // dependencies are bundled into the standalone output.
+  outputFileTracingRoot: path.resolve(__dirname, '..'),
   webpack: (config) => {
     // Force the web app to use the same React runtime that Next resolves from the workspace root.
     config.resolve.alias = {
