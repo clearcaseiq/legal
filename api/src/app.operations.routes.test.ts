@@ -1370,6 +1370,8 @@ describe('HTTP operations regressions', () => {
 
     expect(res.body).toEqual({
       processed: 2,
+      overdueCount: 0,
+      overdueCases: [],
       results: [
         { assessmentId: 'asm-1', escalated: true, waveNumber: 2 },
         { assessmentId: 'asm-2', escalated: false, error: 'Case not in routing or already matched' },
@@ -2299,7 +2301,7 @@ describe('HTTP operations regressions', () => {
       where: {
         id: 'lead-1',
         OR: [
-          { assignedAttorneyId: 'attorney-user-1' },
+          { assignedAttorneyId: 'attorney-record-1' },
           { assignmentType: 'shared' },
         ],
       },
@@ -2336,7 +2338,7 @@ describe('HTTP operations regressions', () => {
           },
         },
         conflictChecks: {
-          where: { attorneyId: 'attorney-user-1' },
+          where: { attorneyId: 'attorney-record-1' },
           select: {
             id: true,
             attorneyId: true,
@@ -2449,7 +2451,7 @@ describe('HTTP operations regressions', () => {
     expect(vi.mocked(prisma.leadSubmission.findMany).mock.calls[0]?.[0]).toEqual({
       where: {
         OR: [
-          { assignedAttorneyId: 'attorney-user-1' },
+          { assignedAttorneyId: 'attorney-record-1' },
           { assignmentType: 'shared' },
         ],
         assessment: { claimType: 'auto' },
@@ -3044,7 +3046,7 @@ describe('HTTP operations regressions', () => {
         firstName: ' Maya ',
         lastName: ' Medina ',
         email: ' maya@example.com ',
-        phone: ' 555-3333 ',
+        phone: ' (555) 555-3333 ',
         companyName: ' Clinic ',
         companyUrl: ' https://clinic.example.com ',
         title: ' Provider ',
@@ -3068,7 +3070,7 @@ describe('HTTP operations regressions', () => {
         firstName: 'Maya',
         lastName: 'Medina',
         email: 'maya@example.com',
-        phone: '555-3333',
+        phone: '+15555553333',
         companyName: 'Clinic',
         companyUrl: 'https://clinic.example.com',
         title: 'Provider',
@@ -3129,7 +3131,7 @@ describe('HTTP operations regressions', () => {
       .patch('/v1/attorney-dashboard/leads/lead-1/case-contacts/cc-3')
       .set('Authorization', 'Bearer attorney')
       .send({
-        phone: ' 555-9999 ',
+        phone: ' (555) 555-9999 ',
         title: ' Expert ',
         contactType: ' expert ',
         notes: ' Updated notes ',
@@ -3149,7 +3151,7 @@ describe('HTTP operations regressions', () => {
       where: { id: 'cc-3', leadId: 'lead-1', attorneyId: 'attorney-record-1' },
       data: {
         email: null,
-        phone: '555-9999',
+        phone: '+15555559999',
         title: 'Expert',
         contactType: 'expert',
         notes: 'Updated notes',
@@ -3217,6 +3219,7 @@ describe('HTTP operations regressions', () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       userId: 'plaintiff-user-1',
       createdAt: new Date('2026-04-01T00:00:00.000Z'),
+      facts: JSON.stringify({ consents: { hipaa: true } }),
     } as any)
     vi.mocked(prisma.evidenceFile.count).mockResolvedValue(0 as any)
     vi.mocked(prisma.evidenceFile.findMany).mockResolvedValue([
@@ -3411,7 +3414,10 @@ describe('HTTP operations regressions', () => {
       assignedAttorneyId: null,
     } as any)
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      userId: 'plaintiff-user-1',
+      user: { id: 'plaintiff-user-1' },
       facts: JSON.stringify({
+        consents: { hipaa: true },
         incident: { date: '2026-01-01', timeline: [{ label: 'Crash scene' }] },
         treatment: [{ provider: 'Clinic', type: 'ER Visit', date: '2026-01-02', notes: 'Initial exam' }],
       }),
@@ -3443,26 +3449,7 @@ describe('HTTP operations regressions', () => {
     )
     expect(vi.mocked(prisma.assessment.findUnique).mock.calls[0]?.[0]).toEqual({
       where: { id: 'asm-1' },
-      select: {
-        facts: true,
-        evidenceFiles: {
-          select: {
-            id: true,
-            category: true,
-            originalName: true,
-            createdAt: true,
-            aiSummary: true,
-            extractedData: {
-              take: 1,
-              select: {
-                dates: true,
-                timeline: true,
-                totalAmount: true,
-              },
-            },
-          },
-        },
-      },
+      include: { evidenceFiles: true, user: { select: { id: true } } },
     })
   })
 

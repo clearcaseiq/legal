@@ -4,6 +4,7 @@ import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments,
 import { formatCurrency } from '../lib/formatters'
 import { CheckCircle, Square, Upload, FileText, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, ExternalLink, Send, Star } from 'lucide-react'
 import CaseProgressPipeline from '../components/CaseProgressPipeline'
+import OpposingDocSuggestionCard from '../components/OpposingDocSuggestionCard'
 import { DashboardPageSkeleton, DashboardTabPanelSkeleton } from '../components/PageSkeletons'
 import { clearStoredAuth, getLoginRedirect } from '../lib/auth'
 import { loadPlaintiffSessionSummary, updateCachedPlaintiffAssessments } from '../hooks/usePlaintiffSessionSummary'
@@ -1300,6 +1301,10 @@ export default function Dashboard() {
                       <p className="text-sm text-brand-700">{latestNotification}</p>
                     </div>
                   </div>
+                )}
+
+                {activeAssessment?.id && (
+                  <OpposingDocSuggestionCard assessmentId={activeAssessment.id} />
                 )}
 
                 {(documentRequests.length > 0 || pendingDocumentRequests.length > 0) && (

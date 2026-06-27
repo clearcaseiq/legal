@@ -507,6 +507,109 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
   }
 })
 
+const opposingSuggestionSchema = z.object({
+  requestedDocs: z.array(z.string()).optional(),
+  recipientName: z.string().max(200).optional(),
+  recipientRole: z.enum(['defendant', 'opposing_counsel', 'insurer']).optional(),
+  note: z.string().max(2000).optional(),
+})
+
+// Plaintiff suggests documents the attorney should request from the defendant/opposing party.
+// The plaintiff cannot serve discovery directly, so this is only a suggestion for their attorney.
+router.post('/:id/opposing-document-suggestions', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const parsed = opposingSuggestionSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
+    }
+
+    const assessment = await prisma.assessment.findUnique({
+      where: { id },
+      select: { userId: true, leadSubmission: { select: { id: true } } },
+    })
+    if (!assessment) return res.status(404).json({ error: 'Assessment not found' })
+    if (!assessment.userId || assessment.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Unauthorized to view this assessment' })
+    }
+
+    const docs = Array.isArray(parsed.data.requestedDocs) ? parsed.data.requestedDocs : []
+    if (docs.length === 0 && !parsed.data.note?.trim()) {
+      return res.status(400).json({ error: 'Select at least one document or add a note.' })
+    }
+
+    const suggestion = await prisma.opposingDocRequestSuggestion.create({
+      data: {
+        assessmentId: id,
+        leadId: assessment.leadSubmission?.id || null,
+        suggestedByUserId: req.user.id,
+        requestedDocs: JSON.stringify(docs),
+        recipientName: parsed.data.recipientName || null,
+        recipientRole: parsed.data.recipientRole || null,
+        note: parsed.data.note || null,
+        status: 'pending',
+      },
+    })
+
+    res.json({
+      id: suggestion.id,
+      requestedDocs: docs,
+      recipientName: suggestion.recipientName,
+      recipientRole: suggestion.recipientRole,
+      note: suggestion.note,
+      status: suggestion.status,
+      createdAt: suggestion.createdAt,
+    })
+  } catch (error) {
+    logger.error('Failed to create opposing-party document suggestion', { error, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Failed to submit suggestion' })
+  }
+})
+
+// Plaintiff views their own opposing-party document suggestions.
+router.get('/:id/opposing-document-suggestions', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const assessment = await prisma.assessment.findUnique({
+      where: { id },
+      select: { userId: true },
+    })
+    if (!assessment) return res.status(404).json({ error: 'Assessment not found' })
+    if (!assessment.userId || assessment.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Unauthorized to view this assessment' })
+    }
+
+    const suggestions = await prisma.opposingDocRequestSuggestion.findMany({
+      where: { assessmentId: id },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    })
+
+    res.json(
+      suggestions.map((s) => {
+        let requested: string[] = []
+        try {
+          requested = JSON.parse(s.requestedDocs || '[]')
+        } catch {
+          requested = []
+        }
+        return {
+          id: s.id,
+          requestedDocs: requested,
+          recipientName: s.recipientName,
+          recipientRole: s.recipientRole,
+          note: s.note,
+          status: s.status,
+          createdAt: s.createdAt,
+        }
+      })
+    )
+  } catch (error) {
+    logger.error('Failed to load opposing-party document suggestions', { error, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Failed to load suggestions' })
+  }
+})
+
 // List assessments (for a user - simplified for now)
 router.get('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {

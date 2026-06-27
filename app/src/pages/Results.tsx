@@ -1117,12 +1117,19 @@ export default function Results() {
           ? JSON.parse(assessmentData.facts)
           : assessmentData.facts
         if (facts?.incident?.date) {
-          const solData = await calculateSOL(
-            facts.incident.date,
-            facts.venue || { state: assessmentData.venue?.state, county: assessmentData.venue?.county },
-            facts.claimType || assessmentData.claimType
-          )
-          setSol(solData)
+          // SOL is supplemental — an unsupported jurisdiction (e.g. non-U.S.) returns
+          // a 400 and must not break the rest of the results page.
+          try {
+            const solData = await calculateSOL(
+              facts.incident.date,
+              facts.venue || { state: assessmentData.venue?.state, county: assessmentData.venue?.county },
+              facts.claimType || assessmentData.claimType
+            )
+            setSol(solData)
+          } catch (solErr) {
+            console.warn('SOL unavailable for this venue; continuing without it', solErr)
+            setSol(null)
+          }
         }
         
       } catch (err: any) {

@@ -7,12 +7,14 @@ import { prisma } from './lib/prisma'
 import { renewCalendarWebhookSubscriptions } from './lib/calendar-sync'
 import { runAppointmentEngagementSweep } from './lib/appointment-engagement'
 import { retryPendingPlatformNotifications } from './lib/platform-notifications'
+import { runIntakeAbandonmentSweep } from './lib/intake-abandonment'
 
 const app = buildApp()
 
 let calendarWebhookRenewalTimer: NodeJS.Timeout | null = null
 let appointmentEngagementTimer: NodeJS.Timeout | null = null
 let notificationRetryTimer: NodeJS.Timeout | null = null
+let intakeAbandonmentTimer: NodeJS.Timeout | null = null
 
 async function runCalendarWebhookRenewalSweep(trigger: 'startup' | 'interval') {
   try {
@@ -85,20 +87,45 @@ function startNotificationRetryLoop() {
   }, intervalMs)
 }
 
+async function runIntakeAbandonmentLoop(trigger: 'startup' | 'interval') {
+  try {
+    const result = await runIntakeAbandonmentSweep()
+    if (result.sent > 0 || trigger === 'startup') {
+      logger.info('Intake abandonment sweep completed', {
+        trigger,
+        ...result,
+      })
+    }
+  } catch (error) {
+    logger.error('Intake abandonment sweep failed', { error, trigger })
+  }
+}
+
+function startIntakeAbandonmentLoop() {
+  const intervalMs = 10 * 60 * 1000
+  void runIntakeAbandonmentLoop('startup')
+  intakeAbandonmentTimer = setInterval(() => {
+    void runIntakeAbandonmentLoop('interval')
+  }, intervalMs)
+}
+
 const server = app.listen(ENV.PORT, ENV.HOST, () => {
   logger.info(`API server listening on http://${ENV.HOST}:${ENV.PORT}`)
   startCalendarWebhookRenewalLoop()
   startAppointmentEngagementLoop()
   startNotificationRetryLoop()
+  startIntakeAbandonmentLoop()
 })
 
 function stopBackgroundLoops() {
   if (calendarWebhookRenewalTimer) clearInterval(calendarWebhookRenewalTimer)
   if (appointmentEngagementTimer) clearInterval(appointmentEngagementTimer)
   if (notificationRetryTimer) clearInterval(notificationRetryTimer)
+  if (intakeAbandonmentTimer) clearInterval(intakeAbandonmentTimer)
   calendarWebhookRenewalTimer = null
   appointmentEngagementTimer = null
   notificationRetryTimer = null
+  intakeAbandonmentTimer = null
 }
 
 function closeHttpServer() {

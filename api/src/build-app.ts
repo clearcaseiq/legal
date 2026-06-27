@@ -46,6 +46,7 @@ import payments from './routes/payments'
 import intakeLeads from './routes/intake-leads'
 import heuristics from './routes/heuristics'
 import integrations from './routes/integrations'
+import documentPortal from './routes/document-portal'
 
 /**
  * Fully configured Express app (no listen). Used by index.ts and integration tests.
@@ -98,6 +99,7 @@ export function buildApp(): Express {
   app.use('/v1/payments', payments)
   app.use('/v1/heuristics', heuristics)
   app.use('/v1/integrations', integrations)
+  app.use('/v1/public/document-requests', documentPortal)
 
   app.get('/', (req, res) => {
     res.json({

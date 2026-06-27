@@ -48,6 +48,7 @@ const AttorneyPreferences = lazy(() => import('./pages/AttorneyPreferences'))
 const Integrations = lazy(() => import('./pages/Integrations'))
 const MedicalProviders = lazy(() => import('./pages/MedicalProviders'))
 const EvidenceUpload = lazy(() => import('./pages/EvidenceUpload'))
+const DocumentPortal = lazy(() => import('./pages/DocumentPortal'))
 const EvidenceDashboard = lazy(() => import('./pages/EvidenceDashboard'))
 const Demand = lazy(() => import('./pages/Demand'))
 const Drafts = lazy(() => import('./pages/Drafts'))
@@ -340,6 +341,7 @@ function App() {
               <Route path="/integrations" element={<Integrations />} />
               <Route path="/medical-providers" element={<MedicalProviders />} />
             </Route>
+            <Route path="/respond/documents/:token" element={<DocumentPortal />} />
             <Route path="/evidence-upload/:assessmentId" element={<EvidenceUpload />} />
             <Route path="/evidence-dashboard/:assessmentId" element={<EvidenceDashboard />} />
             <Route path="/evidence-dashboard" element={<EvidenceDashboard />} />

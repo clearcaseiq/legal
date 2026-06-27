@@ -85,7 +85,7 @@ describe('HTTP API (integration)', () => {
     expect(prisma.assessment.create).toHaveBeenCalledOnce()
   })
 
-  it('POST /v1/assessments/:id/submit-for-review requires HIPAA consent and persists it when provided', async () => {
+  it('POST /v1/assessments/:id/submit-for-review succeeds without HIPAA but flags medical sharing as limited', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       ...assessmentRow,
       facts: JSON.stringify({
@@ -97,14 +97,35 @@ describe('HTTP API (integration)', () => {
     vi.mocked(prisma.assessment.update).mockResolvedValue({} as any)
     vi.mocked(prisma.leadSubmission.create).mockResolvedValue({ id: 'lead-1' } as any)
 
-    await request(app)
+    const res = await request(app)
       .post('/v1/assessments/assess-int-test-1/submit-for-review')
       .send({
         firstName: 'Taylor',
         email: 'taylor@example.com',
         phone: '(555) 111-2222',
       })
-      .expect(400)
+      .expect(200)
+
+    // HIPAA is not required to submit; the case is accepted with medical sharing
+    // gated downstream until the plaintiff authorizes it.
+    expect(res.body.submitted).toBe(true)
+    expect(prisma.leadSubmission.create).toHaveBeenCalledOnce()
+    const createArg = vi.mocked(prisma.leadSubmission.create).mock.calls[0]?.[0] as any
+    expect(createArg.data.sourceDetails).toContain('limited_non_medical')
+    expect(createArg.data.sourceDetails).toContain('"canShareMedicalData":false')
+  })
+
+  it('POST /v1/assessments/:id/submit-for-review persists HIPAA consent when provided', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      ...assessmentRow,
+      facts: JSON.stringify({
+        consents: { tos: true, privacy: true, ml_use: true, hipaa: false },
+      }),
+      leadSubmission: null,
+      predictions: [{ viability: JSON.stringify({ overall: 0.61, liability: 0.58, causation: 0.57, damages: 0.72 }) }],
+    } as any)
+    vi.mocked(prisma.assessment.update).mockResolvedValue({} as any)
+    vi.mocked(prisma.leadSubmission.create).mockResolvedValue({ id: 'lead-1' } as any)
 
     const ok = await request(app)
       .post('/v1/assessments/assess-int-test-1/submit-for-review')

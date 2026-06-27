@@ -295,6 +295,10 @@ router.get('/stats', authMiddleware, adminMiddleware, async (_req: AuthRequest, 
       byClaimType,
       routed,
       accepted,
+      intakeOpenLeads,
+      intakeCompletedLeads,
+      intakeAbandonedReengaged,
+      intakeProvisionalAccounts,
     ] = await Promise.all([
       prisma.assessment.count({
         where: { createdAt: { gte: todayStart } }
@@ -332,6 +336,10 @@ router.get('/stats', authMiddleware, adminMiddleware, async (_req: AuthRequest, 
       }),
       prisma.introduction.count(),
       prisma.introduction.count({ where: { status: 'ACCEPTED' } }),
+      prisma.intakeLead.count({ where: { status: 'in_progress' } }),
+      prisma.intakeLead.count({ where: { status: 'completed' } }),
+      prisma.intakeLead.count({ where: { abandonmentEmailedAt: { not: null } } }),
+      prisma.user.count({ where: { provider: 'intake', passwordHash: null } }),
     ])
     const routableCases = queueAssessments.filter((a) => a._count.introductions === 0).length
 
@@ -391,6 +399,12 @@ router.get('/stats', authMiddleware, adminMiddleware, async (_req: AuthRequest, 
       },
       intakeVolume: Object.entries(dayBuckets).sort((a, b) => a[0].localeCompare(b[0])),
       casesByClaimType: byClaimType.map(c => ({ claimType: c.claimType, count: c._count.id })),
+      intake: {
+        openLeads: intakeOpenLeads,
+        completedLeads: intakeCompletedLeads,
+        abandonedReengaged: intakeAbandonedReengaged,
+        provisionalAccounts: intakeProvisionalAccounts,
+      },
       routingFunnel: {
         submitted,
         qualified,
@@ -406,6 +420,47 @@ router.get('/stats', authMiddleware, adminMiddleware, async (_req: AuthRequest, 
       error: 'Internal server error',
       detail: process.env.NODE_ENV === 'development' ? error?.message : undefined,
     })
+  }
+})
+
+// Recent intake leads (front-of-funnel capture, incl. abandoned and provisional accounts)
+router.get('/intake-leads', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined
+    const limit = Math.min(Number(req.query.limit) || 100, 200)
+
+    const where: any = {}
+    if (status === 'in_progress' || status === 'completed') where.status = status
+    if (status === 'abandoned') {
+      where.status = 'in_progress'
+      where.abandonmentEmailedAt = { not: null }
+    }
+
+    const leads = await prisma.intakeLead.findMany({
+      where,
+      select: {
+        id: true,
+        email: true,
+        phone: true,
+        injuryType: true,
+        venueState: true,
+        venueCounty: true,
+        currentStep: true,
+        status: true,
+        assessmentId: true,
+        userId: true,
+        abandonmentEmailedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: limit,
+    })
+
+    res.json({ success: true, data: leads })
+  } catch (error) {
+    logger.error('Failed to list intake leads', { error })
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 

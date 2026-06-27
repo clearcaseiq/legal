@@ -41,7 +41,10 @@ function getAllowedProductionOrigins() {
 
 function getRateLimitMax(isProduction: boolean) {
   const raw = process.env.RATE_LIMIT_MAX
-  if (!raw) return isProduction ? 300 : 1000
+  // 300/15min was too low for the authenticated dashboard SPA (it fires many
+  // endpoints per page load and polls), especially when multiple users share
+  // one office/NAT IP. Override with RATE_LIMIT_MAX if needed.
+  if (!raw) return isProduction ? 2000 : 5000
   const parsed = Number(raw)
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error('RATE_LIMIT_MAX must be a positive number')
@@ -65,38 +68,11 @@ export function createServer(): Express {
   
   // Security middleware
   app.use(helmet())
-  
-  // Rate limiting
-  const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: getRateLimitMax(isProduction), // higher default in dev to avoid blocking local UI
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: 'Too many requests from this IP, please try again later.',
-    skip: (req) => {
-      if (isProduction) return false
-      const ip = req.ip || ''
-      return ip === '::1' || ip === '127.0.0.1' || ip.startsWith('::ffff:127.0.0.1')
-    }
-  })
-  app.use(limiter)
-  
-  // Session configuration
-  app.use(session({
-    secret: getSessionSecret(isProduction),
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
-    }
-  }))
 
-  // Initialize Passport
-  app.use(passport.initialize())
-  app.use(passport.session())
-
-  // CORS and parsing
+  // CORS — registered BEFORE the rate limiter on purpose. Otherwise a
+  // rate-limited (429) response or a preflight rejection is returned without
+  // CORS headers, which the browser surfaces as an opaque "Failed to fetch"
+  // instead of a status code the frontend can read and handle.
   const devOrigins = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
@@ -122,7 +98,42 @@ export function createServer(): Express {
     },
     credentials: true
   }))
+
+  // Rate limiting
+  const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: getRateLimitMax(isProduction), // higher default in dev to avoid blocking local UI
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many requests from this IP, please try again later.',
+    skip: (req) => {
+      // Never rate-limit CORS preflight requests: they are automatic browser
+      // traffic, counting them doubles consumption, and a rate-limited OPTIONS
+      // breaks every subsequent real request for that origin.
+      if (req.method === 'OPTIONS') return true
+      if (isProduction) return false
+      const ip = req.ip || ''
+      return ip === '::1' || ip === '127.0.0.1' || ip.startsWith('::ffff:127.0.0.1')
+    }
+  })
+  app.use(limiter)
   
+  // Session configuration
+  app.use(session({
+    secret: getSessionSecret(isProduction),
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
+  }))
+
+  // Initialize Passport
+  app.use(passport.initialize())
+  app.use(passport.session())
+
+  // Body parsing
   app.use('/v1/payments/stripe-webhook', express.raw({ type: 'application/json' }))
   app.use(express.json({ limit: '10mb' }))
   app.use(express.urlencoded({ extended: true }))

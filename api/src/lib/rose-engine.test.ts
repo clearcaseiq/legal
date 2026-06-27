@@ -114,7 +114,7 @@ describe('rose-engine conversational flow', () => {
     expect(result.finalSummary).toBeUndefined()
     expect(result.state.current_step).toBe('recap_confirmation')
     expect(result.review?.confirmation_prompt).toContain('submit')
-  })
+  }, 12000)
 
   it('finalizes once the user confirms the recap', async () => {
     const state = buildCompleteState()

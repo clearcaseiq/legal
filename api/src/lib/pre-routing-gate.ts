@@ -97,7 +97,11 @@ export async function runPreRoutingGate(
   const effectiveOverride = jurisdictionOverride || stateOverride || claimOverride
   const minCaseScore = Number(effectiveOverride?.minCaseScore ?? opts.minCaseScore)
   const minEvidenceScore = Number(effectiveOverride?.minEvidenceScore ?? opts.minEvidenceScore)
-  const thresholdFailureAction = effectiveOverride?.action || opts.gateFailureAction
+  // A weak case score means the case simply isn't strong enough to route yet, while a
+  // low evidence score means we need the plaintiff to supply more. Explicit gate
+  // overrides can still force a specific action (e.g. manual_review).
+  const caseScoreFailureAction = effectiveOverride?.action || 'not_routable_yet'
+  const evidenceFailureAction = effectiveOverride?.action || 'needs_more_info'
   const assessment = await prisma.assessment.findUnique({
     where: { id: normalizedCase.case_id },
     select: {
@@ -122,7 +126,7 @@ export async function runPreRoutingGate(
     return {
       pass: false,
       reason: `Case score ${(caseScore * 100).toFixed(0)}% below minimum ${(minCaseScore * 100).toFixed(0)}%`,
-      status: thresholdFailureAction
+      status: caseScoreFailureAction
     }
   }
 
@@ -130,7 +134,7 @@ export async function runPreRoutingGate(
     return {
       pass: false,
       reason: `Evidence score ${(normalizedCase.evidence_score * 100).toFixed(0)}% below minimum ${(minEvidenceScore * 100).toFixed(0)}%`,
-      status: thresholdFailureAction
+      status: evidenceFailureAction
     }
   }
 

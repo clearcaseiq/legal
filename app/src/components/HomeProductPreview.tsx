@@ -43,18 +43,18 @@ export default function HomeProductPreview() {
             <span className="font-display text-2xl font-bold tabular-nums text-emerald-800 dark:text-emerald-200">88%</span>
           </div>
           <div className="grid grid-cols-3 gap-2">
-            <div className="rounded-xl bg-brand-50 dark:bg-brand-950/40 border border-brand-100 dark:border-brand-900/50 p-3 text-center">
+            <div className="min-w-0 rounded-xl bg-brand-50 dark:bg-brand-950/40 border border-brand-100 dark:border-brand-900/50 p-2.5 text-center sm:p-3">
               <TrendingUpIcon className="h-4 w-4 text-brand-700 dark:text-brand-300 mx-auto mb-1" aria-hidden />
-              <p className="text-xs uppercase tracking-wide text-brand-600/80 dark:text-brand-400/80">Estimated range</p>
-              <p className="text-base font-semibold tabular-nums text-brand-900 dark:text-brand-100">$35k–$90k</p>
+              <p className="text-[11px] uppercase tracking-wide text-brand-600/80 dark:text-brand-400/80 sm:text-xs">Estimated range</p>
+              <p className="text-sm font-semibold tabular-nums text-brand-900 dark:text-brand-100 sm:text-base">$35k–$90k</p>
             </div>
-            <div className="rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700 p-3 text-center">
-              <p className="text-xs uppercase tracking-wide text-slate-500">Liability strength</p>
-              <p className="text-base font-semibold tabular-nums text-slate-900 dark:text-slate-100">72%</p>
+            <div className="min-w-0 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700 p-2.5 text-center sm:p-3">
+              <p className="text-[11px] uppercase tracking-wide text-slate-500 sm:text-xs">Liability strength</p>
+              <p className="text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100 sm:text-base">72%</p>
             </div>
-            <div className="rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700 p-3 text-center">
-              <p className="text-xs uppercase tracking-wide text-slate-500">Likely timeline</p>
-              <p className="text-base font-semibold text-slate-900 dark:text-slate-100">12–18 mo</p>
+            <div className="min-w-0 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-700 p-2.5 text-center sm:p-3">
+              <p className="text-[11px] uppercase tracking-wide text-slate-500 sm:text-xs">Likely timeline</p>
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 sm:text-base">12–18 mo</p>
             </div>
           </div>
           <div className="flex items-center gap-2 rounded-xl border border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/30 px-3 py-2.5">

@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { sendClaimEmail } from '../lib/claims'
 import { sendSms } from '../lib/sms'
+import { provisionAndLinkIntakeAccount } from '../lib/intake-account'
 
 const router = Router()
 
@@ -120,6 +121,10 @@ router.post('/', async (req, res) => {
     if (lead.email || lead.phone) {
       void sendResumeLink({ id: lead.id, email: lead.email, phone: lead.phone })
     }
+    // Provision a passwordless account from the captured email and link it.
+    if (lead.email) {
+      void provisionAndLinkIntakeAccount({ id: lead.id, email: lead.email, phone: lead.phone })
+    }
   } catch (error) {
     logger.error('Failed to create intake lead', { error })
     res.status(500).json({ error: 'Internal server error' })
@@ -164,6 +169,11 @@ router.patch('/:id', async (req, res) => {
     // Send the resume link the first time contact info appears on this lead.
     if (!hadContact && hasContact) {
       void sendResumeLink({ id: lead.id, email: lead.email, phone: lead.phone })
+    }
+    // Provision/link an account once we have an email (idempotent: reuses an
+    // existing account, backfills phone, and links the lead).
+    if (lead.email && (!existing.email || existing.email !== lead.email)) {
+      void provisionAndLinkIntakeAccount({ id: lead.id, email: lead.email, phone: lead.phone })
     }
     // Send the report link once, when the lead transitions to completed with a linked assessment.
     const justCompleted = existing.status !== 'completed' && lead.status === 'completed'

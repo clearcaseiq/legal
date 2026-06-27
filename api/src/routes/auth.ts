@@ -41,37 +41,56 @@ router.post('/register', async (req, res) => {
       where: { email }
     })
 
-    if (existingUser) {
+    // A provisional account (auto-created during intake) has no password and was
+    // created with empty name fields. Registration "upgrades" it in place so the
+    // user keeps the same id and all linked intake leads/assessments. A real,
+    // password-backed (or OAuth) account is still a genuine duplicate.
+    const isProvisional = existingUser != null && !existingUser.passwordHash && existingUser.provider === 'intake'
+    if (existingUser && !isProvisional) {
       return res.status(409).json({ error: 'User already exists' })
     }
 
     // Hash password
     const passwordHash = await bcrypt.hash(password, 12)
 
-    // Create user
-    const user = await prisma.user.create({
-      data: {
-        email,
-        passwordHash,
-        firstName,
-        lastName,
-        phone,
-        emailVerified: false,
-      },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        phone: true,
-        createdAt: true
-      }
-    })
+    const userSelect = {
+      id: true,
+      email: true,
+      firstName: true,
+      lastName: true,
+      phone: true,
+      createdAt: true,
+    } as const
+
+    // Upgrade the provisional account, or create a fresh one.
+    const user = existingUser
+      ? await prisma.user.update({
+          where: { id: existingUser.id },
+          data: {
+            passwordHash,
+            firstName,
+            lastName,
+            phone: phone ?? existingUser.phone,
+            provider: 'local',
+          },
+          select: userSelect,
+        })
+      : await prisma.user.create({
+          data: {
+            email,
+            passwordHash,
+            firstName,
+            lastName,
+            phone,
+            emailVerified: false,
+          },
+          select: userSelect,
+        })
 
     // Generate token
     const token = generateToken(user.id)
 
-    logger.info('User registered', { userId: user.id, email: user.email })
+    logger.info(existingUser ? 'Provisional account upgraded via registration' : 'User registered', { userId: user.id, email: user.email })
 
     res.status(201).json({
       user,

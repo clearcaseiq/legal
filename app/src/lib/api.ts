@@ -1401,6 +1401,148 @@ export async function createDocumentRequest(
   return data
 }
 
+export type OpposingDocRole = 'defendant' | 'opposing_counsel' | 'insurer'
+
+// Attorney serves a document request on the defendant / opposing party / insurer.
+export async function createOpposingDocumentRequest(
+  leadId: string,
+  payload: {
+    requestedDocs: string[]
+    customMessage?: string
+    recipientName: string
+    recipientEmail?: string
+    recipientRole?: OpposingDocRole
+    caseContactId?: string
+    suggestionId?: string
+  }
+) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/opposing-document-request`, payload)
+  return data
+}
+
+export type OpposingDocUpload = {
+  id: string
+  originalName: string
+  docType?: string | null
+  mimeType?: string | null
+  sizeBytes?: number | null
+  uploadedByName?: string | null
+  note?: string | null
+  createdAt: string
+}
+
+export type AttorneyDocumentRequest = {
+  id: string
+  leadId: string
+  status: string
+  requestedDocs: string[]
+  customMessage?: string | null
+  uploadLink?: string | null
+  targetType?: string | null
+  recipientName?: string | null
+  recipientRole?: OpposingDocRole | null
+  origin?: string | null
+  uploadedCount?: number
+  lastNudgeAt?: string | null
+  createdAt: string
+  claimType?: string | null
+}
+
+export async function getAttorneyDocumentRequests(): Promise<AttorneyDocumentRequest[]> {
+  const { data } = await api.get('/v1/attorney-dashboard/document-requests')
+  return data
+}
+
+export async function nudgeDocumentRequest(requestId: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/document-requests/${requestId}/nudge`)
+  return data
+}
+
+export async function getOpposingDocumentUploads(requestId: string): Promise<OpposingDocUpload[]> {
+  const { data } = await api.get(`/v1/attorney-dashboard/document-requests/${requestId}/uploads`)
+  return data
+}
+
+export function getOpposingDocumentDownloadUrl(requestId: string, uploadId: string) {
+  return `/v1/attorney-dashboard/document-requests/${requestId}/uploads/${uploadId}/download`
+}
+
+export async function downloadOpposingDocument(requestId: string, uploadId: string, fileName: string) {
+  const { data } = await api.get<Blob>(
+    `/v1/attorney-dashboard/document-requests/${requestId}/uploads/${uploadId}/download`,
+    { responseType: 'blob' }
+  )
+  const url = URL.createObjectURL(data)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+export type OpposingDocSuggestion = {
+  id: string
+  requestedDocs: string[]
+  recipientName?: string | null
+  recipientRole?: OpposingDocRole | null
+  note?: string | null
+  status: string
+  documentRequestId?: string | null
+  createdAt: string
+}
+
+export async function getLeadOpposingDocSuggestions(leadId: string): Promise<OpposingDocSuggestion[]> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/opposing-document-suggestions`)
+  return data
+}
+
+// Plaintiff suggests documents their attorney should request from the defendant.
+export async function createOpposingDocSuggestion(
+  assessmentId: string,
+  payload: { requestedDocs: string[]; recipientName?: string; recipientRole?: OpposingDocRole; note?: string }
+): Promise<OpposingDocSuggestion> {
+  const { data } = await api.post(`/v1/assessments/${assessmentId}/opposing-document-suggestions`, payload)
+  return data
+}
+
+export async function getOpposingDocSuggestions(assessmentId: string): Promise<OpposingDocSuggestion[]> {
+  const { data } = await api.get(`/v1/assessments/${assessmentId}/opposing-document-suggestions`)
+  return data
+}
+
+// Public tokenized portal used by an external recipient (defendant/insurer) — no auth.
+export type DocumentPortalRequest = {
+  recipientName?: string | null
+  recipientRole?: OpposingDocRole | null
+  attorneyName?: string | null
+  firmName?: string | null
+  customMessage?: string | null
+  status: string
+  requestedDocs: Array<{ key: string; label: string }>
+  uploads: Array<{ id: string; originalName: string; docType?: string | null; createdAt: string }>
+}
+
+export async function getDocumentPortalRequest(token: string): Promise<DocumentPortalRequest> {
+  const { data } = await api.get(`/v1/public/document-requests/${token}`)
+  return data
+}
+
+export async function uploadDocumentPortalFile(
+  token: string,
+  file: File,
+  meta: { docType?: string; uploadedByName?: string; note?: string }
+) {
+  const form = new FormData()
+  form.append('file', file)
+  if (meta.docType) form.append('docType', meta.docType)
+  if (meta.uploadedByName) form.append('uploadedByName', meta.uploadedByName)
+  if (meta.note) form.append('note', meta.note)
+  const { data } = await api.post(`/v1/public/document-requests/${token}/upload`, form)
+  return data as { id: string; originalName: string; docType?: string | null; status: string }
+}
+
 export async function getLeadCommandCenter(leadId: string) {
   const { data } = await api.get<CaseCommandCenter>(`/v1/attorney-dashboard/leads/${leadId}/command-center`)
   return data
@@ -2072,6 +2214,27 @@ export async function regenerateLeadAnalysis(assessmentId: string) {
 export async function getAdminStats() {
   const { data } = await api.get('/v1/admin/stats')
   return data
+}
+
+export interface AdminIntakeLead {
+  id: string
+  email: string | null
+  phone: string | null
+  injuryType: string | null
+  venueState: string | null
+  venueCounty: string | null
+  currentStep: string | null
+  status: 'in_progress' | 'completed'
+  assessmentId: string | null
+  userId: string | null
+  abandonmentEmailedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export async function getAdminIntakeLeads(params?: { status?: 'in_progress' | 'completed' | 'abandoned'; limit?: number }): Promise<AdminIntakeLead[]> {
+  const { data } = await api.get('/v1/admin/intake-leads', { params })
+  return Array.isArray(data?.data) ? data.data : []
 }
 
 export async function getAdminAnalytics(days?: number) {

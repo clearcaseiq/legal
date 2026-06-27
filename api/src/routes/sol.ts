@@ -44,10 +44,20 @@ router.post('/calculate', async (req, res) => {
       claim_type: claimType
     })
   } catch (error) {
-    logger.error('Failed to calculate SOL', { error })
+    // "No SOL rule found" is an expected, handled condition (a venue/claim-type combo
+    // we don't have a rule for) — return 400 and log at warn, not error, so it doesn't
+    // pollute error monitoring. Anything else is a genuine server fault.
     if (error instanceof Error && error.message.includes('No SOL rule found')) {
-      res.status(400).json({ error: error.message })
+      logger.warn('No SOL rule for requested venue/claim type', { message: error.message })
+      res.status(400).json({
+        // User-facing message: we only have statute-of-limitations rules for U.S.
+        // states/DC, so anything else (e.g. an international jurisdiction) is
+        // reported as unsupported rather than exposing the internal rule key.
+        error: 'We currently calculate filing deadlines for U.S. states only. Please select a U.S. state to see your statute of limitations.',
+        code: 'UNSUPPORTED_JURISDICTION',
+      })
     } else {
+      logger.error('Failed to calculate SOL', { error })
       res.status(500).json({ error: 'Internal server error' })
     }
   }

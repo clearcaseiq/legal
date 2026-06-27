@@ -976,16 +976,26 @@ router.put('/:fileId', authMiddleware, async (req: any, res) => {
 })
 
 // Delete evidence file
-router.delete('/:fileId', authMiddleware, async (req: any, res) => {
+router.delete('/:fileId', optionalAuthMiddleware, async (req: any, res) => {
   try {
     const { fileId } = req.params
-    const userId = req.user.id
+    const authedUserId = req.user?.id || null
 
-    const evidenceFile = await prisma.evidenceFile.findFirst({
-      where: { id: fileId, userId }
+    const evidenceFile = await prisma.evidenceFile.findUnique({
+      where: { id: fileId },
+      include: { user: { select: { email: true } } }
     })
 
     if (!evidenceFile) {
+      return res.status(404).json({ error: 'Evidence file not found' })
+    }
+
+    // Access control mirrors the upload/process routes (which are guest-open):
+    // authenticated users may only delete their own files; guests finishing the
+    // intake flow may delete files owned by a guest-case user.
+    const isOwner = !!authedUserId && evidenceFile.userId === authedUserId
+    const isGuestOwnedFile = !authedUserId && isGuestCaseUserEmail(evidenceFile.user?.email || '')
+    if (!isOwner && !isGuestOwnedFile) {
       return res.status(404).json({ error: 'Evidence file not found' })
     }
 

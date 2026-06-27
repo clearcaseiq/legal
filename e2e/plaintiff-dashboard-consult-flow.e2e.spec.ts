@@ -265,7 +265,7 @@ test.describe('Plaintiff dashboard consult lifecycle', () => {
     await expect(scheduleModal.getByRole('heading', { name: /^schedule consultation$/i })).toBeVisible()
     await scheduleModal.locator('.grid.grid-cols-2.gap-2').nth(1).locator('button').first().click()
     await scheduleModal.getByRole('button', { name: /schedule call/i }).click()
-    await expect(page.getByText(/consultation scheduled/i)).toBeVisible()
+    await expect(page.getByRole('heading', { name: /consultation scheduled/i })).toBeVisible()
 
     await page.getByRole('button', { name: /reschedule/i }).click()
     const rescheduleModal = page.locator('.fixed.inset-0.z-50').last()

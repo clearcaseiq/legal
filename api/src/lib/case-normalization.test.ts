@@ -14,6 +14,9 @@ describe('normalizeCaseForRouting', () => {
   })
 
   it('maps assessment + facts to NormalizedCase', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2025-06-15T00:00:00.000Z'))
+
     const assessment = {
       id: 'norm-1',
       claimType: 'auto',
@@ -55,6 +58,8 @@ describe('normalizeCaseForRouting', () => {
     expect(n.medical_record_present).toBe(false)
     expect(n.estimated_case_value_low).toBeDefined()
     expect(n.statute_of_limitations_status).toBe('ok')
+
+    vi.useRealTimers()
   })
 
   it('handles invalid facts JSON gracefully', async () => {

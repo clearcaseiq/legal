@@ -50,6 +50,7 @@ model User {
   firmTeamMemberships        FirmTeamMember[]
   caseAssignments            FirmCaseAssignment[]
   assignedCaseTasks          CaseTask[]
+  intakeLeads                IntakeLead[]
 
   @@map("users")
 }
@@ -1478,11 +1479,20 @@ model IntakeLead {
   status       String  @default("in_progress") // 'in_progress', 'completed'
   assessmentId String? @unique // linked once the assessment is created
 
+  // Provisional (passwordless) account auto-created from the captured email.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  // Set once the "you left the platform" re-engagement email/SMS has been sent,
+  // so the abandonment sweep only contacts each lead a single time.
+  abandonmentEmailedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([email])
   @@index([status, updatedAt])
+  @@index([userId])
   @@map("intake_leads")
 }
 
@@ -1572,8 +1582,18 @@ model DocumentRequest {
   requestedDocs String  @db.Text // JSON array: police_report, medical_records, injury_photos, wage_loss, insurance, other
   customMessage String?
   secureToken   String  @unique // UUID for secure upload link
-  uploadLink    String // Full URL for plaintiff
+  uploadLink    String // Full URL for the recipient (plaintiff portal or external portal)
   status        String  @default("pending") // pending, partial, completed
+
+  // Who the request is addressed to. Default flow is the claimant ('plaintiff').
+  // 'opposing_party' is a defendant / opposing counsel / insurer with no platform account,
+  // served through a tokenized external upload portal.
+  targetType     String  @default("plaintiff") // 'plaintiff' | 'opposing_party'
+  recipientName  String? // name of the opposing party / insurer / counsel
+  recipientEmail String? // external recipient email (no platform account)
+  recipientRole  String? // 'defendant' | 'opposing_counsel' | 'insurer'
+  caseContactId  String? // optional link to a CaseContact representing the recipient
+  origin         String  @default("attorney") // 'attorney' | 'plaintiff_suggested'
 
   attorneyViewedAt DateTime?
   lastNudgeAt      DateTime?
@@ -1581,9 +1601,58 @@ model DocumentRequest {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  externalUploads ExternalDocumentUpload[]
+
   @@index([leadId])
   @@index([secureToken])
   @@map("document_requests")
+}
+
+// Files produced by an external recipient (defendant / opposing counsel / insurer)
+// in response to an opposing-party DocumentRequest. These are NOT owned by a
+// plaintiff User the way EvidenceFile is, so fulfillment is tracked separately.
+model ExternalDocumentUpload {
+  id                String          @id @default(cuid())
+  documentRequestId String
+  documentRequest   DocumentRequest @relation(fields: [documentRequestId], references: [id], onDelete: Cascade)
+
+  docType        String? // which requested doc this fulfills
+  originalName   String
+  storedName     String
+  filePath       String
+  mimeType       String?
+  sizeBytes      Int?
+  uploadedByName String?
+  note           String?
+
+  createdAt DateTime @default(now())
+
+  @@index([documentRequestId])
+  @@map("external_document_uploads")
+}
+
+// A plaintiff-initiated suggestion that documents should be requested from the
+// defendant/opposing party. The plaintiff cannot serve discovery directly; their
+// attorney reviews the suggestion and converts it into a real DocumentRequest.
+model OpposingDocRequestSuggestion {
+  id                String  @id @default(cuid())
+  assessmentId      String
+  leadId            String?
+  suggestedByUserId String?
+
+  requestedDocs     String  @db.Text // JSON array of requested doc types
+  recipientName     String?
+  recipientRole     String? // 'defendant' | 'opposing_counsel' | 'insurer'
+  note              String? @db.Text
+  status            String  @default("pending") // 'pending' | 'sent' | 'dismissed'
+  documentRequestId String? // set once an attorney converts it into a real request
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([assessmentId])
+  @@index([leadId])
+  @@map("opposing_doc_request_suggestions")
 }
 
 model AttorneyProfile {

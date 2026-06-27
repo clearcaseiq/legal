@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import {
   getAdminFailedNotifications,
+  getAdminIntakeLeads,
   getAdminMatchingRules,
   getAdminRoutingAlerts,
   getAdminStats,
   listAuditLogs,
   saveAdminMatchingRules,
+  type AdminIntakeLead,
   type MatchingRulesConfig,
 } from '../../lib/api'
 import {
@@ -20,6 +22,9 @@ import {
   RefreshCw,
   BrainCircuit,
   Shield,
+  Inbox,
+  UserPlus,
+  MailWarning,
 } from 'lucide-react'
 
 export default function AdminHome() {
@@ -29,6 +34,7 @@ export default function AdminHome() {
   const [routingConfig, setRoutingConfig] = useState<MatchingRulesConfig | null>(null)
   const [routingAlerts, setRoutingAlerts] = useState<any[]>([])
   const [failedNotifications, setFailedNotifications] = useState<any[]>([])
+  const [intakeLeads, setIntakeLeads] = useState<AdminIntakeLead[]>([])
   const [routingSaving, setRoutingSaving] = useState(false)
   const [routingControlError, setRoutingControlError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -39,18 +45,20 @@ export default function AdminHome() {
       setLoading(true)
       setError(null)
       setRoutingControlError(null)
-      const [data, logs, matchingRules, alertData, failedData] = await Promise.all([
+      const [data, logs, matchingRules, alertData, failedData, leads] = await Promise.all([
         getAdminStats(),
         listAuditLogs({ limit: 80 }).catch(() => []),
         getAdminMatchingRules().catch(() => null),
         getAdminRoutingAlerts().catch(() => ({ alerts: [] })),
         getAdminFailedNotifications().catch(() => ({ notifications: [] })),
+        getAdminIntakeLeads({ limit: 25 }).catch(() => []),
       ])
       setStats(data)
       setAuditLogs(Array.isArray(logs) ? logs : [])
       setRoutingConfig(matchingRules)
       setRoutingAlerts(alertData?.alerts || [])
       setFailedNotifications(failedData?.notifications || failedData?.failed || [])
+      setIntakeLeads(Array.isArray(leads) ? leads : [])
       setAutomationLogs(
         (Array.isArray(logs) ? logs : []).filter((entry) =>
           String(entry?.action || '').startsWith('automation_'),
@@ -119,6 +127,7 @@ export default function AdminHome() {
   const funnel = stats?.routingFunnel ?? {}
   const intakeVolume = stats?.intakeVolume ?? []
   const byClaimType = stats?.casesByClaimType ?? []
+  const intake = stats?.intake ?? {}
   const automationSummary = {
     total: automationLogs.length,
     created: automationLogs.filter((item) => item.action === 'automation_feed_created').length,
@@ -230,6 +239,24 @@ export default function AdminHome() {
       value: cards.casesAgingOver24h ?? 0,
       icon: AlertTriangle,
       color: 'red',
+    },
+    {
+      label: 'Open intake leads',
+      value: intake.openLeads ?? 0,
+      icon: Inbox,
+      color: 'sky',
+    },
+    {
+      label: 'Abandoned (re-engaged)',
+      value: intake.abandonedReengaged ?? 0,
+      icon: MailWarning,
+      color: 'amber',
+    },
+    {
+      label: 'Provisional accounts',
+      value: intake.provisionalAccounts ?? 0,
+      icon: UserPlus,
+      color: 'violet',
     },
   ]
 
@@ -411,6 +438,71 @@ export default function AdminHome() {
               <p className="text-sm text-slate-500">No data</p>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Recent intake leads */}
+      <div className="subtle-panel p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Recent intake leads</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Front-of-funnel captures, including abandoned intakes that were re-engaged and provisional accounts.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="chip">{intake.openLeads ?? 0} open</span>
+            <span className="chip">{intake.completedLeads ?? 0} completed</span>
+            <span className="chip">{intake.abandonedReengaged ?? 0} re-engaged</span>
+          </div>
+        </div>
+        <div className="mt-5 space-y-2">
+          {intakeLeads.length > 0 ? (
+            intakeLeads.map((lead) => (
+              <div
+                key={lead.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">
+                    {lead.email || lead.phone || 'No contact captured'}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {[lead.injuryType, lead.venueState, lead.currentStep ? `step: ${lead.currentStep}` : null]
+                      .filter(Boolean)
+                      .join(' • ') || 'No details yet'}
+                    {' • '}
+                    {new Date(lead.updatedAt).toLocaleString()}
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                  {lead.userId && (
+                    <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
+                      Account
+                    </span>
+                  )}
+                  {lead.abandonmentEmailedAt && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                      Re-engaged
+                    </span>
+                  )}
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      lead.status === 'completed'
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : 'bg-sky-100 text-sky-700'
+                    }`}
+                  >
+                    {lead.status === 'completed' ? 'Completed' : 'In progress'}
+                  </span>
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+              No intake leads captured yet. Leads appear here as soon as a claimant enters an email or phone during intake.
+            </p>
+          )}
         </div>
       </div>
 

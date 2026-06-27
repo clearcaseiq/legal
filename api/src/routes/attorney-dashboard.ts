@@ -3078,6 +3078,10 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
         requestedDocs: true,
         customMessage: true,
         uploadLink: true,
+        targetType: true,
+        recipientName: true,
+        recipientRole: true,
+        origin: true,
         attorneyViewedAt: true,
         lastNudgeAt: true,
         createdAt: true,
@@ -3087,6 +3091,7 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
             assessment: { select: { claimType: true } },
           },
         },
+        _count: { select: { externalUploads: true } },
       },
       orderBy: { createdAt: 'desc' },
       take: 100,
@@ -3106,6 +3111,11 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
         requestedDocs: requested,
         customMessage: r.customMessage,
         uploadLink: r.uploadLink,
+        targetType: r.targetType,
+        recipientName: r.recipientName,
+        recipientRole: r.recipientRole,
+        origin: r.origin,
+        uploadedCount: r._count?.externalUploads || 0,
         attorneyViewedAt: r.attorneyViewedAt,
         lastNudgeAt: r.lastNudgeAt,
         createdAt: r.createdAt,
@@ -3150,6 +3160,9 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, async (req: a
         lastNudgeAt: true,
         uploadLink: true,
         leadId: true,
+        targetType: true,
+        recipientName: true,
+        recipientEmail: true,
         lead: {
           select: {
             assessmentId: true,
@@ -3172,6 +3185,29 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, async (req: a
       if (elapsed < 24 * 60 * 60 * 1000) {
         return res.status(429).json({ error: 'You can send another reminder in 24 hours.' })
       }
+    }
+
+    // Opposing-party requests go to an external recipient with no platform account.
+    if (doc.targetType === 'opposing_party') {
+      if (!doc.recipientEmail) {
+        return res.status(400).json({ error: 'No email on file for this recipient.' })
+      }
+      const attorneyName = auth.attorney.name || 'the attorney'
+      const subject = 'Reminder: documents requested for a claim'
+      const message = `Hello ${doc.recipientName || 'there'},\n\nThis is a reminder from ${attorneyName} regarding the documents previously requested. You can upload them securely here:\n\n${doc.uploadLink}\n\nThank you,\nClearCaseIQ`
+      await createNotification(doc.recipientEmail, subject, message, {
+        leadId: doc.leadId,
+        assessmentId: doc.lead?.assessmentId ?? undefined,
+        documentRequestId: doc.id,
+        targetType: 'opposing_party',
+        uploadLink: doc.uploadLink,
+        nudge: true,
+      })
+      await prisma.documentRequest.update({
+        where: { id: doc.id },
+        data: { lastNudgeAt: new Date() },
+      })
+      return res.json({ ok: true })
     }
 
     const assessment = doc.lead?.assessment
@@ -3833,6 +3869,213 @@ router.post('/leads/:leadId/document-request', authMiddleware, async (req: any, 
   } catch (error: any) {
     logger.error('Failed to create document request', { error: error.message })
     res.status(500).json({ error: 'Failed to create document request' })
+  }
+})
+
+// Labels for documents an attorney can request from the opposing party / defendant / insurer.
+const OPPOSING_DOC_LABELS: Record<string, string> = {
+  insurance_policy: 'Insurance policy / declarations page',
+  incident_report: 'Incident / accident report',
+  surveillance: 'Surveillance or camera footage',
+  maintenance_records: 'Maintenance / inspection records',
+  vehicle_records: 'Vehicle / black-box (EDR) data',
+  employment_records: 'Employment / training records',
+  correspondence: 'Relevant correspondence',
+  photos: 'Photographs of the scene/vehicle',
+  other: 'Other documents',
+}
+
+const opposingDocRequestSchema = z.object({
+  requestedDocs: z.array(z.string()).optional(),
+  customMessage: z.string().max(4000).optional(),
+  recipientName: z.string().min(1).max(200),
+  recipientEmail: z.string().email().optional().or(z.literal('')),
+  recipientRole: z.enum(['defendant', 'opposing_counsel', 'insurer']).optional(),
+  caseContactId: z.string().optional(),
+  suggestionId: z.string().optional(),
+})
+
+// Create a document request directed at the DEFENDANT / opposing party / insurer.
+// Unlike the plaintiff flow, the recipient has no platform account, so they receive a
+// tokenized external upload portal link instead of an in-app message.
+router.post('/leads/:leadId/opposing-document-request', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const parsed = opposingDocRequestSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() })
+    }
+    const {
+      requestedDocs = [],
+      customMessage,
+      recipientName,
+      recipientEmail,
+      recipientRole,
+      caseContactId,
+      suggestionId,
+    } = parsed.data
+
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+
+    const docs = Array.isArray(requestedDocs) ? requestedDocs : []
+    const secureToken = crypto.randomUUID()
+    const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000'
+    const uploadLink = `${baseUrl}/respond/documents/${secureToken}`
+
+    const docRequest = await prisma.documentRequest.create({
+      data: {
+        leadId,
+        attorneyId: attorney.id,
+        requestedDocs: JSON.stringify(docs),
+        customMessage: customMessage || null,
+        secureToken,
+        uploadLink,
+        status: 'pending',
+        targetType: 'opposing_party',
+        recipientName,
+        recipientEmail: recipientEmail || null,
+        recipientRole: recipientRole || null,
+        caseContactId: caseContactId || null,
+        origin: suggestionId ? 'plaintiff_suggested' : 'attorney',
+      },
+    })
+
+    await prisma.leadSubmission.update({
+      where: { id: leadId },
+      data: { lastContactAt: new Date() },
+    })
+
+    // If this fulfills a plaintiff suggestion, mark it sent and link the request.
+    if (suggestionId) {
+      await prisma.opposingDocRequestSuggestion.updateMany({
+        where: { id: suggestionId, assessmentId: lead.assessmentId },
+        data: { status: 'sent', documentRequestId: docRequest.id },
+      })
+    }
+
+    const attorneyName = attorney.name || 'the attorney'
+    const docList = docs.length > 0
+      ? docs.map((d: string) => `• ${OPPOSING_DOC_LABELS[d] || d}`).join('\n')
+      : '• See message below'
+
+    // Email the external recipient a secure upload link (they have no account).
+    if (recipientEmail) {
+      const subject = `Document request regarding a claim — ${attorneyName}`
+      const message = `Hello ${recipientName},\n\n${attorneyName} has requested the following documents in connection with a personal injury claim:\n\n${docList}\n\n${customMessage ? `${customMessage}\n\n` : ''}Please upload the documents securely here:\n${uploadLink}\n\nThis is a secure, single-purpose link. If you believe you received this in error, please disregard it.\n\nRegards,\nClearCaseIQ on behalf of ${attorneyName}`
+      await createNotification(recipientEmail, subject, message, {
+        leadId,
+        assessmentId: lead.assessmentId,
+        documentRequestId: docRequest.id,
+        targetType: 'opposing_party',
+        uploadLink,
+      })
+    }
+
+    res.json({ ...docRequest, requestedDocs: docs })
+  } catch (error: any) {
+    logger.error('Failed to create opposing-party document request', { error: error.message })
+    res.status(500).json({ error: 'Failed to create document request' })
+  }
+})
+
+// List documents an opposing party has uploaded against a request (attorney view).
+router.get('/document-requests/:requestId/uploads', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { requestId } = req.params
+
+    const docRequest = await prisma.documentRequest.findFirst({
+      where: { id: requestId, attorneyId: auth.attorney.id },
+      include: {
+        externalUploads: { orderBy: { createdAt: 'desc' } },
+      },
+    })
+    if (!docRequest) return res.status(404).json({ error: 'Document request not found' })
+
+    res.json(
+      docRequest.externalUploads.map((u) => ({
+        id: u.id,
+        originalName: u.originalName,
+        docType: u.docType,
+        mimeType: u.mimeType,
+        sizeBytes: u.sizeBytes,
+        uploadedByName: u.uploadedByName,
+        note: u.note,
+        createdAt: u.createdAt,
+      }))
+    )
+  } catch (error: any) {
+    logger.error('Failed to list opposing-party uploads', { error: error.message })
+    res.status(500).json({ error: 'Failed to load uploads' })
+  }
+})
+
+// Download a single opposing-party uploaded file (attorney only).
+router.get('/document-requests/:requestId/uploads/:uploadId/download', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { requestId, uploadId } = req.params
+
+    const docRequest = await prisma.documentRequest.findFirst({
+      where: { id: requestId, attorneyId: auth.attorney.id },
+      select: { id: true },
+    })
+    if (!docRequest) return res.status(404).json({ error: 'Document request not found' })
+
+    const upload = await prisma.externalDocumentUpload.findFirst({
+      where: { id: uploadId, documentRequestId: requestId },
+    })
+    if (!upload || !fs.existsSync(upload.filePath)) {
+      return res.status(404).json({ error: 'File not found' })
+    }
+    res.download(upload.filePath, upload.originalName)
+  } catch (error: any) {
+    logger.error('Failed to download opposing-party upload', { error: error.message })
+    res.status(500).json({ error: 'Failed to download file' })
+  }
+})
+
+// Plaintiff-suggested opposing-party document requests awaiting attorney review.
+router.get('/leads/:leadId/opposing-document-suggestions', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead } = auth
+
+    const suggestions = await prisma.opposingDocRequestSuggestion.findMany({
+      where: { OR: [{ leadId }, { assessmentId: lead.assessmentId }] },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    })
+
+    res.json(
+      suggestions.map((s) => {
+        let requested: string[] = []
+        try {
+          requested = JSON.parse(s.requestedDocs || '[]')
+        } catch {
+          requested = []
+        }
+        return {
+          id: s.id,
+          requestedDocs: requested,
+          recipientName: s.recipientName,
+          recipientRole: s.recipientRole,
+          note: s.note,
+          status: s.status,
+          documentRequestId: s.documentRequestId,
+          createdAt: s.createdAt,
+        }
+      })
+    )
+  } catch (error: any) {
+    logger.error('Failed to list opposing-party suggestions', { error: error.message })
+    res.status(500).json({ error: 'Failed to load suggestions' })
   }
 })
 

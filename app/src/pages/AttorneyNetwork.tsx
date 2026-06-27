@@ -83,10 +83,10 @@ export default function AttorneyNetwork() {
         <section className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-brand-300">Attorney Network</p>
-            <h1 className="mt-5 max-w-3xl text-5xl font-extrabold tracking-tight sm:text-6xl">
+            <h1 className="mt-5 max-w-3xl text-3xl font-extrabold tracking-tight sm:text-4xl md:text-5xl lg:text-6xl">
               Receive Qualified PI Cases With AI-Powered Case Intelligence
             </h1>
-            <p className="mt-5 max-w-2xl text-xl text-slate-200">
+            <p className="mt-5 max-w-2xl text-lg text-slate-200 sm:text-xl">
               Receive qualified injury cases from plaintiffs who are actively choosing counsel.
             </p>
 
@@ -172,14 +172,14 @@ export default function AttorneyNetwork() {
           <div className="rounded-3xl border border-white/10 bg-white p-6 text-slate-950 shadow-2xl sm:p-8">
             <p className="text-sm font-semibold uppercase tracking-wide text-brand-700">Why ClearCaseIQ Is Different</p>
             <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
-              <div className="grid grid-cols-2 bg-slate-950 text-sm font-semibold text-white">
-                <div className="px-4 py-3">Traditional Lead Vendor</div>
-                <div className="px-4 py-3">ClearCaseIQ</div>
+              <div className="grid grid-cols-2 bg-slate-950 text-xs font-semibold text-white sm:text-sm">
+                <div className="px-3 py-3 sm:px-4">Traditional Lead Vendor</div>
+                <div className="px-3 py-3 sm:px-4">ClearCaseIQ</div>
               </div>
               {differentiators.map((row) => (
-                <div key={row.traditional} className="grid grid-cols-2 border-t border-slate-200 text-sm">
-                  <div className="px-4 py-3 text-slate-500">{row.traditional}</div>
-                  <div className="bg-brand-50 px-4 py-3 font-semibold text-brand-900">{row.clearcase}</div>
+                <div key={row.traditional} className="grid grid-cols-2 border-t border-slate-200 text-xs sm:text-sm">
+                  <div className="px-3 py-3 text-slate-500 sm:px-4">{row.traditional}</div>
+                  <div className="bg-brand-50 px-3 py-3 font-semibold text-brand-900 sm:px-4">{row.clearcase}</div>
                 </div>
               ))}
             </div>

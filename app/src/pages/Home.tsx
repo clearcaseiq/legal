@@ -83,6 +83,13 @@ export default function Home() {
                   <FileTextIcon className="mr-2 h-6 w-6 transition-transform group-hover:rotate-[-4deg] sm:h-7 sm:w-7" aria-hidden />
                   {t('common.startAssessment')}
                 </Link>
+                <Link
+                  to="/assess?fresh=1"
+                  className="group inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white/70 px-6 py-3 text-base font-semibold text-slate-700 backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:border-slate-600 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus-visible:ring-offset-slate-900"
+                >
+                  {t('common.continueAsGuest')}
+                  <span className="ml-1.5 transition-transform group-hover:translate-x-0.5" aria-hidden>→</span>
+                </Link>
               </div>
               <p className="mt-4 text-sm font-medium text-slate-600 dark:text-slate-300">{t('home.heroReassurance')}</p>
             </div>

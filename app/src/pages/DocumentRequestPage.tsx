@@ -4,11 +4,45 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, Sparkles } from 'lucide-react'
-import { getLead, createDocumentRequest, getLeadCommandCenter, type CaseCommandCenter } from '../lib/api'
+import {
+  getLead,
+  createDocumentRequest,
+  createOpposingDocumentRequest,
+  getLeadOpposingDocSuggestions,
+  getAttorneyDocumentRequests,
+  getOpposingDocumentUploads,
+  downloadOpposingDocument,
+  nudgeDocumentRequest,
+  getLeadCommandCenter,
+  type CaseCommandCenter,
+  type OpposingDocRole,
+  type OpposingDocSuggestion,
+  type AttorneyDocumentRequest,
+  type OpposingDocUpload,
+} from '../lib/api'
 import { DOC_TYPES, type DocTypeId } from '../components/DocumentRequestModal'
 import { invalidateAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
 
 const claimLabel = (s: string) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+
+// Documents an attorney can request from the defendant / opposing party / insurer.
+const OPPOSING_DOC_TYPES = [
+  { id: 'insurance_policy', label: 'Insurance policy / declarations page' },
+  { id: 'incident_report', label: 'Incident / accident report' },
+  { id: 'surveillance', label: 'Surveillance or camera footage' },
+  { id: 'maintenance_records', label: 'Maintenance / inspection records' },
+  { id: 'vehicle_records', label: 'Vehicle / black-box (EDR) data' },
+  { id: 'employment_records', label: 'Employment / training records' },
+  { id: 'correspondence', label: 'Relevant correspondence' },
+  { id: 'photos', label: 'Photographs of the scene/vehicle' },
+  { id: 'other', label: 'Other documents' },
+] as const
+
+const ROLE_OPTIONS: Array<{ id: OpposingDocRole; label: string }> = [
+  { id: 'defendant', label: 'Defendant' },
+  { id: 'opposing_counsel', label: 'Opposing counsel' },
+  { id: 'insurer', label: 'Insurer / adjuster' },
+]
 
 export default function DocumentRequestPage() {
   const { leadId } = useParams<{ leadId: string }>()
@@ -26,6 +60,20 @@ export default function DocumentRequestPage() {
   const [sendUploadLinkOnly, setSendUploadLinkOnly] = useState(false)
   const [formTouched, setFormTouched] = useState(false)
   const [appliedAutoSuggestion, setAppliedAutoSuggestion] = useState(false)
+
+  // Recipient mode: request from the plaintiff (default) or the defendant/opposing party.
+  const [mode, setMode] = useState<'plaintiff' | 'opposing'>('plaintiff')
+  const [opposingSelected, setOpposingSelected] = useState<Set<string>>(new Set())
+  const [recipientName, setRecipientName] = useState('')
+  const [recipientEmail, setRecipientEmail] = useState('')
+  const [recipientRole, setRecipientRole] = useState<OpposingDocRole>('defendant')
+  const [opposingMessage, setOpposingMessage] = useState('')
+  const [suggestions, setSuggestions] = useState<OpposingDocSuggestion[]>([])
+  const [appliedSuggestionId, setAppliedSuggestionId] = useState<string | null>(null)
+  const [sentRequests, setSentRequests] = useState<AttorneyDocumentRequest[]>([])
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null)
+  const [uploadsByRequest, setUploadsByRequest] = useState<Record<string, OpposingDocUpload[]>>({})
+  const [copiedId, setCopiedId] = useState<string | null>(null)
   const prefill = (location.state as {
     prefill?: { requestedDocs?: DocTypeId[]; customMessage?: string; sendUploadLinkOnly?: boolean }
     source?: string
@@ -92,6 +140,73 @@ export default function DocumentRequestPage() {
     setAppliedAutoSuggestion(true)
   }, [appliedAutoSuggestion, commandCenter, formTouched, prefill])
 
+  const loadSentRequests = async () => {
+    if (!leadId) return
+    try {
+      const all = await getAttorneyDocumentRequests()
+      setSentRequests(all.filter((r) => r.leadId === leadId && r.targetType === 'opposing_party'))
+    } catch {
+      setSentRequests([])
+    }
+  }
+
+  useEffect(() => {
+    if (!leadId) return
+    let cancelled = false
+    getLeadOpposingDocSuggestions(leadId)
+      .then((rows) => {
+        if (cancelled) return
+        const pending = rows.filter((r) => r.status === 'pending')
+        setSuggestions(pending)
+        // If the plaintiff suggested a request, surface the defendant tab first.
+        if (pending.length > 0) setMode('opposing')
+      })
+      .catch(() => {
+        if (!cancelled) setSuggestions([])
+      })
+    void loadSentRequests()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leadId])
+
+  const toggleUploads = async (requestId: string) => {
+    if (expandedRequestId === requestId) {
+      setExpandedRequestId(null)
+      return
+    }
+    setExpandedRequestId(requestId)
+    if (!uploadsByRequest[requestId]) {
+      try {
+        const uploads = await getOpposingDocumentUploads(requestId)
+        setUploadsByRequest((prev) => ({ ...prev, [requestId]: uploads }))
+      } catch {
+        setUploadsByRequest((prev) => ({ ...prev, [requestId]: [] }))
+      }
+    }
+  }
+
+  const copyLink = async (request: AttorneyDocumentRequest) => {
+    if (!request.uploadLink) return
+    try {
+      await navigator.clipboard.writeText(request.uploadLink)
+      setCopiedId(request.id)
+      setTimeout(() => setCopiedId((id) => (id === request.id ? null : id)), 2000)
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
+  const handleNudge = async (requestId: string) => {
+    try {
+      await nudgeDocumentRequest(requestId)
+      await loadSentRequests()
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Could not send a reminder right now.')
+    }
+  }
+
   const toggle = (id: DocTypeId) => {
     setFormTouched(true)
     setSelected(prev => {
@@ -100,6 +215,60 @@ export default function DocumentRequestPage() {
       else next.add(id)
       return next
     })
+  }
+
+  const toggleOpposing = (id: string) => {
+    setOpposingSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const applySuggestion = (s: OpposingDocSuggestion) => {
+    setOpposingSelected(new Set(s.requestedDocs))
+    if (s.recipientName) setRecipientName(s.recipientName)
+    if (s.recipientRole) setRecipientRole(s.recipientRole)
+    if (s.note) setOpposingMessage(s.note)
+    setAppliedSuggestionId(s.id)
+  }
+
+  const handleOpposingSubmit = async () => {
+    if (!leadId) return
+    if (!recipientName.trim()) {
+      setError('Enter the name of the defendant, opposing counsel, or insurer.')
+      return
+    }
+    if (opposingSelected.size === 0) {
+      setError('Select at least one document to request.')
+      return
+    }
+    setError(null)
+    setSaving(true)
+    try {
+      await createOpposingDocumentRequest(leadId, {
+        requestedDocs: [...opposingSelected],
+        customMessage: opposingMessage.trim() || undefined,
+        recipientName: recipientName.trim(),
+        recipientEmail: recipientEmail.trim() || undefined,
+        recipientRole,
+        suggestionId: appliedSuggestionId || undefined,
+      })
+      invalidateAttorneyDashboardSummary()
+      // Stay on the page so the attorney can copy the secure link and track uploads.
+      setOpposingSelected(new Set())
+      setRecipientName('')
+      setRecipientEmail('')
+      setOpposingMessage('')
+      setAppliedSuggestionId(null)
+      setSuggestions((prev) => prev.filter((s) => s.id !== appliedSuggestionId))
+      await loadSentRequests()
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'Failed to send document request')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleSubmit = async () => {
@@ -168,7 +337,29 @@ export default function DocumentRequestPage() {
           <p className="text-sm text-gray-500 mt-1">{caseLabel}</p>
         </div>
 
-        {commandCenter ? (
+        <div className="mb-6 inline-flex rounded-lg border border-gray-200 bg-white p-1">
+          <button
+            type="button"
+            onClick={() => { setMode('plaintiff'); setError(null) }}
+            className={`px-4 py-2 text-sm font-medium rounded-md ${mode === 'plaintiff' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:text-gray-900'}`}
+          >
+            From plaintiff
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMode('opposing'); setError(null) }}
+            className={`px-4 py-2 text-sm font-medium rounded-md ${mode === 'opposing' ? 'bg-brand-600 text-white' : 'text-gray-600 hover:text-gray-900'}`}
+          >
+            From defendant / opposing party
+            {suggestions.length > 0 && (
+              <span className="ml-2 rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">
+                {suggestions.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {mode === 'plaintiff' && commandCenter ? (
           <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
@@ -223,12 +414,13 @@ export default function DocumentRequestPage() {
               </div>
             ) : null}
           </div>
-        ) : commandCenterLoading ? (
+        ) : mode === 'plaintiff' && commandCenterLoading ? (
           <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
             Loading case command center...
           </div>
         ) : null}
 
+        {mode === 'plaintiff' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="p-6 space-y-5">
             {source === 'command-center' && prefill ? (
@@ -307,6 +499,230 @@ export default function DocumentRequestPage() {
             </button>
           </div>
         </div>
+        )}
+
+        {mode === 'opposing' && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="p-6 space-y-5">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <p>
+                  This sends a secure upload link to the defendant, opposing counsel, or insurer.
+                  They do not need an account. Use this for pre-litigation requests or to collect
+                  documents the other side has agreed to produce.
+                </p>
+              </div>
+            </div>
+
+            {error && (
+              <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+
+            {suggestions.length > 0 && (
+              <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-indigo-900">
+                  <Sparkles className="h-4 w-4" />
+                  The plaintiff suggested requesting documents from the other side
+                </div>
+                <div className="mt-2 space-y-2">
+                  {suggestions.map((s) => (
+                    <div key={s.id} className="rounded-md border border-indigo-200 bg-white px-3 py-2">
+                      {s.recipientName && (
+                        <div className="text-sm font-medium text-slate-900">{s.recipientName}</div>
+                      )}
+                      {s.requestedDocs.length > 0 && (
+                        <div className="text-xs text-slate-600">
+                          {s.requestedDocs
+                            .map((d) => OPPOSING_DOC_TYPES.find((o) => o.id === d)?.label || d)
+                            .join(', ')}
+                        </div>
+                      )}
+                      {s.note && <div className="mt-1 text-xs text-slate-500">“{s.note}”</div>}
+                      <button
+                        type="button"
+                        onClick={() => applySuggestion(s)}
+                        className="mt-2 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
+                      >
+                        Use this suggestion
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Recipient name</label>
+                <input
+                  type="text"
+                  value={recipientName}
+                  onChange={(e) => setRecipientName(e.target.value)}
+                  placeholder="e.g., Acme Insurance / John Doe"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Recipient role</label>
+                <select
+                  value={recipientRole}
+                  onChange={(e) => setRecipientRole(e.target.value as OpposingDocRole)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                >
+                  {ROLE_OPTIONS.map((r) => (
+                    <option key={r.id} value={r.id}>{r.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Recipient email</label>
+              <input
+                type="email"
+                value={recipientEmail}
+                onChange={(e) => setRecipientEmail(e.target.value)}
+                placeholder="Where to send the secure upload link"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">If left blank, you can copy and share the secure link from the document requests list.</p>
+            </div>
+
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-2">Documents to request:</p>
+              <div className="space-y-2">
+                {OPPOSING_DOC_TYPES.map((doc) => (
+                  <label key={doc.id} className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={opposingSelected.has(doc.id)}
+                      onChange={() => toggleOpposing(doc.id)}
+                      className="rounded border-gray-300"
+                    />
+                    <span className="text-sm text-gray-800">{doc.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Message to recipient</label>
+              <textarea
+                value={opposingMessage}
+                onChange={(e) => setOpposingMessage(e.target.value)}
+                placeholder='e.g. "Per our call, please upload the declarations page and the incident report."'
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
+            <button
+              onClick={() => navigate('/attorney-dashboard')}
+              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleOpposingSubmit}
+              disabled={opposingSelected.size === 0 || !recipientName.trim() || saving}
+              className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {saving ? 'Sending…' : 'Send to recipient'}
+            </button>
+          </div>
+        </div>
+        )}
+
+        {mode === 'opposing' && sentRequests.length > 0 && (
+          <div className="mt-6 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900">Requests sent to the other side</h2>
+            <div className="mt-4 space-y-3">
+              {sentRequests.map((r) => (
+                <div key={r.id} className="rounded-lg border border-gray-200 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {r.recipientName || 'Recipient'}
+                        {r.recipientRole && (
+                          <span className="ml-2 text-xs font-normal text-gray-500">
+                            {ROLE_OPTIONS.find((o) => o.id === r.recipientRole)?.label}
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Sent {new Date(r.createdAt).toLocaleDateString()}
+                        {r.lastNudgeAt ? ` • Reminder ${new Date(r.lastNudgeAt).toLocaleDateString()}` : ''}
+                      </p>
+                    </div>
+                    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                      r.status === 'completed'
+                        ? 'bg-green-100 text-green-700'
+                        : r.status === 'partial'
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {r.status === 'completed' ? 'Completed' : r.status === 'partial' ? 'Partial' : 'Awaiting upload'}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => copyLink(r)}
+                      className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      {copiedId === r.id ? 'Copied!' : 'Copy secure link'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleNudge(r.id)}
+                      className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      Send reminder
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleUploads(r.id)}
+                      className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      {expandedRequestId === r.id ? 'Hide files' : `View files (${r.uploadedCount ?? 0})`}
+                    </button>
+                  </div>
+
+                  {expandedRequestId === r.id && (
+                    <div className="mt-3 border-t border-gray-100 pt-3">
+                      {(uploadsByRequest[r.id]?.length ?? 0) === 0 ? (
+                        <p className="text-xs text-gray-500">No files uploaded yet.</p>
+                      ) : (
+                        <ul className="space-y-1">
+                          {uploadsByRequest[r.id].map((u) => (
+                            <li key={u.id} className="flex items-center justify-between gap-2">
+                              <span className="truncate text-sm text-gray-700">
+                                {u.originalName}
+                                {u.uploadedByName ? <span className="text-xs text-gray-400"> · {u.uploadedByName}</span> : null}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => downloadOpposingDocument(r.id, u.id, u.originalName)}
+                                className="shrink-0 text-xs font-medium text-brand-600 hover:underline"
+                              >
+                                Download
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
