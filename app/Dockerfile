@@ -14,6 +14,9 @@ COPY --from=deps /repo/node_modules ./node_modules
 COPY --from=deps /repo/app/node_modules ./app/node_modules
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* turbo.json* ./
 COPY app ./app
+# app/src/lib/api.ts imports from the repo-root shared/ workspace (../../../shared/*),
+# so it must be present in the build image or the Next.js type-check fails.
+COPY shared ./shared
 WORKDIR /repo/app
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
