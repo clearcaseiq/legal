@@ -18,3 +18,18 @@ export function formatDate(dateString: string): string {
     day: 'numeric',
   })
 }
+
+/**
+ * Turns a raw enum/database value (e.g. "ACCEPTED", "slip_and_fall",
+ * "in_progress") into a human, Title Case label ("Accepted", "Slip And Fall",
+ * "In Progress"). Used to keep admin/internal screens from leaking raw enum
+ * formatting to users (#73).
+ */
+export function formatEnumLabel(value: unknown): string {
+  if (value == null || value === '') return '—'
+  return String(value)
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}

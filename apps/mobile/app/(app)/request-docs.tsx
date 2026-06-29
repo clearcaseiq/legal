@@ -15,7 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons'
 import { router, useLocalSearchParams } from 'expo-router'
 import * as Haptics from 'expo-haptics'
-import { createDocumentRequest, getApiErrorMessage, getFilteredAttorneyLeads, getLeadCommandCenter, getLeadQuality } from '../../src/lib/api'
+import { createDocumentRequest, createOpposingDocumentRequest, getApiErrorMessage, getFilteredAttorneyLeads, getLeadCommandCenter, getLeadQuality } from '../../src/lib/api'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
 import { labelRequestedDoc } from '../../src/lib/docRequestLabels'
@@ -47,7 +47,16 @@ export default function RequestDocsScreen() {
   const [error, setError] = useState<string | null>(null)
   const [sentMessage, setSentMessage] = useState<string | null>(null)
 
-  const disabled = useMemo(() => saving || !selectedLeadId || selectedDocs.length === 0, [selectedLeadId, saving, selectedDocs.length])
+  const [recipientType, setRecipientType] = useState<'plaintiff' | 'opposing_party'>('plaintiff')
+  const [recipientName, setRecipientName] = useState('')
+  const [recipientEmail, setRecipientEmail] = useState('')
+  const [recipientRole, setRecipientRole] = useState<'defendant' | 'opposing_counsel' | 'insurer'>('defendant')
+
+  const disabled = useMemo(() => {
+    if (saving || !selectedLeadId || selectedDocs.length === 0) return true
+    if (recipientType === 'opposing_party' && recipientName.trim().length === 0) return true
+    return false
+  }, [selectedLeadId, saving, selectedDocs.length, recipientType, recipientName])
 
   const loadLeads = useCallback(async () => {
     try {
@@ -120,14 +129,29 @@ export default function RequestDocsScreen() {
     setError(null)
     setSentMessage(null)
     try {
-      await createDocumentRequest(selectedLeadId, {
-        requestedDocs: selectedDocs,
-        customMessage: message.trim() || undefined,
-      })
+      if (recipientType === 'opposing_party') {
+        await createOpposingDocumentRequest(selectedLeadId, {
+          requestedDocs: selectedDocs,
+          customMessage: message.trim() || undefined,
+          recipientName: recipientName.trim(),
+          recipientEmail: recipientEmail.trim() || undefined,
+          recipientRole,
+        })
+      } else {
+        await createDocumentRequest(selectedLeadId, {
+          requestedDocs: selectedDocs,
+          customMessage: message.trim() || undefined,
+        })
+      }
       try {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
       } catch {}
-      setSentMessage(`Request sent for ${selectedDocs.length} document${selectedDocs.length === 1 ? '' : 's'}. The plaintiff will get the upload link.`)
+      const docCount = `${selectedDocs.length} document${selectedDocs.length === 1 ? '' : 's'}`
+      setSentMessage(
+        recipientType === 'opposing_party'
+          ? `Request sent for ${docCount} to ${recipientName.trim()}.${recipientEmail.trim() ? ' They will get a secure upload link by email.' : ' Add an email to send them the secure upload link.'}`
+          : `Request sent for ${docCount}. The plaintiff will get the upload link.`
+      )
     } catch (err: unknown) {
       setError(getApiErrorMessage(err))
     } finally {
@@ -143,7 +167,7 @@ export default function RequestDocsScreen() {
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>Smart document request</Text>
-        <Text style={styles.subtitle}>We preselected documents based on the case gaps. Adjust before sending.</Text>
+        <Text style={styles.subtitle}>Request records from your client or directly from the opposing party. We preselected documents based on the case gaps.</Text>
 
         {error ? <InlineErrorBanner message={error} onAction={() => setError(null)} actionLabel="Dismiss" /> : null}
         {sentMessage ? (
@@ -162,6 +186,88 @@ export default function RequestDocsScreen() {
             </View>
             <Ionicons name="chevron-down" size={20} color={colors.primary} />
           </TouchableOpacity>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.label}>Send to</Text>
+          <View style={styles.segment}>
+            {([
+              { key: 'plaintiff', label: 'My client' },
+              { key: 'opposing_party', label: 'Opposing party' },
+            ] as const).map((option) => {
+              const on = recipientType === option.key
+              return (
+                <TouchableOpacity
+                  key={option.key}
+                  style={[styles.segmentButton, on && styles.segmentButtonOn]}
+                  onPress={() => {
+                    setRecipientType(option.key)
+                    setSentMessage(null)
+                  }}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={`Send request to ${option.label}`}
+                >
+                  <Text style={[styles.segmentText, on && styles.segmentTextOn]}>{option.label}</Text>
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+
+          {recipientType === 'opposing_party' ? (
+            <View style={styles.recipientFields}>
+              <Text style={[styles.label, styles.fieldGap]}>Recipient name</Text>
+              <TextInput
+                style={styles.singleLineInput}
+                value={recipientName}
+                onChangeText={(text) => {
+                  setRecipientName(text)
+                  setSentMessage(null)
+                }}
+                placeholder="e.g. State Farm Claims or John Doe"
+                placeholderTextColor={colors.muted}
+                accessibilityLabel="Recipient name"
+              />
+
+              <Text style={[styles.label, styles.fieldGap]}>Recipient email (optional)</Text>
+              <TextInput
+                style={styles.singleLineInput}
+                value={recipientEmail}
+                onChangeText={setRecipientEmail}
+                placeholder="claims@example.com"
+                placeholderTextColor={colors.muted}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                accessibilityLabel="Recipient email"
+              />
+              <Text style={styles.helperText}>Without an email we generate a secure link you can copy and share.</Text>
+
+              <Text style={[styles.label, styles.fieldGap]}>Recipient type</Text>
+              <View style={styles.roleRow}>
+                {([
+                  { key: 'defendant', label: 'Defendant' },
+                  { key: 'opposing_counsel', label: 'Opp. counsel' },
+                  { key: 'insurer', label: 'Insurer' },
+                ] as const).map((role) => {
+                  const on = recipientRole === role.key
+                  return (
+                    <TouchableOpacity
+                      key={role.key}
+                      style={[styles.rolePill, on && styles.rolePillOn]}
+                      onPress={() => setRecipientRole(role.key)}
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on }}
+                      accessibilityLabel={role.label}
+                    >
+                      <Text style={[styles.roleText, on && styles.roleTextOn]}>{role.label}</Text>
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.card}>
@@ -187,7 +293,7 @@ export default function RequestDocsScreen() {
             })}
           </View>
 
-          <Text style={[styles.label, styles.fieldGap]}>Message to plaintiff</Text>
+          <Text style={[styles.label, styles.fieldGap]}>{recipientType === 'opposing_party' ? 'Message to recipient' : 'Message to plaintiff'}</Text>
           <TextInput
             style={styles.messageInput}
             value={message}
@@ -195,6 +301,7 @@ export default function RequestDocsScreen() {
             multiline
             placeholder="Optional message explaining what to upload and why."
             placeholderTextColor={colors.muted}
+            accessibilityLabel="Message"
           />
         </View>
 
@@ -295,6 +402,54 @@ const styles = StyleSheet.create({
   caseSelectorCopy: { flex: 1 },
   caseName: { fontSize: 16, fontWeight: '800', color: colors.text },
   caseMeta: { marginTop: 3, fontSize: 13, color: colors.textSecondary },
+  segment: {
+    marginTop: space.sm,
+    flexDirection: 'row',
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: 4,
+    gap: 4,
+  },
+  segmentButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: radii.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentButtonOn: { backgroundColor: colors.primary },
+  segmentText: { fontSize: 14, fontWeight: '800', color: colors.textSecondary },
+  segmentTextOn: { color: '#fff' },
+  recipientFields: { marginTop: space.xs },
+  singleLineInput: {
+    marginTop: space.sm,
+    minHeight: 48,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: space.md,
+    color: colors.text,
+    fontSize: 15,
+    backgroundColor: colors.surface,
+  },
+  helperText: { marginTop: space.xs, fontSize: 12, lineHeight: 17, color: colors.textSecondary },
+  roleRow: { marginTop: space.sm, flexDirection: 'row', gap: space.sm },
+  rolePill: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: space.sm,
+  },
+  rolePillOn: { borderColor: colors.primary + '55', backgroundColor: colors.primary + '10' },
+  roleText: { fontSize: 13, fontWeight: '700', color: colors.text },
+  roleTextOn: { color: colors.primaryDark },
   docGrid: { gap: space.sm, marginTop: space.md },
   docPill: {
     minHeight: 48,

@@ -983,7 +983,10 @@ router.delete('/:fileId', optionalAuthMiddleware, async (req: any, res) => {
 
     const evidenceFile = await prisma.evidenceFile.findUnique({
       where: { id: fileId },
-      include: { user: { select: { email: true } } }
+      include: {
+        user: { select: { email: true } },
+        assessment: { select: { userId: true } },
+      }
     })
 
     if (!evidenceFile) {
@@ -991,11 +994,15 @@ router.delete('/:fileId', optionalAuthMiddleware, async (req: any, res) => {
     }
 
     // Access control mirrors the upload/process routes (which are guest-open):
-    // authenticated users may only delete their own files; guests finishing the
+    // authenticated users may delete their own files; guests finishing the
     // intake flow may delete files owned by a guest-case user.
     const isOwner = !!authedUserId && evidenceFile.userId === authedUserId
+    // Intake uploads attach to a synthetic guest-case user, so a logged-in
+    // plaintiff's own file can have a different userId. Allow deletion when the
+    // file belongs to an assessment the authenticated user owns (#19).
+    const ownsAssessment = !!authedUserId && evidenceFile.assessment?.userId === authedUserId
     const isGuestOwnedFile = !authedUserId && isGuestCaseUserEmail(evidenceFile.user?.email || '')
-    if (!isOwner && !isGuestOwnedFile) {
+    if (!isOwner && !ownsAssessment && !isGuestOwnedFile) {
       return res.status(404).json({ error: 'Evidence file not found' })
     }
 

@@ -168,6 +168,14 @@ export async function sendClaimEmail(params: EmailParams): Promise<boolean> {
   return false
 }
 
+/**
+ * Generic, provider-aware transactional email sender (SES or Resend, per
+ * EMAIL_PROVIDER / available config). Shared so all transactional email —
+ * including routing/case notifications — honors the configured provider rather
+ * than assuming Resend (#38).
+ */
+export const sendTransactionalEmail = sendClaimEmail
+
 export function claimUrl(token: string): string {
   const webUrl = process.env.WEB_URL || 'https://app.clearcaseiq.com'
   return `${webUrl.replace(/\/$/, '')}/claim/${token}`

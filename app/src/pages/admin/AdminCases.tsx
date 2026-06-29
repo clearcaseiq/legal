@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { getAllAdminCases } from '../../lib/api'
 import { formatCurrency, formatDate } from '../../lib/formatters'
+import { formatCaseId } from '../../lib/caseId'
 import {
   Search,
   RefreshCw,
@@ -163,8 +164,11 @@ export default function AdminCases() {
   }
 
   const getRoutingStatus = (c: any) => {
-    if (c.leadSubmission?.routingLocked) return 'Accepted'
-    if (c.introductions?.length > 0) return 'Waiting'
+    const intros = Array.isArray(c.introductions) ? c.introductions : []
+    // "Accepted" must mean an attorney actually accepted the intro — not merely that
+    // the lead was routing-locked (which also happens on admin assignment/retention).
+    if (intros.some((i: any) => i.status === 'ACCEPTED')) return 'Accepted'
+    if (intros.length > 0 || c.leadSubmission?.assignedAttorney) return 'Waiting'
     return 'Queue'
   }
 
@@ -387,8 +391,8 @@ export default function AdminCases() {
                     className="cursor-pointer"
                     onClick={() => navigate(`/admin/cases/${c.id}`)}
                   >
-                    <td className="py-3 px-4 text-ui-sm font-mono text-slate-600 dark:text-slate-400 tabular-nums">
-                      {c.id?.slice(0, 8)}...
+                    <td className="py-3 px-4 text-ui-sm font-mono text-slate-600 dark:text-slate-400">
+                      {formatCaseId({ id: c.id, claimType: c.claimType, createdAt: c.createdAt })}
                     </td>
                     <td className="py-3 px-4 text-sm">
                       {c.user

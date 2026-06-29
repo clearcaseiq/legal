@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { getAttorneyDashboard, decideLead, updateLeadStatus, createDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, getAttorneyCalendarConnectUrl, syncAttorneyCalendar, disconnectAttorneyCalendar, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type CaseCommandCenter } from '../lib/api'
 import Tooltip from '../components/Tooltip'
+import ErrorBoundary from '../components/ErrorBoundary'
 import { AttorneyDashboardPanelSkeleton, AttorneyDashboardSkeleton } from '../components/PageSkeletons'
 import { clearStoredAuth, getLoginRedirect, hasValidAuthToken } from '../lib/auth'
 import { useAttorneyCommunications } from '../hooks/useAttorneyCommunications'
@@ -1425,7 +1426,14 @@ export default function AttorneyDashboard() {
         ...prev,
         recentLeads: prev.recentLeads.map(lead =>
           lead.id === leadId ? { ...lead, ...updates } : lead
-        )
+        ),
+        // Keep the "New Matches" list/count in sync so an accepted or declined
+        // lead drops out immediately instead of lingering until a refresh (#41).
+        newCaseMatches: prev.newCaseMatches
+          ? prev.newCaseMatches
+              .map(lead => (lead.id === leadId ? { ...lead, ...updates } : lead))
+              .filter(lead => !lead.status || lead.status === 'submitted' || lead.status === 'matched')
+          : prev.newCaseMatches,
       }
     })
     setSelectedLead(prev => (prev && prev.id === leadId ? { ...prev, ...updates } : prev))
@@ -2827,6 +2835,8 @@ export default function AttorneyDashboard() {
             const resolvedTab = tab.id === 'activeCases' || tab.id === 'aiInsights' || tab.id === 'consultations' ? 'leads' : tab.id
             const isActive = tab.id === 'activeCases'
               ? activeTab === 'leads' && caseLeadsFilter.pipelineStage === 'retained'
+              : tab.id === 'leads'
+              ? activeTab === 'leads' && caseLeadsFilter.pipelineStage !== 'retained'
               : tab.id === 'consultations'
               ? consultCalendarModalOpen
               : tab.id === 'aiInsights'
@@ -2843,6 +2853,15 @@ export default function AttorneyDashboard() {
                     setActiveTab('leads')
                     setCaseLeadsFilter((prev) => ({ ...prev, status: 'retained', pipelineStage: 'retained' }))
                     setActivePipelineTile('retained')
+                    return
+                  }
+                  if (tab.id === 'leads') {
+                    // Reset to the new-matches view so switching back from Active
+                    // Cases (retained filter) actually changes the list (#42).
+                    setOverviewFocus('dashboard')
+                    setActiveTab('leads')
+                    setCaseLeadsFilter((prev) => ({ ...prev, status: 'submitted', pipelineStage: 'matched' }))
+                    setActivePipelineTile('matched')
                     return
                   }
                   if (tab.id === 'consultations') {
@@ -3563,6 +3582,7 @@ export default function AttorneyDashboard() {
 
       {activeTab === 'profile' && (
         <Suspense fallback={<AttorneyDashboardPanelSkeleton message="Loading profile settings..." />}>
+          <ErrorBoundary name="AttorneyDashboardProfileTab">
           <div className="space-y-6">
             <AttorneyDashboardProfileTab
               error={error}
@@ -3605,6 +3625,7 @@ export default function AttorneyDashboard() {
               onDisconnect={handleDisconnectCalendarConnection}
             />
           </div>
+          </ErrorBoundary>
         </Suspense>
       )}
 

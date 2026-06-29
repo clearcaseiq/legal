@@ -1045,6 +1045,14 @@ export async function updateAttorneyProfile(data: any) {
   return response
 }
 
+// Upload attorney profile photo (avatar). Returns the updated profile record.
+export async function uploadAttorneyProfilePhoto(file: File) {
+  const form = new FormData()
+  form.append('photo', file)
+  const { data: response } = await api.post('/v1/attorney-profile/photo', form)
+  return response
+}
+
 export async function getAttorneyProfilePerformance(params: {
   period?: string
   startDate?: string
@@ -2489,14 +2497,15 @@ export async function bulkRouteCases(
   caseIds: string[],
   attorneyIdOrEmail?: string,
   message?: string,
-  options?: { skipEligibilityCheck?: boolean; autoRoute?: boolean }
+  options?: { skipEligibilityCheck?: boolean; autoRoute?: boolean; inviteIfMissing?: boolean }
 ) {
   const isEmail = attorneyIdOrEmail?.includes('@')
   const payload: Record<string, unknown> = {
     caseIds,
     message,
     skipEligibilityCheck: options?.skipEligibilityCheck,
-    autoRoute: options?.autoRoute
+    autoRoute: options?.autoRoute,
+    inviteIfMissing: options?.inviteIfMissing,
   }
   if (isEmail) {
     payload.attorneyEmail = attorneyIdOrEmail

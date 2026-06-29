@@ -2,6 +2,10 @@ import type { Assessment } from '@prisma/client'
 import { ENV } from '../env'
 import { logger } from './logger'
 import { getMlPrediction } from './ml-service'
+import { makeNarrativeMatcher } from './narrative-extraction'
+import { analyzeClinicalCodes, type ClinicalCodeAnalysis } from './clinical-codes'
+import { analyzeTreatmentChronology, type ChronologyAnalysis } from './treatment-chronology'
+import { getValuationCalibration, isIdentity, type ValuationCalibration } from './valuation-config'
 
 /**
  * Injury Severity Levels:
@@ -43,12 +47,18 @@ export function calculateInjurySeverity(facts: any): SeverityScore {
     ? treatment.map((item: any) => `${item?.type || ''} ${item?.status || ''} ${item?.procedure || ''} ${item?.recommendation || ''}`.toLowerCase()).join(' ')
     : ''
   const narrative = facts?.incident?.narrative?.toLowerCase() || ''
-  
+  // Negation-aware matcher: "no fracture" / "denies loss of consciousness" no longer
+  // count as positive injury signals.
+  const nm = makeNarrativeMatcher(narrative)
+  // Objective diagnosis/procedure codes extracted from uploaded records (neutral when absent).
+  const codeAnalysis = analyzeClinicalCodes(facts?.clinical?.icdCodes, facts?.clinical?.cptCodes)
+
   const factors: string[] = []
   let score = 0
   
-  // Base: No injuries = level 0
-  if (injuries.length === 0 && medPaid === 0 && medCharges === 0) {
+  // Base: No injuries = level 0. Documented diagnosis codes also count as injuries so a
+  // records-only assessment isn't dropped to "none".
+  if (injuries.length === 0 && medPaid === 0 && medCharges === 0 && !codeAnalysis.documentedInjury) {
     return {
       level: 0,
       score: 0,
@@ -59,7 +69,7 @@ export function calculateInjurySeverity(facts: any): SeverityScore {
   
   // Check for catastrophic indicators (level 4)
   const catastrophicKeywords = ['death', 'deceased', 'fatal', 'permanent disability', 'paralyzed', 'coma', 'amputation', 'wrongful death']
-  if (catastrophicKeywords.some(keyword => narrative.includes(keyword))) {
+  if (nm.includesAny(catastrophicKeywords)) {
     factors.push('Catastrophic injury indicators in narrative')
     return {
       level: 4,
@@ -167,16 +177,22 @@ export function calculateInjurySeverity(facts: any): SeverityScore {
   const moderateKeywords = ['sprain', 'strain', 'whiplash', 'contusion', 'laceration', 'concussion']
   const mildKeywords = ['bruise', 'scratch', 'minor', 'superficial']
   
-  const narrativeLower = narrative.toLowerCase()
-  if (severeKeywords.some(keyword => narrativeLower.includes(keyword))) {
+  if (nm.includesAny(severeKeywords)) {
     factors.push('Severe injury keywords detected')
     score += 2.0
-  } else if (moderateKeywords.some(keyword => narrativeLower.includes(keyword))) {
+  } else if (nm.includesAny(moderateKeywords)) {
     factors.push('Moderate injury keywords detected')
     score += 1.0
-  } else if (mildKeywords.some(keyword => narrativeLower.includes(keyword))) {
+  } else if (nm.includesAny(mildKeywords)) {
     factors.push('Mild injury keywords detected')
     score += 0.3
+  }
+
+  // Objective ICD-10/CPT codes from uploaded records: a documented diagnosis or
+  // procedure outranks self-reported severity. Capped so codes inform, not dominate.
+  if (codeAnalysis.hasCodes && codeAnalysis.severityBonus > 0) {
+    score += codeAnalysis.severityBonus
+    for (const factor of codeAnalysis.factors) factors.push(`Documented: ${factor}`)
   }
   
   // Number of injuries
@@ -243,6 +259,9 @@ export function calculateInjurySeverity(facts: any): SeverityScore {
 export function calculateLiabilityScore(facts: any, venue: string): LiabilityScore {
   const claimType = facts?.claimType || ''
   const narrative = (facts?.incident?.narrative || '').toLowerCase()
+  // Negation-aware matcher so "not at fault", "no police report", etc. are not
+  // mis-scored as positive fault/evidence signals.
+  const nm = makeNarrativeMatcher(narrative)
   const location = (facts?.incident?.location || '').toLowerCase()
   const parties = facts?.incident?.parties || []
   const liability = facts?.liability || {}
@@ -257,14 +276,14 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
   // Auto Accident Rules
   if (claimType === 'auto') {
     // Rear-end collisions: Strong liability for rear driver
-    if (narrative.includes('rear-end') || narrative.includes('rear end') || narrative.includes('hit from behind')) {
+    if (nm.includes('rear-end') || nm.includes('rear end') || nm.includes('hit from behind')) {
       score += 0.30
       factors.push('Rear-end collision - typically strong liability for rear driver')
     }
     
     // T-bone/Broadside: Analyze who had right of way
-    if (narrative.includes('t-bone') || narrative.includes('broadside') || narrative.includes('side impact')) {
-      if (narrative.includes('ran red light') || narrative.includes('ran stop sign') || narrative.includes('failed to yield')) {
+    if (nm.includes('t-bone') || nm.includes('broadside') || nm.includes('side impact')) {
+      if (nm.includes('ran red light') || nm.includes('ran stop sign') || nm.includes('failed to yield')) {
         score += 0.25
         factors.push('Other driver ran red light/stop sign - strong liability')
       } else {
@@ -274,8 +293,8 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
     }
     
     // Left turn accidents: Typically favor non-turning driver
-    if (narrative.includes('left turn') || narrative.includes('turning left')) {
-      if (narrative.includes('oncoming') || narrative.includes('straight')) {
+    if (nm.includes('left turn') || nm.includes('turning left')) {
+      if (nm.includes('oncoming') || nm.includes('straight')) {
         score += 0.20
         factors.push('Left turn collision - typically favors non-turning driver')
       } else {
@@ -286,8 +305,8 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
     }
     
     // Head-on collisions: Analyze fault
-    if (narrative.includes('head-on') || narrative.includes('head on')) {
-      if (narrative.includes('wrong lane') || narrative.includes('wrong side') || narrative.includes('oncoming')) {
+    if (nm.includes('head-on') || nm.includes('head on')) {
+      if (nm.includes('wrong lane') || nm.includes('wrong side') || nm.includes('oncoming')) {
         score += 0.25
         factors.push('Head-on collision with other driver in wrong lane')
       } else {
@@ -297,26 +316,26 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
     }
     
     // Parking lot accidents: Often shared fault
-    if (narrative.includes('parking lot') || narrative.includes('parking')) {
+    if (nm.includes('parking lot') || nm.includes('parking')) {
       score += 0.05
       factors.push('Parking lot accident - may involve shared liability')
       comparativeNegligence += 0.15
     }
     
     // Distracted driving indicators
-    if (narrative.includes('texting') || narrative.includes('phone') || narrative.includes('distracted') || narrative.includes('cell phone')) {
+    if (nm.includes('texting') || nm.includes('phone') || nm.includes('distracted') || nm.includes('cell phone')) {
       score += 0.15
       factors.push('Distracted driving by other party - strengthens liability')
     }
     
     // Speeding indicators
-    if (narrative.includes('speeding') || narrative.includes('too fast') || narrative.includes('excessive speed')) {
+    if (nm.includes('speeding') || nm.includes('too fast') || nm.includes('excessive speed')) {
       score += 0.10
       factors.push('Other driver speeding - increases liability')
     }
     
     // DUI indicators
-    if (narrative.includes('dui') || narrative.includes('drunk') || narrative.includes('intoxicated') || narrative.includes('alcohol')) {
+    if (nm.includes('dui') || nm.includes('drunk') || nm.includes('intoxicated') || nm.includes('alcohol')) {
       score += 0.20
       factors.push('DUI/intoxication by other driver - very strong liability')
     }
@@ -325,38 +344,38 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
   // Slip and Fall Rules
   if (claimType === 'slip_and_fall' || claimType === 'premises') {
     // Wet floor / spill indicators
-    if (narrative.includes('wet') || narrative.includes('spill') || narrative.includes('liquid') || narrative.includes('water')) {
+    if (nm.includes('wet') || nm.includes('spill') || nm.includes('liquid') || nm.includes('water')) {
       score += 0.20
       factors.push('Wet floor/spill - property owner may be liable for maintenance')
     }
     
     // Uneven surface / defect
-    if (narrative.includes('uneven') || narrative.includes('crack') || narrative.includes('defect') || narrative.includes('broken') || narrative.includes('hole')) {
+    if (nm.includes('uneven') || nm.includes('crack') || nm.includes('defect') || nm.includes('broken') || nm.includes('hole')) {
       score += 0.15
       factors.push('Property defect - owner may be liable for dangerous condition')
     }
     
     // Ice/snow
-    if (narrative.includes('ice') || narrative.includes('snow') || narrative.includes('slippery')) {
+    if (nm.includes('ice') || nm.includes('snow') || nm.includes('slippery')) {
       score += 0.10
       factors.push('Ice/snow - depends on notice and reasonable maintenance')
       comparativeNegligence += 0.10 // Plaintiff should exercise caution
     }
     
     // No warning signs
-    if (narrative.includes('no warning') || narrative.includes('no sign') || narrative.includes('unmarked')) {
+    if (nm.includes('no warning') || nm.includes('no sign') || nm.includes('unmarked')) {
       score += 0.10
       factors.push('Lack of warning signs - strengthens liability')
     }
     
     // Lighting issues
-    if (narrative.includes('dark') || narrative.includes('poor lighting') || narrative.includes('dim')) {
+    if (nm.includes('dark') || nm.includes('poor lighting') || nm.includes('dim')) {
       score += 0.08
       factors.push('Poor lighting - may indicate property owner negligence')
     }
     
     // Plaintiff was a customer/invitee
-    if (narrative.includes('customer') || narrative.includes('shopping') || narrative.includes('store') || narrative.includes('restaurant')) {
+    if (nm.includes('customer') || nm.includes('shopping') || nm.includes('store') || nm.includes('restaurant')) {
       score += 0.05
       factors.push('Business invitee - higher duty of care owed')
     }
@@ -369,20 +388,20 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
     factors.push('Dog bite cases often have strict liability for owner')
     
     // Provocation reduces liability
-    if (narrative.includes('provoke') || narrative.includes('tease') || narrative.includes('aggressive toward')) {
+    if (nm.includes('provoke') || nm.includes('tease') || nm.includes('aggressive toward')) {
       score -= 0.20
       factors.push('Possible provocation - may reduce owner liability')
       comparativeNegligence += 0.30
     }
     
     // Known dangerous dog
-    if (narrative.includes('vicious') || narrative.includes('aggressive') || narrative.includes('previous bite') || narrative.includes('history')) {
+    if (nm.includes('vicious') || nm.includes('aggressive') || nm.includes('previous bite') || nm.includes('history')) {
       score += 0.10
       factors.push('Known dangerous dog - increases owner liability')
     }
     
     // Leash law violation
-    if (narrative.includes('off leash') || narrative.includes('unleashed') || narrative.includes('no leash')) {
+    if (nm.includes('off leash') || nm.includes('unleashed') || nm.includes('no leash')) {
       score += 0.15
       factors.push('Dog off leash - violation of leash laws strengthens case')
     }
@@ -391,23 +410,23 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
   // Medical Malpractice Rules
   if (claimType === 'medmal') {
     // Standard of care violations
-    if (narrative.includes('misdiagnosis') || narrative.includes('wrong diagnosis') || narrative.includes('missed diagnosis')) {
+    if (nm.includes('misdiagnosis') || nm.includes('wrong diagnosis') || nm.includes('missed diagnosis')) {
       score += 0.15
       factors.push('Misdiagnosis - potential breach of standard of care')
     }
     
-    if (narrative.includes('surgical error') || narrative.includes('wrong site') || narrative.includes('surgery mistake')) {
+    if (nm.includes('surgical error') || nm.includes('wrong site') || nm.includes('surgery mistake')) {
       score += 0.20
       factors.push('Surgical error - strong liability indicator')
     }
     
-    if (narrative.includes('medication error') || narrative.includes('wrong medication') || narrative.includes('prescription error')) {
+    if (nm.includes('medication error') || nm.includes('wrong medication') || nm.includes('prescription error')) {
       score += 0.18
       factors.push('Medication error - clear liability')
     }
     
     // Informed consent
-    if (narrative.includes('no consent') || narrative.includes('not informed') || narrative.includes('without consent')) {
+    if (nm.includes('no consent') || nm.includes('not informed') || nm.includes('without consent')) {
       score += 0.12
       factors.push('Lack of informed consent - strengthens case')
     }
@@ -418,12 +437,12 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
     score += 0.15 // Products generally have strict liability
     factors.push('Product liability - strict liability may apply')
     
-    if (narrative.includes('defect') || narrative.includes('malfunction') || narrative.includes('broke') || narrative.includes('failed')) {
+    if (nm.includes('defect') || nm.includes('malfunction') || nm.includes('broke') || nm.includes('failed')) {
       score += 0.10
       factors.push('Product defect identified - strengthens liability')
     }
     
-    if (narrative.includes('warning') || narrative.includes('label') || narrative.includes('instructions')) {
+    if (nm.includes('warning') || nm.includes('label') || nm.includes('instructions')) {
       score += 0.05
       factors.push('Warning/labeling issues - may indicate manufacturer negligence')
     }
@@ -434,12 +453,12 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
     score += 0.20 // High duty of care
     factors.push('Nursing home cases - high duty of care owed to residents')
     
-    if (narrative.includes('neglect') || narrative.includes('abuse') || narrative.includes('mistreatment')) {
+    if (nm.includes('neglect') || nm.includes('abuse') || nm.includes('mistreatment')) {
       score += 0.15
       factors.push('Abuse/neglect indicators - very strong liability')
     }
     
-    if (narrative.includes('bed sore') || narrative.includes('pressure sore') || narrative.includes('ulcer')) {
+    if (nm.includes('bed sore') || nm.includes('pressure sore') || nm.includes('ulcer')) {
       score += 0.10
       factors.push('Bed sores - often indicate neglect')
     }
@@ -460,7 +479,7 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
     'did not', "didn't", 'should have', 'should not', 'shouldn\'t'
   ]
   
-  const strongFaultCount = strongFaultIndicators.filter(indicator => narrative.includes(indicator)).length
+  const strongFaultCount = strongFaultIndicators.filter(indicator => nm.includes(indicator)).length
   if (strongFaultCount > 0) {
     score += Math.min(0.10, strongFaultCount * 0.02)
     factors.push(`${strongFaultCount} fault/negligence indicators in narrative`)
@@ -472,7 +491,7 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
     'my mistake', 'i failed', 'i did not', "i didn't", 'i caused'
   ]
   
-  const plaintiffFaultCount = plaintiffFaultIndicators.filter(indicator => narrative.includes(indicator)).length
+  const plaintiffFaultCount = plaintiffFaultIndicators.filter(indicator => nm.includes(indicator)).length
   if (plaintiffFaultCount > 0) {
     score -= Math.min(0.15, plaintiffFaultCount * 0.03)
     factors.push(`${plaintiffFaultCount} plaintiff fault indicators - may reduce liability`)
@@ -480,13 +499,13 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
   }
   
   // Witness indicators
-  if (narrative.includes('witness') || narrative.includes('saw') || narrative.includes('observed')) {
+  if (nm.includes('witness') || nm.includes('saw') || nm.includes('observed')) {
     score += 0.08
     factors.push('Witness mentioned - strengthens evidence')
   }
   
   // Police report indicators
-  if (narrative.includes('police') || narrative.includes('officer') || narrative.includes('citation') || narrative.includes('ticket')) {
+  if (nm.includes('police') || nm.includes('officer') || nm.includes('citation') || nm.includes('ticket')) {
     score += 0.05
     factors.push('Police involvement may provide objective evidence of fault')
   }
@@ -532,12 +551,12 @@ export function calculateLiabilityScore(facts: any, venue: string): LiabilitySco
   }
   
   // Check narrative for evidence mentions
-  if (narrative.includes('photo') || narrative.includes('picture') || narrative.includes('image')) {
+  if (nm.includes('photo') || nm.includes('picture') || nm.includes('image')) {
     score += 0.03
     factors.push('Photographic evidence mentioned in narrative')
   }
   
-  if (narrative.includes('police report') || narrative.includes('police report')) {
+  if (nm.includes('police report') || nm.includes('police report')) {
     score += 0.05
     factors.push('Police report mentioned in narrative')
   }
@@ -602,6 +621,9 @@ export function computeFeatures(a: Assessment) {
   const liabilityScore = calculateLiabilityScore(f, a.venueState) // V2: Rules-based liability
   const medPaid = f?.damages?.med_paid ?? 0
   const medCharges = f?.damages?.med_charges ?? f?.damages?.estimated_med_charges ?? 0
+  // Provenance of the medical figure. Absent on legacy/intake-only assessments, where
+  // the number is a self-reported estimate, so default accordingly.
+  const medChargesSource = f?.damages?.med_charges_source ?? 'self_reported'
   const wageLoss = f?.damages?.wage_loss ?? f?.damages?.estimated_wage_loss ?? 0
   const outOfPocket = f?.damages?.estimated_out_of_pocket ?? f?.damages?.services ?? 0
   const propertyDamage = f?.damages?.estimated_property_damage ?? 0
@@ -621,6 +643,10 @@ export function computeFeatures(a: Assessment) {
   const futureTreatment = treatmentEvents.filter((item: any) => item?.type === 'future_treatment').map((item: any) => item.recommendation).filter(Boolean)
   const plaintiffContext = f?.plaintiffContext || {}
   const liability = f?.liability || {}
+  // Treatment chronology & gaps-in-care (neutral when treatment has no usable dates).
+  const chronology = analyzeTreatmentChronology(f)
+  // ICD-10/CPT codes extracted from uploaded records (neutral when absent).
+  const clinicalCodes = analyzeClinicalCodes(f?.clinical?.icdCodes, f?.clinical?.cptCodes)
   
   return { 
     venue: a.venueState, 
@@ -628,8 +654,11 @@ export function computeFeatures(a: Assessment) {
     severity: severityScore.level, // Multi-level severity (0-4)
     severityScore, // Full severity score object
     liabilityScore, // V2: Rules-based liability score
+    chronology, // Treatment timeline + gaps analysis
+    clinicalCodes, // ICD-10/CPT documented-injury analysis
     medPaid,
     medCharges,
+    medChargesSource,
     wageLoss,
     outOfPocket,
     propertyDamage,
@@ -671,7 +700,14 @@ function getVenueConstraint(venue: string) {
 function getEvidenceConfidenceModifier(features: any) {
   let modifier = 0.82
   if (features.hasTreatment) modifier += 0.08
-  if (features.medCharges > 0 || features.medPaid > 0) modifier += 0.05
+  if (features.medCharges > 0 || features.medPaid > 0) {
+    modifier += 0.05
+    // Medical figures verified by uploaded bills carry more confidence than a
+    // self-reported intake estimate, which should be treated as a soft signal.
+    if (features.medChargesSource === 'documented') modifier += 0.05
+    else if (features.medChargesSource === 'partially_documented') modifier += 0.02
+    // 'self_reported' (default): no extra confidence — kept as an estimate.
+  }
   if (features.narrativeLength > 3) modifier += 0.03
   if ((features.procedures?.length || 0) > 0 || features.surgeryStatus) modifier += 0.04
   return clamp(modifier, 0.72, 1.08)
@@ -753,7 +789,9 @@ function applyPolicyLimitConstraint(low: number, high: number, policyLimit: numb
   }
 }
 
-function predictViabilityHeuristic(features: any) {
+export function predictViabilityHeuristic(features: any, calibrationOverride?: ValuationCalibration) {
+  // Calibration coefficients (identity unless configured / overridden by the calibration loop).
+  const calibration = calibrationOverride ?? getValuationCalibration()
   const base = 0.45
   
   // Multi-level severity factor (0-4 scale)
@@ -823,7 +861,14 @@ function predictViabilityHeuristic(features: any) {
     Math.min(propertyDamage, 25000)
   const medicalBills = Math.max(medCharges, medPaid)
   const treatmentCredibility = features.hasTreatment ? 1.12 : 0.82
-  const procedureLeverage = getProcedureLeverage(features)
+  // Treatment chronology & documented codes (both neutral/no-op when their data is absent).
+  const chronology = features.chronology as ChronologyAnalysis | undefined
+  const chronologyModifier = chronology?.modifier ?? 1
+  const clinicalCodes = features.clinicalCodes as ClinicalCodeAnalysis | undefined
+  let procedureLeverage = getProcedureLeverage(features)
+  // Documented surgery/injection from CPT codes adds leverage beyond self-reported status.
+  if (clinicalCodes?.hasSurgery) procedureLeverage += 0.4
+  else if (clinicalCodes?.hasInjection) procedureLeverage += 0.2
   const severityAnchors: Record<SeverityLevel, number> = {
     0: 6000,
     1: 18000,
@@ -842,8 +887,12 @@ function predictViabilityHeuristic(features: any) {
   const bodyPartSeveritySupport = Math.min((features.bodyParts?.length || 0) * 6000, 35000)
   const lifestyleSupport = Math.min((features.lifestyleImpact?.length || 0) * 5000, 30000)
   const concussionSupport = Math.min((features.concussionSymptoms?.length || 0) * 8000, 45000)
+  // Calibrated severity floor anchor (identity scale = unchanged).
+  const calibratedAnchor =
+    (severityAnchors[severityLevel as SeverityLevel] ?? 25000) *
+    (calibration.severityAnchorScale[severityLevel] ?? 1)
   const injurySupportedValue = Math.max(
-    severityAnchors[severityLevel as SeverityLevel] ?? 25000,
+    calibratedAnchor,
     (economicDamages + medicalSupport + futureDamages * 0.7 + bodyPartSeveritySupport + lifestyleSupport + concussionSupport) * treatmentCredibility * procedureLeverage,
   )
   const liabilityModifier = clamp(liability * (1 - (liabilityScore?.comparativeNegligence ?? 0) * 0.55), 0.25, 1.05)
@@ -856,12 +905,15 @@ function predictViabilityHeuristic(features: any) {
   const offerAnchor = getOfferAnchor(features.settlementOffer)
   const settlementMedian = Math.max(
     offerAnchor,
-    injurySupportedValue * settlementCompression * liabilityModifier * evidenceModifier * venueConstraint * caseStageModifier * priorInjuryModifier * lienPressureModifier
+    injurySupportedValue * settlementCompression * liabilityModifier * evidenceModifier * venueConstraint * caseStageModifier * priorInjuryModifier * lienPressureModifier * chronologyModifier * calibration.settlementScale
   )
   const settlementFloor = Math.max(5000, Math.min(injurySupportedValue * 0.7, economicDamages + medicalBills * 0.4))
+  // Band half-width is scaled by the calibrated bandWidthScale (1 = unchanged spread).
+  const lowSpread = 1 - (1 - 0.62) * calibration.bandWidthScale
+  const highSpread = 1 + (1.3 - 1) * calibration.bandWidthScale
   const constrainedSettlement = applyPolicyLimitConstraint(
-    Math.max(settlementFloor, settlementMedian * 0.62),
-    Math.max(settlementFloor * 1.2, settlementMedian * 1.3),
+    Math.max(settlementFloor, settlementMedian * lowSpread),
+    Math.max(settlementFloor * 1.2, settlementMedian * highSpread),
     policyLimit,
   )
 
@@ -869,7 +921,7 @@ function predictViabilityHeuristic(features: any) {
   const juryIntentModifier = features.litigationIntent === 'go_to_trial' ? 1.12 : features.litigationIntent === 'settle_quickly' ? 0.95 : 1
   const juryRiskModifier = (severityLevel >= 3 ? 1.25 : liability >= 0.75 ? 1.12 : 1.0) * juryIntentModifier
   const trialBaseValue = economicDamages + futureDamages + nonEconomicDamages + medicalSupport
-  const trialMedian = trialBaseValue * liabilityModifier * venueConstraint * juryRiskModifier * evidenceModifier
+  const trialMedian = trialBaseValue * liabilityModifier * venueConstraint * juryRiskModifier * evidenceModifier * chronologyModifier * calibration.trialScale
   const constrainedTrial = applyPolicyLimitConstraint(
     Math.max(constrainedSettlement.high * 1.15, trialMedian * 0.65),
     Math.max(constrainedSettlement.high * 1.8, trialMedian * 1.65),
@@ -974,6 +1026,30 @@ function predictViabilityHeuristic(features: any) {
   if (constrainedSettlement.constrained || constrainedTrial.constrained) explainability.push({ feature: 'policy_limit_constraint', direction: '-', impact: 0.08 })
   if (features.hasTreatment) explainability.push({ feature: 'treatment_continuity', direction: '+', impact: 0.05 })
   if (features.narrativeLength > 3) explainability.push({ feature: 'detailed_narrative', direction: '+', impact: 0.04 })
+  // Treatment chronology & gaps-in-care (only when treatment had usable dates).
+  if (chronology?.hasDates && chronologyModifier !== 1) {
+    explainability.push({
+      feature: `treatment_chronology_${chronology.continuity}`,
+      direction: chronologyModifier >= 1 ? '+' : '-',
+      impact: Math.abs(chronologyModifier - 1),
+    })
+  }
+  // Documented ICD-10/CPT codes from uploaded records.
+  if (clinicalCodes?.hasCodes && clinicalCodes.signals.length > 0) {
+    explainability.push({
+      feature: `documented_codes: ${clinicalCodes.factors[0] ?? ''}`.substring(0, 60),
+      direction: '+',
+      impact: Math.min(0.1, clinicalCodes.severityBonus * 0.03),
+    })
+  }
+  // Outcome-calibrated coefficients (only when a non-identity calibration is deployed).
+  if (!isIdentity(calibration)) {
+    explainability.push({
+      feature: `outcome_calibration_${calibration.version}`,
+      direction: calibration.settlementScale >= 1 ? '+' : '-',
+      impact: Math.abs(calibration.settlementScale - 1),
+    })
+  }
   
   const resp = {
     viability: { 
@@ -988,7 +1064,7 @@ function predictViabilityHeuristic(features: any) {
     severity: features.severityScore, // Include multi-level severity score
     liability: features.liabilityScore, // V2: Include rules-based liability score
     caveats: ['Not legal advice', 'Results based on limited information', 'Consult with qualified attorney'],
-    modelVersion: 'heuristic-v1.0',
+    modelVersion: isIdentity(calibration) ? 'heuristic-v1.0' : `heuristic-v1.0+cal:${calibration.version}`,
     inferenceSource: 'heuristic',
   }
   

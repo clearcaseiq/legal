@@ -52,6 +52,30 @@ function getRateLimitMax(isProduction: boolean) {
   return parsed
 }
 
+/**
+ * Build a persistent (Postgres-backed) session store so sessions survive API
+ * restarts and work across multiple processes/instances. Falls back to the
+ * default in-memory store in tests or when no database is configured.
+ */
+function buildSessionStore(): any {
+  if (!process.env.DATABASE_URL || process.env.NODE_ENV === 'test') return undefined
+  try {
+    // Lazy require so the dependency is only loaded when actually used.
+    const connectPgSimple = require('connect-pg-simple')
+    const PgSession = connectPgSimple(session)
+    return new PgSession({
+      conString: process.env.DATABASE_URL,
+      createTableIfMissing: true,
+      tableName: 'user_sessions',
+    })
+  } catch (error) {
+    logger.warn('Falling back to in-memory session store', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return undefined
+  }
+}
+
 export function createServer(): Express {
   const app = express()
   app.disable('x-powered-by')
@@ -118,8 +142,12 @@ export function createServer(): Express {
   })
   app.use(limiter)
   
-  // Session configuration
+  // Session configuration. A Postgres-backed store is used in real deployments
+  // (sessions persist across restarts and scale past one process); tests/local
+  // runs without a DB fall back to the default in-memory store.
+  const sessionStore = buildSessionStore()
   app.use(session({
+    ...(sessionStore ? { store: sessionStore } : {}),
     secret: getSessionSecret(isProduction),
     resave: false,
     saveUninitialized: false,

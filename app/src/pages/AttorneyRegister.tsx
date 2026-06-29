@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { registerAttorney, lookupStateBarLicense, uploadAttorneyLicense } from '../lib/api-auth'
-import { US_STATES, CA_COUNTIES } from '../lib/constants'
+import { registerAttorney, lookupStateBarLicense, uploadAttorneyLicense, checkAttorneyEmailAvailable } from '../lib/api-auth'
+import { US_STATES, CA_COUNTIES, ATTORNEY_CASE_TYPES } from '../lib/constants'
 import { useLanguage } from '../contexts/LanguageContext'
 import {
   ATTORNEY_REGISTER_DEFAULTS,
@@ -14,17 +14,14 @@ import AttorneyRegisterProgress from '../components/AttorneyRegisterProgress'
 import AttorneyRegisterBenefits from '../components/AttorneyRegisterBenefits'
 import BrandLogo from '../components/BrandLogo'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
+import { formatPhoneInput } from '../lib/phone'
+import { CheckCircle, FileText, Globe, CreditCard } from 'lucide-react'
 
-const CASE_TYPES = [
-  { value: 'auto', label: 'Auto Accidents' },
-  { value: 'slip_and_fall', label: 'Slip & Fall' },
-  { value: 'dog_bite', label: 'Dog Bite' },
-  { value: 'medmal', label: 'Medical Malpractice' },
-  { value: 'wrongful_death', label: 'Wrongful Death' },
-  { value: 'product', label: 'Product Liability' },
-  { value: 'nursing_home_abuse', label: 'Nursing Home Abuse' },
-  { value: 'high_severity_surgery', label: 'Catastrophic Injury' }
-]
+// Single source of truth for attorney practice areas (the canonical claimType
+// enum used for routing/matching). Previously this page kept its own drifted
+// copy (e.g. "Auto Accidents"), which contributed to the practice-area vs.
+// incident-type inconsistency reported in #49.
+const CASE_TYPES = ATTORNEY_CASE_TYPES
 
 const POPULAR_STATES = ['CA', 'NV', 'AZ']
 const PRACTICE_STATE_LIMIT = 9
@@ -36,12 +33,15 @@ export default function AttorneyRegister() {
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<AttorneyRegisterFieldErrors>({})
   const [emailExistsError, setEmailExistsError] = useState(false)
+  const [checkingEmail, setCheckingEmail] = useState(false)
   const [currentStep, setCurrentStep] = useState(1)
   const [stateSearchQuery, setStateSearchQuery] = useState('')
   const [verificationMethod, setVerificationMethod] = useState<'state_bar_lookup' | 'manual_upload'>('state_bar_lookup')
   const [licenseNumber, setLicenseNumber] = useState('')
   const [licenseState, setLicenseState] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [govIdFile, setGovIdFile] = useState<File | null>(null)
+  const [showFirmWebsite, setShowFirmWebsite] = useState(false)
   const [licenseVerified, setLicenseVerified] = useState(false)
   const [form, setForm] = useState<AttorneyRegisterFormInput>(ATTORNEY_REGISTER_DEFAULTS)
   const navigate = useNavigate()
@@ -79,7 +79,7 @@ export default function AttorneyRegister() {
     return messages.length > 0
   }
 
-  const goToStep = (nextStep: number) => {
+  const goToStep = async (nextStep: number) => {
     setError(null)
     const validation = validateAttorneyRegisterInput(form)
     const errors = validation.fieldErrors
@@ -88,6 +88,26 @@ export default function AttorneyRegister() {
     if (currentStep === 2 && setStepError(errors, ['specialties', 'venues'])) return
     if (currentStep === 3 && setStepError(errors, ['preferredCounties'])) return
     if (currentStep === 4 && setStepError(errors, ['maxCasesPerMonth'])) return
+
+    // Surface an already-registered email at step 1 rather than after the whole
+    // multi-step form is filled out and finally submitted (#63).
+    if (currentStep === 1) {
+      setEmailExistsError(false)
+      try {
+        setCheckingEmail(true)
+        const available = await checkAttorneyEmailAvailable(form.email)
+        if (!available) {
+          setEmailExistsError(true)
+          window.scrollTo({ top: 0, behavior: 'smooth' })
+          return
+        }
+      } catch {
+        // Network/validation hiccup: don't block registration; the final submit
+        // still enforces uniqueness server-side.
+      } finally {
+        setCheckingEmail(false)
+      }
+    }
 
     setCurrentStep(nextStep)
   }
@@ -157,10 +177,12 @@ export default function AttorneyRegister() {
         } catch {
           // Continue to license upload page
         }
-      } else if (verificationMethod === 'manual_upload' && selectedFile) {
+      } else if (verificationMethod === 'manual_upload' && (selectedFile || govIdFile)) {
         try {
           const formData = new FormData()
-          formData.append('licenseFile', selectedFile)
+          // Prefer the bar card; fall back to the government ID so a selected
+          // document is never silently dropped.
+          formData.append('licenseFile', (selectedFile || govIdFile) as File)
           if (licenseNumber) formData.append('licenseNumber', licenseNumber)
           if (licenseState) formData.append('licenseState', licenseState)
           await uploadAttorneyLicense(formData)
@@ -189,6 +211,9 @@ export default function AttorneyRegister() {
       if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already exists')) {
         setEmailExistsError(true)
         setError(null)
+        // Return to step 1 so the warning (and the email field) is visible and editable.
+        setCurrentStep(1)
+        window.scrollTo({ top: 0, behavior: 'smooth' })
       } else {
         setError(msg)
         setEmailExistsError(false)
@@ -218,12 +243,15 @@ export default function AttorneyRegister() {
     await onSubmit(validation.data)
   }
 
+  // Trim so whitespace-only input (e.g. a stray space) doesn't trigger odd
+  // partial matches or an empty "no results" state.
+  const normalizedStateQuery = stateSearchQuery.trim().toLowerCase()
   const filteredStates = US_STATES.filter(
     (s) =>
-      s.code.toLowerCase().includes(stateSearchQuery.toLowerCase()) ||
-      s.name.toLowerCase().includes(stateSearchQuery.toLowerCase())
+      s.code.toLowerCase().includes(normalizedStateQuery) ||
+      s.name.toLowerCase().includes(normalizedStateQuery)
   )
-  const visibleStates = (stateSearchQuery ? filteredStates : US_STATES.filter((state) => POPULAR_STATES.includes(state.code)))
+  const visibleStates = (normalizedStateQuery ? filteredStates : US_STATES.filter((state) => POPULAR_STATES.includes(state.code)))
     .slice(0, PRACTICE_STATE_LIMIT)
   const selectedStates = US_STATES.filter((state) => venues.includes(state.code))
   const visibleCaCounties = CA_COUNTIES.filter((county) => MVP_CA_COUNTIES.includes(county))
@@ -253,25 +281,25 @@ export default function AttorneyRegister() {
 
         <AttorneyRegisterProgress currentStep={currentStep} />
 
-        <div className="flex flex-col lg:flex-row gap-8">
+        <div className="flex flex-col lg:flex-row lg:items-start gap-8">
           <form
             noValidate
             onSubmit={handleFormSubmit}
             className="flex-1 bg-white shadow rounded-xl border border-gray-200 p-6"
           >
-            {currentStep === 1 && emailExistsError && (
+            {emailExistsError && (
               <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
                 <p className="text-sm font-medium text-amber-800 mb-2">This email already has an account.</p>
                 <div className="flex flex-wrap gap-3">
                   <Link to="/attorney-login" className="text-sm font-semibold text-brand-600 hover:text-brand-700">
                     Sign in instead →
                   </Link>
-                  <a
-                    href="mailto:support@clearcaseiq.com?subject=Attorney%20password%20reset"
+                  <Link
+                    to="/forgot-password"
                     className="text-sm font-semibold text-brand-600 hover:text-brand-700"
                   >
                     Reset password →
-                  </a>
+                  </Link>
                 </div>
               </div>
             )}
@@ -307,15 +335,28 @@ export default function AttorneyRegister() {
                     {fieldErrors.lastName && <p className="mt-1 text-xs text-red-600">{fieldErrors.lastName}</p>}
                   </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
-                  <input
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => updateField('email', e.target.value)}
-                    className={`input ${fieldErrors.email ? 'border-red-500' : ''}`}
-                  />
-                  {fieldErrors.email && <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                    <input
+                      type="email"
+                      value={form.email}
+                      onChange={(e) => updateField('email', e.target.value)}
+                      className={`input ${fieldErrors.email ? 'border-red-500' : ''}`}
+                    />
+                    {fieldErrors.email && <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                    <input
+                      type="tel"
+                      value={form.phone}
+                      onChange={(e) => updateField('phone', formatPhoneInput(e.target.value))}
+                      className={`input ${fieldErrors.phone ? 'border-red-500' : ''}`}
+                      placeholder="(555) 123-4567"
+                    />
+                    {fieldErrors.phone && <p className="mt-1 text-xs text-red-600">{fieldErrors.phone}</p>}
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
@@ -375,8 +416,8 @@ export default function AttorneyRegister() {
                   </div>
                 </div>
                 <div className="flex justify-end pt-2">
-                  <button type="button" onClick={() => goToStep(2)} className="btn-primary">
-                    Next: Practice Areas
+                  <button type="button" onClick={() => { void goToStep(2) }} disabled={checkingEmail} className="btn-primary disabled:opacity-60 disabled:cursor-not-allowed">
+                    {checkingEmail ? 'Checking…' : 'Next: Practice Areas'}
                   </button>
                 </div>
               </div>
@@ -413,7 +454,7 @@ export default function AttorneyRegister() {
                     type="text"
                     placeholder="Search states..."
                     value={stateSearchQuery}
-                    onChange={(e) => setStateSearchQuery(e.target.value)}
+                    onChange={(e) => setStateSearchQuery(e.target.value.replace(/^\s+/, ''))}
                     className="input mb-2"
                   />
                   {selectedStates.length > 0 && (
@@ -449,7 +490,7 @@ export default function AttorneyRegister() {
                       </label>
                     ))}
                   </div>
-                  {!stateSearchQuery && (
+                  {!normalizedStateQuery && (
                     <p className="mt-2 text-xs text-gray-500">Start typing to find another state.</p>
                   )}
                   {fieldErrors.venues && <p className="mt-1 text-xs text-red-600">{fieldErrors.venues}</p>}
@@ -458,7 +499,7 @@ export default function AttorneyRegister() {
                   <button type="button" onClick={() => setCurrentStep(1)} className="btn-secondary">
                     Back
                   </button>
-                  <button type="button" onClick={() => goToStep(3)} className="btn-primary">
+                  <button type="button" onClick={() => { void goToStep(3) }} className="btn-primary">
                     Next: Service Area
                   </button>
                 </div>
@@ -532,7 +573,7 @@ export default function AttorneyRegister() {
                   <button type="button" onClick={() => setCurrentStep(2)} className="btn-secondary">
                     Back
                   </button>
-                  <button type="button" onClick={() => goToStep(4)} className="btn-primary">
+                  <button type="button" onClick={() => { void goToStep(4) }} className="btn-primary">
                     Next: Capacity
                   </button>
                 </div>
@@ -599,7 +640,7 @@ export default function AttorneyRegister() {
                   <button type="button" onClick={() => setCurrentStep(3)} className="btn-secondary">
                     Back
                   </button>
-                  <button type="button" onClick={() => goToStep(5)} className="btn-primary">
+                  <button type="button" onClick={() => { void goToStep(5) }} className="btn-primary">
                     Next: License Verification
                   </button>
                 </div>
@@ -613,31 +654,78 @@ export default function AttorneyRegister() {
                 </p>
                 <div className="grid gap-3 sm:grid-cols-3">
                   {[
-                    { id: 'license-file', label: 'Bar Card', helper: selectedFile?.name || 'PDF or image' },
-                    { id: 'firm-website', label: 'Firm Website', helper: 'Add later from profile' },
-                    { id: 'government-id', label: 'Government ID', helper: 'Add later if requested' },
+                    { id: 'license-file', label: 'Bar Card', helper: selectedFile?.name || 'PDF or image', Icon: FileText, selected: !!selectedFile },
+                    { id: 'firm-website', label: 'Firm Website', helper: showFirmWebsite ? 'Enter URL below' : 'Add your website', Icon: Globe, selected: showFirmWebsite },
+                    { id: 'government-id', label: 'Government ID', helper: govIdFile?.name || 'PDF or image', Icon: CreditCard, selected: !!govIdFile },
                   ].map((item) => (
                     <button
                       key={item.id}
                       type="button"
                       onClick={() => {
-                        setVerificationMethod('manual_upload')
-                        if (item.id === 'license-file') document.getElementById('license-file')?.click()
+                        if (item.id === 'license-file') {
+                          setVerificationMethod('manual_upload')
+                          document.getElementById('license-file')?.click()
+                        } else if (item.id === 'government-id') {
+                          setVerificationMethod('manual_upload')
+                          document.getElementById('government-id')?.click()
+                        } else if (item.id === 'firm-website') {
+                          // Toggle so the card can be turned back off; clearing the
+                          // value when hiding keeps the selected state honest (#62).
+                          setShowFirmWebsite((prev) => {
+                            if (prev) updateField('firmWebsite', '')
+                            return !prev
+                          })
+                        }
                       }}
-                      className="rounded-xl border border-gray-200 bg-white p-4 text-left hover:border-brand-300"
+                      className={`rounded-xl border p-4 text-left transition-colors ${
+                        item.selected ? 'border-brand-400 bg-brand-50' : 'border-gray-200 bg-white hover:border-brand-300'
+                      }`}
                     >
-                      <div className="mb-2 text-2xl">{item.id === 'license-file' && selectedFile ? '✓' : '□'}</div>
+                      <div className="mb-2">
+                        {item.selected ? (
+                          <CheckCircle className="h-6 w-6 text-emerald-600" />
+                        ) : (
+                          <item.Icon className="h-6 w-6 text-gray-400" />
+                        )}
+                      </div>
                       <div className="font-medium text-gray-900">{item.label}</div>
                       <div className="mt-1 text-xs text-gray-500">{item.helper}</div>
                     </button>
                   ))}
                 </div>
+                {showFirmWebsite && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Firm Website</label>
+                    <input
+                      type="url"
+                      value={form.firmWebsite}
+                      onChange={(e) => updateField('firmWebsite', e.target.value)}
+                      className={`input ${fieldErrors.firmWebsite ? 'border-red-500' : ''}`}
+                      placeholder="https://yourfirm.com"
+                    />
+                    {fieldErrors.firmWebsite && <p className="mt-1 text-xs text-red-600">{fieldErrors.firmWebsite}</p>}
+                  </div>
+                )}
                 <input
                   id="license-file"
                   type="file"
                   className="sr-only"
                   accept=".pdf,.jpg,.jpeg,.png,.gif"
-                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                  onChange={(e) => {
+                    setSelectedFile(e.target.files?.[0] || null)
+                    // Reset so picking the same file again re-fires onChange (#62).
+                    e.target.value = ''
+                  }}
+                />
+                <input
+                  id="government-id"
+                  type="file"
+                  className="sr-only"
+                  accept=".pdf,.jpg,.jpeg,.png,.gif"
+                  onChange={(e) => {
+                    setGovIdFile(e.target.files?.[0] || null)
+                    e.target.value = ''
+                  }}
                 />
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
                   <p className="text-sm font-semibold text-emerald-900">Expected approval: Within 1 business day</p>

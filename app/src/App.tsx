@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect } from 'react'
+import { Suspense, lazy, useEffect, type ReactNode } from 'react'
 import { Routes, Route, Navigate, Link, useLocation, useParams } from 'react-router-dom'
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -9,6 +9,8 @@ const Home = lazy(() => import('./pages/Home'))
 const Login = lazy(() => import('./pages/Login'))
 const AttorneyLogin = lazy(() => import('./pages/AttorneyLogin'))
 const Register = lazy(() => import('./pages/Register'))
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'))
+const ResetPassword = lazy(() => import('./pages/ResetPassword'))
 const AttorneyRegister = lazy(() => import('./pages/AttorneyRegister'))
 const ClaimProfile = lazy(() => import('./pages/ClaimProfile'))
 const AttorneyNetwork = lazy(() => import('./pages/AttorneyNetwork'))
@@ -179,6 +181,19 @@ function AttorneyEnglishEnforcer() {
   return null
 }
 
+// Route-scoped boundary that lives inside <Layout> so a render crash on one
+// page shows an inline, recoverable error (with the nav still usable) instead
+// of blanking the whole app. Resetting on pathname change lets the user simply
+// navigate away from a broken page.
+function RouteErrorBoundary({ children }: { children: ReactNode }) {
+  const location = useLocation()
+  return (
+    <ErrorBoundary name="Route" resetKey={location.pathname}>
+      {children}
+    </ErrorBoundary>
+  )
+}
+
 function App() {
   const allowLocalDevRoutes =
     typeof window !== 'undefined' &&
@@ -188,10 +203,15 @@ function App() {
     <ErrorBoundary>
       <AttorneyEnglishEnforcer />
       <Layout>
+        <RouteErrorBoundary>
         <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/auth/callback" element={<OAuthCallback />} />
+            {/* Public so a reset link works even if the user happens to be logged in. */}
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/set-password" element={<ResetPassword />} />
             <Route element={<GuestRoute role="plaintiff" />}>
               <Route path="/login" element={<Login />} />
               <Route path="/login/plaintiff" element={<Login />} />
@@ -356,6 +376,7 @@ function App() {
             <Route path="/attorneys-enhanced" element={<AttorneysEnhanced />} />
           </Routes>
         </Suspense>
+        </RouteErrorBoundary>
       </Layout>
     </ErrorBoundary>
   )

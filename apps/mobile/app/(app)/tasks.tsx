@@ -69,6 +69,18 @@ export default function TasksScreen() {
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
+  function setQuickDate(daysFromNow: number) {
+    const d = new Date()
+    d.setDate(d.getDate() + daysFromNow)
+    setDueDate(d.toISOString().slice(0, 10))
+  }
+
+  const dueDateValid = !dueDate.trim() || /^\d{4}-\d{2}-\d{2}$/.test(dueDate.trim())
+  const dueDatePreview =
+    dueDate.trim() && dueDateValid && !Number.isNaN(new Date(dueDate.trim()).getTime())
+      ? new Date(dueDate.trim()).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+      : null
+
   const loadLeads = useCallback(async () => {
     try {
       const response = await getFilteredAttorneyLeads({ sortBy: 'newest' })
@@ -88,7 +100,7 @@ export default function TasksScreen() {
   }
 
   async function submitTask() {
-    if (!selectedLead?.id || !taskTitle.trim() || saving) return
+    if (!selectedLead?.id || !taskTitle.trim() || saving || !dueDateValid) return
     setSaving(true)
     setCreateError(null)
     try {
@@ -124,7 +136,13 @@ export default function TasksScreen() {
         contentContainerStyle={sections.length === 0 ? styles.emptyContainer : styles.list}
         ListHeaderComponent={
           <View>
-            <TouchableOpacity style={styles.createButton} onPress={() => { void openCreateTask() }} activeOpacity={0.85}>
+            <TouchableOpacity
+              style={styles.createButton}
+              onPress={() => { void openCreateTask() }}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Create task"
+            >
               <Ionicons name="add-circle-outline" size={20} color="#fff" />
               <Text style={styles.createButtonText}>Create task</Text>
             </TouchableOpacity>
@@ -167,7 +185,13 @@ export default function TasksScreen() {
         <View style={styles.modalScreen}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Create task</Text>
-            <TouchableOpacity style={styles.modalCloseButton} onPress={() => setCreateOpen(false)} activeOpacity={0.75}>
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setCreateOpen(false)}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Close create task"
+            >
               <Ionicons name="close" size={24} color={colors.text} />
             </TouchableOpacity>
           </View>
@@ -192,13 +216,49 @@ export default function TasksScreen() {
             />
 
             <Text style={[styles.label, styles.fieldGap]}>Due date</Text>
+            <View style={styles.quickDateRow}>
+              {([
+                { label: 'Today', days: 0 },
+                { label: 'Tomorrow', days: 1 },
+                { label: 'In 1 week', days: 7 },
+              ] as const).map((option) => (
+                <TouchableOpacity
+                  key={option.label}
+                  style={styles.quickDateChip}
+                  onPress={() => setQuickDate(option.days)}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Set due date ${option.label}`}
+                >
+                  <Text style={styles.quickDateText}>{option.label}</Text>
+                </TouchableOpacity>
+              ))}
+              {dueDate.trim() ? (
+                <TouchableOpacity
+                  style={styles.quickDateChip}
+                  onPress={() => setDueDate('')}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear due date"
+                >
+                  <Text style={styles.quickDateText}>Clear</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
             <TextInput
-              style={styles.input}
+              style={[styles.input, !dueDateValid && styles.inputError]}
               value={dueDate}
               onChangeText={setDueDate}
               placeholder="YYYY-MM-DD"
               placeholderTextColor={colors.muted}
+              keyboardType="numbers-and-punctuation"
+              accessibilityLabel="Due date in year-month-day format"
             />
+            {dueDatePreview ? (
+              <Text style={styles.dueDatePreview}>{dueDatePreview}</Text>
+            ) : !dueDateValid ? (
+              <Text style={styles.dueDateError}>Use the format YYYY-MM-DD (e.g. 2026-07-15).</Text>
+            ) : null}
 
             <Text style={[styles.label, styles.fieldGap]}>Priority</Text>
             <View style={styles.priorityRow}>
@@ -208,6 +268,9 @@ export default function TasksScreen() {
                   style={[styles.priorityPill, priority === item && styles.priorityPillOn]}
                   onPress={() => setPriority(item)}
                   activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: priority === item }}
+                  accessibilityLabel={`Priority ${item}`}
                 >
                   <Text style={[styles.priorityText, priority === item && styles.priorityTextOn]}>{item}</Text>
                 </TouchableOpacity>
@@ -225,10 +288,13 @@ export default function TasksScreen() {
             />
 
             <TouchableOpacity
-              style={[styles.submitButton, (!selectedLead?.id || !taskTitle.trim() || saving) && styles.submitButtonOff]}
+              style={[styles.submitButton, (!selectedLead?.id || !taskTitle.trim() || saving || !dueDateValid) && styles.submitButtonOff]}
               onPress={submitTask}
-              disabled={!selectedLead?.id || !taskTitle.trim() || saving}
+              disabled={!selectedLead?.id || !taskTitle.trim() || saving || !dueDateValid}
               activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Create task"
+              accessibilityState={{ disabled: !selectedLead?.id || !taskTitle.trim() || saving || !dueDateValid }}
             >
               {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Create task</Text>}
             </TouchableOpacity>
@@ -238,7 +304,13 @@ export default function TasksScreen() {
             <View style={styles.modalScreen}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Select a case</Text>
-                <TouchableOpacity style={styles.modalCloseButton} onPress={() => setLeadPickerOpen(false)} activeOpacity={0.75}>
+                <TouchableOpacity
+                  style={styles.modalCloseButton}
+                  onPress={() => setLeadPickerOpen(false)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close case selector"
+                >
                   <Ionicons name="close" size={24} color={colors.text} />
                 </TouchableOpacity>
               </View>
@@ -357,6 +429,19 @@ const styles = StyleSheet.create({
     fontSize: 15,
     backgroundColor: colors.card,
   },
+  inputError: { borderColor: colors.danger },
+  quickDateRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.sm },
+  quickDateChip: {
+    paddingHorizontal: space.md,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  quickDateText: { fontSize: 13, fontWeight: '700', color: colors.primaryDark },
+  dueDatePreview: { marginTop: 6, fontSize: 13, color: colors.textSecondary, fontWeight: '600' },
+  dueDateError: { marginTop: 6, fontSize: 13, color: colors.danger, fontWeight: '600' },
   priorityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.sm },
   priorityPill: {
     paddingHorizontal: space.md,

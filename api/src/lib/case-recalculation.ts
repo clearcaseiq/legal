@@ -69,6 +69,7 @@ function mergeEvidenceIntoFacts(
       totalAmount?: number | null
       dollarAmounts?: string | null
       icdCodes?: string | null
+      cptCodes?: string | null
       dates?: string | null
     }> | null
   }>
@@ -77,6 +78,10 @@ function mergeEvidenceIntoFacts(
   const damages = (merged.damages as Record<string, unknown>) || {}
   const treatment = (merged.treatment as Array<unknown>) || []
   const evidence = new Set<string>((merged.evidence as string[]) || [])
+  // Documented diagnosis/procedure codes aggregated across all uploaded records, so the
+  // valuation engine can score objective ICD-10/CPT findings (not just self-reported severity).
+  const icdCodeSet = new Set<string>()
+  const cptCodeSet = new Set<string>()
   // These categories are (re)derived from the current files below, gated on usable content,
   // so clear any stale presence-based credit from a previous run before re-evaluating.
   for (const managed of ['police_report', 'medical_bills', 'medical_records', 'photos']) {
@@ -128,6 +133,19 @@ function mergeEvidenceIntoFacts(
 
     const ext = file.extractedData?.[0]
     if (ext) {
+      // Aggregate ICD-10 + CPT codes from every record/bill for objective code-based scoring.
+      const collectCodes = (raw: string | null | undefined, target: Set<string>) => {
+        if (!raw) return
+        try {
+          const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+          if (Array.isArray(parsed)) for (const c of parsed) { if (c) target.add(String(c)) }
+        } catch {
+          // Non-JSON: accept a comma/space separated string of codes.
+          for (const c of String(raw).split(/[,\s]+/)) { if (c) target.add(c) }
+        }
+      }
+      collectCodes(ext.icdCodes, icdCodeSet)
+      collectCodes(ext.cptCodes, cptCodeSet)
       const amt = ext.totalAmount ?? 0
       if (amt > 0) {
         if (isLostWageEvidence(file)) {
@@ -247,6 +265,13 @@ function mergeEvidenceIntoFacts(
   }
   merged.treatment = treatment
   merged.evidence = Array.from(evidence)
+  // Surface documented codes for the valuation engine (analyzeClinicalCodes).
+  const existingClinical = (merged.clinical as Record<string, unknown>) || {}
+  merged.clinical = {
+    ...existingClinical,
+    icdCodes: Array.from(icdCodeSet),
+    cptCodes: Array.from(cptCodeSet),
+  }
   return merged
 }
 

@@ -26,6 +26,9 @@ export const ENV = {
   ML_RETRIEVAL_ENABLED: process.env.ML_RETRIEVAL_ENABLED === 'true',
   ML_RETRIEVAL_TOP_K: Number(process.env.ML_RETRIEVAL_TOP_K ?? 4),
   ML_PROMPT_VERSION: process.env.ML_PROMPT_VERSION ?? 'legal-grounded-v1',
+  // Optional JSON of valuation calibration coefficients (see lib/valuation-config.ts).
+  // Overrides data/valuation-calibration.json; defaults to identity (no change).
+  VALUATION_CALIBRATION: process.env.VALUATION_CALIBRATION,
   API_URL: process.env.API_URL ?? 'http://localhost:4000',
   WEB_URL: process.env.WEB_URL ?? 'http://localhost:5174',
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,

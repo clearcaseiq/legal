@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom'
 import { loginAttorney } from '../lib/api-auth'
 import { getStoredRole, hasValidAuthToken } from '../lib/auth'
 import BrandLogo from '../components/BrandLogo'
+import OAuthButtons from '../components/OAuthButtons'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import { type LoginFieldErrors, type LoginInput, validateLoginInput } from '../lib/loginValidation'
-import { getApiOrigin } from '../lib/runtimeEnv'
 
 export default function AttorneyLogin() {
   const [isLoading, setIsLoading] = useState(false)
@@ -47,23 +47,6 @@ export default function AttorneyLogin() {
       setError(err.response?.data?.error || err.message || 'Login failed')
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const handleGoogleSignIn = async () => {
-    try {
-      setError(null)
-      const apiUrl = getApiOrigin() || 'http://localhost:4000'
-      const response = await fetch(`${apiUrl}/v1/auth/status`)
-      const status = await response.json()
-      if (!status.google?.configured) {
-        setError('Google sign-in is not configured yet. Please use email and password for now.')
-        return
-      }
-      localStorage.setItem('oauth_intended_role', 'attorney')
-      window.location.href = `${apiUrl}/v1/auth/google?role=attorney`
-    } catch (err: any) {
-      setError(err?.message || 'Unable to start Google sign-in.')
     }
   }
 
@@ -144,28 +127,14 @@ export default function AttorneyLogin() {
               </button>
 
               <div className="text-center">
-                <a href="mailto:support@clearcaseiq.com?subject=Attorney%20password%20reset" className="text-sm font-medium text-brand-700 hover:text-brand-800">
+                <Link to="/forgot-password" className="text-sm font-medium text-brand-700 hover:text-brand-800">
                   Forgot Password?
-                </a>
+                </Link>
               </div>
             </form>
 
-            <div className="mt-6 grid gap-3">
-              <button
-                type="button"
-                onClick={handleGoogleSignIn}
-                className="flex w-full items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Sign in with Google
-              </button>
-              <button
-                type="button"
-                disabled
-                className="flex w-full cursor-not-allowed items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-400"
-                title="Microsoft SSO is coming soon"
-              >
-                Sign in with Microsoft
-              </button>
+            <div className="mt-6">
+              <OAuthButtons role="attorney" onError={setError} disabled={isLoading} />
             </div>
 
             <div className="mt-8 border-t border-slate-200 pt-6 text-center">

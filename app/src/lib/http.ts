@@ -39,6 +39,31 @@ type ApiError = Error & {
 
 const DEFAULT_TIMEOUT = 90000
 
+// Transient failures (a server restart, brief connectivity blip, gateway
+// hiccup, or timeout) previously surfaced as a raw "Failed to fetch" error
+// anywhere in the app (#45). We now transparently retry idempotent requests a
+// couple of times with backoff before giving up, which absorbs the vast
+// majority of these intermittent errors.
+const RETRYABLE_METHODS = new Set(['get', 'head', 'options'])
+const MAX_RETRIES = 2
+const RETRY_BASE_DELAY_MS = 400
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+function isTransientError(error: ApiError): boolean {
+  const status = error.response?.status
+  // Bad gateway / unavailable / gateway timeout from a proxy or restarting API.
+  if (status === 502 || status === 503 || status === 504) return true
+  // A request timeout we triggered ourselves.
+  if (error.code === 'ECONNABORTED') return true
+  // No response at all (network drop, CORS blip, connection reset) — but not
+  // our own pre-flight configuration error, which won't recover on retry.
+  if (!error.response && error.code !== 'API_CONFIG') return true
+  return false
+}
+
 function buildUrl(url: string, params?: RequestConfig['params'], requestBaseUrl?: string) {
   const normalizedBaseUrl = requestBaseUrl ?? baseURL
   const target = url.startsWith('http')
@@ -155,7 +180,7 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
   ) {
     const message = 'NEXT_PUBLIC_API_URL is not configured for this deployment. Set it to your API origin in Amplify.'
     console.error(`❌ API configuration error: ${message}`)
-    throw createApiError(message, requestConfig, { url, method: method.toUpperCase() })
+    throw createApiError(message, requestConfig, { url, method: method.toUpperCase() }, { code: 'API_CONFIG' })
   }
 
   let body: BodyInit | undefined
@@ -175,50 +200,93 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
 
   const requestUrl = buildUrl(url, config.params, config.baseURL)
   const requestMeta = { url: requestUrl, method: method.toUpperCase() }
-  const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), requestConfig.timeout)
 
   apiDebug.log('Request headers:', Object.fromEntries(headers.entries()))
   apiDebug.log('Request data:', data)
 
-  try {
-    const response = await fetch(requestUrl, {
-      method: method.toUpperCase(),
-      headers,
-      body,
-      signal: controller.signal,
-    })
-
-    const parsed = await parseResponse(response, config.responseType || 'json')
-    const normalizedResponse: ResponseData<T> = {
-      data: parsed as T,
-      status: response.status,
-      statusText: response.statusText,
-      headers: normalizeHeaders(response.headers),
-      config: requestConfig,
-    }
-
-    if (!response.ok) {
-      const error = createApiError(`Request failed with status ${response.status}`, requestConfig, requestMeta, {
-        response: normalizedResponse,
+  // A single network attempt. Each attempt gets its own AbortController so the
+  // per-request timeout applies independently to each retry.
+  const attempt = async (): Promise<ResponseData<T>> => {
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), requestConfig.timeout)
+    try {
+      const response = await fetch(requestUrl, {
+        method: method.toUpperCase(),
+        headers,
+        body,
+        signal: controller.signal,
       })
-      throw error
+
+      const parsed = await parseResponse(response, config.responseType || 'json')
+      const normalizedResponse: ResponseData<T> = {
+        data: parsed as T,
+        status: response.status,
+        statusText: response.statusText,
+        headers: normalizeHeaders(response.headers),
+        config: requestConfig,
+      }
+
+      if (!response.ok) {
+        throw createApiError(`Request failed with status ${response.status}`, requestConfig, requestMeta, {
+          response: normalizedResponse,
+        })
+      }
+
+      apiDebug.log(`API response: ${method.toUpperCase()} ${url} - ${response.status}`)
+      return normalizedResponse
+    } finally {
+      window.clearTimeout(timeoutId)
     }
+  }
 
-    apiDebug.log(`API response: ${method.toUpperCase()} ${url} - ${response.status}`)
-    return normalizedResponse
-  } catch (rawError: any) {
-    const error = rawError?.name === 'ApiError'
-      ? rawError as ApiError
-      : createApiError(
-          rawError?.name === 'AbortError' ? 'Request timeout' : rawError?.message || 'Network request failed',
-          requestConfig,
-          requestMeta,
-          {
-            code: rawError?.name === 'AbortError' ? 'ECONNABORTED' : rawError?.code,
-          }
-        )
+  const canRetry = RETRYABLE_METHODS.has(method.toLowerCase())
+  let attemptNumber = 0
 
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      return await attempt()
+    } catch (rawError: any) {
+      const error = rawError?.name === 'ApiError'
+        ? rawError as ApiError
+        : createApiError(
+            rawError?.name === 'AbortError'
+              ? 'Request timeout'
+              : rawError?.name === 'TypeError'
+                ? 'Unable to reach the server. Please check your connection and try again.'
+                : rawError?.message || 'Network request failed',
+            requestConfig,
+            requestMeta,
+            {
+              code: rawError?.name === 'AbortError'
+                ? 'ECONNABORTED'
+                : rawError?.name === 'TypeError'
+                  ? 'ERR_NETWORK'
+                  : rawError?.code,
+            }
+          )
+
+      // Transparently retry transient failures on idempotent requests before
+      // surfacing the error to the caller/UI (#45).
+      if (canRetry && attemptNumber < MAX_RETRIES && isTransientError(error)) {
+        const backoff = RETRY_BASE_DELAY_MS * 2 ** attemptNumber + Math.floor(Math.random() * 200)
+        apiDebug.log(`Retrying ${method.toUpperCase()} ${url} after transient error (attempt ${attemptNumber + 1}/${MAX_RETRIES}) in ${backoff}ms`)
+        attemptNumber += 1
+        await delay(backoff)
+        continue
+      }
+
+      return handleRequestError(error, { method, url })
+    }
+  }
+}
+
+function handleRequestError(
+  error: ApiError,
+  ctx: { method: string; url: string },
+): never {
+  const { method, url } = ctx
+  {
     const status = error.response?.status || 'NO_RESPONSE'
     apiDebug.error(`API error: ${method.toUpperCase()} ${url} - ${status}`)
     apiDebug.error('Error details:', {
@@ -316,11 +384,9 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
         }
       }
     }
-
-    throw error
-  } finally {
-    window.clearTimeout(timeoutId)
   }
+
+  throw error
 }
 
 const api = {

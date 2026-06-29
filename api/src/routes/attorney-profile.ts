@@ -239,6 +239,38 @@ const licenseUpload = multer({
   }
 })
 
+// Configure multer for attorney profile photo (avatar) uploads
+const avatarStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(process.cwd(), 'uploads', 'avatars')
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true })
+    }
+    cb(null, uploadDir)
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${uuidv4()}-${file.originalname}`
+    cb(null, uniqueName)
+  }
+})
+
+const avatarUpload = multer({
+  storage: avatarStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|webp/
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase())
+    const mimetype = /image\/(jpeg|png|gif|webp)/.test(file.mimetype)
+
+    if (mimetype && extname) {
+      return cb(null, true)
+    }
+    cb(new Error('Profile photo must be a JPEG, PNG, GIF, or WebP image'))
+  }
+})
+
 // Attorney Profile Management
 
 // Get attorney profile
@@ -399,6 +431,7 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
     const attorneyId = attorney.id
     const {
       // Basic profile
+      name,
       bio,
       photoUrl,
       specialties,
@@ -497,10 +530,13 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
       }
     })
 
+    const trimmedName = typeof name === 'string' ? name.trim() : undefined
     await prisma.attorney.update({
       where: { id: attorneyId },
       data: {
-        responseTimeHours: typeof responseTimeHours === 'number' ? responseTimeHours : undefined
+        responseTimeHours: typeof responseTimeHours === 'number' ? responseTimeHours : undefined,
+        // Allow editing the display name; ignore blank submissions.
+        name: trimmedName ? trimmedName : undefined,
       }
     })
 
@@ -508,6 +544,68 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
   } catch (error: any) {
     logger.error('Failed to update attorney profile', { error: error.message })
     res.status(500).json({ error: 'Failed to update profile' })
+  }
+})
+
+// Upload attorney profile photo (avatar)
+router.post('/photo', authMiddleware, avatarUpload.single('photo'), async (req: any, res) => {
+  try {
+    if (!req.user?.email) {
+      return res.status(401).json({ error: 'Authentication required' })
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No photo uploaded' })
+    }
+
+    const attorney = await prisma.attorney.findUnique({
+      where: { email: req.user.email }
+    })
+    if (!attorney) {
+      return res.status(404).json({ error: 'Attorney profile not found. Please complete your attorney registration.' })
+    }
+
+    const attorneyId = attorney.id
+    const newPhotoUrl = `/uploads/avatars/${req.file.filename}`
+
+    let profile = await prisma.attorneyProfile.findUnique({ where: { attorneyId } })
+    const previousPhotoUrl = profile?.photoUrl ?? null
+
+    if (!profile) {
+      profile = await prisma.attorneyProfile.create({
+        data: {
+          attorneyId,
+          bio: '',
+          photoUrl: newPhotoUrl,
+          specialties: JSON.stringify([]),
+          languages: JSON.stringify(['English']),
+          yearsExperience: 0,
+          totalCases: 0,
+          totalSettlements: 0,
+          averageSettlement: 0,
+          successRate: 0,
+          verifiedVerdicts: JSON.stringify([]),
+          totalReviews: 0,
+          averageRating: 0,
+        }
+      })
+    } else {
+      profile = await prisma.attorneyProfile.update({
+        where: { attorneyId },
+        data: { photoUrl: newPhotoUrl }
+      })
+    }
+
+    // Best-effort cleanup of a previously uploaded avatar (ignore external URLs).
+    if (previousPhotoUrl && previousPhotoUrl.startsWith('/uploads/avatars/')) {
+      const previousPath = path.join(process.cwd(), previousPhotoUrl.replace(/^\/+/, ''))
+      fs.promises.unlink(previousPath).catch(() => undefined)
+    }
+
+    logger.info('Attorney profile photo uploaded', { attorneyId, fileName: req.file.originalname })
+    res.json(profile)
+  } catch (error: any) {
+    logger.error('Failed to upload attorney profile photo', { error: error.message })
+    res.status(500).json({ error: 'Failed to upload profile photo' })
   }
 })
 

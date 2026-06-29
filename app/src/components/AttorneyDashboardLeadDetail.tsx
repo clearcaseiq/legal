@@ -4,6 +4,7 @@ import PreAcceptanceView from './PreAcceptanceView'
 import PersistentCaseHeader from './PersistentCaseHeader'
 import NextBestActionWidget from './NextBestActionWidget'
 import { formatCurrency, formatPercentage } from '../lib/formatters'
+import { formatLeadCaseId } from '../lib/caseId'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { caseStrengthLabel } from '../lib/heuristics'
 import AttorneyCaseIntelligenceSuite from './AttorneyCaseIntelligenceSuite'
@@ -438,8 +439,7 @@ export default function AttorneyDashboardLeadDetail({
                   : (selectedLead.viabilityScore ?? 0) >= 0.5
                     ? 'mixed'
                     : 'negative')
-            const _caseIdRaw = selectedLead.assessment?.id || selectedLead.id
-            const _caseIdAnon = _caseIdRaw ? `CASE-${_caseIdRaw.slice(-6).toUpperCase()}` : 'Not available'
+            const _caseIdAnon = formatLeadCaseId(selectedLead)
             const _isMasked = leadPhaseTab === 'pre' || !isPostAcceptance
             const hasMedical = treatments.length > 0 || leadEvidenceFiles.some((file: any) => file?.category === 'medical')
             const hasPolice = leadEvidenceFiles.some((file: any) => file?.category === 'police')
@@ -885,7 +885,7 @@ export default function AttorneyDashboardLeadDetail({
                   <button onClick={handleQuickCall} className="btn-primary">
                     <Phone className="h-4 w-4 mr-2" /> Call Now
                   </button>
-                  <button onClick={handleQuickMessage} className="btn-secondary">
+                  <button onClick={() => setChatDrawerOpen(true)} className="btn-secondary">
                     <MessageSquare className="h-4 w-4 mr-2" /> Send Message
                   </button>
                   <button onClick={handleQuickConsult} className="btn-secondary">
@@ -1195,9 +1195,9 @@ function PostAcceptanceActionSummary({
 
 function SummaryField({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) {
   return (
-    <div>
+    <div className="min-w-0">
       <span className="text-gray-500">{label}</span>
-      <p className={`font-semibold ${emphasis ? 'text-brand-800' : 'text-gray-900'}`}>{value}</p>
+      <p className={`font-semibold break-words ${emphasis ? 'text-brand-800' : 'text-gray-900'}`}>{value}</p>
     </div>
   )
 }

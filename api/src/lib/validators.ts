@@ -29,9 +29,22 @@ export const Damages = z.object({
   wage_loss: z.number().optional(),
   services: z.number().optional(),
   future_medical: z.number().optional(),
+  // Vehicle property + rental damage. Feeds economic damages in the valuation;
+  // previously omitted from the create payload so it was treated as 0.
+  estimated_property_damage: z.number().optional(),
   medical_bill_range: z.string().optional(),
   future_medical_range: z.string().optional(),
-  workImpact: z.string().optional()
+  workImpact: z.string().optional(),
+  // The self-reported figure captured at intake, preserved even after documents
+  // override med_charges so provenance/discrepancy logic can compare the two.
+  intake_med_charges: z.number().optional(),
+  // Whether the plaintiff says their bills are complete (affects how documents
+  // replace vs. floor the self-reported estimate during recalculation).
+  bills_complete: z.boolean().optional(),
+  // Provenance of med_charges. Intake submits 'self_reported'; runCaseRecalculation
+  // upgrades it to 'partially_documented' / 'documented' once bills are processed.
+  // Drives valuation confidence so estimates aren't treated as verified figures.
+  med_charges_source: z.enum(['self_reported', 'partially_documented', 'documented']).optional()
 }).partial()
 
 export const Consents = z.object({
@@ -167,7 +180,14 @@ export const SubmitCaseForReview = z.object({
 
 // Authentication schemas
 export const UserRegister = z.object({
-  email: z.string().email(),
+  // Normalize like login/reset so a mixed-case email matches the lowercased
+  // provisional account created during intake. Without this, registration
+  // missed the provisional row and attempted a duplicate insert, surfacing as
+  // "Registration failed" (and later login mismatches) (#35).
+  email: z.preprocess(
+    (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
+    z.string().email()
+  ),
   password: z.string().min(8),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
@@ -180,6 +200,18 @@ export const UserLogin = z.object({
     z.string().email()
   ),
   password: z.string().min(1),
+})
+
+export const PasswordResetRequest = z.object({
+  email: z.preprocess(
+    (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
+    z.string().email()
+  ),
+})
+
+export const PasswordReset = z.object({
+  token: z.string().min(10),
+  password: z.string().min(8),
 })
 
 export const UserUpdate = z.object({

@@ -751,6 +751,20 @@ export async function createDocumentRequest(
   return data
 }
 
+export async function createOpposingDocumentRequest(
+  leadId: string,
+  payload: {
+    requestedDocs?: string[]
+    customMessage?: string
+    recipientName: string
+    recipientEmail?: string
+    recipientRole?: 'defendant' | 'opposing_counsel' | 'insurer'
+  }
+) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/opposing-document-request`, payload)
+  return data
+}
+
 export async function getLeadCommandCenter(leadId: string) {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/command-center`)
   return data

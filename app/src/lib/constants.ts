@@ -75,6 +75,34 @@ export function getStateCode(name: string): string {
   return US_STATES.find(state => state.name === name)?.code || name
 }
 
+/**
+ * Attorney practice/service case types. These are the canonical slug values
+ * stored on the attorney profile (matching the values selected at registration).
+ */
+export const ATTORNEY_CASE_TYPES = [
+  { value: 'auto', label: 'Auto Accident' },
+  { value: 'slip_and_fall', label: 'Slip & Fall' },
+  { value: 'dog_bite', label: 'Dog Bite' },
+  { value: 'medmal', label: 'Medical Malpractice' },
+  { value: 'product', label: 'Product Liability' },
+  { value: 'nursing_home_abuse', label: 'Nursing Home Abuse' },
+  { value: 'wrongful_death', label: 'Wrongful Death' },
+  { value: 'high_severity_surgery', label: 'Catastrophic Injury' },
+]
+
+/**
+ * Format a stored specialty/service-type value for display. Maps known slugs to
+ * friendly labels and falls back to de-underscoring + title-casing so legacy or
+ * label-style values never render with raw underscores.
+ */
+export function formatSpecialty(value: string): string {
+  const match = ATTORNEY_CASE_TYPES.find((type) => type.value === value)
+  if (match) return match.label
+  return String(value || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
 /** California counties (common PI jurisdictions) */
 export const CA_COUNTIES = [
   'Alameda', 'Alpine', 'Amador', 'Butte', 'Calaveras', 'Colusa', 'Contra Costa', 'Del Norte', 'El Dorado',

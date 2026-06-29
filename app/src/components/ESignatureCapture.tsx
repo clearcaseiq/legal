@@ -45,7 +45,10 @@ export default function ESignatureCapture({
     canvas.width = CANVAS_W
     canvas.height = CANVAS_H
     ctx.strokeStyle = '#1f2937'
-    ctx.lineWidth = 2
+    // A 2px stroke on the 600px backing canvas rendered thin/faint, which read
+    // as "unclear" once drawn and downloaded (#80). A slightly bolder stroke
+    // keeps the signature legible at any export size.
+    ctx.lineWidth = 3
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
     ctx.clearRect(0, 0, canvas.width, canvas.height)
@@ -236,12 +239,24 @@ export default function ESignatureCapture({
   }
 
   const downloadSignature = () => {
-    if (signatureMethod === 'drawn' && signatureDataRef.current) {
-      const link = document.createElement('a')
-      link.download = `signature-${new Date().toISOString().split('T')[0]}.png`
-      link.href = signatureDataRef.current
-      link.click()
+    const canvas = canvasRef.current
+    if (signatureMethod !== 'drawn' || !signatureDataRef.current || !canvas) return
+    // The drawn signature is captured on a transparent canvas, which looks
+    // unclear/invisible in most image viewers once downloaded. Flatten it onto
+    // a white background before exporting so the saved PNG is crisp (#80).
+    const exportCanvas = document.createElement('canvas')
+    exportCanvas.width = canvas.width
+    exportCanvas.height = canvas.height
+    const exportCtx = exportCanvas.getContext('2d')
+    if (exportCtx) {
+      exportCtx.fillStyle = '#ffffff'
+      exportCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height)
+      exportCtx.drawImage(canvas, 0, 0)
     }
+    const link = document.createElement('a')
+    link.download = `signature-${new Date().toISOString().split('T')[0]}.png`
+    link.href = exportCtx ? exportCanvas.toDataURL('image/png') : signatureDataRef.current
+    link.click()
   }
 
   // Align with handleSubmit: drawn/clicked/typed all set hasSignature when a value exists; typed still needs trim for the button
@@ -249,8 +264,8 @@ export default function ESignatureCapture({
     !hasSignature || (signatureMethod === 'typed' && !typedSignature.trim())
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[110]">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[110] overflow-y-auto p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[calc(100vh-2rem)] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b">
           <h3 className="text-lg font-semibold text-gray-900">Electronic Signature</h3>
           <button type="button" onClick={onCancel} className="text-gray-400 hover:text-gray-600" aria-label="Close">

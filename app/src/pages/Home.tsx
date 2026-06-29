@@ -84,11 +84,11 @@ export default function Home() {
                   {t('common.startAssessment')}
                 </Link>
                 <Link
-                  to="/assess?fresh=1"
-                  className="group inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white/70 px-6 py-3 text-base font-semibold text-slate-700 backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:border-slate-600 dark:bg-slate-800/60 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus-visible:ring-offset-slate-900"
+                  to="/assess"
+                  className="group inline-flex items-center justify-center rounded-xl px-3 py-1.5 text-sm font-medium text-slate-500 underline-offset-4 transition-colors hover:text-brand-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:text-slate-400 dark:hover:text-brand-300 dark:focus-visible:ring-offset-slate-900"
                 >
-                  {t('common.continueAsGuest')}
-                  <span className="ml-1.5 transition-transform group-hover:translate-x-0.5" aria-hidden>→</span>
+                  {t('common.alreadyStartedResume')}
+                  <span className="ml-1 transition-transform group-hover:translate-x-0.5" aria-hidden>→</span>
                 </Link>
               </div>
               <p className="mt-4 text-sm font-medium text-slate-600 dark:text-slate-300">{t('home.heroReassurance')}</p>

@@ -8,6 +8,7 @@ import {
   precheckEvidenceImage
 } from '../lib/api'
 import { TrashIcon } from './TrashIcon'
+import { getApiOrigin } from '../lib/runtimeEnv'
 import { 
   Upload, 
   Camera, 
@@ -21,6 +22,20 @@ import {
   DollarSign,
   Settings
 } from 'lucide-react'
+
+/**
+ * Server-stored evidence files come back with a relative path
+ * (e.g. "/uploads/evidence/abc.pdf") that is served by the API origin, not the
+ * web app origin. Opening the bare relative URL resolved against the web app
+ * and 404'd, so the Eye/preview button appeared to do nothing (#11). Blob/data
+ * URLs (locally selected files not yet uploaded) and absolute URLs pass through
+ * untouched.
+ */
+function resolveEvidenceFileUrl(url?: string): string {
+  if (!url) return ''
+  if (/^(blob:|data:|https?:)/i.test(url)) return url
+  return `${getApiOrigin()}${url.startsWith('/') ? '' : '/'}${url}`
+}
 
 type VisionVerdict = {
   status?: string
@@ -191,6 +206,8 @@ export default function InlineEvidenceUpload({
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const [showTightManage, setShowTightManage] = useState(false)
   const [visionWarnings, setVisionWarnings] = useState<VisionWarning[]>([])
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [deletingFile, setDeletingFile] = useState(false)
 
   const isManageControlled = manageOpen !== undefined
   const manageModalOpen = isManageControlled ? manageOpen : showTightManage
@@ -663,10 +680,13 @@ export default function InlineEvidenceUpload({
     e.target.value = ''
   }
 
-  // Delete file
-  const handleDeleteFile = async (fileId: string) => {
-    if (!window.confirm('Are you sure you want to delete this file?')) return
+  // Delete file — open a styled in-app confirmation instead of a native
+  // browser confirm() dialog (#9).
+  const handleDeleteFile = (fileId: string) => {
+    setPendingDeleteId(fileId)
+  }
 
+  const performDelete = async (fileId: string) => {
     const removeFromState = () => {
       setFiles(prev => {
         const next = prev.filter(file => file.id !== fileId)
@@ -690,6 +710,19 @@ export default function InlineEvidenceUpload({
       removeFromState()
     }
   }
+
+  const confirmDelete = async () => {
+    if (!pendingDeleteId) return
+    setDeletingFile(true)
+    try {
+      await performDelete(pendingDeleteId)
+    } finally {
+      setDeletingFile(false)
+      setPendingDeleteId(null)
+    }
+  }
+
+  const pendingDeleteFile = pendingDeleteId ? files.find(file => file.id === pendingDeleteId) : null
 
   // Format file size
   const formatFileSize = (bytes: number) => {
@@ -1020,7 +1053,7 @@ export default function InlineEvidenceUpload({
                         <div className="flex shrink-0 gap-1">
                           <button
                             type="button"
-                            onClick={() => window.open(file.fileUrl, '_blank')}
+                            onClick={() => window.open(resolveEvidenceFileUrl(file.fileUrl), '_blank', 'noopener,noreferrer')}
                             className="rounded p-1 text-blue-500 hover:bg-blue-50 hover:text-blue-700"
                             aria-label="View file"
                           >
@@ -1069,7 +1102,7 @@ export default function InlineEvidenceUpload({
                   <div className="flex shrink-0 items-center gap-1">
                     <button
                       type="button"
-                      onClick={() => window.open(file.fileUrl, '_blank')}
+                      onClick={() => window.open(resolveEvidenceFileUrl(file.fileUrl), '_blank', 'noopener,noreferrer')}
                       className="text-blue-500 hover:text-blue-700"
                     >
                       <Eye className="h-3 w-3" />
@@ -1205,7 +1238,7 @@ export default function InlineEvidenceUpload({
                 )}
                 
                 <button
-                  onClick={() => window.open(file.fileUrl, '_blank')}
+                  onClick={() => window.open(resolveEvidenceFileUrl(file.fileUrl), '_blank', 'noopener,noreferrer')}
                   className="text-blue-500 hover:text-blue-700"
                 >
                   <Eye className="h-4 w-4" />
@@ -1255,6 +1288,53 @@ export default function InlineEvidenceUpload({
         <p>Supported: Images, PDFs, Documents • Max 50MB per file</p>
         <p>Files are automatically processed for medical codes, amounts, and dates</p>
       </div>
+
+      {pendingDeleteId && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-file-title"
+          onClick={() => { if (!deletingFile) setPendingDeleteId(null) }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600">
+                <AlertCircle className="h-5 w-5" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <h3 id="delete-file-title" className="text-base font-semibold text-gray-900">Delete this file?</h3>
+                <p className="mt-1 text-sm text-gray-600">
+                  {pendingDeleteFile?.originalName
+                    ? <>“<span className="font-medium break-words">{pendingDeleteFile.originalName}</span>” will be removed. This can’t be undone.</>
+                    : 'This file will be removed. This can’t be undone.'}
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingDeleteId(null)}
+                disabled={deletingFile}
+                className="rounded-lg border border-gray-200 px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deletingFile}
+                className="rounded-lg bg-red-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {deletingFile ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

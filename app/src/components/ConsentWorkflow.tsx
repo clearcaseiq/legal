@@ -230,7 +230,7 @@ export default function ConsentWorkflow({
         role="dialog"
         aria-modal="true"
         aria-labelledby="consent-workflow-title"
-        className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-4xl w-full my-4 border border-slate-200 dark:border-slate-700"
+        className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-4xl w-full border border-slate-200 dark:border-slate-700 flex flex-col max-h-[calc(100vh-2rem)]"
       >
         <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
           <div>
@@ -270,7 +270,7 @@ export default function ConsentWorkflow({
           ))}
         </div>
 
-        <div className="p-6 space-y-10 max-h-[min(70vh,720px)] overflow-y-auto">
+        <div className="p-6 space-y-10 flex-1 min-h-0 overflow-y-auto">
           {requiredConsents.map((type) => {
             const template = consentTemplates[type]
             const fullPath = fullPagePath[type]
@@ -312,7 +312,7 @@ export default function ConsentWorkflow({
                   </p>
                 )}
 
-                <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-600 rounded-lg p-4 sm:p-6 max-h-72 overflow-y-auto">
+                <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-600 rounded-lg p-4 sm:p-6">
                   {template?.content ? (
                     <ConsentDocumentBody content={template.content} />
                   ) : (
@@ -464,7 +464,7 @@ export default function ConsentWorkflow({
         )}
 
         <div className="max-w-none mb-6">
-          <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-600 rounded-lg p-6 max-h-96 overflow-y-auto">
+          <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-600 rounded-lg p-6">
             {template?.content ? (
               <ConsentDocumentBody content={template.content} />
             ) : (

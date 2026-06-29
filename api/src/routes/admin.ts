@@ -7,17 +7,69 @@ import { isAdminEmail } from '../lib/admin-access'
 import { CaseForRouting, AttorneyForRouting, routeCaseToAttorneys, filterEligibleAttorneys } from '../lib/routing'
 import { runRoutingEngine } from '../lib/routing-engine'
 import { startAssessmentRouting } from '../lib/assessment-routing'
-import { runEscalationWave } from '../lib/routing-lifecycle'
+import { runRoutingEscalationSweep } from '../lib/routing-escalation-sweep'
 import { routeTier1Case } from '../lib/tier1-routing'
 import { sendCaseOfferSms } from '../lib/sms'
 import { routeTier2Case } from '../lib/tier2-routing'
 import { assignCaseTier } from '../lib/case-tier-classifier'
-import { getConfiguredWaveWaitHours, getMatchingRules, saveMatchingRules } from '../lib/matching-rules-config'
+import { getMatchingRules, saveMatchingRules } from '../lib/matching-rules-config'
 import { getHeuristics, saveHeuristics } from '../lib/heuristics-config'
 import { getAdminCalendarHealth } from '../lib/calendar-sync'
+import { CLAIM_INVITE_TTL_DAYS, claimUrl, generateClaimToken, sendClaimEmail } from '../lib/claims'
 
 const router: ExpressRouter = Router()
 const prismaAny = prisma as any
+
+/**
+ * Create an unclaimed placeholder Attorney for an email that isn't registered
+ * yet, and send a claim/invite email so they can join and view the routed case
+ * (#40 — admins can route to non-registered attorneys by inviting them).
+ */
+async function inviteNonRegisteredAttorney(email: string): Promise<{ attorneyId: string; emailSent: boolean; claimUrl?: string }> {
+  const normalizedEmail = email.trim().toLowerCase()
+  const derivedName = normalizedEmail.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || 'Invited Attorney'
+
+  // Reuse an existing unclaimed placeholder if this email was already invited.
+  const existing = await prisma.attorney.findUnique({ where: { email: normalizedEmail }, select: { id: true } })
+  const attorney = existing
+    ? await prisma.attorney.update({ where: { id: existing.id }, data: { isActive: true } })
+    : await prisma.attorney.create({
+        data: {
+          name: derivedName,
+          email: normalizedEmail,
+          specialties: '[]',
+          venues: '[]',
+          isActive: true,
+          isVerified: false,
+          claimStatus: 'unclaimed',
+        },
+      })
+
+  const token = generateClaimToken()
+  const expiresAt = new Date(Date.now() + CLAIM_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000)
+  await prismaAny.profileClaim.create({
+    data: { attorneyId: attorney.id, token, email: normalizedEmail, status: 'sent', expiresAt },
+  })
+
+  const url = claimUrl(token)
+  const emailSent = await sendClaimEmail({
+    to: normalizedEmail,
+    subject: 'You have a new case on ClearCaseIQ — claim your profile',
+    body: [
+      `Hi ${derivedName},`,
+      '',
+      'An administrator has routed a personal-injury case to you on ClearCaseIQ.',
+      'Create your account to review the case details and respond to the client.',
+      '',
+      `Get started: ${url}`,
+      '',
+      `This link expires in ${CLAIM_INVITE_TTL_DAYS} days. If this wasn't expected, you can ignore this email.`,
+    ].join('\n'),
+  })
+
+  logger.info('Invited non-registered attorney for routing', { attorneyId: attorney.id, emailSent })
+  return { attorneyId: attorney.id, emailSent, claimUrl: process.env.NODE_ENV === 'production' ? undefined : url }
+}
 
 function safeJsonParse<T = unknown>(value: string | null | undefined): T | null {
   if (!value) return null
@@ -1479,14 +1531,16 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
     } else if (routingStatus === 'queue') {
       where.introductions = { none: {} }
     } else if (routingStatus === 'accepted') {
-      where.leadSubmission = { routingLocked: true }
+      // "Accepted" must mean an attorney actually accepted the intro, not merely
+      // that the lead was routing-locked (which also happens on ranked routing
+      // and admin assignment). This now matches the case-list column and the
+      // /stats acceptance counts (#36).
+      where.introductions = { some: { status: 'ACCEPTED' } }
     } else if (routingStatus === 'waiting') {
-      // At least one intro sent, attorney has not accepted (matches admin /stats casesWaitingForResponse)
+      // At least one intro sent, but none accepted yet.
       where.AND = [
         { introductions: { some: {} } },
-        {
-          OR: [{ leadSubmission: null }, { leadSubmission: { routingLocked: false } }],
-        },
+        { introductions: { none: { status: 'ACCEPTED' } } },
       ]
     }
 
@@ -1690,6 +1744,18 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
             status: true,
             createdAt: true,
           }
+        },
+        // Documents uploaded during intake are stored as EvidenceFile records,
+        // not legacy File records. Admins were always shown "No documents
+        // uploaded" because only the File[] relation was read (#44).
+        evidenceFiles: {
+          select: {
+            id: true,
+            originalName: true,
+            category: true,
+            processingStatus: true,
+            createdAt: true,
+          }
         }
       }
     })
@@ -1730,7 +1796,16 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
       introductions: assessment.introductions,
       leadSubmission: assessment.leadSubmission,
       routingWaves: assessment.routingWaves,
-      files: assessment.files,
+      files: [
+        ...assessment.files,
+        ...assessment.evidenceFiles.map((f) => ({
+          id: f.id,
+          originalName: f.originalName,
+          status: f.processingStatus,
+          category: f.category,
+          createdAt: f.createdAt,
+        })),
+      ],
       manualReviewStatus: assessment.manualReviewStatus,
       manualReviewReason: assessment.manualReviewReason,
       manualReviewHeldAt: assessment.manualReviewHeldAt,
@@ -1762,7 +1837,8 @@ router.get('/cases/:id', authMiddleware, adminMiddleware, async (req: AuthReques
 // Bulk route cases to attorneys
 router.post('/cases/route', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
   try {
-    let { caseIds, attorneyId, attorneyEmail, message, skipEligibilityCheck, autoRoute } = req.body
+    let { caseIds, attorneyId, attorneyEmail, message, skipEligibilityCheck, autoRoute, inviteIfMissing } = req.body
+    let invitedAttorney: { emailSent: boolean; claimUrl?: string; email: string } | null = null
 
     if (!Array.isArray(caseIds) || caseIds.length === 0) {
       return res.status(400).json({ error: 'caseIds must be a non-empty array' })
@@ -1778,13 +1854,28 @@ router.post('/cases/route', authMiddleware, adminMiddleware, async (req: AuthReq
         a => a.email && a.email.toLowerCase() === String(attorneyEmail).toLowerCase()
       )
       if (!attorneyByEmail) {
-        return res.status(404).json({
-          error: `Attorney not found with email: ${attorneyEmail}`,
-          hint: 'Ensure the attorney has completed registration and the email matches exactly.'
-        })
+        // The email isn't tied to a registered attorney. Rather than failing
+        // outright, an admin can invite them: we create an unclaimed placeholder
+        // attorney, route the case to it, and email a claim link (#40). To avoid
+        // creating records from typos, this only happens when the admin opts in
+        // via `inviteIfMissing`; otherwise we tell the client an invite is needed.
+        if (!inviteIfMissing) {
+          return res.status(200).json({
+            success: false,
+            requiresInvite: true,
+            email: String(attorneyEmail),
+            message: `No registered attorney uses ${attorneyEmail}. You can invite them to join and claim this case.`,
+          })
+        }
+        const invite = await inviteNonRegisteredAttorney(String(attorneyEmail))
+        attorneyId = invite.attorneyId
+        invitedAttorney = { emailSent: invite.emailSent, claimUrl: invite.claimUrl, email: String(attorneyEmail).trim().toLowerCase() }
+        skipEligibilityCheck = true
+        logger.info('Routing to invited (non-registered) attorney', { attorneyEmail, attorneyId })
+      } else {
+        attorneyId = attorneyByEmail.id
+        logger.info('Resolved attorney by email', { attorneyEmail, attorneyId, attorneyName: attorneyByEmail.name })
       }
-      attorneyId = attorneyByEmail.id
-      logger.info('Resolved attorney by email', { attorneyEmail, attorneyId, attorneyName: attorneyByEmail.name })
     }
 
     // Admin manual routing always skips eligibility - admin can force route to any attorney
@@ -2084,6 +2175,9 @@ router.post('/cases/route', authMiddleware, adminMiddleware, async (req: AuthReq
       success: true,
       routed: introductions.length,
       failed: errors.length,
+      invited: invitedAttorney
+        ? { email: invitedAttorney.email, emailSent: invitedAttorney.emailSent, claimUrl: invitedAttorney.claimUrl }
+        : undefined,
       introductions: introductions.map(i => ({
         id: i.id,
         assessmentId: i.assessmentId,
@@ -2233,45 +2327,22 @@ router.get('/attorney-debug', authMiddleware, adminMiddleware, async (req: AuthR
 // Step 13: Run escalation for cases due for wave 2/3 (call from cron)
 router.post('/cases/escalate-due', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
   try {
-    const config = await getMatchingRules()
-    if (config.routingEnabled === false) {
+    // Shared with the in-process escalation scheduler (lib/routing-escalation-sweep.ts),
+    // so automatic routing advances whether triggered by cron or the background loop.
+    const sweep = await runRoutingEscalationSweep()
+    if (sweep.skipped) {
       return res.json({
         processed: 0,
         skipped: true,
-        reason: 'Routing disabled by admin',
+        reason: sweep.reason,
         results: []
       })
     }
-
-    const now = new Date()
-    const dueWaves = await prisma.routingWave.findMany({
-      where: {
-        nextEscalationAt: { lte: now, not: null },
-        escalatedAt: null
-      },
-      select: { assessmentId: true, waveNumber: true, nextEscalationAt: true }
-    })
-    const overdueWaves = dueWaves.filter((wave) => {
-      if (!wave.nextEscalationAt) return false
-      const overdueHours = (now.getTime() - wave.nextEscalationAt.getTime()) / (1000 * 60 * 60)
-      return overdueHours > Math.max(24, getConfiguredWaveWaitHours(config, wave.waveNumber) * 2)
-    })
-    const assessmentIds = [...new Set(dueWaves.map((wave) => wave.assessmentId))]
-    const results = await Promise.all(
-      assessmentIds.map(async (assessmentId) => {
-        const result = await runEscalationWave(assessmentId)
-        return { assessmentId, ...result }
-      })
-    )
     return res.json({
-      processed: results.length,
-      overdueCount: overdueWaves.length,
-      overdueCases: overdueWaves.slice(0, 20).map((wave) => ({
-        assessmentId: wave.assessmentId,
-        waveNumber: wave.waveNumber,
-        nextEscalationAt: wave.nextEscalationAt,
-      })),
-      results
+      processed: sweep.processed,
+      overdueCount: sweep.overdueCount,
+      overdueCases: sweep.overdueCases,
+      results: sweep.results
     })
   } catch (error: any) {
     logger.error('Escalation error', { error: error.message })

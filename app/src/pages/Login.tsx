@@ -88,7 +88,12 @@ export default function Login() {
       } else if (err.response?.data?.useOAuth) {
         setError(err.response?.data?.error || 'Please sign in with Google or Apple.')
       } else if (!err.response) {
-        setError('Unable to reach server. Please check that the API is running on port 4000 and try again.')
+        setError("We couldn't reach the server. Please check your internet connection and try again in a moment.")
+      } else if (err.response?.status === 401) {
+        // A 401 here always means the email/password didn't match. Surface a
+        // clear auth message rather than a raw status or (when the body fails to
+        // parse) the misleading "couldn't reach the server" fallback (#39).
+        setError(err.response?.data?.error || 'Invalid email or password. Please try again.')
       } else {
         const apiError = err.response?.data?.error || err.message || 'Login failed'
         const details = err.response?.data?.details as { fieldErrors?: Record<string, string[]> } | undefined
@@ -204,9 +209,9 @@ export default function Login() {
             </label>
           </div>
           <div className="text-sm">
-            <a href="mailto:support@clearcaseiq.com?subject=Password%20reset" className="font-medium text-brand-600 hover:text-brand-500">
+            <Link to="/forgot-password" className="font-medium text-brand-600 hover:text-brand-500">
               Forgot your password?
-            </a>
+            </Link>
           </div>
         </div>
 

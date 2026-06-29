@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -13,9 +14,23 @@ import {
   Upload,
   User,
 } from 'lucide-react'
-import { US_STATES } from '../lib/constants'
+import { US_STATES, ATTORNEY_CASE_TYPES, formatSpecialty } from '../lib/constants'
 import { formatCurrency } from '../lib/formatters'
 import { getApiOrigin } from '../lib/runtimeEnv'
+import { uploadAttorneyProfilePhoto } from '../lib/api'
+
+const DEFAULT_AVATAR = 'https://ui-avatars.com/api/?name=Attorney&background=e0f2fe&color=075985'
+
+// Stored photos can be absolute URLs (legacy) or server-relative upload paths
+// (/uploads/avatars/...). Relative paths must be resolved against the API origin
+// because the web app and API are served from different hosts.
+function resolvePhotoUrl(photoUrl: string | null | undefined): string {
+  if (!photoUrl) return DEFAULT_AVATAR
+  if (/^(https?:)?\/\//.test(photoUrl) || photoUrl.startsWith('data:')) return photoUrl
+  const origin = getApiOrigin()
+  if (!origin) return photoUrl
+  return `${origin}${photoUrl.startsWith('/') ? '' : '/'}${photoUrl}`
+}
 
 type AttorneyDashboardProfileTabProps = {
   error: string | null
@@ -88,6 +103,33 @@ export default function AttorneyDashboardProfileTab({
   handleLicenseFileChange,
 }: AttorneyDashboardProfileTabProps) {
   const navigate = useNavigate()
+  const photoInputRef = useRef<HTMLInputElement | null>(null)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [photoError, setPhotoError] = useState<string | null>(null)
+
+  const handlePhotoFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setPhotoError('Profile photo must be an image (JPEG, PNG, GIF, or WebP).')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setPhotoError('Profile photo must be 5MB or smaller.')
+      return
+    }
+    try {
+      setUploadingPhoto(true)
+      setPhotoError(null)
+      const updated = await uploadAttorneyProfilePhoto(file)
+      setProfile({ ...profile, photoUrl: updated?.photoUrl ?? profile?.photoUrl })
+    } catch (err: any) {
+      setPhotoError(err?.response?.data?.error || 'Failed to upload profile photo.')
+    } finally {
+      setUploadingPhoto(false)
+    }
+  }
 
   const specialties = parseJson<string[]>(profile?.specialties, [])
   const languages = parseJson<string[]>(profile?.languages, [])
@@ -217,22 +259,47 @@ export default function AttorneyDashboardProfileTab({
           <div className="lg:w-32 shrink-0">
             <div className="h-32 w-32 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
               {profile.photoUrl ? (
-                <img src={profile.photoUrl} alt="Profile" className="h-full w-full object-cover" />
+                <img src={resolvePhotoUrl(profile.photoUrl)} alt="Profile" className="h-full w-full object-cover" />
               ) : (
                 <User className="h-16 w-16 text-gray-400" />
               )}
             </div>
             {editing ? (
-              <button className="mt-2 w-full inline-flex items-center justify-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                <Upload className="h-4 w-4 mr-2" />
-                Change Photo
-              </button>
+              <>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  className="hidden"
+                  onChange={handlePhotoFileSelected}
+                />
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  disabled={uploadingPhoto}
+                  className="mt-2 w-full inline-flex items-center justify-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  {uploadingPhoto ? 'Uploading…' : 'Change Photo'}
+                </button>
+                {photoError ? <p className="mt-1 text-xs text-red-600">{photoError}</p> : null}
+              </>
             ) : null}
           </div>
 
           <div className="flex-1">
             <div className="flex flex-wrap items-center gap-2 mb-2">
-              <h3 className="text-2xl font-bold text-gray-900">{profile.attorney?.name || 'Your Profile'}</h3>
+              {editing ? (
+                <input
+                  type="text"
+                  value={profile.attorney?.name || ''}
+                  onChange={(e) => updateProfile({ attorney: { ...profile.attorney, name: e.target.value } })}
+                  className="text-2xl font-bold text-gray-900 border border-gray-300 rounded-md px-2 py-1 focus:ring-brand-500 focus:border-brand-500"
+                  placeholder="Your name"
+                />
+              ) : (
+                <h3 className="text-2xl font-bold text-gray-900">{profile.attorney?.name || 'Your Profile'}</h3>
+              )}
               {profile.isFeatured ? (
                 <div className="flex items-center gap-1">
                   <Star className="h-5 w-5 text-yellow-500 fill-current" />
@@ -261,7 +328,7 @@ export default function AttorneyDashboardProfileTab({
             <div className="mt-4 flex flex-wrap gap-2">
               {specialties.length > 0 ? specialties.map((specialty, index) => (
                 <span key={`${specialty}-${index}`} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                  {specialty}
+                  {formatSpecialty(specialty)}
                 </span>
               )) : <span className="text-sm text-gray-500">No specialties specified</span>}
             </div>
@@ -427,7 +494,12 @@ export default function AttorneyDashboardProfileTab({
                   </div>
                 ))}
                 <button
-                  onClick={() => updateProfile({ languages: JSON.stringify([...languages, '']) })}
+                  onClick={() => {
+                    // Avoid stacking multiple empty rows when one is already waiting to be
+                    // filled in (#69).
+                    if (languages.some((l) => !l.trim())) return
+                    updateProfile({ languages: JSON.stringify([...languages, '']) })
+                  }}
                   className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
                 >
                   <Plus className="h-4 w-4 mr-2" />
@@ -436,7 +508,7 @@ export default function AttorneyDashboardProfileTab({
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {languages.length > 0 ? languages.map((language, index) => (
+                {languages.filter((l) => l.trim()).length > 0 ? languages.filter((l) => l.trim()).map((language, index) => (
                   <span key={`${language}-${index}`} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                     {language}
                   </span>
@@ -449,22 +521,22 @@ export default function AttorneyDashboardProfileTab({
             <h3 className="text-lg font-medium text-gray-900 mb-4">Specialties</h3>
             {editing ? (
               <div className="grid grid-cols-2 gap-3">
-                {['Personal Injury', 'Auto Accidents', 'Premises Liability', 'Medical Malpractice', 'Product Liability', 'Wrongful Death', 'Workers Compensation', 'Employment Law'].map((specialty) => {
-                  const isSelected = specialties.includes(specialty)
+                {ATTORNEY_CASE_TYPES.map((type) => {
+                  const isSelected = specialties.includes(type.value)
                   return (
-                    <label key={specialty} className="flex items-center gap-2 cursor-pointer">
+                    <label key={type.value} className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => {
                           const next = isSelected
-                            ? specialties.filter((value) => value !== specialty)
-                            : [...specialties, specialty]
+                            ? specialties.filter((value) => value !== type.value)
+                            : [...specialties, type.value]
                           updateProfile({ specialties: JSON.stringify(next) })
                         }}
                         className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
                       />
-                      <span className="text-sm text-gray-700">{specialty}</span>
+                      <span className="text-sm text-gray-700">{type.label}</span>
                     </label>
                   )
                 })}
@@ -473,7 +545,7 @@ export default function AttorneyDashboardProfileTab({
               <div className="flex flex-wrap gap-2">
                 {specialties.length > 0 ? specialties.map((specialty, index) => (
                   <span key={`${specialty}-${index}`} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                    {specialty}
+                    {formatSpecialty(specialty)}
                   </span>
                 )) : <span className="text-gray-500">No specialties specified</span>}
               </div>

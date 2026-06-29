@@ -8,6 +8,7 @@ import { renewCalendarWebhookSubscriptions } from './lib/calendar-sync'
 import { runAppointmentEngagementSweep } from './lib/appointment-engagement'
 import { retryPendingPlatformNotifications } from './lib/platform-notifications'
 import { runIntakeAbandonmentSweep } from './lib/intake-abandonment'
+import { runRoutingEscalationSweep } from './lib/routing-escalation-sweep'
 
 const app = buildApp()
 
@@ -15,6 +16,7 @@ let calendarWebhookRenewalTimer: NodeJS.Timeout | null = null
 let appointmentEngagementTimer: NodeJS.Timeout | null = null
 let notificationRetryTimer: NodeJS.Timeout | null = null
 let intakeAbandonmentTimer: NodeJS.Timeout | null = null
+let routingEscalationTimer: NodeJS.Timeout | null = null
 
 async function runCalendarWebhookRenewalSweep(trigger: 'startup' | 'interval') {
   try {
@@ -109,12 +111,35 @@ function startIntakeAbandonmentLoop() {
   }, intervalMs)
 }
 
+async function runRoutingEscalationLoop(trigger: 'startup' | 'interval') {
+  try {
+    const result = await runRoutingEscalationSweep()
+    if (result.processed > 0 || trigger === 'startup') {
+      logger.info('Routing escalation sweep completed', {
+        trigger,
+        ...result,
+      })
+    }
+  } catch (error) {
+    logger.error('Routing escalation sweep failed', { error, trigger })
+  }
+}
+
+function startRoutingEscalationLoop() {
+  const intervalMs = 10 * 60 * 1000
+  void runRoutingEscalationLoop('startup')
+  routingEscalationTimer = setInterval(() => {
+    void runRoutingEscalationLoop('interval')
+  }, intervalMs)
+}
+
 const server = app.listen(ENV.PORT, ENV.HOST, () => {
   logger.info(`API server listening on http://${ENV.HOST}:${ENV.PORT}`)
   startCalendarWebhookRenewalLoop()
   startAppointmentEngagementLoop()
   startNotificationRetryLoop()
   startIntakeAbandonmentLoop()
+  startRoutingEscalationLoop()
 })
 
 function stopBackgroundLoops() {
@@ -122,10 +147,12 @@ function stopBackgroundLoops() {
   if (appointmentEngagementTimer) clearInterval(appointmentEngagementTimer)
   if (notificationRetryTimer) clearInterval(notificationRetryTimer)
   if (intakeAbandonmentTimer) clearInterval(intakeAbandonmentTimer)
+  if (routingEscalationTimer) clearInterval(routingEscalationTimer)
   calendarWebhookRenewalTimer = null
   appointmentEngagementTimer = null
   notificationRetryTimer = null
   intakeAbandonmentTimer = null
+  routingEscalationTimer = null
 }
 
 function closeHttpServer() {

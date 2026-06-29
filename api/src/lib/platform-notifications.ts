@@ -8,46 +8,24 @@ import { logger } from './logger'
 import type { CreateNotificationEventInput } from './notification-events'
 import { sendSms } from './sms'
 import { sendExpoPushNotifications } from './expo-push'
+import { sendTransactionalEmail } from './claims'
 
 const MAX_RESENDS_PER_24H = 3
 
-async function sendEmailViaResend(params: {
+// Provider-aware email delivery (SES or Resend, per EMAIL_PROVIDER). Previously
+// this path was hardcoded to Resend, so in SES-configured production no routing
+// or case-notification emails were ever sent to attorneys (#38).
+async function sendNotificationEmail(params: {
   to: string
   subject?: string | null
   body?: string | null
 }): Promise<boolean> {
-  const apiKey = process.env.RESEND_API_KEY
-  const from = process.env.RESEND_FROM_EMAIL
-  if (!apiKey || !from || !params.to) {
-    return false
-  }
-
-  const html = String(params.body || '')
-    .split('\n')
-    .map((line) => `<p>${line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
-    .join('')
-
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from,
-      to: [params.to],
-      subject: params.subject || 'ClearCaseIQ notification',
-      text: params.body || '',
-      html,
-    }),
+  if (!params.to) return false
+  return sendTransactionalEmail({
+    to: params.to,
+    subject: params.subject || 'ClearCaseIQ notification',
+    body: params.body || '',
   })
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`Resend email failed (${res.status}): ${text.slice(0, 200)}`)
-  }
-
-  return true
 }
 
 async function createInAppNotification(notificationId: string): Promise<boolean> {
@@ -155,7 +133,7 @@ export async function attemptDelivery(notificationId: string): Promise<boolean> 
   try {
     let delivered = false
     if (event.channel === 'email') {
-      delivered = await sendEmailViaResend({
+      delivered = await sendNotificationEmail({
         to: event.recipient || '',
         subject: event.subject,
         body: event.body,

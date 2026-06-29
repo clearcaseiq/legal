@@ -2,18 +2,24 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getMyAttorneyProfile, updateAttorneyProfile } from '../lib/api'
 import { Save, AlertCircle } from 'lucide-react'
-import { US_STATES } from '../lib/constants'
+import { US_STATES, ATTORNEY_CASE_TYPES } from '../lib/constants'
 
-const CASE_TYPES = [
-  { value: 'auto', label: 'Auto Accident' },
-  { value: 'slip_and_fall', label: 'Slip-and-Fall' },
-  { value: 'dog_bite', label: 'Dog Bite' },
-  { value: 'medmal', label: 'Medical Malpractice' },
-  { value: 'product', label: 'Product Liability' },
-  { value: 'nursing_home_abuse', label: 'Nursing Home Abuse' },
-  { value: 'wrongful_death', label: 'Wrongful Death' },
-  { value: 'high_severity_surgery', label: 'High-Severity / Surgery' }
-]
+// Shared source of truth so practice-area labels stay consistent with
+// registration and the rest of the app (#49).
+const CASE_TYPES = ATTORNEY_CASE_TYPES
+
+// The profile API serializes JSON columns as strings, but be defensive: if a
+// value ever arrives already parsed (object/array), don't blow up loadProfile
+// (which previously called JSON.parse on it and threw). Falls back gracefully.
+function safeParseJson<T>(value: unknown, fallback: T): T {
+  if (value == null) return fallback
+  if (typeof value !== 'string') return value as T
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return fallback
+  }
+}
 
 
 export default function AttorneyPreferences() {
@@ -59,15 +65,15 @@ export default function AttorneyPreferences() {
       
       setFormData({
         firmName: profile.firmName || '',
-        firmLocations: profile.firmLocations ? JSON.parse(profile.firmLocations) : [],
-        jurisdictions: profile.jurisdictions ? JSON.parse(profile.jurisdictions) : [],
+        firmLocations: safeParseJson(profile.firmLocations, [] as typeof formData.firmLocations),
+        jurisdictions: safeParseJson(profile.jurisdictions, [] as typeof formData.jurisdictions),
         minInjurySeverity: profile.minInjurySeverity,
-        excludedCaseTypes: profile.excludedCaseTypes ? JSON.parse(profile.excludedCaseTypes) : [],
+        excludedCaseTypes: safeParseJson(profile.excludedCaseTypes, [] as string[]),
         minDamagesRange: profile.minDamagesRange,
         maxDamagesRange: profile.maxDamagesRange,
         maxCasesPerWeek: profile.maxCasesPerWeek,
         maxCasesPerMonth: profile.maxCasesPerMonth,
-        intakeHours: profile.intakeHours === '24/7' ? '24/7' : (profile.intakeHours ? JSON.parse(profile.intakeHours) : '24/7'),
+        intakeHours: profile.intakeHours === '24/7' ? '24/7' : safeParseJson(profile.intakeHours, '24/7' as typeof formData.intakeHours),
         pricingModel: profile.pricingModel || '',
         paymentModel: profile.paymentModel || '',
         subscriptionTier: profile.subscriptionTier || ''
@@ -125,6 +131,67 @@ export default function AttorneyPreferences() {
       ...prev,
       jurisdictions: prev.jurisdictions.filter((_, i) => i !== index)
     }))
+  }
+
+  const addFirmLocation = () => {
+    setFormData(prev => ({
+      ...prev,
+      firmLocations: [...prev.firmLocations, { address: '', city: '', state: '', zip: '', phone: '' }]
+    }))
+  }
+
+  const updateFirmLocation = (
+    index: number,
+    updates: Partial<{ address: string; city: string; state: string; zip: string; phone: string }>
+  ) => {
+    setFormData(prev => ({
+      ...prev,
+      firmLocations: prev.firmLocations.map((loc, i) => (i === index ? { ...loc, ...updates } : loc))
+    }))
+  }
+
+  const removeFirmLocation = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      firmLocations: prev.firmLocations.filter((_, i) => i !== index)
+    }))
+  }
+
+  const is247 = formData.intakeHours === '24/7'
+  const intakeWindows = Array.isArray(formData.intakeHours) ? formData.intakeHours : []
+  const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+  const setIntakeAlwaysOn = (alwaysOn: boolean) => {
+    if (alwaysOn) {
+      setFormData(prev => ({ ...prev, intakeHours: '24/7' }))
+    } else {
+      // Seed a sensible Mon–Fri 9am–5pm default when switching off 24/7.
+      setFormData(prev => ({
+        ...prev,
+        intakeHours: [1, 2, 3, 4, 5].map(dayOfWeek => ({ dayOfWeek, startTime: 9, endTime: 17 }))
+      }))
+    }
+  }
+
+  const toggleIntakeDay = (dayOfWeek: number) => {
+    setFormData(prev => {
+      const windows = Array.isArray(prev.intakeHours) ? prev.intakeHours : []
+      const exists = windows.some(w => w.dayOfWeek === dayOfWeek)
+      const next = exists
+        ? windows.filter(w => w.dayOfWeek !== dayOfWeek)
+        : [...windows, { dayOfWeek, startTime: 9, endTime: 17 }].sort((a, b) => a.dayOfWeek - b.dayOfWeek)
+      return { ...prev, intakeHours: next }
+    })
+  }
+
+  const updateIntakeWindow = (dayOfWeek: number, updates: Partial<{ startTime: number; endTime: number }>) => {
+    setFormData(prev => {
+      const windows = Array.isArray(prev.intakeHours) ? prev.intakeHours : []
+      return {
+        ...prev,
+        intakeHours: windows.map(w => (w.dayOfWeek === dayOfWeek ? { ...w, ...updates } : w))
+      }
+    })
   }
 
   if (loading) {
@@ -185,7 +252,7 @@ export default function AttorneyPreferences() {
             {/* Firm Information */}
             <section>
               <h2 className="text-lg font-medium text-gray-900 mb-4">Firm Information</h2>
-              <div>
+              <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Firm Name</label>
                 <input
                   type="text"
@@ -194,6 +261,82 @@ export default function AttorneyPreferences() {
                   className="input"
                   placeholder="Your firm name"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Office Locations</label>
+                <p className="text-xs text-gray-500 mb-3">Add the offices where you intake and meet clients.</p>
+                {formData.firmLocations.map((location, index) => (
+                  <div key={index} className="mb-4 p-4 border rounded-lg">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Street Address</label>
+                        <input
+                          type="text"
+                          value={location.address}
+                          onChange={(e) => updateFirmLocation(index, { address: e.target.value })}
+                          className="input"
+                          placeholder="123 Main St, Suite 400"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">City</label>
+                        <input
+                          type="text"
+                          value={location.city}
+                          onChange={(e) => updateFirmLocation(index, { city: e.target.value })}
+                          className="input"
+                          placeholder="Los Angeles"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">State</label>
+                          <select
+                            value={location.state}
+                            onChange={(e) => updateFirmLocation(index, { state: e.target.value })}
+                            className="input"
+                          >
+                            <option value="">—</option>
+                            {US_STATES.map(state => (
+                              <option key={state.code} value={state.code}>{state.code}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">ZIP</label>
+                          <input
+                            type="text"
+                            value={location.zip}
+                            onChange={(e) => updateFirmLocation(index, { zip: e.target.value })}
+                            className="input"
+                            placeholder="90012"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Phone (optional)</label>
+                        <input
+                          type="tel"
+                          value={location.phone || ''}
+                          onChange={(e) => updateFirmLocation(index, { phone: e.target.value })}
+                          className="input"
+                          placeholder="(213) 555-0100"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeFirmLocation(index)}
+                      className="text-sm text-red-600 hover:text-red-800"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <button type="button" onClick={addFirmLocation} className="btn-secondary text-sm">
+                  + Add Office Location
+                </button>
               </div>
             </section>
 
@@ -224,7 +367,7 @@ export default function AttorneyPreferences() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Counties (comma-separated)</label>
                       <input
                         type="text"
-                        value={jurisdiction.counties.join(', ')}
+                        value={(jurisdiction.counties || []).join(', ')}
                         onChange={(e) => updateJurisdiction(index, { 
                           counties: e.target.value.split(',').map(c => c.trim()).filter(c => c) 
                         })}
@@ -356,6 +499,78 @@ export default function AttorneyPreferences() {
                   />
                 </div>
               </div>
+
+              <div className="mt-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Intake Availability</label>
+                <p className="text-xs text-gray-500 mb-3">When new cases can be routed to you.</p>
+                <div className="flex gap-6 mb-4">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="intakeAvailability"
+                      checked={is247}
+                      onChange={() => setIntakeAlwaysOn(true)}
+                      className="text-brand-600 focus:ring-brand-500"
+                    />
+                    <span className="text-sm text-gray-700">Accept intakes 24/7</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="intakeAvailability"
+                      checked={!is247}
+                      onChange={() => setIntakeAlwaysOn(false)}
+                      className="text-brand-600 focus:ring-brand-500"
+                    />
+                    <span className="text-sm text-gray-700">Specific hours</span>
+                  </label>
+                </div>
+
+                {!is247 && (
+                  <div className="space-y-2">
+                    {DAY_LABELS.map((label, dayOfWeek) => {
+                      const window = intakeWindows.find(w => w.dayOfWeek === dayOfWeek)
+                      const enabled = Boolean(window)
+                      return (
+                        <div key={dayOfWeek} className="flex items-center gap-3">
+                          <label className="flex items-center space-x-2 w-24 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={enabled}
+                              onChange={() => toggleIntakeDay(dayOfWeek)}
+                              className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                            />
+                            <span className="text-sm text-gray-700">{label}</span>
+                          </label>
+                          {enabled && window && (
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={window.startTime}
+                                onChange={(e) => updateIntakeWindow(dayOfWeek, { startTime: parseInt(e.target.value) })}
+                                className="input py-1"
+                              >
+                                {Array.from({ length: 24 }, (_, h) => (
+                                  <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                                ))}
+                              </select>
+                              <span className="text-sm text-gray-500">to</span>
+                              <select
+                                value={window.endTime}
+                                onChange={(e) => updateIntakeWindow(dayOfWeek, { endTime: parseInt(e.target.value) })}
+                                className="input py-1"
+                              >
+                                {Array.from({ length: 24 }, (_, h) => (
+                                  <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </section>
 
             {/* Buying Preferences */}
@@ -387,6 +602,20 @@ export default function AttorneyPreferences() {
                     <option value="subscription">Subscription</option>
                     <option value="pay_per_case">Pay Per Case</option>
                     <option value="both">Both</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Subscription Tier</label>
+                  <select
+                    value={formData.subscriptionTier}
+                    onChange={(e) => setFormData(prev => ({ ...prev, subscriptionTier: e.target.value }))}
+                    className="input"
+                  >
+                    <option value="">Not subscribed</option>
+                    <option value="starter">Starter</option>
+                    <option value="professional">Professional</option>
+                    <option value="enterprise">Enterprise</option>
                   </select>
                 </div>
               </div>

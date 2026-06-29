@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, CheckCircle, ChevronRight, Clock, Copy, Download, LayoutDashboard, Square, Star, Upload } from 'lucide-react'
 
@@ -406,9 +407,16 @@ export function ResultsReportDetails({
   const bullets = Array.isArray(whatThisMeansBullets) ? whatThisMeansBullets : []
   const improvementItems = Array.isArray(improveCaseValueItems) ? improveCaseValueItems : []
   const attorneyCards = Array.isArray(rankedAttorneys) ? rankedAttorneys : []
+  // Track open state in React rather than relying solely on the `group-open`
+  // Tailwind variant, which wasn't toggling the label reliably (#16).
+  const [reportOpen, setReportOpen] = useState(false)
 
   return (
-    <details className="mt-8 rounded-none border border-slate-200/90 bg-white shadow-card sm:rounded-2xl overflow-hidden">
+    <details
+      className="group mt-8 rounded-none border border-slate-200/90 bg-white shadow-card sm:rounded-2xl overflow-hidden"
+      open={reportOpen}
+      onToggle={(e) => setReportOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
       <summary className="cursor-pointer list-none border-b border-slate-200 bg-slate-50/50 px-6 sm:px-10 py-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -420,7 +428,9 @@ export function ResultsReportDetails({
             <p className="mt-1 text-sm font-semibold text-slate-900">Full report, sharing, and legal notes</p>
             <p className="mt-0.5 text-xs text-slate-500">Open this if you want the complete supplemental analysis.</p>
           </div>
-          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">Show full report</span>
+          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+            {reportOpen ? 'Hide full report' : 'Show full report'}
+          </span>
         </div>
       </summary>
       <div className={sectionWrap}>

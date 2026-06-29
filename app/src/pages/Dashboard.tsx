@@ -74,7 +74,13 @@ function LinkCaseForm({ onLinked }: { onLinked: () => void }) {
     setLoading(true)
     setMessage(null)
     try {
-      await associateAssessments([id])
+      // A well-formed but non-existent ID associates nothing (updatedCount: 0).
+      // Treat that as a failure instead of falsely reporting success (#81).
+      const result = await associateAssessments([id])
+      if (!result || Number(result.updatedCount) < 1) {
+        setMessage('No case found for that link or ID. Double-check it and try again.')
+        return
+      }
       setMessage('Case linked successfully!')
       setInput('')
       onLinked()
@@ -219,7 +225,22 @@ export default function Dashboard() {
   const [reviewSubmitting, setReviewSubmitting] = useState(false)
   const [latestNotification, setLatestNotification] = useState<string | null>(null)
   const [documentRequests, setDocumentRequests] = useState<PlaintiffDocumentRequest[]>([])
+  const [verifyNotice, setVerifyNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [verifySending, setVerifySending] = useState(false)
   const navigate = useNavigate()
+
+  const handleRequestVerification = async () => {
+    setVerifySending(true)
+    setVerifyNotice(null)
+    try {
+      await requestEmailVerification()
+      setVerifyNotice({ type: 'success', text: 'Verification link sent. Please check your email (including spam).' })
+    } catch {
+      setVerifyNotice({ type: 'error', text: 'We couldn’t send the verification email right now. Please try again later or contact support.' })
+    } finally {
+      setVerifySending(false)
+    }
+  }
   const [searchParams] = useSearchParams()
 
   useEffect(() => {
@@ -230,6 +251,35 @@ export default function Dashboard() {
   useEffect(() => {
     loadDashboardData()
   }, [])
+
+  // Switching cases from the "My Cases" list only changes the ?case= query
+  // param on the same route, so the initial mount-only loader never re-ran and
+  // the page appeared frozen (#54). React to the param after the first load.
+  useEffect(() => {
+    if (!caseIdFromUrl) return
+    if (!activeAssessment) return // initial selection handled by loadDashboardData
+    if (caseIdFromUrl === activeAssessment.id) return
+    if (!assessments.some((a) => a.id === caseIdFromUrl)) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [detail, files, requestData] = await Promise.all([
+          getAssessment(caseIdFromUrl),
+          getEvidenceFiles(caseIdFromUrl).catch(() => []),
+          getPlaintiffDocumentRequests(caseIdFromUrl).catch(() => ({ assessmentId: caseIdFromUrl, evidenceCount: 0, requests: [] as PlaintiffDocumentRequest[] })),
+        ])
+        if (cancelled) return
+        setActiveAssessment(detail)
+        const fileList = Array.isArray(files) ? files : []
+        setEvidenceCount(fileList.length)
+        setEvidenceFiles(fileList)
+        setDocumentRequests(Array.isArray(requestData.requests) ? requestData.requests : [])
+      } catch {
+        /* leave the current case in place on failure */
+      }
+    })()
+    return () => { cancelled = true }
+  }, [caseIdFromUrl, activeAssessment, assessments])
 
   useEffect(() => {
     if (activeAssessment?.id) {
@@ -1047,21 +1097,32 @@ export default function Dashboard() {
     <div className="min-h-screen transition-colors">
       {user.emailVerified === false && (
         <div className="page-shell pb-0 pt-4 print:hidden">
-          <div className="subtle-panel flex flex-col gap-2 px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300 sm:flex-row sm:items-center sm:justify-between">
-            <p>
-              Email verification is pending. Some secure actions may require verification later.
-            </p>
-            <button
-              type="button"
-              className="btn-ghost shrink-0 text-xs"
-              onClick={() =>
-                requestEmailVerification().catch(() =>
-                  window.alert('Verification email is not configured on the server yet.')
-                )
-              }
-            >
-              Request verification link
-            </button>
+          <div className="subtle-panel flex flex-col gap-2 px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p>
+                Email verification is pending. Some secure actions may require verification later.
+              </p>
+              <button
+                type="button"
+                disabled={verifySending}
+                className="btn-ghost shrink-0 text-xs disabled:opacity-60"
+                onClick={() => { void handleRequestVerification() }}
+              >
+                {verifySending ? 'Sending…' : 'Request verification link'}
+              </button>
+            </div>
+            {verifyNotice && (
+              <p
+                className={`rounded-md px-3 py-2 ${
+                  verifyNotice.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
+                    : 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300'
+                }`}
+                role="status"
+              >
+                {verifyNotice.text}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -1499,7 +1560,7 @@ export default function Dashboard() {
                             Message
                           </Link>
                           <Link
-                            to={`/attorneys-enhanced`}
+                            to={activeAssessment?.id ? `/attorneys?assessmentId=${activeAssessment.id}` : '/attorneys'}
                             className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium"
                           >
                             <ExternalLink className="h-4 w-4" />

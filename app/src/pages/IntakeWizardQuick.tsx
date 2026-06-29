@@ -114,6 +114,20 @@ const domainCanReceiveMail = async (domain: string): Promise<boolean> => {
 // "0000" or "0203" that a native date input otherwise accepts as a past date.
 const MIN_INCIDENT_DATE = '1900-01-01'
 
+// A native <input type="date"> coerces a typo like "00-00-0000" into a real but
+// nonsensical value such as "0001-01-01" and still lets the form advance (#26).
+// Treat a date as valid only when it is a well-formed YYYY-MM-DD string that
+// parses to a real calendar date no earlier than MIN_INCIDENT_DATE and no later
+// than today.
+function isValidIncidentDate(value: string, todayIso: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const parsed = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) return false
+  // Reject roll-overs (e.g. 2023-02-31 → Mar 3) by round-tripping.
+  if (parsed.toISOString().slice(0, 10) !== value) return false
+  return value >= MIN_INCIDENT_DATE && value <= todayIso
+}
+
 const INJURY_SEVERITY_OPTIONS = [
   { value: 'minor', labelKey: 'minor' as const },
   { value: 'moderate', labelKey: 'moderate' as const },
@@ -202,20 +216,6 @@ const FUTURE_TREATMENT_OPTION_DEFS = [
   { value: 'long_term_treatment', labelKey: 'future_longTerm' },
   { value: 'none', labelKey: 'future_none' },
   { value: 'not_sure', labelKey: 'future_notSure' },
-]
-
-const SYMPTOM_FREQUENCY_OPTION_DEFS = [
-  { value: 'daily', labelKey: 'symfreq_daily' },
-  { value: 'weekly', labelKey: 'symfreq_weekly' },
-  { value: 'occasionally', labelKey: 'symfreq_occasionally' },
-  { value: 'resolved', labelKey: 'symfreq_resolved' },
-]
-
-const SYMPTOM_TREND_OPTION_DEFS = [
-  { value: 'improving', labelKey: 'symtrend_improving' },
-  { value: 'same', labelKey: 'symtrend_same' },
-  { value: 'worse', labelKey: 'symtrend_worse' },
-  { value: 'not_sure', labelKey: 'optionNotSure' },
 ]
 
 const IMAGING_OPTION_DEFS = [
@@ -381,6 +381,13 @@ const UM_UIM_OPTION_DEFS = [
   { value: 'not_sure', labelKey: 'optionNotSure' },
 ]
 
+// PIP / no-fault coverage (auto cases). Required medical-payer info in no-fault states.
+const PIP_OPTION_DEFS = [
+  { value: 'yes', labelKey: 'optionYes' },
+  { value: 'no', labelKey: 'optionNo' },
+  { value: 'not_sure', labelKey: 'optionNotSure' },
+]
+
 const FAULT_BELIEF_OPTION_DEFS = [
   { value: 'other_party', labelKey: 'fault_otherParty' },
   { value: 'shared_fault', labelKey: 'fault_shared' },
@@ -434,6 +441,44 @@ const PROPERTY_DAMAGE_OPTIONS = [
   { value: 'not_drivable', labelKey: 'vehicle_damage_not_drivable' },
   { value: 'total_loss', labelKey: 'vehicle_damage_total_loss' }
 ]
+
+// Optional explicit repair/replacement cost for vehicle cases. When provided it
+// feeds the valuation's economic damages (estimated_property_damage) more precisely
+// than the impact selector's coarse fallback.
+const PROPERTY_DAMAGE_COST_OPTIONS = [
+  { value: 'under_1000', labelKey: 'vehicle_cost_under_1000', estimate: 600 },
+  { value: '1000_5000', labelKey: 'vehicle_cost_1000_5000', estimate: 3000 },
+  { value: '5000_15000', labelKey: 'vehicle_cost_5000_15000', estimate: 9000 },
+  { value: 'over_15000', labelKey: 'vehicle_cost_over_15000', estimate: 20000 },
+  { value: 'not_sure', labelKey: 'vehicle_cost_not_sure', estimate: 0 },
+]
+
+// Rental car / alternate transportation cost while the vehicle was being repaired.
+const RENTAL_COST_OPTIONS = [
+  { value: 'none', labelKey: 'vehicle_rental_none', estimate: 0 },
+  { value: 'under_500', labelKey: 'vehicle_rental_under_500', estimate: 300 },
+  { value: '500_2000', labelKey: 'vehicle_rental_500_2000', estimate: 1200 },
+  { value: 'over_2000', labelKey: 'vehicle_rental_over_2000', estimate: 3000 },
+]
+
+// Coarse fallback estimate from the damage-impact selector when no explicit cost is given.
+const PROPERTY_DAMAGE_IMPACT_ESTIMATE: Record<string, number> = {
+  minor: 1500, moderate: 4000, not_drivable: 9000, total_loss: 15000,
+}
+
+/**
+ * Best available property-damage dollar figure for a vehicle case: an explicit
+ * repair-cost range when provided, otherwise the coarse impact-based fallback,
+ * plus any rental/transportation cost.
+ */
+function computePropertyDamage(branch: Record<string, any>): number {
+  const repairFromRange = PROPERTY_DAMAGE_COST_OPTIONS.find(o => o.value === branch.propertyDamageCostRange)?.estimate ?? 0
+  const repair = repairFromRange > 0
+    ? repairFromRange
+    : (PROPERTY_DAMAGE_IMPACT_ESTIMATE[branch.propertyDamage] || 0)
+  const rental = RENTAL_COST_OPTIONS.find(o => o.value === branch.rentalCostRange)?.estimate ?? 0
+  return repair + rental
+}
 
 // Slip & fall branch
 const SLIP_HAZARD_OPTIONS = [
@@ -603,7 +648,8 @@ const WHO_CAUSED_OPTIONS = [
 const STEPS: { key: Step; title: string }[] = [
   { key: 'injury_type', title: 'Injury Type' },
   { key: 'when', title: 'Incident Facts' },
-  { key: 'injury_details', title: 'Injury Details' },
+  { key: 'injury_severity', title: 'Your Injuries' },
+  { key: 'injury_details', title: 'Treatment & Recovery' },
   { key: 'case_details', title: 'Case Details' },
   { key: 'evidence', title: 'Evidence Upload' },
   { key: 'financial_impact', title: 'Damages & Valuation' },
@@ -619,7 +665,6 @@ const LEGACY_STEP_MAP: Record<string, Step> = {
   where: 'when',
   narrative: 'when',
   contact: 'when',
-  injury_severity: 'when',
   medical_treatment: 'when',
   branch_7: 'case_details',
   branch_8: 'case_details',
@@ -673,8 +718,6 @@ export default function IntakeWizardQuick() {
   const SURGERY_STATUS_OPTIONS = localizeOptions(SURGERY_STATUS_OPTION_DEFS)
   const PROCEDURE_OPTIONS = localizeOptions(PROCEDURE_OPTION_DEFS)
   const FUTURE_TREATMENT_OPTIONS = localizeOptions(FUTURE_TREATMENT_OPTION_DEFS)
-  const SYMPTOM_FREQUENCY_OPTIONS = localizeOptions(SYMPTOM_FREQUENCY_OPTION_DEFS)
-  const SYMPTOM_TREND_OPTIONS = localizeOptions(SYMPTOM_TREND_OPTION_DEFS)
   const IMAGING_OPTIONS = localizeOptions(IMAGING_OPTION_DEFS)
   const CONCUSSION_SYMPTOM_OPTIONS = localizeOptions(CONCUSSION_SYMPTOM_OPTION_DEFS)
   const LIFESTYLE_IMPACT_OPTIONS = localizeOptions(LIFESTYLE_IMPACT_OPTION_DEFS)
@@ -696,6 +739,7 @@ export default function IntakeWizardQuick() {
   const MEDICAL_BILL_RANGE_OPTIONS = localizeOptions(MEDICAL_BILL_RANGE_OPTION_DEFS)
   const FUTURE_MEDICAL_RANGE_OPTIONS = localizeOptions(FUTURE_MEDICAL_RANGE_OPTION_DEFS)
   const UM_UIM_OPTIONS = localizeOptions(UM_UIM_OPTION_DEFS)
+  const PIP_OPTIONS = localizeOptions(PIP_OPTION_DEFS)
   const FAULT_BELIEF_OPTIONS = localizeOptions(FAULT_BELIEF_OPTION_DEFS)
   const SETTLEMENT_OFFER_OPTIONS = localizeOptions(SETTLEMENT_OFFER_OPTION_DEFS)
   const INSURANCE_CONTACT_OPTIONS = localizeOptions(INSURANCE_CONTACT_OPTION_DEFS)
@@ -733,7 +777,6 @@ export default function IntakeWizardQuick() {
   const [locationAccepted, setLocationAccepted] = useState(false)
   const [solPreview, setSolPreview] = useState<any>(null)
   const [solPreviewError, setSolPreviewError] = useState<string | null>(null)
-  const [showDeadlineDetail, setShowDeadlineDetail] = useState(false)
   const [furthestReachedStepIndex, setFurthestReachedStepIndex] = useState(0)
 
   const [formData, setFormData] = useState({
@@ -771,6 +814,7 @@ export default function IntakeWizardQuick() {
     casePosture: {} as Record<string, any>,
     insuranceCoverage: {
       healthCoverage: '' as '' | 'yes' | 'no' | 'unsure',
+      otherPartyInsured: '' as '' | 'yes' | 'no' | 'unsure',
       coverageTypes: [] as string[],
       medicarePlanType: '' as '' | 'original' | 'advantage' | 'unsure',
       healthInsurancePaid: '' as string,
@@ -783,6 +827,8 @@ export default function IntakeWizardQuick() {
       billsComplete: '' as '' | 'yes' | 'no',
       futureMedicalRange: '' as string,
       umUimCoverage: '' as string,
+      pipCoverage: '' as string,
+      plaintiffAutoCarrier: '' as string,
     },
     consents: { tos: false, privacy: false, ml_use: false }
   })
@@ -1011,6 +1057,12 @@ export default function IntakeWizardQuick() {
     fetch('https://ipapi.co/json/')
       .then(r => r.json())
       .then(async data => {
+        // Only pre-fill for US locations. Foreign region codes can collide with
+        // US state codes (e.g. Western Australia "WA" → Washington, Bhopal "MP"),
+        // which would surface a wrong/partial banner that fills city but not a
+        // valid US state/county (#13).
+        const country = String(data.country_code || data.country || '').toUpperCase()
+        if (country && country !== 'US') return
         const city = data.city || ''
         // Resolve a valid 2-letter US state code. ipapi sometimes returns an empty
         // or non-standard region_code, which previously left the state blank after
@@ -1237,6 +1289,7 @@ export default function IntakeWizardQuick() {
       cp.acceptedSettlement ? `${tx('sum_acceptedSettlement')}: ${cp.acceptedSettlement === 'yes' ? tx('optionYes') : cp.acceptedSettlement === 'no' ? tx('optionNo') : tx('optionNotSure')}` : null,
       cp.faultBelief ? `${tx('sum_fault')}: ${labelForValue(FAULT_BELIEF_OPTIONS, cp.faultBelief)}` : null,
       cp.insuranceContact ? `${tx('sum_reported')}: ${labelForValue(INSURANCE_CONTACT_OPTIONS, cp.insuranceContact)}` : null,
+      formData.insuranceCoverage.otherPartyInsured ? `${tx('legal_otherPartyInsuredQuestion')} ${formData.insuranceCoverage.otherPartyInsured === 'yes' ? tx('optionYes') : formData.insuranceCoverage.otherPartyInsured === 'no' ? tx('optionNo') : tx('optionNotSure')}` : null,
       cp.attorneyStatus ? `${tx('sum_lawyer')}: ${labelForValue(ATTORNEY_STATUS_OPTIONS, cp.attorneyStatus)}` : null,
       cp.deadlineWarning ? `${tx('sum_deadline')}: ${cp.deadlineWarning === 'yes' ? tx('sum_deadlineFlagged') : cp.deadlineWarning === 'no' ? tx('sum_noDeadlineWarning') : tx('optionNotSure')}` : null,
     ].filter(Boolean)
@@ -1254,7 +1307,7 @@ export default function IntakeWizardQuick() {
     {
       title: tx('review_injuriesTreatmentTitle'),
       value: `${getOptionLabel(INJURY_SEVERITY_OPTIONS, formData.injurySeverity)} • ${getMedicalTreatmentSummary()}`,
-      step: 'injury_details' as Step,
+      step: 'injury_severity' as Step,
       helper: getInjuryDetailsSummary()
     },
     {
@@ -1437,18 +1490,19 @@ export default function IntakeWizardQuick() {
     if (currentStep === 'injury_type' && !formData.injuryType) err.injuryType = tx('error_selectInjuryType')
     if (currentStep === 'when') {
       const preset = formData.incidentDatePreset
+      const today = isoToday()
       if (!preset) {
         err.incidentDate = tx('error_enterDate')
       } else if (preset === 'custom') {
         if (!customDate) err.incidentDate = tx('error_enterDate')
-        else if (customDate > isoToday()) err.incidentDate = tx('error_futureDate')
-        else if (customDate < MIN_INCIDENT_DATE) err.incidentDate = tx('error_invalidDate')
+        else if (customDate > today) err.incidentDate = tx('error_futureDate')
+        else if (!isValidIncidentDate(customDate, today)) err.incidentDate = tx('error_invalidDate')
         else updateForm({ incidentDate: customDate })
       } else if (preset === 'month_year') {
         // Date was already set when both month and year were chosen.
         if (!formData.incidentDate) err.incidentDate = tx('error_enterDate')
-        else if (formData.incidentDate > isoToday()) err.incidentDate = tx('error_futureDate')
-        else if (formData.incidentDate < MIN_INCIDENT_DATE) err.incidentDate = tx('error_invalidDate')
+        else if (formData.incidentDate > today) err.incidentDate = tx('error_futureDate')
+        else if (!isValidIncidentDate(formData.incidentDate, today)) err.incidentDate = tx('error_invalidDate')
       }
       if (!formData.venue.state) err.state = t('intake.selectStateError')
       if (!formData.venue.county?.trim()) err.county = t('intake.enterCounty')
@@ -1459,7 +1513,7 @@ export default function IntakeWizardQuick() {
       const phoneError = validatePhoneField(formData.contact.phone)
       if (phoneError) err.contactPhone = tx('contact_phoneError')
     }
-    if (currentStep === 'injury_details' && !formData.injurySeverity) err.injurySeverity = t('intake.selectSeverity')
+    if (currentStep === 'injury_severity' && !formData.injurySeverity) err.injurySeverity = t('intake.selectSeverity')
     if (currentStep === 'consent') {
       const c = formData.consents || {}
       if (!c.tos) err.tos = t('intake.acceptTos')
@@ -1584,15 +1638,24 @@ export default function IntakeWizardQuick() {
         damages: {
           med_charges: medicalBillEstimate,
           intake_med_charges: medicalBillEstimate,
+          // At intake the figure is a self-reported estimate (a selected range or a
+          // rough typed amount). Once bills are uploaded and OCR'd, runCaseRecalculation
+          // upgrades this to 'partially_documented'/'documented'. The valuation weights
+          // confidence by this so early estimates aren't treated as verified.
+          med_charges_source: 'self_reported' as const,
           bills_complete: formData.insuranceCoverage.billsComplete === 'yes',
           future_medical: futureMedicalEstimate,
           medical_bill_range: formData.insuranceCoverage.medicalBillRange,
           future_medical_range: formData.insuranceCoverage.futureMedicalRange,
           estimated_wage_loss: Number(String(formData.casePosture.lostWagesEstimate || '').replace(/[$,]/g, '')) || 0,
           wage_loss: Number(String(formData.casePosture.lostWagesEstimate || '').replace(/[$,]/g, '')) || 0,
+          // Property/rental damage for vehicle cases. Previously this only fed the
+          // client-side preview and never reached the backend valuation.
+          estimated_property_damage: formData.injuryType === 'vehicle' ? computePropertyDamage(formData.branch) : 0,
         },
         insurance: {
           health_coverage: formData.insuranceCoverage.healthCoverage,
+          other_party_insured: formData.insuranceCoverage.otherPartyInsured,
           coverage_types:
             formData.insuranceCoverage.healthCoverage === 'yes'
               ? [...formData.insuranceCoverage.coverageTypes]
@@ -1610,6 +1673,9 @@ export default function IntakeWizardQuick() {
           future_medical_range: formData.insuranceCoverage.futureMedicalRange,
           um_uim: formData.insuranceCoverage.umUimCoverage,
           has_um_uim_coverage: formData.insuranceCoverage.umUimCoverage === 'yes',
+          pip_coverage: formData.insuranceCoverage.pipCoverage,
+          has_pip_coverage: formData.insuranceCoverage.pipCoverage === 'yes',
+          plaintiff_auto_carrier: formData.insuranceCoverage.plaintiffAutoCarrier?.trim() || undefined,
           defendant_coverage_limits: formData.insuranceCoverage.defendantCoverageLimits,
           policy_limit:
             formData.insuranceCoverage.defendantCoverageLimits === '50000'
@@ -1848,13 +1914,19 @@ export default function IntakeWizardQuick() {
         return !!formData.injuryType
       case 'when':
         return !!formData.incidentDatePreset || !!formData.incidentDate || !!formData.venue.state || !!formData.venue.county || !!formData.venue.city || formData.medicalTreatment.length > 0
-      case 'injury_details':
+      case 'injury_severity':
         return (
           !!formData.injurySeverity ||
-          formData.injuryDetails.bodyParts.length > 0 ||
+          formData.injuryDetails.bodyParts.length > 0
+        )
+      case 'injury_details':
+        return (
           formData.injuryDetails.imaging.length > 0 ||
           formData.injuryDetails.diagnoses.length > 0 ||
-          formData.injuryDetails.lifestyleImpact.length > 0
+          formData.injuryDetails.currentSymptoms.length > 0 ||
+          !!formData.injuryDetails.recoveryStatus ||
+          formData.injuryDetails.lifestyleImpact.length > 0 ||
+          formData.injuryDetails.futureTreatment.length > 0
         )
       case 'case_details':
         return Boolean(
@@ -2400,7 +2472,9 @@ export default function IntakeWizardQuick() {
         )
       }
 
-      case 'injury_details':
+      case 'injury_severity':
+      case 'injury_details': {
+        const isSeverityStep = currentStep === 'injury_severity'
         const hasHeadInjury = formData.injuryDetails.bodyParts.includes('head_concussion')
         const hasShoulderInjury = formData.injuryDetails.bodyParts.includes('shoulder')
         const hasBackInjury = formData.injuryDetails.bodyParts.includes('lower_back')
@@ -2469,15 +2543,17 @@ export default function IntakeWizardQuick() {
         const recoveryLabel = RECOVERY_STATUS_OPTIONS.find(o => o.value === idd.recoveryStatus)?.label || ''
         const hasAnySelection = bodyCount > 0 || treatmentsSelected > 0 || diagnosesSelected > 0 || symptomsSelected > 0
         // Approximate marker coordinates on the body diagram (viewBox 0 0 140 250).
-        const bodyMarkers: Record<string, { cx: number; cy: number }> = {
-          head_concussion: { cx: 70, cy: 26 },
-          neck: { cx: 70, cy: 50 },
-          shoulder: { cx: 46, cy: 64 },
-          hand_wrist: { cx: 30, cy: 128 },
-          lower_back: { cx: 70, cy: 112 },
-          hip: { cx: 70, cy: 138 },
-          knee: { cx: 58, cy: 192 },
-          other: { cx: 70, cy: 92 },
+        // Symmetric body parts (shoulders, hands/wrists, knees) mark both sides of
+        // the diagram; midline parts (head, neck, back, hip) mark a single point.
+        const bodyMarkers: Record<string, { cx: number; cy: number }[]> = {
+          head_concussion: [{ cx: 70, cy: 26 }],
+          neck: [{ cx: 70, cy: 50 }],
+          shoulder: [{ cx: 46, cy: 64 }, { cx: 94, cy: 64 }],
+          hand_wrist: [{ cx: 30, cy: 128 }, { cx: 110, cy: 128 }],
+          lower_back: [{ cx: 70, cy: 112 }],
+          hip: [{ cx: 70, cy: 138 }],
+          knee: [{ cx: 58, cy: 192 }, { cx: 82, cy: 192 }],
+          other: [{ cx: 70, cy: 92 }],
         }
         const snapshotCards = [
           { key: 'severity', icon: Star, label: tx('injuryDetails_metricSeverity'), value: sevLevel, sub: '★★★★★'.slice(0, sevStars) + '☆☆☆☆☆'.slice(0, 5 - sevStars), tone: sevScore >= 67 ? 'text-rose-600' : sevScore >= 34 ? 'text-amber-600' : 'text-emerald-600' },
@@ -2508,8 +2584,8 @@ export default function IntakeWizardQuick() {
                 <HeartPulse className="h-5 w-5" aria-hidden />
               </span>
               <div className="min-w-0">
-                <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">{tx('injuryDetails_heading')}</p>
-                <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('injuryDetails_helper')}</p>
+                <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">{isSeverityStep ? tx('injuryDetails_heading') : tx('injuryTreatment_heading')}</p>
+                <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{isSeverityStep ? tx('injuryDetails_helper') : tx('injuryTreatment_helper')}</p>
               </div>
             </div>
 
@@ -2532,6 +2608,8 @@ export default function IntakeWizardQuick() {
               {/* ---------- Main column ---------- */}
               <div className="space-y-4">
 
+            {isSeverityStep ? (
+            <>
             {/* 1. How serious are your injuries? */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
               <SectionHeader icon={HeartPulse} number={1} title={t('intake.injurySeverity')} helper={tx('injurySeverity_helper')} />
@@ -2654,9 +2732,12 @@ export default function IntakeWizardQuick() {
               )}
             </div>
 
-            {/* 2. Treatment received — recap of step 2 selections + only the extra imaging detail (de-duped) */}
+            </>
+            ) : (
+            <>
+            {/* 1. Treatment received — recap of step 2 selections + only the extra imaging detail (de-duped) */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={3} title={tx('injuryDetails_treatmentReceived')} />
+              <SectionHeader number={1} title={tx('injuryDetails_treatmentReceived')} />
               <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{tx('injuryDetails_treatmentRecapTitle')}</p>
               {(() => {
                 const picked = MEDICAL_TREATMENT_OPTIONS.filter(o => o.value !== 'none' && formData.medicalTreatment.includes(o.value))
@@ -2694,7 +2775,7 @@ export default function IntakeWizardQuick() {
 
             {/* 3. Diagnoses */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={4} title={tx('injuryDetails_diagnosesQuestion')} helper={tx('injuryDetails_diagnosesHelper')} />
+              <SectionHeader number={2} title={tx('injuryDetails_diagnosesQuestion')} helper={tx('injuryDetails_diagnosesHelper')} />
               <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 {DIAGNOSIS_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.diagnoses.includes(value)
@@ -2712,7 +2793,7 @@ export default function IntakeWizardQuick() {
 
             {/* 4. Current symptoms */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={5} title={tx('injuryDetails_currentSymptomsQuestion')} helper={tx('injuryDetails_selectAllApply')} />
+              <SectionHeader number={3} title={tx('injuryDetails_currentSymptomsQuestion')} helper={tx('injuryDetails_selectAllApply')} />
               <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                 {CURRENT_SYMPTOM_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.currentSymptoms.includes(value)
@@ -2730,7 +2811,7 @@ export default function IntakeWizardQuick() {
 
             {/* 5. Recovery status */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={6} title={tx('injuryDetails_recoveryQuestion')} />
+              <SectionHeader number={4} title={tx('injuryDetails_recoveryQuestion')} />
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {RECOVERY_STATUS_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.recoveryStatus === value
@@ -2746,7 +2827,7 @@ export default function IntakeWizardQuick() {
 
             {/* 6. Impact on daily life */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={7} title={tx('injuryDetails_dailyLifeQuestion')} helper={tx('injuryDetails_selectAllApply')} />
+              <SectionHeader number={5} title={tx('injuryDetails_dailyLifeQuestion')} helper={tx('injuryDetails_dailyLifeHelper')} />
               <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
                 {LIFE_AREA_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.lifestyleImpact.includes(value)
@@ -2796,7 +2877,7 @@ export default function IntakeWizardQuick() {
             </div>
 
             {/* Additional information (optional) */}
-            <details open className="group border-t border-slate-200 pt-4 dark:border-slate-700">
+            <details className="group border-t border-slate-200 pt-4 dark:border-slate-700">
               <summary className="flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden">
                 <span className="flex items-start gap-3">
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/10">
@@ -2811,9 +2892,9 @@ export default function IntakeWizardQuick() {
               </summary>
 
               <div className="mt-4 space-y-5">
-                {/* 1. Prior injuries */}
+                {/* Prior injuries */}
                 <section className="border-t border-slate-200 pt-4 dark:border-slate-700">
-                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">8. {tx('injuryDetails_priorBodyAreas')}</p>
+                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">6. {tx('injuryDetails_priorBodyAreas')}</p>
                   <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_priorHelper')}</p>
                   <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                     {[
@@ -2832,42 +2913,9 @@ export default function IntakeWizardQuick() {
                   </div>
                 </section>
 
-                {/* 2 & 3. Symptom frequency + trend — stacked (Q9 sits in its own row
-                    below Q8) for clearer reading and better responsive layout. */}
-                <section className="grid gap-4 border-t border-slate-200 pt-4 dark:border-slate-700">
-                  <div>
-                    <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">9. {tx('injuryDetails_symptomsStill')}</p>
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      {SYMPTOM_FREQUENCY_OPTIONS.map(({ value, label }) => {
-                        const selected = formData.injuryDetails.symptomFrequency === value
-                        return (
-                          <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, symptomFrequency: selected ? '' : value } })} className={radioCardClass(selected)}>
-                            {radioDot(selected)}
-                            <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                  <div>
-                    <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">10. {tx('injuryDetails_symptomsTrend')}</p>
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      {SYMPTOM_TREND_OPTIONS.map(({ value, label }) => {
-                        const selected = formData.injuryDetails.symptomTrend === value
-                        return (
-                          <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, symptomTrend: selected ? '' : value } })} className={radioCardClass(selected)}>
-                            {radioDot(selected)}
-                            <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                </section>
-
-                {/* 4. Future treatment */}
+                {/* Future treatment */}
                 <section className="border-t border-slate-200 pt-4 dark:border-slate-700">
-                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">11. {tx('injuryDetails_futureTreatmentQuestion')}</p>
+                  <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">7. {tx('injuryDetails_futureTreatmentQuestion')}</p>
                   <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_selectAllApply')}</p>
                   <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
                     {FUTURE_TREATMENT_OPTIONS.map(({ value, label }) => {
@@ -2922,13 +2970,15 @@ export default function IntakeWizardQuick() {
                 {/* Why this matters */}
                 <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">{tx('injuryDetails_whyMatters')}</p>
-                    <p className="mt-0.5 text-xs leading-snug text-emerald-800/90 dark:text-emerald-200/80">{tx('injuryDetails_whyMattersBody')}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="break-words text-sm font-semibold text-emerald-900 dark:text-emerald-200">{tx('injuryDetails_whyMatters')}</p>
+                    <p className="mt-0.5 break-words text-xs leading-snug text-emerald-800/90 dark:text-emerald-200/80">{tx('injuryDetails_whyMattersBody')}</p>
                   </div>
                 </div>
               </div>
             </details>
+            </>
+            )}
               </div>{/* end main column */}
 
               {/* ---------- Sidebar (injury overview + insights) ---------- */}
@@ -2949,12 +2999,16 @@ export default function IntakeWizardQuick() {
                         <rect x="72" y="138" width="14" height="98" rx="7" />
                       </g>
                       {formData.injuryDetails.bodyParts.map(part => {
-                        const m = bodyMarkers[part]
-                        if (!m) return null
+                        const points = bodyMarkers[part]
+                        if (!points) return null
                         return (
                           <g key={part}>
-                            <circle cx={m.cx} cy={m.cy} r="8" className="fill-brand-500/30" />
-                            <circle cx={m.cx} cy={m.cy} r="4.5" className="fill-brand-600 stroke-white" strokeWidth="1.5" />
+                            {points.map((m, i) => (
+                              <g key={i}>
+                                <circle cx={m.cx} cy={m.cy} r="8" className="fill-brand-500/30" />
+                                <circle cx={m.cx} cy={m.cy} r="4.5" className="fill-brand-600 stroke-white" strokeWidth="1.5" />
+                              </g>
+                            ))}
                           </g>
                         )
                       })}
@@ -2974,7 +3028,7 @@ export default function IntakeWizardQuick() {
                 </div>
 
                 {/* Quick stats — only once there's data to count; desktop-only to cut mobile scroll */}
-                {hasAnySelection && (
+                {!isSeverityStep && hasAnySelection && (
                 <div className="hidden rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/40 lg:block">
                   <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_quickStats')}</p>
                   <div className="mt-3 space-y-2">
@@ -2994,6 +3048,7 @@ export default function IntakeWizardQuick() {
                 )}
 
                 {/* Why this matters + tips (combined; desktop-only). Severity already appears in the snapshot bar above, so it's not repeated here. */}
+                {!isSeverityStep && (
                 <div className="hidden rounded-2xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/10 lg:block">
                   <div className="flex items-center gap-2">
                     <Scale className="h-4 w-4 text-brand-600" aria-hidden />
@@ -3014,10 +3069,12 @@ export default function IntakeWizardQuick() {
                     ))}
                   </ul>
                 </div>
+                )}
               </aside>
             </div>{/* end two-column grid */}
           </div>
         )
+      }
 
       case 'case_details': {
         const cdTileClass = (selected: boolean) =>
@@ -3295,6 +3352,14 @@ export default function IntakeWizardQuick() {
             <div className="space-y-3">
               <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{t('intake.vehicle_propertyDamage')}</p>
               {cdSingleGrid(vehOpts(PROPERTY_DAMAGE_OPTIONS, damageIcons), formData.branch.propertyDamage, (v) => setBranch('propertyDamage', v))}
+              {!!formData.branch.propertyDamage && (
+                <>
+                  <p className="pt-1 font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('vehicle_repairCostQuestion')}</p>
+                  {cdPillGrid(PROPERTY_DAMAGE_COST_OPTIONS, formData.branch.propertyDamageCostRange, (v) => setBranch('propertyDamageCostRange', v))}
+                  <p className="pt-1 font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('vehicle_rentalCostQuestion')}</p>
+                  {cdPillGrid(RENTAL_COST_OPTIONS, formData.branch.rentalCostRange, (v) => setBranch('rentalCostRange', v))}
+                </>
+              )}
             </div>
           )
         }
@@ -3493,18 +3558,58 @@ export default function IntakeWizardQuick() {
               </div>
               <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">Was 911 called?</p>
               {cdPillGrid(YES_NO_NOT_SURE_OPTIONS, formData.branch.nineOneOneCalled, (v) => setBranch('nineOneOneCalled', v))}
-              {formData.branch.nineOneOneCalled === 'yes' && (
-                <div>
-                  <label htmlFor="emergency-call-time" className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">Approximate time of the call</label>
-                  <input
-                    id="emergency-call-time"
-                    type="time"
-                    value={formData.branch.emergencyCallTime || ''}
-                    onChange={e => setBranch('emergencyCallTime', e.target.value)}
-                    className="input mt-1 w-full border-gray-300 sm:w-52"
-                  />
-                </div>
-              )}
+              {formData.branch.nineOneOneCalled === 'yes' && (() => {
+                // Controlled hour/minute/AM-PM selects instead of the native
+                // <input type="time">. This keeps the label on its own line (the
+                // native picker's value overlapped the label text, #8) and avoids
+                // the browser time picker's stray blank minute row (#37).
+                const raw = formData.branch.emergencyCallTime || ''
+                const [rawH, rawM] = raw.split(':')
+                const h24 = rawH !== undefined && rawH !== '' ? parseInt(rawH, 10) : NaN
+                const hasTime = !Number.isNaN(h24)
+                const minute = rawM ?? ''
+                const hour12 = hasTime ? String(h24 % 12 === 0 ? 12 : h24 % 12) : ''
+                const period = hasTime ? (h24 < 12 ? 'AM' : 'PM') : ''
+                const baseMinutes = Array.from({ length: 12 }, (_, i) => i * 5)
+                const minuteNums = minute && !baseMinutes.includes(parseInt(minute, 10))
+                  ? [...baseMinutes, parseInt(minute, 10)].sort((a, b) => a - b)
+                  : baseMinutes
+                const minuteOptions = minuteNums.map((n) => String(n).padStart(2, '0'))
+                const commit = (nextHour: string, nextMinute: string, nextPeriod: string) => {
+                  const hr = parseInt(nextHour || hour12 || '12', 10)
+                  const per = nextPeriod || period || 'AM'
+                  const min = nextMinute || minute || '00'
+                  let h = hr % 12
+                  if (per === 'PM') h += 12
+                  setBranch('emergencyCallTime', `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`)
+                }
+                const selectCls = 'input w-auto border-gray-300'
+                return (
+                  <div>
+                    <label className="mb-1 block font-display text-sm font-semibold text-slate-950 dark:text-slate-100">Approximate time of the call</label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select aria-label="Hour" value={hour12} onChange={(e) => commit(e.target.value, minute, period)} className={selectCls}>
+                        <option value="" disabled>Hour</option>
+                        {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((h) => (
+                          <option key={h} value={h}>{h}</option>
+                        ))}
+                      </select>
+                      <span className="text-slate-500" aria-hidden="true">:</span>
+                      <select aria-label="Minutes" value={minute} onChange={(e) => commit(hour12, e.target.value, period)} className={selectCls}>
+                        <option value="" disabled>Min</option>
+                        {minuteOptions.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                      <select aria-label="AM or PM" value={period} onChange={(e) => commit(hour12, minute, e.target.value)} className={selectCls}>
+                        <option value="" disabled>AM/PM</option>
+                        <option value="AM">AM</option>
+                        <option value="PM">PM</option>
+                      </select>
+                    </div>
+                  </div>
+                )
+              })()}
               <p className="pt-1 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">Who responded to the scene?</p>
               {cdCheckList([
                 { key: 'responderPolice', label: 'Police', checked: !!formData.branch.responderPolice, onToggle: (v) => setBranch('responderPolice', v), icon: Shield },
@@ -3869,8 +3974,7 @@ export default function IntakeWizardQuick() {
           : medicalBillEstimate
         const futureMedical = futureMedicalEstimate
         const lostWages = parseMoney(cpFinancial.lostWagesEstimate)
-        const propertyDamageMap: Record<string, number> = { minor: 1500, moderate: 4000, not_drivable: 9000, total_loss: 15000 }
-        const propertyDamage = isVehicle ? (propertyDamageMap[formData.branch.propertyDamage] || 0) : 0
+        const propertyDamage = isVehicle ? computePropertyDamage(formData.branch) : 0
         const specials = pastMedical + futureMedical
         const economicTotal = specials + lostWages + propertyDamage
         const hasMRI = idet.imaging.includes('mri') || formData.medicalTreatment.includes('mri')
@@ -4165,6 +4269,8 @@ export default function IntakeWizardQuick() {
               <section className="order-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <SectionHeader icon={DollarSign} accent="emerald" title={tx('financial_medicalCosts')} helper={tx('financial_medicalCostsHelper')} />
 
+                <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-4 text-slate-600">{tx('financial_estimateNote')}</p>
+
                 <p className="mt-3 font-display text-sm font-semibold text-slate-950">{tx('financial_billsSoFar')}</p>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   {medicalBillCards.map(({ value, label }) => (
@@ -4307,6 +4413,16 @@ export default function IntakeWizardQuick() {
       case 'legal_status': {
         const icLegal = formData.insuranceCoverage
         const cpLegal = formData.casePosture || {}
+        const setInsuranceField = (field: string, value: string) =>
+          updateForm({ insuranceCoverage: { ...icLegal, [field]: (icLegal as any)[field] === value ? '' : value } })
+        const hasAnyInsuranceSignal = Boolean(
+          icLegal.otherPartyInsured ||
+          icLegal.healthCoverage ||
+          icLegal.defendantCoverageLimits ||
+          icLegal.umUimCoverage ||
+          icLegal.pipCoverage ||
+          (icLegal.plaintiffAutoCarrier && icLegal.plaintiffAutoCarrier.trim())
+        )
         const insurerContactValue =
           cpLegal.settlementOfferStatus === 'yes'
             ? 'offer'
@@ -4410,6 +4526,11 @@ export default function IntakeWizardQuick() {
           no: { Icon: XCircle, sub: tx('umuim_no_sub'), wrap: 'bg-rose-100 text-rose-500' },
           not_sure: { Icon: HelpCircle, sub: tx('umuim_notSure_sub'), wrap: 'bg-slate-100 text-slate-500' },
         }
+        const pipMeta: Record<string, { Icon: LucideIcon; sub: string; wrap: string }> = {
+          yes: { Icon: ShieldCheck, sub: tx('pip_yes_sub'), wrap: 'bg-emerald-100 text-emerald-600' },
+          no: { Icon: XCircle, sub: tx('pip_no_sub'), wrap: 'bg-rose-100 text-rose-500' },
+          not_sure: { Icon: HelpCircle, sub: tx('pip_notSure_sub'), wrap: 'bg-slate-100 text-slate-500' },
+        }
         return (
           <div className="space-y-3">
             <div className="flex items-center justify-center gap-2 text-center">
@@ -4456,6 +4577,27 @@ export default function IntakeWizardQuick() {
                     <p className="text-xs leading-5 text-slate-500">{tx('legal_insuranceStatusHelper')}</p>
                   </div>
                 </div>
+
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_otherPartyInsuredQuestion')}</p>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {renderChoice(icLegal.otherPartyInsured === 'yes', () => setInsuranceField('otherPartyInsured', 'yes'), ShieldCheck, tx('optionYes'), { tone: 'emerald', stack: true })}
+                  {renderChoice(icLegal.otherPartyInsured === 'no', () => setInsuranceField('otherPartyInsured', 'no'), XCircle, tx('optionNo'), { tone: 'red', stack: true })}
+                  {renderChoice(icLegal.otherPartyInsured === 'unsure', () => setInsuranceField('otherPartyInsured', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
+                </div>
+
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_healthInsuranceQuestion')}</p>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {renderChoice(icLegal.healthCoverage === 'yes', () => setInsuranceField('healthCoverage', 'yes'), CheckCircle2, tx('optionYes'), { tone: 'emerald', stack: true })}
+                  {renderChoice(icLegal.healthCoverage === 'no', () => setInsuranceField('healthCoverage', 'no'), XCircle, tx('optionNo'), { tone: 'amber', stack: true })}
+                  {renderChoice(icLegal.healthCoverage === 'unsure', () => setInsuranceField('healthCoverage', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
+                </div>
+
+                {!hasAnyInsuranceSignal && (
+                  <div className="mt-3 flex items-start gap-2 rounded-xl border border-dashed border-violet-200 bg-violet-50/60 px-3 py-2 text-[11px] leading-5 text-violet-800">
+                    <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                    <span>{tx('legal_insuranceNudge')}</span>
+                  </div>
+                )}
 
                 <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_insurerContactQuestion')}</p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
@@ -4618,10 +4760,59 @@ export default function IntakeWizardQuick() {
                     </div>
                   )}
 
+                  {isVehicle && (
+                    <div className="border-t border-slate-100 pt-4">
+                      <div className="flex items-center gap-2">
+                        <HeartPulse className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
+                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_pipQuestion')}</p>
+                      </div>
+                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_pipHelper')}</p>
+                      <div className="mt-3 grid gap-3 lg:grid-cols-4">
+                        <div className="grid gap-2 sm:grid-cols-3 lg:col-span-3">
+                          {PIP_OPTIONS.map(({ value, label }) => {
+                            const meta = pipMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
+                            return detailCard(
+                              icLegal.pipCoverage === value,
+                              () => updateForm({ insuranceCoverage: { ...icLegal, pipCoverage: icLegal.pipCoverage === value ? '' : value } }),
+                              meta.Icon,
+                              label,
+                              meta.sub,
+                              meta.wrap,
+                              value
+                            )
+                          })}
+                        </div>
+                        <div className="flex flex-col justify-center rounded-xl bg-emerald-50 p-3 lg:col-span-1">
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                            <HeartPulse className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whatPipTitle')}
+                          </div>
+                          <p className="mt-1.5 text-[11px] leading-4 text-emerald-800/90">{tx('legal_whatPip')}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {isVehicle && (
+                    <div className="border-t border-slate-100 pt-4">
+                      <div className="flex items-center gap-2">
+                        <Umbrella className="h-4 w-4 shrink-0 text-violet-500" aria-hidden />
+                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_plaintiffCarrierQuestion')}</p>
+                      </div>
+                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_plaintiffCarrierHelper')}</p>
+                      <input
+                        type="text"
+                        value={icLegal.plaintiffAutoCarrier}
+                        onChange={(event) => updateForm({ insuranceCoverage: { ...icLegal, plaintiffAutoCarrier: event.target.value } })}
+                        placeholder={tx('legal_plaintiffCarrierPlaceholder')}
+                        className="input mt-3 w-full border-gray-300"
+                      />
+                    </div>
+                  )}
+
                   <div className="flex flex-col gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
                     <p className="flex items-start gap-2 text-[11px] leading-4 text-slate-600">
                       <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                      <span>{tx('legal_policyNote')}</span>
+                      <span>{tx('legal_uploadInstead')}</span>
                     </p>
                     <button
                       type="button"
@@ -4790,7 +4981,7 @@ export default function IntakeWizardQuick() {
               {renderCard({ title: tx('card_incident'), icon: Car, step: 'when', children: (
                 <>{incidentLines.map((l, i) => <p key={i} className="truncate">{l}</p>)}</>
               ) })}
-              {renderCard({ title: tx('card_injury'), icon: HeartPulse, step: 'injury_details', count: injuryCount > 0 ? `${tx('card_viewAllInjuries')} (${injuryCount})` : undefined, children: (
+              {renderCard({ title: tx('card_injury'), icon: HeartPulse, step: 'injury_severity', count: injuryCount > 0 ? `${tx('card_viewAllInjuries')} (${injuryCount})` : undefined, children: (
                 <>{injuryLines.length ? injuryLines.map((l, i) => <p key={i} className="flex items-center gap-1.5"><CheckCircle2 className="h-3 w-3 shrink-0 text-brand-500" aria-hidden /><span className="truncate">{l}</span></p>) : <p>{tx('notAnsweredYet')}</p>}</>
               ) })}
               {renderCard({ title: tx('card_financial'), icon: DollarSign, step: 'financial_impact', children: (
@@ -4880,7 +5071,8 @@ export default function IntakeWizardQuick() {
     injury_type: t('intake.stepTitles_injury_type'),
     when: tx('stepTitles_incidentFacts'),
     narrative: t('intake.stepTitles_narrative'),
-    injury_details: tx('stepTitles_injury_details'),
+    injury_severity: tx('stepTitles_injuries'),
+    injury_details: tx('stepTitles_treatment'),
     case_details: t('intake.stepTitles_branch_7'),
     evidence: tx('stepTitles_evidence'),
     financial_impact: tx('stepTitles_damagesValuation'),
@@ -4894,7 +5086,7 @@ export default function IntakeWizardQuick() {
     currentStepIndex < furthestReachedStepIndex &&
     hasSavedAnswerForStep(currentStep)
   const casePostureFit = currentStep === 'financial_impact' || currentStep === 'legal_status'
-  const injuryDetailsFit = currentStep === 'injury_details'
+  const injuryDetailsFit = currentStep === 'injury_details' || currentStep === 'injury_severity'
   const showReassurance = currentStep !== 'consent' && !casePostureFit && !injuryDetailsFit && !isFirstStep
   const evidenceFit = currentStep === 'evidence'
   const denseStepFit = currentStep === 'consent'
@@ -4924,9 +5116,6 @@ export default function IntakeWizardQuick() {
   // Compact, always-available filing deadline chip (shown on every step once a deadline is known).
   const filingDeadlineDate = solPreview?.expiresAt ? new Date(solPreview.expiresAt) : null
   const hasFilingDeadline = !!filingDeadlineDate && !isNaN(filingDeadlineDate.getTime())
-  const filingDeadlineShort = hasFilingDeadline
-    ? filingDeadlineDate!.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-    : ''
   const filingDeadlineLong = hasFilingDeadline
     ? filingDeadlineDate!.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
     : ''
@@ -4993,7 +5182,7 @@ export default function IntakeWizardQuick() {
   const documentationSignalLabel = injuryConfidencePercent >= 70 ? 'strong' : injuryConfidencePercent >= 40 ? 'moderate' : 'early'
 
   return (
-    <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-7xl flex-col overflow-visible px-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:px-4 md:h-[calc(100dvh-7.5rem)] md:min-h-0 md:overflow-hidden md:px-8 md:py-3 ${isFirstStep ? 'py-1' : 'py-1.5 sm:py-2'}`}>
+    <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-7xl flex-col overflow-visible px-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:px-4 md:min-h-[calc(100dvh-7.5rem)] md:overflow-visible md:px-8 md:py-3 ${isFirstStep ? 'py-1' : 'py-1.5 sm:py-2'}`}>
       <div className="mb-1 shrink-0" aria-busy={loading}>
         <p className={`mb-0.5 text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300 md:text-sm ${isFirstStep ? 'hidden sm:block' : ''}`}>
           {t('intake.timePromise')}
@@ -5043,57 +5232,38 @@ export default function IntakeWizardQuick() {
         </div>
         <p className="sr-only">{Math.round(progressPercent)} {tx('progress_percentComplete')}</p>
         {hasFilingDeadline && (
-          <div className="relative mt-2 flex justify-center">
-            <button
-              type="button"
-              onClick={() => setShowDeadlineDetail((v) => !v)}
-              aria-expanded={showDeadlineDetail}
-              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-            >
-              <span className={`h-2 w-2 rounded-full ${filingDeadlineDotTone}`} aria-hidden />
-              <span>{tx('sol_filingDeadline')}: {filingDeadlineShort}</span>
-              <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform ${showDeadlineDetail ? 'rotate-180' : ''}`} aria-hidden />
-            </button>
-            {showDeadlineDetail && (
-              <>
+          <div className="mt-2 flex justify-center">
+            <p className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 text-center text-xs leading-5">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${filingDeadlineDotTone}`} aria-hidden />
+              <span className="font-semibold text-slate-700 dark:text-slate-200">{tx('sol_estimatedFilingDeadline')}:</span>
+              <span className="font-semibold text-slate-900 dark:text-slate-50">{filingDeadlineLong}</span>
+              {filingDaysRemaining != null && (
+                <>
+                  <span className="text-slate-300 dark:text-slate-600" aria-hidden>·</span>
+                  <span className={`font-semibold ${
+                    solPreview?.status === 'critical' || solPreview?.status === 'expired'
+                      ? 'text-red-600'
+                      : solPreview?.status === 'warning'
+                        ? 'text-amber-600'
+                        : 'text-emerald-600'
+                  }`}>
+                    {tx(filingDaysRemaining === 1 ? 'sol_dayRemainingShort' : 'sol_daysRemainingShort').replace('{days}', String(filingDaysRemaining))}
+                  </span>
+                </>
+              )}
+              <span className="text-slate-300 dark:text-slate-600" aria-hidden>·</span>
+              <span className="text-slate-500 dark:text-slate-400">{tx('sol_basedOnAnswers')}</span>
+              <span className="text-slate-400 dark:text-slate-500">{tx('sol_notLegalAdvice')}</span>
+              {showExactDatePrompt && (
                 <button
                   type="button"
-                  aria-hidden
-                  tabIndex={-1}
-                  onClick={() => setShowDeadlineDetail(false)}
-                  className="fixed inset-0 z-40 cursor-default"
-                />
-                <div className="absolute top-full z-50 mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-xl dark:border-slate-700 dark:bg-slate-800">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{tx('sol_estimatedFilingDeadline')}</p>
-                  <p className="mt-1 font-display text-lg font-bold text-slate-900 dark:text-slate-50">{filingDeadlineLong}</p>
-                  {filingDaysRemaining != null && (
-                    <p className={`mt-0.5 text-sm font-semibold ${
-                      solPreview?.status === 'critical' || solPreview?.status === 'expired'
-                        ? 'text-red-600'
-                        : solPreview?.status === 'warning'
-                          ? 'text-amber-600'
-                          : 'text-emerald-600'
-                    }`}>
-                      {tx(filingDaysRemaining === 1 ? 'sol_dayRemainingShort' : 'sol_daysRemainingShort').replace('{days}', String(filingDaysRemaining))}
-                    </p>
-                  )}
-                  <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">{tx('sol_basedOnAnswers')}</p>
-                  {showExactDatePrompt && (
-                    <p className="mt-2 text-[11px] leading-4 text-slate-500 dark:text-slate-400">
-                      {tx('sol_approxNote')}{' '}
-                      <button
-                        type="button"
-                        onClick={() => { promptForExactDate(); setShowDeadlineDetail(false) }}
-                        className="font-semibold text-blue-600 underline underline-offset-2 hover:text-blue-700"
-                      >
-                        {tx('sol_enterExactDate')}
-                      </button>
-                    </p>
-                  )}
-                  <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">{tx('sol_notLegalAdvice')}</p>
-                </div>
-              </>
-            )}
+                  onClick={promptForExactDate}
+                  className="font-semibold text-blue-600 underline underline-offset-2 hover:text-blue-700"
+                >
+                  {tx('sol_enterExactDate')}
+                </button>
+              )}
+            </p>
           </div>
         )}
       </div>
@@ -5165,7 +5335,7 @@ export default function IntakeWizardQuick() {
       )}
 
       <div
-        className={`mb-1 flex flex-col overflow-visible rounded-2xl border border-slate-200/90 bg-white shadow-card transition-shadow hover:shadow-card-hover dark:border-slate-700 dark:bg-slate-900/80 motion-reduce:hover:shadow-card md:overflow-hidden md:rounded-3xl ${denseStepFit ? 'p-2.5 md:p-4' : casePostureFit ? 'p-3 sm:p-4 md:p-5' : 'p-3 sm:p-4 md:p-6'} ${isFirstStep ? 'py-2 sm:py-2.5 md:py-3' : ''} ${denseStepFit ? 'text-sm md:text-base' : 'text-base'} ${
+        className={`mb-1 flex flex-col overflow-visible rounded-2xl border border-slate-200/90 bg-white shadow-card transition-shadow hover:shadow-card-hover dark:border-slate-700 dark:bg-slate-900/80 motion-reduce:hover:shadow-card md:overflow-visible md:rounded-3xl ${denseStepFit ? 'p-2.5 md:p-4' : casePostureFit ? 'p-3 sm:p-4 md:p-5' : 'p-3 sm:p-4 md:p-6'} ${isFirstStep ? 'py-2 sm:py-2.5 md:py-3' : ''} ${denseStepFit ? 'text-sm md:text-base' : 'text-base'} ${
           denseStepFit
             ? "[&_button]:min-h-9 [&_button]:py-2 [&_button]:text-xs [&_button]:leading-tight md:[&_button]:min-h-10 md:[&_button]:text-sm [&_input:not([type='checkbox'])]:min-h-10 [&_input:not([type='checkbox'])]:text-sm [&_select]:min-h-10 [&_select]:text-sm [&_p.text-lg]:text-sm [&_p.text-sm]:text-xs [&_span.text-sm]:text-xs [&_textarea]:min-h-[3rem] [&_textarea]:py-2 [&_textarea]:text-sm"
             : casePostureFit
@@ -5173,7 +5343,7 @@ export default function IntakeWizardQuick() {
               : "[&_button]:min-h-14 [&_button]:leading-snug [&_button]:text-base md:[&_button]:text-lg [&_input:not([type='checkbox'])]:min-h-12 [&_input:not([type='checkbox'])]:text-lg [&_label]:text-base [&_p.text-lg]:text-xl [&_p.text-sm]:text-base [&_p.text-xs]:text-sm [&_select]:min-h-12 [&_select]:text-lg [&_span.text-sm]:text-base [&_span.text-xs]:text-sm [&_textarea]:min-h-[4.75rem] [&_textarea]:py-2 [&_textarea]:text-base [&_textarea]:leading-snug"
         } min-h-0`}
       >
-        <div ref={stepScrollRef} className="px-2 md:min-h-0 md:flex-1 md:overflow-y-auto md:overscroll-y-contain md:[-webkit-overflow-scrolling:touch]">
+        <div ref={stepScrollRef} className="px-2">
           {renderStep()}
         </div>
       </div>

@@ -51,8 +51,25 @@ model User {
   caseAssignments            FirmCaseAssignment[]
   assignedCaseTasks          CaseTask[]
   intakeLeads                IntakeLead[]
+  passwordResetTokens        PasswordResetToken[]
 
   @@map("users")
+}
+
+// Single-use, expiring tokens for the password reset / "set password" flow.
+// We persist only a SHA-256 hash of the token so a DB leak can't be used to
+// reset accounts. The raw token is emailed to the user and never stored.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 model AttorneyPushDevice {
@@ -125,6 +142,7 @@ model Assessment {
   updatedAt DateTime @updatedAt
 
   predictions   Prediction[]
+  caseOutcomes  CaseOutcome[]
   files         File[]
   introductions Introduction[]
   attorneyCaseReviews AttorneyCaseReview[]
@@ -564,6 +582,31 @@ model Prediction {
   createdAt    DateTime   @default(now())
 
   @@map("predictions")
+}
+
+/// Historical resolution of a case, used to backtest and calibrate the valuation engine
+/// against real-world settlement/verdict outcomes (see lib/valuation-calibration.ts).
+model CaseOutcome {
+  id           String     @id @default(cuid())
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  assessmentId String
+  outcomeType  String     // settlement | verdict | dismissed | withdrawn
+  grossAmount  Float? // total resolution amount (gross, pre-fee)
+  netToClient  Float?
+  resolvedAt   DateTime?
+  // Snapshot of the prediction + features at the time of resolution, so calibration can
+  // replay the exact inputs that produced the prediction being evaluated.
+  predictedMedian  Float?
+  featuresSnapshot String? @db.Text // JSON feature vector (computeFeatures output)
+  source       String     @default("manual") // manual | attorney_reported | docket_import
+  notes        String?    @db.Text
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([assessmentId])
+  @@index([outcomeType])
+  @@index([resolvedAt])
+  @@map("case_outcomes")
 }
 
 model Attorney {

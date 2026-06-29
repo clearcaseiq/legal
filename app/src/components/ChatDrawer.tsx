@@ -69,6 +69,7 @@ export default function ChatDrawer({
   const [channel, setChannel] = useState<'in-app' | 'sms' | 'email'>('in-app')
   const [draftSaved, setDraftSaved] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messageThreadRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -121,16 +122,33 @@ export default function ChatDrawer({
 
   const handleSend = async () => {
     const text = input.trim()
-    if (!text || !chatRoomId || sending) return
+    if (!text || sending) return
+    if (!userId) {
+      setSendError('This plaintiff has not created an account yet, so in-app messaging is unavailable.')
+      return
+    }
     setSending(true)
+    setSendError(null)
     try {
-      await sendAttorneyMessage(chatRoomId, text)
-      const updated = await getAttorneyChatRoomMessages(chatRoomId)
+      // The room may not have been created yet (initial load failed or is still
+      // in flight). Ensure one exists before sending so the button never no-ops.
+      let roomId = chatRoomId
+      if (!roomId) {
+        const res = await getOrCreateAttorneyChatRoom(userId, assessmentId || undefined)
+        roomId = res.chatRoomId
+        setChatRoomId(roomId)
+      }
+      if (!roomId) {
+        throw new Error('Could not open a chat room for this case.')
+      }
+      await sendAttorneyMessage(roomId, text)
+      const updated = await getAttorneyChatRoomMessages(roomId)
       setMessages(Array.isArray(updated) ? updated : [])
       setInput('')
       onMessageSent?.()
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to send:', err)
+      setSendError(err?.response?.data?.error || err?.message || 'Failed to send message. Please try again.')
     } finally {
       setSending(false)
     }
@@ -326,6 +344,9 @@ export default function ChatDrawer({
                   {sending ? 'Sending...' : 'Send Message'}
                 </button>
               </div>
+              {sendError && (
+                <p className="mt-2 text-center text-xs text-red-600">{sendError}</p>
+              )}
               <p className="mt-2 text-center text-xs text-slate-500">
                 In-app messages are saved to this case activity timeline.
               </p>

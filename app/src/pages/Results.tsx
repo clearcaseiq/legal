@@ -907,7 +907,12 @@ export default function Results() {
     status?: 'pending' | 'confirmed' | 'skipped'
     successMessage?: string
   }) => {
-    if (!resolvedAssessmentId || !plaintiffMedicalReview) return
+    // Only the assessment id is truly required to save. Previously this also
+    // required plaintiffMedicalReview to be loaded, which left the
+    // "I'll do this later" / confirm buttons silently dead when the review
+    // payload hadn't loaded (e.g. the medical-malpractice snapshot), since
+    // edits already falls back to [] below (#25).
+    if (!resolvedAssessmentId) return
     try {
       setMedicalReviewSaving(true)
       setMedicalReviewError(null)
@@ -1406,11 +1411,21 @@ export default function Results() {
       <div className="max-w-4xl mx-auto">
         <div className="text-center py-12">
           <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Error</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">We couldn’t load your report</h2>
           <p className="text-gray-600">{error || 'Assessment not found'}</p>
-          <Link to="/assess" className="btn-primary mt-4">
-            Start New Assessment
-          </Link>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+            {/* A transient fetch failure (e.g. when navigating back to this page)
+                shouldn't force the user to lose their case — let them retry the
+                same report before starting over (#24). */}
+            {resolvedAssessmentId && (
+              <button type="button" onClick={() => window.location.reload()} className="btn-primary">
+                Try again
+              </button>
+            )}
+            <Link to="/assess" className={resolvedAssessmentId ? 'btn-outline' : 'btn-primary'}>
+              Start New Assessment
+            </Link>
+          </div>
         </div>
       </div>
     )
@@ -1743,7 +1758,13 @@ export default function Results() {
   const netAttorneyFee = Math.round(displaySettlementExpected * 0.33)
   const netMedicalLiens = Math.round(Math.min(documentedMedicalCharges, displaySettlementExpected))
   const netCaseExpenses = preSuitCaseExpenses
-  const netEstimatedRecovery = Math.max(0, displaySettlementExpected - netAttorneyFee - netMedicalLiens - netCaseExpenses)
+  // Raw (unclamped) take-home. In a contingency case the plaintiff never owes
+  // out of pocket beyond the recovery, so the headline is floored at $0 — but a
+  // bare green "$0" implied break-even when deductions actually meet/exceed the
+  // settlement, so we surface that explicitly in the UI (#22).
+  const netEstimatedRecoveryRaw = displaySettlementExpected - netAttorneyFee - netMedicalLiens - netCaseExpenses
+  const netEstimatedRecovery = Math.max(0, netEstimatedRecoveryRaw)
+  const netRecoveryExhaustedByCosts = netEstimatedRecoveryRaw <= 0
 
   // Inputs that would most improve a sparse valuation (shown as a missing-data note).
   const valuationMissingInputs = [
@@ -2364,6 +2385,33 @@ Checklist:
       })),
     { title: 'Continue consistent treatment', desc: 'Ongoing treatment improves case value.', boost: '+5%', icon: Calendar, cta: 'Learn more' },
   ].slice(0, 4)
+
+  // Localized labels for the case-snapshot cost/action sections (#14). The
+  // underlying data keeps its English label (used as React keys and in the PDF
+  // export); only the displayed text is translated, falling back to English.
+  const snapshotLabelMap: Record<string, string> = {
+    'Court filing fees': t('results.snap.costFiling'),
+    'Service / citation fees': t('results.snap.costService'),
+    'Medical record retrieval': t('results.snap.costRecords'),
+    'Deposition expenses': t('results.snap.costDeposition'),
+    'Expert witness fees': t('results.snap.costExpert'),
+    'Other litigation expenses': t('results.snap.costOther'),
+    'Upload police report': t('results.snap.actPoliceTitle'),
+    'Upload medical records': t('results.snap.actRecordsTitle'),
+    'Upload medical bills': t('results.snap.actBillsTitle'),
+    'Add wage verification or pay stubs': t('results.snap.actWageTitle'),
+    'Continue consistent treatment': t('results.snap.actTreatmentTitle'),
+    'Liability is easier to prove with official documentation.': t('results.snap.actPoliceDesc'),
+    'Shows the extent of your injuries and treatment.': t('results.snap.actRecordsDesc'),
+    'Documents the economic value of your treatment.': t('results.snap.actBillsDesc'),
+    'Helps prove lost income and work impact.': t('results.snap.actWageDesc'),
+    'Ongoing treatment improves case value.': t('results.snap.actTreatmentDesc'),
+    'Strengthens your case.': t('results.snap.actDefaultDesc'),
+    'Upload': t('results.snap.ctaUpload'),
+    'Add': t('results.snap.ctaAdd'),
+    'Learn more': t('results.snap.ctaLearnMore'),
+  }
+  const trSnap = (value: string) => snapshotLabelMap[value] ?? value
 
   // ---- "Your next step" guidance: the single linear path the plaintiff should follow ----
   const nextStepItems: Array<{
@@ -3150,13 +3198,20 @@ Checklist:
               </div>
               <div className="flex items-center justify-between border-t border-slate-200 pt-3">
                 <span className="text-sm font-semibold text-slate-900">Estimated net to you</span>
-                <span className="font-display text-xl font-bold text-emerald-600">{formatCurrency(netEstimatedRecovery)}</span>
+                <span className={`font-display text-xl font-bold ${netRecoveryExhaustedByCosts ? 'text-amber-600' : 'text-emerald-600'}`}>{formatCurrency(netEstimatedRecovery)}</span>
               </div>
             </div>
-            <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-500">
-              <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-              Illustrative only. Attorney fees, medical liens, and case costs vary by case and are often negotiated down &mdash; your attorney will confirm the final numbers.
-            </p>
+            {netRecoveryExhaustedByCosts ? (
+              <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-700">
+                <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
+                At this settlement estimate, projected attorney fees, medical liens, and case costs would use up most or all of the recovery, leaving little to nothing. You would not owe money out of pocket &mdash; and liens and costs are commonly negotiated down to preserve a recovery for you. Your attorney will confirm the final numbers.
+              </p>
+            ) : (
+              <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-500">
+                <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                Illustrative only. Attorney fees, medical liens, and case costs vary by case and are often negotiated down &mdash; your attorney will confirm the final numbers.
+              </p>
+            )}
           </div>
           )}
 
@@ -3165,33 +3220,33 @@ Checklist:
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500"><Scale className="h-4 w-4" aria-hidden /></span>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Potential Litigation Costs</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.snap.litTitle')}</p>
             </div>
-            <p className="mt-3 text-sm text-slate-600">Typical case costs, separate from the attorney fee. Pre-suit items usually apply even if you settle; deposition and expert costs apply only if your case is actively litigated. These are normally advanced by your attorney and repaid from the settlement.</p>
+            <p className="mt-3 text-sm text-slate-600">{t('results.snap.litDesc')}</p>
             <div className="mt-4 space-y-2.5">
               {litigationCostItems.map((item) => (
                 <div key={item.label} className="flex items-center justify-between text-sm">
                   <span className="flex items-center gap-2 text-slate-600">
-                    {item.label}
-                    {item.stage === 'litigation' && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">If litigated</span>}
+                    {trSnap(item.label)}
+                    {item.stage === 'litigation' && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">{t('results.snap.ifLitigated')}</span>}
                   </span>
                   <span className="font-medium text-slate-900">{formatCurrency(item.amount)}</span>
                 </div>
               ))}
               <div className="flex items-center justify-between border-t border-slate-200 pt-3">
-                <span className="text-sm font-semibold text-slate-900">Estimated total if litigated</span>
+                <span className="text-sm font-semibold text-slate-900">{t('results.snap.estTotal')}</span>
                 <span className="font-display text-lg font-bold text-slate-900">{formatCurrency(litigationCostTotal)}</span>
               </div>
             </div>
-            <p className="mt-3 text-[11px] leading-5 text-slate-500">Estimates only. Court filing (~$400) and service (~$125) fees are fairly standard; medical record retrieval, depositions, and expert witnesses vary widely by case and venue.</p>
+            <p className="mt-3 text-[11px] leading-5 text-slate-500">{t('results.snap.litDisclaimer')}</p>
           </div>
           )}
 
           {/* Top actions */}
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div>
-              <p className="font-display text-base font-semibold text-slate-900">Top Actions to Strengthen Your Case</p>
-              <p className="mt-0.5 text-sm text-slate-500">Complete these steps to improve your evaluation and attract more attorney interest.</p>
+              <p className="font-display text-base font-semibold text-slate-900">{t('results.snap.topTitle')}</p>
+              <p className="mt-0.5 text-sm text-slate-500">{t('results.snap.topDesc')}</p>
             </div>
             <div className="mt-4 divide-y divide-slate-100">
               {snapshotTopActions.map((action) => {
@@ -3200,14 +3255,14 @@ Checklist:
                   <div key={action.title} className="flex items-center gap-4 py-3">
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-500"><Icon className="h-4 w-4" aria-hidden /></span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-slate-900">{action.title}</p>
-                      <p className="text-xs text-slate-500">{action.desc}</p>
+                      <p className="text-sm font-semibold text-slate-900">{trSnap(action.title)}</p>
+                      <p className="text-xs text-slate-500">{trSnap(action.desc)}</p>
                     </div>
                     <div className="hidden shrink-0 text-right sm:block">
                       <p className="text-sm font-bold text-emerald-600">{action.boost}</p>
-                      <p className="text-[11px] text-slate-400">Potential impact</p>
+                      <p className="text-[11px] text-slate-400">{t('results.snap.potentialImpact')}</p>
                     </div>
-                    <Link to={`/evidence-upload/${assessment?.id ?? ''}`} className="shrink-0 rounded-lg border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">{action.cta}</Link>
+                    <Link to={`/evidence-upload/${assessment?.id ?? ''}`} className="shrink-0 rounded-lg border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">{trSnap(action.cta)}</Link>
                   </div>
                 )
               })}
@@ -3492,7 +3547,7 @@ Checklist:
                   return (
                     <div key={action.title} className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-center">
                       <span className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg bg-white text-brand-600 shadow-sm"><Icon className="h-4 w-4" aria-hidden /></span>
-                      <p className="mt-2 text-[11px] font-semibold leading-4 text-slate-800">{action.title}</p>
+                      <p className="mt-2 text-[11px] font-semibold leading-4 text-slate-800">{trSnap(action.title)}</p>
                       <p className="mt-1 text-[11px] font-bold text-emerald-600">{action.boost}</p>
                     </div>
                   )

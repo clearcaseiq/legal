@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { getAdminCaseDetail, bulkRouteCases, getAdminAttorneys, holdCaseForManualReview, getAdminCaseRoutingState, getAdminAttorneyDebug, getAdminAttorneyRecommendations, runAdminRouteEngine, manualReviewAction } from '../../lib/api'
 import { DECLINE_REASONS } from '../../components/DeclineModal'
-import { formatCurrency, formatDate } from '../../lib/formatters'
+import { formatCurrency, formatDate, formatEnumLabel } from '../../lib/formatters'
+import { formatCaseId } from '../../lib/caseId'
 import {
   ArrowLeft,
   RefreshCw,
@@ -18,6 +19,116 @@ import {
   CheckCircle,
   Clock,
 } from 'lucide-react'
+
+/**
+ * Human-readable rendering of the routing-state diagnostic. Replaces the raw
+ * JSON dump so admins can scan the routing outcome at a glance (#28).
+ */
+function RoutingStateView({ state }: { state: any }) {
+  if (!state) return null
+  if (state.error) {
+    return <p className="text-sm text-red-700">Could not load routing state: {state.error}</p>
+  }
+  const intros: any[] = Array.isArray(state.introductions) ? state.introductions : []
+  const lead = state.leadSubmission
+  const lookup = state.attorneyLookupByEmail
+  const statusBadge = (status: string) => {
+    const map: Record<string, string> = {
+      accepted: 'bg-green-100 text-green-800',
+      pending: 'bg-amber-100 text-amber-800',
+      declined: 'bg-red-100 text-red-800',
+      expired: 'bg-slate-100 text-slate-600',
+    }
+    const label = String(status || 'unknown').replace(/_/g, ' ')
+    return (
+      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${map[status] || 'bg-slate-100 text-slate-600'}`}>
+        {label}
+      </span>
+    )
+  }
+  return (
+    <div className="space-y-3 text-sm text-slate-700">
+      <div className="flex items-center gap-2">
+        <span className="text-slate-500">Assignment:</span>
+        {state.hasLeadSubmission ? (
+          <span>
+            {lead?.assignedAttorneyId
+              ? <>Assigned (<span className="font-medium">{lead.assignmentType || 'manual'}</span>)</>
+              : 'Not yet assigned'}
+          </span>
+        ) : (
+          <span className="text-slate-500">No lead submission recorded</span>
+        )}
+      </div>
+      <div>
+        <p className="text-slate-500 mb-1">Introductions ({intros.length})</p>
+        {intros.length === 0 ? (
+          <p className="text-slate-500">No attorney introductions yet.</p>
+        ) : (
+          <ul className="space-y-1">
+            {intros.map((i) => (
+              <li key={i.id} className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-slate-900">{i.attorneyName || 'Unknown attorney'}</span>
+                <span className="text-slate-500 break-all">{i.attorneyEmail || '—'}</span>
+                {statusBadge(i.status)}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {lookup && (
+        <div className="flex items-center gap-2">
+          <span className="text-slate-500">Email lookup:</span>
+          {lookup.error
+            ? <span className="text-red-700">Not found — attorney must log in with this exact email</span>
+            : <span>Matched <span className="font-medium">{lookup.name}</span> ({lookup.email})</span>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The raw `Assessment.status` becomes "COMPLETED" as soon as a plaintiff
+ * finishes the intake and a report is generated — which reads to admins like a
+ * closed/finished case (#46). Translate it into a workflow-aware label that
+ * reflects where the case actually is in the pipeline (intake → ready to route
+ * → routed → engaged), factoring in manual-review holds and introductions.
+ */
+function deriveCaseStatus(caseData: any): { label: string; tone: string; raw: string } {
+  const raw = String(caseData?.status ?? '')
+  const tones: Record<string, string> = {
+    slate: 'bg-slate-100 text-slate-700',
+    blue: 'bg-blue-100 text-blue-800',
+    amber: 'bg-amber-100 text-amber-800',
+    green: 'bg-green-100 text-green-800',
+  }
+  const make = (label: string, tone: string) => ({ label, tone: tones[tone] || tones.slate, raw })
+
+  if (caseData?.manualReviewStatus === 'pending') return make('On hold — manual review', 'amber')
+
+  const intros = Array.isArray(caseData?.introductions) ? caseData.introductions : []
+  const accepted = intros.some((i: any) => String(i?.status).toLowerCase() === 'accepted')
+  if (accepted) return make('Attorney engaged', 'green')
+
+  const lowered = raw.toLowerCase()
+  if (lowered === 'retained') return make('Retained', 'green')
+  if (intros.length > 0) return make('Routed — awaiting attorney', 'blue')
+
+  switch (lowered) {
+    case 'draft':
+    case 'analyzing':
+      return make('Intake in progress', 'slate')
+    case 'completed':
+      return make('Intake complete — ready to route', 'slate')
+    case 'submitted':
+      return make('Submitted to attorneys', 'blue')
+    case 'matched':
+      return make('Matched', 'blue')
+    default:
+      return make(raw ? raw.replace(/_/g, ' ') : 'Unknown', 'slate')
+  }
+}
 
 export default function AdminCaseDetail() {
   const { id } = useParams<{ id: string }>()
@@ -38,7 +149,8 @@ export default function AdminCaseDetail() {
   const [attorneyDebug, setAttorneyDebug] = useState<any>(null)
   const [routeError, setRouteError] = useState<string | null>(null)
   const [routingTarget, setRoutingTarget] = useState<string | null>(null)
-  const [routeSuccess, setRouteSuccess] = useState<{ attorneyId: string; attorneyName: string } | null>(null)
+  const [routeSuccess, setRouteSuccess] = useState<{ attorneyId: string; attorneyName: string; invitedEmail?: string } | null>(null)
+  const [invitePrompt, setInvitePrompt] = useState<{ email: string; message: string } | null>(null)
   const [recommendations, setRecommendations] = useState<any[]>([])
   const [recommendationsMeta, setRecommendationsMeta] = useState<{ eligibleCount?: number; qualifiedCount?: number; message?: string } | null>(null)
   const [simulationOptions, setSimulationOptions] = useState({
@@ -103,7 +215,7 @@ export default function AdminCaseDetail() {
     }
   }
 
-  const handleRoute = async (targetOverride?: string, targetMeta?: { attorneyId?: string; attorneyName?: string }) => {
+  const handleRoute = async (targetOverride?: string, targetMeta?: { attorneyId?: string; attorneyName?: string }, inviteIfMissing = false) => {
     const target = targetOverride || attorneyEmail.trim() || selectedAttorney
     if (!id || !target) return
     const targetAttorneyId = targetMeta?.attorneyId || (target.includes('@') ? '' : target)
@@ -116,13 +228,21 @@ export default function AdminCaseDetail() {
     setRoutingTarget(targetAttorneyId || target)
     setRouteSuccess(null)
     setError(null)
+    if (inviteIfMissing) setInvitePrompt(null)
     try {
       const result = await bulkRouteCases(
         [id],
         target,
         undefined,
-        { skipEligibilityCheck: true }
+        { skipEligibilityCheck: true, inviteIfMissing }
       )
+      // Email isn't tied to a registered attorney — offer to invite them (#40).
+      if (result?.requiresInvite) {
+        setInvitePrompt({ email: result.email || target, message: result.message || 'No registered attorney uses this email.' })
+        setRouting(false)
+        setRoutingTarget(null)
+        return
+      }
       if (result?.failed > 0 && result?.errors?.length) {
         const msg = result.errors.map((e: any) => e.error || e).join('; ')
         setRouteError(msg)
@@ -132,7 +252,8 @@ export default function AdminCaseDetail() {
       setRouteError(null)
       setRouteSuccess({
         attorneyId: targetAttorneyId || target,
-        attorneyName: targetAttorneyName,
+        attorneyName: result?.invited?.email ? `${result.invited.email} (invited)` : targetAttorneyName,
+        invitedEmail: result?.invited?.email,
       })
       window.setTimeout(() => {
         setShowRouteModal(false)
@@ -142,6 +263,7 @@ export default function AdminCaseDetail() {
         setAttorneyDebug(null)
         setRouteSuccess(null)
         setRoutingTarget(null)
+        setInvitePrompt(null)
         navigate('/admin/routing-queue', {
           state: {
             routedCaseId: id,
@@ -241,6 +363,16 @@ export default function AdminCaseDetail() {
   const bands = caseData.prediction?.bands || {}
   const user = caseData.user
 
+  // Guests get a synthetic placeholder account (guest+<id>@caseiq.local) while
+  // the real contact they typed at intake is kept in facts.plaintiffContext.
+  // Surface that so phone/email show even before the user registers (#48).
+  const plaintiffContext = (facts.plaintiffContext || {}) as { firstName?: string; email?: string; phone?: string; preferredContactMethod?: string }
+  const isGuestPlaceholderEmail = (email?: string) => /^guest\+.+@caseiq\.local$/i.test(email || '')
+  const hasRealAccount = !!user && !isGuestPlaceholderEmail(user.email)
+  const contactName = (hasRealAccount ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : '') || plaintiffContext.firstName || ''
+  const contactEmail = (hasRealAccount ? user.email : '') || plaintiffContext.email || ''
+  const contactPhone = (hasRealAccount ? user.phone : '') || plaintiffContext.phone || ''
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -291,12 +423,15 @@ export default function AdminCaseDetail() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <p className="text-xs text-slate-500">Case ID</p>
-            <p className="font-mono text-sm">{caseData.id}</p>
+            <p className="font-mono text-sm">
+              {formatCaseId({ id: caseData.id, claimType: caseData.claimType, createdAt: caseData.createdAt })}
+            </p>
+            <p className="font-mono text-[10px] text-slate-400 break-all">{caseData.id}</p>
           </div>
           <div>
             <p className="text-xs text-slate-500">Plaintiff</p>
             <p className="font-medium">
-              {user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : '—'}
+              {contactName || '—'}
             </p>
           </div>
           <div>
@@ -316,7 +451,21 @@ export default function AdminCaseDetail() {
           </div>
           <div>
             <p className="text-xs text-slate-500">Status</p>
-            <p>{caseData.status}</p>
+            {(() => {
+              const s = deriveCaseStatus(caseData)
+              return (
+                <>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${s.tone}`}>
+                    {s.label}
+                  </span>
+                  {s.raw && s.raw.toLowerCase() !== s.label.toLowerCase() && (
+                    <p className="mt-0.5 text-[10px] uppercase tracking-wide text-slate-400" title="Raw assessment status">
+                      {s.raw}
+                    </p>
+                  )}
+                </>
+              )
+            })()}
           </div>
           <div>
             <p className="text-xs text-slate-500">Case score</p>
@@ -434,7 +583,9 @@ export default function AdminCaseDetail() {
           <p className="text-xs text-amber-800 mb-2">
             Use this to verify the case was routed correctly. If introductions exist but the attorney doesn&apos;t see it, ensure they log in with the same email.
           </p>
-          <pre className="text-xs overflow-auto max-h-48 p-3 bg-white rounded border border-amber-200">{JSON.stringify(routingState, null, 2)}</pre>
+          <div className="p-3 bg-white rounded border border-amber-200 overflow-auto max-h-72">
+            <RoutingStateView state={routingState} />
+          </div>
           <button onClick={() => setRoutingState(null)} className="mt-2 text-xs text-amber-700 hover:underline">Dismiss</button>
         </div>
       )}
@@ -446,21 +597,37 @@ export default function AdminCaseDetail() {
             <User className="h-5 w-5" />
             Plaintiff profile
           </h2>
-          {user ? (
+          {(contactEmail || contactPhone || contactName) ? (
             <div className="space-y-2 text-sm">
+              {contactName && (
+                <p>
+                  <span className="text-slate-500">Name:</span> {contactName}
+                </p>
+              )}
               <p>
-                <span className="text-slate-500">Email:</span> {user.email}
+                <span className="text-slate-500">Email:</span> {contactEmail || '—'}
               </p>
               <p>
-                <span className="text-slate-500">Phone:</span> {user.phone || '—'}
+                <span className="text-slate-500">Phone:</span> {contactPhone || '—'}
               </p>
-              <p>
-                <span className="text-slate-500">Account created:</span>{' '}
-                {formatDate(user.createdAt)}
-              </p>
+              {plaintiffContext.preferredContactMethod && (
+                <p>
+                  <span className="text-slate-500">Preferred contact:</span> {plaintiffContext.preferredContactMethod}
+                </p>
+              )}
+              {hasRealAccount ? (
+                <p>
+                  <span className="text-slate-500">Account created:</span>{' '}
+                  {formatDate(user.createdAt)}
+                </p>
+              ) : (
+                <p className="text-xs text-amber-600">
+                  Contact provided during intake — no registered account yet.
+                </p>
+              )}
             </div>
           ) : (
-            <p className="text-slate-500">No user linked</p>
+            <p className="text-slate-500">No contact information on file</p>
           )}
         </div>
 
@@ -697,7 +864,7 @@ export default function AdminCaseDetail() {
             )}
             {Array.isArray(simulationResult.errors) && simulationResult.errors.length > 0 && (
               <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {simulationResult.errors.join('; ')}
+                {Array.from(new Set(simulationResult.errors.map((e: any) => String(e)))).join('; ')}
               </div>
             )}
             {simulationResult.diagnostics?.selected?.length > 0 && (
@@ -749,7 +916,7 @@ export default function AdminCaseDetail() {
               <div key={entry.id} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="font-medium text-slate-900">{String(entry.action || '').replace(/_/g, ' ')}</p>
+                    <p className="font-medium text-slate-900">{formatEnumLabel(entry.action)}</p>
                     <p className="mt-1 text-xs text-slate-500">
                       Status {entry.statusCode || 'N/A'}
                       {entry.metadata?.actorEmail ? ` • ${entry.metadata.actorEmail}` : ''}
@@ -792,7 +959,7 @@ export default function AdminCaseDetail() {
               <div key={entry.id} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="font-medium text-slate-900">{String(entry.eventType || '').replace(/_/g, ' ')}</p>
+                    <p className="font-medium text-slate-900">{formatEnumLabel(entry.eventType)}</p>
                     <p className="mt-1 text-xs text-slate-500">
                       {entry.attorneyId ? `Attorney ${entry.attorneyId}` : 'System event'}
                     </p>
@@ -836,7 +1003,9 @@ export default function AdminCaseDetail() {
           <ul className="space-y-2">
             {caseData.files.map((f: any) => (
               <li key={f.id} className="text-sm">
-                {f.originalName} – {f.status}
+                {f.originalName}
+                {f.category ? ` – ${formatEnumLabel(f.category)}` : ''}
+                {f.status ? ` (${formatEnumLabel(f.status)})` : ''}
               </li>
             ))}
           </ul>
@@ -861,7 +1030,7 @@ export default function AdminCaseDetail() {
                 <div>
                   <p className="font-medium">{intro.attorney?.name}</p>
                   <p className="text-sm text-slate-500">
-                    Wave {intro.waveNumber} • {intro.status} • {formatDate(intro.createdAt)}
+                    Wave {intro.waveNumber} • {formatEnumLabel(intro.status)} • {formatDate(intro.createdAt)}
                   </p>
                   {intro.declineReason && (
                     <p className="text-sm text-amber-600 mt-1">
@@ -1014,8 +1183,8 @@ export default function AdminCaseDetail() {
             />
             <p className="text-xs text-slate-500 mb-3">Pick from the ranked shortlist above, use the full attorney list, or type an email override.</p>
                 {routingState && (
-                  <div className="mb-4 p-3 bg-slate-50 rounded-lg text-xs font-mono overflow-auto max-h-40">
-                    <pre>{JSON.stringify(routingState, null, 2)}</pre>
+                  <div className="mb-4 p-3 bg-slate-50 rounded-lg overflow-auto max-h-56">
+                    <RoutingStateView state={routingState} />
                   </div>
                 )}
                 {attorneyDebug && (
@@ -1027,6 +1196,27 @@ export default function AdminCaseDetail() {
                 {routeError && (
                   <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
                     {routeError}
+                  </div>
+                )}
+                {invitePrompt && (
+                  <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900">
+                    <p className="mb-2">{invitePrompt.message}</p>
+                    <p className="mb-3 text-xs text-blue-700">We'll create an unclaimed profile and email <span className="font-medium break-all">{invitePrompt.email}</span> a link to join and view this case.</p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => { void handleRoute(invitePrompt.email, undefined, true) }}
+                        disabled={routing}
+                        className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
+                      >
+                        {routing ? 'Inviting…' : 'Invite & route case'}
+                      </button>
+                      <button
+                        onClick={() => setInvitePrompt(null)}
+                        className="px-3 py-1.5 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 text-sm"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 )}
                 <div className="flex flex-wrap gap-2 justify-end">
@@ -1045,7 +1235,7 @@ export default function AdminCaseDetail() {
                 Verify routing
               </button>
               <button
-                onClick={() => { setShowRouteModal(false); setAttorneyDebug(null); setRoutingState(null); setRouteError(null); }}
+                onClick={() => { setShowRouteModal(false); setAttorneyDebug(null); setRoutingState(null); setRouteError(null); setInvitePrompt(null); }}
                 className="px-4 py-2 text-slate-600 hover:text-slate-900"
               >
                 Cancel

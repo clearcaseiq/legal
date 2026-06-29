@@ -9,6 +9,7 @@ import {
 } from '../lib/api'
 import { hasValidAuthToken } from '../lib/auth'
 import { TrashIcon } from '../components/TrashIcon'
+import { CameraCaptureModal } from '../components/CameraCaptureModal'
 import { 
   Upload, 
   Camera, 
@@ -83,6 +84,7 @@ export default function EvidenceUpload() {
   const [selectedSubcategory, setSelectedSubcategory] = useState('')
   const [description, setDescription] = useState('')
   const [processingFiles, setProcessingFiles] = useState<Set<string>>(new Set())
+  const [showCamera, setShowCamera] = useState(false)
   
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
@@ -389,7 +391,7 @@ export default function EvidenceUpload() {
             </button>
             
             <button
-              onClick={() => cameraInputRef.current?.click()}
+              onClick={() => setShowCamera(true)}
               className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 flex items-center"
             >
               <Camera className="h-4 w-4 mr-2" />
@@ -536,6 +538,12 @@ export default function EvidenceUpload() {
           ))}
         </div>
       </div>
+
+      <CameraCaptureModal
+        open={showCamera}
+        onClose={() => setShowCamera(false)}
+        onCapture={(file) => handleFileUpload(file, 'camera')}
+      />
     </div>
   )
 }

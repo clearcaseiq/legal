@@ -150,7 +150,11 @@ export function useAttorneyProfileLicense(setPageError: SetPageError) {
       setPageError(null)
 
       const specialties = profile.specialties ? JSON.parse(profile.specialties) : []
-      const languages = profile.languages ? JSON.parse(profile.languages) : []
+      // Drop empty entries so an unfilled "Add Language" row is never persisted as a
+      // blank language chip (#69).
+      const languages = (profile.languages ? JSON.parse(profile.languages) : [])
+        .map((language: unknown) => (typeof language === 'string' ? language.trim() : language))
+        .filter(Boolean)
       const firmLocations = profile.firmLocations ? JSON.parse(profile.firmLocations) : null
       const jurisdictions = profile.jurisdictions ? JSON.parse(profile.jurisdictions) : null
       const excludedCaseTypes = profile.excludedCaseTypes ? JSON.parse(profile.excludedCaseTypes) : null
@@ -169,6 +173,9 @@ export function useAttorneyProfileLicense(setPageError: SetPageError) {
       }
 
       const updateData = {
+        // The dashboard "My Profile" edit form lets attorneys rename themselves, but the
+        // payload previously omitted name so the change never saved (#66).
+        name: profile.attorney?.name || undefined,
         bio: profile.bio || null,
         photoUrl: profile.photoUrl || null,
         specialties,

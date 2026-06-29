@@ -729,7 +729,7 @@ export default function AttorneyDashboardLeadsTab({
                               </span>
                             </div>
                             {(lead.assessment?.user?.phone || lead.assessment?.user?.email) && (
-                              <div className="text-xs text-gray-500 mt-0.5">
+                              <div className="text-xs text-gray-500 mt-0.5 break-all">
                                 {lead.assessment?.user?.phone
                                   ? formatPhone(lead.assessment.user.phone)
                                   : lead.assessment?.user?.email}

@@ -9,7 +9,7 @@
 
 const NANP_TEN = /^[2-9]\d{9}$/
 
-export const PHONE_ERROR_MESSAGE = 'Enter a valid phone number (e.g. (555) 555-0100)'
+export const PHONE_ERROR_MESSAGE = 'Enter a valid phone number (e.g. (555) 555-0100).'
 
 export interface ParsedPhone {
   valid: boolean
@@ -64,7 +64,7 @@ export function validatePhoneField(
   opts: { required?: boolean } = {}
 ): string | undefined {
   const trimmed = String(value ?? '').trim()
-  if (!trimmed) return opts.required ? 'Phone number is required' : undefined
+  if (!trimmed) return opts.required ? 'Phone number is required.' : undefined
   return isValidPhone(trimmed) ? undefined : PHONE_ERROR_MESSAGE
 }
 

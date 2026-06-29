@@ -8,6 +8,19 @@ import { buildCaseCommandCenter } from '../lib/case-command-center'
 
 const router = Router()
 
+// A single assessment with malformed/empty JSON in `facts` (or a prediction
+// column) previously threw inside the dashboard map and 500'd the whole Case
+// Tracker page, surfacing as a generic "Error" to the plaintiff (#79). Parse
+// defensively so one bad row can't take down the list.
+function safeParse<T>(value: unknown, fallback: T): T {
+  if (typeof value !== 'string' || value.trim() === '') return fallback
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return fallback
+  }
+}
+
 // Translations for plaintiff-facing status messages (es, zh)
 const STATUS_TRANSLATIONS: Record<string, Record<string, { plain: string; next: string }>> = {
   es: {
@@ -302,12 +315,12 @@ router.get('/dashboard', authMiddleware, async (req: AuthRequest, res) => {
 
     // Parse JSON fields and structure data
     const caseData = assessments.map(assessment => {
-      const facts = JSON.parse(assessment.facts)
+      const facts = safeParse<any>(assessment.facts, {})
       const latestPrediction = assessment.predictions[0] ? {
         ...assessment.predictions[0],
-        viability: JSON.parse(assessment.predictions[0].viability),
-        bands: JSON.parse(assessment.predictions[0].bands),
-        explain: JSON.parse(assessment.predictions[0].explain)
+        viability: safeParse<any>(assessment.predictions[0].viability, null),
+        bands: safeParse<any>(assessment.predictions[0].bands, null),
+        explain: safeParse<any>(assessment.predictions[0].explain, null)
       } : null
       const statusInfo = statusDescriptions[assessment.status] || statusDescriptions.DRAFT
       const progressItems = buildProgressItems(assessment, assessment.appointments, assessment.files, assessment.demandLetters)
@@ -500,13 +513,13 @@ router.get('/case/:caseId', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Case not found' })
     }
 
-    // Parse JSON fields
-    const facts = JSON.parse(assessment.facts)
+    // Parse JSON fields defensively so a malformed row doesn't 500 the page (#79).
+    const facts = safeParse<any>(assessment.facts, {})
     const predictions = assessment.predictions.map(pred => ({
       ...pred,
-      viability: JSON.parse(pred.viability),
-      bands: JSON.parse(pred.bands),
-      explain: JSON.parse(pred.explain)
+      viability: safeParse<any>(pred.viability, null),
+      bands: safeParse<any>(pred.bands, null),
+      explain: safeParse<any>(pred.explain, null)
     }))
 
     const statusInfo = statusDescriptions[assessment.status] || statusDescriptions.DRAFT

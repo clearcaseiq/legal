@@ -83,6 +83,25 @@ export const AttorneyRegisterSchema = z.object({
   subscriptionTier: z.enum(['basic', 'premium', 'enterprise']).optional()
 })
 
+// Lightweight email availability check so the registration form can warn the
+// attorney at step 1 instead of only after the final submit (#63).
+router.get('/email-available', async (req, res) => {
+  try {
+    const email = String(req.query.email || '').trim().toLowerCase()
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'A valid email is required' })
+    }
+    const [existingUser, existingAttorney] = await Promise.all([
+      prisma.user.findUnique({ where: { email }, select: { id: true } }),
+      prisma.attorney.findUnique({ where: { email }, select: { id: true } }),
+    ])
+    return res.json({ available: !existingUser && !existingAttorney })
+  } catch (error) {
+    logger.error('Email availability check failed', { error })
+    return res.status(500).json({ error: 'Email availability check failed' })
+  }
+})
+
 // Register attorney
 router.post('/register', async (req, res) => {
   try {

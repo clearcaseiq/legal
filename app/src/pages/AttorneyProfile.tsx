@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   User, 
   Star, 
@@ -21,7 +22,23 @@ import {
   getAttorneyProfilePerformance,
   getMyAttorneyProfile,
   updateAttorneyProfile,
+  uploadAttorneyProfilePhoto,
 } from '../lib/api'
+import { getApiOrigin } from '../lib/runtimeEnv'
+import { formatSpecialty } from '../lib/constants'
+
+const DEFAULT_AVATAR = 'https://ui-avatars.com/api/?name=Attorney&background=e0f2fe&color=075985'
+
+// Stored photos can be absolute URLs (legacy) or server-relative upload paths
+// (/uploads/avatars/...). Relative paths must be resolved against the API origin
+// because the web app and API are served from different hosts.
+function resolvePhotoUrl(photoUrl: string | null): string {
+  if (!photoUrl) return DEFAULT_AVATAR
+  if (/^(https?:)?\/\//.test(photoUrl) || photoUrl.startsWith('data:')) return photoUrl
+  const origin = getApiOrigin()
+  if (!origin) return photoUrl
+  return `${origin}${photoUrl.startsWith('/') ? '' : '/'}${photoUrl}`
+}
 
 interface AttorneyProfile {
   id: string
@@ -80,6 +97,7 @@ type AttorneyDashboardSnapshot = {
 }
 
 export default function AttorneyProfile() {
+  const navigate = useNavigate()
   const [profile, setProfile] = useState<AttorneyProfile | null>(null)
   const [performance, setPerformance] = useState<AttorneyPerformance | null>(null)
   const [dashboard, setDashboard] = useState<AttorneyDashboardSnapshot | null>(null)
@@ -89,6 +107,8 @@ export default function AttorneyProfile() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [editing, setEditing] = useState(false)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const photoInputRef = useRef<HTMLInputElement | null>(null)
   const [newVerdict, setNewVerdict] = useState({
     caseType: '',
     settlementAmount: '',
@@ -197,11 +217,13 @@ export default function AttorneyProfile() {
   const handleSaveProfile = async () => {
     if (!profile) return
     try {
+      const cleanLanguages = profile.languages.map((l) => l.trim()).filter(Boolean)
       const updated = await updateAttorneyProfile({
+        name: profile.attorney?.name || undefined,
         bio: profile.bio,
         photoUrl: profile.photoUrl,
         specialties: JSON.stringify(profile.specialties),
-        languages: JSON.stringify(profile.languages),
+        languages: JSON.stringify(cleanLanguages),
         yearsExperience: profile.yearsExperience,
         totalCases: profile.totalCases,
         totalSettlements: profile.totalSettlements,
@@ -255,15 +277,92 @@ export default function AttorneyProfile() {
     }
   }
 
+  const persistVerdicts = async (verdicts: any[]) => {
+    if (!profile) return
+    const updated = await updateAttorneyProfile({
+      bio: profile.bio,
+      photoUrl: profile.photoUrl,
+      specialties: JSON.stringify(profile.specialties),
+      languages: JSON.stringify(profile.languages),
+      yearsExperience: profile.yearsExperience,
+      totalCases: profile.totalCases,
+      totalSettlements: profile.totalSettlements,
+      averageSettlement: profile.averageSettlement,
+      successRate: profile.successRate,
+      verifiedVerdicts: verdicts,
+    })
+    setProfile(normalizeProfile(updated))
+    setLastUpdatedAt(new Date())
+  }
+
+  const handlePhotoFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    // Reset the input so selecting the same file again re-triggers onChange.
+    event.target.value = ''
+    if (!file || !profile) return
+
+    if (!file.type.startsWith('image/')) {
+      setError('Profile photo must be an image (JPEG, PNG, GIF, or WebP).')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Profile photo must be 5MB or smaller.')
+      return
+    }
+
+    try {
+      setUploadingPhoto(true)
+      setError(null)
+      const updated = await uploadAttorneyProfilePhoto(file)
+      setProfile(normalizeProfile(updated))
+      setLastUpdatedAt(new Date())
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Failed to upload profile photo.')
+    } finally {
+      setUploadingPhoto(false)
+    }
+  }
+
+  const handleEditVerdict = async (index: number) => {
+    if (!profile) return
+    const verdict = profile.verifiedVerdicts[index]
+    if (!verdict) return
+    setNewVerdict({
+      caseType: verdict.caseType || '',
+      settlementAmount: String(verdict.settlementAmount ?? ''),
+      caseDescription: verdict.description || verdict.caseDescription || '',
+      date: verdict.date || '',
+      venue: verdict.venue || '',
+    })
+    setActiveTab('verdicts')
+    try {
+      await persistVerdicts(profile.verifiedVerdicts.filter((_, i) => i !== index))
+      setError(null)
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Failed to load verdict for editing.')
+    }
+  }
+
+  const handleDeleteVerdict = async (index: number) => {
+    if (!profile) return
+    if (!window.confirm('Remove this verdict from your profile?')) return
+    try {
+      await persistVerdicts(profile.verifiedVerdicts.filter((_, i) => i !== index))
+      setError(null)
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Failed to remove verdict.')
+    }
+  }
+
   const currentYear = new Date().getFullYear()
   const recentLeads = dashboard?.recentLeads || []
   const totalCases = dashboard?.dashboard?.totalLeadsReceived ?? performance?.leadMetrics?.totalLeads ?? profile?.totalCases ?? 0
-  const casesThisYear = recentLeads.length
+  const casesThisYear: number | null = recentLeads.length
     ? recentLeads.filter((lead) => {
         const submittedAt = lead.submittedAt ? new Date(lead.submittedAt) : null
         return submittedAt && !Number.isNaN(submittedAt.getTime()) && submittedAt.getFullYear() === currentYear
       }).length
-    : Math.round(totalCases * 0.3)
+    : null
   const activeCases =
     recentLeads.filter((lead) => ['contacted', 'consulted', 'retained'].includes(lead.status || '')).length ||
     (dashboard?.activeCases?.contacted ?? 0) +
@@ -320,7 +419,7 @@ export default function AttorneyProfile() {
             <Edit className="h-4 w-4 mr-2" />
             {editing ? 'Cancel Edit' : 'Edit Profile'}
           </button>
-          <button className="btn-primary">
+          <button className="btn-primary" onClick={() => navigate('/attorney-preferences')}>
             <Settings className="h-4 w-4 mr-2" />
             Profile Settings
           </button>
@@ -332,20 +431,41 @@ export default function AttorneyProfile() {
         <div className="flex items-start space-x-6">
           <div className="flex-shrink-0">
             <img
-              src={profile.photoUrl || 'https://ui-avatars.com/api/?name=Attorney&background=e0f2fe&color=075985'}
+              src={resolvePhotoUrl(profile.photoUrl)}
               alt="Profile"
               className="h-32 w-32 rounded-full object-cover"
             />
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              className="hidden"
+              onChange={handlePhotoFileSelected}
+            />
             {editing && (
-              <button className="mt-2 w-full btn-secondary text-sm">
+              <button
+                className="mt-2 w-full btn-secondary text-sm disabled:opacity-50 inline-flex items-center justify-center"
+                onClick={() => photoInputRef.current?.click()}
+                disabled={uploadingPhoto}
+              >
                 <Upload className="h-4 w-4 mr-2" />
-                Change Photo
+                {uploadingPhoto ? 'Uploading...' : 'Change Photo'}
               </button>
             )}
           </div>
           <div className="flex-1">
             <div className="flex items-center space-x-2 mb-2">
-              <h2 className="text-2xl font-bold text-gray-900">{profile.attorney?.name || 'Your Profile'}</h2>
+              {editing ? (
+                <input
+                  type="text"
+                  value={profile.attorney?.name || ''}
+                  onChange={(e) => setProfile({ ...profile, attorney: { ...profile.attorney, name: e.target.value } })}
+                  className="text-2xl font-bold text-gray-900 border border-gray-300 rounded-md px-2 py-1"
+                  placeholder="Your name"
+                />
+              ) : (
+                <h2 className="text-2xl font-bold text-gray-900">{profile.attorney?.name || 'Your Profile'}</h2>
+              )}
               {profile.isFeatured && (
                 <div className="flex items-center space-x-1">
                   <Star className="h-5 w-5 text-yellow-500" />
@@ -373,7 +493,7 @@ export default function AttorneyProfile() {
             <div className="mt-4 flex flex-wrap gap-2">
               {profile.specialties.map((specialty, index) => (
                 <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                  {specialty}
+                  {formatSpecialty(specialty)}
                 </span>
               ))}
             </div>
@@ -465,7 +585,10 @@ export default function AttorneyProfile() {
                         </div>
                       ))}
                       <button
-                        onClick={() => setProfile({ ...profile, languages: [...profile.languages, ''] })}
+                        onClick={() => {
+                          if (profile.languages.some((l) => !l.trim())) return
+                          setProfile({ ...profile, languages: [...profile.languages, ''] })
+                        }}
                         className="btn-secondary text-sm"
                       >
                         <Plus className="h-4 w-4 mr-2" />
@@ -474,7 +597,7 @@ export default function AttorneyProfile() {
                     </div>
                   ) : (
                     <div className="flex flex-wrap gap-2">
-                      {profile.languages.map((language, index) => (
+                      {profile.languages.filter((l) => l.trim()).map((language, index) => (
                         <span key={index} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                           {language}
                         </span>
@@ -530,7 +653,7 @@ export default function AttorneyProfile() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Cases This Year</span>
-                  <span className="font-semibold">{casesThisYear}</span>
+                  <span className="font-semibold">{casesThisYear ?? '—'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Active Cases</span>
@@ -582,14 +705,20 @@ export default function AttorneyProfile() {
         <div className="space-y-6">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-medium text-gray-900">Verified Verdicts & Settlements</h3>
-            <button className="btn-primary">
+            <button
+              className="btn-primary"
+              onClick={() => {
+                setNewVerdict({ caseType: '', settlementAmount: '', caseDescription: '', date: '', venue: '' })
+                document.getElementById('add-verdict-form')?.scrollIntoView({ behavior: 'smooth' })
+              }}
+            >
               <Plus className="h-4 w-4 mr-2" />
               Add Verdict
             </button>
           </div>
 
           {/* Add New Verdict Form */}
-          <div className="card">
+          <div className="card" id="add-verdict-form">
             <h4 className="text-md font-medium text-gray-900 mb-4">Add New Verdict</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -672,10 +801,20 @@ export default function AttorneyProfile() {
                     </div>
                   </div>
                   <div className="flex space-x-2">
-                    <button className="text-gray-400 hover:text-gray-600">
+                    <button
+                      onClick={() => handleEditVerdict(index)}
+                      className="text-gray-400 hover:text-gray-600"
+                      aria-label="Edit verdict"
+                      title="Edit verdict"
+                    >
                       <Edit className="h-4 w-4" />
                     </button>
-                    <button className="text-red-400 hover:text-red-600">
+                    <button
+                      onClick={() => handleDeleteVerdict(index)}
+                      className="text-red-400 hover:text-red-600"
+                      aria-label="Remove verdict"
+                      title="Remove verdict"
+                    >
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>

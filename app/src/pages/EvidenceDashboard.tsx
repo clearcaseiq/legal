@@ -115,6 +115,8 @@ export default function EvidenceDashboard() {
   const [annotationPage, setAnnotationPage] = useState('')
   const [annotationAnchor, setAnnotationAnchor] = useState('')
   const [annotationItems, setAnnotationItems] = useState<EvidenceAnnotation[]>([])
+  const [modalMessage, setModalMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [savingFile, setSavingFile] = useState(false)
   const [tagsInput, setTagsInput] = useState('')
   const [relevanceInput, setRelevanceInput] = useState('')
   const [accessLogs, setAccessLogs] = useState<any[]>([])
@@ -229,11 +231,19 @@ export default function EvidenceDashboard() {
   // Update file
   const handleUpdateFile = async (fileId: string, updates: any) => {
     try {
+      setSavingFile(true)
+      setModalMessage(null)
       await updateEvidenceFile(fileId, updates)
       await loadFiles()
       setEditingFile(null)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to update file:', error)
+      setModalMessage({
+        type: 'error',
+        text: error?.response?.data?.error || error?.message || 'Failed to save changes. Please try again.',
+      })
+    } finally {
+      setSavingFile(false)
     }
   }
 
@@ -295,6 +305,7 @@ export default function EvidenceDashboard() {
     setAnnotationText('')
     setAnnotationPage('')
     setAnnotationAnchor('')
+    setModalMessage(null)
     try {
       const detail = await getEvidenceFile(file.id)
       setEditingFile(detail)
@@ -320,13 +331,18 @@ export default function EvidenceDashboard() {
       pageNumber: annotationPage ? Number(annotationPage) : undefined
     }
     try {
+      setModalMessage(null)
       const created = await createEvidenceAnnotation(editingFile.id, payload)
       setAnnotationItems(prev => [created, ...prev])
       setAnnotationText('')
       setAnnotationPage('')
       setAnnotationAnchor('')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to add annotation:', error)
+      setModalMessage({
+        type: 'error',
+        text: error?.response?.data?.error || error?.message || 'Failed to add annotation. Please try again.',
+      })
     }
   }
 
@@ -540,7 +556,7 @@ export default function EvidenceDashboard() {
         ) : viewMode === 'grid' ? (
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredFiles.map((file) => (
-              <div key={file.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+              <div key={file.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow flex flex-col h-full">
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-hidden">
                     <span className="shrink-0">{getFileIcon(file.mimetype)}</span>
@@ -566,7 +582,7 @@ export default function EvidenceDashboard() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 flex-1 flex flex-col">
                   <div className="flex items-center text-xs text-gray-500">
                     <Tag className="h-3 w-3 mr-1" />
                     {file.category.replace(/_/g, ' ')} • {file.dataType || 'unstructured'}
@@ -608,7 +624,7 @@ export default function EvidenceDashboard() {
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between pt-2">
+                  <div className="flex items-center justify-between pt-2 mt-auto">
                     <span className="text-xs text-gray-400">
                       {allCases && file.assessmentId ? `Case ${file.assessmentId.slice(-6)}` : new Date(file.createdAt).toLocaleDateString()}
                     </span>
@@ -726,33 +742,33 @@ export default function EvidenceDashboard() {
                       {new Date(file.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center gap-2">
                         <button
                           onClick={() => openEdit(file)}
-                          className="text-slate-600 hover:text-slate-900"
+                          className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                         >
-                          <Edit className="h-4 w-4" />
+                          <Edit className="h-4 w-4" /> Edit
                         </button>
                         <button
                           onClick={() => window.open(file.fileUrl, '_blank')}
-                          className="text-blue-600 hover:text-blue-900"
+                          className="inline-flex items-center gap-1 rounded-md border border-blue-200 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
                         >
-                          <Eye className="h-4 w-4" />
+                          <Eye className="h-4 w-4" /> View
                         </button>
                         
                         {file.processingStatus === 'pending' && (
                           <button
                             onClick={() => handleProcessFile(file.id)}
                             disabled={processingFiles.has(file.id)}
-                            className="text-green-600 hover:text-green-900 disabled:opacity-50"
+                            className="inline-flex items-center gap-1 rounded-md border border-green-200 px-2.5 py-1.5 text-xs font-medium text-green-700 hover:bg-green-50 disabled:opacity-50"
                           >
-                            <Settings className="h-4 w-4" />
+                            <Settings className="h-4 w-4" /> Process
                           </button>
                         )}
                         
                         <button
                           onClick={() => handleDeleteFile(file.id)}
-                          className="w-8 h-8 flex-none inline-flex items-center justify-center rounded text-red-600 hover:text-red-900 hover:bg-red-50"
+                          className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-md border border-red-200 text-red-600 hover:bg-red-50 hover:text-red-900"
                           aria-label="Delete file"
                         >
                           <TrashIcon size={18} />
@@ -768,12 +784,12 @@ export default function EvidenceDashboard() {
       </div>
 
       {editingFile && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-6 space-y-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-900">Edit Evidence Metadata</h2>
               <button
-                onClick={() => setEditingFile(null)}
+                onClick={() => { setModalMessage(null); setEditingFile(null) }}
                 className="text-gray-400 hover:text-gray-600"
               >
                 ✕
@@ -920,14 +936,27 @@ export default function EvidenceDashboard() {
               )}
             </div>
 
+            {modalMessage && (
+              <div
+                className={`rounded-md px-3 py-2 text-sm ${
+                  modalMessage.type === 'error'
+                    ? 'bg-red-50 text-red-700 border border-red-200'
+                    : 'bg-green-50 text-green-700 border border-green-200'
+                }`}
+              >
+                {modalMessage.text}
+              </div>
+            )}
+
             <div className="flex items-center justify-end gap-2">
               <button
-                onClick={() => setEditingFile(null)}
+                onClick={() => { setModalMessage(null); setEditingFile(null) }}
                 className="px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-200 rounded-md hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
+                disabled={savingFile}
                 onClick={() => handleUpdateFile(editingFile.id, {
                   category: editingFile.category,
                   subcategory: editingFile.subcategory,
@@ -938,9 +967,9 @@ export default function EvidenceDashboard() {
                   provenanceActor: editingFile.provenanceActor,
                   provenanceNotes: editingFile.provenanceNotes
                 })}
-                className="px-3 py-1.5 text-sm font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700"
+                className="px-3 py-1.5 text-sm font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700 disabled:opacity-60"
               >
-                Save Changes
+                {savingFile ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
           </div>

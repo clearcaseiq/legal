@@ -93,7 +93,7 @@ export default function Register() {
       })
       setShowConsentWorkflow(true)
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Registration failed')
+      setError(err.response?.data?.error || err.message || 'Registration failed. Please try again.')
     } finally {
       setIsLoading(false)
     }

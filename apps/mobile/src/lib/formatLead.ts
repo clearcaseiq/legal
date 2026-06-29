@@ -9,6 +9,61 @@ const CLAIM_LABELS: Record<string, string> = {
   high_severity_surgery: 'High-severity surgery',
 }
 
+// 3-letter claim-type codes used in the human-meaningful case reference.
+const CLAIM_CODES: Record<string, string> = {
+  auto: 'MVA',
+  motor_vehicle: 'MVA',
+  mva: 'MVA',
+  car_accident: 'MVA',
+  truck_accident: 'TRK',
+  motorcycle: 'MTC',
+  pedestrian: 'PED',
+  bicycle: 'BIK',
+  slip_and_fall: 'SLF',
+  premises: 'PRM',
+  premises_liability: 'PRM',
+  dog_bite: 'DOG',
+  medmal: 'MED',
+  medical_malpractice: 'MED',
+  product: 'PRD',
+  product_liability: 'PRD',
+  nursing_home_abuse: 'NRS',
+  nursing_home: 'NRS',
+  wrongful_death: 'WDT',
+  high_severity_surgery: 'SRG',
+  workplace: 'WRK',
+  workers_comp: 'WRK',
+}
+
+function claimTypeCode(raw: string | undefined | null): string {
+  if (!raw) return 'PI'
+  const key = String(raw).trim().toLowerCase().replace(/[\s-]+/g, '_')
+  return CLAIM_CODES[key] || 'PI'
+}
+
+/**
+ * Human-meaningful case reference, e.g. "CCIQ-2606-MVA-7F3A".
+ * Format: CCIQ-<YYMM intake>-<claim type code>-<stable 4-char suffix>.
+ */
+export function formatCaseId(lead: any): string {
+  const assessment = lead?.assessment || lead?.lead?.assessment || {}
+  const id = assessment.id || lead?.id
+  const createdAt = assessment.createdAt ?? lead?.createdAt
+  const segments: string[] = ['CCIQ']
+
+  if (createdAt) {
+    const d = new Date(createdAt)
+    if (!Number.isNaN(d.getTime())) {
+      segments.push(`${String(d.getFullYear()).slice(-2)}${String(d.getMonth() + 1).padStart(2, '0')}`)
+    }
+  }
+
+  segments.push(claimTypeCode(assessment.claimType ?? lead?.claimType))
+  const cleaned = String(id ?? '').replace(/[^a-zA-Z0-9]/g, '')
+  segments.push((cleaned.slice(-4) || '0000').toUpperCase())
+  return segments.join('-')
+}
+
 export function formatClaimType(raw: string | undefined | null): string {
   if (!raw) return 'Personal injury'
   const k = raw.replace(/-/g, '_').toLowerCase()
@@ -72,7 +127,7 @@ export function leadLabel(lead: any): string {
     : lead?.plaintiffName ||
       `${plaintiffContext.firstName || ''} ${plaintiffContext.lastName || ''}`.trim() ||
       plaintiffContext.name
-  return plaintiff || formatClaimType(assessment.claimType) || `Case ${String(lead?.id || '').slice(-6)}`
+  return plaintiff || formatClaimType(assessment.claimType) || formatCaseId(lead)
 }
 
 /** Secondary line for a lead: "Claim type · County, State" (optionally · Case xxxxxx). */
@@ -80,7 +135,7 @@ export function leadMeta(lead: any, opts?: { includeId?: boolean }): string {
   const assessment = lead?.assessment || lead?.lead?.assessment || {}
   const claim = formatClaimType(assessment.claimType)
   const venue = [assessment.venueCounty, assessment.venueState].filter(Boolean).join(', ')
-  const idSuffix = opts?.includeId && lead?.id ? `Case ${String(lead.id).slice(-6)}` : null
+  const idSuffix = opts?.includeId && lead?.id ? formatCaseId(lead) : null
   return [claim, venue, idSuffix].filter(Boolean).join(' · ')
 }
 

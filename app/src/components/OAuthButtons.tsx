@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Chrome, Loader2 } from 'lucide-react'
 import { getApiOrigin } from '../lib/runtimeEnv'
 
@@ -9,63 +9,62 @@ interface OAuthButtonsProps {
   role?: 'plaintiff' | 'attorney'
 }
 
-export default function OAuthButtons({ onError, disabled = false, emphasizeGoogle = false, role = 'plaintiff' }: OAuthButtonsProps) {
+export default function OAuthButtons({ disabled = false, emphasizeGoogle = false, role = 'plaintiff' }: OAuthButtonsProps) {
   const [loading, setLoading] = useState<'google' | 'apple' | null>(null)
+  // Only render providers the backend actually has configured. Previously the
+  // buttons always showed and only surfaced "OAuth is not configured" after a
+  // click — confusing for users on environments without OAuth set up (#78).
+  const [providers, setProviders] = useState<{ google: boolean; apple: boolean } | null>(null)
   const apiUrl = getApiOrigin() || 'http://localhost:4000'
 
-  const handleGoogleLogin = async () => {
-    try {
-      setLoading('google')
-      // Check if OAuth is configured first
-      const response = await fetch(`${apiUrl}/v1/auth/status`)
-      const status = await response.json()
-      
-      if (!status.google.configured) {
-        setLoading(null)
-        onError?.('Google OAuth is not configured. Please use email/password login or contact support.')
-        return
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const response = await fetch(`${apiUrl}/v1/auth/status`)
+        const status = await response.json()
+        if (cancelled) return
+        setProviders({
+          google: Boolean(status?.google?.configured),
+          apple: Boolean(status?.apple?.configured),
+        })
+      } catch {
+        // If we can't determine status, assume OAuth is unavailable rather than
+        // showing buttons that will only error on click.
+        if (!cancelled) setProviders({ google: false, apple: false })
       }
-      
-      localStorage.setItem('oauth_intended_role', role)
-      if (role === 'plaintiff') {
-        localStorage.removeItem('auth_role')
-        localStorage.removeItem('attorney')
-      }
-      window.location.href = `${apiUrl}/v1/auth/google?role=${encodeURIComponent(role)}`
-    } catch (error: any) {
-      setLoading(null)
-      onError?.(error.message || 'Google login failed')
+    })()
+    return () => { cancelled = true }
+  }, [apiUrl])
+
+  const handleGoogleLogin = () => {
+    setLoading('google')
+    localStorage.setItem('oauth_intended_role', role)
+    if (role === 'plaintiff') {
+      localStorage.removeItem('auth_role')
+      localStorage.removeItem('attorney')
     }
+    window.location.href = `${apiUrl}/v1/auth/google?role=${encodeURIComponent(role)}`
   }
 
-  const handleAppleLogin = async () => {
-    try {
-      setLoading('apple')
-      // Check if OAuth is configured first
-      const response = await fetch(`${apiUrl}/v1/auth/status`)
-      const status = await response.json()
-      
-      if (!status.apple.configured) {
-        setLoading(null)
-        onError?.('Apple OAuth is not configured. Please use email/password login or contact support.')
-        return
-      }
-      
-      localStorage.setItem('oauth_intended_role', role)
-      if (role === 'plaintiff') {
-        localStorage.removeItem('auth_role')
-        localStorage.removeItem('attorney')
-      }
-      window.location.href = `${apiUrl}/v1/auth/apple?role=${encodeURIComponent(role)}`
-    } catch (error: any) {
-      setLoading(null)
-      onError?.(error.message || 'Apple login failed')
+  const handleAppleLogin = () => {
+    setLoading('apple')
+    localStorage.setItem('oauth_intended_role', role)
+    if (role === 'plaintiff') {
+      localStorage.removeItem('auth_role')
+      localStorage.removeItem('attorney')
     }
+    window.location.href = `${apiUrl}/v1/auth/apple?role=${encodeURIComponent(role)}`
   }
+
+  // Wait until we know which providers are available before rendering, so the
+  // buttons don't flash in and then disappear.
+  if (!providers || (!providers.google && !providers.apple)) return null
 
   return (
     <div className="space-y-3">
       {/* Google Login Button */}
+      {providers.google && (
       <button
         onClick={handleGoogleLogin}
         disabled={disabled || loading === 'google'}
@@ -82,8 +81,10 @@ export default function OAuthButtons({ onError, disabled = false, emphasizeGoogl
         )}
         {loading === 'google' ? 'Signing in...' : 'Continue with Google'}
       </button>
+      )}
 
       {/* Apple Login Button */}
+      {providers.apple && (
       <button
         onClick={handleAppleLogin}
         disabled={disabled || loading === 'apple'}
@@ -98,6 +99,7 @@ export default function OAuthButtons({ onError, disabled = false, emphasizeGoogl
         )}
         {loading === 'apple' ? 'Signing in...' : 'Continue with Apple'}
       </button>
+      )}
     </div>
   )
 }

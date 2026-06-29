@@ -505,10 +505,12 @@ export default function FirmDashboard() {
             <div>
               <p className="text-sm text-gray-500">Subscription Workspace</p>
               <p className="mt-1 text-xl font-bold text-gray-900">
-                {workspace?.subscription?.planName || 'Professional Plan'}
+                {workspace?.subscription?.planName || '—'}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {workspace?.subscription?.includedSeats || 10} users included
+                {workspace?.subscription?.includedSeats != null
+                  ? `${workspace.subscription.includedSeats} users included`
+                  : 'Seats not configured'}
               </p>
             </div>
             <ShieldCheck className="h-8 w-8 text-emerald-600" />
@@ -582,7 +584,7 @@ export default function FirmDashboard() {
                   <div>
                     <p className="text-sm font-semibold text-gray-900">{task.title}</p>
                     <p className="mt-1 text-xs text-gray-500">
-                      {task.caseType.replace(/_/g, ' ')}, {task.venueCounty || 'Venue pending'}, {task.leadStatus}
+                      {(task.caseType || 'case').replace(/_/g, ' ')}, {task.venueCounty || 'Venue pending'}, {task.leadStatus || 'pending'}
                     </p>
                     <p className="mt-1 text-xs text-gray-500">
                       {task.assignedRole ? formatRole(task.assignedRole) : 'Unassigned'}{task.assignedTo ? `: ${task.assignedTo}` : ''}
@@ -804,7 +806,11 @@ export default function FirmDashboard() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {attorneys.map((attorney: any) => (
+              {attorneys.map((attorney: any) => {
+                const attorneySpecialties: string[] = Array.isArray(attorney.specialties) ? attorney.specialties : []
+                const attorneyJurisdictions: any[] = Array.isArray(attorney.jurisdictions) ? attorney.jurisdictions : []
+                const attorneyRating = Number(attorney.averageRating || 0)
+                return (
                 <tr key={attorney.id}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">{attorney.name}</div>
@@ -823,33 +829,33 @@ export default function FirmDashboard() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 max-w-xs">
                     <div className="flex flex-wrap gap-1">
-                      {attorney.specialties.slice(0, 4).map((s: string) => (
+                      {attorneySpecialties.slice(0, 4).map((s: string) => (
                         <span
                           key={s}
                           className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-brand-50 text-brand-700"
                         >
-                          {s.replace(/_/g, ' ')}
+                          {String(s).replace(/_/g, ' ')}
                         </span>
                       ))}
-                      {attorney.specialties.length > 4 && (
+                      {attorneySpecialties.length > 4 && (
                         <span className="text-xs text-gray-500">
-                          +{attorney.specialties.length - 4} more
+                          +{attorneySpecialties.length - 4} more
                         </span>
                       )}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 max-w-xs">
                     <div className="space-y-1">
-                      {attorney.jurisdictions.slice(0, 2).map((j: any, idx: number) => (
+                      {attorneyJurisdictions.slice(0, 2).map((j: any, idx: number) => (
                         <div key={idx}>
-                          {j.counties && j.counties.length > 0
+                          {j && Array.isArray(j.counties) && j.counties.length > 0
                             ? `${j.counties.join(', ')}, ${j.state}`
-                            : j.state}
+                            : (j?.state || '—')}
                         </div>
                       ))}
-                      {attorney.jurisdictions.length > 2 && (
+                      {attorneyJurisdictions.length > 2 && (
                         <div className="text-xs text-gray-500">
-                          +{attorney.jurisdictions.length - 2} more
+                          +{attorneyJurisdictions.length - 2} more
                         </div>
                       )}
                     </div>
@@ -857,10 +863,10 @@ export default function FirmDashboard() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                     <div className="flex items-center">
                       <Star className="h-4 w-4 text-yellow-400 mr-1" />
-                      <span>{attorney.averageRating.toFixed(1)}</span>
+                      <span>{attorneyRating.toFixed(1)}</span>
                     </div>
                     <div className="text-xs text-gray-500">
-                      {attorney.totalReviews} reviews • {attorney.verifiedReviewCount} verified
+                      {attorney.totalReviews || 0} reviews • {attorney.verifiedReviewCount || 0} verified
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
@@ -883,7 +889,8 @@ export default function FirmDashboard() {
                     </button>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>

@@ -1,17 +1,16 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { 
   Target, 
   AlertTriangle, 
   CheckCircle, 
   FileText, 
   Star, 
-  Clock, 
   Eye, 
   Phone, 
   MessageSquare,
   TrendingUp,
   Shield,
-  Filter,
   Download
 } from 'lucide-react'
 import Tooltip from '../components/Tooltip'
@@ -54,7 +53,19 @@ const parseChecklist = (raw: any): { required: any[] } => {
 const formatClaimType = (claimType?: string | null) =>
   (claimType || 'Case').replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
 
+const getLeadPhone = (lead: Lead): string | null => {
+  const a = lead.assessment || {}
+  const raw = a.contactPhone || a.phone || a.phoneNumber || a.claimantPhone || a.contact?.phone
+  if (!raw) return null
+  const digits = String(raw).replace(/[^\d+]/g, '')
+  return digits.length >= 7 ? digits : null
+}
+
+const getAssessmentId = (lead: Lead): string | null =>
+  lead.assessment?.id || lead.assessment?.assessmentId || null
+
 export default function LeadQuality() {
+  const navigate = useNavigate()
   const [leads, setLeads] = useState<Lead[]>([])
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   const [loading, setLoading] = useState(true)
@@ -158,6 +169,59 @@ export default function LeadQuality() {
     return true
   })
 
+  const handleExportReport = () => {
+    if (filteredLeads.length === 0) return
+    const headers = ['Case Type', 'Venue', 'Viability %', 'Liability %', 'Causation %', 'Damages %', 'Evidence Complete', 'Source', 'Hotness', 'Exclusive', 'Submitted']
+    const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`
+    const rows = filteredLeads.map(lead => [
+      formatClaimType(lead.assessment?.claimType),
+      [lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', '),
+      lead.viabilityScore,
+      lead.liabilityScore,
+      lead.causationScore,
+      lead.damagesScore,
+      lead.evidenceChecklist.required.length > 0
+        ? `${lead.evidenceChecklist.required.filter((i: any) => i.uploaded).length}/${lead.evidenceChecklist.required.length}`
+        : 'Not started',
+      lead.sourceType.replace(/_/g, ' '),
+      lead.hotnessLevel,
+      lead.isExclusive ? 'Yes' : 'No',
+      lead.submittedAt ? new Date(lead.submittedAt).toLocaleString() : '',
+    ])
+    const csv = [headers, ...rows].map(row => row.map(escape).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `lead-quality-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  const handleCall = (lead: Lead) => {
+    const phone = getLeadPhone(lead)
+    if (phone) {
+      window.location.href = `tel:${phone}`
+    } else {
+      navigate(`/attorney-dashboard/lead/${lead.id}/overview`)
+    }
+  }
+
+  const handleMessage = (lead: Lead) => {
+    navigate(`/attorney-dashboard/draft-message/${lead.id}`)
+  }
+
+  const handleViewEvidence = (lead: Lead) => {
+    navigate(`/attorney-dashboard/documents/${lead.id}`)
+  }
+
+  const handleFullAssessment = (lead: Lead) => {
+    const assessmentId = getAssessmentId(lead)
+    navigate(assessmentId ? `/results/${assessmentId}` : `/attorney-dashboard/lead/${lead.id}/overview`)
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-[60vh]">
@@ -176,11 +240,15 @@ export default function LeadQuality() {
           <p className="mt-2 text-gray-600">Detailed lead analysis with viability scoring and evidence tracking</p>
         </div>
         <div className="flex space-x-4">
-          <button className="btn-secondary">
+          <button
+            className="btn-secondary disabled:opacity-50"
+            onClick={handleExportReport}
+            disabled={filteredLeads.length === 0}
+          >
             <Download className="h-4 w-4 mr-2" />
             Export Report
           </button>
-          <button className="btn-primary">
+          <button className="btn-primary" onClick={() => navigate('/attorney-preferences')}>
             <Target className="h-4 w-4 mr-2" />
             Quality Settings
           </button>
@@ -388,13 +456,13 @@ export default function LeadQuality() {
                               <Eye className="h-4 w-4" />
                             </button>
                           </Tooltip>
-                          <Tooltip content="Call">
-                            <button className="text-green-600 hover:text-green-900" aria-label="Call">
+                          <Tooltip content={getLeadPhone(lead) ? 'Call' : 'Open case to call'}>
+                            <button onClick={() => handleCall(lead)} className="text-green-600 hover:text-green-900" aria-label="Call">
                               <Phone className="h-4 w-4" />
                             </button>
                           </Tooltip>
                           <Tooltip content="Message">
-                            <button className="text-blue-600 hover:text-blue-900" aria-label="Message">
+                            <button onClick={() => handleMessage(lead)} className="text-blue-600 hover:text-blue-900" aria-label="Message">
                               <MessageSquare className="h-4 w-4" />
                             </button>
                           </Tooltip>
@@ -460,7 +528,10 @@ export default function LeadQuality() {
                         )}
                       </div>
                       <div className="flex-shrink-0">
-                        <button className="text-sm text-primary-600 hover:text-primary-900">
+                        <button
+                          onClick={() => handleViewEvidence(lead)}
+                          className="text-sm text-primary-600 hover:text-primary-900"
+                        >
                           {item.uploaded ? 'View' : 'Upload'}
                         </button>
                       </div>
@@ -671,15 +742,15 @@ export default function LeadQuality() {
                 </div>
                 
                 <div className="flex space-x-4 pt-4">
-                  <button className="btn-primary">
+                  <button className="btn-primary" onClick={() => handleCall(selectedLead)}>
                     <Phone className="h-4 w-4 mr-2" />
                     Call Now
                   </button>
-                  <button className="btn-secondary">
+                  <button className="btn-secondary" onClick={() => handleMessage(selectedLead)}>
                     <MessageSquare className="h-4 w-4 mr-2" />
                     Send Message
                   </button>
-                  <button className="btn-secondary">
+                  <button className="btn-secondary" onClick={() => handleFullAssessment(selectedLead)}>
                     <Eye className="h-4 w-4 mr-2" />
                     Full Assessment
                   </button>
