@@ -3,7 +3,7 @@
  */
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, Sparkles } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Sparkles, UploadCloud, CheckCircle2 } from 'lucide-react'
 import {
   getLead,
   createDocumentRequest,
@@ -13,6 +13,7 @@ import {
   getOpposingDocumentUploads,
   downloadOpposingDocument,
   nudgeDocumentRequest,
+  uploadLeadEvidenceOnBehalf,
   getLeadCommandCenter,
   type CaseCommandCenter,
   type OpposingDocRole,
@@ -42,6 +43,18 @@ const ROLE_OPTIONS: Array<{ id: OpposingDocRole; label: string }> = [
   { id: 'defendant', label: 'Defendant' },
   { id: 'opposing_counsel', label: 'Opposing counsel' },
   { id: 'insurer', label: 'Insurer / adjuster' },
+]
+
+// Evidence categories for documents the attorney collects and uploads on the
+// client's behalf. Mirrors the plaintiff-upload categories the valuation reads.
+const BEHALF_CATEGORIES: Array<{ id: string; label: string }> = [
+  { id: 'insurance', label: 'Insurance / declarations page' },
+  { id: 'bills', label: 'Medical bills' },
+  { id: 'medical_records', label: 'Medical records' },
+  { id: 'police_report', label: 'Police / incident report' },
+  { id: 'wage_loss', label: 'Lost wage proof' },
+  { id: 'photos', label: 'Injury / scene photos' },
+  { id: 'other', label: 'Other document' },
 ]
 
 export default function DocumentRequestPage() {
@@ -74,6 +87,11 @@ export default function DocumentRequestPage() {
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null)
   const [uploadsByRequest, setUploadsByRequest] = useState<Record<string, OpposingDocUpload[]>>({})
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  // "Upload on behalf of client" panel state.
+  const [behalfCategory, setBehalfCategory] = useState<string>('insurance')
+  const [behalfUploading, setBehalfUploading] = useState(false)
+  const [behalfError, setBehalfError] = useState<string | null>(null)
+  const [behalfUploaded, setBehalfUploaded] = useState<string[]>([])
   const prefill = (location.state as {
     prefill?: { requestedDocs?: DocTypeId[]; customMessage?: string; sendUploadLinkOnly?: boolean }
     source?: string
@@ -268,6 +286,27 @@ export default function DocumentRequestPage() {
       setError(err?.response?.data?.error || err?.message || 'Failed to send document request')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleBehalfUpload = async (files: FileList | null) => {
+    if (!leadId || !files || files.length === 0) return
+    setBehalfError(null)
+    setBehalfUploading(true)
+    const label = BEHALF_CATEGORIES.find((c) => c.id === behalfCategory)?.label || behalfCategory
+    try {
+      for (const file of Array.from(files)) {
+        await uploadLeadEvidenceOnBehalf(leadId, file, {
+          category: behalfCategory,
+          description: `${label} — uploaded by attorney on behalf of client`,
+        })
+        setBehalfUploaded((prev) => [...prev, file.name])
+      }
+      invalidateAttorneyDashboardSummary()
+    } catch (err: any) {
+      setBehalfError(err?.response?.data?.error || err?.message || 'Upload failed')
+    } finally {
+      setBehalfUploading(false)
     }
   }
 
@@ -498,6 +537,74 @@ export default function DocumentRequestPage() {
               {saving ? 'Sending…' : 'Send request'}
             </button>
           </div>
+        </div>
+        )}
+
+        {mode === 'plaintiff' && (
+        <div className="mt-6 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-brand-50 p-2">
+              <UploadCloud className="h-5 w-5 text-brand-600" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-base font-semibold text-gray-900">Or upload on the client&apos;s behalf</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Have a document the client sent you (or that your firm collected)? Add it directly to
+                their case file. It attaches to the client&apos;s assessment and updates the live
+                estimate — no need to wait on the client.
+              </p>
+            </div>
+          </div>
+
+          {behalfError && (
+            <div className="mt-4 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+              {behalfError}
+            </div>
+          )}
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Document type</label>
+              <select
+                value={behalfCategory}
+                onChange={(e) => setBehalfCategory(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+              >
+                {BEHALF_CATEGORIES.map((c) => (
+                  <option key={c.id} value={c.id}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+            <label className={`inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium cursor-pointer ${behalfUploading ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-brand-600 text-white hover:bg-brand-700'}`}>
+              <UploadCloud className="h-4 w-4" />
+              {behalfUploading ? 'Uploading…' : 'Choose file(s)'}
+              <input
+                type="file"
+                multiple
+                disabled={behalfUploading}
+                onChange={(e) => {
+                  void handleBehalfUpload(e.target.files)
+                  e.target.value = ''
+                }}
+                className="hidden"
+                accept="image/*,application/pdf,.doc,.docx,.txt"
+              />
+            </label>
+          </div>
+
+          {behalfUploaded.length > 0 && (
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-emerald-800">
+                <CheckCircle2 className="h-4 w-4" />
+                Added to the client&apos;s case file — the estimate is recalculating.
+              </div>
+              <ul className="mt-1 ml-6 list-disc text-xs text-emerald-700">
+                {behalfUploaded.map((name, i) => (
+                  <li key={`${name}-${i}`} className="truncate">{name}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
         )}
 

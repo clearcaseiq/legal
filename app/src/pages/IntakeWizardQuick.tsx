@@ -841,6 +841,7 @@ export default function IntakeWizardQuick() {
       futureMedicalRange: '' as string,
       umUimCoverage: '' as string,
       pipCoverage: '' as string,
+      medPayCoverage: '' as string,
       plaintiffAutoCarrier: '' as string,
     },
     consents: { tos: false, privacy: false, ml_use: false }
@@ -1688,6 +1689,8 @@ export default function IntakeWizardQuick() {
           has_um_uim_coverage: formData.insuranceCoverage.umUimCoverage === 'yes',
           pip_coverage: formData.insuranceCoverage.pipCoverage,
           has_pip_coverage: formData.insuranceCoverage.pipCoverage === 'yes',
+          med_pay_coverage: formData.insuranceCoverage.medPayCoverage,
+          has_med_pay_coverage: formData.insuranceCoverage.medPayCoverage === 'yes',
           plaintiff_auto_carrier: formData.insuranceCoverage.plaintiffAutoCarrier?.trim() || undefined,
           defendant_coverage_limits: formData.insuranceCoverage.defendantCoverageLimits,
           policy_limit:
@@ -4539,6 +4542,11 @@ export default function IntakeWizardQuick() {
           no: { Icon: XCircle, sub: tx('umuim_no_sub'), wrap: 'bg-rose-100 text-rose-500' },
           not_sure: { Icon: HelpCircle, sub: tx('umuim_notSure_sub'), wrap: 'bg-slate-100 text-slate-500' },
         }
+        const medPayMeta: Record<string, { Icon: LucideIcon; sub: string; wrap: string }> = {
+          yes: { Icon: ShieldCheck, sub: '', wrap: 'bg-emerald-100 text-emerald-600' },
+          no: { Icon: XCircle, sub: '', wrap: 'bg-rose-100 text-rose-500' },
+          not_sure: { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' },
+        }
         const pipMeta: Record<string, { Icon: LucideIcon; sub: string; wrap: string }> = {
           yes: { Icon: ShieldCheck, sub: tx('pip_yes_sub'), wrap: 'bg-emerald-100 text-emerald-600' },
           no: { Icon: XCircle, sub: tx('pip_no_sub'), wrap: 'bg-rose-100 text-rose-500' },
@@ -4800,6 +4808,38 @@ export default function IntakeWizardQuick() {
                             <HeartPulse className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whatPipTitle')}
                           </div>
                           <p className="mt-1.5 text-[11px] leading-4 text-emerald-800/90">{tx('legal_whatPip')}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {isVehicle && (
+                    <div className="border-t border-slate-100 pt-4">
+                      <div className="flex items-center gap-2">
+                        <HeartPulse className="h-4 w-4 shrink-0 text-teal-500" aria-hidden />
+                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_medPayQuestion')}</p>
+                      </div>
+                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_medPayHelper')}</p>
+                      <div className="mt-3 grid gap-3 lg:grid-cols-4">
+                        <div className="grid gap-2 sm:grid-cols-3 lg:col-span-3">
+                          {PIP_OPTIONS.map(({ value, label }) => {
+                            const meta = medPayMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
+                            return detailCard(
+                              icLegal.medPayCoverage === value,
+                              () => updateForm({ insuranceCoverage: { ...icLegal, medPayCoverage: icLegal.medPayCoverage === value ? '' : value } }),
+                              meta.Icon,
+                              label,
+                              meta.sub,
+                              meta.wrap,
+                              value
+                            )
+                          })}
+                        </div>
+                        <div className="flex flex-col justify-center rounded-xl bg-teal-50 p-3 lg:col-span-1">
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-teal-700">
+                            <HeartPulse className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whatMedPayTitle')}
+                          </div>
+                          <p className="mt-1.5 text-[11px] leading-4 text-teal-800/90">{tx('legal_whatMedPay')}</p>
                         </div>
                       </div>
                     </div>

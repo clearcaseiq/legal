@@ -27,6 +27,8 @@ import { formatPercentage, formatCurrency } from '../lib/formatters'
 import { ResultsPanelSkeleton } from '../components/PageSkeletons'
 import PlaintiffCaseCommandCenter from '../components/PlaintiffCaseCommandCenter'
 import PlaintiffMedicalChronology from '../components/PlaintiffMedicalChronology'
+import EstimateAccuracyStages from '../components/EstimateAccuracyStages'
+import CaseFileChecklist from '../components/CaseFileChecklist'
 import { useLanguage } from '../contexts/LanguageContext'
 import type { CaseCommandCenter } from '../lib/api'
 import { loadPlaintiffSessionSummary } from '../hooks/usePlaintiffSessionSummary'
@@ -1184,6 +1186,28 @@ export default function Results() {
     loadEvidence()
   }, [resolvedAssessmentId])
 
+  // Refresh evidence + assessment/prediction after the client adds a document so
+  // the case-file checklist and the live estimate reflect the new upload (the
+  // multi-upload path re-runs the valuation server-side).
+  const handleEvidenceUploaded = useCallback(async () => {
+    if (!resolvedAssessmentId) return
+    try {
+      const files = await getEvidenceFiles(resolvedAssessmentId)
+      const fileList = Array.isArray(files) ? files : []
+      setEvidenceCount(fileList.length)
+      setEvidenceFiles(fileList)
+    } catch {
+      /* keep prior evidence on transient failure */
+    }
+    try {
+      const assessmentData = await getAssessment(resolvedAssessmentId)
+      setAssessment(assessmentData)
+      if (assessmentData?.latest_prediction) setPrediction(assessmentData.latest_prediction)
+    } catch {
+      /* estimate refresh is best-effort */
+    }
+  }, [resolvedAssessmentId])
+
   const loadCaseInsights = useCallback(async () => {
     if (!resolvedAssessmentId) return
     try {
@@ -1506,6 +1530,17 @@ export default function Results() {
   const hasMedicalBills = evidenceFiles.some(f => f.category === 'bills' && !isLostWageEvidence(f)) || documentedMedicalCharges > 0
   const hasPoliceReport = evidenceFiles.some(f => f.category === 'police_report')
   const hasWageLossProof = evidenceFiles.some(f => f.category === 'wage_loss') || documentedWageLoss > 0
+  // Inputs for the case-file checklist and accuracy-stages tracker.
+  const hasInsuranceDoc =
+    evidenceFiles.some(f => f.category === 'insurance') ||
+    !!(parsedFacts?.insurance?.defendant_coverage_limits || parsedFacts?.insurance?.policy_limit || parsedFacts?.insurance?.has_um_uim_coverage)
+  const economicsEnteredForStages =
+    documentedMedicalCharges > 0 ||
+    documentedWageLoss > 0 ||
+    Number(damagesObj.estimated_property_damage || 0) > 0 ||
+    Number(damagesObj.estimated_future_med_charges || 0) > 0
+  const hasSupportingDocuments = evidenceFiles.some(f => f.category === 'bills' || f.category === 'medical_records')
+  const medicalSpecialsVerified = damagesObj.med_charges_source === 'documented'
   const effectiveEvidenceCount = Math.max(
     evidenceCount,
     evidenceFiles.length,
@@ -1935,6 +1970,44 @@ export default function Results() {
     { signal: 'Deadline', status: deadlineRiskLabel },
   ]
   const consumerEstimateLabel = `Confidence: ${estimateConfidenceLevel}`
+  // Self-reported economic inputs the client may have skipped at intake. Unlike
+  // the document-evidence prompts above, these are the dollar figures that feed
+  // the valuation directly — when missing, the estimate is a conservative floor.
+  const hasReportedInsuranceInfo =
+    policyLimitConstrained ||
+    !!(
+      parsedFacts?.insurance?.defendant_coverage_limits ||
+      parsedFacts?.insurance?.um_uim ||
+      parsedFacts?.insurance?.has_um_uim_coverage
+    )
+  const reportedPropertyDamage = Number(
+    damagesObj.estimated_property_damage || damagesObj.property_damage || 0
+  )
+  const reportedFutureTreatment = Number(
+    damagesObj.estimated_future_med_charges || damagesObj.future_medical || 0
+  )
+  const missingEstimateInputs = [
+    documentedMedicalCharges <= 0 && {
+      label: 'Medical bill total',
+      helper: 'Your treatment costs are a core part of the claim and usually raise the estimate.',
+    },
+    documentedWageLoss <= 0 && {
+      label: 'Lost wages',
+      helper: 'Time missed from work adds to your recoverable damages.',
+    },
+    !hasReportedInsuranceInfo && {
+      label: 'Insurance / policy limits',
+      helper: "Knowing the at-fault driver's coverage helps set a realistic recovery ceiling.",
+    },
+    reportedPropertyDamage <= 0 && {
+      label: 'Property / vehicle damage',
+      helper: 'Vehicle and property damage counts toward your economic losses.',
+    },
+    reportedFutureTreatment <= 0 && {
+      label: 'Expected future treatment',
+      helper: 'Ongoing or future care can significantly increase case value.',
+    },
+  ].filter(Boolean) as Array<{ label: string; helper: string }>
   const litigationExposureText = isEarlyStageEstimate
     ? 'Current assessment: Preliminary'
     : `${formatCurrency(potentialTrialLow)} - ${formatCurrency(potentialTrialHigh)}${trialRange?.policyLimitConstrained ? '' : '+'}`
@@ -4614,6 +4687,52 @@ Checklist:
             Settlement estimates reflect injury-supported value after settlement compression, liability risk, evidence confidence, venue signals, and insurance constraints. Not a guarantee of outcome.
           </p>
         </div>
+
+        {missingEstimateInputs.length > 0 && (
+          <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50/60 p-5">
+            <p className="text-sm font-semibold text-amber-900">
+              This is a preliminary estimate — and it can grow
+            </p>
+            <p className="mt-1 text-sm text-amber-800 leading-relaxed">
+              We calculated this range from what you&apos;ve shared so far. A few key figures are still
+              missing, so treat this number as a conservative floor — not a ceiling. Adding the details
+              below typically increases and sharpens your estimate.
+            </p>
+            <ul className="mt-3 space-y-2">
+              {missingEstimateInputs.map((item) => (
+                <li key={item.label} className="flex items-start gap-2 text-sm">
+                  <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-500" />
+                  <span>
+                    <span className="font-medium text-amber-900">{item.label}</span>
+                    <span className="text-amber-700"> — {item.helper}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-xs text-amber-700">
+              Don&apos;t have exact numbers yet? That&apos;s normal this soon after an accident. A rough
+              range is fine — you can refine it later as bills and records come in.
+            </p>
+          </div>
+        )}
+
+        <EstimateAccuracyStages
+          hasEstimate={!!prediction}
+          economicsEntered={economicsEnteredForStages}
+          hasDocuments={hasSupportingDocuments}
+          isVerified={medicalSpecialsVerified}
+        />
+
+        <CaseFileChecklist
+          assessmentId={resolvedAssessmentId}
+          hasInsurance={hasInsuranceDoc}
+          hasMedicalBills={hasMedicalBills}
+          hasMedicalRecords={hasMedicalRecords}
+          hasPoliceReport={hasPoliceReport}
+          hasWageLossProof={hasWageLossProof}
+          hasInjuryPhotos={hasInjuryPhotos}
+          onUploaded={handleEvidenceUploaded}
+        />
 
         <div className="mb-8 grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
           <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-5 shadow-sm sm:p-6">

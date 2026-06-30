@@ -369,6 +369,10 @@ export default function AttorneyDashboard() {
   const {
     casePreparation,
     handleAddInsurance,
+    handleUpdateInsurance,
+    handleRequestDecPage,
+    applyInsuranceSuggestion,
+    insuranceSuggestion,
     handleAddLien,
     insuranceForm,
     insuranceItems,
@@ -2491,6 +2495,10 @@ export default function AttorneyDashboard() {
               insuranceForm={insuranceForm}
               setInsuranceForm={setInsuranceForm}
               handleAddInsurance={handleAddInsurance}
+              handleUpdateInsurance={handleUpdateInsurance}
+              handleRequestDecPage={handleRequestDecPage}
+              applyInsuranceSuggestion={applyInsuranceSuggestion}
+              insuranceSuggestion={insuranceSuggestion}
               insuranceItems={insuranceItems}
               lienForm={lienForm}
               setLienForm={setLienForm}

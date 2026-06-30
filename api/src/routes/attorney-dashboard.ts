@@ -8,6 +8,7 @@ import { prisma } from '../lib/prisma'
 import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { runAnalysisForAssessment } from './evidence'
+import { runCaseRecalculation } from '../lib/case-recalculation'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { z } from 'zod'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
@@ -667,9 +668,95 @@ const insuranceDetailSelect = {
   adjusterEmail: true,
   adjusterPhone: true,
   notes: true,
+  insuredParty: true,
+  coverageType: true,
+  claimNumber: true,
+  claimStatus: true,
+  claimOpenedAt: true,
+  decPageRequestId: true,
+  coverageConfirmed: true,
   createdAt: true,
   updatedAt: true,
 } as const
+
+const INSURED_PARTIES = ['defendant', 'client'] as const
+const COVERAGE_TYPES = ['liability', 'um', 'uim', 'medpay', 'other'] as const
+const CLAIM_STATUSES = ['not_opened', 'open', 'accepted', 'denied', 'closed'] as const
+
+function normalizeEnum<T extends readonly string[]>(
+  value: unknown,
+  allowed: T,
+): T[number] | null {
+  return typeof value === 'string' && (allowed as readonly string[]).includes(value)
+    ? (value as T[number])
+    : null
+}
+
+// Derive a suggested insurance record + claim-type (at-fault vs UM/UIM) from the
+// plaintiff's intake answers, so the attorney's insurance form starts pre-filled
+// rather than re-keying what the client already reported. The attorney still
+// reviews and decides — this only proposes.
+function buildInsuranceClaimSuggestion(facts: any) {
+  const ins = (facts && typeof facts === 'object' ? facts.insurance : null) || {}
+  const liability = (facts && typeof facts === 'object' ? facts.liability : null) || {}
+
+  const otherPartyInsured: string | null = ins.other_party_insured ?? null
+  const defendantPolicyLimit: number | null =
+    typeof ins.policy_limit === 'number' ? ins.policy_limit : null
+  const hasUmUim = Boolean(ins.has_um_uim_coverage)
+  const hasPip = Boolean(ins.has_pip_coverage)
+  const hasMedPay = Boolean(ins.has_med_pay_coverage)
+  const plaintiffCarrier: string | null = ins.plaintiff_auto_carrier || null
+  const faultBelief: string | null = liability.faultBelief ?? null
+
+  const warnings: string[] = []
+  let suggestion: {
+    carrierName?: string
+    policyLimit?: number
+    insuredParty?: 'defendant' | 'client'
+    coverageType?: 'liability' | 'um' | 'uim'
+  } = {}
+  let claimTypeLabel = 'Undetermined'
+  let rationale = 'Confirm whether the at-fault party is insured to determine an at-fault vs UM claim.'
+  let available = false
+
+  if (otherPartyInsured === 'no') {
+    available = true
+    claimTypeLabel = "UM claim (client's own policy)"
+    rationale = 'Intake indicates the at-fault party is uninsured, so recovery goes against the client’s own uninsured-motorist (UM) coverage.'
+    suggestion = {
+      insuredParty: 'client',
+      coverageType: 'um',
+      ...(plaintiffCarrier ? { carrierName: plaintiffCarrier } : {}),
+    }
+    if (!hasUmUim) {
+      warnings.push('Client reported no UM/UIM coverage — recovery may be limited. Confirm the policy.')
+    }
+  } else if (otherPartyInsured === 'yes') {
+    available = true
+    claimTypeLabel = 'At-fault claim (defendant’s insurer)'
+    rationale = 'Intake indicates the at-fault party is insured; pursue the liability claim against their carrier.'
+    suggestion = {
+      insuredParty: 'defendant',
+      coverageType: 'liability',
+      ...(defendantPolicyLimit ? { policyLimit: defendantPolicyLimit } : {}),
+    }
+    if (hasUmUim && defendantPolicyLimit && defendantPolicyLimit <= 25000) {
+      warnings.push('Defendant limits look low and the client has UM/UIM — consider a UIM claim if liability limits are insufficient.')
+    }
+  } else if (otherPartyInsured === 'not_sure') {
+    rationale = 'Client is unsure whether the at-fault party is insured — request the Dec Page to confirm coverage before classifying the claim.'
+  }
+
+  return {
+    available,
+    claimTypeLabel,
+    rationale,
+    warnings,
+    suggestion,
+    intake: { otherPartyInsured, defendantPolicyLimit, hasUmUim, hasPip, hasMedPay, plaintiffCarrier, faultBelief },
+  }
+}
 
 const lienHolderSelect = {
   id: true,
@@ -3874,6 +3961,7 @@ router.post('/leads/:leadId/document-request', authMiddleware, async (req: any, 
 
 // Labels for documents an attorney can request from the opposing party / defendant / insurer.
 const OPPOSING_DOC_LABELS: Record<string, string> = {
+  dec_page: 'Declarations (Dec) page confirming coverage limits',
   insurance_policy: 'Insurance policy / declarations page',
   incident_report: 'Incident / accident report',
   surveillance: 'Surveillance or camera footage',
@@ -4702,6 +4790,9 @@ router.post(
       })
 
       void runAnalysisForAssessment(lead.assessmentId)
+      // Re-run the valuation so an attorney-collected document updates the live
+      // estimate the same way a client upload does.
+      void runCaseRecalculation(lead.assessmentId, 'document_upload')
       logger.info('Attorney uploaded case document', {
         leadId,
         evidenceFileId: evidenceFile.id,
@@ -6157,6 +6248,35 @@ router.get('/leads/:leadId/insurance', authMiddleware, async (req: any, res) => 
   }
 })
 
+// Suggested insurance prefill + claim-type, derived from the plaintiff's intake
+// answers (defendant insured?, policy limit, UM/UIM). Read-only; the attorney
+// decides whether to apply it.
+router.get('/leads/:leadId/insurance/suggestion', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead } = auth
+
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: lead.assessmentId },
+      select: { facts: true }
+    })
+    let facts: any = {}
+    try {
+      facts = assessment?.facts ? JSON.parse(assessment.facts) : {}
+    } catch {
+      facts = {}
+    }
+    res.json(buildInsuranceClaimSuggestion(facts))
+  } catch (error: any) {
+    logger.error('Failed to build insurance suggestion', { error: error.message })
+    res.status(500).json({ error: 'Failed to build insurance suggestion' })
+  }
+})
+
 router.post('/leads/:leadId/insurance', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
@@ -6172,12 +6292,20 @@ router.post('/leads/:leadId/insurance', authMiddleware, async (req: any, res) =>
       adjusterName,
       adjusterEmail,
       adjusterPhone,
-      notes
+      notes,
+      insuredParty,
+      coverageType,
+      claimNumber,
+      claimStatus,
+      coverageConfirmed,
+      createWorkflowTasks
     } = req.body
 
     if (!carrierName) {
       return res.status(400).json({ error: 'carrierName is required' })
     }
+
+    const normalizedClaimStatus = normalizeEnum(claimStatus, CLAIM_STATUSES) ?? 'not_opened'
 
     const record = await prisma.insuranceDetail.create({
       data: {
@@ -6188,10 +6316,43 @@ router.post('/leads/:leadId/insurance', authMiddleware, async (req: any, res) =>
         adjusterName: adjusterName || null,
         adjusterEmail: adjusterEmail || null,
         adjusterPhone: adjusterPhone || null,
-        notes: notes || null
+        notes: notes || null,
+        insuredParty: normalizeEnum(insuredParty, INSURED_PARTIES),
+        coverageType: normalizeEnum(coverageType, COVERAGE_TYPES),
+        claimNumber: claimNumber || null,
+        claimStatus: normalizedClaimStatus,
+        claimOpenedAt: normalizedClaimStatus !== 'not_opened' ? new Date() : null,
+        coverageConfirmed: Boolean(coverageConfirmed)
       },
       select: insuranceDetailSelect
     })
+
+    // Seed the recovery-path checklist so the attorney has the next two concrete
+    // steps (confirm coverage via the Dec Page, then open the claim) on the board.
+    if (createWorkflowTasks !== false) {
+      const carrierLabel = record.carrierName
+      await prisma.caseTask.createMany({
+        data: [
+          {
+            assessmentId: lead.assessmentId,
+            title: `Request Dec Page from ${carrierLabel}`,
+            taskType: 'general',
+            assignedRole: 'paralegal',
+            priority: 'high',
+            notes: 'Confirms available coverage (the ceiling on recovery).'
+          },
+          {
+            assessmentId: lead.assessmentId,
+            title: `Open claim with ${carrierLabel} and record claim number`,
+            taskType: 'general',
+            assignedRole: 'paralegal',
+            priority: 'high',
+            notes: 'Open the claim with the adjuster and capture the claim number.'
+          }
+        ]
+      })
+    }
+
     res.json(record)
   } catch (error: any) {
     logger.error('Failed to create insurance detail', { error: error.message })
@@ -6213,8 +6374,29 @@ router.patch('/leads/:leadId/insurance/:id', authMiddleware, async (req: any, re
       adjusterName,
       adjusterEmail,
       adjusterPhone,
-      notes
+      notes,
+      insuredParty,
+      coverageType,
+      claimNumber,
+      claimStatus,
+      coverageConfirmed
     } = req.body
+
+    // When the claim moves off "not_opened" for the first time, stamp the opened
+    // date; clear it if the claim is reset to not_opened.
+    let claimOpenedAtPatch: Record<string, Date | null> = {}
+    if (claimStatus !== undefined) {
+      const normalized = normalizeEnum(claimStatus, CLAIM_STATUSES) ?? 'not_opened'
+      const existing = await prisma.insuranceDetail.findUnique({
+        where: { id },
+        select: { claimOpenedAt: true }
+      })
+      if (normalized === 'not_opened') {
+        claimOpenedAtPatch = { claimOpenedAt: null }
+      } else if (!existing?.claimOpenedAt) {
+        claimOpenedAtPatch = { claimOpenedAt: new Date() }
+      }
+    }
 
     const record = await prisma.insuranceDetail.update({
       where: { id },
@@ -6225,7 +6407,13 @@ router.patch('/leads/:leadId/insurance/:id', authMiddleware, async (req: any, re
         ...(adjusterName !== undefined ? { adjusterName } : {}),
         ...(adjusterEmail !== undefined ? { adjusterEmail } : {}),
         ...(adjusterPhone !== undefined ? { adjusterPhone } : {}),
-        ...(notes !== undefined ? { notes } : {})
+        ...(notes !== undefined ? { notes } : {}),
+        ...(insuredParty !== undefined ? { insuredParty: normalizeEnum(insuredParty, INSURED_PARTIES) } : {}),
+        ...(coverageType !== undefined ? { coverageType: normalizeEnum(coverageType, COVERAGE_TYPES) } : {}),
+        ...(claimNumber !== undefined ? { claimNumber: claimNumber || null } : {}),
+        ...(claimStatus !== undefined ? { claimStatus: normalizeEnum(claimStatus, CLAIM_STATUSES) ?? 'not_opened' } : {}),
+        ...(coverageConfirmed !== undefined ? { coverageConfirmed: Boolean(coverageConfirmed) } : {}),
+        ...claimOpenedAtPatch
       },
       select: insuranceDetailSelect
     })
@@ -6248,6 +6436,81 @@ router.delete('/leads/:leadId/insurance/:id', authMiddleware, async (req: any, r
   } catch (error: any) {
     logger.error('Failed to delete insurance detail', { error: error.message })
     res.status(500).json({ error: 'Failed to delete insurance detail' })
+  }
+})
+
+// Request the Dec Page (declarations page) from an insurer to confirm available
+// coverage. Reuses the opposing-party tokenized upload portal so the insurer,
+// who has no platform account, can upload securely, and links the resulting
+// DocumentRequest back to the insurance record.
+router.post('/leads/:leadId/insurance/:id/request-dec-page', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, id } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead, attorney } = auth
+
+    const insurance = await prisma.insuranceDetail.findFirst({
+      where: { id, assessmentId: lead.assessmentId },
+      select: insuranceDetailSelect
+    })
+    if (!insurance) {
+      return res.status(404).json({ error: 'Insurance record not found' })
+    }
+
+    const recipientName = (req.body?.recipientName || insurance.carrierName || '').trim()
+    const recipientEmail = (req.body?.recipientEmail || insurance.adjusterEmail || '').trim()
+    const customMessage = req.body?.customMessage || null
+    if (!recipientName) {
+      return res.status(400).json({ error: 'recipientName (or a carrier name) is required' })
+    }
+
+    const secureToken = crypto.randomUUID()
+    const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000'
+    const uploadLink = `${baseUrl}/respond/documents/${secureToken}`
+
+    const docRequest = await prisma.documentRequest.create({
+      data: {
+        leadId,
+        attorneyId: attorney.id,
+        requestedDocs: JSON.stringify(['dec_page']),
+        customMessage,
+        secureToken,
+        uploadLink,
+        status: 'pending',
+        targetType: 'opposing_party',
+        recipientName,
+        recipientEmail: recipientEmail || null,
+        recipientRole: 'insurer',
+        origin: 'attorney',
+      },
+    })
+
+    const updated = await prisma.insuranceDetail.update({
+      where: { id },
+      data: { decPageRequestId: docRequest.id },
+      select: insuranceDetailSelect
+    })
+
+    if (recipientEmail) {
+      const attorneyName = attorney.name || 'the attorney'
+      const subject = `Declarations page request — ${attorneyName}`
+      const message = `Hello ${recipientName},\n\n${attorneyName} requests the declarations (Dec) page confirming the available coverage limits for this claim.\n\n${customMessage ? `${customMessage}\n\n` : ''}Please upload it securely here:\n${uploadLink}\n\nThis is a secure, single-purpose link. If you believe you received this in error, please disregard it.\n\nRegards,\nClearCaseIQ on behalf of ${attorneyName}`
+      await createNotification(recipientEmail, subject, message, {
+        leadId,
+        assessmentId: lead.assessmentId,
+        documentRequestId: docRequest.id,
+        targetType: 'opposing_party',
+        uploadLink,
+      })
+    }
+
+    res.json({ insurance: updated, documentRequest: { ...docRequest, requestedDocs: ['dec_page'] } })
+  } catch (error: any) {
+    logger.error('Failed to request Dec Page', { error: error.message })
+    res.status(500).json({ error: 'Failed to request Dec Page' })
   }
 })
 

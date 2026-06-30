@@ -9,15 +9,6 @@ import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt
 const router = Router()
 type DemandMode = 'represented' | 'pro_se'
 
-function isValidDraft(content?: string | null) {
-  if (!content) return false
-  const trimmed = content.trim()
-  if (!trimmed) return false
-  const lower = trimmed.toLowerCase()
-  if (['n/a', 'na', 'not available', 'not available.'].includes(lower)) return false
-  return trimmed.length >= 50
-}
-
 function parseAssessmentFacts(rawFacts: unknown) {
   if (typeof rawFacts === 'string') {
     try {
@@ -29,28 +20,157 @@ function parseAssessmentFacts(rawFacts: unknown) {
   return rawFacts && typeof rawFacts === 'object' ? rawFacts : {}
 }
 
-function hasReportedEconomicDamages(facts: any) {
-  const damages = facts?.damages || {}
-  return [
-    damages.med_charges,
-    damages.med_paid,
-    damages.wage_loss,
-    damages.estimated_med_charges,
-    damages.estimated_wage_loss,
-    damages.estimated_out_of_pocket,
-    damages.estimated_future_med_charges,
-  ].some((value) => Number(value || 0) > 0)
+// Pull the saved LLM analysis payload off an assessment, if present.
+function extractAnalysisPayload(assessment: any): any | null {
+  if (!assessment?.chatgptAnalysis) return null
+  try {
+    const parsed = JSON.parse(assessment.chatgptAnalysis)
+    return parsed.analysis || parsed
+  } catch {
+    return null
+  }
 }
 
-function draftContradictsDamages(content: string | null | undefined, facts: any) {
-  if (!content || !hasReportedEconomicDamages(facts)) return false
-  const lower = content.toLowerCase()
-  return (
-    lower.includes('no reported medical charges') ||
-    lower.includes('no reported medical expenses') ||
-    lower.includes('no reported wage loss') ||
-    lower.includes('no reported medical charges or wage loss')
-  )
+interface TreatmentLedgerEntry {
+  visitDate: Date
+  providerName: string
+  visitType: string
+  diagnosis: string | null
+  diagnosisCode: string | null
+  billedAmount: number | null
+  status: string
+}
+
+interface TreatmentLedger {
+  entries: TreatmentLedgerEntry[]
+  totalBilled: number
+  firstVisit: Date | null
+  lastVisit: Date | null
+  providerCount: number
+}
+
+// Load the treatment / diagnoses / bills ledger logged against this assessment's
+// referrals so the demand letter can present a real visit-by-visit timeline and
+// an itemized bill total instead of a single self-reported number.
+async function loadTreatmentLedger(assessmentId: string): Promise<TreatmentLedger> {
+  const empty: TreatmentLedger = {
+    entries: [],
+    totalBilled: 0,
+    firstVisit: null,
+    lastVisit: null,
+    providerCount: 0,
+  }
+
+  const leads = await prisma.leadSubmission.findMany({
+    where: { assessmentId },
+    select: { id: true },
+  })
+  const leadIds = leads.map((l) => l.id)
+  if (leadIds.length === 0) return empty
+
+  const records = await prisma.treatmentRecord.findMany({
+    where: { leadId: { in: leadIds }, status: { notIn: ['cancelled', 'no_show'] } },
+    orderBy: { visitDate: 'asc' },
+  })
+  if (records.length === 0) return empty
+
+  const providerIds = [...new Set(records.map((r) => r.providerId))]
+  const providers = await prisma.medicalProvider.findMany({
+    where: { id: { in: providerIds } },
+    select: { id: true, name: true, specialty: true },
+  })
+  const providerById = new Map(providers.map((p) => [p.id, p]))
+
+  const entries: TreatmentLedgerEntry[] = records.map((r) => {
+    const provider = providerById.get(r.providerId)
+    return {
+      visitDate: r.visitDate,
+      providerName: provider ? `${provider.name}${provider.specialty ? ` (${provider.specialty})` : ''}` : 'Provider',
+      visitType: r.visitType,
+      diagnosis: r.diagnosis,
+      diagnosisCode: r.diagnosisCode,
+      billedAmount: r.billedAmount,
+      status: r.status,
+    }
+  })
+
+  const totalBilled = entries.reduce((sum, e) => sum + (e.billedAmount || 0), 0)
+  const visitDates = entries.map((e) => e.visitDate)
+
+  return {
+    entries,
+    totalBilled,
+    firstVisit: visitDates[0] ?? null,
+    lastVisit: visitDates[visitDates.length - 1] ?? null,
+    providerCount: providerIds.length,
+  }
+}
+
+const money = (value: number) =>
+  `$${Math.round(value).toLocaleString('en-US')}`
+
+const longDate = (d: Date | string | null | undefined) => {
+  if (!d) return null
+  const date = typeof d === 'string' ? new Date(d) : d
+  return isNaN(date.getTime())
+    ? null
+    : date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+}
+
+const labelizeVisitType = (value: string) =>
+  value.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
+
+// Render injuries (which may be strings or objects) as a readable list.
+function describeInjuries(facts: any): string[] {
+  const raw = facts?.injuries ?? facts?.injury ?? []
+  const list = Array.isArray(raw) ? raw : raw ? [raw] : []
+  return list
+    .map((item: any) => {
+      if (!item) return null
+      if (typeof item === 'string') return item
+      return item.name || item.bodyPart || item.description || item.type || null
+    })
+    .filter(Boolean)
+    .map((s: string) => String(s).trim())
+}
+
+// Build the medical treatment timeline section from the ledger (preferred) or
+// fall back to the LLM medical chronology / self-reported summary.
+function buildTreatmentTimelineSection(ledger: TreatmentLedger, analysis: any): string {
+  if (ledger.entries.length > 0) {
+    const span =
+      ledger.firstVisit && ledger.lastVisit
+        ? `Treatment spanned ${longDate(ledger.firstVisit)} through ${longDate(ledger.lastVisit)} across ${ledger.providerCount} provider${ledger.providerCount === 1 ? '' : 's'}.`
+        : ''
+    const lines = ledger.entries.map((e) => {
+      const parts = [
+        `- ${longDate(e.visitDate)} — ${e.providerName}: ${labelizeVisitType(e.visitType)}`,
+      ]
+      if (e.diagnosis) {
+        parts.push(` — Dx: ${e.diagnosis}${e.diagnosisCode ? ` (${e.diagnosisCode})` : ''}`)
+      }
+      if (e.billedAmount != null) {
+        parts.push(` — ${money(e.billedAmount)}`)
+      }
+      return parts.join('')
+    })
+    return ['MEDICAL TREATMENT TIMELINE AND RECORDS', span, '', ...lines]
+      .filter((l) => l !== undefined)
+      .join('\n')
+  }
+
+  const chronology = analysis?.medicalChronology
+  if (chronology?.timeline?.length) {
+    const lines = chronology.timeline.map((t: string) => `- ${t}`)
+    return ['MEDICAL TREATMENT TIMELINE AND RECORDS', chronology.summary || '', '', ...lines]
+      .filter(Boolean)
+      .join('\n')
+  }
+
+  return [
+    'MEDICAL TREATMENT TIMELINE AND RECORDS',
+    'Our client received medical treatment for injuries sustained in this incident. A complete set of treatment records and itemized bills is available upon request and incorporated herein by reference.',
+  ].join('\n')
 }
 
 async function canAccessAssessment(assessmentId: string, userId?: string, userEmail?: string) {
@@ -159,13 +279,19 @@ router.post('/draft/:assessmentId', authMiddleware, async (req: AuthRequest, res
     }
 
     const facts = parseAssessmentFacts(assessment.facts)
-    const demandDraft = analysisPayload?.demandPackage?.demandDraft
-    const content = isValidDraft(demandDraft) && !draftContradictsDamages(demandDraft, facts) ? demandDraft : generateDemandLetter({
+    const treatmentLedger = await loadTreatmentLedger(assessmentId)
+    // Always build the structured, comprehensive letter so every required
+    // section is present (accident summary, liability, treatment timeline,
+    // bills, wages, pain & suffering, demand + deadline). The stored LLM
+    // analysis supplies the liability and damages narrative content.
+    const content = generateDemandLetter({
       assessment,
       facts,
       targetAmount,
       recipient,
-      message: analysisPayload?.demandPackage?.liabilityOutline
+      message: analysisPayload?.demandPackage?.liabilityOutline,
+      treatmentLedger,
+      analysis: analysisPayload,
     })
 
     const demand = await prisma.demandLetter.create({
@@ -230,7 +356,9 @@ router.post('/generate', async (req, res) => {
     }
 
     const facts = parseAssessmentFacts(assessment.facts)
-    
+    const treatmentLedger = await loadTreatmentLedger(assessmentId)
+    const analysis = extractAnalysisPayload(assessment)
+
     // Generate demand letter content
     const demandLetter = generateDemandLetter({
       assessment,
@@ -238,7 +366,9 @@ router.post('/generate', async (req, res) => {
       targetAmount,
       recipient,
       message,
-      mode
+      mode,
+      treatmentLedger,
+      analysis,
     })
 
     // Store demand letter
@@ -363,7 +493,9 @@ function generateDemandLetter({
   targetAmount,
   recipient,
   message,
-  mode = 'represented'
+  mode = 'represented',
+  treatmentLedger,
+  analysis,
 }: {
   assessment: any
   facts: any
@@ -371,98 +503,144 @@ function generateDemandLetter({
   recipient: any
   message?: string
   mode?: DemandMode
+  treatmentLedger?: TreatmentLedger
+  analysis?: any
 }) {
+  const ledger: TreatmentLedger =
+    treatmentLedger ?? { entries: [], totalBilled: 0, firstVisit: null, lastVisit: null, providerCount: 0 }
+
   const incidentDate = facts.incident?.date || 'the date of the incident'
-  const narrative = facts.incident?.narrative || 'the incident'
-  const venue = `${assessment.venueState}${assessment.venueCounty ? `, ${assessment.venueCounty}` : ''}`
-  const medicalExpenses = facts.damages?.med_charges?.toLocaleString() || 'To be determined'
-  const lostWages = facts.damages?.wage_loss?.toLocaleString() || 'To be determined'
+  const narrative = facts.incident?.narrative || 'the incident described in our client\u2019s claim'
+  const venue = `${assessment.venueState || ''}${assessment.venueCounty ? `, ${assessment.venueCounty}` : ''}`.trim() || 'the applicable jurisdiction'
 
-  if (mode === 'pro_se') {
-    return `
-SELF-HELP SETTLEMENT DEMAND
+  // Medical specials: prefer the itemized ledger total, fall back to self-reported.
+  const reportedMedical = Number(facts.damages?.med_charges || 0)
+  const medicalTotal = ledger.totalBilled > 0 ? ledger.totalBilled : reportedMedical
+  const lostWages = Number(facts.damages?.wage_loss || facts.damages?.estimated_wage_loss || 0)
+  const futureMedical = Number(facts.damages?.estimated_future_med_charges || 0)
 
-${recipient.name}
-${recipient.address}
+  // General (pain & suffering) damages: derive from the demand less specials,
+  // or fall back to the analysis's pain/suffering valuation split.
+  const specials = medicalTotal + lostWages + futureMedical
+  const painSufferingSplit = Number(analysis?.valuationBreakdown?.damageSplits?.painSuffering || 0)
+  const generalDamages =
+    targetAmount > specials ? targetAmount - specials : painSufferingSplit > 0 ? painSufferingSplit : 0
 
-Re: Personal Injury Claim - ${incidentDate}
+  // --- Section: liability / why the defendant is at fault ---
+  const liabilityText =
+    (message && message.trim()) ||
+    (analysis?.liabilityOutline && String(analysis.liabilityOutline).trim()) ||
+    (analysis?.liabilityModel?.reasoning && String(analysis.liabilityModel.reasoning).trim()) ||
+    `The incident and resulting injuries were directly and proximately caused by the negligence of your insured. Your insured owed our client a duty of care, breached that duty, and that breach was the direct cause of the injuries and damages described below. Liability is clear.`
 
-Dear ${recipient.name},
+  // --- Section: medical treatment timeline & records ---
+  const treatmentSection = buildTreatmentTimelineSection(ledger, analysis)
 
-I am writing on my own behalf about my personal injury claim arising from an incident that occurred on or about ${incidentDate} in ${venue}.
+  // --- Section: pain & suffering justification ---
+  const injuries = describeInjuries(facts)
+  const injuryClause = injuries.length
+    ? `As a result of this incident, our client sustained ${injuries.join(', ')}.`
+    : `As a result of this incident, our client sustained painful injuries requiring medical care.`
+  const treatmentSpanClause =
+    ledger.firstVisit && ledger.lastVisit
+      ? ` Our client underwent ${ledger.entries.length} documented treatment encounter${ledger.entries.length === 1 ? '' : 's'} between ${longDate(ledger.firstVisit)} and ${longDate(ledger.lastVisit)}.`
+      : ''
+  const painSufferingNarrative =
+    (analysis?.demandPackage?.damageSummary && String(analysis.demandPackage.damageSummary).trim()) || ''
+  const painSufferingSection = [
+    'PAIN AND SUFFERING',
+    `${injuryClause}${treatmentSpanClause} These injuries caused our client substantial physical pain, emotional distress, and disruption to daily activities, work, and quality of life. The course of treatment, the nature of the injuries, and their ongoing effects fully justify a meaningful award for non-economic damages.`,
+    painSufferingNarrative,
+  ]
+    .filter((s) => s && s.trim())
+    .join('\n\n')
 
-INCIDENT SUMMARY
-${narrative}
+  // --- Section: itemized damages summary ---
+  const medicalLine =
+    ledger.totalBilled > 0
+      ? `- Medical bills (itemized from ${ledger.entries.length} encounter${ledger.entries.length === 1 ? '' : 's'}): ${money(medicalTotal)}`
+      : `- Medical expenses: ${medicalTotal > 0 ? money(medicalTotal) : 'To be documented'}`
+  const damagesLines = [
+    medicalLine,
+    `- Lost wages: ${lostWages > 0 ? money(lostWages) : 'To be documented'}`,
+    futureMedical > 0 ? `- Future medical expenses: ${money(futureMedical)}` : null,
+    `- Pain and suffering (general damages): ${generalDamages > 0 ? money(generalDamages) : 'See above'}`,
+  ].filter(Boolean)
 
-DAMAGES CLAIMED
-Based on the information currently available to me, my damages include:
-
-- Medical expenses: $${medicalExpenses}
-- Lost wages: $${lostWages}
-- Pain, inconvenience, and disruption caused by the incident
-- Future medical expenses or ongoing care, if supported by records
-
-DEMAND
-To resolve this matter without litigation, I am requesting $${targetAmount.toLocaleString()}.
-
-${message ? `\nADDITIONAL CONTEXT\n${message}` : ''}
-
-Please review the attached or available supporting records, including medical bills, wage loss proof, photos, reports, and any other documentation I provide. I am willing to discuss settlement in good faith.
-
-Please respond within thirty (30) days of receipt of this letter. I reserve all rights and claims, and nothing in this letter should be treated as a release or waiver.
-
-Sincerely,
-
-[Your Name]
-[Your Contact Information]
-
-This letter is for settlement purposes only. I understand that I should consider attorney review before signing any release, accepting a final settlement, or resolving claims involving serious injury, minors, disputed liability, government entities, liens, permanent disability, or approaching legal deadlines.
-    `.trim()
+  const isPro = mode === 'pro_se'
+  const voice = {
+    weI: isPro ? 'I' : 'we',
+    ourMy: isPro ? 'my' : 'our client\u2019s',
+    clientPossessive: isPro ? 'my' : 'our client\u2019s',
+    clientSubject: isPro ? 'I' : 'our client',
   }
-  
-  return `
-DEMAND LETTER
 
-${recipient.name}
-${recipient.address}
+  const intro = isPro
+    ? `I am writing on my own behalf regarding my personal injury claim arising from an incident that occurred on or about ${incidentDate} in ${venue}.`
+    : `We represent the above-referenced client in connection with a personal injury claim arising from an incident that occurred on or about ${incidentDate} in ${venue}. This letter constitutes our formal demand for settlement.`
 
-Re: Personal Injury Claim - ${incidentDate}
+  const wageSection = [
+    'LOST WAGES',
+    lostWages > 0
+      ? `${voice.clientSubject} incurred ${money(lostWages)} in lost earnings as a result of this incident and the resulting treatment and recovery. Wage-loss documentation (employer verification and/or pay records) is available upon request and incorporated herein by reference.`
+      : `${voice.clientSubject} experienced lost time from work as a result of this incident. Supporting wage-loss documentation will be provided.`,
+  ].join('\n')
 
-Dear ${recipient.name},
+  const medicalBillsSection = [
+    'TOTAL MEDICAL BILLS',
+    ledger.totalBilled > 0
+      ? `The itemized treatment records above reflect total medical charges of ${money(ledger.totalBilled)} to date. Complete billing statements and records are enclosed or available upon request.`
+      : `Total medical charges to date are ${medicalTotal > 0 ? money(medicalTotal) : 'being compiled'}. Itemized billing statements and records are available upon request.`,
+  ].join('\n')
 
-We represent the above-referenced client in connection with a personal injury claim arising from an incident that occurred on or about ${incidentDate} in ${venue}.
+  const deadlineClause = `Please respond within thirty (30) days of receipt of this letter.`
 
-INCIDENT SUMMARY
-${narrative}
+  const header = isPro ? 'SETTLEMENT DEMAND' : 'DEMAND LETTER'
+  const closing = isPro
+    ? `Sincerely,\n\n[Your Name]\n[Your Contact Information]`
+    : `Very truly yours,\n\n[Attorney Name]\n[Law Firm Name]\n[Contact Information]`
+  const disclaimer = isPro
+    ? `This letter is for settlement purposes only. I understand I should consider attorney review before signing any release or resolving claims involving serious injury, minors, disputed liability, government entities, liens, permanent disability, or approaching legal deadlines.`
+    : `This letter is for settlement purposes only and is not admissible in any subsequent litigation.`
 
-DAMAGES CLAIMED
-Our client has suffered significant injuries and damages as a result of this incident, including but not limited to:
-
-- Medical expenses: $${medicalExpenses}
-- Lost wages: $${lostWages}
-- Pain and suffering
-- Future medical expenses
-- Loss of earning capacity
-
-DEMAND
-Based on the severity of our client's injuries and the extent of damages suffered, we demand the sum of $${targetAmount.toLocaleString()} to resolve this matter.
-
-${message ? `\nADDITIONAL COMMENTS\n${message}` : ''}
-
-This demand is made in good faith and represents a reasonable assessment of our client's damages. We trust you will give this matter your immediate attention.
-
-If this matter cannot be resolved through negotiation, we are prepared to pursue all available legal remedies on behalf of our client.
-
-Please respond within thirty (30) days of receipt of this letter.
-
-Very truly yours,
-
-[Attorney Name]
-[Law Firm Name]
-[Contact Information]
-
-This letter is for settlement purposes only and is not admissible in any subsequent litigation.
-  `.trim()
+  return [
+    header,
+    '',
+    `${recipient.name}`,
+    `${recipient.address}`,
+    '',
+    `Re: Personal Injury Claim — Date of Incident ${incidentDate}`,
+    '',
+    `Dear ${recipient.name},`,
+    '',
+    intro,
+    '',
+    'ACCIDENT SUMMARY',
+    narrative,
+    '',
+    'LIABILITY',
+    liabilityText,
+    '',
+    treatmentSection,
+    '',
+    medicalBillsSection,
+    '',
+    wageSection,
+    '',
+    painSufferingSection,
+    '',
+    'SUMMARY OF DAMAGES',
+    ...damagesLines,
+    '',
+    'DEMAND',
+    `Based on the liability of your insured and the nature and extent of ${voice.ourMy} injuries and damages, ${voice.weI} demand the sum of ${money(targetAmount)} to resolve this matter in full.`,
+    '',
+    `This demand is made in good faith and represents a reasonable assessment of the damages. ${deadlineClause} If this matter cannot be resolved through negotiation, ${voice.weI} ${isPro ? 'reserve' : 'are prepared to pursue'} all available legal remedies.`,
+    '',
+    closing,
+    '',
+    disclaimer,
+  ].join('\n').trim()
 }
 
 export default router

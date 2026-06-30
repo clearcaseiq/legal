@@ -1,9 +1,11 @@
+import { useEffect, useState } from 'react'
 import type {
   AttorneyDashboardLead,
   AttorneyDashboardLeadAnalysis,
   AttorneyDashboardLeadFacts,
 } from './attorneyDashboardShared'
 import { formatCurrency } from '../lib/formatters'
+import { getLeadTreatmentSummary } from '../lib/api'
 
 type AttorneyDashboardWorkstreamDemandProps = {
   selectedLead: AttorneyDashboardLead
@@ -42,6 +44,30 @@ export default function AttorneyDashboardWorkstreamDemand({
     ? leadCommandCenter.readiness.score >= 70 && leadCommandCenter.missingItems.length <= 1
     : filesCount >= 2 || (treatments.length > 0 && injuries.length > 0)
   const assessmentId = selectedLead.assessment?.id
+
+  // Live medical specials from the logged treatment ledger (preferred over the
+  // self-reported facts figure when records exist).
+  const [ledgerBilled, setLedgerBilled] = useState<number | null>(null)
+  useEffect(() => {
+    let active = true
+    const leadId = selectedLead?.id
+    if (!leadId) {
+      setLedgerBilled(null)
+      return
+    }
+    getLeadTreatmentSummary(leadId)
+      .then((res) => {
+        if (active) setLedgerBilled(res?.summary?.totalBilled ?? 0)
+      })
+      .catch(() => {
+        if (active) setLedgerBilled(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [selectedLead?.id])
+
+  const damagesBreakdown = buildDamagesBreakdown(damages, analysis, ledgerBilled)
 
   return (
     <>
@@ -123,6 +149,52 @@ export default function AttorneyDashboardWorkstreamDemand({
           </div>
         ) : null}
       </div>
+      <div className="rounded-md border border-gray-200 p-4">
+        <h4 className="text-sm font-semibold text-gray-900 mb-1">Damages Breakdown</h4>
+        <p className="text-xs text-gray-500 mb-3">
+          Specials vs. general damages, matching the demand letter. Medical specials are itemized from logged
+          treatment records when available.
+        </p>
+        <div className="space-y-1.5 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-gray-600">
+              Medical specials
+              {damagesBreakdown.medicalFromLedger ? (
+                <span className="ml-2 inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                  from logged records
+                </span>
+              ) : null}
+            </span>
+            <span className="text-gray-900">
+              {damagesBreakdown.medical > 0 ? formatCurrency(damagesBreakdown.medical) : '—'}
+            </span>
+          </div>
+          <BreakdownRow label="Lost wages" value={damagesBreakdown.wages} />
+          {damagesBreakdown.futureMedical > 0 ? (
+            <BreakdownRow label="Future medical" value={damagesBreakdown.futureMedical} />
+          ) : null}
+          <div className="flex items-center justify-between border-t border-gray-100 pt-1.5">
+            <span className="text-gray-600">Total economic specials</span>
+            <span className="font-medium text-gray-900">{formatCurrency(damagesBreakdown.specials)}</span>
+          </div>
+          <BreakdownRow label="Pain &amp; suffering (general)" value={damagesBreakdown.general} />
+          <div className="flex items-center justify-between border-t border-gray-200 pt-2 mt-1">
+            <span className="font-semibold text-gray-900">Total demand</span>
+            <span className="font-semibold text-gray-900">{formatCurrency(damagesBreakdown.demand)}</span>
+          </div>
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-xs text-gray-500">Reconciliation (specials + general)</span>
+            <span
+              className={`text-xs font-medium ${
+                damagesBreakdown.reconciles ? 'text-emerald-600' : 'text-amber-600'
+              }`}
+            >
+              {formatCurrency(damagesBreakdown.specials + damagesBreakdown.general)}
+              {damagesBreakdown.reconciles ? ' ✓' : ' (review)'}
+            </span>
+          </div>
+        </div>
+      </div>
       {(() => {
         const draft = analysis?.demandPackage?.demandDraft?.trim() || ''
         const aiSummary = analysis?.demandPackage?.damageSummary?.trim() || ''
@@ -171,6 +243,41 @@ export default function AttorneyDashboardWorkstreamDemand({
       })()}
     </>
   )
+}
+
+function BreakdownRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-gray-600">{label}</span>
+      <span className="text-gray-900">{value > 0 ? formatCurrency(value) : '—'}</span>
+    </div>
+  )
+}
+
+// Mirror the demand letter's specials-vs-general math so the attorney sees the
+// same breakdown on screen. General (pain & suffering) damages are the demand
+// less economic specials, falling back to the analysis valuation split.
+function buildDamagesBreakdown(damages: any, analysis: any, ledgerBilled?: number | null) {
+  const reportedMedical = Number(damages?.med_charges || damages?.estimated_med_charges || 0)
+  const ledgerMedical = Number(ledgerBilled || 0)
+  const medical = ledgerMedical > 0 ? ledgerMedical : reportedMedical
+  const medicalFromLedger = ledgerMedical > 0
+  const wages = Number(damages?.wage_loss || damages?.estimated_wage_loss || 0)
+  const futureMedical = Number(damages?.estimated_future_med_charges || 0)
+  const specials = medical + wages + futureMedical
+
+  const demand = Number(
+    analysis?.expectedSettlementRange?.mid ??
+      analysis?.estimatedValue?.medium ??
+      analysis?.estimatedValue?.mid ??
+      0
+  )
+  const painSufferingSplit = Number(analysis?.valuationBreakdown?.damageSplits?.painSuffering || 0)
+  const general = demand > specials ? demand - specials : painSufferingSplit
+
+  const reconciles = demand > 0 && Math.abs(specials + general - demand) <= Math.max(1, demand * 0.02)
+
+  return { medical, medicalFromLedger, wages, futureMedical, specials, general, demand, reconciles }
 }
 
 function buildCurrentDamageSummary(damages: any) {

@@ -6,8 +6,11 @@ import {
   getLeadEvidenceFiles,
   getLeadInsurance,
   getLeadLiens,
+  getLeadInsuranceSuggestion,
   getLeadMedicalChronology,
   getLeadSettlementBenchmarks,
+  requestLeadDecPage,
+  updateLeadInsurance,
 } from '../lib/api'
 
 const DEFAULT_INSURANCE_FORM = {
@@ -18,6 +21,10 @@ const DEFAULT_INSURANCE_FORM = {
   adjusterEmail: '',
   adjusterPhone: '',
   notes: '',
+  insuredParty: '',
+  coverageType: '',
+  claimNumber: '',
+  claimStatus: 'not_opened',
 }
 
 const DEFAULT_LIEN_FORM = {
@@ -36,6 +43,7 @@ export function useAttorneyCaseInsights(selectedLeadId?: string, isPostAcceptanc
   const [insuranceItems, setInsuranceItems] = useState<any[]>([])
   const [lienItems, setLienItems] = useState<any[]>([])
   const [insuranceForm, setInsuranceForm] = useState(DEFAULT_INSURANCE_FORM)
+  const [insuranceSuggestion, setInsuranceSuggestion] = useState<any>(null)
   const [lienForm, setLienForm] = useState(DEFAULT_LIEN_FORM)
 
   const handleAddInsurance = useCallback(async () => {
@@ -44,6 +52,9 @@ export function useAttorneyCaseInsights(selectedLeadId?: string, isPostAcceptanc
       const record = await createLeadInsurance(selectedLeadId, {
         ...insuranceForm,
         policyLimit: insuranceForm.policyLimit || undefined,
+        insuredParty: insuranceForm.insuredParty || undefined,
+        coverageType: insuranceForm.coverageType || undefined,
+        claimNumber: insuranceForm.claimNumber || undefined,
       })
       setInsuranceItems((prev) => [record, ...prev])
       setInsuranceForm(DEFAULT_INSURANCE_FORM)
@@ -51,6 +62,44 @@ export function useAttorneyCaseInsights(selectedLeadId?: string, isPostAcceptanc
       console.error('Failed to add insurance:', err)
     }
   }, [insuranceForm, selectedLeadId])
+
+  // Inline edits to an existing insurance record (e.g. recording a claim number
+  // or moving the claim to "open"); merges the server response back into state.
+  const handleUpdateInsurance = useCallback(async (insuranceId: string, patch: Record<string, any>) => {
+    if (!selectedLeadId) return
+    try {
+      const record = await updateLeadInsurance(selectedLeadId, insuranceId, patch)
+      setInsuranceItems((prev) => prev.map((item) => (item.id === insuranceId ? record : item)))
+    } catch (err) {
+      console.error('Failed to update insurance:', err)
+    }
+  }, [selectedLeadId])
+
+  const handleRequestDecPage = useCallback(async (insuranceId: string) => {
+    if (!selectedLeadId) return
+    try {
+      const result = await requestLeadDecPage(selectedLeadId, insuranceId)
+      if (result?.insurance) {
+        setInsuranceItems((prev) => prev.map((item) => (item.id === insuranceId ? result.insurance : item)))
+      }
+    } catch (err) {
+      console.error('Failed to request Dec Page:', err)
+    }
+  }, [selectedLeadId])
+
+  // Merge the intake-derived suggestion into the add-insurance form so the
+  // attorney can review and save it rather than re-typing the client's answers.
+  const applyInsuranceSuggestion = useCallback(() => {
+    const s = insuranceSuggestion?.suggestion
+    if (!s) return
+    setInsuranceForm((prev: typeof DEFAULT_INSURANCE_FORM) => ({
+      ...prev,
+      ...(s.carrierName ? { carrierName: s.carrierName } : {}),
+      ...(s.policyLimit != null ? { policyLimit: String(s.policyLimit) } : {}),
+      ...(s.insuredParty ? { insuredParty: s.insuredParty } : {}),
+      ...(s.coverageType ? { coverageType: s.coverageType } : {}),
+    }))
+  }, [insuranceSuggestion])
 
   const handleAddLien = useCallback(async () => {
     if (!selectedLeadId || !lienForm.name.trim()) return
@@ -89,6 +138,7 @@ export function useAttorneyCaseInsights(selectedLeadId?: string, isPostAcceptanc
     if (!selectedLeadId) {
       setInsuranceItems([])
       setLienItems([])
+      setInsuranceSuggestion(null)
       return
     }
 
@@ -101,6 +151,18 @@ export function useAttorneyCaseInsights(selectedLeadId?: string, isPostAcceptanc
         setInsuranceItems([])
       }
     }
+
+    const loadSuggestion = async () => {
+      try {
+        const suggestion = await getLeadInsuranceSuggestion(selectedLeadId)
+        setInsuranceSuggestion(suggestion || null)
+      } catch (err) {
+        console.error('Failed to load insurance suggestion:', err)
+        setInsuranceSuggestion(null)
+      }
+    }
+
+    void loadSuggestion()
 
     const loadLiens = async () => {
       try {
@@ -147,6 +209,10 @@ export function useAttorneyCaseInsights(selectedLeadId?: string, isPostAcceptanc
   return {
     casePreparation,
     handleAddInsurance,
+    handleUpdateInsurance,
+    handleRequestDecPage,
+    applyInsuranceSuggestion,
+    insuranceSuggestion,
     handleAddLien,
     insuranceForm,
     insuranceItems,

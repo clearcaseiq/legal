@@ -212,8 +212,25 @@ model InsuranceDetail {
   adjusterEmail String?
   adjusterPhone String?
   notes         String?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+
+  // Recovery path. A single case can carry both an at-fault liability claim
+  // against the defendant AND a UM/UIM claim against the client's own policy,
+  // so the claim type lives on each insurance record rather than the case.
+  insuredParty String? // 'defendant' | 'client'
+  coverageType String? // 'liability' | 'um' | 'uim' | 'medpay' | 'other'
+
+  // Claim setup with the adjuster.
+  claimNumber   String?
+  claimStatus   String    @default("not_opened") // not_opened | open | accepted | denied | closed
+  claimOpenedAt DateTime?
+
+  // Dec Page (declaration page) confirms how much coverage is available — the
+  // ceiling on recovery. Links to the DocumentRequest used to obtain it.
+  decPageRequestId  String?
+  coverageConfirmed Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("insurance_details")
 }
@@ -657,6 +674,7 @@ model Attorney {
   leadAnalytics               LeadAnalytics[]
   conflictChecks              ConflictCheck[]
   providerReferrals           ProviderReferral[]
+  lettersOfProtection         LetterOfProtection[]
   reminderTemplates           ReminderTemplate[]
   healthRules                 HealthEscalationRule[]
   negotiationCadenceTemplates NegotiationCadenceTemplate[]
@@ -1497,13 +1515,14 @@ model LeadSubmission {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  contactAttempts   LeadContact[]
-  caseContacts      CaseContact[]
-  conflictChecks    ConflictCheck[]
-  qualityReports    QualityReport[]
-  providerReferrals ProviderReferral[]
-  decisionMemory    DecisionMemory?
-  documentRequests  DocumentRequest[]
+  contactAttempts     LeadContact[]
+  caseContacts        CaseContact[]
+  conflictChecks      ConflictCheck[]
+  qualityReports      QualityReport[]
+  providerReferrals   ProviderReferral[]
+  lettersOfProtection LetterOfProtection[]
+  decisionMemory      DecisionMemory?
+  documentRequests    DocumentRequest[]
 
   @@map("lead_submissions")
 }
@@ -2206,7 +2225,8 @@ model MedicalProvider {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  referrals ProviderReferral[]
+  referrals           ProviderReferral[]
+  lettersOfProtection LetterOfProtection[]
 
   @@map("medical_providers")
 }
@@ -2232,7 +2252,70 @@ model ProviderReferral {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  lettersOfProtection LetterOfProtection[]
+  treatmentRecords    TreatmentRecord[]
+
   @@map("provider_referrals")
+}
+
+// A Letter of Protection (LOP) is the lien instrument an attorney sends a
+// provider: treat the client now, get paid from the settlement later. Generated
+// from a referral, optionally emailed to the provider, and linked to the
+// LienHolder it creates so the lien is tracked from issuance.
+model LetterOfProtection {
+  id         String            @id @default(cuid())
+  referralId String?
+  referral   ProviderReferral? @relation(fields: [referralId], references: [id], onDelete: SetNull)
+  leadId     String
+  lead       LeadSubmission    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  providerId String
+  provider   MedicalProvider   @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  attorneyId String
+  attorney   Attorney          @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+
+  content      String    @db.Text
+  status       String    @default("draft") // draft | sent
+  sentAt       DateTime?
+  lienHolderId String? // the LienHolder created when this LOP was issued
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leadId])
+  @@index([providerId])
+  @@index([referralId])
+  @@map("letters_of_protection")
+}
+
+// A single treatment encounter logged against a provider referral: the visit
+// itself, any diagnosis, and the amount the provider billed. This is the running
+// ledger an attorney keeps to "track all treatment, diagnoses, and bills
+// throughout" the lien-based treatment workflow. Access is scoped through the
+// parent referral (which enforces attorney ownership); leadId/providerId are
+// kept as plain columns for reporting without extra joins.
+model TreatmentRecord {
+  id         String           @id @default(cuid())
+  referralId String
+  referral   ProviderReferral @relation(fields: [referralId], references: [id], onDelete: Cascade)
+  leadId     String
+  providerId String
+  attorneyId String
+
+  visitDate     DateTime
+  visitType     String   @default("follow_up") // initial_eval, follow_up, procedure, imaging, therapy, other
+  diagnosis     String? // free-text diagnosis / clinical impression
+  diagnosisCode String? // optional ICD-10 code
+  billedAmount  Float? // amount the provider billed for this encounter
+  status        String   @default("completed") // scheduled, completed, no_show, cancelled
+  notes         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([referralId])
+  @@index([leadId])
+  @@index([providerId])
+  @@map("treatment_records")
 }
 
 // Evidence Upload & Management Models

@@ -1585,6 +1585,25 @@ export async function getLeadEvidenceFiles(leadId: string) {
   return data
 }
 
+// Attorney uploads a document on behalf of the client. The file attaches to the
+// plaintiff's assessment (provenance = attorney) and re-runs the live estimate.
+export async function uploadLeadEvidenceOnBehalf(
+  leadId: string,
+  file: File,
+  meta?: { category?: string; description?: string }
+) {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (meta?.category) formData.append('category', meta.category)
+  if (meta?.description) formData.append('description', meta.description)
+  const { data } = await api.post(
+    `/v1/attorney-dashboard/leads/${leadId}/evidence`,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } }
+  )
+  return data
+}
+
 export async function getLeadMedicalChronology(leadId: string) {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/medical-chronology`)
   return data.chronology
@@ -1612,6 +1631,19 @@ export async function createLeadInsurance(leadId: string, payload: any) {
 
 export async function updateLeadInsurance(leadId: string, insuranceId: string, payload: any) {
   const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/insurance/${insuranceId}`, payload)
+  return data
+}
+
+export async function requestLeadDecPage(leadId: string, insuranceId: string, payload: any = {}) {
+  const { data } = await api.post(
+    `/v1/attorney-dashboard/leads/${leadId}/insurance/${insuranceId}/request-dec-page`,
+    payload,
+  )
+  return data
+}
+
+export async function getLeadInsuranceSuggestion(leadId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/insurance/suggestion`)
   return data
 }
 
@@ -1941,6 +1973,126 @@ export async function acceptLeadReferral(referralId: string) {
 
 export async function declineLeadReferral(referralId: string) {
   const { data } = await api.post(`/v1/attorney-dashboard/referrals/${referralId}/decline`)
+  return data
+}
+
+// Medical provider directory (lien-based providers attorneys refer clients to)
+export async function getMedicalProviderDirectory(params?: {
+  specialty?: string
+  city?: string
+  state?: string
+  acceptsLien?: boolean
+  isVerified?: boolean
+  page?: number
+  limit?: number
+}) {
+  const qs = new URLSearchParams()
+  if (params?.specialty) qs.append('specialty', params.specialty)
+  if (params?.city) qs.append('city', params.city)
+  if (params?.state) qs.append('state', params.state)
+  if (params?.acceptsLien !== undefined) qs.append('acceptsLien', String(params.acceptsLien))
+  if (params?.isVerified !== undefined) qs.append('isVerified', String(params.isVerified))
+  if (params?.page) qs.append('page', String(params.page))
+  if (params?.limit) qs.append('limit', String(params.limit))
+  const query = qs.toString()
+  const { data } = await api.get(`/v1/medical-providers/providers${query ? `?${query}` : ''}`)
+  return data
+}
+
+export async function createProviderReferral(payload: {
+  leadId: string
+  providerId: string
+  referralType?: string
+  notes?: string
+}) {
+  const { data } = await api.post(`/v1/medical-providers/referrals`, payload)
+  return data
+}
+
+export async function updateProviderReferral(
+  referralId: string,
+  payload: { status?: string; notes?: string; treatmentStartDate?: string }
+) {
+  const { data } = await api.put(`/v1/medical-providers/referrals/${referralId}`, payload)
+  return data
+}
+
+// Treatment / diagnoses / bills ledger for a referral (treatment-on-lien workflow)
+export interface TreatmentRecordInput {
+  visitDate: string
+  visitType?: 'initial_eval' | 'follow_up' | 'procedure' | 'imaging' | 'therapy' | 'other'
+  diagnosis?: string | null
+  diagnosisCode?: string | null
+  billedAmount?: number | null
+  status?: 'scheduled' | 'completed' | 'no_show' | 'cancelled'
+  notes?: string | null
+}
+
+export async function getLeadTreatmentSummary(leadId: string) {
+  const { data } = await api.get(`/v1/medical-providers/leads/${leadId}/treatment-summary`)
+  return data as {
+    summary: {
+      totalRecords: number
+      completedVisits: number
+      totalBilled: number
+      firstVisitDate: string | null
+      lastVisitDate: string | null
+    }
+  }
+}
+
+export async function getReferralTreatmentRecords(referralId: string) {
+  const { data } = await api.get(`/v1/medical-providers/referrals/${referralId}/treatment-records`)
+  return data
+}
+
+export async function createReferralTreatmentRecord(referralId: string, payload: TreatmentRecordInput) {
+  const { data } = await api.post(
+    `/v1/medical-providers/referrals/${referralId}/treatment-records`,
+    payload
+  )
+  return data
+}
+
+export async function updateTreatmentRecord(recordId: string, payload: Partial<TreatmentRecordInput>) {
+  const { data } = await api.put(`/v1/medical-providers/treatment-records/${recordId}`, payload)
+  return data
+}
+
+export async function deleteTreatmentRecord(recordId: string) {
+  const { data } = await api.delete(`/v1/medical-providers/treatment-records/${recordId}`)
+  return data
+}
+
+// Medical provider referrals + Letters of Protection (treatment-on-lien workflow)
+export async function getProviderReferrals(params?: { status?: string; page?: number; limit?: number }) {
+  const qs = new URLSearchParams()
+  if (params?.status) qs.append('status', params.status)
+  if (params?.page) qs.append('page', String(params.page))
+  if (params?.limit) qs.append('limit', String(params.limit))
+  const query = qs.toString()
+  const { data } = await api.get(`/v1/medical-providers/referrals${query ? `?${query}` : ''}`)
+  return data
+}
+
+export async function getReferralLetterOfProtection(referralId: string) {
+  const { data } = await api.get(`/v1/medical-providers/referrals/${referralId}/letter-of-protection`)
+  return data
+}
+
+export async function generateReferralLetterOfProtection(referralId: string, content?: string) {
+  const { data } = await api.post(
+    `/v1/medical-providers/referrals/${referralId}/letter-of-protection`,
+    content ? { content } : {}
+  )
+  return data
+}
+
+export async function sendLetterOfProtection(lopId: string, recipientEmail?: string) {
+  const { data } = await api.post(
+    `/v1/medical-providers/letters-of-protection/${lopId}/send`,
+    recipientEmail ? { recipientEmail } : {}
+  )
   return data
 }
 

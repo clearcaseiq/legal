@@ -854,12 +854,29 @@ export function predictViabilityHeuristic(features: any, calibrationOverride?: V
   const propertyDamage = Number(features.propertyDamage || 0)
   const futureDamages = Number(features.futureMedCharges || 0)
   const policyLimit = Number(features.policyLimit || 0)
+  // Conservative imputation for skipped intake economics. Stressed claimants
+  // frequently leave every dollar field blank. When NO economic figure is
+  // entered but there is a genuine injury/treatment signal, estimate the medical
+  // specials from injury severity instead of treating them as $0 — otherwise the
+  // case collapses to the bare severity floor and is under-valued. Imputed
+  // dollars feed value but deliberately do NOT raise evidence confidence (see
+  // getEvidenceConfidenceModifier, which keys off the raw medCharges), so the
+  // band stays wide and the number behaves as a preliminary floor that real
+  // bills will refine.
+  const economicsEntered =
+    medCharges > 0 || medPaid > 0 || wageLoss > 0 || outOfPocket > 0 || propertyDamage > 0
+  const injurySignal =
+    (severityLevel as number) >= 1 || features.hasTreatment || (features.bodyParts?.length || 0) > 0
+  const medicalImputationPriors: Record<number, number> = { 1: 3500, 2: 12000, 3: 35000, 4: 90000 }
+  const imputedMedical =
+    !economicsEntered && injurySignal ? medicalImputationPriors[severityLevel as number] || 0 : 0
+  const economicsImputed = imputedMedical > 0
   const economicDamages =
-    Math.max(medCharges, medPaid) +
+    Math.max(medCharges, medPaid, imputedMedical) +
     wageLoss +
     outOfPocket +
     Math.min(propertyDamage, 25000)
-  const medicalBills = Math.max(medCharges, medPaid)
+  const medicalBills = Math.max(medCharges, medPaid, imputedMedical)
   const treatmentCredibility = features.hasTreatment ? 1.12 : 0.82
   // Treatment chronology & documented codes (both neutral/no-op when their data is absent).
   const chronology = features.chronology as ChronologyAnalysis | undefined
@@ -951,6 +968,10 @@ export function predictViabilityHeuristic(features: any, calibrationOverride?: V
       economicDamages: roundToNearest(economicDamages),
       futureDamages: roundToNearest(futureDamages),
       injurySupportedValue: roundToNearest(injurySupportedValue),
+      // True when medical specials were estimated from severity because the
+      // claimant entered no economic figures at intake. The UI uses this to
+      // label the estimate as preliminary and prompt for real bills.
+      medicalSpecialsImputed: economicsImputed,
     },
     drivers: {
       priorInjury: features.priorInjury,
@@ -1018,6 +1039,7 @@ export function predictViabilityHeuristic(features: any, calibrationOverride?: V
     }
   }
   
+  if (economicsImputed) explainability.push({ feature: 'estimated_medical_specials_pending_documentation', direction: '+', impact: 0.03 })
   if (medicalBills > 10000) explainability.push({ feature: 'medical_bills_treatment_severity', direction: '+', impact: 0.06 })
   if (features.priorInjury && features.priorInjury !== 'none') explainability.push({ feature: 'prior_injury_causation_discount', direction: '-', impact: 1 - priorInjuryModifier })
   if (features.representationStage && features.representationStage !== 'no_lawyer') explainability.push({ feature: 'litigation_stage_pressure', direction: '+', impact: caseStageModifier - 1 })
@@ -1063,7 +1085,14 @@ export function predictViabilityHeuristic(features: any, calibrationOverride?: V
     explainability,
     severity: features.severityScore, // Include multi-level severity score
     liability: features.liabilityScore, // V2: Include rules-based liability score
-    caveats: ['Not legal advice', 'Results based on limited information', 'Consult with qualified attorney'],
+    caveats: [
+      'Not legal advice',
+      'Results based on limited information',
+      ...(economicsImputed
+        ? ['Medical specials estimated from injury severity — add your actual bills to refine this figure']
+        : []),
+      'Consult with qualified attorney',
+    ],
     modelVersion: isIdentity(calibration) ? 'heuristic-v1.0' : `heuristic-v1.0+cal:${calibration.version}`,
     inferenceSource: 'heuristic',
   }
