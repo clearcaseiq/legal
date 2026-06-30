@@ -37,7 +37,18 @@ const INJURY_TYPES = [
   { value: 'other', labelKey: 'injuryType_other', icon: HelpCircle }
 ]
 
-const isoToday = (): string => new Date().toISOString().split('T')[0]
+// Format a Date as YYYY-MM-DD using the viewer's *local* calendar date.
+// toISOString() converts to UTC first, which shifts the day backward for
+// timezones ahead of UTC (e.g. India, UTC+5:30) and made valid dates and
+// "today" fail validation (#26).
+const toLocalIso = (d: Date): string => {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const isoToday = (): string => toLocalIso(new Date())
 
 // Common email domains people mistype. Used to nudge ("Did you mean …?") rather than
 // hard-reject, since plausibly-valid TLDs like .co should still be accepted.
@@ -123,8 +134,10 @@ function isValidIncidentDate(value: string, todayIso: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
   const parsed = new Date(`${value}T00:00:00`)
   if (Number.isNaN(parsed.getTime())) return false
-  // Reject roll-overs (e.g. 2023-02-31 → Mar 3) by round-tripping.
-  if (parsed.toISOString().slice(0, 10) !== value) return false
+  // Reject roll-overs (e.g. 2023-02-31 → Mar 3) by round-tripping. Compare in
+  // local time to match how the value was parsed — using toISOString() here
+  // shifts the day backward in timezones ahead of UTC and rejects valid dates.
+  if (toLocalIso(parsed) !== value) return false
   return value >= MIN_INCIDENT_DATE && value <= todayIso
 }
 
@@ -2073,7 +2086,7 @@ export default function IntakeWizardQuick() {
           if (opts.days) d.setDate(d.getDate() - opts.days)
           if (opts.months) d.setMonth(d.getMonth() - opts.months)
           if (opts.years) d.setFullYear(d.getFullYear() - opts.years)
-          return d.toISOString().slice(0, 10)
+          return toLocalIso(d)
         }
         const datePresets = [
           { key: 'today', label: tx('datePreset_today'), iso: isoToday() },
