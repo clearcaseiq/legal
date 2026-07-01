@@ -3,7 +3,7 @@
  */
 import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, type IntakeLeadPayload } from '../lib/api-plaintiff'
+import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, type IntakeLeadPayload } from '../lib/api-plaintiff'
 import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -954,6 +954,75 @@ export default function IntakeWizardQuick() {
     }, 400)
     return () => clearTimeout(handle)
   }, [formData, currentStep, customDate, furthestReachedStepIndex])
+
+  // When an assessment id is present (a resumed/edited case, or one that already
+  // has server-persisted evidence), load its uploaded files once and merge them
+  // into pendingEvidenceFiles grouped by category. This ensures verification
+  // factors and summaries recognize bills/records uploaded and OCR'd in a prior
+  // session — not just files queued during the current session. Files queued
+  // this session (temp_ ids with a rawFile) are preserved and de-duplicated.
+  const loadedEvidenceAssessmentRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!assessmentId || loadedEvidenceAssessmentRef.current === assessmentId) return
+    loadedEvidenceAssessmentRef.current = assessmentId
+    let cancelled = false
+    void (async () => {
+      try {
+        const serverFiles: any[] = await getEvidenceFiles(assessmentId)
+        if (cancelled || !Array.isArray(serverFiles) || serverFiles.length === 0) return
+        const byCategory: Record<string, any[]> = {}
+        for (const file of serverFiles) {
+          const cat = file?.category || 'other'
+          ;(byCategory[cat] ||= []).push(file)
+        }
+        setPendingEvidenceFiles((prev) => {
+          const next: Record<string, any[]> = { ...prev }
+          for (const [cat, files] of Object.entries(byCategory)) {
+            const existing = Array.isArray(prev[cat]) ? prev[cat] : []
+            const existingIds = new Set(existing.map((f) => f?.id))
+            const merged = [...existing, ...files.filter((f) => !existingIds.has(f?.id))]
+            next[cat] = merged
+          }
+          return next
+        })
+
+        // Seed financial aggregates from already-OCR'd server files so the
+        // damages/review money figures reflect prior-session extractions.
+        const parseAmounts = (raw: unknown): string[] => {
+          if (Array.isArray(raw)) return raw.map(String)
+          if (typeof raw === 'string') {
+            try { const p = JSON.parse(raw); return Array.isArray(p) ? p.map(String) : [] } catch { return [] }
+          }
+          return []
+        }
+        setDocFinancials((prev) => {
+          const next = { ...prev }
+          for (const cat of FINANCIAL_DOC_CATEGORIES) {
+            const files = byCategory[cat]
+            if (!files || files.length === 0) continue
+            const agg = files.reduce(
+              (acc, file) => {
+                const ext = file?.extractedData?.[0]
+                const total = Number(ext?.totalAmount) || 0
+                if (total > 0) {
+                  acc.total += total
+                  acc.amounts.push(...parseAmounts(ext?.dollarAmounts))
+                }
+                return acc
+              },
+              { total: 0, amounts: [] as string[] },
+            )
+            // Don't overwrite a richer current-session extraction with an empty one.
+            if (agg.total > 0 && !(prev[cat]?.total)) next[cat] = agg
+          }
+          return next
+        })
+      } catch {
+        // Best-effort: a failed load just leaves the current-session state intact.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [assessmentId])
 
   const clearDraft = () => {
     try {
@@ -3962,6 +4031,15 @@ export default function IntakeWizardQuick() {
         const icFinancial = formData.insuranceCoverage
         const cpFinancial = formData.casePosture || {}
         const hasIncomeImpact = cpFinancial.missedWork && cpFinancial.missedWork !== 'no'
+        // Uploaded evidence must count toward the verification factors below.
+        // Previously these were keyed only off typed answers, so a medical bill
+        // uploaded in the Evidence step still showed "Medical Bills: Missing"
+        // while "Medical Records" showed "Included" from body-part answers —
+        // a confusing mismatch for users who had, in fact, uploaded a bill.
+        const evCountFinancial = (cat: string) => (pendingEvidenceFiles[cat]?.length || 0)
+        const hasUploadedBills = evCountFinancial('bills') > 0
+        const hasUploadedMedicalRecords = evCountFinancial('medical_records') > 0
+        const hasMedicalBillsInfo = (!!icFinancial.medicalBillRange && icFinancial.medicalBillRange !== 'not_sure') || hasUploadedBills
         const medicalBillEstimate = MEDICAL_BILL_RANGE_OPTIONS.find((option) => option.value === icFinancial.medicalBillRange)?.estimate || 0
         const futureMedicalEstimate = FUTURE_MEDICAL_RANGE_OPTIONS.find((option) => option.value === icFinancial.futureMedicalRange)?.estimate || 0
         const completedFinancialFactors = [
@@ -4014,9 +4092,9 @@ export default function IntakeWizardQuick() {
         const sharedFault = (formData.casePosture?.faultBelief === 'shared_fault') || (formData.branch.faultParty === 'shared')
 
         const dvConfidenceFactors: { label: string; status: 'included' | 'partial' | 'missing' }[] = [
-          { label: tx('dv_factorMedRecords'), status: idet.bodyParts.length > 0 ? 'included' : 'missing' },
+          { label: tx('dv_factorMedRecords'), status: (idet.bodyParts.length > 0 || hasUploadedMedicalRecords) ? 'included' : 'missing' },
           { label: tx('dv_factorTreatmentHistory'), status: formData.medicalTreatment.length > 0 ? 'included' : 'missing' },
-          { label: tx('dv_factorMedBills'), status: (icFinancial.medicalBillRange && icFinancial.medicalBillRange !== 'not_sure') ? 'included' : 'missing' },
+          { label: tx('dv_factorMedBills'), status: hasMedicalBillsInfo ? 'included' : 'missing' },
           { label: tx('dv_factorPoliceReport'), status: hasPolice ? 'included' : (isVehicle ? 'missing' : 'partial') },
           { label: tx('dv_factorWitness'), status: hasWitnesses ? 'included' : 'missing' },
           { label: tx('dv_factorEmployment'), status: (cpFinancial.missedWork && cpFinancial.missedWork !== 'no') ? (cpFinancial.lostWagesRange ? 'included' : 'partial') : 'missing' },
@@ -4038,14 +4116,14 @@ export default function IntakeWizardQuick() {
         ].filter(Boolean) as string[]
         const reducingFactors = [
           (isVehicle && !hasPolice) && tx('dv_redPolice'),
-          (!icFinancial.medicalBillRange || icFinancial.medicalBillRange === 'not_sure') && tx('dv_redBills'),
+          !hasMedicalBillsInfo && tx('dv_redBills'),
           sharedFault && tx('dv_redShared'),
           !hasWitnesses && tx('dv_redWitness'),
           !hasMRI && tx('dv_redImaging'),
           (!cpFinancial.missedWork || cpFinancial.missedWork === 'no') && tx('dv_redWage'),
         ].filter(Boolean) as string[]
         const increaseValueItems = [
-          (!icFinancial.medicalBillRange || icFinancial.medicalBillRange === 'not_sure') ? { label: tx('dv_addBills'), impact: '+$3,000' } : null,
+          !hasMedicalBillsInfo ? { label: tx('dv_addBills'), impact: '+$3,000' } : null,
           (isVehicle && !hasPolice) ? { label: tx('dv_addPolice'), impact: '+10%' } : null,
           (cpFinancial.missedWork && cpFinancial.missedWork !== 'no' && !cpFinancial.lostWagesRange) ? { label: tx('dv_addWage'), impact: '+$2,000' } : null,
           !hasMRI ? { label: tx('dv_addMRI'), impact: '+5%' } : null,
@@ -4940,13 +5018,19 @@ export default function IntakeWizardQuick() {
           const financialLines = [
             billsDocTotal > 0
               ? { k: tx('card_medicalBills'), v: fmtMoney(billsDocTotal), doc: true }
-              : { k: tx('card_medicalBills'), v: formData.insuranceCoverage.medicalBillRange ? labelForValue(MEDICAL_BILL_RANGE_OPTIONS, formData.insuranceCoverage.medicalBillRange) : tx('notAnsweredYet'), doc: false },
+              : formData.insuranceCoverage.medicalBillRange
+                ? { k: tx('card_medicalBills'), v: labelForValue(MEDICAL_BILL_RANGE_OPTIONS, formData.insuranceCoverage.medicalBillRange), doc: false }
+                : evCount('bills') > 0
+                  ? { k: tx('card_medicalBills'), v: tx('evidence_uploadedCount').replace('{count}', String(evCount('bills'))), doc: true }
+                  : { k: tx('card_medicalBills'), v: tx('notAnsweredYet'), doc: false },
             { k: tx('card_futureMedical'), v: formData.insuranceCoverage.futureMedicalRange ? labelForValue(FUTURE_MEDICAL_RANGE_OPTIONS, formData.insuranceCoverage.futureMedicalRange) : tx('notAnsweredYet'), doc: false },
             wageDocTotal > 0
               ? { k: tx('card_lostIncome'), v: fmtMoney(wageDocTotal), doc: true }
               : { k: tx('card_lostIncome'), v: formData.casePosture.missedWork ? labelForValue(MISSED_WORK_OPTIONS, formData.casePosture.missedWork) : tx('notAnsweredYet'), doc: false },
           ]
           const docRows = [
+            { k: tx('evidence_medicalBills'), n: evCount('bills') },
+            { k: tx('evidence_medicalRecords'), n: evCount('medical_records') },
             { k: tx('evidence_photos'), n: evCount('photos') },
             { k: tx('evidence_videos'), n: evCount('video') },
             { k: tx('evidence_policeReport'), n: evCount('police_report') },

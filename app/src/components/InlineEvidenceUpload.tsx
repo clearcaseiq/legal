@@ -220,14 +220,28 @@ export default function InlineEvidenceUpload({
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
 
+  // Notify the parent whenever the file list changes via a dedicated effect
+  // instead of calling onFilesUploaded inside a setFiles updater. React can run
+  // state updaters during render, and invoking the parent's setState from there
+  // triggered a "Cannot update a component while rendering a different
+  // component" warning. Skipping the first run avoids echoing the parent's own
+  // initialFiles straight back to it on mount.
+  const onFilesUploadedRef = useRef(onFilesUploaded)
+  onFilesUploadedRef.current = onFilesUploaded
+  const didNotifyMountRef = useRef(false)
+  useEffect(() => {
+    if (!didNotifyMountRef.current) {
+      didNotifyMountRef.current = true
+      return
+    }
+    onFilesUploadedRef.current?.(files)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files])
+
   const prependFiles = useCallback((incomingFiles: EvidenceFile[]) => {
     if (incomingFiles.length === 0) return
-    setFiles((prev) => {
-      const next = [...incomingFiles, ...prev]
-      onFilesUploaded?.(next)
-      return next
-    })
-  }, [onFilesUploaded])
+    setFiles((prev) => [...incomingFiles, ...prev])
+  }, [])
 
   const addVisionWarning = useCallback((fileName: string, vision: VisionVerdict | null | undefined) => {
     if (!vision) return
@@ -336,10 +350,6 @@ export default function InlineEvidenceUpload({
       const evidenceFiles = await getEvidenceFiles(assessmentId, category || undefined)
       console.log('Loaded evidence files:', evidenceFiles)
       setFiles(evidenceFiles)
-      // Call onFilesUploaded only once, not in dependency array
-      if (onFilesUploaded) {
-        onFilesUploaded(evidenceFiles)
-      }
     } catch (error: any) {
       console.error('Failed to load evidence files:', error)
       // If it's a 429 error, wait longer before retrying
@@ -688,11 +698,7 @@ export default function InlineEvidenceUpload({
 
   const performDelete = async (fileId: string) => {
     const removeFromState = () => {
-      setFiles(prev => {
-        const next = prev.filter(file => file.id !== fileId)
-        onFilesUploaded?.(next)
-        return next
-      })
+      setFiles(prev => prev.filter(file => file.id !== fileId))
     }
 
     // Temp files (not yet uploaded) - remove from state only, no API call
@@ -723,6 +729,58 @@ export default function InlineEvidenceUpload({
   }
 
   const pendingDeleteFile = pendingDeleteId ? files.find(file => file.id === pendingDeleteId) : null
+
+  // Shared delete confirmation modal. Rendered in BOTH the compact and
+  // non-compact returns — previously it only lived in the non-compact branch,
+  // so in compact mode (e.g. the "Supporting Documents" evidence step) clicking
+  // the trash icon set pendingDeleteId but no dialog ever mounted, making it
+  // impossible to delete uploaded files.
+  const deleteConfirmModal = pendingDeleteId ? (
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="delete-file-title"
+      onClick={() => { if (!deletingFile) setPendingDeleteId(null) }}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600">
+            <AlertCircle className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <h3 id="delete-file-title" className="text-base font-semibold text-gray-900">Delete this file?</h3>
+            <p className="mt-1 text-sm text-gray-600">
+              {pendingDeleteFile?.originalName
+                ? <>“<span className="font-medium break-words">{pendingDeleteFile.originalName}</span>” will be removed. This can’t be undone.</>
+                : 'This file will be removed. This can’t be undone.'}
+            </p>
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setPendingDeleteId(null)}
+            disabled={deletingFile}
+            className="rounded-lg border border-gray-200 px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={confirmDelete}
+            disabled={deletingFile}
+            className="rounded-lg bg-red-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+          >
+            {deletingFile ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null
 
   // Format file size
   const formatFileSize = (bytes: number) => {
@@ -793,9 +851,6 @@ export default function InlineEvidenceUpload({
         if (isMounted) {
           console.log('Loaded evidence files:', evidenceFiles)
           setFiles(evidenceFiles)
-          if (onFilesUploaded) {
-            onFilesUploaded(evidenceFiles)
-          }
         }
       } catch (error) {
         if (isMounted) {
@@ -1143,6 +1198,8 @@ export default function InlineEvidenceUpload({
             )}
           </div>
         )}
+
+        {deleteConfirmModal}
       </div>
     )
   }
@@ -1289,52 +1346,7 @@ export default function InlineEvidenceUpload({
         <p>Files are automatically processed for medical codes, amounts, and dates</p>
       </div>
 
-      {pendingDeleteId && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-file-title"
-          onClick={() => { if (!deletingFile) setPendingDeleteId(null) }}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600">
-                <AlertCircle className="h-5 w-5" aria-hidden />
-              </span>
-              <div className="min-w-0">
-                <h3 id="delete-file-title" className="text-base font-semibold text-gray-900">Delete this file?</h3>
-                <p className="mt-1 text-sm text-gray-600">
-                  {pendingDeleteFile?.originalName
-                    ? <>“<span className="font-medium break-words">{pendingDeleteFile.originalName}</span>” will be removed. This can’t be undone.</>
-                    : 'This file will be removed. This can’t be undone.'}
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setPendingDeleteId(null)}
-                disabled={deletingFile}
-                className="rounded-lg border border-gray-200 px-3.5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={confirmDelete}
-                disabled={deletingFile}
-                className="rounded-lg bg-red-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
-              >
-                {deletingFile ? 'Deleting…' : 'Delete'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {deleteConfirmModal}
     </div>
   )
 }
