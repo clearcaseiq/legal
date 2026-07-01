@@ -1655,6 +1655,12 @@ export default function IntakeWizardQuick() {
       // so large cases are not anchored at the $50k floor.
       const medicalBillExactValue = Number(String(formData.insuranceCoverage.medicalBillExact || '').replace(/[$,\s]/g, '')) || 0
       const medicalBillEstimate = medicalBillExactValue > 0 ? medicalBillExactValue : medicalBillRangeEstimate
+      // Bills uploaded during intake are OCR'd to an actual documented total. Send
+      // the greater of the self-reported estimate and the documented total so the
+      // stored valuation reflects real bills immediately (the backend recalculation
+      // later reconciles this once files are persisted and re-OCR'd server-side).
+      const billsDocTotalForSubmit = docFinancials['bills']?.total || 0
+      const medicalChargesForSubmit = Math.max(medicalBillEstimate, billsDocTotalForSubmit)
       const futureMedicalEstimate = FUTURE_MEDICAL_RANGE_OPTIONS.find(option => option.value === formData.insuranceCoverage.futureMedicalRange)?.estimate || 0
       const payload = {
         claimType: claimType as any,
@@ -1719,13 +1725,14 @@ export default function IntakeWizardQuick() {
                 : 0,
         },
         damages: {
-          med_charges: medicalBillEstimate,
+          med_charges: medicalChargesForSubmit,
           intake_med_charges: medicalBillEstimate,
-          // At intake the figure is a self-reported estimate (a selected range or a
-          // rough typed amount). Once bills are uploaded and OCR'd, runCaseRecalculation
-          // upgrades this to 'partially_documented'/'documented'. The valuation weights
+          // When bills were uploaded and OCR'd at intake we already have a documented
+          // total, so flag it as partially_documented; otherwise it's a self-reported
+          // range/estimate. Once files persist server-side, runCaseRecalculation
+          // reconciles this to documented/partially_documented. The valuation weights
           // confidence by this so early estimates aren't treated as verified.
-          med_charges_source: 'self_reported' as const,
+          med_charges_source: billsDocTotalForSubmit > 0 ? 'partially_documented' as const : 'self_reported' as const,
           bills_complete: formData.insuranceCoverage.billsComplete === 'yes',
           future_medical: futureMedicalEstimate,
           medical_bill_range: formData.insuranceCoverage.medicalBillRange,
@@ -4074,9 +4081,16 @@ export default function IntakeWizardQuick() {
           return Number.isFinite(n) ? n : 0
         }
         const idet = formData.injuryDetails
-        const pastMedical = icFinancial.medicalBillRange === 'over_50000' && parseMoney(icFinancial.medicalBillExact) > 0
+        const selfReportedMedical = icFinancial.medicalBillRange === 'over_50000' && parseMoney(icFinancial.medicalBillExact) > 0
           ? parseMoney(icFinancial.medicalBillExact)
           : medicalBillEstimate
+        // Uploaded + OCR'd bills give an actual documented total. Prefer it when it
+        // exceeds the self-reported range so real bills (e.g. a $20,120 hospital
+        // total) drive the estimate instead of the coarse dropdown bucket. Without
+        // this, an uploaded bill flipped "Medical Bills: Included" but contributed
+        // $0 to the damages, leaving the estimate far below the actual bills.
+        const billsDocTotal = docFinancials['bills']?.total || 0
+        const pastMedical = Math.max(selfReportedMedical, billsDocTotal)
         const futureMedical = futureMedicalEstimate
         const lostWages = parseMoney(cpFinancial.lostWagesEstimate)
         const propertyDamage = isVehicle ? computePropertyDamage(formData.branch) : 0

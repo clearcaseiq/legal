@@ -75,8 +75,13 @@ export default function ChatDrawer({
   const scrollRef = useRef<HTMLDivElement>(null)
   const fallbackTemplates = buildDefaultTemplates(plaintiffName)
 
+  // The plaintiff's user id isn't always loaded on the lead the attorney opened
+  // chat from, but the case (assessmentId) is. Treat either as enough to open a
+  // room; the server resolves the plaintiff account from the assessment.
+  const canMessage = Boolean(userId || assessmentId)
+
   useEffect(() => {
-    if (open && userId) {
+    if (open && canMessage) {
       setInput(initialDraft || buildDefaultDraft(plaintiffName, tone))
       loadChat()
     } else if (open) {
@@ -103,7 +108,7 @@ export default function ChatDrawer({
   }, [messages])
 
   const loadChat = async () => {
-    if (!userId) return
+    if (!userId && !assessmentId) return
     setLoading(true)
     try {
       const res = await getOrCreateAttorneyChatRoom(userId, assessmentId || undefined)
@@ -123,7 +128,7 @@ export default function ChatDrawer({
   const handleSend = async () => {
     const text = input.trim()
     if (!text || sending) return
-    if (!userId) {
+    if (!userId && !assessmentId) {
       setSendError('This plaintiff has not created an account yet, so in-app messaging is unavailable.')
       return
     }
@@ -204,7 +209,7 @@ export default function ChatDrawer({
 
         {loading ? (
           <div className="flex-1 flex items-center justify-center text-slate-500">Loading…</div>
-        ) : !userId ? (
+        ) : !canMessage ? (
           <div className="flex-1 flex items-center justify-center p-6 text-center text-slate-500">
             <p>This plaintiff has not created an account yet.</p>
             <p className="mt-2 text-sm">They will need to sign in to use in-app messaging.</p>

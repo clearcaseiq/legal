@@ -2368,17 +2368,30 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
         leadByAssessment = Object.fromEntries(leads.map((l: any) => [l.assessmentId, l.id]))
       }
     } catch (_) { /* ignore */ }
-    const upcomingConsults = upcomingAppointments.map((a: any) => ({
-      id: a.id,
-      leadId: leadByAssessment[a.assessmentId],
-      scheduledAt: a.scheduledAt,
-      type: a.type,
-      duration: a.duration,
-      status: a.status,
-      assessmentId: a.assessmentId,
-      plaintiffName: a.assessment?.user ? `${a.assessment.user.firstName || ''} ${a.assessment.user.lastName || ''}`.trim() || '—' : '—',
-      claimType: a.assessment?.claimType || '—'
-    }))
+    // Collapse to a single upcoming consult per case. Older data may contain
+    // several SCHEDULED appointments for the same assessment (before scheduling
+    // was made idempotent), which otherwise rendered the same case's appointment
+    // card multiple times. upcomingAppointments is ordered by scheduledAt asc, so
+    // the first entry per assessment is the soonest.
+    const seenConsultAssessmentIds = new Set<string>()
+    const upcomingConsults = upcomingAppointments
+      .filter((a: any) => {
+        const key = a.assessmentId || a.id
+        if (seenConsultAssessmentIds.has(key)) return false
+        seenConsultAssessmentIds.add(key)
+        return true
+      })
+      .map((a: any) => ({
+        id: a.id,
+        leadId: leadByAssessment[a.assessmentId],
+        scheduledAt: a.scheduledAt,
+        type: a.type,
+        duration: a.duration,
+        status: a.status,
+        assessmentId: a.assessmentId,
+        plaintiffName: a.assessment?.user ? `${a.assessment.user.firstName || ''} ${a.assessment.user.lastName || ''}`.trim() || '—' : '—',
+        claimType: a.assessment?.claimType || '—'
+      }))
 
     // Messaging counts per lead (chat room by assessmentId + attorneyId)
     let messagingByLead: Record<string, { unreadCount: number; totalCount: number; lastMessageAt?: Date; awaitingReply: boolean }> = {}
@@ -4198,18 +4211,43 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
     const [y, mo, d] = dateStr.split('-').map(Number)
     const scheduledAt = new Date(y, mo - 1, d, hour, m || 0, 0)
 
-    const appointment = await prisma.appointment.create({
-      data: {
+    // Reuse an existing upcoming consult for this case instead of stacking a new
+    // one on every click. Without this, repeated "Schedule Consultation" presses
+    // created multiple SCHEDULED appointments, so the case's appointment card
+    // rendered many times across the dashboard/calendar/events views.
+    const existingUpcoming = await prisma.appointment.findFirst({
+      where: {
         userId,
         attorneyId: attorney.id,
         assessmentId: lead.assessmentId,
-        type: meetingType || 'phone',
         status: 'SCHEDULED',
-        scheduledAt,
-        duration: 30,
-        notes: notes || null
-      }
+      },
+      orderBy: { scheduledAt: 'desc' },
     })
+
+    const appointment = existingUpcoming
+      ? await prisma.appointment.update({
+          where: { id: existingUpcoming.id },
+          data: {
+            type: meetingType || 'phone',
+            status: 'SCHEDULED',
+            scheduledAt,
+            duration: 30,
+            notes: notes || null,
+          },
+        })
+      : await prisma.appointment.create({
+          data: {
+            userId,
+            attorneyId: attorney.id,
+            assessmentId: lead.assessmentId,
+            type: meetingType || 'phone',
+            status: 'SCHEDULED',
+            scheduledAt,
+            duration: 30,
+            notes: notes || null
+          }
+        })
 
     await prisma.leadSubmission.update({
       where: { id: leadId },
@@ -9860,9 +9898,25 @@ router.post('/messaging/chat-room', authMiddleware, async (req: any, res) => {
     const auth = await getAttorneyFromReq(req)
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { attorney } = auth
-    const { userId, assessmentId } = req.body
+    const { assessmentId } = req.body
+    let { userId } = req.body
 
-    if (!userId) return res.status(400).json({ error: 'userId is required' })
+    // The attorney UI doesn't always have the plaintiff's user id loaded on the
+    // lead (some lists omit the nested user object), which previously made chat
+    // wrongly report "no account". Resolve the plaintiff's user id from the
+    // assessment when it isn't supplied so messaging works whenever the case is
+    // linked to an account.
+    if (!userId && assessmentId) {
+      const assessment = await prisma.assessment.findUnique({
+        where: { id: assessmentId },
+        select: { userId: true },
+      })
+      userId = assessment?.userId || undefined
+    }
+
+    if (!userId) {
+      return res.status(409).json({ error: 'This plaintiff has not created an account yet, so in-app messaging is unavailable.' })
+    }
 
     let chatRoom = await prisma.chatRoom.findUnique({
       where: { userId_attorneyId: { userId, attorneyId: attorney.id } },

@@ -398,8 +398,12 @@ const parseMoney = (raw: string): number => {
  * largest labeled figure; otherwise we fall back to summing all detected amounts.
  */
 function computeDocumentTotal(ocrText: string, dollarAmounts: string[]): number {
+  // The amount frequently lands on the line *after* its label — Word/DOCX tables
+  // and OCR both emit "TOTAL MEDICAL BILLS\n$20,120" as separate lines. Allowing
+  // the gap to span newlines (bounded) lets the grand total win over summing every
+  // line item (which double-counts line items + the printed total + cost ranges).
   const labeledTotalRegex =
-    /(grand total|total economic damages|total lost wages|total charges|total billed|total due|total amount|amount due|balance due|patient balance|total)[^$\n]{0,40}\$\s?([\d,]+(?:\.\d{1,2})?)/gi
+    /(grand total|total economic damages|total lost wages|total charges|total billed|total medical(?: bills)?|total due|total amount|amount due|balance due|patient balance|total)[^$]{0,40}\$\s*([\d,]+(?:\.\d{1,2})?)/gi
   const labeledTotals: number[] = []
   let match: RegExpExecArray | null
   while ((match = labeledTotalRegex.exec(ocrText)) !== null) {

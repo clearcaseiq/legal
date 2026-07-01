@@ -652,8 +652,8 @@ export async function getAttorneyUnreadCount() {
   return data
 }
 
-export async function getOrCreateAttorneyChatRoom(userId: string, assessmentId?: string) {
-  const { data } = await api.post('/v1/attorney-dashboard/messaging/chat-room', { userId, assessmentId })
+export async function getOrCreateAttorneyChatRoom(userId: string | null | undefined, assessmentId?: string) {
+  const { data } = await api.post('/v1/attorney-dashboard/messaging/chat-room', { userId: userId || undefined, assessmentId })
   return data
 }
 
