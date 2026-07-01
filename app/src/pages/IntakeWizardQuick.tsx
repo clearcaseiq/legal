@@ -2111,10 +2111,21 @@ export default function IntakeWizardQuick() {
                   onClick={(e) => {
                     e.currentTarget.focus({ preventScroll: true })
                     if (formData.injuryType === value) {
-                      updateForm({ injuryType: '', claimType: '' })
+                      // Deselecting clears the type-specific branch answers too, so
+                      // nothing orphaned (e.g. a police-report flag) lingers.
+                      updateForm({ injuryType: '', claimType: '', branch: {} })
                       return
                     }
-                    updateForm({ injuryType: value, claimType: injuryTypeToClaimType(value) })
+                    // Switching injury types must reset branch. Branch holds
+                    // type-specific answers (police report, witnesses, crash type,
+                    // etc.); carrying them into a different injury type produced
+                    // false positives such as "Police Report: Included" in the
+                    // damages step for a case where none was ever provided.
+                    updateForm({
+                      injuryType: value,
+                      claimType: injuryTypeToClaimType(value),
+                      branch: {},
+                    })
                   }}
                   className={`relative flex h-20 flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] px-1.5 py-1.5 shadow-sm transition-all focus-visible:ring-inset focus-visible:ring-offset-0 active:scale-[0.99] sm:h-24 sm:gap-1.5 sm:px-3 sm:py-2 ${
                     formData.injuryType === value ? 'border-brand-600 bg-brand-50 shadow' : 'border-gray-300 bg-white hover:border-brand-500 hover:shadow-md'
