@@ -2,6 +2,7 @@
   "name": "caseiq-api",
   "private": true,
   "type": "commonjs",
+  "packageManager": "pnpm@8.15.6",
   "scripts": {
     "dev": "node ../node_modules/tsx/dist/cli.mjs watch src/index.ts",
     "build": "node ../node_modules/typescript/bin/tsc -p .",
