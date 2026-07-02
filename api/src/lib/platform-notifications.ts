@@ -19,12 +19,16 @@ async function sendNotificationEmail(params: {
   to: string
   subject?: string | null
   body?: string | null
+  replyTo?: string | null
+  fromName?: string | null
 }): Promise<boolean> {
   if (!params.to) return false
   return sendTransactionalEmail({
     to: params.to,
     subject: params.subject || 'ClearCaseIQ notification',
     body: params.body || '',
+    replyTo: params.replyTo || undefined,
+    fromName: params.fromName || undefined,
   })
 }
 
@@ -130,6 +134,18 @@ export async function attemptDelivery(notificationId: string): Promise<boolean> 
     },
   })
 
+  // Sender identity (reply-to / display name) is carried on the event payload so
+  // attorney-originated mail can appear to come from the attorney.
+  let senderReplyTo: string | undefined
+  let senderFromName: string | undefined
+  if (event.payloadJson) {
+    try {
+      const payload = JSON.parse(event.payloadJson)
+      if (typeof payload?.replyTo === 'string') senderReplyTo = payload.replyTo
+      if (typeof payload?.fromName === 'string') senderFromName = payload.fromName
+    } catch {}
+  }
+
   try {
     let delivered = false
     if (event.channel === 'email') {
@@ -137,6 +153,8 @@ export async function attemptDelivery(notificationId: string): Promise<boolean> 
         to: event.recipient || '',
         subject: event.subject,
         body: event.body,
+        replyTo: senderReplyTo,
+        fromName: senderFromName,
       })
     } else if (event.channel === 'sms') {
       delivered = event.recipient ? await sendSms(event.recipient, event.body || '') : false
@@ -296,6 +314,10 @@ export async function deliverDirectNotification(input: {
   attorneyId?: string | null
   assessmentId?: string | null
   role?: 'plaintiff' | 'attorney' | 'admin'
+  // When set, email is sent through the platform provider but shows this display
+  // name and routes replies to this address (attorney-originated mail).
+  replyTo?: string | null
+  fromName?: string | null
 }) {
   const notification = await prisma.notification.create({
     data: {
@@ -324,6 +346,8 @@ export async function deliverDirectNotification(input: {
     payload: {
       ...(input.metadata || {}),
       notificationId: notification.id,
+      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+      ...(input.fromName ? { fromName: input.fromName } : {}),
     },
     recipient: input.recipient,
   })

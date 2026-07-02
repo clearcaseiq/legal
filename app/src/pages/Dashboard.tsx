@@ -10,7 +10,7 @@ import { DashboardPageSkeleton, DashboardTabPanelSkeleton } from '../components/
 import { clearStoredAuth, getLoginRedirect } from '../lib/auth'
 import { loadPlaintiffSessionSummary, updateCachedPlaintiffAssessments } from '../hooks/usePlaintiffSessionSummary'
 
-type TabId = 'dashboard' | 'tasks' | 'documents' | 'attorney' | 'value' | 'journal'
+type TabId = 'dashboard' | 'tasks' | 'documents' | 'requested-documents' | 'attorney' | 'value' | 'journal'
 
 interface User {
   id: string
@@ -126,6 +126,7 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <BarChart3 className="h-4 w-4" /> },
   { id: 'tasks', label: 'Tasks', icon: <CheckCircle className="h-4 w-4" /> },
   { id: 'documents', label: 'Documents', icon: <FileStack className="h-4 w-4" /> },
+  { id: 'requested-documents', label: 'Requested Documents', icon: <FileText className="h-4 w-4" /> },
   { id: 'attorney', label: 'Attorney Review', icon: <Users className="h-4 w-4" /> },
   { id: 'value', label: 'Case Value', icon: <TrendingUp className="h-4 w-4" /> },
   { id: 'journal', label: 'Journal', icon: <MessageCircle className="h-4 w-4" /> }
@@ -1291,7 +1292,7 @@ export default function Dashboard() {
           {activeAssessment && (
             <nav className="-mx-1 flex gap-2 overflow-x-auto pb-1">
               {TABS.map((tab) => {
-                const badge = tab.id === 'tasks' ? actionItemsCount : tab.id === 'documents' ? strengthOpportunities.length : 0
+                const badge = tab.id === 'tasks' ? actionItemsCount : tab.id === 'documents' ? strengthOpportunities.length : tab.id === 'requested-documents' ? pendingDocumentRequests.length : 0
                 return (
                 <button
                   key={tab.id}
@@ -2363,7 +2364,123 @@ export default function Dashboard() {
               </div>
             )}
 
-            {activeAssessment && activeTab !== 'dashboard' && (
+            {activeTab === 'requested-documents' && (
+              <div className="space-y-4">
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <div className="flex items-start justify-between gap-4 mb-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900">Requested Documents</h3>
+                      <p className="text-sm text-gray-600">
+                        Documents your attorney has asked you to provide. Upload them here to keep your case moving.
+                      </p>
+                    </div>
+                    {activeAssessment?.id && (
+                      <Link
+                        to={`/evidence-upload/${activeAssessment.id}`}
+                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 shrink-0"
+                      >
+                        <Upload className="h-4 w-4" />
+                        Upload Documents
+                      </Link>
+                    )}
+                  </div>
+                  {documentRequests.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center">
+                      <FileText className="h-10 w-10 mx-auto text-gray-300 mb-3" />
+                      <p className="text-sm font-medium text-gray-700">No document requests yet</p>
+                      <p className="text-sm text-gray-500 mt-1">
+                        When your attorney requests documents, they'll appear here.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {documentRequests.map((request) => {
+                        const remainingItems = request.items.filter((item) => !item.fulfilled)
+                        const completedItems = request.items.filter((item) => item.fulfilled)
+                        const attorneyName = request.attorney?.name || 'Your attorney'
+                        return (
+                          <div key={request.id} className="rounded-xl border border-gray-200 p-4 bg-gray-50">
+                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+                              <div>
+                                <p className="font-semibold text-gray-900">{attorneyName}</p>
+                                <p className="text-xs text-gray-500">
+                                  Requested {new Date(request.createdAt).toLocaleDateString()}
+                                  {request.lastNudgeAt ? ` • Reminder sent ${new Date(request.lastNudgeAt).toLocaleDateString()}` : ''}
+                                </p>
+                              </div>
+                              <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                                request.status === 'completed'
+                                  ? 'bg-green-100 text-green-700'
+                                  : request.status === 'partial'
+                                    ? 'bg-amber-100 text-amber-700'
+                                    : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {request.status === 'completed' ? 'Completed' : request.status === 'partial' ? 'Partially complete' : 'Action needed'}
+                              </span>
+                            </div>
+                            <div className="mb-3">
+                              <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                                <span>Task progress</span>
+                                <span>{request.completionPercent}% complete</span>
+                              </div>
+                              <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
+                                <div className="h-full bg-brand-600 rounded-full" style={{ width: `${request.completionPercent}%` }} />
+                              </div>
+                            </div>
+                            {request.customMessage && (
+                              <div className="mb-3 rounded-lg bg-white px-3 py-3 border border-gray-200">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Attorney note</p>
+                                <p className="text-sm text-gray-700 whitespace-pre-wrap">{request.customMessage}</p>
+                              </div>
+                            )}
+                            {remainingItems.length > 0 && (
+                              <div className="mb-3">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Upload next</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {remainingItems.map((item) => (
+                                    <span key={item.key} className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-3 py-1 text-xs font-medium">
+                                      {item.label}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {completedItems.length > 0 && (
+                              <div className="mb-3">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Already completed</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {completedItems.map((item) => (
+                                    <span key={item.key} className="inline-flex items-center rounded-full bg-green-100 text-green-700 px-3 py-1 text-xs font-medium">
+                                      {item.label}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {request.items.length === 0 && (
+                              <p className="text-sm text-gray-600 mb-3">
+                                Your attorney asked for any additional supporting documents you may have. Medical records, bills, photos, or insurance documents can all help move your case forward.
+                              </p>
+                            )}
+                            {activeAssessment?.id && (
+                              <Link
+                                to={`/evidence-upload/${activeAssessment.id}`}
+                                className="inline-flex items-center gap-2 text-sm font-medium text-brand-600 hover:text-brand-800"
+                              >
+                                <Upload className="h-4 w-4" />
+                                Upload to this request
+                              </Link>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeAssessment && activeTab !== 'dashboard' && activeTab !== 'requested-documents' && (
               <Suspense fallback={<DashboardTabPanelSkeleton message={`Loading ${activeTab}...`} />}>
                 <PlaintiffDashboardDeferredTabPanel
                   activeTab={activeTab}

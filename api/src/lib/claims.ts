@@ -48,7 +48,26 @@ export function normalizeBarNumber(value: string | null | undefined): string {
   return (value ?? '').replace(/[^a-z0-9]/gi, '').toLowerCase()
 }
 
-type EmailParams = { to: string; subject: string; body: string }
+type EmailParams = {
+  to: string
+  subject: string
+  body: string
+  // Optional sender identity overrides so attorney-originated mail appears to
+  // come from the attorney (display name) and replies route back to them, while
+  // still being physically sent through the platform provider for deliverability.
+  replyTo?: string
+  fromName?: string
+}
+
+/**
+ * Build an RFC 5322 From value. When a display name is supplied it is sanitized
+ * (quotes/newlines stripped) and wrapped as `"Name" <email>`.
+ */
+function formatFromAddress(email: string, fromName?: string): string {
+  if (!fromName) return email
+  const clean = fromName.replace(/["\r\n<>]/g, '').trim()
+  return clean ? `"${clean}" <${email}>` : email
+}
 
 /** Convert a plain-text body into simple paragraph HTML, escaping unsafe chars. */
 function bodyToHtml(body: string): string {
@@ -103,8 +122,9 @@ async function sendViaSes(params: EmailParams): Promise<boolean> {
     const { SendEmailCommand } = require('@aws-sdk/client-sesv2')
     await client.send(
       new SendEmailCommand({
-        FromEmailAddress: from,
+        FromEmailAddress: formatFromAddress(from, params.fromName),
         Destination: { ToAddresses: [params.to] },
+        ...(params.replyTo ? { ReplyToAddresses: [params.replyTo] } : {}),
         Content: {
           Simple: {
             Subject: { Data: params.subject, Charset: 'UTF-8' },
@@ -138,7 +158,14 @@ async function sendViaResend(params: EmailParams): Promise<boolean> {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to: [params.to], subject: params.subject, text: params.body, html: bodyToHtml(params.body) }),
+      body: JSON.stringify({
+        from: formatFromAddress(from, params.fromName),
+        to: [params.to],
+        subject: params.subject,
+        text: params.body,
+        html: bodyToHtml(params.body),
+        ...(params.replyTo ? { reply_to: params.replyTo } : {}),
+      }),
     })
     if (!res.ok) {
       const text = await res.text().catch(() => '')

@@ -22,6 +22,7 @@ import {
   syncDecisionMemoryForAssessment
 } from '../lib/routing-lifecycle'
 import { sendPlaintiffAttorneyAccepted } from '../lib/case-notifications'
+import { deliverDirectNotification } from '../lib/platform-notifications'
 import { translateToEnglish, looksNonEnglish } from '../lib/translate'
 import { isValidPhone, normalizePhone, PHONE_ERROR_MESSAGE } from '../lib/phone'
 import { answerCommandCenterCopilot, buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
@@ -1373,18 +1374,40 @@ function calculateFeeSplit(projectedRecovery: number | null | undefined, feeSpli
   return { referringFeeAmount, receivingFeeAmount }
 }
 
-async function createNotification(recipient: string, subject: string, message: string, metadata?: Record<string, unknown>) {
+async function createNotification(
+  recipient: string,
+  subject: string,
+  message: string,
+  metadata?: Record<string, unknown>,
+  opts?: {
+    // Sender identity so attorney-originated mail is branded to the attorney.
+    replyTo?: string | null
+    fromName?: string | null
+    // When known, links an in-app notification to the plaintiff user.
+    userId?: string | null
+    assessmentId?: string | null
+    role?: 'plaintiff' | 'attorney' | 'admin'
+  }
+) {
   if (!recipient) return
-  await prisma.notification.create({
-    data: {
+  // Actually deliver (email + recorded notification) instead of only recording a
+  // row. Best-effort: deliverDirectNotification never throws to callers here.
+  try {
+    await deliverDirectNotification({
       type: 'email',
       recipient,
       subject,
       message,
-      metadata: metadata ? JSON.stringify(metadata) : null,
-      status: 'SENT'
-    }
-  })
+      metadata,
+      replyTo: opts?.replyTo ?? null,
+      fromName: opts?.fromName ?? null,
+      userId: opts?.userId ?? null,
+      assessmentId: opts?.assessmentId ?? (typeof metadata?.assessmentId === 'string' ? metadata.assessmentId : null),
+      role: opts?.role,
+    })
+  } catch (err) {
+    logger.warn('createNotification delivery failed', { error: err instanceof Error ? err.message : String(err) })
+  }
 }
 
 const intakeManualSchema = z.object({
@@ -2948,6 +2971,12 @@ router.patch('/appointments/:appointmentId', authMiddleware, async (req: any, re
           appointmentId: appointment.id,
           assessmentId: appointment.assessmentId,
           scheduledAt: appointment.scheduledAt.toISOString()
+        },
+        {
+          replyTo: auth.attorney.email || null,
+          fromName: auth.attorney.name || null,
+          assessmentId: appointment.assessmentId,
+          role: 'plaintiff',
         }
       )
     }
@@ -2994,6 +3023,12 @@ router.post('/appointments/:appointmentId/cancel', authMiddleware, async (req: a
           appointmentId: appointment.id,
           assessmentId: appointment.assessmentId,
           status: 'CANCELLED'
+        },
+        {
+          replyTo: auth.attorney.email || null,
+          fromName: auth.attorney.name || null,
+          assessmentId: appointment.assessmentId,
+          role: 'plaintiff',
         }
       )
     }
@@ -3269,7 +3304,7 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, async (req: a
             assessment: {
               select: {
                 facts: true,
-                user: { select: { email: true, firstName: true, lastName: true } },
+                user: { select: { id: true, email: true, firstName: true, lastName: true } },
               },
             },
           },
@@ -3302,6 +3337,9 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, async (req: a
         targetType: 'opposing_party',
         uploadLink: doc.uploadLink,
         nudge: true,
+      }, {
+        replyTo: auth.attorney.email || null,
+        fromName: auth.attorney.name || null,
       })
       await prisma.documentRequest.update({
         where: { id: doc.id },
@@ -3337,6 +3375,12 @@ router.post('/document-requests/:requestId/nudge', authMiddleware, async (req: a
       documentRequestId: doc.id,
       uploadLink: doc.uploadLink,
       nudge: true,
+    }, {
+      replyTo: auth.attorney.email || null,
+      fromName: auth.attorney.name || null,
+      userId: assessment?.user?.id ?? null,
+      assessmentId: doc.lead?.assessmentId ?? null,
+      role: 'plaintiff',
     })
 
     await prisma.documentRequest.update({
@@ -3687,6 +3731,7 @@ router.post('/leads/:leadId/contact', authMiddleware, async (req: any, res) => {
       select: {
         id: true,
         name: true,
+        email: true,
       },
     })
 
@@ -3842,6 +3887,12 @@ router.post('/leads/:leadId/contact', authMiddleware, async (req: any, res) => {
           assessmentId: leadAssessmentId,
           contactType,
           contactId: contact.id
+        }, {
+          replyTo: attorney.email || null,
+          fromName: attorney.name || null,
+          userId: plaintiffUserId || null,
+          assessmentId: leadAssessmentId,
+          role: 'plaintiff',
         })
       }
     }
@@ -3957,11 +4008,23 @@ router.post('/leads/:leadId/document-request', authMiddleware, async (req: any, 
     if (plaintiffEmail) {
       const subject = 'Your attorney requested additional documents'
       const message = `Hi ${plaintiffName},\n\n${attorneyName} has requested the following documents to strengthen your case:\n\n${docList}\n\n${customMessage ? `Message from your attorney: ${customMessage}\n\n` : ''}Upload here: ${uploadLink}\n\nBest regards,\nClearCaseIQ`
-      await createNotification(plaintiffEmail, subject, message, {
-        leadId,
+      await deliverDirectNotification({
+        type: 'email',
+        recipient: plaintiffEmail,
+        subject,
+        message,
+        userId: assessment?.userId || null,
         assessmentId: lead.assessmentId,
-        documentRequestId: docRequest.id,
-        uploadLink
+        role: 'plaintiff',
+        replyTo: attorney.email || null,
+        fromName: attorney.name || null,
+        metadata: {
+          eventType: 'document_request',
+          leadId,
+          assessmentId: lead.assessmentId,
+          documentRequestId: docRequest.id,
+          uploadLink,
+        },
       })
     }
 
@@ -4060,18 +4123,106 @@ router.post('/leads/:leadId/opposing-document-request', authMiddleware, async (r
     const docList = docs.length > 0
       ? docs.map((d: string) => `• ${OPPOSING_DOC_LABELS[d] || d}`).join('\n')
       : '• See message below'
+    const roleLabel = recipientRole === 'opposing_counsel'
+      ? 'opposing counsel'
+      : recipientRole === 'insurer'
+        ? 'the insurer'
+        : recipientRole === 'defendant'
+          ? 'the defendant'
+          : 'the requested party'
 
     // Email the external recipient a secure upload link (they have no account).
     if (recipientEmail) {
       const subject = `Document request regarding a claim — ${attorneyName}`
       const message = `Hello ${recipientName},\n\n${attorneyName} has requested the following documents in connection with a personal injury claim:\n\n${docList}\n\n${customMessage ? `${customMessage}\n\n` : ''}Please upload the documents securely here:\n${uploadLink}\n\nThis is a secure, single-purpose link. If you believe you received this in error, please disregard it.\n\nRegards,\nClearCaseIQ on behalf of ${attorneyName}`
-      await createNotification(recipientEmail, subject, message, {
-        leadId,
+      await deliverDirectNotification({
+        type: 'email',
+        recipient: recipientEmail,
+        subject,
+        message,
         assessmentId: lead.assessmentId,
-        documentRequestId: docRequest.id,
-        targetType: 'opposing_party',
-        uploadLink,
+        replyTo: attorney.email || null,
+        fromName: attorney.name || null,
+        metadata: {
+          eventType: 'opposing_document_request',
+          leadId,
+          assessmentId: lead.assessmentId,
+          documentRequestId: docRequest.id,
+          targetType: 'opposing_party',
+          uploadLink,
+        },
       })
+    }
+
+    // Keep the plaintiff in the loop: CC them (email + in-app notification) so
+    // they know a document request went out to the opposing party.
+    const oppAssessment = await prisma.assessment.findUnique({
+      where: { id: lead.assessmentId },
+      select: {
+        userId: true,
+        facts: true,
+        user: { select: { email: true, firstName: true } },
+      },
+    })
+    let ccPlaintiffEmail = oppAssessment?.user?.email
+    if (!ccPlaintiffEmail && oppAssessment?.facts) {
+      try {
+        const facts = typeof oppAssessment.facts === 'string' ? JSON.parse(oppAssessment.facts) : oppAssessment.facts
+        ccPlaintiffEmail = (facts.plaintiffContext as any)?.email
+      } catch {}
+    }
+    if (ccPlaintiffEmail) {
+      const ccName = oppAssessment?.user?.firstName || 'there'
+      const ccSubject = 'Your attorney sent a document request on your case'
+      const ccMessage = `Hi ${ccName},\n\n${attorneyName} sent a request for the following documents to ${recipientName} (${roleLabel}) as part of building your case:\n\n${docList}\n\n${customMessage ? `Note included: ${customMessage}\n\n` : ''}No action is needed from you — this is just to keep you informed.\n\nBest regards,\nClearCaseIQ`
+      await deliverDirectNotification({
+        type: 'email',
+        recipient: ccPlaintiffEmail,
+        subject: ccSubject,
+        message: ccMessage,
+        userId: oppAssessment?.userId || null,
+        assessmentId: lead.assessmentId,
+        role: 'plaintiff',
+        replyTo: attorney.email || null,
+        fromName: attorney.name || null,
+        metadata: {
+          eventType: 'opposing_document_request_cc',
+          leadId,
+          assessmentId: lead.assessmentId,
+          documentRequestId: docRequest.id,
+          targetType: 'opposing_party',
+        },
+      })
+    }
+
+    // Surface the CC as an in-app message so it shows in the plaintiff's inbox/bell.
+    if (oppAssessment?.userId) {
+      try {
+        let ccRoom = await prisma.chatRoom.findUnique({
+          where: { userId_attorneyId: { userId: oppAssessment.userId, attorneyId: attorney.id } },
+          select: { id: true },
+        })
+        if (!ccRoom) {
+          ccRoom = await prisma.chatRoom.create({
+            data: { userId: oppAssessment.userId, attorneyId: attorney.id, assessmentId: lead.assessmentId },
+          })
+        }
+        await prisma.message.create({
+          data: {
+            chatRoomId: ccRoom.id,
+            senderId: attorney.id,
+            senderType: 'attorney',
+            content: `FYI — I've requested the following documents from ${recipientName} (${roleLabel}) to support your case:\n\n${docList}\n\nNo action is needed from you.`,
+            messageType: 'text',
+          },
+        })
+        await prisma.chatRoom.update({
+          where: { id: ccRoom.id },
+          data: { lastMessageAt: new Date() },
+        })
+      } catch (ccChatErr: any) {
+        logger.error('Failed to create opposing-request CC message', { error: (ccChatErr as Error).message })
+      }
     }
 
     res.json({ ...docRequest, requestedDocs: docs })
@@ -4284,6 +4435,12 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
         assessmentId: lead.assessmentId,
         appointmentId: appointment.id,
         scheduledAt: scheduledAt.toISOString()
+      }, {
+        replyTo: attorney.email || null,
+        fromName: attorney.name || null,
+        userId: userId || null,
+        assessmentId: lead.assessmentId,
+        role: 'plaintiff',
       })
     }
 

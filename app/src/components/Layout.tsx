@@ -66,6 +66,15 @@ export default function Layout({ children }: LayoutProps) {
   const isDashboard = location.pathname.startsWith('/dashboard')
   const isFocusRoute = ['/assess', '/intake', '/rose'].includes(location.pathname)
   const isAttorney = !isAdmin && (!!attorney || location.pathname.startsWith('/attorney-dashboard') || location.pathname.startsWith('/firm-dashboard'))
+  // Clicking the logo takes signed-in users to their home surface (plaintiffs to
+  // their Dashboard) rather than the marketing landing page.
+  const logoDestination = !isAuthenticated
+    ? navLinks.home
+    : isAdmin || isAdminArea
+      ? '/admin'
+      : isAttorney
+        ? '/attorney-dashboard'
+        : '/dashboard'
   const shouldLoadPlaintiffSummary = !!authToken && !isAttorney
   const storedUser = getStoredUser<{ firstName?: string }>('user')
   const userName = storedUser?.firstName || 'User'
@@ -165,7 +174,7 @@ export default function Layout({ children }: LayoutProps) {
                 {mobileMenuOpen ? <CloseIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}
               </button>
               <Link
-                to={navLinks.home}
+                to={logoDestination}
                 aria-label={t('common.appName')}
                 className="flex shrink-0 items-center rounded-xl px-1.5 py-1 transition-colors hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:hover:bg-slate-800/70 dark:focus-visible:ring-offset-slate-900"
               >
