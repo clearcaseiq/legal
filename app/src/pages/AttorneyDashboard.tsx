@@ -17,6 +17,7 @@ import Tooltip from '../components/Tooltip'
 import ErrorBoundary from '../components/ErrorBoundary'
 import { AttorneyDashboardPanelSkeleton, AttorneyDashboardSkeleton } from '../components/PageSkeletons'
 import { clearStoredAuth, getLoginRedirect, hasValidAuthToken } from '../lib/auth'
+import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
 import { useAttorneyCommunications } from '../hooks/useAttorneyCommunications'
 import { useAttorneyCaseActivity } from '../hooks/useAttorneyCaseActivity'
 import { useAttorneyCaseHealth } from '../hooks/useAttorneyCaseHealth'
@@ -1423,6 +1424,18 @@ export default function AttorneyDashboard() {
     setScheduleConsultModalOpen(true)
   }, [selectedLeadIds.size])
 
+  // Lead-detail "Schedule Consult" button: open the real date/time scheduler
+  // instead of silently logging a placeholder contact (which looked like the
+  // button did nothing).
+  const handleLeadScheduleConsult = useCallback(() => {
+    const lead = selectedLead || dashboardData?.recentLeads?.find((l: any) => ['contacted', 'consulted', 'retained'].includes(l.status || ''))
+    if (!lead?.id) {
+      setError('Select a case to schedule a consultation')
+      return
+    }
+    navigate(`/attorney-dashboard/schedule-consult/${lead.id}`)
+  }, [selectedLead, dashboardData, navigate, setError])
+
   const handleScheduleConsultSubmit = useCallback(async (payload: { date: string; time: string; meetingType: string; notes?: string }) => {
     const ids = [...selectedLeadIds]
     if (ids.length !== 1) return
@@ -1490,7 +1503,6 @@ export default function AttorneyDashboard() {
     handleCreateContactFromCommand,
     handleLogContact,
     handleQuickCall,
-    handleQuickConsult,
     handleQuickMessage,
     reloadContacts,
     setContactForm,
@@ -1970,19 +1982,8 @@ export default function AttorneyDashboard() {
   }
 
   const getFlowStatus = (lead: any) => {
-    const status = lead?.status || ''
-    if (status === 'retained') return { label: 'Retained', color: 'bg-emerald-100 text-emerald-800' }
-    if (status === 'consulted') return { label: 'Consult Scheduled', color: 'bg-brand-100 text-brand-800' }
-    if (status === 'contacted') return hasMadeContact(lead) ? { label: 'Contacted', color: 'bg-blue-100 text-blue-800' } : { label: 'Accepted', color: 'bg-amber-100 text-amber-800' }
-    if (status === 'submitted' || !status) return { label: 'Matched', color: 'bg-violet-100 text-violet-800' }
-    if (status === 'rejected') return { label: 'Closed', color: 'bg-gray-100 text-gray-800' }
-    return { label: 'Matched', color: 'bg-violet-100 text-violet-800' }
-  }
-
-  const hasMadeContact = (lead: any) => {
-    if (lead?.lastContactAt) return true
-    const attempts = (lead?.contactAttempts || []).filter((attempt: any) => attempt.completedAt)
-    return attempts.length > 0
+    const key = getAttorneyCaseStatusKey(lead)
+    return { label: caseStatusLabel(key), color: caseStatusColor(key) }
   }
 
   const getHoursAgo = (dateString: string) => {
@@ -3726,7 +3727,7 @@ export default function AttorneyDashboard() {
             contactHistory={contactHistory}
             handleQuickCall={handleQuickCall}
             handleQuickMessage={handleQuickMessage}
-            handleQuickConsult={handleQuickConsult}
+            handleQuickConsult={handleLeadScheduleConsult}
             handleCreateContactFromCommand={handleCreateContactFromCommand}
             setChatDrawerOpen={setChatDrawerOpen}
             reloadContacts={reloadContacts}

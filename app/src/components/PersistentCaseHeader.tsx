@@ -134,8 +134,13 @@ export default function PersistentCaseHeader({
   const displayClaimType = formatClaimType(claimType)
 
   const statusColors: Record<string, string> = {
+    'Pending': 'bg-slate-100 text-slate-700 border-slate-200',
+    'In Review': 'bg-amber-100 text-amber-800 border-amber-200',
+    'Accepted': 'bg-blue-100 text-blue-800 border-blue-200',
+    'Consultation Scheduled': 'bg-brand-100 text-brand-800 border-brand-200',
+    'Consulting Pending': 'bg-purple-100 text-purple-800 border-purple-200',
+    'Completed': 'bg-emerald-100 text-emerald-800 border-emerald-200',
     'Consultation Pending': 'bg-amber-100 text-amber-800 border-amber-200',
-    'Consultation Scheduled': 'bg-blue-100 text-blue-800 border-blue-200',
     'Negotiation': 'bg-brand-100 text-brand-800 border-brand-200',
     'Litigation': 'bg-purple-100 text-purple-800 border-purple-200',
     'Closed': 'bg-gray-100 text-gray-700 border-gray-200',
@@ -185,7 +190,7 @@ export default function PersistentCaseHeader({
               Message
             </button>
             <button
-              onClick={useModals ? () => setScheduleModalOpen(true) : onScheduleConsult}
+              onClick={onScheduleConsult}
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-medium text-brand-600 border border-brand-300 rounded-md hover:bg-brand-50"
             >
               <Calendar className="h-3.5 w-3.5" />

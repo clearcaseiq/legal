@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import { 
   getChatRooms, 
   getOrCreateChatRoom, 
@@ -17,7 +17,6 @@ import {
   Phone, 
   Video, 
   MapPin,
-  Plus,
   Search,
   Filter
 } from 'lucide-react'
@@ -68,10 +67,19 @@ export default function Messaging() {
     loadChatRooms()
   }, [])
 
+  // Load the selected conversation and poll it so replies from the attorney
+  // appear without the user having to refresh the page.
   useEffect(() => {
-    if (selectedRoom) {
-      loadMessages(selectedRoom.id)
+    if (!selectedRoom) {
+      setMessages([])
+      return
     }
+    const roomId = selectedRoom.id
+    void loadMessages(roomId)
+    const interval = setInterval(() => {
+      void loadMessages(roomId, { silent: true })
+    }, 5000)
+    return () => clearInterval(interval)
   }, [selectedRoom])
 
   const loadChatRooms = async () => {
@@ -107,15 +115,26 @@ export default function Messaging() {
     }
   }
 
-  const loadMessages = async (chatRoomId: string) => {
+  const loadMessages = async (chatRoomId: string, opts?: { silent?: boolean }) => {
     try {
-      const data = await getChatRoomMessages(chatRoomId)
-      setMessages(data)
-      
-      // Mark messages as read
-      await markMessagesAsRead(chatRoomId)
+      const data: Message[] = await getChatRoomMessages(chatRoomId)
+      // Only replace state when the thread actually changed so the 5s poll
+      // doesn't cause needless re-renders/flicker.
+      let changed = true
+      setMessages((prev) => {
+        if (prev.length === data.length && prev[prev.length - 1]?.id === data[data.length - 1]?.id) {
+          changed = false
+          return prev
+        }
+        return data
+      })
+      // Mark as read only when there are unread attorney messages, so polling
+      // doesn't write on every tick.
+      if (changed && data.some((m) => !m.isRead && m.senderType === 'attorney')) {
+        await markMessagesAsRead(chatRoomId)
+      }
     } catch (error) {
-      console.error('Failed to load messages:', error)
+      if (!opts?.silent) console.error('Failed to load messages:', error)
     }
   }
 
@@ -236,9 +255,9 @@ export default function Messaging() {
               <div className="p-4 text-center text-gray-500">
                 <MessageSquare className="h-12 w-12 mx-auto mb-4 text-gray-300" />
                 <p>No conversations yet</p>
-                <Link to="/attorneys-enhanced" state={{ from: '/messaging' }} className="text-primary-600 hover:text-primary-700">
-                  Find attorneys to start chatting
-                </Link>
+                <p className="mt-1 text-sm text-gray-400">
+                  Your matched attorney will appear here once your case is routed.
+                </p>
               </div>
             ) : (
               <div className="space-y-1 p-2">
@@ -294,13 +313,6 @@ export default function Messaging() {
             )}
           </div>
 
-          {/* Quick Actions */}
-          <div className="p-4 border-t border-gray-200">
-            <Link to="/attorneys-enhanced" state={{ from: '/messaging' }} className="btn-primary w-full">
-              <Plus className="h-4 w-4 mr-2" />
-              Find Attorneys
-            </Link>
-          </div>
         </div>
 
         {/* Chat Area */}

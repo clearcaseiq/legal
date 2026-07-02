@@ -4,6 +4,7 @@ import PreAcceptanceView from './PreAcceptanceView'
 import PersistentCaseHeader from './PersistentCaseHeader'
 import NextBestActionWidget from './NextBestActionWidget'
 import { formatCurrency, formatPercentage } from '../lib/formatters'
+import { getAttorneyCaseStatusKey, caseStatusLabel } from '../lib/caseStatus'
 import { formatLeadCaseId } from '../lib/caseId'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { caseStrengthLabel } from '../lib/heuristics'
@@ -597,13 +598,7 @@ export default function AttorneyDashboardLeadDetail({
                 <PostAcceptanceActionSummary
                   claimType={claimType}
                   location={location}
-                  caseStatus={
-                    selectedLead?.status === 'retained'
-                      ? 'Retained / Active'
-                      : selectedLead?.status === 'consulted'
-                        ? 'Consultation Completed'
-                        : 'Accepted / Active'
-                  }
+                  caseStatus={caseStatusLabel(getAttorneyCaseStatusKey(selectedLead, { consultScheduledAt: contactHistory.find((c: any) => c.contactType === 'consult' && c.scheduledAt)?.scheduledAt }))}
                   valueLow={valueLow}
                   valueHigh={valueHigh}
                   caseStrength={caseStrength}
@@ -671,15 +666,7 @@ export default function AttorneyDashboardLeadDetail({
                   treatment={treatment}
                   timelineEstimate={timelineEstimate}
                   liabilityPercent={Math.round((selectedLead?.liabilityScore || 0) * 100)}
-                  caseStatus={
-                    selectedLead?.status === 'retained'
-                      ? 'Retained'
-                      : selectedLead?.status === 'consulted'
-                        ? 'Consultation Completed'
-                        : contactHistory.some((contact: any) => contact.contactType === 'consult' && contact.scheduledAt)
-                          ? 'Consultation Scheduled'
-                          : 'Consultation Pending'
-                  }
+                  caseStatus={caseStatusLabel(getAttorneyCaseStatusKey(selectedLead, { consultScheduledAt: contactHistory.find((c: any) => c.contactType === 'consult' && c.scheduledAt)?.scheduledAt }))}
                   plaintiffName={plaintiffName}
                   phone={phone}
                   email={email}

@@ -18,6 +18,7 @@ import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken } from
 import { loadPlaintiffHasCase, resetPlaintiffCaseHintCache } from '../lib/plaintiffCaseHint'
 
 const NotificationBell = lazy(() => import('./NotificationBell'))
+const PlaintiffNotificationBell = lazy(() => import('./PlaintiffNotificationBell'))
 const LanguageSwitcher = lazy(() => import('./LanguageSwitcher'))
 
 interface LayoutProps {
@@ -219,6 +220,14 @@ export default function Layout({ children }: LayoutProps) {
                     <div className="hidden md:block">
                       <Suspense fallback={shellIconFallback}>
                         <NotificationBell />
+                      </Suspense>
+                    </div>
+                  )}
+                  {/* Notification bell for plaintiffs */}
+                  {!isAttorney && !isAdmin && !isAdminArea && (
+                    <div className="hidden md:block">
+                      <Suspense fallback={shellIconFallback}>
+                        <PlaintiffNotificationBell />
                       </Suspense>
                     </div>
                   )}

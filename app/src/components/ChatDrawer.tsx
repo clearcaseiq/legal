@@ -107,6 +107,32 @@ export default function ChatDrawer({
     }
   }, [messages])
 
+  // Poll the open conversation so the attorney sees new plaintiff messages
+  // without reopening or refreshing.
+  useEffect(() => {
+    if (!open || !chatRoomId) return
+    const interval = setInterval(async () => {
+      try {
+        const updated = await getAttorneyChatRoomMessages(chatRoomId)
+        if (!Array.isArray(updated)) return
+        let changed = true
+        setMessages((prev) => {
+          if (prev.length === updated.length && prev[prev.length - 1]?.id === updated[updated.length - 1]?.id) {
+            changed = false
+            return prev
+          }
+          return updated
+        })
+        if (changed && updated.some((m: Message) => !m.isRead && m.senderType === 'user')) {
+          await markAttorneyMessagesRead(chatRoomId)
+        }
+      } catch {
+        // Silent: transient poll failures shouldn't disrupt the drawer.
+      }
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [open, chatRoomId])
+
   const loadChat = async () => {
     if (!userId && !assessmentId) return
     setLoading(true)

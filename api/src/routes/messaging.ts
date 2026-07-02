@@ -211,6 +211,62 @@ router.get('/chat-rooms', authMiddleware, async (req: AuthRequest, res) => {
   }
 })
 
+// Unread message summary for the plaintiff notification bell: total unread plus
+// a per-conversation breakdown (attorney, case, last message, unread count).
+router.get('/unread-summary', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.user!.id
+
+    const chatRooms = await prisma.chatRoom.findMany({
+      where: { userId },
+      include: {
+        attorney: { select: { id: true, name: true } },
+        assessment: { select: { id: true, claimType: true, venueState: true } },
+        messages: { orderBy: { createdAt: 'desc' }, take: 1 }
+      },
+      orderBy: { lastMessageAt: 'desc' }
+    })
+
+    const roomIds = chatRooms.map((r) => r.id)
+    const unreadByRoom = roomIds.length > 0
+      ? await prisma.message.groupBy({
+          by: ['chatRoomId'],
+          where: {
+            chatRoomId: { in: roomIds },
+            senderType: 'attorney',
+            isRead: false
+          },
+          _count: { id: true }
+        })
+      : []
+    const unreadMap: Record<string, number> = Object.fromEntries(
+      unreadByRoom.map((u) => [u.chatRoomId, u._count.id])
+    )
+
+    const rooms = chatRooms.map((room) => ({
+      id: room.id,
+      assessmentId: room.assessmentId,
+      attorney: room.attorney ? { id: room.attorney.id, name: room.attorney.name } : null,
+      assessment: room.assessment,
+      lastMessage: room.messages[0]
+        ? {
+            content: room.messages[0].content,
+            senderType: room.messages[0].senderType,
+            createdAt: room.messages[0].createdAt
+          }
+        : null,
+      unreadCount: unreadMap[room.id] || 0
+    }))
+
+    const unreadCount = rooms.reduce((sum, r) => sum + r.unreadCount, 0)
+
+    res.json({ unreadCount, rooms })
+  } catch (error) {
+    logger.error('Failed to get unread summary', { error, userId: req.user?.id })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
 // Send message
 router.post(
   '/send',

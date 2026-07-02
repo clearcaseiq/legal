@@ -620,6 +620,12 @@ export async function getChatRooms() {
   return data
 }
 
+// Unread message summary for the plaintiff notification bell
+export async function getPlaintiffMessageSummary() {
+  const { data } = await api.get('/v1/messaging/unread-summary')
+  return data
+}
+
 export async function sendMessage(messageData: any) {
   const { data } = await api.post('/v1/messaging/send', messageData)
   return data

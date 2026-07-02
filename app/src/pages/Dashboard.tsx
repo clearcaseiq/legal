@@ -4,6 +4,7 @@ import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments,
 import { formatCurrency } from '../lib/formatters'
 import { CheckCircle, Square, Upload, FileText, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, ExternalLink, Send, Star } from 'lucide-react'
 import CaseProgressPipeline from '../components/CaseProgressPipeline'
+import { getPlaintiffCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
 import OpposingDocSuggestionCard from '../components/OpposingDocSuggestionCard'
 import { DashboardPageSkeleton, DashboardTabPanelSkeleton } from '../components/PageSkeletons'
 import { clearStoredAuth, getLoginRedirect } from '../lib/auth'
@@ -595,6 +596,13 @@ export default function Dashboard() {
   const needsMoreInfo = routingLifecycle === 'plaintiff_info_requested' || routingLifecycle === 'needs_more_info'
   const inManualReview = routingLifecycle === 'manual_review_needed'
   const notRoutableYet = routingLifecycle === 'not_routable_yet'
+  const plaintiffCaseStatusKey = getPlaintiffCaseStatusKey({
+    lifecycleState: routingLifecycle,
+    attorneyMatched: routingStatus?.attorneyMatched,
+    upcomingAppointment: routingStatus?.upcomingAppointment,
+    reviewingCount: routingStatus?.attorneysReviewing,
+    submittedForReview,
+  })
   const waitingState = inManualReview || needsMoreInfo || notRoutableYet
   const plaintiffRoutingStatusMessage = plaintiffStatusMessage(routingStatus?.statusMessage)
   const waitingBanner = attorneyMatched
@@ -1312,6 +1320,12 @@ export default function Dashboard() {
           <>
             {activeTab === 'dashboard' && (
               <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Case Status</span>
+                  <span className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-semibold ${caseStatusColor(plaintiffCaseStatusKey)}`}>
+                    {caseStatusLabel(plaintiffCaseStatusKey)}
+                  </span>
+                </div>
                 <CaseProgressPipeline
                   submittedForReview={submittedForReview}
                   attorneyMatched={attorneyMatched}
