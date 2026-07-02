@@ -235,11 +235,34 @@ router.get('/:attorneyId/availability', async (req, res) => {
       }
     })
 
-    if (!availability || !availability.isAvailable) {
-      return res.json({ 
-        available: false,
-        message: 'Attorney is not available on this day'
-      })
+    // Resolve the bookable window. Honor an explicit schedule (including an
+    // explicit "unavailable"); when there is NO configuration at all, fall back
+    // to standard weekday business hours so plaintiffs can still book. Attorneys
+    // rarely set a weekly schedule, so without this fallback every day shows
+    // zero slots and consultations can never be scheduled.
+    const DEFAULT_START_TIME = '09:00'
+    const DEFAULT_END_TIME = '17:00'
+    let windowStart: string
+    let windowEnd: string
+    if (availability) {
+      if (!availability.isAvailable) {
+        return res.json({
+          available: false,
+          message: 'Attorney is not available on this day'
+        })
+      }
+      windowStart = availability.startTime
+      windowEnd = availability.endTime
+    } else {
+      // No explicit schedule: weekdays default to business hours, weekends closed.
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        return res.json({
+          available: false,
+          message: 'Attorney is not available on this day'
+        })
+      }
+      windowStart = DEFAULT_START_TIME
+      windowEnd = DEFAULT_END_TIME
     }
 
     // Get existing appointments for this date
@@ -274,8 +297,8 @@ router.get('/:attorneyId/availability', async (req, res) => {
     // Generate available slots
     const slots = generateAvailableTimeSlots({
       targetDate,
-      startTime: availability.startTime,
-      endTime: availability.endTime,
+      startTime: windowStart,
+      endTime: windowEnd,
       duration: parseInt(duration as string),
       existingAppointments: [
         ...existingAppointments,
@@ -287,8 +310,8 @@ router.get('/:attorneyId/availability', async (req, res) => {
       available: true,
       dayOfWeek,
       workingHours: {
-        start: availability.startTime,
-        end: availability.endTime
+        start: windowStart,
+        end: windowEnd
       },
       slots
     })
