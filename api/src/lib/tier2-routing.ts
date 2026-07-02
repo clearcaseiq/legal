@@ -2,6 +2,7 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import { CaseFacts } from './case-tier-classifier'
 import { sendCaseOfferSms } from './sms'
+import { coversClaimType } from './case-type-match'
 
 /**
  * Tier 2 Case Routing Engine (Production-ready)
@@ -294,10 +295,9 @@ function matchesPracticeArea(
   claimType: string,
   options?: EligibilityOptions
 ): boolean {
-  const normalizedClaim = normalizeCaseType(claimType)
   const normalizedAreas = firm.practiceAreas.map(normalizeCaseType)
 
-  if (normalizedAreas.includes(normalizedClaim)) return true
+  if (coversClaimType(firm.practiceAreas, claimType)) return true
 
   if (options?.allowGeneralPI) {
     return normalizedAreas.some(area =>

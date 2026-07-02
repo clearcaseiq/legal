@@ -11,6 +11,7 @@ import {
 } from '../lib/api'
 import { TrashIcon } from '../components/TrashIcon'
 import { openEvidenceFile } from '../lib/evidenceFileUrl'
+import { useLanguage } from '../contexts/LanguageContext'
 import { 
   Upload, 
   FileText, 
@@ -101,6 +102,18 @@ interface ProcessingJob {
 export default function EvidenceDashboard() {
   const { assessmentId } = useParams<{ assessmentId: string }>()
   const navigate = useNavigate()
+  const { t } = useLanguage()
+  // Localized labels for the fixed category/status slugs (#14).
+  const categoryLabel = (value: string) => {
+    const key = `evidence.cat_${value}`
+    const label = t(key)
+    return label === key ? value.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()) : label
+  }
+  const statusLabel = (value: string) => {
+    const key = `evidence.status_${value}`
+    const label = t(key)
+    return label === key ? value.charAt(0).toUpperCase() + value.slice(1) : label
+  }
   const [files, setFiles] = useState<EvidenceFile[]>([])
   const [filteredFiles, setFilteredFiles] = useState<EvidenceFile[]>([])
   const [loading, setLoading] = useState(false)
@@ -251,7 +264,7 @@ export default function EvidenceDashboard() {
       console.error('Failed to update file:', error)
       setModalMessage({
         type: 'error',
-        text: error?.response?.data?.error || error?.message || 'Failed to save changes. Please try again.',
+        text: error?.response?.data?.error || error?.message || t('evidence.saveError'),
       })
     } finally {
       setSavingFile(false)
@@ -352,7 +365,7 @@ export default function EvidenceDashboard() {
       console.error('Failed to add annotation:', error)
       setModalMessage({
         type: 'error',
-        text: error?.response?.data?.error || error?.message || 'Failed to add annotation. Please try again.',
+        text: error?.response?.data?.error || error?.message || t('evidence.annotationError'),
       })
     }
   }
@@ -379,7 +392,7 @@ export default function EvidenceDashboard() {
                     onClick={() => navigate(`/results/${assessmentId}`)}
                     className="inline-flex items-center justify-center gap-2 rounded-full border border-brand-200 bg-white px-4 py-2 text-sm font-medium text-brand-600 shadow-sm transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
                   >
-                    Back to Result Screen
+                    {t('evidence.backToResult')}
                   </button>
                 ) : (
                   <button
@@ -387,20 +400,20 @@ export default function EvidenceDashboard() {
                     onClick={() => navigate('/attorney-dashboard')}
                     className="inline-flex items-center justify-center gap-2 rounded-full border border-brand-200 bg-white px-4 py-2 text-sm font-medium text-brand-600 shadow-sm transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
                   >
-                    Back to Attorney Dashboard
+                    {t('evidence.backToAttorneyDashboard')}
                   </button>
                 )}
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-gray-900">Evidence Dashboard</h1>
+                <h1 className="text-3xl font-bold text-gray-900">{t('evidence.title')}</h1>
                 <div className="text-sm text-gray-500">
-                  {assessmentId ? `Case ID: ${assessmentId}` : 'All cases'}
+                  {assessmentId ? `${t('evidence.caseIdLabel')} ${assessmentId}` : t('evidence.allCases')}
                 </div>
               </div>
             </div>
           </div>
           <p className="text-gray-600 mt-1">
-            Manage and analyze your uploaded evidence files
+            {t('evidence.subtitle')}
           </p>
         </div>
         <Link
@@ -408,7 +421,7 @@ export default function EvidenceDashboard() {
           className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
         >
           <Upload className="h-4 w-4 mr-2" />
-          Upload Evidence
+          {t('evidence.uploadEvidence')}
         </Link>
       </div>
 
@@ -416,27 +429,27 @@ export default function EvidenceDashboard() {
       <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-          <div className="text-sm text-gray-500">Total Files</div>
+          <div className="text-sm text-gray-500">{t('evidence.totalFiles')}</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
-          <div className="text-sm text-gray-500">Processed</div>
+          <div className="text-sm text-gray-500">{t('evidence.processed')}</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-2xl font-bold text-yellow-600">{stats.processing}</div>
-          <div className="text-sm text-gray-500">Processing</div>
+          <div className="text-sm text-gray-500">{t('evidence.processing')}</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-2xl font-bold text-gray-600">{stats.pending}</div>
-          <div className="text-sm text-gray-500">Pending</div>
+          <div className="text-sm text-gray-500">{t('evidence.pending')}</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-2xl font-bold text-blue-600">{formatFileSize(stats.totalSize)}</div>
-          <div className="text-sm text-gray-500">Total Size</div>
+          <div className="text-sm text-gray-500">{t('evidence.totalSize')}</div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-2xl font-bold text-green-600">${stats.totalValue.toLocaleString()}</div>
-          <div className="text-sm text-gray-500">Total Value</div>
+          <div className="text-sm text-gray-500">{t('evidence.totalValue')}</div>
         </div>
       </div>
 
@@ -444,37 +457,37 @@ export default function EvidenceDashboard() {
         <div className="bg-white rounded-lg shadow p-6 space-y-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
             <Info className="h-4 w-4 text-brand-500" />
-            AI Evidence Intelligence
+            {t('evidence.aiIntelligence')}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div>
-              <div className="text-gray-500">Evidence gaps</div>
+              <div className="text-gray-500">{t('evidence.evidenceGaps')}</div>
               <div className="text-gray-900">
-                {insights.gaps?.length ? insights.gaps.join(', ') : 'No major gaps detected'}
+                {insights.gaps?.length ? insights.gaps.join(', ') : t('evidence.noGaps')}
               </div>
             </div>
             <div>
-              <div className="text-gray-500">Contradictions</div>
+              <div className="text-gray-500">{t('evidence.contradictions')}</div>
               <div className="text-gray-900">
-                {insights.contradictions?.length ? insights.contradictions.join(' • ') : 'None detected'}
+                {insights.contradictions?.length ? insights.contradictions.join(' • ') : t('evidence.noneDetected')}
               </div>
             </div>
             <div>
-              <div className="text-gray-500">Severity signals</div>
+              <div className="text-gray-500">{t('evidence.severitySignals')}</div>
               <div className="text-gray-900">
-                Score {insights.severitySignals?.score ?? 0} • {(insights.severitySignals?.drivers || []).join(' • ')}
+                {t('evidence.scoreLabel')} {insights.severitySignals?.score ?? 0} • {(insights.severitySignals?.drivers || []).join(' • ')}
               </div>
             </div>
             <div>
-              <div className="text-gray-500">Liability signals</div>
+              <div className="text-gray-500">{t('evidence.liabilitySignals')}</div>
               <div className="text-gray-900">
-                Score {insights.liabilitySignals?.score ?? 0} • {(insights.liabilitySignals?.drivers || []).join(' • ')}
+                {t('evidence.scoreLabel')} {insights.liabilitySignals?.score ?? 0} • {(insights.liabilitySignals?.drivers || []).join(' • ')}
               </div>
             </div>
             <div className="md:col-span-2">
-              <div className="text-gray-500">Medical chronology</div>
+              <div className="text-gray-500">{t('evidence.medicalChronology')}</div>
               <div className="text-gray-900">
-                {insights.medicalChronology?.length ? insights.medicalChronology.join(' • ') : 'No chronology found'}
+                {insights.medicalChronology?.length ? insights.medicalChronology.join(' • ') : t('evidence.noChronology')}
               </div>
             </div>
           </div>
@@ -491,7 +504,7 @@ export default function EvidenceDashboard() {
                 checked={allCases}
                 onChange={(e) => setAllCases(e.target.checked)}
               />
-              Search across all cases
+              {t('evidence.searchAllCases')}
             </label>
           )}
           {/* Search */}
@@ -500,7 +513,7 @@ export default function EvidenceDashboard() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search files..."
+                placeholder={t('evidence.searchPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
@@ -516,7 +529,7 @@ export default function EvidenceDashboard() {
           >
             {categories.map(category => (
               <option key={category} value={category}>
-                {category === 'all' ? 'All Categories' : category.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                {category === 'all' ? t('evidence.allCategories') : categoryLabel(category)}
               </option>
             ))}
           </select>
@@ -529,7 +542,7 @@ export default function EvidenceDashboard() {
           >
             {statuses.map(status => (
               <option key={status} value={status}>
-                {status === 'all' ? 'All Status' : status.charAt(0).toUpperCase() + status.slice(1)}
+                {status === 'all' ? t('evidence.allStatus') : statusLabel(status)}
               </option>
             ))}
           </select>
@@ -557,12 +570,12 @@ export default function EvidenceDashboard() {
         {loading ? (
           <div className="flex justify-center items-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
-            <span className="ml-2 text-gray-600">Loading files...</span>
+            <span className="ml-2 text-gray-600">{t('evidence.loadingFiles')}</span>
           </div>
         ) : filteredFiles.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
             <File className="mx-auto h-12 w-12 text-gray-300 mb-4" />
-            <p>No files found matching your criteria</p>
+            <p>{t('evidence.noFilesFound')}</p>
           </div>
         ) : viewMode === 'grid' ? (
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -596,11 +609,11 @@ export default function EvidenceDashboard() {
                 <div className="flex-1 flex flex-col gap-2">
                   <div className="flex items-center text-xs text-gray-500">
                     <Tag className="h-3 w-3 mr-1" />
-                    {file.category.replace(/_/g, ' ')} • {file.dataType || 'unstructured'}
+                    {categoryLabel(file.category)} • {file.dataType || t('evidence.unstructured')}
                   </div>
 
                   {file.aiClassification && (
-                    <div className="text-xs text-brand-600">Classified: {file.aiClassification}</div>
+                    <div className="text-xs text-brand-600">{t('evidence.classifiedLabel')} {file.aiClassification}</div>
                   )}
 
                   {file.aiSummary && (
@@ -609,12 +622,12 @@ export default function EvidenceDashboard() {
 
                   {parseTags(file.tags).length > 0 && (
                     <div className="text-xs text-gray-500">
-                      Tags: {parseTags(file.tags).slice(0, 4).join(', ')}
+                      {t('evidence.tagsLabel')} {parseTags(file.tags).slice(0, 4).join(', ')}
                     </div>
                   )}
 
                   {typeof file.relevanceScore === 'number' && (
-                    <div className="text-xs text-gray-500">Relevance: {file.relevanceScore.toFixed(2)}</div>
+                    <div className="text-xs text-gray-500">{t('evidence.relevanceLabel')} {file.relevanceScore.toFixed(2)}</div>
                   )}
 
                   {file.processingStatus === 'completed' && file.extractedData && file.extractedData.length > 0 && (
@@ -629,7 +642,7 @@ export default function EvidenceDashboard() {
                       {file.extractedData[0].dates && JSON.parse(file.extractedData[0].dates || '[]').length > 0 && (
                         <div className="flex items-center text-xs text-blue-600">
                           <Calendar className="h-3 w-3 mr-1" />
-                          {JSON.parse(file.extractedData[0].dates || '[]').length} dates
+                          {JSON.parse(file.extractedData[0].dates || '[]').length} {t('evidence.dates')}
                         </div>
                       )}
                     </div>
@@ -637,7 +650,7 @@ export default function EvidenceDashboard() {
 
                   <div className="flex items-center justify-between pt-2 mt-auto">
                     <span className="text-xs text-gray-400">
-                      {allCases && file.assessmentId ? `Case ${file.assessmentId.slice(-6)}` : new Date(file.createdAt).toLocaleDateString()}
+                      {allCases && file.assessmentId ? `${t('evidence.caseShort')} ${file.assessmentId.slice(-6)}` : new Date(file.createdAt).toLocaleDateString()}
                     </span>
                     
                     <div className="flex items-center space-x-1">
@@ -675,22 +688,22 @@ export default function EvidenceDashboard() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    File
+                    {t('evidence.colFile')}
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Category
+                    {t('evidence.colCategory')}
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
+                    {t('evidence.colStatus')}
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Extracted Data
+                    {t('evidence.colExtractedData')}
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Uploaded
+                    {t('evidence.colUploaded')}
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
+                    {t('evidence.colActions')}
                   </th>
                 </tr>
               </thead>
@@ -705,31 +718,31 @@ export default function EvidenceDashboard() {
                             {file.originalName}
                           </div>
                           <div className="text-sm text-gray-500">
-                            {formatFileSize(file.size)}{allCases && file.assessmentId ? ` • Case ${file.assessmentId.slice(-6)}` : ''}
+                            {formatFileSize(file.size)}{allCases && file.assessmentId ? ` • ${t('evidence.caseShort')} ${file.assessmentId.slice(-6)}` : ''}
                           </div>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-sm text-gray-900">
-                        {file.category.replace(/_/g, ' ')} • {file.dataType || 'unstructured'}
+                        {categoryLabel(file.category)} • {file.dataType || t('evidence.unstructured')}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         {getProcessingStatusIcon(file.processingStatus)}
-                        <span className="ml-2 text-sm text-gray-900 capitalize">
-                          {file.processingStatus}
+                        <span className="ml-2 text-sm text-gray-900">
+                          {statusLabel(file.processingStatus)}
                         </span>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       <div className="space-y-1">
                         {file.aiClassification && (
-                          <div className="text-brand-600">Classified: {file.aiClassification}</div>
+                          <div className="text-brand-600">{t('evidence.classifiedLabel')} {file.aiClassification}</div>
                         )}
                         {parseTags(file.tags).length > 0 && (
-                          <div className="text-gray-500">Tags: {parseTags(file.tags).slice(0, 3).join(', ')}</div>
+                          <div className="text-gray-500">{t('evidence.tagsLabel')} {parseTags(file.tags).slice(0, 3).join(', ')}</div>
                         )}
                         {file.extractedData && file.extractedData.length > 0 ? (
                           <div>
@@ -740,7 +753,7 @@ export default function EvidenceDashboard() {
                             )}
                             {file.extractedData[0].dates && (
                               <div className="text-blue-600">
-                                {JSON.parse(file.extractedData[0].dates || '[]').length} dates
+                                {JSON.parse(file.extractedData[0].dates || '[]').length} {t('evidence.dates')}
                               </div>
                             )}
                           </div>
@@ -758,13 +771,13 @@ export default function EvidenceDashboard() {
                           onClick={() => openEdit(file)}
                           className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                         >
-                          <Edit className="h-4 w-4" /> Edit
+                          <Edit className="h-4 w-4" /> {t('evidence.edit')}
                         </button>
                         <button
                           onClick={() => openEvidenceFile(file.fileUrl)}
                           className="inline-flex items-center gap-1 rounded-md border border-blue-200 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
                         >
-                          <Eye className="h-4 w-4" /> View
+                          <Eye className="h-4 w-4" /> {t('evidence.view')}
                         </button>
                         
                         {file.processingStatus === 'pending' && (
@@ -773,7 +786,7 @@ export default function EvidenceDashboard() {
                             disabled={processingFiles.has(file.id)}
                             className="inline-flex items-center gap-1 rounded-md border border-green-200 px-2.5 py-1.5 text-xs font-medium text-green-700 hover:bg-green-50 disabled:opacity-50"
                           >
-                            <Settings className="h-4 w-4" /> Process
+                            <Settings className="h-4 w-4" /> {t('evidence.process')}
                           </button>
                         )}
                         
@@ -798,7 +811,7 @@ export default function EvidenceDashboard() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">Edit Evidence Metadata</h2>
+              <h2 className="text-lg font-semibold text-gray-900">{t('evidence.editMetadata')}</h2>
               <button
                 onClick={() => { setModalMessage(null); setEditingFile(null) }}
                 className="text-gray-400 hover:text-gray-600"
@@ -809,7 +822,7 @@ export default function EvidenceDashboard() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div>
-                <label className="block text-gray-500 mb-1">Category</label>
+                <label className="block text-gray-500 mb-1">{t('evidence.colCategory')}</label>
                 <input
                   value={editingFile.category}
                   onChange={(e) => setEditingFile({ ...editingFile, category: e.target.value })}
@@ -817,7 +830,7 @@ export default function EvidenceDashboard() {
                 />
               </div>
               <div>
-                <label className="block text-gray-500 mb-1">Subcategory</label>
+                <label className="block text-gray-500 mb-1">{t('evidence.fieldSubcategory')}</label>
                 <input
                   value={editingFile.subcategory || ''}
                   onChange={(e) => setEditingFile({ ...editingFile, subcategory: e.target.value })}
@@ -825,7 +838,7 @@ export default function EvidenceDashboard() {
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-gray-500 mb-1">Description</label>
+                <label className="block text-gray-500 mb-1">{t('evidence.fieldDescription')}</label>
                 <input
                   value={editingFile.description || ''}
                   onChange={(e) => setEditingFile({ ...editingFile, description: e.target.value })}
@@ -833,7 +846,7 @@ export default function EvidenceDashboard() {
                 />
               </div>
               <div>
-                <label className="block text-gray-500 mb-1">Tags (comma separated)</label>
+                <label className="block text-gray-500 mb-1">{t('evidence.tagsCommaSeparated')}</label>
                 <input
                   value={tagsInput}
                   onChange={(e) => setTagsInput(e.target.value)}
@@ -841,7 +854,7 @@ export default function EvidenceDashboard() {
                 />
               </div>
               <div>
-                <label className="block text-gray-500 mb-1">Relevance score</label>
+                <label className="block text-gray-500 mb-1">{t('evidence.relevanceScore')}</label>
                 <input
                   type="number"
                   min="0"
@@ -853,7 +866,7 @@ export default function EvidenceDashboard() {
                 />
               </div>
               <div>
-                <label className="block text-gray-500 mb-1">Provenance source</label>
+                <label className="block text-gray-500 mb-1">{t('evidence.provenanceSource')}</label>
                 <input
                   value={editingFile.provenanceSource || ''}
                   onChange={(e) => setEditingFile({ ...editingFile, provenanceSource: e.target.value })}
@@ -861,7 +874,7 @@ export default function EvidenceDashboard() {
                 />
               </div>
               <div>
-                <label className="block text-gray-500 mb-1">Provenance actor</label>
+                <label className="block text-gray-500 mb-1">{t('evidence.provenanceActor')}</label>
                 <input
                   value={editingFile.provenanceActor || ''}
                   onChange={(e) => setEditingFile({ ...editingFile, provenanceActor: e.target.value })}
@@ -869,7 +882,7 @@ export default function EvidenceDashboard() {
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-gray-500 mb-1">Provenance notes</label>
+                <label className="block text-gray-500 mb-1">{t('evidence.provenanceNotes')}</label>
                 <input
                   value={editingFile.provenanceNotes || ''}
                   onChange={(e) => setEditingFile({ ...editingFile, provenanceNotes: e.target.value })}
@@ -879,36 +892,36 @@ export default function EvidenceDashboard() {
             </div>
 
             <div className="rounded-md border border-gray-200 p-3 space-y-2 text-sm">
-              <div className="font-medium text-gray-900">Document Intelligence</div>
-              <div className="text-gray-600">Classification: {editingFile.aiClassification || 'Not available'}</div>
-              <div className="text-gray-600">Summary: {editingFile.aiSummary || 'Not available'}</div>
+              <div className="font-medium text-gray-900">{t('evidence.documentIntelligence')}</div>
+              <div className="text-gray-600">{t('evidence.classification')} {editingFile.aiClassification || t('evidence.notAvailable')}</div>
+              <div className="text-gray-600">{t('evidence.summaryLabel')} {editingFile.aiSummary || t('evidence.notAvailable')}</div>
               {editingFile.aiHighlights && (
                 <div className="text-gray-600">
-                  Highlights: {parseTags(editingFile.aiHighlights).join(' • ')}
+                  {t('evidence.highlightsLabel')} {parseTags(editingFile.aiHighlights).join(' • ')}
                 </div>
               )}
             </div>
 
             <div className="rounded-md border border-gray-200 p-3 space-y-2 text-sm">
-              <div className="font-medium text-gray-900">Annotations</div>
+              <div className="font-medium text-gray-900">{t('evidence.annotations')}</div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                 <input
                   value={annotationText}
                   onChange={(e) => setAnnotationText(e.target.value)}
                   className="input md:col-span-2"
-                  placeholder="Add annotation"
+                  placeholder={t('evidence.addAnnotationPlaceholder')}
                 />
                 <input
                   value={annotationPage}
                   onChange={(e) => setAnnotationPage(e.target.value)}
                   className="input"
-                  placeholder="Page #"
+                  placeholder={t('evidence.pagePlaceholder')}
                 />
                 <input
                   value={annotationAnchor}
                   onChange={(e) => setAnnotationAnchor(e.target.value)}
                   className="input md:col-span-3"
-                  placeholder="Anchor or highlight reference"
+                  placeholder={t('evidence.anchorPlaceholder')}
                 />
               </div>
               <div className="flex items-center gap-2">
@@ -916,16 +929,16 @@ export default function EvidenceDashboard() {
                   onClick={handleAddAnnotation}
                   className="px-3 py-1.5 text-sm font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700"
                 >
-                  Add Annotation
+                  {t('evidence.addAnnotation')}
                 </button>
               </div>
               {annotationItems.length === 0 ? (
-                <div className="text-gray-500">No annotations yet.</div>
+                <div className="text-gray-500">{t('evidence.noAnnotations')}</div>
               ) : (
                 <div className="space-y-1">
                   {annotationItems.map((item) => (
                     <div key={item.id} className="text-gray-700">
-                      {item.content} {item.pageNumber ? `• Page ${item.pageNumber}` : ''} {item.anchor ? `• ${item.anchor}` : ''}
+                      {item.content} {item.pageNumber ? `• ${t('evidence.page')} ${item.pageNumber}` : ''} {item.anchor ? `• ${item.anchor}` : ''}
                     </div>
                   ))}
                 </div>
@@ -933,14 +946,14 @@ export default function EvidenceDashboard() {
             </div>
 
             <div className="rounded-md border border-gray-200 p-3 space-y-2 text-sm">
-              <div className="font-medium text-gray-900">Audit Trail</div>
+              <div className="font-medium text-gray-900">{t('evidence.auditTrail')}</div>
               {accessLogs.length === 0 ? (
-                <div className="text-gray-500">No recent access logs.</div>
+                <div className="text-gray-500">{t('evidence.noAccessLogs')}</div>
               ) : (
                 <div className="space-y-1 text-gray-600">
                   {accessLogs.slice(0, 5).map((log) => (
                     <div key={log.id}>
-                      {log.accessType} • {log.purpose || 'activity'} • {new Date(log.createdAt).toLocaleString()}
+                      {log.accessType} • {log.purpose || t('evidence.activity')} • {new Date(log.createdAt).toLocaleString()}
                     </div>
                   ))}
                 </div>
@@ -964,7 +977,7 @@ export default function EvidenceDashboard() {
                 onClick={() => { setModalMessage(null); setEditingFile(null) }}
                 className="px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-200 rounded-md hover:bg-gray-50"
               >
-                Cancel
+                {t('evidence.cancel')}
               </button>
               <button
                 disabled={savingFile}
@@ -980,7 +993,7 @@ export default function EvidenceDashboard() {
                 })}
                 className="px-3 py-1.5 text-sm font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700 disabled:opacity-60"
               >
-                {savingFile ? 'Saving…' : 'Save Changes'}
+                {savingFile ? t('evidence.saving') : t('evidence.saveChanges')}
               </button>
             </div>
           </div>
@@ -990,9 +1003,9 @@ export default function EvidenceDashboard() {
       {pendingDeleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-sm rounded-lg bg-white p-5 shadow-xl">
-            <h3 className="text-base font-semibold text-gray-900">Delete this file?</h3>
+            <h3 className="text-base font-semibold text-gray-900">{t('evidence.deleteTitle')}</h3>
             <p className="mt-2 text-sm text-gray-600">
-              This will permanently remove the file from your evidence. This action can't be undone.
+              {t('evidence.deleteBody')}
             </p>
             <div className="mt-5 flex items-center justify-end gap-2">
               <button
@@ -1000,14 +1013,14 @@ export default function EvidenceDashboard() {
                 disabled={deletingFile}
                 className="px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-60"
               >
-                Cancel
+                {t('evidence.cancel')}
               </button>
               <button
                 onClick={performDelete}
                 disabled={deletingFile}
                 className="px-3 py-1.5 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-60"
               >
-                {deletingFile ? 'Deleting…' : 'Delete'}
+                {deletingFile ? t('evidence.deleting') : t('evidence.delete')}
               </button>
             </div>
           </div>

@@ -76,19 +76,39 @@ export function getStateCode(name: string): string {
 }
 
 /**
- * Attorney practice/service case types. These are the canonical slug values
- * stored on the attorney profile (matching the values selected at registration).
+ * Attorney practice/service case types. These mirror the client-facing incident
+ * types shown in the intake wizard (#49) so attorneys and plaintiffs pick from
+ * the exact same categories. `value` is the intake incident-type slug; the API
+ * routing engine maps these to the stored claim type (see case-type-match.ts)
+ * so matching stays correct.
  */
 export const ATTORNEY_CASE_TYPES = [
-  { value: 'auto', label: 'Vehicle Accident' },
-  { value: 'slip_and_fall', label: 'Slip & Fall / Premises' },
-  { value: 'dog_bite', label: 'Dog Bite' },
-  { value: 'medmal', label: 'Medical Malpractice' },
-  { value: 'product', label: 'Product Liability / Toxic' },
-  { value: 'nursing_home_abuse', label: 'Nursing Home Abuse' },
-  { value: 'wrongful_death', label: 'Wrongful Death' },
-  { value: 'high_severity_surgery', label: 'Catastrophic Injury' },
+  { value: 'vehicle', label: 'Vehicle Accident (car, truck, motorcycle, rideshare)' },
+  { value: 'slip_fall', label: 'Slip / Trip / Unsafe Property' },
+  { value: 'workplace', label: 'Workplace Injury' },
+  { value: 'medmal', label: 'Medical Error or Malpractice' },
+  { value: 'dog_bite', label: 'Dog Bite / Animal Attack' },
+  { value: 'product', label: 'Defective Product' },
+  { value: 'assault', label: 'Assault or Negligent Security' },
+  { value: 'toxic', label: 'Exposure to Toxic Substances' },
+  { value: 'other', label: 'Other Injury' },
 ]
+
+/**
+ * Friendly labels for legacy claim-type slugs that older attorney profiles may
+ * still have stored (before #49 aligned practice areas to intake incident types).
+ */
+const LEGACY_SPECIALTY_LABELS: Record<string, string> = {
+  auto: 'Vehicle Accident (car, truck, motorcycle, rideshare)',
+  slip_and_fall: 'Slip / Trip / Unsafe Property',
+  workplace_injury: 'Workplace Injury',
+  intentional_tort: 'Assault or Negligent Security',
+  toxic_exposure: 'Exposure to Toxic Substances',
+  other_pi: 'Other Injury',
+  nursing_home_abuse: 'Nursing Home Abuse',
+  wrongful_death: 'Wrongful Death',
+  high_severity_surgery: 'Catastrophic Injury',
+}
 
 /**
  * Format a stored specialty/service-type value for display. Maps known slugs to
@@ -98,6 +118,7 @@ export const ATTORNEY_CASE_TYPES = [
 export function formatSpecialty(value: string): string {
   const match = ATTORNEY_CASE_TYPES.find((type) => type.value === value)
   if (match) return match.label
+  if (LEGACY_SPECIALTY_LABELS[value]) return LEGACY_SPECIALTY_LABELS[value]
   return String(value || '')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (char) => char.toUpperCase())

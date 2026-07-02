@@ -679,7 +679,7 @@ export default function AttorneyDashboardProfileTab({
                 <label className="block text-sm font-medium text-gray-700 mb-1">Excluded Case Types</label>
                 {editing ? (
                   <div className="grid grid-cols-2 gap-2">
-                    {['auto', 'slip_and_fall', 'dog_bite', 'medmal', 'product', 'nursing_home_abuse', 'wrongful_death', 'high_severity_surgery'].map((caseType) => {
+                    {ATTORNEY_CASE_TYPES.map((type) => type.value).map((caseType) => {
                       const isExcluded = excludedCaseTypes.includes(caseType)
                       return (
                         <label key={caseType} className="flex items-center gap-2 cursor-pointer">

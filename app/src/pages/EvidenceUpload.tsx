@@ -11,6 +11,7 @@ import { hasValidAuthToken } from '../lib/auth'
 import { TrashIcon } from '../components/TrashIcon'
 import { openEvidenceFile } from '../lib/evidenceFileUrl'
 import { CameraCaptureModal } from '../components/CameraCaptureModal'
+import { useLanguage } from '../contexts/LanguageContext'
 import { 
   Upload, 
   Camera, 
@@ -78,6 +79,12 @@ interface ProcessingJob {
 
 export default function EvidenceUpload() {
   const { assessmentId } = useParams<{ assessmentId: string }>()
+  const { t } = useLanguage()
+  const categoryLabel = (value: string) => {
+    const key = `evidence.cat_${value}`
+    const label = t(key)
+    return label === key ? value.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()) : label
+  }
   const [files, setFiles] = useState<EvidenceFile[]>([])
   const [loading, setLoading] = useState(false)
   const [dragActive, setDragActive] = useState(false)
@@ -96,10 +103,10 @@ export default function EvidenceUpload() {
   // no visible signal that an upload finished, so uploads felt like they did
   // nothing (#15).
   const flashUploadSuccess = useCallback((count: number) => {
-    setSuccessMessage(count === 1 ? 'File uploaded successfully.' : `${count} files uploaded successfully.`)
+    setSuccessMessage(count === 1 ? t('evidence.uploadSuccessOne') : `${count} ${t('evidence.uploadSuccessMany')}`)
     if (successTimerRef.current) clearTimeout(successTimerRef.current)
     successTimerRef.current = setTimeout(() => setSuccessMessage(null), 4000)
-  }, [])
+  }, [t])
 
   useEffect(() => () => {
     if (successTimerRef.current) clearTimeout(successTimerRef.current)
@@ -246,7 +253,7 @@ export default function EvidenceUpload() {
 
   // Delete file
   const handleDeleteFile = async (fileId: string) => {
-    if (window.confirm('Are you sure you want to delete this file?')) {
+    if (window.confirm(t('evidence.deleteConfirm'))) {
       try {
         await deleteEvidenceFile(fileId)
         setFiles(prev => prev.filter(file => file.id !== fileId))
@@ -321,14 +328,13 @@ export default function EvidenceUpload() {
           className="inline-flex items-center gap-2 text-brand-600 hover:text-brand-800 font-medium mb-4"
         >
           <ArrowLeft className="h-4 w-4" />
-          Back to Case Report
+          {t('evidence.backToCaseReport')}
         </Link>
       )}
       <div className="text-center">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Evidence Upload</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">{t('evidence.uploadTitle')}</h1>
         <p className="text-gray-600">
-          Upload photos, documents, and other evidence for your case. 
-          All files are automatically processed for key information extraction.
+          {t('evidence.uploadSubtitle')}
         </p>
       </div>
 
@@ -338,7 +344,7 @@ export default function EvidenceUpload() {
           {/* Category Selection */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Category
+              {t('evidence.colCategory')}
             </label>
             <select
               value={selectedCategory}
@@ -350,7 +356,7 @@ export default function EvidenceUpload() {
             >
               {categories.map(category => (
                 <option key={category.value} value={category.value}>
-                  {category.label}
+                  {categoryLabel(category.value)}
                 </option>
               ))}
             </select>
@@ -359,14 +365,14 @@ export default function EvidenceUpload() {
           {/* Subcategory Selection */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Subcategory
+              {t('evidence.fieldSubcategory')}
             </label>
             <select
               value={selectedSubcategory}
               onChange={(e) => setSelectedSubcategory(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
-              <option value="">Select subcategory</option>
+              <option value="">{t('evidence.selectSubcategory')}</option>
               {selectedCategoryData?.subcategories.map(sub => (
                 <option key={sub} value={sub}>
                   {sub.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
@@ -378,13 +384,13 @@ export default function EvidenceUpload() {
           {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Description
+              {t('evidence.fieldDescription')}
             </label>
             <input
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional description"
+              placeholder={t('evidence.optionalDescription')}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
           </div>
@@ -402,10 +408,10 @@ export default function EvidenceUpload() {
         >
           <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">
-            Drag and drop files here
+            {t('evidence.dragDropTitle')}
           </h3>
           <p className="text-gray-600 mb-4">
-            or click to browse files
+            {t('evidence.orClickBrowse')}
           </p>
           
           <div className="flex justify-center space-x-4">
@@ -413,7 +419,7 @@ export default function EvidenceUpload() {
               onClick={() => fileInputRef.current?.click()}
               className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
-              Browse Files
+              {t('evidence.browseFiles')}
             </button>
             
             <button
@@ -421,7 +427,7 @@ export default function EvidenceUpload() {
               className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 flex items-center"
             >
               <Camera className="h-4 w-4 mr-2" />
-              Take Photo
+              {t('evidence.takePhoto')}
             </button>
           </div>
 
@@ -446,22 +452,22 @@ export default function EvidenceUpload() {
         </div>
 
         <div className="mt-4 text-sm text-gray-500">
-          <p>Supported formats: Images, Videos, PDFs, Word documents</p>
-          <p>Maximum file size: 50MB per file</p>
+          <p>{t('evidence.supportedFormats')}</p>
+          <p>{t('evidence.maxFileSize')}</p>
         </div>
       </div>
 
       {/* Uploaded Files */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-gray-900">Uploaded Files</h2>
+          <h2 className="text-xl font-semibold text-gray-900">{t('evidence.uploadedFiles')}</h2>
           {assessmentId && (
             <Link
               to={`/evidence-dashboard/${assessmentId}`}
               className="inline-flex items-center px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <BarChart3 className="h-4 w-4 mr-2" />
-              View Dashboard
+              {t('evidence.viewDashboard')}
             </Link>
           )}
         </div>
@@ -469,14 +475,14 @@ export default function EvidenceUpload() {
         {loading && (
           <div className="flex justify-center items-center py-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
-            <span className="ml-2 text-gray-600">Loading files...</span>
+            <span className="ml-2 text-gray-600">{t('evidence.loadingFiles')}</span>
           </div>
         )}
 
         {files.length === 0 && !loading && (
           <div className="text-center py-8 text-gray-500">
             <File className="mx-auto h-12 w-12 text-gray-300 mb-4" />
-            <p>No files uploaded yet</p>
+            <p>{t('evidence.noFilesUploaded')}</p>
           </div>
         )}
 
@@ -511,7 +517,7 @@ export default function EvidenceUpload() {
               <div className="space-y-2">
                 <div className="flex items-center text-xs text-gray-500">
                   <Tag className="h-3 w-3 mr-1" />
-                  {file.category.replace(/_/g, ' ')}
+                  {categoryLabel(file.category)}
                   {file.subcategory && (
                     <span className="ml-1">• {file.subcategory.replace(/_/g, ' ')}</span>
                   )}
@@ -529,7 +535,7 @@ export default function EvidenceUpload() {
                     {file.extractedData[0].dates && JSON.parse(file.extractedData[0].dates || '[]').length > 0 && (
                       <div className="flex items-center text-xs text-blue-600">
                         <Calendar className="h-3 w-3 mr-1" />
-                        {JSON.parse(file.extractedData[0].dates || '[]').length} dates found
+                        {JSON.parse(file.extractedData[0].dates || '[]').length} {t('evidence.datesFound')}
                       </div>
                     )}
                   </div>

@@ -3776,13 +3776,19 @@ export default function IntakeWizardQuick() {
                   </div>
                 )
               })()}
-              <p className="pt-1 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">Who responded to the scene?</p>
-              {cdCheckList([
-                { key: 'responderPolice', label: 'Police', checked: !!formData.branch.responderPolice, onToggle: (v) => setBranch('responderPolice', v), icon: Shield },
-                { key: 'responderEms', label: 'EMS / ambulance', checked: !!formData.branch.responderEms, onToggle: (v) => setBranch('responderEms', v), icon: Ambulance },
-                { key: 'responderFire', label: 'Fire department', checked: !!formData.branch.responderFire, onToggle: (v) => setBranch('responderFire', v), icon: AlertTriangle },
-                { key: 'responderNone', label: 'No one responded', checked: !!formData.branch.responderNone, onToggle: (v) => setBranch('responderNone', v), icon: HelpCircle },
-              ])}
+              {/* Only ask who responded when 911 was actually called — otherwise the
+                  follow-up is irrelevant and shouldn't appear. */}
+              {formData.branch.nineOneOneCalled === 'yes' && (
+                <>
+                  <p className="pt-1 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">Who responded to the scene?</p>
+                  {cdCheckList([
+                    { key: 'responderPolice', label: 'Police', checked: !!formData.branch.responderPolice, onToggle: (v) => setBranch('responderPolice', v), icon: Shield },
+                    { key: 'responderEms', label: 'EMS / ambulance', checked: !!formData.branch.responderEms, onToggle: (v) => setBranch('responderEms', v), icon: Ambulance },
+                    { key: 'responderFire', label: 'Fire department', checked: !!formData.branch.responderFire, onToggle: (v) => setBranch('responderFire', v), icon: AlertTriangle },
+                    { key: 'responderNone', label: 'No one responded', checked: !!formData.branch.responderNone, onToggle: (v) => setBranch('responderNone', v), icon: HelpCircle },
+                  ])}
+                </>
+              )}
             </div>
           )
         })()

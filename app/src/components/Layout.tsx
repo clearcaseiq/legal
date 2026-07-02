@@ -273,7 +273,7 @@ export default function Layout({ children }: LayoutProps) {
                                   Firm Dashboard
                                 </Link>
                                 <Link
-                                  to="/firm-dashboard"
+                                  to="/firm-settings"
                                   onClick={() => setUserMenuOpen(false)}
                                   className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
                                 >
@@ -414,7 +414,7 @@ export default function Layout({ children }: LayoutProps) {
                         <>
                           <Link to="/attorney-dashboard?tab=profile" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Profile Settings</Link>
                           <Link to="/firm-dashboard" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Dashboard</Link>
-                          <Link to="/firm-dashboard" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Settings</Link>
+                          <Link to="/firm-settings" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Settings</Link>
                         </>
                       )}
                   <Link to={navLinks.howItWorks} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.howItWorks')}</Link>

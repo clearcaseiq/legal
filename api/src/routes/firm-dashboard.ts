@@ -803,6 +803,71 @@ router.put('/attorneys/:attorneyId', authMiddleware as any, async (req: any, res
   }
 })
 
+// Update the current user's firm profile/settings (firm-admin only)
+router.put('/', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    if (!req.user?.email) {
+      return res.status(401).json({ error: 'Authentication required' })
+    }
+
+    const context = await getFirmContext(req)
+    if (!context) {
+      return res.status(404).json({ error: 'No law firm associated with this user' })
+    }
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage firm settings' })
+    }
+
+    const { name, primaryEmail, phone, website, address, city, state, zip } = req.body || {}
+
+    // Name, when provided, must be a non-empty string.
+    if (name !== undefined && (typeof name !== 'string' || !name.trim())) {
+      return res.status(400).json({ error: 'Firm name is required' })
+    }
+
+    // Validate the email format only when a non-empty value is supplied.
+    if (typeof primaryEmail === 'string' && primaryEmail.trim()) {
+      const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(primaryEmail.trim())
+      if (!emailValid) {
+        return res.status(400).json({ error: 'Please enter a valid email address' })
+      }
+    }
+
+    const toNullable = (value: unknown) => {
+      if (typeof value !== 'string') return null
+      const trimmed = value.trim()
+      return trimmed ? trimmed : null
+    }
+
+    const data: Record<string, any> = {}
+    if (name !== undefined) data.name = name.trim()
+    if (primaryEmail !== undefined) data.primaryEmail = toNullable(primaryEmail)
+    if (phone !== undefined) data.phone = toNullable(phone)
+    if (website !== undefined) data.website = toNullable(website)
+    if (address !== undefined) data.address = toNullable(address)
+    if (city !== undefined) data.city = toNullable(city)
+    if (state !== undefined) data.state = toNullable(state)
+    if (zip !== undefined) data.zip = toNullable(zip)
+
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ error: 'No firm settings provided to update' })
+    }
+
+    const updatedFirm = await (prisma as any).lawFirm.update({
+      where: { id: context.lawFirmId },
+      data
+    })
+
+    res.json({ firm: updatedFirm })
+  } catch (error: any) {
+    logger.error('Failed to update firm settings', {
+      error: error?.message || String(error),
+      stack: error?.stack
+    })
+    res.status(500).json({ error: 'Failed to update firm settings' })
+  }
+})
+
 // Get firm-level dashboard for the current attorney's firm
 router.get('/', authMiddleware as any, async (req: any, res: Response) => {
   try {

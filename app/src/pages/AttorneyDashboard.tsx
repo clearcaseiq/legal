@@ -302,6 +302,23 @@ const ATTORNEY_DASHBOARD_NAV = [
   { id: 'analytics', name: 'Analytics', description: 'Performance', icon: TrendingUp },
 ] as const
 
+function toErrorMessage(value: unknown): string | null {
+  if (value == null) return null
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => (typeof item === 'string' ? item : (item as { message?: unknown })?.message))
+      .filter((part): part is string => typeof part === 'string' && part.length > 0)
+    if (parts.length) return parts.join(', ')
+  }
+  if (typeof value === 'object') {
+    const obj = value as { error?: unknown; message?: unknown }
+    if (typeof obj.error === 'string') return obj.error
+    if (typeof obj.message === 'string') return obj.message
+  }
+  return 'Something went wrong. Please try again.'
+}
+
 export default function AttorneyDashboard() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -312,7 +329,12 @@ export default function AttorneyDashboard() {
     ? ['contacted', 'consulted', 'retained'].includes(selectedLead.status)
     : false
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setErrorState] = useState<string | null>(null)
+  // Some API failures return a structured error (object/array), not a string.
+  // Rendering that object directly (e.g. `{error}`) throws "Objects are not
+  // valid as a React child" and trips the profile-tab error boundary, so always
+  // normalize to a string before it reaches state.
+  const setError = useCallback((value: unknown) => setErrorState(toErrorMessage(value)), [])
   const [activeTab, setActiveTab] = useState<(typeof ATTORNEY_DASHBOARD_TABS)[number]>(() => {
     const requestedTab = searchParams.get('tab')
     return ATTORNEY_DASHBOARD_TABS.includes(requestedTab as (typeof ATTORNEY_DASHBOARD_TABS)[number])

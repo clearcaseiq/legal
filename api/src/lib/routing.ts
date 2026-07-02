@@ -1,5 +1,6 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { caseTypeMatches, coversClaimType, toClaimType } from './case-type-match'
 
 /**
  * Step 0: Hard Eligibility Filter
@@ -139,10 +140,7 @@ export async function checkAttorneyEligibility(
 
   try {
     const specialties = JSON.parse(attorney.specialties) as string[]
-    const caseTypeMatch = specialties.some(specialty =>
-      specialty.toLowerCase() === caseData.claimType.toLowerCase() ||
-      specialty.toLowerCase().replace(/_/g, ' ') === caseData.claimType.toLowerCase().replace(/_/g, ' ')
-    )
+    const caseTypeMatch = coversClaimType(specialties, caseData.claimType)
 
     if (!caseTypeMatch) {
       return { eligible: false, reason: `Does not handle case type: ${caseData.claimType}` }
@@ -156,10 +154,7 @@ export async function checkAttorneyEligibility(
   if (attorney.attorneyProfile.excludedCaseTypes) {
     try {
       const excludedTypes = JSON.parse(attorney.attorneyProfile.excludedCaseTypes) as string[]
-      const isExcluded = excludedTypes.some(excluded =>
-        excluded.toLowerCase() === caseData.claimType.toLowerCase() ||
-        excluded.toLowerCase().replace(/_/g, ' ') === caseData.claimType.toLowerCase().replace(/_/g, ' ')
-      )
+      const isExcluded = coversClaimType(excludedTypes, caseData.claimType)
 
       if (isExcluded) {
         return { eligible: false, reason: `Case type excluded: ${caseData.claimType}` }
@@ -742,8 +737,11 @@ function calculateFitScore(
   try {
     if (attorney.specialties) {
       const specialties = JSON.parse(attorney.specialties) as string[]
+      // Compare in claim-type space so incident-type practice areas (#49) score
+      // correctly (e.g. attorney "workplace" covers a "slip_and_fall" case).
       const exactMatch = specialties.some(s =>
-        s.toLowerCase() === caseData.claimType.toLowerCase()
+        s.toLowerCase() === caseData.claimType.toLowerCase() ||
+        caseTypeMatches(s, caseData.claimType)
       )
       const fuzzyMatch = specialties.some(s =>
         s.toLowerCase().replace(/_/g, ' ') === caseData.claimType.toLowerCase().replace(/_/g, ' ')
@@ -756,7 +754,8 @@ function calculateFitScore(
       } else {
         // Partial match (e.g., "auto" matches "auto_accident")
         const caseTypeLower = caseData.claimType.toLowerCase()
-        const hasPartialMatch = specialties.some(s =>
+        const mappedSpecialties = specialties.map(toClaimType)
+        const hasPartialMatch = mappedSpecialties.some(s =>
           s.toLowerCase().includes(caseTypeLower) || caseTypeLower.includes(s.toLowerCase())
         )
         caseTypeScore = hasPartialMatch ? 0.6 : 0.3

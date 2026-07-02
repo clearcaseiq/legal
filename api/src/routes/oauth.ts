@@ -253,6 +253,127 @@ if (oauthConfig.apple.clientId && oauthConfig.apple.teamId && oauthConfig.apple.
   )
 }
 
+// Microsoft (Entra ID) login — manual OpenID Connect authorization-code flow.
+// Implemented with fetch (no extra passport dependency) against the v2 endpoints.
+const microsoftConfigured = Boolean(
+  oauthConfig.microsoft.clientId && oauthConfig.microsoft.clientSecret
+)
+
+function microsoftAuthorizeUrl(state: string) {
+  const { clientId, tenant, redirectUri } = oauthConfig.microsoft
+  const params = new URLSearchParams({
+    client_id: clientId,
+    response_type: 'code',
+    redirect_uri: redirectUri,
+    response_mode: 'query',
+    scope: 'openid profile email User.Read',
+    state,
+  })
+  return `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize?${params.toString()}`
+}
+
+async function findOrCreateMicrosoftUser(profile: {
+  id: string
+  email: string
+  firstName: string
+  lastName: string
+}) {
+  let user = await prisma.user.findUnique({ where: { microsoftId: profile.id } })
+  if (user) {
+    await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
+    return user
+  }
+  user = await prisma.user.findUnique({ where: { email: profile.email } })
+  if (user) {
+    return prisma.user.update({
+      where: { id: user.id },
+      data: { microsoftId: profile.id, provider: 'microsoft', lastLoginAt: new Date() },
+    })
+  }
+  return prisma.user.create({
+    data: {
+      email: profile.email,
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      microsoftId: profile.id,
+      provider: 'microsoft',
+      emailVerified: true,
+      isActive: true,
+      lastLoginAt: new Date(),
+    },
+  })
+}
+
+if (microsoftConfigured) {
+  router.get('/microsoft', (req, res) => {
+    res.redirect(microsoftAuthorizeUrl(getOAuthRole(req.query.role)))
+  })
+
+  router.get('/microsoft/callback', async (req, res) => {
+    const role = getOAuthRole(req.query.state)
+    const failRedirect = `${frontendUrl}/login/${role === 'attorney' ? 'attorney' : 'plaintiff'}?error=oauth_failed`
+    try {
+      const code = typeof req.query.code === 'string' ? req.query.code : ''
+      if (!code) return res.redirect(failRedirect)
+
+      const { clientId, clientSecret, tenant, redirectUri } = oauthConfig.microsoft
+      const tokenRes = await fetch(
+        `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            grant_type: 'authorization_code',
+            code,
+            redirect_uri: redirectUri,
+            scope: 'openid profile email User.Read',
+          }).toString(),
+        }
+      )
+      if (!tokenRes.ok) {
+        logger.error('Microsoft OAuth token exchange failed', { status: tokenRes.status })
+        return res.redirect(failRedirect)
+      }
+      const tokens: any = await tokenRes.json()
+
+      // Fetch the verified profile from Microsoft Graph using the access token.
+      const meRes = await fetch('https://graph.microsoft.com/v1.0/me', {
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      })
+      if (!meRes.ok) {
+        logger.error('Microsoft Graph /me failed', { status: meRes.status })
+        return res.redirect(failRedirect)
+      }
+      const me: any = await meRes.json()
+      const email = me.mail || me.userPrincipalName
+      if (!email) return res.redirect(failRedirect)
+
+      const user = await findOrCreateMicrosoftUser({
+        id: me.id,
+        email,
+        firstName: me.givenName || '',
+        lastName: me.surname || '',
+      })
+
+      const token = generateToken(user.id)
+      res.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=microsoft&role=${role}`)
+    } catch (error: any) {
+      logger.error('Microsoft OAuth callback error', { error: error?.message })
+      res.redirect(failRedirect)
+    }
+  })
+} else {
+  const notConfigured = (_req: express.Request, res: express.Response) =>
+    res.status(503).json({
+      error: 'Microsoft OAuth not configured',
+      message: 'Set MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET to enable Microsoft login',
+    })
+  router.get('/microsoft', notConfigured)
+  router.get('/microsoft/callback', notConfigured)
+}
+
 // Fallback routes when OAuth is not configured
 if (!oauthConfig.google.clientId || !oauthConfig.google.clientSecret) {
   router.get('/google', (req, res) => {
@@ -292,6 +413,9 @@ router.get('/status', (req, res) => {
     },
     apple: {
       configured: !!(oauthConfig.apple.clientId && oauthConfig.apple.teamId)
+    },
+    microsoft: {
+      configured: microsoftConfigured
     }
   })
 })

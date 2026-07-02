@@ -44,6 +44,7 @@ const DraftMessagePage = lazy(() => import('./pages/DraftMessagePage'))
 const EventsPage = lazy(() => import('./pages/EventsPage'))
 const CalendarPage = lazy(() => import('./pages/CalendarPage'))
 const FirmDashboard = lazy(() => import('./pages/FirmDashboard'))
+const FirmSettings = lazy(() => import('./pages/FirmSettings'))
 const AttorneyBilling = lazy(() => import('./pages/AttorneyBilling'))
 const LeadQuality = lazy(() => import('./pages/LeadQuality'))
 const AttorneyProfile = lazy(() => import('./pages/AttorneyProfile'))
@@ -356,6 +357,7 @@ function App() {
               <Route path="/attorney-dashboard/calendar" element={<CalendarPage />} />
               <Route path="/attorney-dashboard/lead/:leadId/:section" element={<AttorneyDashboard />} />
               <Route path="/firm-dashboard" element={<FirmDashboard />} />
+              <Route path="/firm-settings" element={<FirmSettings />} />
               <Route path="/attorney-billing" element={<AttorneyBilling />} />
               <Route path="/lead-quality" element={<LeadQuality />} />
               <Route path="/attorney-profile" element={<AttorneyProfile />} />

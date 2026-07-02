@@ -126,6 +126,10 @@ export default function Messaging() {
     try {
       await sendMessage({
         chatRoomId: selectedRoom.id,
+        // The backend validates attorneyId; include it (and assessmentId) from the
+        // selected room so sends don't fail with "Invalid input".
+        attorneyId: selectedRoom.attorney?.id,
+        assessmentId: selectedRoom.assessment?.id,
         content: newMessage,
         messageType: 'text'
       })

@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { z } from 'zod'
 import { authMiddleware, optionalAuthMiddleware, AuthRequest } from '../lib/auth'
+import { caseTypeMatches } from '../lib/case-type-match'
 
 const router = Router()
 
@@ -239,8 +240,8 @@ async function generateSmartRecommendations(facts: any, preferences?: any) {
     
     // 1. Check excluded case types
     if (attorneyProfile?.excludedCaseTypes) {
-      const excludedTypes = JSON.parse(attorneyProfile.excludedCaseTypes)
-      if (excludedTypes.includes(facts.claimType)) {
+      const excludedTypes = JSON.parse(attorneyProfile.excludedCaseTypes) as string[]
+      if (excludedTypes.some((excluded) => caseTypeMatches(excluded, facts.claimType))) {
         rejectReasons.push(`Case type ${facts.claimType} is excluded`)
         return { attorney, score: -1000, reasons: [], rejectReasons } // Negative score = exclude
       }

@@ -660,8 +660,29 @@ router.get('/attorney/:attorneyId/availability', async (req, res) => {
       }
     })
 
-    if (!availability || !availability.isAvailable) {
-      return res.json({ slots: [] })
+    // Resolve the bookable window. When the attorney has explicitly configured
+    // this weekday we honor it (including an explicit "unavailable"). When there
+    // is NO configuration at all, fall back to standard weekday business hours so
+    // that plaintiffs can still book — otherwise attorneys who never set up a
+    // weekly schedule would show zero slots on every day and consultations could
+    // never be scheduled.
+    const DEFAULT_START_TIME = '09:00'
+    const DEFAULT_END_TIME = '17:00'
+    let windowStart: string
+    let windowEnd: string
+    if (availability) {
+      if (!availability.isAvailable) {
+        return res.json({ slots: [] })
+      }
+      windowStart = availability.startTime
+      windowEnd = availability.endTime
+    } else {
+      // No explicit schedule: weekdays default to business hours, weekends closed.
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        return res.json({ slots: [] })
+      }
+      windowStart = DEFAULT_START_TIME
+      windowEnd = DEFAULT_END_TIME
     }
 
     // Get existing appointments for this date
@@ -696,8 +717,8 @@ router.get('/attorney/:attorneyId/availability', async (req, res) => {
     // Generate available slots
     const slots = generateAvailableTimeSlots({
       targetDate,
-      startTime: availability.startTime,
-      endTime: availability.endTime,
+      startTime: windowStart,
+      endTime: windowEnd,
       duration: parseInt(duration as string),
       existingAppointments: [
         ...existingAppointments,

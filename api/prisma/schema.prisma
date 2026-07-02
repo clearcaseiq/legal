@@ -23,10 +23,11 @@ model User {
   updatedAt     DateTime  @updatedAt
 
   // OAuth fields
-  googleId String? @unique
-  appleId  String? @unique
-  avatar   String?
-  provider String? // 'local', 'google', 'apple'
+  googleId    String? @unique
+  appleId     String? @unique
+  microsoftId String? @unique
+  avatar      String?
+  provider    String? // 'local', 'google', 'apple', 'microsoft'
 
   // Consent tracking
   consents Consent[]

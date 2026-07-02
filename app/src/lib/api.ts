@@ -3003,6 +3003,21 @@ export async function getFirmDashboard() {
   return data
 }
 
+// Update the current user's firm profile/settings (firm-admin only)
+export async function updateFirm(payload: {
+  name?: string
+  primaryEmail?: string | null
+  phone?: string | null
+  website?: string | null
+  address?: string | null
+  city?: string | null
+  state?: string | null
+  zip?: string | null
+}) {
+  const { data } = await api.put('/v1/firm-dashboard', payload)
+  return data
+}
+
 export async function addFirmAttorney(payload: {
   email: string
   name?: string

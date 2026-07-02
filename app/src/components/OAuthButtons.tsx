@@ -10,11 +10,11 @@ interface OAuthButtonsProps {
 }
 
 export default function OAuthButtons({ disabled = false, emphasizeGoogle = false, role = 'plaintiff' }: OAuthButtonsProps) {
-  const [loading, setLoading] = useState<'google' | 'apple' | null>(null)
+  const [loading, setLoading] = useState<'google' | 'apple' | 'microsoft' | null>(null)
   // Only render providers the backend actually has configured. Previously the
   // buttons always showed and only surfaced "OAuth is not configured" after a
   // click — confusing for users on environments without OAuth set up (#78).
-  const [providers, setProviders] = useState<{ google: boolean; apple: boolean } | null>(null)
+  const [providers, setProviders] = useState<{ google: boolean; apple: boolean; microsoft: boolean } | null>(null)
   const apiUrl = getApiOrigin() || 'http://localhost:4000'
 
   useEffect(() => {
@@ -27,11 +27,12 @@ export default function OAuthButtons({ disabled = false, emphasizeGoogle = false
         setProviders({
           google: Boolean(status?.google?.configured),
           apple: Boolean(status?.apple?.configured),
+          microsoft: Boolean(status?.microsoft?.configured),
         })
       } catch {
         // If we can't determine status, assume OAuth is unavailable rather than
         // showing buttons that will only error on click.
-        if (!cancelled) setProviders({ google: false, apple: false })
+        if (!cancelled) setProviders({ google: false, apple: false, microsoft: false })
       }
     })()
     return () => { cancelled = true }
@@ -57,14 +58,26 @@ export default function OAuthButtons({ disabled = false, emphasizeGoogle = false
     window.location.href = `${apiUrl}/v1/auth/apple?role=${encodeURIComponent(role)}`
   }
 
+  const handleMicrosoftLogin = () => {
+    setLoading('microsoft')
+    localStorage.setItem('oauth_intended_role', role)
+    window.location.href = `${apiUrl}/v1/auth/microsoft?role=${encodeURIComponent(role)}`
+  }
+
+  // Provider matrix by role: plaintiffs get Google + Apple, attorneys get
+  // Google + Microsoft (#74). Each still requires the backend to be configured.
+  const showGoogle = Boolean(providers?.google)
+  const showApple = role === 'plaintiff' && Boolean(providers?.apple)
+  const showMicrosoft = role === 'attorney' && Boolean(providers?.microsoft)
+
   // Wait until we know which providers are available before rendering, so the
   // buttons don't flash in and then disappear.
-  if (!providers || (!providers.google && !providers.apple)) return null
+  if (!providers || (!showGoogle && !showApple && !showMicrosoft)) return null
 
   return (
     <div className="space-y-3">
       {/* Google Login Button */}
-      {providers.google && (
+      {showGoogle && (
       <button
         onClick={handleGoogleLogin}
         disabled={disabled || loading === 'google'}
@@ -83,8 +96,8 @@ export default function OAuthButtons({ disabled = false, emphasizeGoogle = false
       </button>
       )}
 
-      {/* Apple Login Button */}
-      {providers.apple && (
+      {/* Apple Login Button (plaintiff) */}
+      {showApple && (
       <button
         onClick={handleAppleLogin}
         disabled={disabled || loading === 'apple'}
@@ -98,6 +111,27 @@ export default function OAuthButtons({ disabled = false, emphasizeGoogle = false
           </svg>
         )}
         {loading === 'apple' ? 'Signing in...' : 'Continue with Apple'}
+      </button>
+      )}
+
+      {/* Microsoft Login Button (attorney) */}
+      {showMicrosoft && (
+      <button
+        onClick={handleMicrosoftLogin}
+        disabled={disabled || loading === 'microsoft'}
+        className="w-full flex items-center justify-center px-4 py-3 border border-gray-300 rounded-xl shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      >
+        {loading === 'microsoft' ? (
+          <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        ) : (
+          <svg className="h-5 w-5 mr-2" viewBox="0 0 23 23" aria-hidden>
+            <path fill="#f25022" d="M1 1h10v10H1z" />
+            <path fill="#7fba00" d="M12 1h10v10H12z" />
+            <path fill="#00a4ef" d="M1 12h10v10H1z" />
+            <path fill="#ffb900" d="M12 12h10v10H12z" />
+          </svg>
+        )}
+        {loading === 'microsoft' ? 'Signing in...' : 'Continue with Microsoft'}
       </button>
       )}
     </div>

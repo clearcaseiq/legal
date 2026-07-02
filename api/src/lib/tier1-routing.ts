@@ -3,6 +3,7 @@ import { logger } from './logger'
 import { CaseFacts } from './case-tier-classifier'
 import { CaseForRouting } from './routing'
 import { sendCaseOfferSms } from './sms'
+import { coversClaimType } from './case-type-match'
 
 /**
  * Tier 1 Case Routing Engine
@@ -204,10 +205,7 @@ export async function buildEligibleFirmPool(
     // 3. firm.practiceAreas.includes(case.type)
     try {
       const specialties = JSON.parse(attorney.specialties) as string[]
-      const caseTypeMatch = specialties.some(
-        s => s.toLowerCase() === caseData.claimType.toLowerCase() ||
-             s.toLowerCase().replace(/_/g, ' ') === caseData.claimType.toLowerCase().replace(/_/g, ' ')
-      )
+      const caseTypeMatch = coversClaimType(specialties, caseData.claimType)
       if (!caseTypeMatch) {
         ineligible.push({ firmId: attorney.id, reason: `Case type ${caseData.claimType} not covered` })
         continue

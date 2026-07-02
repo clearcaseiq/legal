@@ -12,14 +12,22 @@ import { translateForPlaintiff, getPlaintiffLanguage } from '../lib/translate'
 
 const router = Router()
 
-const MessageCreate = z.object({
-  chatRoomId: z.string().optional(),
-  attorneyId: z.string(),
-  assessmentId: z.string().optional(),
-  content: z.string().min(1).max(2000),
-  messageType: z.enum(['text', 'image', 'file']).default('text'),
-  metadata: z.string().optional()
-})
+const MessageCreate = z
+  .object({
+    chatRoomId: z.string().optional(),
+    // attorneyId is only needed when opening a brand-new chat room. When posting
+    // to an existing chatRoomId the room already knows the attorney, so requiring
+    // it here caused every send to fail validation (attorneyId "Invalid input").
+    attorneyId: z.string().optional(),
+    assessmentId: z.string().optional(),
+    content: z.string().min(1).max(2000),
+    messageType: z.enum(['text', 'image', 'file']).default('text'),
+    metadata: z.string().optional()
+  })
+  .refine((data) => Boolean(data.chatRoomId || data.attorneyId), {
+    message: 'attorneyId is required when chatRoomId is not provided',
+    path: ['attorneyId'],
+  })
 
 const ChatBotMessage = z.object({
   message: z.string().min(1).max(1000),
@@ -225,6 +233,9 @@ router.post(
 
     // Create chat room if it doesn't exist
     if (!roomId) {
+      if (!attorneyId) {
+        return res.status(400).json({ error: 'attorneyId is required to start a new conversation' })
+      }
       const chatRoom = await prisma.chatRoom.create({
         data: {
           userId: req.user!.id,
