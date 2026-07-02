@@ -386,7 +386,11 @@ export default function FirmDashboard() {
   }
 
   const dashboardData = data as FirmDashboardData
-  const { firm, metrics, attorneys } = dashboardData
+  // Guard against an unexpected/partial API shape so a missing nested object
+  // doesn't throw during render and trip the "Something went wrong" boundary (#71).
+  const firm = (dashboardData.firm || {}) as FirmDashboardData['firm']
+  const metrics = (dashboardData.metrics || {}) as FirmDashboardData['metrics']
+  const attorneys = dashboardData.attorneys || ([] as FirmDashboardData['attorneys'])
   const members: NonNullable<FirmDashboardData['members']> = dashboardData.members || []
   const offices: NonNullable<FirmDashboardData['offices']> = dashboardData.offices || []
   const teams: NonNullable<FirmDashboardData['teams']> = dashboardData.teams || []

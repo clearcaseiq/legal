@@ -14,6 +14,7 @@ type Props = {
   onSaveDraft: () => void
   onConfirm: () => void
   onSkip: () => void
+  readOnly?: boolean
 }
 
 function getEditForEvent(edits: PlaintiffMedicalReviewEdit[], eventId: string) {
@@ -64,6 +65,7 @@ export default function PlaintiffMedicalChronology({
   onSaveDraft,
   onConfirm,
   onSkip,
+  readOnly = false,
 }: Props) {
   if (!review) return null
 
@@ -205,7 +207,8 @@ export default function PlaintiffMedicalChronology({
                       type="checkbox"
                       checked={!!edit?.hideEvent}
                       onChange={(e) => onEditChange(event.id, 'hideEvent', e.target.checked)}
-                      className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                      disabled={readOnly}
+                      className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 disabled:cursor-not-allowed"
                     />
                     This item is not mine
                   </label>
@@ -218,7 +221,8 @@ export default function PlaintiffMedicalChronology({
                       type="text"
                       value={getInputValue(event, edit, 'correctedDate')}
                       onChange={(e) => onEditChange(event.id, 'correctedDate', e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                      disabled={readOnly}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                       placeholder="YYYY-MM-DD"
                     />
                   </div>
@@ -228,7 +232,8 @@ export default function PlaintiffMedicalChronology({
                       type="text"
                       value={getInputValue(event, edit, 'correctedProvider')}
                       onChange={(e) => onEditChange(event.id, 'correctedProvider', e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                      disabled={readOnly}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                       placeholder="Provider name"
                     />
                   </div>
@@ -238,7 +243,8 @@ export default function PlaintiffMedicalChronology({
                       type="text"
                       value={getInputValue(event, edit, 'correctedLabel')}
                       onChange={(e) => onEditChange(event.id, 'correctedLabel', e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                      disabled={readOnly}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                       placeholder="Visit type"
                     />
                   </div>
@@ -248,7 +254,8 @@ export default function PlaintiffMedicalChronology({
                       type="text"
                       value={getInputValue(event, edit, 'plaintiffNote')}
                       onChange={(e) => onEditChange(event.id, 'plaintiffNote', e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                      disabled={readOnly}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                       placeholder="Optional note"
                     />
                   </div>
@@ -260,7 +267,8 @@ export default function PlaintiffMedicalChronology({
                     value={getInputValue(event, edit, 'correctedDetails')}
                     onChange={(e) => onEditChange(event.id, 'correctedDetails', e.target.value)}
                     rows={2}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                    disabled={readOnly}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                     placeholder="Add anything you want the attorney to know about this visit"
                   />
                 </div>
@@ -292,6 +300,7 @@ export default function PlaintiffMedicalChronology({
         </div>
       )}
 
+      {!readOnly && (
       <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <button
           type="button"
@@ -322,9 +331,12 @@ export default function PlaintiffMedicalChronology({
           Save my updates
         </button>
       </div>
+      )}
+      {!readOnly && (
       <p className="mt-2 text-xs text-slate-500">
         Not ready to confirm? <span className="font-medium text-slate-700">Skipping is fine</span> — attorneys can still review your case now and follow up if anything is needed.
       </p>
+      )}
     </section>
   )
 }

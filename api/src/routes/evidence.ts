@@ -915,18 +915,22 @@ router.post('/:fileId/process', optionalAuthMiddleware, async (req: any, res) =>
 })
 
 // Update evidence file metadata
+// Nullable+optional on the string fields: the edit modal is populated from the
+// stored record, whose unset columns are `null`, and sends those values back on
+// save. Plain `.optional()` rejects `null`, which surfaced as a 500 "Failed to
+// update evidence file" whenever any of these fields was empty (#30).
 const UpdateEvidenceFileSchema = z.object({
   category: z.string().optional(),
-  subcategory: z.string().optional(),
-  description: z.string().optional(),
+  subcategory: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
   accessLevel: z.enum(['private', 'attorney', 'shared']).optional(),
   isVerified: z.boolean().optional(),
-  tags: z.union([z.string(), z.array(z.string())]).optional(),
+  tags: z.union([z.string(), z.array(z.string())]).nullable().optional(),
   relevanceScore: z.number().optional(),
-  provenanceSource: z.string().optional(),
-  provenanceNotes: z.string().optional(),
-  provenanceActor: z.string().optional(),
-  provenanceDate: z.string().optional()
+  provenanceSource: z.string().nullable().optional(),
+  provenanceNotes: z.string().nullable().optional(),
+  provenanceActor: z.string().nullable().optional(),
+  provenanceDate: z.string().nullable().optional()
 })
 
 router.put('/:fileId', authMiddleware, async (req: any, res) => {
@@ -970,6 +974,9 @@ router.put('/:fileId', authMiddleware, async (req: any, res) => {
 
     res.json(updatedFile)
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid evidence update', details: error.issues })
+    }
     logger.error('Failed to update evidence file', { error })
     res.status(500).json({ error: 'Failed to update evidence file' })
   }

@@ -111,9 +111,13 @@ export async function getPlaintiffConsentCompliance(userId: string): Promise<Pla
   return data
 }
 
-/** Stub: returns 501 until transactional email is wired. */
 export function requestEmailVerification() {
   return api.post('/v1/auth/request-email-verification')
+}
+
+export async function verifyEmail(token: string) {
+  const { data } = await api.post('/v1/auth/verify-email', { token })
+  return data as { ok: boolean; message?: string; error?: string }
 }
 
 export const updateConsent = async (consentId: string, updates: {

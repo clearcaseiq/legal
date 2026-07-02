@@ -427,6 +427,7 @@ export default function AttorneyRegister() {
                 <h3 className="text-lg font-medium text-gray-900">Practice Areas</h3>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Which cases do you want? *</label>
+                  <p className="mb-2 text-xs text-gray-500">These cover the same incident types clients select: "Slip &amp; Fall / Premises" also includes workplace and assault/negligent-security matters, and "Product Liability / Toxic" includes toxic-exposure claims.</p>
                   <div className="flex flex-wrap gap-2">
                     {CASE_TYPES.map((t) => (
                       <label
@@ -574,14 +575,14 @@ export default function AttorneyRegister() {
                     Back
                   </button>
                   <button type="button" onClick={() => { void goToStep(4) }} className="btn-primary">
-                    Next: Capacity
+                    Next: Capacity &amp; Availability
                   </button>
                 </div>
               </div>
 
-            {/* Step 4: Capacity */}
+            {/* Step 4: Capacity & Availability */}
             <div hidden={currentStep !== 4} className="space-y-4">
-                <h3 className="text-lg font-medium text-gray-900">Capacity</h3>
+                <h3 className="text-lg font-medium text-gray-900">Capacity &amp; Availability</h3>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">How many new cases can you take?</label>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">

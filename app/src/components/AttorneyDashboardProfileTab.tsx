@@ -131,7 +131,13 @@ export default function AttorneyDashboardProfileTab({
     }
   }
 
-  const specialties = parseJson<string[]>(profile?.specialties, [])
+  // Specialties chosen at registration live on `attorney.specialties`; the
+  // profile's own column defaults to "[]". Fall back so the selected service
+  // types actually display instead of "No specialties specified" (#68).
+  const profileSpecialties = parseJson<string[]>(profile?.specialties, [])
+  const specialties = profileSpecialties.length
+    ? profileSpecialties
+    : parseJson<string[]>(profile?.attorney?.specialties, [])
   const languages = parseJson<string[]>(profile?.languages, [])
   const jurisdictions = parseJson<Array<{ state: string; counties?: string[] }>>(profile?.jurisdictions, [])
   const excludedCaseTypes = parseJson<string[]>(profile?.excludedCaseTypes, [])
@@ -688,7 +694,7 @@ export default function AttorneyDashboardProfileTab({
                             }}
                             className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
                           />
-                          <span className="text-sm text-gray-700">{caseType.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())}</span>
+                          <span className="text-sm text-gray-700">{formatSpecialty(caseType)}</span>
                         </label>
                       )
                     })}
@@ -697,7 +703,7 @@ export default function AttorneyDashboardProfileTab({
                   <div className="flex flex-wrap gap-2">
                     {excludedCaseTypes.length > 0 ? excludedCaseTypes.map((caseType, index) => (
                       <span key={`${caseType}-${index}`} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                        {caseType.replace(/_/g, ' ')}
+                        {formatSpecialty(caseType)}
                       </span>
                     )) : <span className="text-gray-500">No exclusions</span>}
                   </div>

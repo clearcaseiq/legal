@@ -171,9 +171,55 @@ export default function PlaintiffDashboardDeferredTabPanel({
   caseMessages,
   attorneyName,
 }: Props) {
+  // Intake stores each treatment as { type, <value> } where the value lives in a
+  // type-specific field (imaging/procedure/recommendation/finding/status/notes),
+  // while processed medical docs use provider/date/diagnosis/amount/details. Pull
+  // whichever detail is present so the Medical Summary shows real information
+  // instead of just a category label and a "-" (#23).
+  const treatmentTypeLabels: Record<string, string> = {
+    imaging: 'Imaging',
+    procedure: 'Procedure',
+    future_treatment: 'Future Treatment',
+    surgery_status: 'Surgery Status',
+    shoulder_finding: 'Shoulder Finding',
+    back_finding: 'Back Finding',
+  }
+  const humanizeTreatment = (value: string) =>
+    value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  const treatmentDetailText = (entry: any): string => {
+    const raw =
+      entry.imaging ||
+      entry.procedure ||
+      entry.recommendation ||
+      entry.finding ||
+      entry.status ||
+      entry.notes ||
+      entry.details ||
+      ''
+    return typeof raw === 'string' ? raw.trim() : String(raw ?? '')
+  }
+  const treatmentTitle = (entry: any): string =>
+    entry.label ||
+    (entry.type ? treatmentTypeLabels[entry.type] || humanizeTreatment(String(entry.type)) : '') ||
+    entry.provider ||
+    'Treatment'
+  // Compact currency for the tight per-bar labels in the Case Value History
+  // chart (e.g. "$15K"), so each bar can show its real value without crowding.
+  const formatCompactCurrency = (value: number): string => {
+    const n = Number(value) || 0
+    if (Math.abs(n) >= 1000) {
+      const k = n / 1000
+      return `$${k % 1 === 0 ? k : k.toFixed(1)}K`
+    }
+    return `$${Math.round(n)}`
+  }
+
   const meaningfulTreatment = treatment.filter((entry) => {
     const label = (entry.provider || entry.type || entry.label || '').trim()
-    const hasDetails = Boolean(entry.date || entry.dates || entry.diagnosis || entry.amount || entry.details || entry.sourceFileName)
+    const hasDetails = Boolean(
+      entry.date || entry.dates || entry.diagnosis || entry.amount || entry.details ||
+      entry.sourceFileName || treatmentDetailText(entry)
+    )
     if (!hasDetails && ['doctor', 'specialist'].includes(label.toLowerCase())) return false
     if (label.toLowerCase() === 'from uploaded records') return false
     return Boolean(label || hasDetails)
@@ -414,7 +460,10 @@ export default function PlaintiffDashboardDeferredTabPanel({
                   <div className="w-full flex flex-col justify-end" style={{ height: 64 }}>
                     <div className="w-full bg-brand-500 rounded-t transition-all" style={{ height: barHeight }} />
                   </div>
-                  <span className="text-xs text-gray-500" title={entry.label}>
+                  <span className="text-[11px] font-semibold text-gray-700" title={entry.label}>
+                    {formatCompactCurrency(entry.value)}
+                  </span>
+                  <span className="text-[10px] text-gray-400" title={entry.label}>
                     {entry.shortLabel}
                   </span>
                 </div>
@@ -626,17 +675,26 @@ export default function PlaintiffDashboardDeferredTabPanel({
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Medical Summary</h3>
             <div className="space-y-3">
-              {meaningfulTreatment.map((entry, index) => (
-                <div key={index} className="p-3 bg-gray-50 rounded-lg">
-                  <p className="font-medium text-gray-900">{entry.label || entry.type || entry.provider || 'Treatment'}</p>
-                  <p className="text-sm text-gray-600">{entry.date || entry.dates || '-'}</p>
-                  {entry.provider && entry.provider !== entry.label && <p className="text-sm text-gray-600">Provider: {entry.provider}</p>}
-                  {entry.diagnosis && <p className="text-sm text-gray-600">Diagnosis: {entry.diagnosis}</p>}
-                  {entry.amount && <p className="text-sm text-gray-600">Total: {formatCurrency(entry.amount)}</p>}
-                  {entry.sourceFileName && <p className="text-xs text-gray-500">Source: {entry.sourceFileName}</p>}
-                  {entry.details && <p className="mt-1 line-clamp-2 text-sm text-gray-600">{entry.details}</p>}
-                </div>
-              ))}
+              {meaningfulTreatment.map((entry, index) => {
+                const title = treatmentTitle(entry)
+                const detail = treatmentDetailText(entry)
+                const dateText = entry.date || entry.dates
+                return (
+                  <div key={index} className="p-3 bg-gray-50 rounded-lg">
+                    <p className="font-medium text-gray-900">{title}</p>
+                    {dateText
+                      ? <p className="text-sm text-gray-600">{dateText}</p>
+                      : detail && detail !== title
+                        ? <p className="text-sm text-gray-600">{detail}</p>
+                        : null}
+                    {entry.provider && entry.provider !== title && <p className="text-sm text-gray-600">Provider: {entry.provider}</p>}
+                    {entry.diagnosis && <p className="text-sm text-gray-600">Diagnosis: {entry.diagnosis}</p>}
+                    {entry.amount && <p className="text-sm text-gray-600">Total: {formatCurrency(entry.amount)}</p>}
+                    {entry.sourceFileName && <p className="text-xs text-gray-500">Source: {entry.sourceFileName}</p>}
+                    {entry.details && entry.details !== detail && <p className="mt-1 line-clamp-2 text-sm text-gray-600">{entry.details}</p>}
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}
@@ -666,7 +724,10 @@ export default function PlaintiffDashboardDeferredTabPanel({
                   <div className="w-full flex flex-col justify-end" style={{ height: 64 }}>
                     <div className="w-full bg-brand-500 rounded-t transition-all" style={{ height: barHeight }} />
                   </div>
-                  <span className="text-xs text-gray-500" title={entry.label}>
+                  <span className="text-[11px] font-semibold text-gray-700" title={entry.label}>
+                    {formatCompactCurrency(entry.value)}
+                  </span>
+                  <span className="text-[10px] text-gray-400" title={entry.label}>
                     {entry.shortLabel}
                   </span>
                 </div>

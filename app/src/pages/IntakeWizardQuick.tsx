@@ -94,8 +94,17 @@ const suggestEmail = (email: string): string | null => {
       best = candidate
     }
   }
-  // Only suggest for close misses so genuine custom domains aren't flagged.
-  if (best && bestDist > 0 && bestDist <= 2) return `${local}@${best}`
+  // Only suggest for a single-character miss (e.g. gmail.co → gmail.com). A
+  // looser threshold flagged many legitimate custom/corporate domains and
+  // displayed a "corrected" address the user never typed in the Save-progress
+  // section (#1). Also require the suggestion to share the same second-level
+  // name so we only fix the TLD/near-typo, never rewrite a real domain.
+  if (best && bestDist === 1) {
+    const sld = (d: string) => d.split('.')[0]
+    if (sld(domain) === sld(best) || levenshtein(sld(domain), sld(best)) === 1) {
+      return `${local}@${best}`
+    }
+  }
   return null
 }
 
@@ -356,6 +365,18 @@ const WAGE_LOSS_RANGE_OPTION_DEFS = [
   { value: '5000_10000', labelKey: 'wage_5000_10000', estimate: '7500' },
   { value: 'over_10000', labelKey: 'wage_over10000', estimate: '10000' },
 ]
+
+// Maps the coarse missed-work buckets to a conservative number of missed weeks, used to
+// turn a documented weekly income (from an uploaded pay stub) into a documented wage-loss
+// figure. Longer-term/permanent loss ("unable to return", lost business income) is capped
+// because a single pay stub can't substantiate months of loss — that needs attorney /
+// vocational review, and the self-reported range still applies via the max() below.
+const MISSED_WORK_WEEKS: Record<string, number> = {
+  few_days: 0.6,
+  several_weeks: 3,
+  unable_to_return: 12,
+  lost_job_business_income: 12,
+}
 
 const FINANCIAL_HARDSHIP_OPTION_DEFS = [
   { value: 'no', labelKey: 'optionNo' },
@@ -781,9 +802,10 @@ export default function IntakeWizardQuick() {
   }
   const [evidenceDragCategory, setEvidenceDragCategory] = useState<string | null>(null)
   // Document-derived financial figures extracted from uploaded bills / wage docs during intake.
-  const [docFinancials, setDocFinancials] = useState<Record<string, { total: number; amounts: string[] }>>({})
+  // `weeklyIncome` is only populated for wage-verification docs (documented pay rate).
+  const [docFinancials, setDocFinancials] = useState<Record<string, { total: number; amounts: string[]; weeklyIncome?: number }>>({})
   // Tracks which uploaded files have already been sent for extraction so we don't re-OCR them.
-  const extractedFileSigRef = useRef<Map<string, { total: number; amounts: string[] }>>(new Map())
+  const extractedFileSigRef = useRef<Map<string, { total: number; amounts: string[]; weeklyIncome?: number }>>(new Map())
   const [returnToReviewFromStep, setReturnToReviewFromStep] = useState<Step | null>(null)
   const [customDate, setCustomDate] = useState('')
   const [detectedLocation, setDetectedLocation] = useState<{ city: string; county: string; state: string } | null>(null)
@@ -995,6 +1017,14 @@ export default function IntakeWizardQuick() {
           }
           return []
         }
+        // The documented pay rate is persisted inside ExtractedData.entities.wage.
+        const parseWeeklyIncome = (raw: unknown): number => {
+          let entities: any = raw
+          if (typeof raw === 'string') {
+            try { entities = JSON.parse(raw) } catch { return 0 }
+          }
+          return Number(entities?.wage?.weeklyIncome) || 0
+        }
         setDocFinancials((prev) => {
           const next = { ...prev }
           for (const cat of FINANCIAL_DOC_CATEGORIES) {
@@ -1008,12 +1038,15 @@ export default function IntakeWizardQuick() {
                   acc.total += total
                   acc.amounts.push(...parseAmounts(ext?.dollarAmounts))
                 }
+                acc.weeklyIncome = Math.max(acc.weeklyIncome, parseWeeklyIncome(ext?.entities))
                 return acc
               },
-              { total: 0, amounts: [] as string[] },
+              { total: 0, amounts: [] as string[], weeklyIncome: 0 },
             )
             // Don't overwrite a richer current-session extraction with an empty one.
-            if (agg.total > 0 && !(prev[cat]?.total)) next[cat] = agg
+            const hasNewData = agg.total > 0 || agg.weeklyIncome > 0
+            const hasCurrentData = !!(prev[cat]?.total) || !!(prev[cat]?.weeklyIncome)
+            if (hasNewData && !hasCurrentData) next[cat] = agg
           }
           return next
         })
@@ -1069,6 +1102,16 @@ export default function IntakeWizardQuick() {
         await updateIntakeLead(leadIdRef.current, payload)
       } else {
         leadIdRef.current = await createIntakeLead(payload)
+      }
+      // Reflect the lead id in the URL so a copied/shared link can rehydrate the
+      // wizard from the server snapshot in any browser or incognito tab (#15).
+      // The ?lead= handler at mount restores the saved answers.
+      if (leadIdRef.current && typeof window !== 'undefined') {
+        const url = new URL(window.location.href)
+        if (url.searchParams.get('lead') !== leadIdRef.current) {
+          url.searchParams.set('lead', leadIdRef.current)
+          window.history.replaceState(window.history.state, '', url.toString())
+        }
       }
     } catch {
       /* lead capture is best-effort; never block the wizard */
@@ -1481,12 +1524,15 @@ export default function IntakeWizardQuick() {
         const extraction = res?.extraction
         const total = Number(extraction?.totalAmount) || 0
         const amounts: string[] = Array.isArray(extraction?.dollarAmounts) ? extraction.dollarAmounts : []
-        extractedFileSigRef.current.set(sig, { total, amounts })
+        const weeklyIncome = Number(extraction?.wage?.weeklyIncome) || 0
+        extractedFileSigRef.current.set(sig, { total, amounts, weeklyIncome })
       } catch {
         extractedFileSigRef.current.set(sig, { total: 0, amounts: [] })
       }
     }
     // Recompute the category aggregate from every still-queued file's cached extraction.
+    // Dollar totals sum across bills; weekly income takes the max across pay stubs since
+    // multiple stubs document the same job's pay rate rather than additive income.
     const aggregate = (Array.isArray(files) ? files : []).reduce(
       (acc, file) => {
         const raw: File | undefined = file?.rawFile
@@ -1496,9 +1542,10 @@ export default function IntakeWizardQuick() {
           acc.total += cached.total
           acc.amounts.push(...cached.amounts)
         }
+        if (cached?.weeklyIncome) acc.weeklyIncome = Math.max(acc.weeklyIncome, cached.weeklyIncome)
         return acc
       },
-      { total: 0, amounts: [] as string[] },
+      { total: 0, amounts: [] as string[], weeklyIncome: 0 },
     )
     setDocFinancials(prev => ({ ...prev, [category]: aggregate }))
   }
@@ -1662,6 +1709,12 @@ export default function IntakeWizardQuick() {
       const billsDocTotalForSubmit = docFinancials['bills']?.total || 0
       const medicalChargesForSubmit = Math.max(medicalBillEstimate, billsDocTotalForSubmit)
       const futureMedicalEstimate = FUTURE_MEDICAL_RANGE_OPTIONS.find(option => option.value === formData.insuranceCoverage.futureMedicalRange)?.estimate || 0
+      // Wage loss: send the greater of the self-reported estimate and the documented figure
+      // (uploaded pay stub's weekly income × missed-work duration). Mirrors med_charges.
+      const selfReportedWageLoss = Number(String(formData.casePosture.lostWagesEstimate || '').replace(/[$,]/g, '')) || 0
+      const wageWeeklyIncomeForSubmit = docFinancials['wage_verification']?.weeklyIncome || 0
+      const documentedWageLossForSubmit = Math.round(wageWeeklyIncomeForSubmit * (MISSED_WORK_WEEKS[formData.casePosture.missedWork as string] || 0))
+      const wageLossForSubmit = Math.max(selfReportedWageLoss, documentedWageLossForSubmit)
       const payload = {
         claimType: claimType as any,
         caseSubtype: caseTaxonomy.caseSubtype,
@@ -1737,8 +1790,8 @@ export default function IntakeWizardQuick() {
           future_medical: futureMedicalEstimate,
           medical_bill_range: formData.insuranceCoverage.medicalBillRange,
           future_medical_range: formData.insuranceCoverage.futureMedicalRange,
-          estimated_wage_loss: Number(String(formData.casePosture.lostWagesEstimate || '').replace(/[$,]/g, '')) || 0,
-          wage_loss: Number(String(formData.casePosture.lostWagesEstimate || '').replace(/[$,]/g, '')) || 0,
+          estimated_wage_loss: wageLossForSubmit,
+          wage_loss: wageLossForSubmit,
           // Property/rental damage for vehicle cases. Previously this only fed the
           // client-side preview and never reached the backend valuation.
           estimated_property_damage: formData.injuryType === 'vehicle' ? computePropertyDamage(formData.branch) : 0,
@@ -1783,6 +1836,8 @@ export default function IntakeWizardQuick() {
             missedWork: formData.casePosture.missedWork,
             estimatedAmount: formData.casePosture.lostWagesEstimate,
             estimatedRange: formData.casePosture.lostWagesRange,
+            documentedWeeklyIncome: wageWeeklyIncomeForSubmit || undefined,
+            documentedAmount: documentedWageLossForSubmit || undefined,
           }
         },
         plaintiffContext: {
@@ -2415,7 +2470,10 @@ export default function IntakeWizardQuick() {
                       <Stethoscope className="h-5 w-5" aria-hidden />
                     </span>
                     <div className="min-w-0">
-                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">4. {tx('treatment_heading')}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">4. {tx('treatment_heading')}</p>
+                        <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">{tx('caseDetails_optionalBadge')}</span>
+                      </div>
                       <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('treatment_helper')}</p>
                     </div>
                   </div>
@@ -3056,16 +3114,21 @@ export default function IntakeWizardQuick() {
                   <section className="border-t border-slate-200 pt-4 dark:border-slate-700">
                     <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_surgeryDiscussed')}</p>
                     <div className="mt-2 grid grid-cols-2 gap-2">
-                      {SURGERY_STATUS_OPTIONS.map(({ value, label }) => (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, surgeryStatus: formData.injuryDetails.surgeryStatus === value ? '' : value } })}
-                          className={`rounded-lg border px-2 py-2 text-center text-sm font-medium transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${formData.injuryDetails.surgeryStatus === value ? 'border-brand-500 bg-brand-50/70 text-brand-800' : 'border-slate-200 bg-white text-gray-800 hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200'}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
+                      {SURGERY_STATUS_OPTIONS.map(({ value, label }) => {
+                        const selected = formData.injuryDetails.surgeryStatus === value
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, surgeryStatus: formData.injuryDetails.surgeryStatus === value ? '' : value } })}
+                            className={`flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-center text-sm font-medium transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-500 bg-brand-50/70 text-brand-800 dark:border-brand-500/50 dark:bg-brand-500/10 dark:text-brand-200' : 'border-slate-200 bg-white text-gray-800 hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200'}`}
+                          >
+                            {selected && <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />}
+                            {label}
+                          </button>
+                        )
+                      })}
                     </div>
                   </section>
                 )}
@@ -4057,6 +4120,10 @@ export default function IntakeWizardQuick() {
         const evCountFinancial = (cat: string) => (pendingEvidenceFiles[cat]?.length || 0)
         const hasUploadedBills = evCountFinancial('bills') > 0
         const hasUploadedMedicalRecords = evCountFinancial('medical_records') > 0
+        // Pay stubs / wage verification uploads document employment and income, so
+        // they must flip "Employment / Income" off "Missing" even before the client
+        // fills in the missed-work / lost-wages range answers.
+        const hasUploadedWageDocs = evCountFinancial('wage_verification') > 0
         const hasMedicalBillsInfo = (!!icFinancial.medicalBillRange && icFinancial.medicalBillRange !== 'not_sure') || hasUploadedBills
         const medicalBillEstimate = MEDICAL_BILL_RANGE_OPTIONS.find((option) => option.value === icFinancial.medicalBillRange)?.estimate || 0
         const futureMedicalEstimate = FUTURE_MEDICAL_RANGE_OPTIONS.find((option) => option.value === icFinancial.futureMedicalRange)?.estimate || 0
@@ -4092,7 +4159,16 @@ export default function IntakeWizardQuick() {
         const billsDocTotal = docFinancials['bills']?.total || 0
         const pastMedical = Math.max(selfReportedMedical, billsDocTotal)
         const futureMedical = futureMedicalEstimate
-        const lostWages = parseMoney(cpFinancial.lostWagesEstimate)
+        const selfReportedLostWages = parseMoney(cpFinancial.lostWagesEstimate)
+        // A pay stub documents weekly income; combined with the missed-work duration this
+        // yields a documented wage loss. Prefer it when it exceeds the coarse self-reported
+        // range so real income drives the estimate instead of the dropdown bucket. Without
+        // this an uploaded pay stub flipped "Employment/Income: Included" but contributed
+        // $0 to the damages.
+        const wageWeeklyIncome = docFinancials['wage_verification']?.weeklyIncome || 0
+        const missedWorkWeeks = MISSED_WORK_WEEKS[cpFinancial.missedWork as string] || 0
+        const documentedLostWages = Math.round(wageWeeklyIncome * missedWorkWeeks)
+        const lostWages = Math.max(selfReportedLostWages, documentedLostWages)
         const propertyDamage = isVehicle ? computePropertyDamage(formData.branch) : 0
         const specials = pastMedical + futureMedical
         const economicTotal = specials + lostWages + propertyDamage
@@ -4122,7 +4198,7 @@ export default function IntakeWizardQuick() {
           { label: tx('dv_factorMedBills'), status: hasMedicalBillsInfo ? 'included' : 'missing' },
           { label: tx('dv_factorPoliceReport'), status: hasPolice ? 'included' : (isVehicle ? 'missing' : 'partial') },
           { label: tx('dv_factorWitness'), status: hasWitnesses ? 'included' : 'missing' },
-          { label: tx('dv_factorEmployment'), status: (cpFinancial.missedWork && cpFinancial.missedWork !== 'no') ? (cpFinancial.lostWagesRange ? 'included' : 'partial') : 'missing' },
+          { label: tx('dv_factorEmployment'), status: ((cpFinancial.missedWork && cpFinancial.missedWork !== 'no') || hasUploadedWageDocs) ? ((cpFinancial.lostWagesRange || hasUploadedWageDocs) ? 'included' : 'partial') : 'missing' },
         ]
         const confScore = Math.round(dvConfidenceFactors.reduce((acc, f) => acc + (f.status === 'included' ? 1 : f.status === 'partial' ? 0.5 : 0), 0) / dvConfidenceFactors.length * 100)
         const confLabel = confScore >= 78 ? tx('dv_confHigh') : confScore >= 52 ? tx('dv_confMedium') : tx('dv_confLow')
@@ -4145,12 +4221,12 @@ export default function IntakeWizardQuick() {
           sharedFault && tx('dv_redShared'),
           !hasWitnesses && tx('dv_redWitness'),
           !hasMRI && tx('dv_redImaging'),
-          (!cpFinancial.missedWork || cpFinancial.missedWork === 'no') && tx('dv_redWage'),
+          (!cpFinancial.missedWork || cpFinancial.missedWork === 'no') && !hasUploadedWageDocs && tx('dv_redWage'),
         ].filter(Boolean) as string[]
         const increaseValueItems = [
           !hasMedicalBillsInfo ? { label: tx('dv_addBills'), impact: '+$3,000' } : null,
           (isVehicle && !hasPolice) ? { label: tx('dv_addPolice'), impact: '+10%' } : null,
-          (cpFinancial.missedWork && cpFinancial.missedWork !== 'no' && !cpFinancial.lostWagesRange) ? { label: tx('dv_addWage'), impact: '+$2,000' } : null,
+          (cpFinancial.missedWork && cpFinancial.missedWork !== 'no' && !cpFinancial.lostWagesRange && !hasUploadedWageDocs) ? { label: tx('dv_addWage'), impact: '+$2,000' } : null,
           !hasMRI ? { label: tx('dv_addMRI'), impact: '+5%' } : null,
           !hasWitnesses ? { label: tx('dv_addWitness'), impact: '+8%' } : null,
         ].filter(Boolean) as { label: string; impact: string }[]
@@ -5038,7 +5114,10 @@ export default function IntakeWizardQuick() {
           ].filter(Boolean) as string[]
           const injuryCount = formData.injuryDetails.bodyParts.length
           const billsDocTotal = docFinancials['bills']?.total || 0
-          const wageDocTotal = docFinancials['wage_verification']?.total || 0
+          // A pay stub's raw OCR total is meaningless (gross + net + YTD + deductions), so
+          // show the documented wage loss = weekly income × missed-work duration instead.
+          const wageWeeklyIncomeReview = docFinancials['wage_verification']?.weeklyIncome || 0
+          const wageDocLoss = Math.round(wageWeeklyIncomeReview * (MISSED_WORK_WEEKS[formData.casePosture.missedWork as string] || 0))
           const fmtMoney = (n: number) => `$${Math.round(n).toLocaleString()}`
           const financialLines = [
             billsDocTotal > 0
@@ -5049,8 +5128,8 @@ export default function IntakeWizardQuick() {
                   ? { k: tx('card_medicalBills'), v: tx('evidence_uploadedCount').replace('{count}', String(evCount('bills'))), doc: true }
                   : { k: tx('card_medicalBills'), v: tx('notAnsweredYet'), doc: false },
             { k: tx('card_futureMedical'), v: formData.insuranceCoverage.futureMedicalRange ? labelForValue(FUTURE_MEDICAL_RANGE_OPTIONS, formData.insuranceCoverage.futureMedicalRange) : tx('notAnsweredYet'), doc: false },
-            wageDocTotal > 0
-              ? { k: tx('card_lostIncome'), v: fmtMoney(wageDocTotal), doc: true }
+            wageDocLoss > 0
+              ? { k: tx('card_lostIncome'), v: fmtMoney(wageDocLoss), doc: true }
               : { k: tx('card_lostIncome'), v: formData.casePosture.missedWork ? labelForValue(MISSED_WORK_OPTIONS, formData.casePosture.missedWork) : tx('notAnsweredYet'), doc: false },
           ]
           const docRows = [

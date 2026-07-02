@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, CheckCircle, ChevronRight, Clock, Copy, Download, LayoutDashboard, Square, Star, Upload } from 'lucide-react'
+import { useLanguage } from '../contexts/LanguageContext'
+
+type TFunc = (key: string) => string
 
 type ImproveCaseValueItem = {
   label: string
@@ -26,8 +29,11 @@ type RankedAttorneyCard = {
   venues?: string[]
 }
 
-function getResponseBadge(attorney: RankedAttorneyCard) {
-  return attorney.responseBadge || ((attorney.responseTimeHours || 24) <= 8 ? 'Same-day replies' : 'Replies within 24h')
+function getResponseBadge(attorney: RankedAttorneyCard, t?: TFunc) {
+  if (attorney.responseBadge) return attorney.responseBadge
+  const fast = (attorney.responseTimeHours || 24) <= 8
+  if (t) return fast ? t('results.common.sameDayReplies') : t('results.common.repliesWithin24h')
+  return fast ? 'Same-day replies' : 'Replies within 24h'
 }
 
 function formatProtectedMatchScore(attorney: RankedAttorneyCard, index: number) {
@@ -157,6 +163,7 @@ export function ResultsSubmittedView({
   venueCounty,
   venueState,
 }: ResultsSubmittedViewProps) {
+  const { t } = useLanguage()
   const attorneyCards = Array.isArray(rankedAttorneys) ? rankedAttorneys : []
   const improvementItems = Array.isArray(improveCaseValueItems) ? improveCaseValueItems : []
   const timeline = Array.isArray(submissionTimeline) ? submissionTimeline : []
@@ -169,14 +176,14 @@ export function ResultsSubmittedView({
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-50 border border-emerald-100 mb-5">
             <CheckCircle className="h-9 w-9 text-emerald-600" />
           </div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 mb-2">Submission confirmed</p>
-          <h1 className="font-display text-2xl sm:text-3xl font-semibold text-slate-900 tracking-tight mb-3">Your matter was sent for attorney review</h1>
-          <p className="text-slate-600 mb-2 leading-relaxed">Your summary was delivered securely to counsel who handle similar cases.</p>
-          <p className="text-sm font-medium text-emerald-800">Initial responses are often received within one business day.</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 mb-2">{t('results.submitted.confirmed')}</p>
+          <h1 className="font-display text-2xl sm:text-3xl font-semibold text-slate-900 tracking-tight mb-3">{t('results.submitted.title')}</h1>
+          <p className="text-slate-600 mb-2 leading-relaxed">{t('results.submitted.deliveredSecurely')}</p>
+          <p className="text-sm font-medium text-emerald-800">{t('results.submitted.initialResponses')}</p>
         </div>
 
         <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-6 mb-8">
-          <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-4">Status</h3>
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-4">{t('results.submitted.status')}</h3>
           <ol className="space-y-3">
             {timeline.map((step, index) => (
               <li key={index} className="flex items-center gap-3">
@@ -194,36 +201,36 @@ export function ResultsSubmittedView({
         </div>
 
         <div className="mb-8 text-left">
-          <h3 className="text-base font-semibold text-slate-900 mb-3 tracking-tight">What happens next</h3>
+          <h3 className="text-base font-semibold text-slate-900 mb-3 tracking-tight">{t('results.submitted.whatHappensNext')}</h3>
           <ul className="text-slate-600 space-y-2 text-[15px] leading-relaxed">
             <li className="flex items-start gap-2">
               <ChevronRight className="h-4 w-4 text-brand-500 flex-shrink-0 mt-0.5" />
-              Attorneys review your case summary
+              {t('results.submitted.next1')}
             </li>
             <li className="flex items-start gap-2">
               <ChevronRight className="h-4 w-4 text-brand-500 flex-shrink-0 mt-0.5" />
-              Interested attorneys respond
+              {t('results.submitted.next2')}
             </li>
             <li className="flex items-start gap-2">
               <ChevronRight className="h-4 w-4 text-brand-500 flex-shrink-0 mt-0.5" />
-              You choose whether to speak with them
+              {t('results.submitted.next3')}
             </li>
           </ul>
         </div>
 
         {attorneyCards.length > 0 && (
           <div className="mb-8 rounded-xl border border-slate-200 bg-slate-50/80 p-6">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-4">Your ranked attorney picks</h3>
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-4">{t('results.submitted.rankedPicks')}</h3>
             <div className="space-y-3">
               {attorneyCards.map((attorney, index) => (
                 <div key={attorney.id || attorney.attorney_id || attorney.name} className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Choice {index + 1}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{attorney?.name ?? 'Attorney'}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">{t('results.submitted.choice')} {index + 1}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{attorney?.name ?? t('results.submitted.attorney')}</p>
                   <p className="mt-1 text-xs text-slate-600">
                     {[
-                      attorney?.law_firm?.name ?? 'Law Firm',
-                      `${Math.round((attorney.fit_score || 0.6) * 100)}% fit`,
-                      getResponseBadge(attorney),
+                      attorney?.law_firm?.name ?? t('results.submitted.lawFirm'),
+                      `${Math.round((attorney.fit_score || 0.6) * 100)}% ${t('results.common.fit')}`,
+                      getResponseBadge(attorney, t),
                     ].filter(Boolean).join(' • ')}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
@@ -237,7 +244,7 @@ export function ResultsSubmittedView({
                     })}
                   </p>
                   <div className="mt-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">Why we recommend them</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">{t('results.submitted.whyRecommend')}</p>
                     <ul className="mt-1 space-y-1 text-[11px] text-brand-900">
                       {getAttorneyRecommendationReasons(attorney, {
                         assessmentClaimType,
@@ -255,18 +262,18 @@ export function ResultsSubmittedView({
                     <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
                       <CheckCircle className="mr-1 h-3 w-3" />
                       {(attorney.verifiedReviewCount || 0) > 0
-                        ? `${attorney.verifiedReviewCount} verified reviews`
-                        : 'New profile'}
+                        ? `${attorney.verifiedReviewCount} ${t('results.common.verifiedReviews')}`
+                        : t('results.submitted.newProfile')}
                     </span>
                     {((attorney.averageRating || attorney.rating || 0) > 0) && (
                       <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
                         <Star className="mr-1 h-3 w-3" />
-                        {(attorney.averageRating || attorney.rating || 0).toFixed(1)} rating
+                        {(attorney.averageRating || attorney.rating || 0).toFixed(1)} {t('results.common.rating')}
                       </span>
                     )}
                     <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
                       <Clock className="mr-1 h-3 w-3" />
-                      {getResponseBadge(attorney)}
+                      {getResponseBadge(attorney, t)}
                     </span>
                   </div>
                 </div>
@@ -276,8 +283,8 @@ export function ResultsSubmittedView({
         )}
 
         <div className="bg-brand-50/60 border border-brand-100 rounded-xl p-6 mb-8">
-          <h3 className="text-base font-semibold text-slate-900 mb-2 tracking-tight">Strengthen your file while you wait</h3>
-          <p className="text-sm text-slate-600 mb-4 leading-relaxed">Additional documentation can improve how your matter is assessed.</p>
+          <h3 className="text-base font-semibold text-slate-900 mb-2 tracking-tight">{t('results.submitted.strengthenTitle')}</h3>
+          <p className="text-sm text-slate-600 mb-4 leading-relaxed">{t('results.submitted.strengthenDesc')}</p>
           <ul className="space-y-2 mb-4">
             {improvementItems.map((item) => (
               <li key={item.label} className="flex items-center gap-2">
@@ -295,26 +302,26 @@ export function ResultsSubmittedView({
             className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700"
           >
             <Upload className="h-4 w-4 mr-2" />
-            Upload Evidence
+            {t('results.submitted.uploadEvidence')}
           </Link>
         </div>
 
         {showSavePrompt && (
           <div className="mb-8 rounded-xl border-2 border-brand-200 bg-brand-50 px-6 py-6">
-            <h2 className="text-lg font-semibold text-brand-900">Save your case and track attorney responses</h2>
-            <p className="mt-2 text-brand-800">Create a free account to track your case and upload more evidence.</p>
+            <h2 className="text-lg font-semibold text-brand-900">{t('results.submitted.saveTitle')}</h2>
+            <p className="mt-2 text-brand-800">{t('results.submitted.saveDesc')}</p>
             <div className="mt-4 flex flex-wrap gap-3">
               <Link
                 to={`/register?redirect=/dashboard&assessmentId=${assessmentId}`}
                 className="inline-flex items-center justify-center px-5 py-3 text-base font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700"
               >
-                Create account
+                {t('results.submitted.createAccount')}
               </Link>
               <Link
                 to={`/login?redirect=/dashboard&assessmentId=${assessmentId}`}
                 className="inline-flex items-center justify-center px-5 py-3 text-base font-medium text-brand-700 border border-brand-200 rounded-lg hover:bg-brand-100"
               >
-                Sign in
+                {t('results.submitted.signIn')}
               </Link>
             </div>
           </div>
@@ -326,25 +333,25 @@ export function ResultsSubmittedView({
             className="flex items-center justify-center gap-2 w-full py-4 text-lg font-semibold text-white bg-brand-600 rounded-xl hover:bg-brand-700"
           >
             <LayoutDashboard className="h-5 w-5" />
-            Go to My Case Dashboard
+            {t('results.submitted.goToDashboard')}
           </Link>
         ) : (
           <p className="text-center text-sm text-gray-500">
-            Already have an account?{' '}
+            {t('results.submitted.alreadyHaveAccount')}{' '}
             <Link to={`/login?redirect=/dashboard&assessmentId=${assessmentId}`} className="text-brand-600 font-medium">
-              Sign in
+              {t('results.submitted.signIn')}
             </Link>{' '}
-            to save your case.
+            {t('results.submitted.toSaveCase')}
           </p>
         )}
       </div>
 
       <div className="px-6 py-5 border-t border-slate-200 bg-slate-50/50 flex flex-wrap gap-4 justify-center text-sm">
         <button type="button" onClick={() => void handleDownloadReportPdf()} className="font-semibold text-brand-800 hover:text-brand-950">
-          Download PDF
+          {t('results.common.downloadPdf')}
         </button>
         <button type="button" onClick={handleCopyShareLink} className="font-semibold text-brand-800 hover:text-brand-950">
-          {shareCopied ? 'Link copied' : 'Copy link'}
+          {shareCopied ? t('results.common.linkCopied') : t('results.common.copyLink')}
         </button>
       </div>
 
@@ -353,8 +360,8 @@ export function ResultsSubmittedView({
           <div className="flex gap-3">
             <AlertTriangle className="h-5 w-5 text-slate-500 shrink-0 mt-0.5" aria-hidden />
             <p className="text-sm text-slate-700 leading-relaxed">
-              <span className="font-semibold text-slate-900">Limitations: </span>
-              This analysis is informational only and not legal advice. Consult qualified counsel before making decisions.
+              <span className="font-semibold text-slate-900">{t('results.submitted.limitationsLabel')}</span>
+              {t('results.submitted.limitationsBody')}
             </p>
           </div>
         </div>
@@ -401,6 +408,7 @@ export function ResultsReportDetails({
   venueState,
   whatThisMeansBullets,
 }: ResultsReportDetailsProps) {
+  const { t } = useLanguage()
   const sectionTitle = 'font-display text-lg font-semibold text-slate-900 tracking-tight'
   const sectionWrap = 'border-b border-slate-200 px-6 sm:px-10 py-9 sm:py-10'
   const prose = 'text-[15px] text-slate-700 leading-relaxed'
@@ -425,22 +433,22 @@ export function ResultsReportDetails({
               alt="ClearCaseIQ"
               className="h-7 w-auto object-contain"
             />
-            <p className="mt-1 text-sm font-semibold text-slate-900">Full report, sharing, and legal notes</p>
-            <p className="mt-0.5 text-xs text-slate-500">Open this if you want the complete supplemental analysis.</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">{t('results.report.fullReportTitle')}</p>
+            <p className="mt-0.5 text-xs text-slate-500">{t('results.report.fullReportDesc')}</p>
           </div>
           <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
-            {reportOpen ? 'Hide full report' : 'Show full report'}
+            {reportOpen ? t('results.report.hideFullReport') : t('results.report.showFullReport')}
           </span>
         </div>
       </summary>
       <div className={sectionWrap}>
-        <h2 className={`${sectionTitle} mb-4`}>Executive summary</h2>
+        <h2 className={`${sectionTitle} mb-4`}>{t('results.report.executiveSummary')}</h2>
         <ul className={`${prose} space-y-3 list-none pl-0`}>
           {(bullets.length > 0 ? bullets : [
-            'The incident narrative suggests facts that may support liability against another party.',
-            'Injury and treatment information may support a damages claim.',
-            'Medical documentation, where present, strengthens the file.',
-            `Comparable matters in ${venueState === 'CA' ? 'California' : venueState} have often settled in the range of ${settlementLow} - ${settlementHigh}.`,
+            t('results.report.execBullet1'),
+            t('results.report.execBullet2'),
+            t('results.report.execBullet3'),
+            `${venueState === 'CA' ? 'California' : venueState}: ${settlementLow} - ${settlementHigh}`,
           ]).map((bullet, index) => (
             <li key={index} className="flex gap-3">
               <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-600" aria-hidden />
@@ -451,7 +459,7 @@ export function ResultsReportDetails({
       </div>
 
       <div className={sectionWrap}>
-        <h2 className={`${sectionTitle} mb-4`}>Strengthening your file</h2>
+        <h2 className={`${sectionTitle} mb-4`}>{t('results.report.strengtheningTitle')}</h2>
         <ul className="space-y-3 mb-4">
           {improvementItems.map((item) => (
             <li key={item.label} className="flex items-start gap-3">
@@ -467,61 +475,61 @@ export function ResultsReportDetails({
             </li>
           ))}
         </ul>
-        <p className="text-sm text-slate-600 mb-4">Documentation completeness: <span className="font-semibold text-slate-800">{evidenceCompletionPercent}%</span></p>
+        <p className="text-sm text-slate-600 mb-4">{t('results.report.documentationCompleteness')} <span className="font-semibold text-slate-800">{evidenceCompletionPercent}%</span></p>
         <Link
           to={`/evidence-upload/${assessmentId}`}
           className="inline-flex items-center px-4 py-2.5 text-sm font-semibold text-white bg-brand-700 rounded-lg hover:bg-brand-800 shadow-sm transition-colors"
         >
           <Upload className="h-4 w-4 mr-2" />
-          Upload evidence
+          {t('results.report.uploadEvidence')}
         </Link>
       </div>
 
       <div className={sectionWrap}>
-        <h2 className={`${sectionTitle} mb-4`}>Attorney review</h2>
+        <h2 className={`${sectionTitle} mb-4`}>{t('results.report.attorneyReview')}</h2>
         <p className={`${prose} mb-3`}>
-          If you choose to proceed, we prepare your matter summary for review and facilitate matching with counsel who handle similar cases.
+          {t('results.report.attorneyReviewP1')}
         </p>
-        <p className={`${prose} mb-2`}>Initial responses are often received within one business day.</p>
-        <p className="text-sm text-slate-500 mb-6">No obligation to retain any particular attorney.</p>
+        <p className={`${prose} mb-2`}>{t('results.report.attorneyReviewP2')}</p>
+        <p className="text-sm text-slate-500 mb-6">{t('results.report.attorneyReviewP3')}</p>
         <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-5 py-5">
-          <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-3">Typical panel qualifications</h3>
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-3">{t('results.report.typicalPanel')}</h3>
           <ul className="space-y-2.5 text-sm text-slate-700">
             <li className="flex items-center gap-2">
-              <CheckCircle className="h-4 w-4 text-emerald-600 flex-shrink-0" /> Substantial experience in personal injury matters
+              <CheckCircle className="h-4 w-4 text-emerald-600 flex-shrink-0" /> {t('results.report.panelExperience')}
             </li>
             <li className="flex items-center gap-2">
               <CheckCircle className="h-4 w-4 text-emerald-600 flex-shrink-0" />
               {assessmentClaimType === 'auto'
-                ? 'Auto negligence'
+                ? t('results.report.panelFocusAuto')
                 : assessmentClaimType === 'slip_and_fall'
-                  ? 'Premises liability'
+                  ? t('results.report.panelFocusPremises')
                   : assessmentClaimType === 'medmal'
-                    ? 'Medical malpractice'
-                    : 'Personal injury'}{' '}
-              litigation focus
+                    ? t('results.report.panelFocusMedmal')
+                    : t('results.report.panelFocusGeneral')}{' '}
+              {t('results.report.panelFocusSuffix')}
             </li>
             <li className="flex items-center gap-2">
-              <CheckCircle className="h-4 w-4 text-emerald-600 flex-shrink-0" /> Licensed in {venueState}
+              <CheckCircle className="h-4 w-4 text-emerald-600 flex-shrink-0" /> {t('results.report.panelLicensed')} {venueState}
             </li>
             <li className="flex items-center gap-2">
-              <CheckCircle className="h-4 w-4 text-emerald-600 flex-shrink-0" /> Trial and negotiation experience
+              <CheckCircle className="h-4 w-4 text-emerald-600 flex-shrink-0" /> {t('results.report.panelTrial')}
             </li>
           </ul>
         </div>
         {attorneyCards.length > 0 && (
           <div className="mt-5 rounded-xl border border-slate-200 bg-white px-5 py-5">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">Top attorney matches available</h3>
-            <p className="mb-3 text-xs text-slate-500">Attorney names are revealed after you continue to attorney review.</p>
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-1">{t('results.report.topMatches')}</h3>
+            <p className="mb-3 text-xs text-slate-500">{t('results.report.namesRevealed')}</p>
             <div className="space-y-3">
               {attorneyCards.map((attorney, index) => (
                 <div key={attorney.id || attorney.attorney_id || attorney.name} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Match #{index + 1}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{formatProtectedMatchScore(attorney, index)} Match</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">{t('results.report.match')} #{index + 1}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{formatProtectedMatchScore(attorney, index)} {t('results.report.match')}</p>
                   <p className="mt-1 text-xs text-slate-600">
                     {[
-                      'Identity protected until consent',
-                      `${formatProtectedMatchScore(attorney, index)} fit`,
+                      t('results.report.identityProtected'),
+                      `${formatProtectedMatchScore(attorney, index)} ${t('results.common.fit')}`,
                     ].filter(Boolean).join(' • ')}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
@@ -545,18 +553,18 @@ export function ResultsReportDetails({
                     <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
                       <CheckCircle className="mr-1 h-3 w-3" />
                       {(attorney.verifiedReviewCount || 0) > 0
-                        ? `${attorney.verifiedReviewCount} verified reviews`
-                        : 'New profile'}
+                        ? `${attorney.verifiedReviewCount} ${t('results.common.verifiedReviews')}`
+                        : t('results.submitted.newProfile')}
                     </span>
                     {((attorney.averageRating || attorney.rating || 0) > 0) && (
                       <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
                         <Star className="mr-1 h-3 w-3" />
-                        {(attorney.averageRating || attorney.rating || 0).toFixed(1)} rating
+                        {(attorney.averageRating || attorney.rating || 0).toFixed(1)} {t('results.common.rating')}
                       </span>
                     )}
                     <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
                       <Clock className="mr-1 h-3 w-3" />
-                      {getResponseBadge(attorney)}
+                      {getResponseBadge(attorney, t)}
                     </span>
                   </div>
                 </div>
@@ -567,18 +575,18 @@ export function ResultsReportDetails({
       </div>
 
       <div className={sectionWrap}>
-        <h2 className={`${sectionTitle} mb-4`}>Filing deadline reminder</h2>
-        <p className="text-slate-800 font-medium">Approximately {solRemaining} remaining to file a claim, depending on court rules and tolling.</p>
-        {solDeadline && <p className="text-xl font-semibold text-slate-900 mt-3 tracking-tight">Notable date: {solDeadline}</p>}
+        <h2 className={`${sectionTitle} mb-4`}>{t('results.report.filingDeadline')}</h2>
+        <p className="text-slate-800 font-medium">{t('results.report.filingRemainingPrefix')} {solRemaining} {t('results.report.filingRemainingSuffix')}</p>
+        {solDeadline && <p className="text-xl font-semibold text-slate-900 mt-3 tracking-tight">{t('results.report.notableDate')} {solDeadline}</p>}
         <p className="text-sm text-amber-800/90 mt-3 leading-relaxed">
-          Missing a limitations period can bar recovery. Confirm deadlines with counsel in your jurisdiction.
+          {t('results.report.filingWarning')}
         </p>
       </div>
 
       <div className="px-6 sm:px-10 py-9 sm:py-10 bg-slate-50/50 border-b border-slate-200">
-        <h2 className={`${sectionTitle} mb-2`}>Export & sharing</h2>
+        <h2 className={`${sectionTitle} mb-2`}>{t('results.report.exportSharing')}</h2>
         <p className="text-sm text-slate-600 mb-5 max-w-xl leading-relaxed">
-          Download a PDF suitable for your records or forward to counsel. The share link is read-only for recipients.
+          {t('results.report.exportDesc')}
         </p>
         <div className="flex flex-wrap gap-3">
           <button
@@ -587,7 +595,7 @@ export function ResultsReportDetails({
             className="inline-flex items-center px-4 py-2.5 text-sm font-semibold text-white bg-brand-700 rounded-lg hover:bg-brand-800 shadow-sm transition-colors"
           >
             <Download className="h-4 w-4 mr-2" />
-            Download PDF
+            {t('results.common.downloadPdf')}
           </button>
           <button
             type="button"
@@ -595,7 +603,7 @@ export function ResultsReportDetails({
             className="inline-flex items-center px-4 py-2.5 text-sm font-semibold text-brand-800 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 shadow-sm transition-colors"
           >
             {shareCopied ? <CheckCircle className="h-4 w-4 mr-2 text-emerald-600" /> : <Copy className="h-4 w-4 mr-2" />}
-            {shareCopied ? 'Link copied' : 'Copy link'}
+            {shareCopied ? t('results.common.linkCopied') : t('results.common.copyLink')}
           </button>
         </div>
       </div>
@@ -606,7 +614,7 @@ export function ResultsReportDetails({
             to="/dashboard"
             className="inline-flex items-center justify-center px-5 py-2.5 text-sm font-semibold text-brand-800 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 shadow-sm"
           >
-            Go to dashboard
+            {t('results.report.goToDashboard')}
           </Link>
         </div>
       )}
@@ -616,12 +624,12 @@ export function ResultsReportDetails({
           <div className="flex gap-3">
             <AlertTriangle className="h-5 w-5 text-slate-500 shrink-0 mt-0.5" aria-hidden />
             <div className="text-sm text-slate-700 leading-relaxed">
-              <p className="font-semibold text-slate-900 mb-2">Important limitations</p>
+              <p className="font-semibold text-slate-900 mb-2">{t('results.report.importantLimitations')}</p>
               <ul className="space-y-2 list-disc list-outside pl-4 marker:text-slate-400">
-                <li>This report is for informational purposes only and does not constitute legal advice or a lawyer-client relationship.</li>
-                <li>Estimates and benchmarks are derived from models and comparable data; actual outcomes depend on facts, law, forum, and parties involved.</li>
-                <li>Consult a qualified attorney licensed in your jurisdiction before relying on this analysis for any decision.</li>
-                <li>Past results do not guarantee future outcomes.</li>
+                <li>{t('results.report.limit1')}</li>
+                <li>{t('results.report.limit2')}</li>
+                <li>{t('results.report.limit3')}</li>
+                <li>{t('results.report.limit4')}</li>
               </ul>
             </div>
           </div>

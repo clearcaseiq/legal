@@ -71,11 +71,16 @@ function mergeEvidenceIntoFacts(
       icdCodes?: string | null
       cptCodes?: string | null
       dates?: string | null
+      entities?: string | null
     }> | null
   }>
 ): Record<string, unknown> {
   const merged = JSON.parse(JSON.stringify(facts)) as Record<string, unknown>
   const damages = (merged.damages as Record<string, unknown>) || {}
+  // Missed-work duration drives how a documented weekly income (from a pay stub) converts
+  // to a wage-loss figure. Mirrors the intake wizard's MISSED_WORK_WEEKS mapping.
+  const wageLossFacts = ((merged.caseAcceleration as Record<string, unknown>)?.wageLoss as Record<string, unknown>) || {}
+  const missedWorkWeeks = MISSED_WORK_WEEKS[String(wageLossFacts.missedWork || '')] || 0
   const treatment = (merged.treatment as Array<unknown>) || []
   const evidence = new Set<string>((merged.evidence as string[]) || [])
   // Documented diagnosis/procedure codes aggregated across all uploaded records, so the
@@ -149,7 +154,8 @@ function mergeEvidenceIntoFacts(
       const amt = ext.totalAmount ?? 0
       if (amt > 0) {
         if (isLostWageEvidence(file)) {
-          extractedWageLoss += extractWageLossAmount(file.ocrText || '', amt)
+          const weeklyIncome = parseWageWeeklyIncome(ext.entities)
+          extractedWageLoss += extractWageLossAmount(file.ocrText || '', weeklyIncome, missedWorkWeeks, amt)
         } else if (isMedicalChargeEvidence(file)) {
           const billKey = `${(file.originalName || '').trim().toLowerCase()}|${Math.round(amt)}`
           if (!seenBillKeys.has(billKey)) {
@@ -319,15 +325,45 @@ function isMedicalChargeEvidence(file: {
   return (cat === 'bills' || file.category === 'bills' || file.category === 'medical_records') && !isDamagesSummaryEvidence(file)
 }
 
-function extractWageLossAmount(ocrText: string, fallback: number) {
-  // Prefer an explicitly labeled total ("Total Lost Wages: $3,120") so we don't grab a
-  // single column line item (e.g. the first weekly "$240") that follows a "Lost Wages" header.
+// Conservative missed-work → weeks mapping shared with the intake wizard
+// (app/src/pages/IntakeWizardQuick.tsx). Long-term/permanent loss is capped because a
+// single pay stub can't substantiate months of loss (needs attorney/vocational review).
+const MISSED_WORK_WEEKS: Record<string, number> = {
+  few_days: 0.6,
+  several_weeks: 3,
+  unable_to_return: 12,
+  lost_job_business_income: 12,
+}
+
+function parseWageWeeklyIncome(entities: string | null | undefined): number {
+  if (!entities) return 0
+  try {
+    const parsed = typeof entities === 'string' ? JSON.parse(entities) : entities
+    return Number((parsed as any)?.wage?.weeklyIncome) || 0
+  } catch {
+    return 0
+  }
+}
+
+function extractWageLossAmount(
+  ocrText: string,
+  weeklyIncome: number,
+  missedWorkWeeks: number,
+  fallback: number,
+) {
+  // 1. An explicitly labeled total ("Total Lost Wages: $3,120") — e.g. an employer letter
+  //    or wage-loss summary — is authoritative, so use it directly.
   const totalMatch = ocrText.match(/\btotal\s+(?:wage\s+loss|lost\s+wages)\b[^$]{0,40}\$([\d,]+(?:\.\d{1,2})?)/i)
   if (totalMatch) {
     const amount = Number(totalMatch[1].replace(/,/g, ''))
     if (Number.isFinite(amount) && amount > 0) return amount
   }
-  // Otherwise fall back to the document total (already labeled-total aware upstream).
+  // 2. Pay stub: documented weekly income × missed-work duration. A pay stub's raw document
+  //    total (gross + net + YTD + deductions) is meaningless as a loss, so once we have a
+  //    parsed pay rate we use it instead of the summed fallback.
+  if (weeklyIncome > 0) return Math.round(weeklyIncome * missedWorkWeeks)
+  // 3. Legacy fallback for wage docs whose rate we couldn't parse (e.g. a labeled total
+  //    already surfaced by computeDocumentTotal upstream).
   return fallback
 }
 
@@ -403,7 +439,8 @@ export async function runCaseRecalculation(
             dollarAmounts: ed.dollarAmounts,
             icdCodes: ed.icdCodes,
             cptCodes: ed.cptCodes,
-            dates: ed.dates
+            dates: ed.dates,
+            entities: ed.entities
           }))
         : null
     }))

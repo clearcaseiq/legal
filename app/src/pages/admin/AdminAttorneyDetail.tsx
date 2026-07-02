@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { getAdminAttorneyDetail } from '../../lib/api'
-import { formatDate } from '../../lib/formatters'
+import { formatDate, formatEnumLabel } from '../../lib/formatters'
+import { formatSpecialty } from '../../lib/constants'
 import {
   ArrowLeft,
   RefreshCw,
@@ -138,23 +139,37 @@ export default function AdminAttorneyDetail() {
         <div className="mt-4">
           <p className="text-xs text-slate-500">Jurisdictions</p>
           <p className="text-sm">
-            {profile?.jurisdictions
-              ? typeof profile.jurisdictions === 'string'
-                ? profile.jurisdictions
-                : JSON.stringify(profile.jurisdictions)
-              : attorney.venues
-              ? Array.isArray(attorney.venues)
-                ? attorney.venues.map((v: any) => v.state || v).join(', ')
-                : attorney.venues
-              : '—'}
+            {(() => {
+              const j = profile?.jurisdictions
+              const formatJurisdiction = (item: any): string => {
+                if (!item) return ''
+                if (typeof item === 'string') return formatEnumLabel(item)
+                const state = item.state || item.name || ''
+                const counties = Array.isArray(item.counties) ? item.counties.join(', ') : ''
+                return counties ? `${state} (${counties})` : String(state)
+              }
+              if (j) {
+                if (typeof j === 'string') return j
+                if (Array.isArray(j)) return j.map(formatJurisdiction).filter(Boolean).join('; ') || '—'
+                return formatJurisdiction(j) || '—'
+              }
+              if (attorney.venues) {
+                return Array.isArray(attorney.venues)
+                  ? attorney.venues.map((v: any) => v.state || v).join(', ')
+                  : attorney.venues
+              }
+              return '—'
+            })()}
           </p>
         </div>
         <div className="mt-2">
           <p className="text-xs text-slate-500">Case types / Specialties</p>
           <p className="text-sm">
             {Array.isArray(attorney.specialties)
-              ? attorney.specialties.join(', ')
-              : attorney.specialties || '—'}
+              ? attorney.specialties.map((s: string) => formatSpecialty(s)).join(', ')
+              : attorney.specialties
+              ? formatSpecialty(attorney.specialties)
+              : '—'}
           </p>
         </div>
       </div>
@@ -219,7 +234,7 @@ export default function AdminAttorneyDetail() {
                     onClick={() => navigate(`/admin/cases/${c.id}`)}
                   >
                     <td className="py-2 font-mono">{c.id?.slice(0, 8)}...</td>
-                    <td className="py-2 capitalize">{(c.claimType || '').replace(/_/g, ' ')}</td>
+                    <td className="py-2">{c.claimType ? formatSpecialty(c.claimType) : '—'}</td>
                     <td className="py-2">{c.venueState}</td>
                     <td className="py-2">
                       <span
@@ -231,7 +246,7 @@ export default function AdminAttorneyDetail() {
                             : 'bg-slate-100 text-slate-600'
                         }`}
                       >
-                        {c.status}
+                        {formatEnumLabel(c.status)}
                       </span>
                     </td>
                     <td className="py-2 text-slate-600">{formatDate(c.createdAt)}</td>

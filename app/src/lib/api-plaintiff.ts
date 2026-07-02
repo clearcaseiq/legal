@@ -273,7 +273,7 @@ export async function precheckEvidenceImage(formData: FormData) {
   return data
 }
 
-/** Ephemeral document extraction (no persistence). Returns { extraction: { status, dollarAmounts, totalAmount } }. */
+/** Ephemeral document extraction (no persistence). Returns { extraction: { status, dollarAmounts, totalAmount, wage? } }. */
 export async function extractEvidenceData(formData: FormData) {
   const { data } = await api.post('/v1/evidence/extract-precheck', formData, {
     headers: {

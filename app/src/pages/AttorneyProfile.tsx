@@ -137,7 +137,14 @@ export default function AttorneyProfile() {
   }
 
   const normalizeProfile = (raw: any): AttorneyProfile => {
-    const specialties = parseJsonArray(raw?.specialties ?? raw?.attorney?.specialties)
+    // The profile record has its own `specialties` column that defaults to "[]",
+    // while the values chosen at registration are stored on `attorney.specialties`.
+    // A plain `??` never fell back because "[]" is a defined value, so the
+    // registered service types were masked by the default (#68). Prefer the
+    // profile list only when it actually has entries, else use the attorney's.
+    const profileSpecialties = parseJsonArray(raw?.specialties)
+    const attorneySpecialties = parseJsonArray(raw?.attorney?.specialties)
+    const specialties = profileSpecialties.length ? profileSpecialties : attorneySpecialties
     const languages = parseJsonArray(raw?.languages)
     const verifiedVerdicts = parseJsonArray(raw?.verifiedVerdicts)
     const totalSettlements = Number(raw?.totalSettlements || 0)

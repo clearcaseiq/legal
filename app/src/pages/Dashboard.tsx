@@ -517,6 +517,32 @@ export default function Dashboard() {
 
   const venueState = activeAssessment?.venue?.state || activeAssessment?.venueState || 'California'
   const injuries = Array.isArray(parsedFacts.injuries) ? parsedFacts.injuries : []
+
+  // Injuries are stored as structured objects (e.g. { description, bodyParts:
+  // [{ part, severity }], otherDescription }). Rendering them directly produced
+  // "[object Object]" in the Case Summary (#19), so flatten them into readable
+  // labels. Plain strings (older/simpler records) pass through unchanged.
+  const humanizeInjury = (value: string) =>
+    value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  const injuryTokens: string[] = (() => {
+    const tokens: string[] = []
+    for (const inj of injuries) {
+      if (!inj) continue
+      if (typeof inj === 'string') { tokens.push(inj); continue }
+      if (typeof inj !== 'object') { tokens.push(String(inj)); continue }
+      const bodyParts = Array.isArray((inj as any).bodyParts) ? (inj as any).bodyParts : []
+      for (const bp of bodyParts) {
+        const name = typeof bp === 'string' ? bp : bp?.part
+        if (name) tokens.push(humanizeInjury(String(name)))
+      }
+      if ((inj as any).otherDescription) tokens.push(String((inj as any).otherDescription))
+      if (tokens.length === 0 || bodyParts.length === 0) {
+        const fallback = (inj as any).description || (inj as any).name || (inj as any).type
+        if (fallback && !bodyParts.length) tokens.push(humanizeInjury(String(fallback)))
+      }
+    }
+    return tokens.filter(Boolean)
+  })()
   const treatment = Array.isArray(parsedFacts.treatment) ? parsedFacts.treatment : []
   const dashboardTreatment = medicalSummary.length > 0 ? medicalSummary : treatment
   const damages = parsedFacts.damages || {}
@@ -831,7 +857,7 @@ export default function Dashboard() {
         .map((entry, index, entries) => ({
           label: index === entries.length - 1 ? 'Current estimate' : entry.label,
           shortLabel: index === entries.length - 1 ? 'Current' : index === 0 ? 'Initial' : `V${index + 1}`,
-          value: entry.bands?.p75 ?? entry.value,
+          value: Number(entry.bands?.p75 ?? entry.bands?.median ?? entry.value) || 0,
         }))
     }
 
@@ -2054,7 +2080,7 @@ export default function Dashboard() {
                         <p className="text-sm font-semibold text-gray-900">Case Summary</p>
                         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
                           <div><dt className="text-gray-400">Type of Case</dt><dd className="font-semibold text-gray-800">{claimTypeLabel}</dd></div>
-                          <div><dt className="text-gray-400">Injuries</dt><dd className="font-semibold text-gray-800">{injuries.length > 0 ? injuries.slice(0, 3).join(', ') : 'Not documented'}</dd></div>
+                          <div><dt className="text-gray-400">Injuries</dt><dd className="font-semibold text-gray-800">{injuryTokens.length > 0 ? injuryTokens.slice(0, 3).join(', ') : 'Not documented'}</dd></div>
                           {incidentDateLabel && (<div><dt className="text-gray-400">Incident Date</dt><dd className="font-semibold text-gray-800">{incidentDateLabel}</dd></div>)}
                           <div><dt className="text-gray-400">Treatment Status</dt><dd className="font-semibold text-gray-800">{treatmentStatusLabel}</dd></div>
                           <div><dt className="text-gray-400">Jurisdiction</dt><dd className="font-semibold text-gray-800">{venueState}</dd></div>
@@ -2252,8 +2278,11 @@ export default function Dashboard() {
                 )}
 
                 {submittedForReview && (
-                  <details className="rounded-xl border border-gray-200 bg-white p-5">
-                    <summary className="cursor-pointer list-none text-sm font-semibold text-gray-700">Advanced Details</summary>
+                  <details className="group rounded-xl border border-gray-200 bg-white p-5">
+                    <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-gray-700">
+                      <span>Advanced Details</span>
+                      <ChevronRight className="h-4 w-4 text-gray-400 transition-transform duration-200 group-open:rotate-90" aria-hidden />
+                    </summary>
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-xs font-medium text-gray-500">Case Health</p>

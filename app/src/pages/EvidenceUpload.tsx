@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { 
   uploadEvidenceFile, 
@@ -9,6 +9,7 @@ import {
 } from '../lib/api'
 import { hasValidAuthToken } from '../lib/auth'
 import { TrashIcon } from '../components/TrashIcon'
+import { openEvidenceFile } from '../lib/evidenceFileUrl'
 import { CameraCaptureModal } from '../components/CameraCaptureModal'
 import { 
   Upload, 
@@ -85,9 +86,24 @@ export default function EvidenceUpload() {
   const [description, setDescription] = useState('')
   const [processingFiles, setProcessingFiles] = useState<Set<string>>(new Set())
   const [showCamera, setShowCamera] = useState(false)
-  
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Show a transient "uploaded successfully" confirmation. Users previously had
+  // no visible signal that an upload finished, so uploads felt like they did
+  // nothing (#15).
+  const flashUploadSuccess = useCallback((count: number) => {
+    setSuccessMessage(count === 1 ? 'File uploaded successfully.' : `${count} files uploaded successfully.`)
+    if (successTimerRef.current) clearTimeout(successTimerRef.current)
+    successTimerRef.current = setTimeout(() => setSuccessMessage(null), 4000)
+  }, [])
+
+  useEffect(() => () => {
+    if (successTimerRef.current) clearTimeout(successTimerRef.current)
+  }, [])
 
   // Load existing files
   const loadFiles = useCallback(async () => {
@@ -120,7 +136,8 @@ export default function EvidenceUpload() {
 
       const uploadedFile = await uploadEvidenceFile(formData)
       setFiles(prev => [uploadedFile, ...prev])
-      
+      flashUploadSuccess(1)
+
       // Auto-process the file
       await processFile(uploadedFile.id)
     } catch (error) {
@@ -191,7 +208,8 @@ export default function EvidenceUpload() {
 
       const result = await uploadMultipleEvidenceFiles(formData)
       setFiles(prev => [...result.files, ...prev])
-      
+      flashUploadSuccess((result.files || []).length || fileList.length)
+
       // Auto-process all files
       for (const file of result.files) {
         if (file.id) {
@@ -289,6 +307,14 @@ export default function EvidenceUpload() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-8">
+      {successMessage && (
+        <div className="fixed bottom-5 left-1/2 z-[95] -translate-x-1/2 transform" role="status" aria-live="polite">
+          <div className="flex items-center gap-2 rounded-full bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-lg">
+            <CheckCircle className="h-4 w-4" aria-hidden />
+            <span>{successMessage}</span>
+          </div>
+        </div>
+      )}
       {assessmentId && (
         <Link
           to={`/results/${assessmentId}`}
@@ -516,7 +542,7 @@ export default function EvidenceUpload() {
                   
                   <div className="flex items-center space-x-2">
                     <button
-                      onClick={() => window.open(file.fileUrl, '_blank')}
+                      onClick={() => openEvidenceFile(file.fileUrl)}
                       className="text-blue-500 hover:text-blue-700"
                     >
                       <Eye className="h-4 w-4" />

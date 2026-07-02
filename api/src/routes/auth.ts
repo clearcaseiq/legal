@@ -20,6 +20,16 @@ function passwordResetUrl(rawToken: string): string {
   return `${base}/reset-password?token=${encodeURIComponent(rawToken)}`
 }
 
+// Email verification tokens share the reset-token security model: single-use,
+// expiring, and stored only as a SHA-256 hash. They live longer than reset
+// tokens since verifying an email is lower-risk and users may act on it later.
+const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000
+
+function emailVerificationUrl(rawToken: string): string {
+  const base = (process.env.WEB_URL || 'https://www.clearcaseiq.com').replace(/\/$/, '')
+  return `${base}/verify-email?token=${encodeURIComponent(rawToken)}`
+}
+
 const router = Router()
 
 function parseStringArrayField(raw: string | null | undefined): string[] {
@@ -463,12 +473,102 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
 
 /** Placeholder for email verification flow (integrate SendGrid/SES later). */
 router.post('/request-email-verification', authMiddleware, async (req: AuthRequest, res) => {
-  logger.info('Email verification requested (stub)', { userId: req.user!.id })
-  res.status(501).json({
-    ok: false,
-    error: 'Email verification is not configured yet.',
-    code: 'EMAIL_VERIFICATION_NOT_CONFIGURED',
-  })
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user!.id } })
+    if (!user || !user.isActive) {
+      return res.status(404).json({ ok: false, error: 'Account not found.' })
+    }
+
+    // Already verified — nothing to send, but report success so the UI can
+    // simply clear the banner.
+    if (user.emailVerified) {
+      return res.json({ ok: true, alreadyVerified: true, message: 'Your email is already verified.' })
+    }
+
+    // Invalidate any outstanding tokens before issuing a fresh one.
+    await prisma.emailVerificationToken.deleteMany({ where: { userId: user.id, usedAt: null } })
+
+    const rawToken = crypto.randomBytes(32).toString('hex')
+    await prisma.emailVerificationToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: hashResetToken(rawToken),
+        expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS),
+      },
+    })
+
+    const link = emailVerificationUrl(rawToken)
+    const body = [
+      `Hi ${user.firstName || 'there'},`,
+      '',
+      'Please confirm your email address so we can keep your ClearCaseIQ account secure and send you case updates. Click the link below to verify. This link expires in 24 hours and can be used once.',
+      '',
+      link,
+      '',
+      "If you didn't request this, you can safely ignore this email.",
+      '',
+      '— The ClearCaseIQ team',
+    ].join('\n')
+
+    const sent = await sendClaimEmail({ to: user.email, subject: 'Verify your ClearCaseIQ email', body })
+    logger.info('Email verification requested', { userId: user.id, emailSent: sent })
+
+    if (!sent) {
+      // No email provider configured (e.g. local/dev). Surface a clear, honest
+      // error instead of pretending the message went out.
+      return res.status(503).json({
+        ok: false,
+        error: 'We couldn’t send the verification email right now. Please try again later or contact support.',
+        code: 'EMAIL_DELIVERY_UNAVAILABLE',
+      })
+    }
+
+    return res.json({ ok: true, message: 'Verification link sent. Please check your email (including spam).' })
+  } catch (error) {
+    logger.error('Email verification request failed', { error, userId: req.user?.id })
+    return res.status(500).json({
+      ok: false,
+      error: 'We couldn’t send the verification email right now. Please try again later or contact support.',
+    })
+  }
+})
+
+// Consume an email verification token and mark the user's email as verified.
+router.post('/verify-email', async (req, res) => {
+  try {
+    const rawToken = String(req.body?.token || '')
+    if (rawToken.length < 10) {
+      return res.status(400).json({ ok: false, error: 'Invalid verification link.' })
+    }
+
+    const record = await prisma.emailVerificationToken.findUnique({
+      where: { tokenHash: hashResetToken(rawToken) },
+    })
+
+    if (!record || record.usedAt || record.expiresAt < new Date()) {
+      return res.status(400).json({ ok: false, error: 'This verification link is invalid or has expired. Please request a new one.' })
+    }
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: record.userId },
+        data: { emailVerified: true },
+      }),
+      prisma.emailVerificationToken.update({
+        where: { id: record.id },
+        data: { usedAt: new Date() },
+      }),
+      prisma.emailVerificationToken.deleteMany({
+        where: { userId: record.userId, usedAt: null, id: { not: record.id } },
+      }),
+    ])
+
+    logger.info('Email verified', { userId: record.userId })
+    return res.json({ ok: true, message: 'Your email has been verified. Thank you!' })
+  } catch (error) {
+    logger.error('Email verification failed', { error })
+    return res.status(500).json({ ok: false, error: 'Could not verify your email. Please try again.' })
+  }
 })
 
 // Update user

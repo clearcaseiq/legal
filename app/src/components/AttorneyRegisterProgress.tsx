@@ -2,7 +2,7 @@ const STEPS = [
   { num: 1, label: 'Account' },
   { num: 2, label: 'Practice Areas' },
   { num: 3, label: 'Service Area' },
-  { num: 4, label: 'Capacity' },
+  { num: 4, label: 'Capacity & Availability' },
   { num: 5, label: 'Verify' }
 ]
 

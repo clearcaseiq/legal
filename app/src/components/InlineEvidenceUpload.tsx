@@ -8,7 +8,8 @@ import {
   precheckEvidenceImage
 } from '../lib/api'
 import { TrashIcon } from './TrashIcon'
-import { getApiOrigin } from '../lib/runtimeEnv'
+import { CameraCaptureModal } from './CameraCaptureModal'
+import { openEvidenceFile } from '../lib/evidenceFileUrl'
 import { 
   Upload, 
   Camera, 
@@ -23,18 +24,27 @@ import {
   Settings
 } from 'lucide-react'
 
-/**
- * Server-stored evidence files come back with a relative path
- * (e.g. "/uploads/evidence/abc.pdf") that is served by the API origin, not the
- * web app origin. Opening the bare relative URL resolved against the web app
- * and 404'd, so the Eye/preview button appeared to do nothing (#11). Blob/data
- * URLs (locally selected files not yet uploaded) and absolute URLs pass through
- * untouched.
- */
-function resolveEvidenceFileUrl(url?: string): string {
-  if (!url) return ''
-  if (/^(blob:|data:|https?:)/i.test(url)) return url
-  return `${getApiOrigin()}${url.startsWith('/') ? '' : '/'}${url}`
+/** The <input accept> value for a given evidence category so the OS file picker
+ * pre-filters to the right kind of file (e.g. only images for the Photos row). */
+function acceptForCategory(category?: string): string {
+  if (category === 'photos') return 'image/*'
+  if (category === 'video') return 'video/*'
+  return 'image/*,video/*,application/pdf,.doc,.docx,.txt'
+}
+
+/** Hard client-side type guard so a category that expects one kind of file can't
+ * accept the wrong one (e.g. a PDF/video dropped into Photos) (#21). */
+function isAllowedForCategory(file: File, category?: string): boolean {
+  const name = file.name || ''
+  const isImage =
+    file.type.startsWith('image/') ||
+    (!file.type && /\.(jpe?g|png|gif|bmp|webp|heic|heif|tiff?)$/i.test(name))
+  const isVideo =
+    file.type.startsWith('video/') ||
+    (!file.type && /\.(mp4|mov|avi|wmv|mkv|webm|m4v|3gp|flv|mpe?g|ogv)$/i.test(name))
+  if (category === 'photos') return isImage
+  if (category === 'video') return isVideo
+  return true
 }
 
 type VisionVerdict = {
@@ -208,6 +218,24 @@ export default function InlineEvidenceUpload({
   const [visionWarnings, setVisionWarnings] = useState<VisionWarning[]>([])
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const [deletingFile, setDeletingFile] = useState(false)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Show a transient "uploaded successfully" confirmation. Users previously had
+  // no visible signal that an upload finished (only a console.log), so uploads
+  // felt like they did nothing (#15).
+  const flashUploadSuccess = useCallback((count: number) => {
+    const label = count === 1 ? 'File uploaded successfully.' : `${count} files uploaded successfully.`
+    setSuccessMessage(label)
+    if (successTimerRef.current) clearTimeout(successTimerRef.current)
+    successTimerRef.current = setTimeout(() => setSuccessMessage(null), 4000)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current)
+    }
+  }, [])
 
   const isManageControlled = manageOpen !== undefined
   const manageModalOpen = isManageControlled ? manageOpen : showTightManage
@@ -219,6 +247,9 @@ export default function InlineEvidenceUpload({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
+  // "Take Photo" opens a real getUserMedia capture flow (works on desktop, where the
+  // native <input capture> attribute is ignored and only opens the file picker).
+  const [showCamera, setShowCamera] = useState(false)
 
   // Notify the parent whenever the file list changes via a dedicated effect
   // instead of calling onFilesUploaded inside a setFiles updater. React can run
@@ -365,6 +396,14 @@ export default function InlineEvidenceUpload({
 
   // Handle file upload
   const handleFileUpload = async (file: File, uploadMethod: string = 'drag_drop') => {
+    if (!isAllowedForCategory(file, category)) {
+      const expected = category === 'photos' ? 'a photo (image)' : category === 'video' ? 'a video' : 'a supported file'
+      setVisionWarnings((prev) => [
+        ...prev.filter((w) => w.fileName !== file.name),
+        { fileName: file.name, status: 'mismatch', title: `${file.name} can’t be added here.`, message: `This section only accepts ${expected}. Please choose a different file.` },
+      ])
+      return
+    }
     console.log('handleFileUpload called:', { file: file.name, assessmentId, category })
     
     if (!assessmentId) {
@@ -425,6 +464,7 @@ export default function InlineEvidenceUpload({
       const uploadedFile = await uploadEvidenceFile(formData)
       console.log('File uploaded successfully:', uploadedFile)
       prependFiles([uploadedFile])
+      flashUploadSuccess(1)
       addVisionWarning(uploadedFile.originalName || file.name, uploadedFile.vision)
       
       // Auto-process the file
@@ -556,8 +596,35 @@ export default function InlineEvidenceUpload({
     }
   }, [dropTargetRef])
 
+  // Reject files that don't match the section's expected type (e.g. a PDF/video
+  // dropped into Photos), surfacing a clear warning instead of silently
+  // uploading the wrong kind of file (#21).
+  const filterAllowedFiles = (fileList: File[]): File[] => {
+    const allowed: File[] = []
+    const rejected: File[] = []
+    for (const f of fileList) {
+      if (isAllowedForCategory(f, category)) allowed.push(f)
+      else rejected.push(f)
+    }
+    if (rejected.length > 0) {
+      const expected = category === 'photos' ? 'a photo (image)' : category === 'video' ? 'a video' : 'a supported file'
+      setVisionWarnings((prev) => [
+        ...prev.filter((w) => !rejected.some((r) => r.name === w.fileName)),
+        ...rejected.map((r) => ({
+          fileName: r.name,
+          status: 'mismatch',
+          title: `${r.name} can’t be added here.`,
+          message: `This section only accepts ${expected}. Please choose a different file.`,
+        })),
+      ])
+    }
+    return allowed
+  }
+
   // Handle multiple file upload
-  const handleMultipleUpload = async (fileList: File[]) => {
+  const handleMultipleUpload = async (rawFileList: File[]) => {
+    const fileList = filterAllowedFiles(rawFileList)
+    if (fileList.length === 0) return
     console.log('handleMultipleUpload called:', { fileCount: fileList.length, assessmentId, category })
 
     if (!assessmentId) {
@@ -622,6 +689,7 @@ export default function InlineEvidenceUpload({
       const result = await uploadMultipleEvidenceFiles(formData)
       console.log('Files uploaded successfully:', result)
       prependFiles(result.files || [])
+      flashUploadSuccess((result.files || []).length || fileList.length)
 
       for (const file of (result.files || [])) {
         addVisionWarning(file.originalName || file.filename, file.vision)
@@ -778,6 +846,20 @@ export default function InlineEvidenceUpload({
             {deletingFile ? 'Deleting…' : 'Delete'}
           </button>
         </div>
+      </div>
+    </div>
+  ) : null
+
+  // Transient success confirmation shown after an upload completes (#15).
+  const uploadSuccessToast = successMessage ? (
+    <div
+      className="fixed bottom-5 left-1/2 z-[95] -translate-x-1/2 transform"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-center gap-2 rounded-full bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-lg">
+        <CheckCircle className="h-4 w-4" aria-hidden />
+        <span>{successMessage}</span>
       </div>
     </div>
   ) : null
@@ -984,7 +1066,7 @@ export default function InlineEvidenceUpload({
               {!hideCameraButton && (
                 <button
                   type="button"
-                  onClick={() => cameraInputRef.current?.click()}
+                  onClick={() => setShowCamera(true)}
                   disabled={loading}
                   className={`flex items-center rounded-lg bg-green-600 font-medium text-white hover:bg-green-700 disabled:opacity-50 ${
                     tight ? 'min-h-8 px-2.5 py-1 text-[11px]' : 'px-4 py-2 text-sm'
@@ -1007,7 +1089,7 @@ export default function InlineEvidenceUpload({
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/*,video/*,application/pdf,.doc,.docx,.txt"
+          accept={acceptForCategory(category)}
           onChange={handleFileInput}
           className="hidden"
         />
@@ -1108,7 +1190,7 @@ export default function InlineEvidenceUpload({
                         <div className="flex shrink-0 gap-1">
                           <button
                             type="button"
-                            onClick={() => window.open(resolveEvidenceFileUrl(file.fileUrl), '_blank', 'noopener,noreferrer')}
+                            onClick={() => openEvidenceFile(file.fileUrl)}
                             className="rounded p-1 text-blue-500 hover:bg-blue-50 hover:text-blue-700"
                             aria-label="View file"
                           >
@@ -1157,7 +1239,7 @@ export default function InlineEvidenceUpload({
                   <div className="flex shrink-0 items-center gap-1">
                     <button
                       type="button"
-                      onClick={() => window.open(resolveEvidenceFileUrl(file.fileUrl), '_blank', 'noopener,noreferrer')}
+                      onClick={() => openEvidenceFile(file.fileUrl)}
                       className="text-blue-500 hover:text-blue-700"
                     >
                       <Eye className="h-3 w-3" />
@@ -1200,6 +1282,7 @@ export default function InlineEvidenceUpload({
         )}
 
         {deleteConfirmModal}
+        {uploadSuccessToast}
       </div>
     )
   }
@@ -1239,7 +1322,8 @@ export default function InlineEvidenceUpload({
           </button>
           
           <button
-            onClick={() => cameraInputRef.current?.click()}
+            type="button"
+            onClick={() => setShowCamera(true)}
             className="px-3 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center"
           >
             <Camera className="h-4 w-4 mr-1" />
@@ -1251,7 +1335,7 @@ export default function InlineEvidenceUpload({
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/*,video/*,application/pdf,.doc,.docx,.txt"
+          accept={acceptForCategory(category)}
           onChange={handleFileInput}
           className="hidden"
         />
@@ -1295,7 +1379,7 @@ export default function InlineEvidenceUpload({
                 )}
                 
                 <button
-                  onClick={() => window.open(resolveEvidenceFileUrl(file.fileUrl), '_blank', 'noopener,noreferrer')}
+                  onClick={() => openEvidenceFile(file.fileUrl)}
                   className="text-blue-500 hover:text-blue-700"
                 >
                   <Eye className="h-4 w-4" />
@@ -1347,6 +1431,13 @@ export default function InlineEvidenceUpload({
       </div>
 
       {deleteConfirmModal}
+      {uploadSuccessToast}
+
+      <CameraCaptureModal
+        open={showCamera}
+        onClose={() => setShowCamera(false)}
+        onCapture={(file) => handleFileUpload(file, 'camera')}
+      />
     </div>
   )
 }

@@ -52,6 +52,7 @@ model User {
   assignedCaseTasks          CaseTask[]
   intakeLeads                IntakeLead[]
   passwordResetTokens        PasswordResetToken[]
+  emailVerificationTokens    EmailVerificationToken[]
 
   @@map("users")
 }
@@ -70,6 +71,22 @@ model PasswordResetToken {
 
   @@index([userId])
   @@map("password_reset_tokens")
+}
+
+// Single-use, expiring tokens for the email verification flow. Like password
+// reset tokens, only a SHA-256 hash is persisted; the raw token is emailed to
+// the user and never stored.
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("email_verification_tokens")
 }
 
 model AttorneyPushDevice {

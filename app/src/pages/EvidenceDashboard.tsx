@@ -10,6 +10,7 @@ import {
   createEvidenceAnnotation
 } from '../lib/api'
 import { TrashIcon } from '../components/TrashIcon'
+import { openEvidenceFile } from '../lib/evidenceFileUrl'
 import { 
   Upload, 
   FileText, 
@@ -120,6 +121,8 @@ export default function EvidenceDashboard() {
   const [tagsInput, setTagsInput] = useState('')
   const [relevanceInput, setRelevanceInput] = useState('')
   const [accessLogs, setAccessLogs] = useState<any[]>([])
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [deletingFile, setDeletingFile] = useState(false)
 
   // Load evidence files
   const loadFiles = async () => {
@@ -216,15 +219,23 @@ export default function EvidenceDashboard() {
     }
   }
 
-  // Delete file
-  const handleDeleteFile = async (fileId: string) => {
-    if (window.confirm('Are you sure you want to delete this file?')) {
-      try {
-        await deleteEvidenceFile(fileId)
-        await loadFiles()
-      } catch (error) {
-        console.error('Failed to delete file:', error)
-      }
+  // Delete file — use an in-app confirmation modal instead of the native
+  // window.confirm() dialog (#9).
+  const handleDeleteFile = (fileId: string) => {
+    setPendingDeleteId(fileId)
+  }
+
+  const performDelete = async () => {
+    if (!pendingDeleteId) return
+    try {
+      setDeletingFile(true)
+      await deleteEvidenceFile(pendingDeleteId)
+      await loadFiles()
+      setPendingDeleteId(null)
+    } catch (error) {
+      console.error('Failed to delete file:', error)
+    } finally {
+      setDeletingFile(false)
     }
   }
 
@@ -582,7 +593,7 @@ export default function EvidenceDashboard() {
                   </div>
                 </div>
 
-                <div className="space-y-2 flex-1 flex flex-col">
+                <div className="flex-1 flex flex-col gap-2">
                   <div className="flex items-center text-xs text-gray-500">
                     <Tag className="h-3 w-3 mr-1" />
                     {file.category.replace(/_/g, ' ')} • {file.dataType || 'unstructured'}
@@ -637,7 +648,7 @@ export default function EvidenceDashboard() {
                         <Edit className="h-4 w-4" />
                       </button>
                       <button
-                        onClick={() => window.open(file.fileUrl, '_blank')}
+                        onClick={() => openEvidenceFile(file.fileUrl)}
                         className="text-blue-500 hover:text-blue-700"
                       >
                         <Eye className="h-4 w-4" />
@@ -750,7 +761,7 @@ export default function EvidenceDashboard() {
                           <Edit className="h-4 w-4" /> Edit
                         </button>
                         <button
-                          onClick={() => window.open(file.fileUrl, '_blank')}
+                          onClick={() => openEvidenceFile(file.fileUrl)}
                           className="inline-flex items-center gap-1 rounded-md border border-blue-200 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
                         >
                           <Eye className="h-4 w-4" /> View
@@ -970,6 +981,33 @@ export default function EvidenceDashboard() {
                 className="px-3 py-1.5 text-sm font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700 disabled:opacity-60"
               >
                 {savingFile ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-lg bg-white p-5 shadow-xl">
+            <h3 className="text-base font-semibold text-gray-900">Delete this file?</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              This will permanently remove the file from your evidence. This action can't be undone.
+            </p>
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setPendingDeleteId(null)}
+                disabled={deletingFile}
+                className="px-3 py-1.5 text-sm font-medium text-gray-700 border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={performDelete}
+                disabled={deletingFile}
+                className="px-3 py-1.5 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-60"
+              >
+                {deletingFile ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>

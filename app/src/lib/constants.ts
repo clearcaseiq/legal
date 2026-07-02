@@ -80,11 +80,11 @@ export function getStateCode(name: string): string {
  * stored on the attorney profile (matching the values selected at registration).
  */
 export const ATTORNEY_CASE_TYPES = [
-  { value: 'auto', label: 'Auto Accident' },
-  { value: 'slip_and_fall', label: 'Slip & Fall' },
+  { value: 'auto', label: 'Vehicle Accident' },
+  { value: 'slip_and_fall', label: 'Slip & Fall / Premises' },
   { value: 'dog_bite', label: 'Dog Bite' },
   { value: 'medmal', label: 'Medical Malpractice' },
-  { value: 'product', label: 'Product Liability' },
+  { value: 'product', label: 'Product Liability / Toxic' },
   { value: 'nursing_home_abuse', label: 'Nursing Home Abuse' },
   { value: 'wrongful_death', label: 'Wrongful Death' },
   { value: 'high_severity_surgery', label: 'Catastrophic Injury' },

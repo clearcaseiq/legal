@@ -247,10 +247,14 @@ function savePdf(bytes: Uint8Array, fileName: string) {
   const link = document.createElement('a')
   link.href = url
   link.download = fileName
+  link.rel = 'noopener'
   document.body.appendChild(link)
   link.click()
   link.remove()
-  URL.revokeObjectURL(url)
+  // Revoking synchronously right after click() can cancel the download in some
+  // browsers before it starts, so the file appears to never download (#17).
+  // Defer the cleanup to the next tick to let the browser begin the save.
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 export async function downloadDashboardCaseReportPdf(input: DashboardReportInput) {

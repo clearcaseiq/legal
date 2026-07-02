@@ -11,6 +11,7 @@ const AttorneyLogin = lazy(() => import('./pages/AttorneyLogin'))
 const Register = lazy(() => import('./pages/Register'))
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'))
 const ResetPassword = lazy(() => import('./pages/ResetPassword'))
+const VerifyEmail = lazy(() => import('./pages/VerifyEmail'))
 const AttorneyRegister = lazy(() => import('./pages/AttorneyRegister'))
 const ClaimProfile = lazy(() => import('./pages/ClaimProfile'))
 const AttorneyNetwork = lazy(() => import('./pages/AttorneyNetwork'))
@@ -212,6 +213,7 @@ function App() {
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/set-password" element={<ResetPassword />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
             <Route element={<GuestRoute role="plaintiff" />}>
               <Route path="/login" element={<Login />} />
               <Route path="/login/plaintiff" element={<Login />} />

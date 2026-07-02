@@ -30,6 +30,7 @@ import PlaintiffMedicalChronology from '../components/PlaintiffMedicalChronology
 import EstimateAccuracyStages from '../components/EstimateAccuracyStages'
 import CaseFileChecklist from '../components/CaseFileChecklist'
 import { useLanguage } from '../contexts/LanguageContext'
+import { formatPhoneInput, validatePhoneField } from '../lib/phone'
 import type { CaseCommandCenter } from '../lib/api'
 import { loadPlaintiffSessionSummary } from '../hooks/usePlaintiffSessionSummary'
 import { getStoredRole, hasValidAuthToken } from '../lib/auth'
@@ -60,6 +61,7 @@ import {
   Camera,
   Briefcase,
   HelpCircle,
+  Eye,
   Pencil,
 } from 'lucide-react'
 
@@ -742,6 +744,10 @@ export default function Results() {
   const { assessmentId } = useParams<{ assessmentId: string }>()
   const [searchParams] = useSearchParams()
   const reviewRequested = searchParams.get('review') === '1'
+  // A report opened via the "Copy Link" share URL carries ?share=1 and is
+  // presented read-only: recipients can view but not edit estimates, reorder
+  // attorneys, or otherwise mutate the case (#12).
+  const isSharedReadOnly = searchParams.get('share') === '1'
   const resolvedAssessmentId =
     assessmentId && assessmentId !== 'undefined' && assessmentId !== 'null'
       ? assessmentId
@@ -808,6 +814,7 @@ export default function Results() {
   )
   const [sendHipaaConsent, setSendHipaaConsent] = useState(false)
   const [contactFormError, setContactFormError] = useState<string | null>(null)
+  const [contactPhoneError, setContactPhoneError] = useState<string | null>(null)
   // Send modal: collapse heavy/optional steps so the form reads as "send as… + consent + send".
   const [showAttorneyRanking, setShowAttorneyRanking] = useState(false)
   const [showContactEdit, setShowContactEdit] = useState(false)
@@ -893,6 +900,7 @@ export default function Results() {
     .filter(Boolean)
 
   const moveRankedAttorney = (attorneyId: string, direction: -1 | 1) => {
+    if (isSharedReadOnly) return // view-only shared report cannot reorder attorneys (#12)
     setRankedAttorneyIds((current) => {
       const index = current.indexOf(attorneyId)
       const targetIndex = index + direction
@@ -915,6 +923,7 @@ export default function Results() {
     // payload hadn't loaded (e.g. the medical-malpractice snapshot), since
     // edits already falls back to [] below (#25).
     if (!resolvedAssessmentId) return
+    if (isSharedReadOnly) return // view-only shared report cannot mutate the case (#12)
     try {
       setMedicalReviewSaving(true)
       setMedicalReviewError(null)
@@ -954,6 +963,7 @@ export default function Results() {
     field: keyof PlaintiffMedicalReviewEdit,
     value: string | boolean,
   ) => {
+    if (isSharedReadOnly) return // view-only shared report cannot edit the medical review (#12)
     setMedicalReviewStatus(null)
     setMedicalReviewError(null)
     setPlaintiffMedicalReview((current) => {
@@ -973,6 +983,7 @@ export default function Results() {
 
   const handleSubmitForReview = async () => {
     if (!resolvedAssessmentId) return
+    if (isSharedReadOnly) return // view-only shared report cannot submit the case (#12)
     const { firstName, email, phone, preferredContactMethod } = contactForm
     if (!firstName?.trim()) {
       setContactFormError('First name is required')
@@ -984,6 +995,12 @@ export default function Results() {
     }
     if (!phone?.trim()) {
       setContactFormError('Phone number is required')
+      return
+    }
+    const phoneValidationError = validatePhoneField(phone, { required: true })
+    if (phoneValidationError) {
+      setContactPhoneError(phoneValidationError)
+      setContactFormError(phoneValidationError)
       return
     }
     let selectedRankedAttorneyIds = rankedAttorneyIds
@@ -1038,6 +1055,7 @@ export default function Results() {
 
   const handleResubmit = async () => {
     if (!resolvedAssessmentId) return
+    if (isSharedReadOnly) return // view-only shared report cannot re-submit the case (#12)
     try {
       setResubmitLoading(true)
       setResubmitMessage(null)
@@ -2033,14 +2051,18 @@ export default function Results() {
   const caseStrengthLabel = (s: number) => s >= 75 ? 'Strong' : s >= 50 ? 'Moderately Strong' : s >= 25 ? 'Moderate' : 'Needs Work'
 
   const handleCopyShareLink = () => {
-    const url = window.location.href
-    navigator.clipboard.writeText(url).then(() => {
+    // Build a read-only share URL (?share=1) so recipients get a view-only
+    // report rather than the fully editable owner view (#12).
+    const url = new URL(window.location.href)
+    url.searchParams.set('share', '1')
+    navigator.clipboard.writeText(url.toString()).then(() => {
       setShareCopied(true)
       setTimeout(() => setShareCopied(false), 2000)
     })
   }
 
   const handleDownloadReportPdf = async () => {
+   try {
     const { downloadResultsCaseReportPdf } = await import('../lib/reportPdfExports')
     const toneFromPct = (p: number): 'strong' | 'moderate' | 'weak' => (p >= 66 ? 'strong' : p >= 40 ? 'moderate' : 'weak')
     const jurisdiction = [venueCounty, venueState === 'CA' ? 'California' : venueState].filter(Boolean).join(', ') || 'Jurisdiction unavailable'
@@ -2082,6 +2104,10 @@ export default function Results() {
       deadlineWarning: deadlineWarningText || null,
       assessmentId: assessment?.id,
     })
+   } catch (err) {
+     console.error('Failed to generate case report PDF:', err)
+     alert('Sorry, the PDF could not be generated right now. Please try again.')
+   }
   }
   const nextSteps = missingDocItems.length > 0
     ? missingDocItems.slice(0, 3).map((item: any) => item.label)
@@ -2162,6 +2188,7 @@ Checklist:
 
   const handleSaveWageLoss = async () => {
     if (!assessment) return
+    if (isSharedReadOnly) return // view-only shared report cannot save wage loss (#12)
     if (!isLoggedIn) {
       setWageLossStatus('Sign in to save this to your assessment.')
       return
@@ -2207,6 +2234,7 @@ Checklist:
 
   const handleSaveDamageEstimates = async () => {
     if (!assessment) return
+    if (isSharedReadOnly) return // view-only shared report cannot mutate the case (#12)
     try {
       setDamageEstimateSaving(true)
       setDamageEstimateStatus(null)
@@ -2339,12 +2367,12 @@ Checklist:
     'See if an attorney wants your case.',
   ].filter(Boolean) as string[]
   const resultsTabs: Array<{ id: ResultsTab; label: string; badge?: string; badgeNeedsAction?: boolean }> = [
-    { id: 'overview', label: 'Case Overview' },
-    { id: 'liability', label: 'Liability Analysis', badge: liabilityClarityLabel },
-    { id: 'medical', label: 'Medical Story', badge: medicalReviewPending ? 'Review needed' : undefined, badgeNeedsAction: medicalReviewPending },
-    { id: 'value', label: 'Damages & Valuation' },
-    { id: 'documents', label: 'Evidence & Documents', badge: missingDocItems.length > 0 ? `${missingDocItems.length} missing` : 'Ready', badgeNeedsAction: missingDocItems.length > 0 },
-    { id: 'attorney', label: 'Next Steps', badge: medicalReviewPending ? 'Action needed' : undefined, badgeNeedsAction: medicalReviewPending },
+    { id: 'overview', label: t('results.tabs.overview') },
+    { id: 'liability', label: t('results.tabs.liability'), badge: liabilityClarityLabel },
+    { id: 'medical', label: t('results.tabs.medical'), badge: medicalReviewPending ? t('results.tabs.reviewNeeded') : undefined, badgeNeedsAction: medicalReviewPending },
+    { id: 'value', label: t('results.tabs.value') },
+    { id: 'documents', label: t('results.tabs.documents'), badge: missingDocItems.length > 0 ? `${missingDocItems.length} ${t('results.tabs.missingSuffix')}` : t('results.tabs.ready'), badgeNeedsAction: missingDocItems.length > 0 },
+    { id: 'attorney', label: t('results.tabs.attorney'), badge: medicalReviewPending ? t('results.tabs.actionNeeded') : undefined, badgeNeedsAction: medicalReviewPending },
   ]
   const openAnchoredResultsSection = (target: string) => {
     const tab: ResultsTab = target === '#attorney-handoff' ? 'attorney' : target === '#medical-story-review' ? 'medical' : activeResultsTab
@@ -2815,11 +2843,18 @@ Checklist:
                 <label className="mb-1 block text-sm font-medium text-slate-700">Phone *</label>
                 <input
                   type="tel"
+                  inputMode="tel"
                   value={contactForm.phone}
-                  onChange={e => setContactForm(f => ({ ...f, phone: e.target.value }))}
-                  className="input"
+                  onChange={e => {
+                    setContactForm(f => ({ ...f, phone: formatPhoneInput(e.target.value) }))
+                    if (contactPhoneError) setContactPhoneError(null)
+                  }}
+                  onBlur={e => setContactPhoneError(validatePhoneField(e.target.value, { required: true }) ?? null)}
+                  aria-invalid={!!contactPhoneError}
+                  className={`input ${contactPhoneError ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : ''}`}
                   placeholder="(555) 123-4567"
                 />
+                {contactPhoneError && <p className="mt-1 text-xs text-red-600">{contactPhoneError}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Preferred contact</label>
@@ -2922,7 +2957,7 @@ Checklist:
                             <button
                               type="button"
                               onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, -1)}
-                              disabled={index === 0}
+                              disabled={index === 0 || isSharedReadOnly}
                               className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               Up
@@ -2930,7 +2965,7 @@ Checklist:
                             <button
                               type="button"
                               onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, 1)}
-                              disabled={index === rankedAttorneyCards.length - 1}
+                              disabled={index === rankedAttorneyCards.length - 1 || isSharedReadOnly}
                               className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               Down
@@ -3011,7 +3046,7 @@ Checklist:
                 onClick={() => !submitLoading && setSendModalOpen(false)}
                 className="btn-ghost mt-2 w-full"
               >
-                Cancel
+                {t('results.chrome.cancel')}
               </button>
             </div>
           </div>
@@ -3027,29 +3062,35 @@ Checklist:
                 className="h-7 w-auto object-contain"
               />
               <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                Preliminary assessment • Confidential
+                {t('results.chrome.preliminaryConfidential')}
               </span>
             </div>
             <div className="flex items-center gap-3">
               <span className="hidden text-xs text-slate-500 sm:inline">
-                Reference <span className="font-mono text-slate-700">{(assessment?.id ?? '').slice(0, 8).toUpperCase()}</span>
+                {t('results.chrome.reference')} <span className="font-mono text-slate-700">{(assessment?.id ?? '').slice(0, 8).toUpperCase()}</span>
               </span>
               <button
                 type="button"
                 onClick={() => { void handleDownloadReportPdf() }}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
               >
-                <Download className="h-3.5 w-3.5" /> Download Summary
+                <Download className="h-3.5 w-3.5" /> {t('results.chrome.downloadSummary')}
               </button>
             </div>
           </div>
+          {isSharedReadOnly && (
+            <div className="mt-4 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
+              <Eye className="h-4 w-4 shrink-0" aria-hidden />
+              <span>{t('results.chrome.sharedReadOnly')}</span>
+            </div>
+          )}
           <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="font-display text-2xl font-semibold leading-tight tracking-tight text-slate-900 sm:text-3xl">
-                Your Case Snapshot
+                {t('results.headings.snapshot')}
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                Here's how your case looks based on the information you've provided.
+                {t('results.headings.snapshotSub')}
               </p>
             </div>
             <div className="flex shrink-0 flex-col items-start gap-1.5 sm:items-end">
@@ -3058,23 +3099,23 @@ Checklist:
                 onClick={openAttorneyReviewFlow}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
               >
-                Continue to Attorney Review <ChevronRight className="h-4 w-4" />
+                {t('results.shared.continueReview')} <ChevronRight className="h-4 w-4" />
               </button>
               <span className="flex items-center gap-1 text-xs text-slate-500">
-                <Lock className="h-3 w-3" /> 100% Private &amp; Secure
+                <Lock className="h-3 w-3" /> {t('results.chrome.privateSecureBadge')}
               </span>
             </div>
           </div>
         </header>
 
         <div className="px-6 sm:px-10 pt-9 pb-28 sm:pt-10 lg:pb-10">
-        <section className="mb-6 space-y-5" aria-label="Your case snapshot">
+        <section className="mb-6 space-y-5" aria-label={t('results.aria.snapshot')}>
           {/* Your next step — the single primary guidance card */}
           <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-5 shadow-sm">
             <p className="flex items-center gap-1.5 font-display text-base font-semibold text-slate-900">
-              <ClipboardList className="h-4 w-4 text-brand-700" aria-hidden /> Your next step
+              <ClipboardList className="h-4 w-4 text-brand-700" aria-hidden /> {t('results.chrome.yourNextStep')}
             </p>
-            <p className="mt-0.5 text-sm text-slate-600">Follow these steps to get your case in front of attorneys.</p>
+            <p className="mt-0.5 text-sm text-slate-600">{t('results.chrome.followSteps')}</p>
             <ol className="mt-4 space-y-2.5">
               {nextStepItems.map((step, i) => {
                 const isCurrent = i === currentNextStepIndex
@@ -3096,7 +3137,7 @@ Checklist:
                       <p className={`flex flex-wrap items-center gap-1.5 text-sm font-semibold ${isDone ? 'text-slate-400' : 'text-slate-900'}`}>
                         <span className={isDone ? 'line-through' : undefined}>{step.title}</span>
                         {step.optional && (
-                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">Optional</span>
+                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{t('results.shared.optional')}</span>
                         )}
                       </p>
                       <p className="text-xs text-slate-500">{step.desc}</p>
@@ -3134,11 +3175,11 @@ Checklist:
             </div>
             <div className="flex items-center gap-2 text-sm font-medium text-slate-800 sm:justify-center">
               <MapPin className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-              <span>{[venueCounty, venueState === 'CA' ? 'California' : venueState].filter(Boolean).join(', ') || 'Jurisdiction unavailable'}</span>
+              <span>{[venueCounty, venueState === 'CA' ? 'California' : venueState].filter(Boolean).join(', ') || t('results.chrome.jurisdictionUnavailable')}</span>
             </div>
             <div className="flex items-center gap-2 text-sm font-medium text-slate-800 sm:justify-end">
               <Calendar className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-              <span>Incident Date: {snapshotIncidentDate ?? 'Not provided'}</span>
+              <span>{t('results.chrome.incidentDate')} {snapshotIncidentDate ?? t('results.chrome.notProvided')}</span>
             </div>
           </div>
 
@@ -3148,44 +3189,44 @@ Checklist:
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center gap-2">
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><DollarSign className="h-4 w-4" aria-hidden /></span>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Settlement Estimate</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.settlementEstimate')}</p>
               </div>
-              <p className="mt-4 text-xs text-slate-500">Most likely range</p>
+              <p className="mt-4 text-xs text-slate-500">{t('results.chrome.mostLikelyRange')}</p>
               <p className="font-display text-2xl font-bold text-emerald-600">{displaySettlementRangeText}</p>
-              <p className="mt-1 text-sm text-slate-600">Most likely: <span className="font-semibold text-slate-900">{formatCurrency(displaySettlementExpected)}</span></p>
+              <p className="mt-1 text-sm text-slate-600">{t('results.chrome.mostLikely')} <span className="font-semibold text-slate-900">{formatCurrency(displaySettlementExpected)}</span></p>
               {netEstimatedRecovery > 0 && (
                 <p className="mt-1 text-xs text-slate-500">
-                  After fees &amp; costs, you keep about <span className="font-semibold text-emerald-700">{formatCurrency(netEstimatedRecovery)}</span>.{' '}
-                  <button type="button" onClick={() => { document.getElementById('net-recovery')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }} className="font-semibold text-brand-700 hover:text-brand-800">See breakdown</button>
+                  {t('results.chrome.afterFeesA')} <span className="font-semibold text-emerald-700">{formatCurrency(netEstimatedRecovery)}</span>.{' '}
+                  <button type="button" onClick={() => { document.getElementById('net-recovery')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }} className="font-semibold text-brand-700 hover:text-brand-800">{t('results.chrome.seeBreakdown')}</button>
                 </p>
               )}
               <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="text-xs text-slate-500">Confidence:</span>
+                <span className="text-xs text-slate-500">{t('results.chrome.confidence')}</span>
                 <span className={estimateConfidenceLevel === 'High' ? 'text-xs font-semibold text-emerald-700' : estimateConfidenceLevel === 'Medium' ? 'text-xs font-semibold text-amber-600' : 'text-xs font-semibold text-rose-600'}>{estimateConfidenceLevel}</span>
                 {estimateConfidenceLevel !== 'High' && (
-                  <span className="text-[11px] text-slate-500">&mdash; add medical records &amp; bills to sharpen this</span>
+                  <span className="text-[11px] text-slate-500">{t('results.chrome.addRecordsSharpen')}</span>
                 )}
               </div>
               {valuationMissingInputs.length > 0 && (
                 <div className="mt-3 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2">
-                  <p className="text-[11px] font-semibold text-amber-800">Preliminary estimate</p>
+                  <p className="text-[11px] font-semibold text-amber-800">{t('results.chrome.preliminaryEstimate')}</p>
                   <p className="mt-0.5 text-[11px] leading-5 text-amber-700">
-                    This range is based on the information available so far. Add {valuationMissingInputs.slice(0, 3).join(', ')} to refine it.
+                    {t('results.chrome.rangeBasedOnA')} {valuationMissingInputs.slice(0, 3).join(', ')} {t('results.chrome.rangeBasedOnB')}
                   </p>
                 </div>
               )}
               <div className="mt-4 border-t border-slate-100 pt-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">If your case goes to trial</p>
-                <p className="mt-1 text-xs text-slate-500">Trial range</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.ifTrial')}</p>
+                <p className="mt-1 text-xs text-slate-500">{t('results.chrome.trialRange')}</p>
                 <p className="font-display text-xl font-bold text-slate-900">{trialValueText}</p>
-                <p className="mt-1 text-sm text-slate-600">Most likely: <span className="font-semibold text-slate-900">{formatCurrency(Math.round((potentialTrialLow + potentialTrialHigh) / 2))}</span></p>
-                <p className="mt-2 text-xs leading-5 text-slate-500">This is a <span className="font-semibold text-slate-600">gross figure before attorney fees and costs</span>, and an uncommon outcome &mdash; most cases settle. Trials add time, risk, and expense.</p>
+                <p className="mt-1 text-sm text-slate-600">{t('results.chrome.mostLikely')} <span className="font-semibold text-slate-900">{formatCurrency(Math.round((potentialTrialLow + potentialTrialHigh) / 2))}</span></p>
+                <p className="mt-2 text-xs leading-5 text-slate-500">{t('results.chrome.trialGrossA')} <span className="font-semibold text-slate-600">{t('results.chrome.trialGrossMid')}</span>{t('results.chrome.trialGrossB')}</p>
                 <button
                   type="button"
                   onClick={() => { const el = fullReportDetailsRef.current; if (el) { el.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }) } }}
                   className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800"
                 >
-                  How we calculate this <ChevronRight className="h-3 w-3" />
+                  {t('results.chrome.howWeCalc')} <ChevronRight className="h-3 w-3" />
                 </button>
               </div>
             </div>
@@ -3194,10 +3235,10 @@ Checklist:
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center gap-2">
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-50 text-brand-600"><Shield className="h-4 w-4" aria-hidden /></span>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Liability</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.liability')}</p>
               </div>
               <span className="mt-4 inline-flex rounded-md bg-brand-50 px-2.5 py-1 text-sm font-semibold text-brand-700">{liabilitySnapshotLabel}</span>
-              <p className="mt-3 text-sm leading-relaxed text-slate-600">{liabilitySummary || 'Based on the facts provided, fault may rest with the other party. More evidence will strengthen liability.'}</p>
+              <p className="mt-3 text-sm leading-relaxed text-slate-600">{liabilitySummary || t('results.chrome.liabilityDefault')}</p>
               <div className="mt-3 space-y-1.5">
                 {liabilityChecklist.map((row) => (
                   <div key={row.label} className="flex items-center justify-between text-sm">
@@ -3205,7 +3246,7 @@ Checklist:
                       {row.ok ? <CheckCircle className="h-4 w-4 text-emerald-600" /> : <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 text-[10px] text-slate-400">○</span>}
                       {row.label}
                     </span>
-                    <span className={row.ok ? 'text-xs font-semibold text-emerald-600' : 'text-xs text-slate-400'}>{row.ok ? 'Yes' : 'Not added'}</span>
+                    <span className={row.ok ? 'text-xs font-semibold text-emerald-600' : 'text-xs text-slate-400'}>{row.ok ? t('results.chrome.yes') : t('results.chrome.notAdded')}</span>
                   </div>
                 ))}
               </div>
@@ -3213,7 +3254,7 @@ Checklist:
                 <div className="relative h-1.5 rounded-full bg-gradient-to-r from-rose-200 via-amber-200 to-emerald-300">
                   <span className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-brand-600 bg-white shadow" style={{ left: `${clampPercent(liabilityPercent)}%` }} />
                 </div>
-                <div className="mt-1.5 flex justify-between text-[11px] text-slate-500"><span>Weak</span><span>Moderate</span><span>Strong</span></div>
+                <div className="mt-1.5 flex justify-between text-[11px] text-slate-500"><span>{t('results.shared.weak')}</span><span>{t('results.shared.moderate')}</span><span>{t('results.shared.strong')}</span></div>
               </div>
             </div>
 
@@ -3221,13 +3262,13 @@ Checklist:
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center gap-2">
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-50 text-violet-600"><User className="h-4 w-4" aria-hidden /></span>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Attorney Interest</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.attorneyInterest')}</p>
               </div>
               <span className="mt-4 inline-flex rounded-md bg-violet-50 px-2.5 py-1 text-sm font-semibold text-violet-700">{attorneyInterestWord}</span>
-              <p className="mt-3 text-sm leading-relaxed text-slate-600">{attorneyInterestLevel === 'High' ? 'Your case looks attractive to attorneys based on the current facts.' : 'Your case has potential, but additional records will help attract more attorney interest.'}</p>
+              <p className="mt-3 text-sm leading-relaxed text-slate-600">{attorneyInterestLevel === 'High' ? t('results.chrome.attractiveHigh') : t('results.chrome.potentialLow')}</p>
               {attorneyInterestMissing.length > 0 && (
                 <div className="mt-3 rounded-lg border border-amber-100 bg-amber-50/60 p-3">
-                  <p className="text-xs font-semibold text-slate-700">What's holding it back?</p>
+                  <p className="text-xs font-semibold text-slate-700">{t('results.chrome.whatsHoldingBack')}</p>
                   <ul className="mt-1.5 space-y-1">
                     {attorneyInterestMissing.map((item) => (
                       <li key={item} className="flex items-center gap-1.5 text-xs text-amber-800"><AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" /> {item}</li>
@@ -3239,7 +3280,7 @@ Checklist:
                 <div className="relative h-1.5 rounded-full bg-gradient-to-r from-rose-200 via-violet-200 to-violet-400">
                   <span className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-violet-600 bg-white shadow" style={{ left: `${attorneyInterestPct}%` }} />
                 </div>
-                <div className="mt-1.5 flex justify-between text-[11px] text-slate-500"><span>Low</span><span>Building</span><span>High</span></div>
+                <div className="mt-1.5 flex justify-between text-[11px] text-slate-500"><span>{t('results.shared.low')}</span><span>{t('results.shared.building')}</span><span>{t('results.shared.high')}</span></div>
               </div>
             </div>
           </div>
@@ -3249,40 +3290,40 @@ Checklist:
           <div id="net-recovery" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><DollarSign className="h-4 w-4" aria-hidden /></span>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Estimated Net Recovery</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.estNetRecovery')}</p>
             </div>
-            <p className="mt-3 text-sm text-slate-600">What you might actually take home from a <span className="font-semibold text-slate-900">{formatCurrency(displaySettlementExpected)}</span> settlement, after the deductions that typically come out of a personal-injury recovery.</p>
+            <p className="mt-3 text-sm text-slate-600">{t('results.chrome.whatYouTakeA')} <span className="font-semibold text-slate-900">{formatCurrency(displaySettlementExpected)}</span> {t('results.chrome.whatYouTakeB')}</p>
             <div className="mt-4 space-y-2.5">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-600">Settlement (most likely)</span>
+                <span className="text-slate-600">{t('results.chrome.settlementMostLikely')}</span>
                 <span className="font-semibold text-slate-900">{formatCurrency(displaySettlementExpected)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-600">Attorney fee (33% contingency)</span>
+                <span className="text-slate-600">{t('results.chrome.attorneyFeeContingency')}</span>
                 <span className="font-medium text-rose-600">&ndash; {formatCurrency(netAttorneyFee)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-600">Medical bills / liens{documentedMedicalCharges > 0 ? '' : ' (est.)'}</span>
+                <span className="text-slate-600">{t('results.chrome.medicalLiens')}{documentedMedicalCharges > 0 ? '' : t('results.chrome.estSuffix')}</span>
                 <span className="font-medium text-rose-600">&ndash; {formatCurrency(netMedicalLiens)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-600">Case expenses (est.)</span>
+                <span className="text-slate-600">{t('results.chrome.caseExpenses')}</span>
                 <span className="font-medium text-rose-600">&ndash; {formatCurrency(netCaseExpenses)}</span>
               </div>
               <div className="flex items-center justify-between border-t border-slate-200 pt-3">
-                <span className="text-sm font-semibold text-slate-900">Estimated net to you</span>
+                <span className="text-sm font-semibold text-slate-900">{t('results.chrome.estNetToYou')}</span>
                 <span className={`font-display text-xl font-bold ${netRecoveryExhaustedByCosts ? 'text-amber-600' : 'text-emerald-600'}`}>{formatCurrency(netEstimatedRecovery)}</span>
               </div>
             </div>
             {netRecoveryExhaustedByCosts ? (
               <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-700">
                 <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
-                At this settlement estimate, projected attorney fees, medical liens, and case costs would use up most or all of the recovery, leaving little to nothing. You would not owe money out of pocket &mdash; and liens and costs are commonly negotiated down to preserve a recovery for you. Your attorney will confirm the final numbers.
+                {t('results.chrome.exhaustedNote')}
               </p>
             ) : (
               <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-500">
                 <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                Illustrative only. Attorney fees, medical liens, and case costs vary by case and are often negotiated down &mdash; your attorney will confirm the final numbers.
+                {t('results.chrome.illustrativeNote')}
               </p>
             )}
           </div>
@@ -3346,11 +3387,11 @@ Checklist:
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="font-display text-base font-semibold text-slate-900">Your Case Strength</p>
-                <p className="mt-0.5 text-sm text-slate-500">A plain-language read on your case and the factors that drive its value.</p>
+                <p className="font-display text-base font-semibold text-slate-900">{t('results.chrome.yourCaseStrength')}</p>
+                <p className="mt-0.5 text-sm text-slate-500">{t('results.chrome.plainLanguage')}</p>
               </div>
               <div className="flex shrink-0 flex-col items-center">
-                <p className="text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">Overall Quality</p>
+                <p className="text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.overallQuality')}</p>
                 <div className="relative mt-1.5 h-16 w-16">
                   <svg viewBox="0 0 36 36" className="h-16 w-16 -rotate-90">
                     <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#e2e8f0" strokeWidth="3.4" />
@@ -3370,18 +3411,18 @@ Checklist:
             </ul>
             <div className="mt-5 border-t border-slate-100 pt-4">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Key factors &amp; value drivers</p>
-                <span className="text-[11px] text-slate-400">What shapes your estimate</span>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.keyFactors')}</p>
+                <span className="text-[11px] text-slate-400">{t('results.chrome.whatShapes')}</span>
               </div>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {([
-                  { icon: Scale, label: 'Fault / Liability', value: liabilitySnapshotLabel, tone: liabilityOutlook === 'strong' ? 'strong' : liabilityOutlook === 'moderate' ? 'moderate' : 'weak', desc: liabilitySummary || 'Based on the reported facts.' },
-                  { icon: Activity, label: 'Injury Severity', value: severitySnapshotLabel, tone: severityPercent >= 66 ? 'strong' : severityPercent >= 40 ? 'moderate' : 'weak', desc: 'Reported injuries and pain & suffering.' },
-                  { icon: Calendar, label: 'Treatment History', value: treatmentStrengthLevel, tone: treatmentStrengthLevel === 'High' ? 'strong' : treatmentStrengthLevel === 'Medium' ? 'moderate' : 'weak', desc: treatment.length > 0 ? `${treatment.length} treatment record${treatment.length === 1 ? '' : 's'} on file.` : 'No treatment records yet.' },
-                  { icon: DollarSign, label: 'Lost Income', value: documentedWageLoss > 0 ? 'Documented' : 'Not added', tone: documentedWageLoss > 0 ? 'moderate' : 'weak', desc: documentedWageLoss > 0 ? `${formatCurrency(documentedWageLoss)} in wage loss reported.` : 'Add wage-loss proof to capture this.' },
-                  { icon: Shield, label: 'Insurance Coverage', value: insuranceRecoveryPercent >= 75 ? 'Sufficient' : insuranceRecoveryPercent >= 50 ? 'Developing' : 'Unclear', tone: insuranceRecoveryPercent >= 75 ? 'strong' : insuranceRecoveryPercent >= 50 ? 'moderate' : 'weak', desc: insuranceRecoveryLabel },
-                  { icon: FileText, label: 'Documentation', value: scoreLabel(documentationScore, { high: 'Strong', medium: 'Developing', low: 'Low' }), tone: documentationScore >= 66 ? 'strong' : documentationScore >= 40 ? 'moderate' : 'weak', desc: `${documentationScore}% of key documents added.` },
-                  { icon: MapPin, label: 'Venue (Location)', value: venueFriendlinessScore >= 4 ? 'Favorable' : 'Moderate', tone: venueFriendlinessScore >= 4 ? 'strong' : 'moderate', desc: formatVenueLabel(venueState, venueCounty) || 'Venue unavailable' },
+                  { icon: Scale, label: t('results.chrome.faultLiability'), value: liabilitySnapshotLabel, tone: liabilityOutlook === 'strong' ? 'strong' : liabilityOutlook === 'moderate' ? 'moderate' : 'weak', desc: liabilitySummary || t('results.chrome.basedOnFacts') },
+                  { icon: Activity, label: t('results.chrome.injurySeverity'), value: severitySnapshotLabel, tone: severityPercent >= 66 ? 'strong' : severityPercent >= 40 ? 'moderate' : 'weak', desc: t('results.chrome.reportedInjuries') },
+                  { icon: Calendar, label: t('results.chrome.treatmentHistory'), value: treatmentStrengthLevel, tone: treatmentStrengthLevel === 'High' ? 'strong' : treatmentStrengthLevel === 'Medium' ? 'moderate' : 'weak', desc: treatment.length > 0 ? `${treatment.length} ${t('results.chrome.treatmentRecords')}` : t('results.chrome.noTreatmentRecords') },
+                  { icon: DollarSign, label: t('results.chrome.lostIncome'), value: documentedWageLoss > 0 ? t('results.chrome.documented') : t('results.chrome.notAdded'), tone: documentedWageLoss > 0 ? 'moderate' : 'weak', desc: documentedWageLoss > 0 ? `${formatCurrency(documentedWageLoss)} ${t('results.chrome.wageLossReported')}` : t('results.chrome.addWageLoss') },
+                  { icon: Shield, label: t('results.chrome.insuranceCoverage'), value: insuranceRecoveryPercent >= 75 ? t('results.chrome.sufficient') : insuranceRecoveryPercent >= 50 ? t('results.chrome.developing') : t('results.chrome.unclear'), tone: insuranceRecoveryPercent >= 75 ? 'strong' : insuranceRecoveryPercent >= 50 ? 'moderate' : 'weak', desc: insuranceRecoveryLabel },
+                  { icon: FileText, label: t('results.chrome.documentation'), value: scoreLabel(documentationScore, { high: t('results.chrome.docStrong'), medium: t('results.chrome.docDeveloping'), low: t('results.chrome.docLow') }), tone: documentationScore >= 66 ? 'strong' : documentationScore >= 40 ? 'moderate' : 'weak', desc: `${documentationScore}% ${t('results.chrome.docsAdded')}` },
+                  { icon: MapPin, label: t('results.chrome.venueLocation'), value: venueFriendlinessScore >= 4 ? t('results.chrome.favorable') : t('results.chrome.moderate'), tone: venueFriendlinessScore >= 4 ? 'strong' : 'moderate', desc: formatVenueLabel(venueState, venueCounty) || t('results.chrome.venueUnavailable') },
                 ] as { icon: typeof Scale; label: string; value: string; tone: string; desc: string }[]).map((row) => {
                   const Icon = row.icon
                   const tone = row.tone === 'strong' ? 'bg-emerald-50 text-emerald-700' : row.tone === 'moderate' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'
@@ -3402,20 +3443,20 @@ Checklist:
 
           {/* Likely attorney matches */}
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="font-display text-base font-semibold text-slate-900">Likely Attorney Matches</p>
-            <p className="mt-0.5 text-sm text-slate-500">Attorneys who regularly handle cases like yours.</p>
+              <p className="font-display text-base font-semibold text-slate-900">{t('results.headings.likelyAttorneyMatches')}</p>
+            <p className="mt-0.5 text-sm text-slate-500">{t('results.chrome.attorneysHandle')}</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {(rankedSnapshotAttorneys.length > 0
                 ? rankedSnapshotAttorneys.map((a: any, i: number) => ({
-                    name: a?.name ?? a?.law_firm?.name ?? `Top Match #${i + 1}`,
+                    name: a?.name ?? a?.law_firm?.name ?? `${t('results.chrome.topMatch')}${i + 1}`,
                     line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '),
-                    meta: [getResponseBadge(a), 'Free consultation'].filter(Boolean).join(' • '),
+                    meta: [getResponseBadge(a), t('results.chrome.freeConsultation')].filter(Boolean).join(' • '),
                     score: formatMatchScore(a?.matchScore ?? a?.match_score ?? a?.score, 94 - i * 3),
                   }))
                 : [
-                    { name: 'Top Local Match', line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: 'Responds within 24 hrs • Free consultation', score: '94%' },
-                    { name: 'Experienced Injury Attorney', line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: 'Personal injury • Bilingual', score: '91%' },
-                    { name: 'Local Trial Attorney', line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: 'Local experts', score: '88%' },
+                    { name: t('results.chrome.topLocalMatch'), line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: t('results.chrome.respondsFree'), score: '94%' },
+                    { name: t('results.chrome.experiencedAttorney'), line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: t('results.chrome.piBilingual'), score: '91%' },
+                    { name: t('results.chrome.localTrialAttorney'), line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: t('results.chrome.localExperts'), score: '88%' },
                   ]
               ).map((m, i) => (
                 <div key={`${m.name}-${i}`} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
@@ -3427,17 +3468,17 @@ Checklist:
                   </div>
                   <div className="shrink-0 text-right">
                     <span className="inline-flex rounded-md bg-emerald-50 px-2 py-1 text-sm font-bold text-emerald-700">{m.score}</span>
-                    <p className="mt-0.5 text-[10px] text-slate-400">Match Score</p>
+                    <p className="mt-0.5 text-[10px] text-slate-400">{t('results.chrome.matchScore')}</p>
                   </div>
                 </div>
               ))}
             </div>
-            <button type="button" onClick={openAttorneyReviewFlow} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">See more attorney matches <ChevronRight className="h-3 w-3" /></button>
+            <button type="button" onClick={openAttorneyReviewFlow} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.chrome.seeMoreMatches')} <ChevronRight className="h-3 w-3" /></button>
           </div>
 
           {deadlineWarningText ? (
             <div className="rounded-2xl border border-red-200 bg-red-50 p-4 shadow-sm">
-              <p className="text-sm font-semibold text-red-900">Important</p>
+              <p className="text-sm font-semibold text-red-900">{t('results.chrome.important')}</p>
               <p className="mt-1 text-sm leading-relaxed text-red-800">{deadlineWarningText}</p>
             </div>
           ) : null}
@@ -3447,32 +3488,32 @@ Checklist:
             <div className="flex items-start gap-2">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600"><Lock className="h-4 w-4" aria-hidden /></span>
               <div>
-                <p className="text-sm font-semibold text-slate-900">Your information is private and secure.</p>
-                <p className="text-xs text-slate-500">We only share your case with attorneys you choose to continue.</p>
+                <p className="text-sm font-semibold text-slate-900">{t('results.shared.privateSecureTitle')}</p>
+                <p className="text-xs text-slate-500">{t('results.shared.onlyShareChoose')}</p>
               </div>
             </div>
-            <button type="button" onClick={openAttorneyReviewFlow} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-800">Continue to Attorney Review <ChevronRight className="h-4 w-4" /></button>
+            <button type="button" onClick={openAttorneyReviewFlow} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-800">{t('results.shared.continueReview')} <ChevronRight className="h-4 w-4" /></button>
           </div>
           <button
             type="button"
             onClick={() => { const el = fullReportDetailsRef.current; if (el) { el.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }) } }}
             className="flex w-full items-center justify-center gap-1.5 text-sm font-semibold text-brand-700 hover:text-brand-800"
           >
-            Review your full case details <ChevronDown className="h-4 w-4" />
+            {t('results.chrome.reviewFullDetails')} <ChevronDown className="h-4 w-4" />
           </button>
         </section>
 
         <details ref={fullReportDetailsRef} className="group mb-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
-            <span>Full Case Report</span>
+            <span>{t('results.chrome.fullCaseReport')}</span>
             <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
           </summary>
           <div className="border-t border-slate-100 px-4 py-4 sm:px-5">
         {/* Full Case Report header */}
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="font-display text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">Full Case Report</h2>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">Comprehensive analysis of your case based on the information and documents provided.</p>
+            <h2 className="font-display text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">{t('results.chrome.fullCaseReport')}</h2>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">{t('results.chrome.comprehensiveAnalysis')}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
@@ -3480,14 +3521,14 @@ Checklist:
               onClick={() => { void handleDownloadReportPdf() }}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
             >
-              <Download className="h-3.5 w-3.5" /> Download Report
+              <Download className="h-3.5 w-3.5" /> {t('results.chrome.downloadReport')}
             </button>
             <button
               type="button"
               onClick={openAttorneyReviewFlow}
               className="inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-brand-800"
             >
-              Continue to Attorney Review <ChevronRight className="h-3.5 w-3.5" />
+              {t('results.shared.continueReview')} <ChevronRight className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
@@ -3499,21 +3540,21 @@ Checklist:
           </div>
           <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
             <MapPin className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-            <span>{[venueCounty, venueState === 'CA' ? 'California' : venueState].filter(Boolean).join(', ') || 'Jurisdiction unavailable'}</span>
+            <span>{[venueCounty, venueState === 'CA' ? 'California' : venueState].filter(Boolean).join(', ') || t('results.chrome.jurisdictionUnavailable')}</span>
           </div>
           <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
             <Calendar className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-            <span>Incident Date: {snapshotIncidentDate ?? 'Not provided'}</span>
+            <span>{t('results.chrome.incidentDate')} {snapshotIncidentDate ?? t('results.chrome.notProvided')}</span>
           </div>
           <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
             <ClipboardList className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
             <span>
-              Filing Deadline: {solDeadlineShort ?? 'TBD'}
-              {solDaysRemaining != null && <span className="block text-xs font-normal text-slate-500">{solDaysRemaining} days remaining</span>}
+              {t('results.chrome.filingDeadline')} {solDeadlineShort ?? t('results.chrome.tbd')}
+              {solDaysRemaining != null && <span className="block text-xs font-normal text-slate-500">{solDaysRemaining} {t('results.chrome.daysRemaining')}</span>}
             </span>
           </div>
         </div>
-        <nav className="surface-panel mb-6 overflow-x-auto p-2" aria-label="Results sections">
+        <nav className="surface-panel mb-6 overflow-x-auto p-2" aria-label={t('results.aria.sections')}>
           <div className="flex min-w-max gap-2">
             {resultsTabs.map((tab) => (
               <button
@@ -3538,17 +3579,17 @@ Checklist:
         </nav>
 
         {activeResultsTab === 'overview' && (
-        <div className="mb-8 space-y-5" aria-label="Case overview">
+        <div className="mb-8 space-y-5" aria-label={t('results.aria.overview')}>
           <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3">
-            <p className="text-sm text-slate-600">Your case summary, settlement estimate, and attorney matches are at the top of this page. Below is a deeper look at the records and gaps behind those numbers.</p>
+            <p className="text-sm text-slate-600">{t('results.overview.intro')}</p>
           </div>
 
           {/* Medical timeline | Damages | What's missing */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-2">
-                <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><Calendar className="h-4 w-4 text-brand-600" aria-hidden /> Medical Timeline</p>
-                <button type="button" onClick={() => setActiveResultsTab('medical')} className="text-xs font-semibold text-brand-700 hover:text-brand-800">View full timeline</button>
+                <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><Calendar className="h-4 w-4 text-brand-600" aria-hidden /> {t('results.overview.medicalTimeline')}</p>
+                <button type="button" onClick={() => setActiveResultsTab('medical')} className="text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.overview.viewFullTimeline')}</button>
               </div>
               {medicalChronology.length > 0 ? (
                 <ol className="mt-3 space-y-3">
@@ -3556,21 +3597,21 @@ Checklist:
                     <li key={i} className="flex gap-3">
                       <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand-500" />
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold text-slate-800">{ev?.title || ev?.eventType || ev?.type || 'Treatment'}</p>
+                        <p className="text-xs font-semibold text-slate-800">{ev?.title || ev?.eventType || ev?.type || t('results.overview.treatment')}</p>
                         <p className="text-[11px] leading-5 text-slate-500">{[ev?.date ? new Date(ev.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : null, ev?.description || ev?.summary || ev?.provider].filter(Boolean).join(' — ')}</p>
                       </div>
                     </li>
                   ))}
                 </ol>
               ) : (
-                <p className="mt-3 text-sm leading-relaxed text-slate-500">No treatment timeline yet. Add medical records to build your timeline.</p>
+                <p className="mt-3 text-sm leading-relaxed text-slate-500">{t('results.overview.noTimeline')}</p>
               )}
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-2">
-                <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><DollarSign className="h-4 w-4 text-brand-600" aria-hidden /> Damages Breakdown</p>
-                <button type="button" onClick={() => setActiveResultsTab('value')} className="text-xs font-semibold text-brand-700 hover:text-brand-800">View details</button>
+                <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><DollarSign className="h-4 w-4 text-brand-600" aria-hidden /> {t('results.overview.damagesBreakdown')}</p>
+                <button type="button" onClick={() => setActiveResultsTab('value')} className="text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.overview.viewDetails')}</button>
               </div>
               <div className="mt-3 space-y-2">
                 {overviewDamageRows.map((r) => (
@@ -3581,39 +3622,39 @@ Checklist:
                 ))}
               </div>
               <div className="mt-3 rounded-xl border border-amber-100 bg-amber-50/60 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Settlement Range</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{t('results.overview.settlementRange')}</p>
                 <div className="mt-1 grid grid-cols-3 text-center">
-                  <div><p className="text-[10px] text-slate-500">Low</p><p className="text-sm font-bold text-slate-700">{formatCurrency(displaySettlementLow)}</p></div>
-                  <div><p className="text-[10px] text-slate-500">Most Likely</p><p className="text-sm font-bold text-emerald-600">{formatCurrency(displaySettlementExpected)}</p></div>
-                  <div><p className="text-[10px] text-slate-500">High</p><p className="text-sm font-bold text-slate-700">{formatCurrency(displaySettlementHighValue)}</p></div>
+                  <div><p className="text-[10px] text-slate-500">{t('results.overview.low')}</p><p className="text-sm font-bold text-slate-700">{formatCurrency(displaySettlementLow)}</p></div>
+                  <div><p className="text-[10px] text-slate-500">{t('results.overview.mostLikely')}</p><p className="text-sm font-bold text-emerald-600">{formatCurrency(displaySettlementExpected)}</p></div>
+                  <div><p className="text-[10px] text-slate-500">{t('results.overview.high')}</p><p className="text-sm font-bold text-slate-700">{formatCurrency(displaySettlementHighValue)}</p></div>
                 </div>
               </div>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><AlertTriangle className="h-4 w-4 text-amber-500" aria-hidden /> What's Missing <span className="text-slate-400">(Impact)</span></p>
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><AlertTriangle className="h-4 w-4 text-amber-500" aria-hidden /> {t('results.overview.whatsMissing')} <span className="text-slate-400">{t('results.overview.impact')}</span></p>
               <div className="mt-3 space-y-2.5">
                 {overviewMissingRows.length > 0 ? overviewMissingRows.map((r) => (
                   <div key={r.label} className="flex items-center justify-between gap-2">
                     <span className="flex items-center gap-1.5 text-xs text-slate-700"><AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" /> {r.label}</span>
                     <span className="flex shrink-0 items-center gap-2 text-[11px]">
-                      <span className={r.priority === 'High' ? 'font-semibold text-rose-600' : r.priority === 'Medium' ? 'font-semibold text-amber-600' : 'font-semibold text-slate-400'}>{r.priority}</span>
+                      <span className={r.priority === 'High' ? 'font-semibold text-rose-600' : r.priority === 'Medium' ? 'font-semibold text-amber-600' : 'font-semibold text-slate-400'}>{r.priority === 'High' ? t('results.shared.high') : r.priority === 'Medium' ? t('results.shared.medium') : t('results.shared.low')}</span>
                       <span className="font-semibold text-emerald-600">{r.range}</span>
                     </span>
                   </div>
                 )) : (
-                  <p className="text-sm text-slate-500">Your key documents are in place.</p>
+                  <p className="text-sm text-slate-500">{t('results.overview.docsInPlace')}</p>
                 )}
               </div>
-              <button type="button" onClick={() => setActiveResultsTab('documents')} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">Upload docs to increase value <ChevronRight className="h-3 w-3" /></button>
+              <button type="button" onClick={() => setActiveResultsTab('documents')} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.overview.uploadToIncrease')} <ChevronRight className="h-3 w-3" /></button>
             </div>
           </div>
 
           {/* How to increase value + important notes */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="font-display text-base font-semibold text-slate-900">How to Increase Your Case Value</p>
-              <p className="mt-0.5 text-sm text-slate-500">Take these steps to strengthen your case and improve your outcome.</p>
+              <p className="font-display text-base font-semibold text-slate-900">{t('results.headings.howToIncrease')}</p>
+              <p className="mt-0.5 text-sm text-slate-500">{t('results.overview.takeSteps')}</p>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {snapshotTopActions.map((action) => {
                   const Icon = action.icon
@@ -3626,16 +3667,16 @@ Checklist:
                   )
                 })}
               </div>
-              <button type="button" onClick={() => setActiveResultsTab('attorney')} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">See all recommendations <ChevronRight className="h-3 w-3" /></button>
+              <button type="button" onClick={() => setActiveResultsTab('attorney')} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.overview.seeAllRecs')} <ChevronRight className="h-3 w-3" /></button>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="font-display text-base font-semibold text-slate-900">Important Notes</p>
+              <p className="font-display text-base font-semibold text-slate-900">{t('results.overview.importantNotes')}</p>
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
                 {[
-                  'This is an estimate, not a guarantee of outcome.',
-                  'Case value depends on many factors and may change.',
-                  'Information is encrypted and only shared with attorneys you choose.',
-                  'No obligation to hire. You remain in control.',
+                  t('results.overview.note1'),
+                  t('results.overview.note2'),
+                  t('results.overview.note3'),
+                  t('results.overview.note4'),
                 ].map((note) => (
                   <li key={note} className="flex items-start gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>{note}</span></li>
                 ))}
@@ -3648,27 +3689,27 @@ Checklist:
             <div className="flex items-start gap-2">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600"><Lock className="h-4 w-4" aria-hidden /></span>
               <div>
-                <p className="text-sm font-semibold text-slate-900">Your information is private and secure.</p>
-                <p className="text-xs text-slate-500">We only share your case with attorneys you choose to continue.</p>
+                <p className="text-sm font-semibold text-slate-900">{t('results.shared.privateSecureTitle')}</p>
+                <p className="text-xs text-slate-500">{t('results.shared.onlyShareChoose')}</p>
               </div>
             </div>
-            <button type="button" onClick={openAttorneyReviewFlow} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-800">Continue to Attorney Review <ChevronRight className="h-4 w-4" /></button>
+            <button type="button" onClick={openAttorneyReviewFlow} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-800">{t('results.shared.continueReview')} <ChevronRight className="h-4 w-4" /></button>
           </div>
         </div>
         )}
 
         {activeResultsTab === 'liability' && (
-        <div className="mb-8 space-y-5" aria-label="Liability analysis">
+        <div className="mb-8 space-y-5" aria-label={t('results.aria.liability')}>
           <div>
-            <h2 className="font-display text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">Liability Analysis</h2>
-            <p className="mt-1 text-sm text-slate-600">An evaluation of fault, evidence, and factors that impact liability in your case.</p>
+            <h2 className="font-display text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">{t('results.liability.title')}</h2>
+            <p className="mt-1 text-sm text-slate-600">{t('results.liability.subtitle')}</p>
           </div>
 
           {/* Four cards */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             {/* Liability strength gauge */}
             <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Liability Strength</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{t('results.headings.liabilityStrength')}</p>
               <div className="relative mx-auto mt-3 h-28 w-28">
                 <svg viewBox="0 0 36 36" className="h-28 w-28 -rotate-90">
                   <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#e2e8f0" strokeWidth="3.2" />
@@ -3679,19 +3720,19 @@ Checklist:
                 </div>
               </div>
               <p className="mt-2 text-sm font-semibold text-emerald-600">{liabStrengthLabel}</p>
-              <p className="mt-0.5 text-[11px] text-slate-500">Strength of your liability position</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">{t('results.liability.strengthOfPosition')}</p>
             </div>
 
             {/* Most likely at fault */}
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500"><Scale className="h-3.5 w-3.5" aria-hidden /> Most Likely at Fault</p>
+              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500"><Scale className="h-3.5 w-3.5" aria-hidden /> {t('results.liability.mostLikelyAtFault')}</p>
               <p className="mt-3 font-display text-xl font-bold text-emerald-600">{liabMostLikelyAtFault}</p>
-              <p className="text-[11px] text-slate-500">Based on the information provided</p>
+              <p className="text-[11px] text-slate-500">{t('results.liability.basedOnInfo')}</p>
               <div className="mt-3 space-y-2">
                 {[
-                  { label: 'Other Driver', pct: liabFaultOther, color: 'bg-emerald-500' },
-                  { label: 'Shared Fault', pct: liabFaultShared, color: 'bg-amber-400' },
-                  { label: 'You', pct: liabFaultYou, color: 'bg-rose-400' },
+                  { label: t('results.liability.otherDriver'), pct: liabFaultOther, color: 'bg-emerald-500' },
+                  { label: t('results.liability.sharedFault'), pct: liabFaultShared, color: 'bg-amber-400' },
+                  { label: t('results.liability.you'), pct: liabFaultYou, color: 'bg-rose-400' },
                 ].map((row) => (
                   <div key={row.label}>
                     <div className="flex items-center justify-between text-[11px] text-slate-600"><span>{row.label}</span><span className="font-semibold text-slate-800">{row.pct}%</span></div>
@@ -3703,29 +3744,29 @@ Checklist:
 
             {/* Attorney interest */}
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500"><User className="h-3.5 w-3.5" aria-hidden /> Attorney Interest</p>
+              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500"><User className="h-3.5 w-3.5" aria-hidden /> {t('results.liability.attorneyInterest')}</p>
               <p className="mt-3 font-display text-2xl font-bold text-violet-700">{liabAttorneyCurrent}%</p>
-              <p className="text-[11px] text-slate-500">Current likelihood</p>
+              <p className="text-[11px] text-slate-500">{t('results.liability.currentLikelihood')}</p>
               <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
-                <p className="text-[11px] font-semibold text-slate-700">If you add key evidence</p>
+                <p className="text-[11px] font-semibold text-slate-700">{t('results.liability.ifAddEvidence')}</p>
                 <div className="mt-2 space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px]"><span className="text-slate-600">+ Police report</span><span className="font-semibold text-emerald-600">{liabAttorneyWithPolice}%</span></div>
-                  <div className="flex items-center justify-between text-[11px]"><span className="text-slate-600">+ Police report + photos</span><span className="font-semibold text-emerald-600">{liabAttorneyWithPolicePhotos}%</span></div>
+                  <div className="flex items-center justify-between text-[11px]"><span className="text-slate-600">{t('results.liability.plusPolice')}</span><span className="font-semibold text-emerald-600">{liabAttorneyWithPolice}%</span></div>
+                  <div className="flex items-center justify-between text-[11px]"><span className="text-slate-600">{t('results.liability.plusPolicePhotos')}</span><span className="font-semibold text-emerald-600">{liabAttorneyWithPolicePhotos}%</span></div>
                 </div>
               </div>
             </div>
 
             {/* Shared fault risk */}
             <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-sm">
-              <p className="flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500"><Shield className="h-3.5 w-3.5" aria-hidden /> Shared Fault Risk</p>
+              <p className="flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500"><Shield className="h-3.5 w-3.5" aria-hidden /> {t('results.liability.sharedFaultRisk')}</p>
               <p className="mt-3 font-display text-2xl font-bold text-emerald-600">{sharedFaultRiskWord}</p>
               <p className="text-[11px] text-slate-500">{sharedFaultRiskDesc}</p>
-              <p className="mt-4 text-[11px] text-slate-500">Comparative negligence risk</p>
+              <p className="mt-4 text-[11px] text-slate-500">{t('results.liability.comparativeNegligence')}</p>
               <div className="mt-2">
                 <div className="relative h-1.5 rounded-full bg-gradient-to-r from-emerald-300 via-amber-200 to-rose-300">
                   <span className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-emerald-600 bg-white shadow" style={{ left: `${sharedFaultRiskPos}%` }} />
                 </div>
-                <div className="mt-1.5 flex justify-between text-[10px] text-slate-500"><span>Low</span><span>Medium</span><span>High</span></div>
+                <div className="mt-1.5 flex justify-between text-[10px] text-slate-500"><span>{t('results.shared.low')}</span><span>{t('results.shared.medium')}</span><span>{t('results.shared.high')}</span></div>
               </div>
             </div>
           </div>
@@ -3734,15 +3775,15 @@ Checklist:
           <div className="rounded-2xl border border-brand-100 bg-brand-50/40 p-5 shadow-sm">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
-                <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><BarChart3 className="h-4 w-4 text-brand-600" aria-hidden /> AI Liability Summary</p>
+                <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><BarChart3 className="h-4 w-4 text-brand-600" aria-hidden /> {t('results.liability.aiSummary')}</p>
                 <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-700">
-                  Based on the information provided, {isRearEndCase ? 'you reported being rear-ended while stopped at a traffic signal. Rear-end collisions generally create a strong presumption that the trailing driver is at fault.' : `your ${caseSnapshotClaimLabel.toLowerCase()} was reported with the facts you provided.`} {(treatment.length > 0 || hasMedicalRecords) ? 'Your medical treatment shortly after the incident, which supports causation.' : 'Adding medical treatment records would support causation.'} {(!hasPoliceReport || !hasWitnessStatements || !hasInjuryPhotos) ? 'However, without a police report, witness statements, or scene photos, the insurance company may dispute fault. Adding those items would significantly strengthen your case.' : 'Your supporting evidence puts you in a strong position on liability.'}
+                  {t('results.liability.aiPrefix')} {isRearEndCase ? t('results.liability.aiRearEnd') : `${t('results.liability.aiGenericA')} ${caseSnapshotClaimLabel.toLowerCase()} ${t('results.liability.aiGenericB')}`} {(treatment.length > 0 || hasMedicalRecords) ? t('results.liability.aiCausationYes') : t('results.liability.aiCausationAdd')} {(!hasPoliceReport || !hasWitnessStatements || !hasInjuryPhotos) ? t('results.liability.aiDispute') : t('results.liability.aiStrong')}
                 </p>
               </div>
               <div className="shrink-0 rounded-xl border border-brand-200 bg-white p-4 lg:w-64">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><Scale className="h-4 w-4 text-brand-600" aria-hidden /> Current outlook</p>
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><Scale className="h-4 w-4 text-brand-600" aria-hidden /> {t('results.liability.currentOutlook')}</p>
                 <p className="mt-1 font-display text-lg font-bold text-brand-700">{liabStrengthLabel}</p>
-                <p className="mt-1 text-[11px] leading-5 text-slate-500">More evidence needed to increase confidence.</p>
+                <p className="mt-1 text-[11px] leading-5 text-slate-500">{t('results.liability.moreEvidenceNeeded')}</p>
               </div>
             </div>
           </div>
@@ -3750,7 +3791,7 @@ Checklist:
           {/* Three columns: strongest factors | what insurer argues | additional evidence */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-semibold text-slate-900">Strongest Liability Factors</p>
+              <p className="text-sm font-semibold text-slate-900">{t('results.liability.strongestFactors')}</p>
               <div className="mt-3 space-y-2">
                 {liabStrongFactors.map((f) => (
                   <div key={f.label} className="flex items-center justify-between gap-2 text-sm">
@@ -3760,26 +3801,26 @@ Checklist:
                 ))}
               </div>
               <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
-                <span className="font-semibold text-slate-700">Total Positive Impact</span>
+                <span className="font-semibold text-slate-700">{t('results.liability.totalPositive')}</span>
                 <span className="font-bold text-emerald-600">+{liabPositiveTotal}%</span>
               </div>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-semibold text-amber-700">What an Insurance Company Might Argue</p>
+              <p className="text-sm font-semibold text-amber-700">{t('results.liability.insurerArgue')}</p>
               <div className="mt-3 space-y-2">
                 {liabInsuranceArgues.map((item) => (
                   <div key={item} className="flex items-start gap-2 text-sm text-slate-700"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" /> <span>{item}</span></div>
                 ))}
               </div>
               <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
-                <span className="font-semibold text-slate-700">Potential Negative Impact</span>
+                <span className="font-semibold text-slate-700">{t('results.liability.potentialNegative')}</span>
                 <span className="font-bold text-rose-600">-{liabNegativeTotal}%</span>
               </div>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-semibold text-slate-900">Estimated Impact of Additional Evidence</p>
+              <p className="text-sm font-semibold text-slate-900">{t('results.liability.estImpactEvidence')}</p>
               <div className="mt-3 space-y-2">
                 {liabAdditionalEvidence.map((e) => {
                   const Icon = e.icon
@@ -3792,7 +3833,7 @@ Checklist:
                 })}
               </div>
               <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
-                <span className="font-semibold text-slate-700">Max Potential Increase</span>
+                <span className="font-semibold text-slate-700">{t('results.liability.maxIncrease')}</span>
                 <span className="font-bold text-emerald-600">+{liabMaxIncrease}%</span>
               </div>
             </div>
@@ -3800,8 +3841,8 @@ Checklist:
 
           {/* How liability could improve */}
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm font-semibold text-slate-900">How Your Liability Could Improve</p>
-            <p className="mt-0.5 text-sm text-slate-500">Estimated liability strength as you add key evidence.</p>
+            <p className="text-sm font-semibold text-slate-900">{t('results.liability.howImprove')}</p>
+            <p className="mt-0.5 text-sm text-slate-500">{t('results.liability.howImproveSub')}</p>
             <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
               {liabImproveSteps.map((step, i) => (
                 <div key={step.label} className="relative text-center">
@@ -3820,37 +3861,37 @@ Checklist:
           {/* Venue intelligence + insurance recovery */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><MapPin className="h-4 w-4 text-brand-600" aria-hidden /> Venue Intelligence</p>
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><MapPin className="h-4 w-4 text-brand-600" aria-hidden /> {t('results.liability.venueIntel')}</p>
               <div className="mt-3 flex items-center gap-2">
-                <p className="font-semibold text-slate-900">{formatVenueLabel(venueState, venueCounty) || 'Venue unavailable'}</p>
-                {venueFriendlinessScore >= 4 && <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Plaintiff Friendly</span>}
+                <p className="font-semibold text-slate-900">{formatVenueLabel(venueState, venueCounty) || t('results.liability.venueUnavailable')}</p>
+                {venueFriendlinessScore >= 4 && <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">{t('results.liability.plaintiffFriendly')}</span>}
               </div>
-              <p className="mt-1 text-[11px] text-slate-500">Historical data shows outcomes in this venue tend to be {venueFriendlinessScore >= 4 ? 'better for plaintiffs' : 'about average'}.</p>
+              <p className="mt-1 text-[11px] text-slate-500">{t('results.liability.venueHistPrefix')} {venueFriendlinessScore >= 4 ? t('results.liability.venueHistBetter') : t('results.liability.venueHistAvg')}.</p>
               <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Expected Impact</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{t('results.liability.expectedImpact')}</p>
                 <p className="font-display text-xl font-bold text-emerald-600">+{liabVenueImpactLow}% to +{venueImpactPercent}%</p>
-                <p className="text-[11px] text-slate-500">Compared to neutral venues</p>
+                <p className="text-[11px] text-slate-500">{t('results.liability.comparedNeutral')}</p>
               </div>
               <div className="mt-3 divide-y divide-slate-100 text-sm">
                 {[
-                  ['Jury tendencies', venueFriendlinessScore >= 4 ? 'Plaintiff favorable' : 'Balanced'],
-                  ['Average verdict vs. settlement', 'Higher'],
-                  ['Time to resolution', '12 - 18 months'],
+                  [t('results.liability.juryTendencies'), venueFriendlinessScore >= 4 ? t('results.liability.juryFavorable') : t('results.liability.juryBalanced')],
+                  [t('results.liability.avgVerdict'), t('results.liability.higher')],
+                  [t('results.liability.timeToResolution'), t('results.liability.months12to18')],
                 ].map(([label, value]) => (
                   <div key={label} className="flex items-center justify-between py-2"><span className="text-slate-600">{label}</span><span className="font-semibold text-slate-800">{value}</span></div>
                 ))}
               </div>
-              <button type="button" onClick={() => setActiveResultsTab('value')} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">View venue insights <ChevronRight className="h-3 w-3" /></button>
+              <button type="button" onClick={() => setActiveResultsTab('value')} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.liability.viewVenue')} <ChevronRight className="h-3 w-3" /></button>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><Shield className="h-4 w-4 text-brand-600" aria-hidden /> Insurance Recovery Outlook</p>
-              <p className="mt-0.5 text-sm text-slate-500">Evaluation of available insurance sources.</p>
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><Shield className="h-4 w-4 text-brand-600" aria-hidden /> {t('results.liability.insuranceOutlook')}</p>
+              <p className="mt-0.5 text-sm text-slate-500">{t('results.liability.insuranceSub')}</p>
               <div className="mt-3 space-y-3">
                 {[
-                  { label: 'Defendant Auto Policy', status: insuranceRecoveryPercent >= 50 ? 'Likely available' : 'Unknown', tone: insuranceRecoveryPercent >= 50 ? 'emerald' : 'amber', sub: 'Estimated limits', value: insuranceRecoveryPercent >= 50 ? '$50,000' : 'Unknown' },
-                  { label: 'UM / UIM Coverage', status: 'Unknown', tone: 'amber', sub: 'Your policy', value: 'Not provided' },
-                  { label: 'Commercial / Employer Coverage', status: 'No evidence', tone: 'slate', sub: 'Evidence found', value: 'None' },
+                  { label: t('results.liability.defAutoPolicy'), status: insuranceRecoveryPercent >= 50 ? t('results.liability.likelyAvailable') : t('results.liability.unknown'), tone: insuranceRecoveryPercent >= 50 ? 'emerald' : 'amber', sub: t('results.liability.estLimits'), value: insuranceRecoveryPercent >= 50 ? '$50,000' : t('results.liability.unknown') },
+                  { label: t('results.liability.umuim'), status: t('results.liability.unknown'), tone: 'amber', sub: t('results.liability.yourPolicy'), value: t('results.liability.notProvided') },
+                  { label: t('results.liability.commercialCov'), status: t('results.liability.noEvidence'), tone: 'slate', sub: t('results.liability.evidenceFound'), value: t('results.liability.none') },
                 ].map((row) => (
                   <div key={row.label} className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
                     <div className="flex items-center justify-between gap-2">
@@ -3864,14 +3905,14 @@ Checklist:
                   </div>
                 ))}
               </div>
-              <button type="button" onClick={() => setActiveResultsTab('documents')} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">View insurance analysis <ChevronRight className="h-3 w-3" /></button>
+              <button type="button" onClick={() => setActiveResultsTab('documents')} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.liability.viewInsurance')} <ChevronRight className="h-3 w-3" /></button>
             </div>
           </div>
 
           {/* Recommended next steps */}
           <div className="rounded-2xl border border-amber-100 bg-amber-50/40 p-5 shadow-sm">
-            <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><Lightbulb className="h-4 w-4 text-amber-500" aria-hidden /> Recommended Next Steps</p>
-            <p className="mt-0.5 text-sm text-slate-500">These actions will strengthen your liability position the most.</p>
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><Lightbulb className="h-4 w-4 text-amber-500" aria-hidden /> {t('results.liability.recommendedSteps')}</p>
+            <p className="mt-0.5 text-sm text-slate-500">{t('results.liability.recommendedStepsSub')}</p>
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {liabRecommendedSteps.map((step, i) => (
                 <div key={step.label} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -3886,15 +3927,15 @@ Checklist:
             </div>
           </div>
 
-          <p className="text-center text-xs text-slate-400">Liability analysis is updated as new information is added.</p>
+          <p className="text-center text-xs text-slate-400">{t('results.liability.updatedFooter')}</p>
         </div>
         )}
 
         {activeResultsTab === 'medical' && (
         <div id="medical-story-review" ref={medicalReviewRef} className="mb-8 scroll-mt-6 space-y-5">
           <div>
-            <h2 className="font-display text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">Medical Story</h2>
-            <p className="mt-1 text-sm text-slate-600">Review your treatment timeline, records, and injuries before attorney handoff.</p>
+            <h2 className="font-display text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">{t('results.medical.title')}</h2>
+            <p className="mt-1 text-sm text-slate-600">{t('results.medical.subtitle')}</p>
           </div>
 
           {/* What to do now — single, prominent next step for this tab */}
@@ -3904,13 +3945,13 @@ Checklist:
                 <div className="flex items-start gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white"><CheckCircle className="h-5 w-5" aria-hidden /></span>
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">You&apos;re all set</p>
-                    <p className="mt-0.5 font-display text-base font-bold text-slate-900">Your medical story is confirmed</p>
-                    <p className="mt-1 text-sm text-slate-600">Attorneys will see your treatment timeline as accurate. You can still upload more records anytime to strengthen your case.</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">{t('results.medical.allSet')}</p>
+                    <p className="mt-0.5 font-display text-base font-bold text-slate-900">{t('results.medical.confirmedTitle')}</p>
+                    <p className="mt-1 text-sm text-slate-600">{t('results.medical.confirmedDesc')}</p>
                   </div>
                 </div>
                 <Link to={`/evidence-upload/${resolvedAssessmentId || assessment?.id}`} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50">
-                  <Upload className="h-4 w-4" aria-hidden /> Upload more records
+                  <Upload className="h-4 w-4" aria-hidden /> {t('results.shared2.uploadMoreRecords')}
                 </Link>
               </div>
             </div>
@@ -3920,18 +3961,18 @@ Checklist:
                 <div className="flex items-start gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white"><ClipboardList className="h-5 w-5" aria-hidden /></span>
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">What to do now</p>
-                    <p className="mt-0.5 font-display text-base font-bold text-slate-900">Review your treatment timeline</p>
-                    <p className="mt-1 text-sm text-slate-600">Check the timeline below and confirm it&apos;s accurate before attorneys see your case. Add any missing visits or more records to strengthen it.</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">{t('results.medical.whatToDoNow')}</p>
+                    <p className="mt-0.5 font-display text-base font-bold text-slate-900">{t('results.medical.reviewTimelineTitle')}</p>
+                    <p className="mt-1 text-sm text-slate-600">{t('results.medical.reviewTimelineDesc')}</p>
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-col gap-2 sm:items-end">
                   <button type="button" onClick={() => persistPlaintiffMedicalReview({ status: 'confirmed' })} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800">
-                    <CheckCircle className="h-4 w-4" aria-hidden /> Confirm timeline
+                    <CheckCircle className="h-4 w-4" aria-hidden /> {t('results.medical.confirmTimeline')}
                   </button>
                   <div className="flex gap-3 text-xs font-semibold">
-                    <Link to={`/evidence-upload/${resolvedAssessmentId || assessment?.id}`} className="text-brand-700 hover:text-brand-800">Upload more records</Link>
-                    <button type="button" onClick={() => persistPlaintiffMedicalReview({ status: 'skipped' })} className="text-slate-500 hover:text-slate-700">I&apos;ll do this later</button>
+                    <Link to={`/evidence-upload/${resolvedAssessmentId || assessment?.id}`} className="text-brand-700 hover:text-brand-800">{t('results.shared2.uploadMoreRecords')}</Link>
+                    <button type="button" onClick={() => persistPlaintiffMedicalReview({ status: 'skipped' })} className="text-slate-500 hover:text-slate-700">{t('results.shared.iolLater')}</button>
                   </div>
                 </div>
               </div>
@@ -3942,18 +3983,18 @@ Checklist:
                 <div className="flex items-start gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white"><Upload className="h-5 w-5" aria-hidden /></span>
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">What to do now</p>
-                    <p className="mt-0.5 font-display text-base font-bold text-slate-900">Start by adding your medical records</p>
-                    <p className="mt-1 text-sm text-slate-600">Attorneys need your treatment records and bills to review your case. No documents yet? Enter quick estimates instead &mdash; you can replace them later.</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">{t('results.medical.whatToDoNow')}</p>
+                    <p className="mt-0.5 font-display text-base font-bold text-slate-900">{t('results.medical.startAddingTitle')}</p>
+                    <p className="mt-1 text-sm text-slate-600">{t('results.medical.startAddingDesc')}</p>
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-col gap-2 sm:items-end">
                   <Link to={`/evidence-upload/${resolvedAssessmentId || assessment?.id}`} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
-                    <Upload className="h-4 w-4" aria-hidden /> Upload medical records &amp; bills
+                    <Upload className="h-4 w-4" aria-hidden /> {t('results.shared2.uploadRecordsBills')}
                   </Link>
                   <div className="flex gap-3 text-xs font-semibold">
-                    <button type="button" onClick={() => { const el = document.getElementById('medical-estimates') as HTMLDetailsElement | null; if (el) { el.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }) } }} className="text-brand-700 hover:text-brand-800">Enter estimates</button>
-                    <button type="button" onClick={() => persistPlaintiffMedicalReview({ status: 'skipped' })} className="text-slate-500 hover:text-slate-700">I&apos;ll do this later</button>
+                    <button type="button" onClick={() => { const el = document.getElementById('medical-estimates') as HTMLDetailsElement | null; if (el) { el.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }) } }} className="text-brand-700 hover:text-brand-800">{t('results.medical.enterEstimates')}</button>
+                    <button type="button" onClick={() => persistPlaintiffMedicalReview({ status: 'skipped' })} className="text-slate-500 hover:text-slate-700">{t('results.shared.iolLater')}</button>
                   </div>
                 </div>
               </div>
@@ -3964,7 +4005,7 @@ Checklist:
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
             {/* Treatment strength */}
             <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Treatment Strength</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t('results.medical.treatmentStrength')}</p>
               <div className="relative mx-auto mt-2 h-20 w-20">
                 <svg viewBox="0 0 36 36" className="h-20 w-20 -rotate-90">
                   <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#e2e8f0" strokeWidth="3.4" />
@@ -3973,18 +4014,18 @@ Checklist:
                 <div className="absolute inset-0 flex items-center justify-center"><span className="font-display text-xl font-bold text-slate-900">{medTreatmentStrengthPct}%</span></div>
               </div>
               <p className="mt-1 text-xs font-semibold text-emerald-600">{medTreatmentStrengthLabel}</p>
-              <p className="mt-0.5 text-[10px] leading-4 text-slate-400">Based on treatment length and consistency</p>
+              <p className="mt-0.5 text-[10px] leading-4 text-slate-400">{t('results.medical.treatmentStrengthSub')}</p>
             </div>
             {/* Attorney readiness */}
             <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Attorney Readiness</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t('results.medical.attorneyReadiness')}</p>
               <p className="mt-3 font-display text-3xl font-bold text-brand-600">{medAttorneyReadinessPct}%</p>
               <p className="mt-1 text-xs font-semibold text-brand-600">{medAttorneyReadinessLabel}</p>
-              <p className="mt-0.5 text-[10px] leading-4 text-slate-400">Upload missing items to improve attorney interest</p>
+              <p className="mt-0.5 text-[10px] leading-4 text-slate-400">{t('results.medical.attorneyReadinessSub')}</p>
             </div>
             {/* Injury severity (semicircle) */}
             <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Injury Severity</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t('results.medical.injurySeverity')}</p>
               <div className="relative mx-auto mt-2 h-12 w-24 overflow-hidden">
                 <svg viewBox="0 0 36 18" className="h-12 w-24">
                   <path d="M2 18 A16 16 0 0 1 34 18" fill="none" stroke="#e2e8f0" strokeWidth="3.4" strokeLinecap="round" />
@@ -3992,21 +4033,21 @@ Checklist:
                 </svg>
               </div>
               <p className="text-xs font-semibold text-amber-600">{severitySnapshotLabel}</p>
-              <p className="mt-0.5 text-[10px] leading-4 text-slate-400">Severity score {medSeverityPct} / 100</p>
+              <p className="mt-0.5 text-[10px] leading-4 text-slate-400">{t('results.medical.severityScore')} {medSeverityPct} / 100</p>
             </div>
             {/* Case value confidence */}
             <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Case Value Confidence</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t('results.medical.caseValueConfidence')}</p>
               <p className="mt-3 font-display text-3xl font-bold text-emerald-600">{medCaseConfidencePct}%</p>
               <p className="mt-1 text-xs font-semibold text-emerald-600">{medCaseConfidenceLabel}</p>
-              <p className="mt-0.5 text-[10px] leading-4 text-slate-400">More complete records improve accuracy</p>
+              <p className="mt-0.5 text-[10px] leading-4 text-slate-400">{t('results.medical.caseValueConfidenceSub')}</p>
             </div>
             {/* Treatment length */}
             <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Medical Treatment Length</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t('results.medical.treatmentLength')}</p>
               <Calendar className="mx-auto mt-2 h-7 w-7 text-brand-500" aria-hidden />
-              <p className="mt-2 font-display text-2xl font-bold text-slate-900">{medTreatmentLengthDays} days</p>
-              <p className="mt-0.5 text-[10px] leading-4 text-slate-400">From first treatment to most recent visit</p>
+              <p className="mt-2 font-display text-2xl font-bold text-slate-900">{medTreatmentLengthDays} {t('results.medical.days')}</p>
+              <p className="mt-0.5 text-[10px] leading-4 text-slate-400">{t('results.medical.fromFirstToRecent')}</p>
             </div>
           </div>
 
@@ -4015,23 +4056,23 @@ Checklist:
             {/* Left: AI summary + timeline (2 cols) */}
             <div className="space-y-4 lg:col-span-2">
               <div className="rounded-2xl border border-brand-100 bg-brand-50/40 p-5 shadow-sm">
-                <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><BarChart3 className="h-4 w-4 text-brand-600" aria-hidden /> AI Medical Summary</p>
+                <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><BarChart3 className="h-4 w-4 text-brand-600" aria-hidden /> {t('results.medical.aiMedSummary')}</p>
                 <p className="mt-2 text-sm leading-relaxed text-slate-700">{medAiSummary}</p>
-                <p className="mt-2 text-sm leading-relaxed text-slate-700">Additional medical records and bills will help verify your treatment and increase the accuracy of your case value and attorney interest.</p>
+                <p className="mt-2 text-sm leading-relaxed text-slate-700">{t('results.medical.aiMedExtra')}</p>
                 <div className="mt-3 flex items-start gap-2 rounded-xl border border-brand-200 bg-white px-3 py-2.5 text-xs text-slate-600">
                   <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" aria-hidden />
-                  <span><span className="font-semibold text-slate-700">Tip:</span> Upload your medical records and bills to strengthen your case value and improve your chances of attorney representation.</span>
+                  <span><span className="font-semibold text-slate-700">{t('results.medical.tip')}</span> {t('results.medical.tipBody')}</span>
                 </div>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">Your Treatment Timeline</p>
-                    <p className="mt-0.5 text-xs text-slate-500">A chronological view of your treatment journey.</p>
+                    <p className="text-sm font-semibold text-slate-900">{t('results.medical.yourTimeline')}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">{t('results.medical.yourTimelineSub')}</p>
                   </div>
                   <Link to={`/evidence-upload/${resolvedAssessmentId || assessment?.id}`} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                    <Upload className="h-3.5 w-3.5" aria-hidden /> Add missing visit
+                    <Upload className="h-3.5 w-3.5" aria-hidden /> {t('results.medical.addMissingVisit')}
                   </Link>
                 </div>
                 {medTimelineRows.length > 0 ? (
@@ -4057,10 +4098,10 @@ Checklist:
                     ))}
                   </ol>
                 ) : (
-                  <p className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No treatment events yet. Upload medical records to build your timeline.</p>
+                  <p className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">{t('results.medical.noEvents')}</p>
                 )}
                 {medTreatmentLengthDays > 0 && (
-                  <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-center text-xs font-medium text-slate-600">Total treatment duration: ~{medTreatmentLengthDays} days</p>
+                  <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-center text-xs font-medium text-slate-600">{t('results.medical.totalDurationA')}{medTreatmentLengthDays} {t('results.medical.totalDurationB')}</p>
                 )}
               </div>
             </div>
@@ -4069,22 +4110,22 @@ Checklist:
             <div className="space-y-4">
               {/* Missing evidence impact */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="text-sm font-semibold text-slate-900">Missing Evidence Impact</p>
+                <p className="text-sm font-semibold text-slate-900">{t('results.medical.missingEvidenceImpact')}</p>
                 <div className="mt-3 space-y-2">
                   {medMissingEvidence.length > 0 ? medMissingEvidence.map((row) => (
                     <div key={row.label} className="flex items-center justify-between gap-2 text-sm">
                       <span className="flex items-center gap-2 text-slate-700"><FileText className="h-4 w-4 shrink-0 text-slate-400" /> {row.label}</span>
-                      <span className="flex items-center gap-2"><span className="rounded-md bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600">Missing</span><span className="font-semibold text-emerald-600">{row.impact}</span></span>
+                      <span className="flex items-center gap-2"><span className="rounded-md bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600">{t('results.shared2.missing')}</span><span className="font-semibold text-emerald-600">{row.impact}</span></span>
                     </div>
                   )) : (
-                    <p className="flex items-center gap-2 text-sm text-emerald-700"><CheckCircle className="h-4 w-4" /> All key evidence is on file.</p>
+                    <p className="flex items-center gap-2 text-sm text-emerald-700"><CheckCircle className="h-4 w-4" /> {t('results.medical.allKeyOnFile')}</p>
                   )}
                 </div>
               </div>
 
               {/* Confidence if added */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="text-sm font-semibold text-slate-900">Case Value Confidence if Added</p>
+                <p className="text-sm font-semibold text-slate-900">{t('results.medical.confidenceIfAdded')}</p>
                 <div className="mt-4 flex items-end justify-between gap-1">
                   {medConfidenceSteps.map((step, i) => (
                     <div key={step.label} className="flex flex-1 flex-col items-center text-center">
@@ -4098,7 +4139,7 @@ Checklist:
 
               {/* Known economic damages */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="text-sm font-semibold text-slate-900">Known Economic Damages</p>
+                <p className="text-sm font-semibold text-slate-900">{t('results.medical.knownEconomic')}</p>
                 <div className="mt-3 divide-y divide-slate-100 text-sm">
                   {medEconomicRows.map((row) => (
                     <div key={row.label} className="flex items-center justify-between py-2">
@@ -4107,16 +4148,16 @@ Checklist:
                     </div>
                   ))}
                   <div className="flex items-center justify-between py-2">
-                    <span className="font-semibold text-slate-700">Total Economic Damages</span>
+                    <span className="font-semibold text-slate-700">{t('results.medical.totalEconomic')}</span>
                     <span className="font-display text-base font-bold text-emerald-600">{formatCurrency(medEconomicTotal)}</span>
                   </div>
                 </div>
-                <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-500">Estimates will update as you add more records and bills.</p>
+                <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-500">{t('results.medical.estimatesUpdate')}</p>
               </div>
 
               {/* Future treatment indicators */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="text-sm font-semibold text-slate-900">Future Treatment Indicators</p>
+                <p className="text-sm font-semibold text-slate-900">{t('results.medical.futureIndicators')}</p>
                 <div className="mt-3 space-y-2 text-sm">
                   {medFutureIndicators.map((row) => (
                     <div key={row.label} className="flex items-center justify-between gap-2">
@@ -4127,17 +4168,17 @@ Checklist:
                         {row.label}
                       </span>
                       {row.status !== 'yes' && (
-                        <span className={`shrink-0 text-[11px] font-semibold ${row.status === 'unknown' ? 'text-slate-400' : 'text-amber-600'}`}>{row.status === 'unknown' ? 'Unknown' : 'Not confirmed'}</span>
+                        <span className={`shrink-0 text-[11px] font-semibold ${row.status === 'unknown' ? 'text-slate-400' : 'text-amber-600'}`}>{row.status === 'unknown' ? t('results.medical.unknown') : t('results.medical.notConfirmed')}</span>
                       )}
                     </div>
                   ))}
                 </div>
                 <div className="mt-3 flex items-center justify-between rounded-xl border border-amber-100 bg-amber-50/60 px-3 py-2">
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Future Medical Risk</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{t('results.medical.futureRisk')}</p>
                     <p className="font-display text-base font-bold text-amber-600">{medFutureRiskWord}</p>
                   </div>
-                  <p className="max-w-[8rem] text-right text-[10px] leading-3 text-slate-500">Based on current symptoms and treatment plan</p>
+                  <p className="max-w-[8rem] text-right text-[10px] leading-3 text-slate-500">{t('results.medical.futureRiskSub')}</p>
                 </div>
               </div>
             </div>
@@ -4146,7 +4187,7 @@ Checklist:
           {/* Required + helpful evidence */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="rounded-2xl border border-rose-100 bg-rose-50/30 p-5 shadow-sm">
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-rose-700"><AlertTriangle className="h-4 w-4" aria-hidden /> Required to Maximize Value</p>
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-rose-700"><AlertTriangle className="h-4 w-4" aria-hidden /> {t('results.medical.requiredToMax')}</p>
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {medRequiredEvidence.map((item) => {
                   const Icon = item.icon
@@ -4155,14 +4196,14 @@ Checklist:
                       <Icon className="mx-auto h-5 w-5 text-rose-500" aria-hidden />
                       <p className="mt-2 text-xs font-semibold text-slate-900">{item.title}</p>
                       <p className="mt-0.5 text-[10px] leading-3 text-slate-500">{item.desc}</p>
-                      <span className={`mt-2 inline-block rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${item.present ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{item.present ? 'On file' : 'Missing'}</span>
+                      <span className={`mt-2 inline-block rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${item.present ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>{item.present ? t('results.shared2.onFile') : t('results.shared2.missing')}</span>
                     </div>
                   )
                 })}
               </div>
             </div>
             <div className="rounded-2xl border border-brand-100 bg-brand-50/30 p-5 shadow-sm">
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-brand-700"><ShieldCheck className="h-4 w-4" aria-hidden /> Helpful Supporting Evidence</p>
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-brand-700"><ShieldCheck className="h-4 w-4" aria-hidden /> {t('results.medical.helpfulSupporting')}</p>
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {medHelpfulEvidence.map((item) => {
                   const Icon = item.icon
@@ -4171,7 +4212,7 @@ Checklist:
                       <Icon className="mx-auto h-5 w-5 text-brand-500" aria-hidden />
                       <p className="mt-2 text-xs font-semibold text-slate-900">{item.title}</p>
                       <p className="mt-0.5 text-[10px] leading-3 text-slate-500">{item.desc}</p>
-                      <span className="mt-2 inline-block rounded-md bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold text-brand-600">Optional</span>
+                      <span className="mt-2 inline-block rounded-md bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold text-brand-600">{t('results.shared.optional')}</span>
                     </div>
                   )
                 })}
@@ -4182,65 +4223,65 @@ Checklist:
           {/* Footer: next best action + support */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><Upload className="h-4 w-4 text-emerald-600" aria-hidden /> Next Best Action</p>
-              <p className="mt-1 text-sm text-slate-600">Upload your medical records and bills to increase your case value estimate and improve your chances of attorney representation.</p>
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><Upload className="h-4 w-4 text-emerald-600" aria-hidden /> {t('results.medical.nextBestAction')}</p>
+              <p className="mt-1 text-sm text-slate-600">{t('results.medical.nextBestActionDesc')}</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Link to={`/evidence-upload/${resolvedAssessmentId || assessment?.id}`} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
-                  <Upload className="h-4 w-4" aria-hidden /> Upload medical records &amp; bills
+                  <Upload className="h-4 w-4" aria-hidden /> {t('results.shared2.uploadRecordsBills')}
                 </Link>
                 <button type="button" onClick={() => persistPlaintiffMedicalReview({ status: 'skipped' })} className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                  I&apos;ll do this later
+                  {t('results.shared.iolLater')}
                 </button>
               </div>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="text-sm font-semibold text-slate-900">Have Questions?</p>
-              <p className="mt-1 text-sm text-slate-600">Our team is here to help you understand your medical story and records.</p>
-              <Link to="/help" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-700 hover:text-brand-800">Contact support <ChevronRight className="h-3.5 w-3.5" /></Link>
+              <p className="text-sm font-semibold text-slate-900">{t('results.medical.haveQuestions')}</p>
+              <p className="mt-1 text-sm text-slate-600">{t('results.medical.haveQuestionsDesc')}</p>
+              <Link to="/help" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-700 hover:text-brand-800">{t('results.medical.contactSupport')} <ChevronRight className="h-3.5 w-3.5" /></Link>
             </div>
           </div>
 
-          <p className="flex items-center justify-center gap-1.5 text-center text-xs text-slate-400"><Lock className="h-3.5 w-3.5" aria-hidden /> Your information is private and secure. We only share your case with attorneys if you choose to continue.</p>
+          <p className="flex items-center justify-center gap-1.5 text-center text-xs text-slate-400"><Lock className="h-3.5 w-3.5" aria-hidden /> {t('results.medical.privacyFooter')}</p>
 
           {/* Edit / correct workflow (preserves review + estimate functionality) */}
           <details id="medical-estimates" className="group scroll-mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
             <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-4 text-sm font-semibold text-slate-900">
-              <span className="flex items-center gap-2"><Pencil className="h-4 w-4 text-slate-400" aria-hidden /> Review &amp; correct your medical details and estimates</span>
+              <span className="flex items-center gap-2"><Pencil className="h-4 w-4 text-slate-400" aria-hidden /> {t('results.medical.reviewCorrect')}</span>
               <ChevronDown className="h-4 w-4 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
             </summary>
             <div className="border-t border-slate-100 px-5 py-4">
               {extractedWageLossTotal > 0 && (
                 <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                  <p className="font-semibold">Lost wages found separately: {formatCurrency(extractedWageLossTotal)}</p>
+                  <p className="font-semibold">{t('results.medical.lostWagesSeparate')} {formatCurrency(extractedWageLossTotal)}</p>
                   <p className="mt-1 text-xs leading-relaxed">
-                    This is not included in the medical bill total. Please review wage-loss documents separately because summaries can include duplicate subtotal and total amounts.
+                    {t('results.medical.lostWagesNote')}
                   </p>
                 </div>
               )}
               <div className="mb-4 rounded-2xl border border-slate-200 bg-white px-5 py-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">Don&apos;t have documents yet?</p>
+                    <p className="text-sm font-semibold text-slate-900">{t('results.medical.noDocsYet')}</p>
                     <p className="mt-1 text-sm text-slate-600">
-                      Enter your best estimates for now. Uploaded bills and records can replace these numbers later.
+                      {t('results.medical.noDocsYetDesc')}
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={handleSaveDamageEstimates}
-                    disabled={damageEstimateSaving}
+                    disabled={damageEstimateSaving || isSharedReadOnly}
                     className="inline-flex shrink-0 items-center justify-center rounded-lg bg-brand-700 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {damageEstimateSaving ? 'Saving...' : 'Save estimates'}
+                    {damageEstimateSaving ? t('results.medical.saving') : t('results.medical.saveEstimates')}
                   </button>
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {[
-                    ['medicalBillsEstimate', 'Estimated medical bills'],
-                    ['lostWagesEstimate', 'Estimated lost wages'],
-                    ['outOfPocketEstimate', 'Out-of-pocket costs'],
-                    ['propertyDamageEstimate', 'Property damage'],
-                    ['futureTreatmentEstimate', 'Expected future treatment'],
+                    ['medicalBillsEstimate', t('results.medical.estMedicalBills')],
+                    ['lostWagesEstimate', t('results.medical.estLostWages')],
+                    ['outOfPocketEstimate', t('results.medical.outOfPocket')],
+                    ['propertyDamageEstimate', t('results.medical.propertyDamage')],
+                    ['futureTreatmentEstimate', t('results.medical.futureTreatment')],
                   ].map(([key, label]) => (
                     <label key={key} className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
                       {label}
@@ -4252,7 +4293,8 @@ Checklist:
                           step="100"
                           value={damageEstimateForm[key as keyof typeof damageEstimateForm]}
                           onChange={(e) => setDamageEstimateForm((current) => ({ ...current, [key]: e.target.value }))}
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 pl-7 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
+                          disabled={isSharedReadOnly}
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 pl-7 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                           placeholder="0"
                         />
                       </div>
@@ -4260,13 +4302,14 @@ Checklist:
                   ))}
                 </div>
                 <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Notes about these estimates
+                  {t('results.medical.notesAbout')}
                   <textarea
                     value={damageEstimateForm.notes}
                     onChange={(e) => setDamageEstimateForm((current) => ({ ...current, notes: e.target.value }))}
                     rows={2}
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100"
-                    placeholder="Example: ER bill not received yet; missed about two weeks of work."
+                    disabled={isSharedReadOnly}
+                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:cursor-not-allowed disabled:bg-slate-50"
+                    placeholder={t('results.medical.notesPlaceholder')}
                   />
                 </label>
                 {damageEstimateStatus && (
@@ -4282,6 +4325,7 @@ Checklist:
                 onSaveDraft={() => persistPlaintiffMedicalReview({ status: 'pending' })}
                 onConfirm={() => persistPlaintiffMedicalReview({ status: 'confirmed' })}
                 onSkip={() => persistPlaintiffMedicalReview({ status: 'skipped' })}
+                readOnly={isSharedReadOnly}
               />
             </div>
           </details>
@@ -4289,45 +4333,45 @@ Checklist:
         )}
 
         {activeResultsTab === 'documents' && (
-        <section className="mb-8 space-y-5" aria-label="Evidence and documents">
+        <section className="mb-8 space-y-5" aria-label={t('results.aria.documents')}>
           {/* Header + headline metrics */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div className="max-w-md">
-                <h2 className="font-display text-2xl font-bold tracking-tight text-slate-950">Strengthen Your Case</h2>
-                <p className="mt-2 text-sm text-slate-600">The right documents can increase your settlement value, improve confidence, and get attorney reviews faster.</p>
+                <h2 className="font-display text-2xl font-bold tracking-tight text-slate-950">{t('results.headings.strengthenYourCase')}</h2>
+                <p className="mt-2 text-sm text-slate-600">{t('results.documents.subtitle')}</p>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Case Strength</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t('results.documents.caseStrength')}</p>
                   <p className="mt-2 text-2xl font-bold text-slate-900 tabular-nums">{caseStrengthScore}<span className="text-sm font-medium text-slate-400"> / 100</span></p>
                   <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${caseStrengthScore}%` }} /></div>
                   <p className="mt-1.5 text-xs font-medium text-emerald-600">{caseStrengthLabel(caseStrengthScore)}</p>
                 </div>
                 <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Settlement Confidence</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t('results.documents.settlementConfidence')}</p>
                   <div className="mt-2 flex items-center gap-2">
-                    <div className="relative inline-flex h-14 w-14 items-center justify-center">
+                    <div className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center">
                       <svg className="absolute h-14 w-14 -rotate-90 text-slate-200" viewBox="0 0 36 36" aria-hidden>
                         <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3.6" />
                         <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" className="text-blue-600" strokeWidth="3.6" strokeDasharray={`${estimateConfidenceScore} ${100 - estimateConfidenceScore}`} strokeLinecap="round" />
                       </svg>
                       <span className="relative text-sm font-bold text-slate-900 tabular-nums">{estimateConfidenceScore}%</span>
                     </div>
-                    <p className="text-xs font-medium text-blue-600">{estimateConfidenceScore >= 70 ? 'Strong' : 'Can improve'}</p>
+                    <p className="text-xs font-medium text-blue-600">{estimateConfidenceScore >= 70 ? t('results.documents.strong') : t('results.documents.canImprove')}</p>
                   </div>
                 </div>
                 <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Attorney Interest</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t('results.documents.attorneyInterest')}</p>
                   <div className="mt-2 flex items-center gap-2">
-                    <div className="relative inline-flex h-14 w-14 items-center justify-center">
+                    <div className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center">
                       <svg className="absolute h-14 w-14 -rotate-90 text-slate-200" viewBox="0 0 36 36" aria-hidden>
                         <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3.6" />
                         <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" className="text-indigo-600" strokeWidth="3.6" strokeDasharray={`${attorneyInterestPercent} ${100 - attorneyInterestPercent}`} strokeLinecap="round" />
                       </svg>
                       <span className="relative text-sm font-bold text-slate-900 tabular-nums">{attorneyInterestPercent}%</span>
                     </div>
-                    <p className="text-xs font-medium text-indigo-600">{attorneyInterestPercent >= 70 ? 'Good likelihood' : 'Building'}</p>
+                    <p className="text-xs font-medium text-indigo-600">{attorneyInterestPercent >= 70 ? t('results.documents.goodLikelihood') : t('results.documents.building')}</p>
                   </div>
                 </div>
               </div>
@@ -4337,8 +4381,8 @@ Checklist:
           {/* Missing documents + progress/unlocks */}
           <div className="grid gap-5 lg:grid-cols-3">
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
-              <p className="font-display text-base font-semibold text-slate-900">Most Important Missing Documents</p>
-              <p className="mt-0.5 text-xs text-slate-500">These will have the biggest impact on your case.</p>
+              <p className="font-display text-base font-semibold text-slate-900">{t('results.documents.mostImportantMissing')}</p>
+              <p className="mt-0.5 text-xs text-slate-500">{t('results.documents.biggestImpact')}</p>
               {missingDocItems.length > 0 ? (
                 <div className="mt-4 space-y-3">
                   {missingDocItems.slice(0, 4).map((item: any, idx: number) => {
@@ -4347,10 +4391,10 @@ Checklist:
                     const DocIcon = l.includes('police') || l.includes('incident report') ? Shield : l.includes('photo') ? Camera : l.includes('bill') ? DollarSign : (l.includes('wage') || l.includes('employ')) ? Briefcase : FileText
                     const files = l.includes('photo') ? 'JPG, PNG' : 'PDF, JPG, PNG'
                     const meta = item?.priority === 'high'
-                      ? { tier: 'VERY HIGH', conf: '+12%', value: '+$5,000 – $20,000', tierText: 'text-rose-600', iconBg: 'bg-rose-50 text-rose-500' }
+                      ? { tier: t('results.documents.veryHigh'), conf: '+12%', value: '+$5,000 – $20,000', tierText: 'text-rose-600', iconBg: 'bg-rose-50 text-rose-500' }
                       : item?.priority === 'medium'
-                        ? { tier: 'HIGH', conf: '+8%', value: '+$2,000 – $8,000', tierText: 'text-amber-600', iconBg: 'bg-amber-50 text-amber-500' }
-                        : { tier: 'MEDIUM', conf: '+5%', value: '+$2,000 – $4,000', tierText: 'text-amber-500', iconBg: 'bg-amber-50 text-amber-500' }
+                        ? { tier: t('results.documents.high'), conf: '+8%', value: '+$2,000 – $8,000', tierText: 'text-amber-600', iconBg: 'bg-amber-50 text-amber-500' }
+                        : { tier: t('results.documents.medium'), conf: '+5%', value: '+$2,000 – $4,000', tierText: 'text-amber-500', iconBg: 'bg-amber-50 text-amber-500' }
                     return (
                       <div key={item.key ?? item.label} className="flex flex-col gap-3 rounded-xl border border-slate-200 p-3 sm:flex-row sm:items-center">
                         <div className={`flex w-16 shrink-0 flex-col items-center justify-center gap-1 rounded-lg py-2 ${meta.iconBg}`}>
@@ -4358,17 +4402,17 @@ Checklist:
                           <span className={`text-[8px] font-bold uppercase tracking-wide ${meta.tierText}`}>{meta.tier}</span>
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-slate-900"><span className="text-slate-400">{idx + 1}. </span>{item?.label ?? 'Missing document'}</p>
-                          <p className="mt-0.5 text-xs text-slate-500">{item?.priority === 'high' ? 'Critical for attorney review and demand package.' : 'Strengthens your file and supports your claim.'}</p>
+                          <p className="text-sm font-semibold text-slate-900"><span className="text-slate-400">{idx + 1}. </span>{item?.label?.trim() ? item.label : t('results.shared.missingDocument')}</p>
+                          <p className="mt-0.5 text-xs text-slate-500">{item?.priority === 'high' ? t('results.documents.criticalDesc') : t('results.documents.strengthensDesc')}</p>
                         </div>
                         <div className="shrink-0 sm:text-right">
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Potential impact</p>
-                          <p className="text-sm font-bold text-emerald-600">{meta.conf} <span className="font-medium text-slate-500">confidence</span></p>
-                          <p className="text-xs font-medium text-slate-600">{meta.value} <span className="text-slate-400">est. value</span></p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{t('results.documents.potentialImpact')}</p>
+                          <p className="text-sm font-bold text-emerald-600">{meta.conf} <span className="font-medium text-slate-500">{t('results.documents.confidence')}</span></p>
+                          <p className="text-xs font-medium text-slate-600">{meta.value} <span className="text-slate-400">{t('results.documents.estValue')}</span></p>
                         </div>
                         <Link to={action.to} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700">
                           <Upload className="h-3.5 w-3.5" aria-hidden />
-                          Upload
+                          {t('results.shared.upload')}
                           <span className="ml-1 text-[10px] font-normal text-brand-100">{files}</span>
                         </Link>
                       </div>
@@ -4377,20 +4421,20 @@ Checklist:
                 </div>
               ) : (
                 <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-800">
-                  No major missing-document gaps were detected. You look close to attorney-review ready.
+                  {t('results.documents.noGaps')}
                 </div>
               )}
             </div>
 
             <div className="space-y-5">
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="font-display text-base font-semibold text-slate-900">Your Progress</p>
-                <p className="mt-0.5 text-xs text-slate-500">See how your uploads impact your case.</p>
+                <p className="font-display text-base font-semibold text-slate-900">{t('results.documents.yourProgress')}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{t('results.documents.yourProgressSub')}</p>
                 <div className="mt-4 space-y-4">
                   {[
-                    { label: 'Attorney Review Readiness', pct: attorneyInterestPercent, sub: 'Upload key docs to get faster reviews', color: 'bg-indigo-500' },
-                    { label: 'Demand Package Readiness', pct: evidenceCompletionPercent, sub: 'Complete to generate a demand package', color: 'bg-violet-500' },
-                    { label: 'Settlement Confidence', pct: estimateConfidenceScore, sub: 'More documents = higher confidence', color: 'bg-blue-500' },
+                    { label: t('results.documents.attorneyReviewReadiness'), pct: attorneyInterestPercent, sub: t('results.documents.attorneyReviewReadinessSub'), color: 'bg-indigo-500' },
+                    { label: t('results.documents.demandReadiness'), pct: evidenceCompletionPercent, sub: t('results.documents.demandReadinessSub'), color: 'bg-violet-500' },
+                    { label: t('results.documents.settlementConfidence'), pct: estimateConfidenceScore, sub: t('results.documents.settlementConfidenceSub'), color: 'bg-blue-500' },
                   ].map((row) => (
                     <div key={row.label}>
                       <div className="flex items-center justify-between text-xs">
@@ -4404,15 +4448,15 @@ Checklist:
                 </div>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="font-display text-base font-semibold text-slate-900">Unlocks When You Upload</p>
-                <p className="mt-0.5 text-xs text-slate-500">More documents unlock powerful tools.</p>
+                <p className="font-display text-base font-semibold text-slate-900">{t('results.documents.unlocksTitle')}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{t('results.documents.unlocksSub')}</p>
                 <div className="mt-4 space-y-3">
                   {[
-                    { Icon: Activity, title: 'Medical Timeline', sub: 'Visual timeline of all treatment' },
-                    { Icon: Stethoscope, title: 'Treatment Analysis', sub: 'AI analysis of medical care' },
-                    { Icon: FileText, title: 'Demand Package', sub: 'Professional demand letter' },
-                    { Icon: Scale, title: 'Settlement Analysis', sub: 'Stronger valuation models' },
-                    { Icon: User, title: 'Attorney Matches', sub: 'Higher interest from attorneys' },
+                    { Icon: Activity, title: t('results.documents.uMedicalTimeline'), sub: t('results.documents.uMedicalTimelineSub') },
+                    { Icon: Stethoscope, title: t('results.documents.uTreatmentAnalysis'), sub: t('results.documents.uTreatmentAnalysisSub') },
+                    { Icon: FileText, title: t('results.documents.uDemandPackage'), sub: t('results.documents.uDemandPackageSub') },
+                    { Icon: Scale, title: t('results.documents.uSettlementAnalysis'), sub: t('results.documents.uSettlementAnalysisSub') },
+                    { Icon: User, title: t('results.documents.uAttorneyMatches'), sub: t('results.documents.uAttorneyMatchesSub') },
                   ].map((u) => (
                     <div key={u.title} className="flex items-center gap-3">
                       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600"><u.Icon className="h-4 w-4" aria-hidden /></span>
@@ -4429,32 +4473,32 @@ Checklist:
 
           {/* Impact of uploading */}
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="font-display text-base font-semibold text-slate-900">See the Impact of Uploading</p>
-            <p className="mt-0.5 text-xs text-slate-500">This is how your case could improve with key documents.</p>
+            <p className="font-display text-base font-semibold text-slate-900">{t('results.documents.seeImpact')}</p>
+            <p className="mt-0.5 text-xs text-slate-500">{t('results.documents.seeImpactSub')}</p>
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                    <th className="pb-2 pr-4 font-semibold">Current (with what we have)</th>
-                    <th className="pb-2 pr-4 font-semibold">With key documents</th>
-                    <th className="pb-2 font-semibold">Potential improvement</th>
+                    <th className="pb-2 pr-4 font-semibold">{t('results.documents.currentWithHave')}</th>
+                    <th className="pb-2 pr-4 font-semibold">{t('results.documents.withKeyDocs')}</th>
+                    <th className="pb-2 font-semibold">{t('results.documents.potentialImprovement')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   <tr>
-                    <td className="py-2 pr-4"><span className="text-slate-500">Settlement Confidence</span> <span className="font-semibold text-slate-900">{estimateConfidenceScore}%</span></td>
+                    <td className="py-2 pr-4"><span className="text-slate-500">{t('results.documents.settlementConfidence')}</span> <span className="font-semibold text-slate-900">{estimateConfidenceScore}%</span></td>
                     <td className="py-2 pr-4 font-semibold text-slate-900">{Math.min(98, estimateConfidenceScore + 18)}%</td>
                     <td className="py-2 font-semibold text-emerald-600">+{Math.min(98, estimateConfidenceScore + 18) - estimateConfidenceScore}%</td>
                   </tr>
                   <tr>
-                    <td className="py-2 pr-4"><span className="text-slate-500">Attorney Interest</span> <span className="font-semibold text-slate-900">{attorneyInterestPercent}%</span></td>
+                    <td className="py-2 pr-4"><span className="text-slate-500">{t('results.documents.attorneyInterest')}</span> <span className="font-semibold text-slate-900">{attorneyInterestPercent}%</span></td>
                     <td className="py-2 pr-4 font-semibold text-slate-900">{Math.min(98, attorneyInterestPercent + 18)}%</td>
                     <td className="py-2 font-semibold text-emerald-600">+{Math.min(98, attorneyInterestPercent + 18) - attorneyInterestPercent}%</td>
                   </tr>
                   <tr>
-                    <td className="py-2 pr-4"><span className="text-slate-500">Case Strength Score</span> <span className="font-semibold text-slate-900">{caseStrengthScore} / 100</span></td>
+                    <td className="py-2 pr-4"><span className="text-slate-500">{t('results.documents.caseStrengthScore')}</span> <span className="font-semibold text-slate-900">{caseStrengthScore} / 100</span></td>
                     <td className="py-2 pr-4 font-semibold text-slate-900">{Math.min(100, caseStrengthScore + 11)} / 100</td>
-                    <td className="py-2 font-semibold text-emerald-600">+{Math.min(100, caseStrengthScore + 11) - caseStrengthScore} points</td>
+                    <td className="py-2 font-semibold text-emerald-600">+{Math.min(100, caseStrengthScore + 11) - caseStrengthScore} {t('results.documents.points')}</td>
                   </tr>
                 </tbody>
               </table>
@@ -4463,7 +4507,7 @@ Checklist:
 
           {treatmentGapItems.length > 0 && (
             <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
-              Treatment gap detected: {treatmentGapItems?.[0]?.gapDays ?? 'Unknown'} days between {treatmentGapItems?.[0]?.startDate ? new Date(treatmentGapItems[0].startDate).toLocaleDateString() : 'an unknown start date'} and {treatmentGapItems?.[0]?.endDate ? new Date(treatmentGapItems[0].endDate).toLocaleDateString() : 'an unknown end date'}.
+              {t('results.documents.treatmentGapA')} {treatmentGapItems?.[0]?.gapDays ?? t('results.documents.gapUnknown')} {t('results.documents.treatmentGapDays')} {treatmentGapItems?.[0]?.startDate ? new Date(treatmentGapItems[0].startDate).toLocaleDateString() : t('results.documents.gapUnknownStart')} {t('results.documents.treatmentGapAnd')} {treatmentGapItems?.[0]?.endDate ? new Date(treatmentGapItems[0].endDate).toLocaleDateString() : t('results.documents.gapUnknownEnd')}.
             </div>
           )}
 
@@ -4471,34 +4515,34 @@ Checklist:
             <div className="mt-5 rounded-xl border border-slate-200 bg-white px-4 py-4">
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">Medical document extraction</p>
-                  <p className="text-xs text-slate-600">We read medical records and bills for dates, providers, treatment events, and amounts.</p>
+                  <p className="text-sm font-semibold text-slate-900">{t('results.documents.docExtraction')}</p>
+                  <p className="text-xs text-slate-600">{t('results.documents.docExtractionSub')}</p>
                 </div>
                 <Link
                   to={assessment?.id ? `/evidence-upload/${assessment.id}` : '/evidence-upload'}
                   className="text-xs font-semibold text-brand-700 hover:text-brand-900"
                 >
-                  Manage uploads
+                  {t('results.documents.manageUploads')}
                 </Link>
               </div>
               <div className="mt-4 rounded-xl border border-brand-100 bg-brand-50 px-4 py-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-700">Extracted bill total</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-brand-700">{t('results.documents.extractedBillTotal')}</p>
                     <p className="mt-1 text-2xl font-bold text-brand-950">
-                      {extractedBillTotal > 0 ? formatCurrency(extractedBillTotal) : 'No bill total found yet'}
+                      {extractedBillTotal > 0 ? formatCurrency(extractedBillTotal) : t('results.documents.noBillTotal')}
                     </p>
                     <p className="mt-1 text-xs leading-relaxed text-brand-900/80">
                       {extractedBillTotal > 0
-                        ? 'This is the sum of dollar amounts found in uploaded files marked as bills. Please review for duplicates, summaries, or non-medical amounts.'
-                        : 'Upload itemized medical bills so we can total the charges for your case value estimate.'}
+                        ? t('results.documents.billTotalNote')
+                        : t('results.documents.billTotalEmpty')}
                     </p>
                   </div>
                   <Link
                     to={`/evidence-upload/${resolvedAssessmentId || assessment?.id}`}
                     className="inline-flex shrink-0 items-center justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-brand-800 ring-1 ring-brand-200 hover:bg-brand-50"
                   >
-                    Add or update bills
+                    {t('results.documents.addUpdateBills')}
                   </Link>
                 </div>
                 {extractedBillItems.length > 0 && (
@@ -4514,9 +4558,9 @@ Checklist:
               </div>
               {extractedWageLossTotal > 0 && (
                 <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                  <p className="font-semibold">Lost wages found separately: {formatCurrency(extractedWageLossTotal)}</p>
+                  <p className="font-semibold">{t('results.medical.lostWagesSeparate')} {formatCurrency(extractedWageLossTotal)}</p>
                   <p className="mt-1 text-xs leading-relaxed">
-                    We keep wage-loss documents out of the medical bill total. Review this amount separately before relying on it.
+                    {t('results.documents.wageLossNote2')}
                   </p>
                 </div>
               )}
@@ -4528,15 +4572,15 @@ Checklist:
                   return (
                     <div key={file.id || file.originalName} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-700">
                       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                        <span className="font-medium text-slate-900">{file.originalName || 'Medical document'}</span>
+                        <span className="font-medium text-slate-900">{file.originalName || t('results.documents.medicalDocument')}</span>
                         <span className="font-semibold text-brand-700">{getDocumentProcessingLabel(file)}</span>
                       </div>
                       {(timelineCount > 0 || datesCount > 0 || extracted?.totalAmount) && (
                         <p className="mt-1 text-slate-500">
                           {[
-                            timelineCount > 0 ? `${timelineCount} timeline item${timelineCount === 1 ? '' : 's'}` : null,
-                            datesCount > 0 ? `${datesCount} date${datesCount === 1 ? '' : 's'}` : null,
-                            extracted?.totalAmount ? `$${Number(extracted.totalAmount).toLocaleString()} found` : null,
+                            timelineCount > 0 ? `${timelineCount} ${timelineCount === 1 ? t('results.documents.timelineItem') : t('results.documents.timelineItems')}` : null,
+                            datesCount > 0 ? `${datesCount} ${datesCount === 1 ? t('results.documents.dateOne') : t('results.documents.dateMany')}` : null,
+                            extracted?.totalAmount ? `$${Number(extracted.totalAmount).toLocaleString()} ${t('results.documents.found')}` : null,
                           ].filter(Boolean).join(' • ')}
                         </p>
                       )}
@@ -4553,18 +4597,18 @@ Checklist:
               <div className="flex items-start gap-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600"><Briefcase className="h-5 w-5" aria-hidden /></span>
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">Demand Package Status</p>
-                  <p className="mt-0.5 text-xs text-slate-500">Generate a professional demand package once you have the required documents.</p>
+                  <p className="text-sm font-semibold text-slate-900">{t('results.documents.demandStatus')}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{t('results.documents.demandStatusSub')}</p>
                 </div>
               </div>
               <div className="text-center">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Overall completion</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{t('results.documents.overallCompletion')}</p>
                 <p className="text-2xl font-bold text-slate-900 tabular-nums">{evidenceCompletionPercent}%</p>
-                <p className="text-[11px] text-slate-400">{evidenceCompletionChecklist.filter(c => c.done).length} of {evidenceCompletionChecklist.length} key items uploaded</p>
+                <p className="text-[11px] text-slate-400">{evidenceCompletionChecklist.filter(c => c.done).length} {t('results.documents.keyItemsUploadedA')} {evidenceCompletionChecklist.length} {t('results.documents.keyItemsUploadedB')}</p>
               </div>
               {missingDocItems.length > 0 ? (
                 <div className="text-xs">
-                  <p className="font-semibold text-slate-600">Needed to unlock</p>
+                  <p className="font-semibold text-slate-600">{t('results.documents.neededToUnlock')}</p>
                   <ul className="mt-1 space-y-0.5">
                     {missingDocItems.slice(0, 3).map((item: any) => (
                       <li key={item.key ?? item.label} className="flex items-center gap-1.5 text-slate-500"><span className="text-rose-400">✕</span>{item?.label}</li>
@@ -4572,11 +4616,11 @@ Checklist:
                   </ul>
                 </div>
               ) : (
-                <p className="text-xs font-medium text-emerald-600">All key items uploaded</p>
+                <p className="text-xs font-medium text-emerald-600">{t('results.documents.allKeyUploaded')}</p>
               )}
               <Link to={`/demand/${assessment.id}`} className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold ${missingDocItems.length > 0 ? 'bg-slate-100 text-slate-400' : 'bg-violet-600 text-white hover:bg-violet-700'}`}>
                 {missingDocItems.length > 0 ? <Lock className="h-4 w-4" aria-hidden /> : <FileText className="h-4 w-4" aria-hidden />}
-                {missingDocItems.length > 0 ? 'Unlock Demand Package' : 'Build demand package'}
+                {missingDocItems.length > 0 ? t('results.documents.unlockDemand') : t('results.documents.buildDemand')}
               </Link>
             </div>
           </div>
@@ -4587,13 +4631,13 @@ Checklist:
               <div className="flex items-center gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600"><ShieldCheck className="h-5 w-5" aria-hidden /></span>
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">Need help getting your documents?</p>
-                  <p className="text-xs text-slate-500">Our team can guide you on how to obtain missing records.</p>
+                  <p className="text-sm font-semibold text-slate-900">{t('results.documents.needHelpDocs')}</p>
+                  <p className="text-xs text-slate-500">{t('results.documents.needHelpDocsSub')}</p>
                 </div>
               </div>
-              <Link to={assessment?.id ? `/evidence-upload/${assessment.id}` : '/evidence-upload'} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              <Link to="/help" className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
                 <HelpCircle className="h-4 w-4" aria-hidden />
-                Get Help
+                {t('results.documents.getHelp')}
               </Link>
             </div>
           </div>
@@ -4601,13 +4645,13 @@ Checklist:
         )}
 
         {activeResultsTab === 'value' && (
-        <section className="surface-panel mb-10 px-5 py-5" aria-label="Value and timeline">
+        <section className="surface-panel mb-10 px-5 py-5" aria-label={t('results.aria.value')}>
         <div className="mt-1 mb-8">
           <PlaintiffCaseCommandCenter summary={displayedCommandCenter} />
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white px-5 py-5 shadow-sm">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 mb-3">Overall assessment</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 mb-3">{t('results.value.overallAssessment')}</p>
           <div className="flex flex-wrap items-center gap-4">
             <div className="relative inline-flex h-20 w-20 shrink-0 items-center justify-center">
               <svg className="absolute h-20 w-20 -rotate-90 text-slate-200" viewBox="0 0 36 36" aria-hidden>
@@ -4628,20 +4672,20 @@ Checklist:
               <p className="text-lg font-semibold text-slate-900">
                 {caseStrengthScore} / 100 - {caseStrengthLabel(caseStrengthScore)}
               </p>
-              <p className="text-sm text-slate-600 mt-1">Composite score from viability and file signals.</p>
+              <p className="text-sm text-slate-600 mt-1">{t('results.value.compositeScore')}</p>
             </div>
           </div>
         </div>
 
         <div className="rounded-xl border-l-4 border-l-brand-600 border border-slate-200 bg-slate-50/60 p-6 sm:p-8 mb-10 shadow-sm">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 mb-2">Modeled settlement range</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 mb-2">{t('results.value.modeledRange')}</p>
           <p className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight mb-1">
             {displaySettlementRangeText}
           </p>
           <div className="mb-4">
             <p className="text-sm text-gray-700">
               <span className="font-semibold">{consumerEstimateLabel}</span>
-              <span className="text-gray-500"> · Estimate confidence {estimateConfidenceScore}/100</span>
+              <span className="text-gray-500"> · {t('results.value.estConfidence')} {estimateConfidenceScore}/100</span>
             </p>
             {estimateConfidenceReasons.length > 0 && (
               <ul className="mt-2 text-xs text-gray-500 space-y-0.5">
@@ -4671,32 +4715,30 @@ Checklist:
           </div>
           <div className="space-y-3">
             <div>
-              <p className="text-sm text-gray-500">Chance of a successful outcome</p>
+              <p className="text-sm text-gray-500">{t('results.value.chanceSuccess')}</p>
               <p className="text-lg font-semibold text-gray-900">{successProbability}%</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Likely timeline</p>
+              <p className="text-sm text-gray-500">{t('results.value.likelyTimeline')}</p>
               <p className="text-lg font-semibold text-gray-900">{estimatedTimeline}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Recommended next step</p>
-              <p className="text-lg font-semibold text-brand-600">See if an attorney wants your case</p>
+              <p className="text-sm text-gray-500">{t('results.value.recommendedNext')}</p>
+              <p className="text-lg font-semibold text-brand-600">{t('results.value.seeIfAttorney')}</p>
             </div>
           </div>
           <p className="text-sm text-slate-600 mt-4 leading-relaxed">
-            Settlement estimates reflect injury-supported value after settlement compression, liability risk, evidence confidence, venue signals, and insurance constraints. Not a guarantee of outcome.
+            {t('results.value.settlementDisclaimer')}
           </p>
         </div>
 
         {missingEstimateInputs.length > 0 && (
           <div className="mb-8 rounded-2xl border border-amber-200 bg-amber-50/60 p-5">
             <p className="text-sm font-semibold text-amber-900">
-              This is a preliminary estimate — and it can grow
+              {t('results.value.preliminaryTitle')}
             </p>
             <p className="mt-1 text-sm text-amber-800 leading-relaxed">
-              We calculated this range from what you&apos;ve shared so far. A few key figures are still
-              missing, so treat this number as a conservative floor — not a ceiling. Adding the details
-              below typically increases and sharpens your estimate.
+              {t('results.value.preliminaryBody')}
             </p>
             <ul className="mt-3 space-y-2">
               {missingEstimateInputs.map((item) => (
@@ -4710,8 +4752,7 @@ Checklist:
               ))}
             </ul>
             <p className="mt-3 text-xs text-amber-700">
-              Don&apos;t have exact numbers yet? That&apos;s normal this soon after an accident. A rough
-              range is fine — you can refine it later as bills and records come in.
+              {t('results.value.preliminaryHint')}
             </p>
           </div>
         )}
@@ -4736,20 +4777,20 @@ Checklist:
 
         <div className="mb-8 grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
           <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-5 shadow-sm sm:p-6">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-700">Litigation potential</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-700">{t('results.value.litigationPotential')}</p>
             <p className="mt-2 text-sm leading-relaxed text-indigo-900">
-              Current information suggests the case may have additional value if medical treatment continues, imaging confirms injury findings, liability evidence strengthens, or wage loss and future care are documented.
+              {t('results.value.litigationPotentialBody')}
             </p>
             <p className="mt-3 text-xl font-bold tracking-tight text-indigo-950">{litigationExposureText}</p>
             {!isEarlyStageEstimate && (
               <p className="mt-3 text-xs leading-relaxed text-indigo-800">
-                Trial outcomes are uncertain, take longer, cost more, and may be limited by collectability or policy limits.
+                {t('results.value.litigationPotentialNote')}
               </p>
             )}
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Key drivers</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t('results.value.keyDrivers')}</p>
             <ul className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
               {valuationKeyDrivers.map((driver) => (
                 <li key={driver} className="flex gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
@@ -4763,7 +4804,7 @@ Checklist:
 
         <div className="mb-8 grid gap-4 lg:grid-cols-2">
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Case signals</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t('results.value.caseSignals')}</p>
             <table className="mt-2 w-full text-sm">
               <tbody>
                 {caseSignalRows.map((row) => (
@@ -4776,12 +4817,12 @@ Checklist:
             </table>
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 shadow-sm sm:p-6">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Litigation readiness</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t('results.value.litigationReadiness')}</p>
             <p className="mt-1 text-2xl font-bold tabular-nums text-slate-950">{litigationReadinessScore}%</p>
             <p className="text-sm text-slate-600">{litigationReadinessStatus}</p>
             {litigationReadinessMissing.length > 0 && (
               <p className="mt-2 text-xs text-slate-600">
-                Missing: {litigationReadinessMissing.join(', ')}.
+                {t('results.value.missingPrefix')} {litigationReadinessMissing.join(', ')}.
               </p>
             )}
           </div>
@@ -4789,27 +4830,25 @@ Checklist:
 
         <details className="group mb-8 rounded-xl border border-slate-200 bg-white shadow-sm">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
-            <span>How we calculated this</span>
+            <span>{t('results.value.howCalculated')}</span>
             <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
           </summary>
           <div className="border-t border-slate-100 p-5 sm:p-6">
-          <h3 className="text-lg font-semibold text-slate-950">Base case type range</h3>
+          <h3 className="text-lg font-semibold text-slate-950">{t('results.value.baseCaseTypeRange')}</h3>
           <p className="mt-2 text-sm leading-relaxed text-slate-700">
-            We start with the case category before adding facts like fault, treatment, documents, venue, insurance, and injury severity.
-            Different claim types begin in different baseline ranges because attorneys and insurers evaluate them with different proof burdens,
-            expected treatment patterns, and liability issues.
+            {t('results.value.baseCaseTypeBody')}
           </p>
 
           <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <div className="rounded-xl border border-brand-100 bg-brand-50 px-4 py-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Your selected type</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">{t('results.value.yourSelectedType')}</p>
               <p className="mt-1 text-xl font-bold text-slate-950">{baseCaseTypeRange.label}</p>
               <p className="mt-2 text-2xl font-bold text-brand-800">{baseCaseTypeRange.range}</p>
               <p className="mt-2 text-sm leading-relaxed text-brand-950">{baseCaseTypeRange.floor}</p>
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-              <p className="text-sm font-semibold text-slate-950">Why this type starts there</p>
+              <p className="text-sm font-semibold text-slate-950">{t('results.value.whyStartsThere')}</p>
               <p className="mt-2 text-sm leading-relaxed text-slate-700">{baseCaseTypeRange.why}</p>
               <ul className="mt-3 space-y-2 text-sm text-slate-700">
                 {baseCaseTypeRange.examples.map((example) => (
@@ -4823,52 +4862,51 @@ Checklist:
           </div>
 
           <p className="mt-4 text-xs leading-relaxed text-slate-500">
-            This is the starting point only. The displayed settlement range of {settlementRangeText}
-            {' '}reflects later adjustments from your specific facts and available documents.
+            {t('results.value.startingPointA')} {settlementRangeText}
+            {' '}{t('results.value.startingPointB')}
           </p>
 
-          <h3 className="mt-6 border-t border-slate-100 pt-6 text-lg font-semibold text-slate-950">How the baseline is adjusted</h3>
+          <h3 className="mt-6 border-t border-slate-100 pt-6 text-lg font-semibold text-slate-950">{t('results.value.howBaselineAdjusted')}</h3>
           <p className="mt-2 text-sm leading-relaxed text-slate-700">
-            The model does not treat each fact as a fixed dollar add-on. Instead, it treats major facts as modifiers that can
-            increase confidence, reduce risk discounts, move the case into a higher injury band, or keep the estimate conservative.
+            {t('results.value.howBaselineBody')}
           </p>
 
           <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-            <p className="text-sm font-semibold text-slate-950">Settlement calculation model</p>
+            <p className="text-sm font-semibold text-slate-950">{t('results.value.settlementCalcModel')}</p>
             <p className="mt-2 text-xs leading-relaxed text-slate-600">
-              Injury-supported value x settlement compression x liability risk x evidence confidence x venue / insurance constraints.
+              {t('results.value.settlementCalcFormula')}
             </p>
             <div className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-5">
               {[
-                'Injury-supported value',
-                'Settlement compression',
-                'Liability risk',
-                'Evidence confidence',
-                'Venue / insurance',
+                t('results.value.partInjury'),
+                t('results.value.partCompression'),
+                t('results.value.partLiability'),
+                t('results.value.partEvidence'),
+                t('results.value.partVenue'),
               ].map((part, index) => (
                 <div key={part} className="rounded-lg border border-slate-200 bg-white px-3 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Step {index + 1}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t('results.value.step')} {index + 1}</p>
                   <p className="mt-1 font-semibold text-slate-950">{part}</p>
                 </div>
               ))}
             </div>
             <p className="mt-3 text-xs leading-relaxed text-slate-500">
-              This is why the explanation says clear liability reduces discounting instead of saying it added a specific dollar amount.
+              {t('results.value.settlementCalcNote')}
             </p>
           </div>
 
           <div className="mt-5 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-4">
-            <p className="text-sm font-semibold text-indigo-950">Trial calculation model</p>
+            <p className="text-sm font-semibold text-indigo-950">{t('results.value.trialCalcModel')}</p>
             <p className="mt-2 text-xs leading-relaxed text-indigo-900">
-              Economic damages + non-economic damages + future damages, adjusted by liability, venue, jury risk, and evidence strength.
+              {t('results.value.trialCalcFormula')}
             </p>
           </div>
 
           <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
             <div className="grid grid-cols-3 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-              <span>Modifier</span>
-              <span>Current effect</span>
-              <span>How it changes the estimate</span>
+              <span>{t('results.value.modifier')}</span>
+              <span>{t('results.value.currentEffect')}</span>
+              <span>{t('results.value.howItChanges')}</span>
             </div>
             {calculationModifierRows.map((row) => (
               <div key={row.label} className="grid grid-cols-3 gap-3 border-t border-slate-200 px-3 py-3 text-sm text-slate-700">
@@ -4883,8 +4921,7 @@ Checklist:
           </div>
 
           <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-950">
-            Example: clear liability usually improves confidence and reduces the fault discount. It is not modeled as a universal
-            “+$10,000” rule because the dollar impact depends on the size of the case, injury severity, available insurance, and evidence.
+            {t('results.value.calcExample')}
           </div>
           </div>
         </details>
@@ -4892,24 +4929,24 @@ Checklist:
         <div className="mb-8 rounded-xl border border-indigo-200 bg-indigo-50 p-5 sm:p-6 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="max-w-2xl">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-700">Self-help settlement option</p>
-              <h3 className="mt-1 text-lg font-semibold text-slate-950">Prepare your own demand package</h3>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-700">{t('results.value.selfHelpOption')}</p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">{t('results.value.prepareOwnDemand')}</h3>
               <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                If you want to try resolving the claim yourself, generate a pro-se settlement demand letter, checklist, and downloadable DOCX. This does not replace legal advice.
+                {t('results.value.prepareOwnBody')}
               </p>
               <div className="mt-3 rounded-lg bg-white/70 px-3 py-3 text-sm text-slate-700">
                 <span className="font-semibold text-slate-950">{diySuitabilityLabel}:</span>{' '}
                 {diyRiskFlags.length > 0
                   ? diyRiskFlags.slice(0, 2).join(' ')
-                  : 'Your current file does not show the common DIY risk flags we screen for.'}
+                  : t('results.value.noDiyFlags')}
               </div>
             </div>
             <div className="flex shrink-0 flex-col gap-2">
               <Link to={`/demand/${assessment.id}`} className="btn-primary">
-                Build demand package
+                {t('results.value.buildDemand')}
               </Link>
               <Link to={`/attorneys?assessmentId=${assessment.id}`} className="btn-outline">
-                Compare with attorney review
+                {t('results.value.compareAttorney')}
               </Link>
             </div>
           </div>
@@ -4920,32 +4957,32 @@ Checklist:
             <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
               <div className="flex items-center gap-2 mb-3">
                 <BarChart3 className="h-5 w-5 text-brand-600 shrink-0" />
-                <h3 className="text-base font-semibold text-slate-900 tracking-tight">Comparable benchmarks</h3>
+                <h3 className="text-base font-semibold text-slate-900 tracking-tight">{t('results.value.comparableBenchmarks')}</h3>
               </div>
               {settlementBenchmarks ? (
                 <>
                   <p className="text-2xl font-bold text-gray-900">{formatCurrency(settlementBenchmarks.p50)}</p>
                   <p className="text-sm text-gray-600 mt-1">
-                    Midpoint for comparable {formatClaimTypeLabel(assessment?.claimType)} cases in {venueState === 'CA' ? 'California' : venueState}
+                    {t('results.value.midpointA')} {formatClaimTypeLabel(assessment?.claimType)} {t('results.value.midpointB')} {venueState === 'CA' ? 'California' : venueState}
                   </p>
                   <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
                     <div className="rounded-lg bg-gray-50 px-3 py-2">
-                      <p className="text-gray-500">25th %</p>
+                      <p className="text-gray-500">{t('results.value.pct25')}</p>
                       <p className="font-semibold text-gray-900">{formatCurrency(settlementBenchmarks.p25)}</p>
                     </div>
                     <div className="rounded-lg bg-gray-50 px-3 py-2">
-                      <p className="text-gray-500">75th %</p>
+                      <p className="text-gray-500">{t('results.value.pct75')}</p>
                       <p className="font-semibold text-gray-900">{formatCurrency(settlementBenchmarks.p75)}</p>
                     </div>
                     <div className="rounded-lg bg-gray-50 px-3 py-2">
-                      <p className="text-gray-500">Sample size</p>
+                      <p className="text-gray-500">{t('results.value.sampleSize')}</p>
                       <p className="font-semibold text-gray-900">{settlementBenchmarks.count}</p>
                     </div>
                   </div>
                 </>
               ) : (
                 <p className="text-sm text-gray-600">
-                  We do not have enough benchmark data for this venue yet, so your estimate is based mainly on your facts, injuries, and uploaded records.
+                  {t('results.value.notEnoughBenchmark')}
                 </p>
               )}
             </div>
@@ -4953,11 +4990,11 @@ Checklist:
             <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
               <div className="flex items-center gap-2 mb-3">
                 <Calendar className="h-5 w-5 text-brand-600 shrink-0" />
-                <h3 className="text-base font-semibold text-slate-900 tracking-tight">Expected timeline</h3>
+                <h3 className="text-base font-semibold text-slate-900 tracking-tight">{t('results.value.expectedTimeline')}</h3>
               </div>
               <p className="text-2xl font-bold text-gray-900">{timelineEstimate.label}</p>
               <p className="text-sm text-gray-600 mt-1">
-                Stage: {timelineEstimate.stage} • Confidence: {timelineEstimate.confidence}
+                {t('results.value.stage')} {timelineEstimate.stage} • {t('results.value.confidence')} {timelineEstimate.confidence}
               </p>
               <ul className="mt-3 space-y-2 text-sm text-gray-700">
                 {timelineDrivers.slice(0, 3).map((driver) => (
@@ -4973,29 +5010,29 @@ Checklist:
           <div className={`${solStatusTone} border rounded-xl p-5 sm:p-6 shadow-sm`}>
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="h-5 w-5 shrink-0" />
-              <h3 className="text-base font-semibold text-slate-900 tracking-tight">Statute of limitations</h3>
+              <h3 className="text-base font-semibold text-slate-900 tracking-tight">{t('results.value.statuteOfLimitations')}</h3>
             </div>
             <p className="font-medium">
-              {solDeadline ? `Estimated filing deadline: ${solDeadline}` : 'We could not calculate a filing deadline from the current facts.'}
+              {solDeadline ? `${t('results.value.estFilingDeadlineA')} ${solDeadline}` : t('results.value.couldNotCalcDeadline')}
             </p>
             <p className="text-sm mt-1">
-              {solDeadline ? `Time remaining: ${solRemaining}.` : 'Add the incident date and venue details to confirm this risk.'}
+              {solDeadline ? `${t('results.value.timeRemainingA')} ${solRemaining}.` : t('results.value.addIncidentDate')}
             </p>
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm">
             <div className="flex items-center gap-2 mb-3">
               <ClipboardList className="h-5 w-5 text-brand-600 shrink-0" />
-              <h3 className="text-base font-semibold text-slate-900 tracking-tight">Documentation & readiness</h3>
+              <h3 className="text-base font-semibold text-slate-900 tracking-tight">{t('results.value.documentationReadiness')}</h3>
             </div>
             {missingDocItems.length > 0 ? (
               <div className="space-y-3">
                 {missingDocItems.slice(0, 5).map((item: any) => (
                   <div key={item.key} className="flex items-start justify-between gap-3 rounded-lg bg-gray-50 px-3 py-3">
                     <div>
-                      <p className="font-medium text-gray-900">{item?.label ?? 'Missing item'}</p>
+                      <p className="font-medium text-gray-900">{item?.label ?? t('results.value.missingItem')}</p>
                       <p className="text-sm text-gray-600">
-                        {item.priority === 'high' ? 'High impact on value and attorney review speed.' : item.priority === 'medium' ? 'Helpful for strengthening the file.' : 'Useful supporting context.'}
+                        {item.priority === 'high' ? t('results.value.highImpactDesc') : item.priority === 'medium' ? t('results.value.helpfulDesc') : t('results.value.usefulDesc')}
                       </p>
                     </div>
                     <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -5005,19 +5042,19 @@ Checklist:
                           ? 'bg-amber-100 text-amber-700'
                           : 'bg-slate-100 text-slate-700'
                     }`}>
-                      {item.priority}
+                      {item.priority === 'high' ? t('results.shared.high') : item.priority === 'medium' ? t('results.shared.medium') : t('results.shared.low')}
                     </span>
                   </div>
                 ))}
                 {treatmentGapItems.length > 0 && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
-                    Treatment gap detected: {treatmentGapItems?.[0]?.gapDays ?? 'Unknown'} days between {treatmentGapItems?.[0]?.startDate ? new Date(treatmentGapItems[0].startDate).toLocaleDateString() : 'an unknown start date'} and {treatmentGapItems?.[0]?.endDate ? new Date(treatmentGapItems[0].endDate).toLocaleDateString() : 'an unknown end date'}.
+                    {t('results.documents.treatmentGapA')} {treatmentGapItems?.[0]?.gapDays ?? t('results.documents.gapUnknown')} {t('results.documents.treatmentGapDays')} {treatmentGapItems?.[0]?.startDate ? new Date(treatmentGapItems[0].startDate).toLocaleDateString() : t('results.documents.gapUnknownStart')} {t('results.documents.treatmentGapAnd')} {treatmentGapItems?.[0]?.endDate ? new Date(treatmentGapItems[0].endDate).toLocaleDateString() : t('results.documents.gapUnknownEnd')}.
                   </div>
                 )}
               </div>
             ) : (
               <div className="rounded-lg bg-emerald-50 px-3 py-3 text-sm text-emerald-800">
-                No major missing-document gaps were detected from the current file. You look close to attorney-review ready.
+                {t('results.value.noGapsFromFile')}
               </div>
             )}
           </div>
@@ -5026,38 +5063,38 @@ Checklist:
         )}
 
         {activeResultsTab === 'attorney' && (
-        <section className="mb-8 space-y-5" aria-label="Next steps">
+        <section className="mb-8 space-y-5" aria-label={t('results.aria.next')}>
           {/* Header + headline metrics */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div className="max-w-sm">
-                <h2 className="font-display text-2xl font-bold tracking-tight text-slate-950">You're Almost Done!</h2>
-                <p className="mt-2 text-sm text-slate-600">Your case looks strong. Submit for free attorney review to see which lawyers are interested.</p>
+                <h2 className="font-display text-2xl font-bold tracking-tight text-slate-950">{t('results.headings.almostDone')}</h2>
+                <p className="mt-2 text-sm text-slate-600">{t('results.next.caseLooksStrong')}</p>
               </div>
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-center">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Attorney Interest</p>
+              <div className="grid grid-cols-2 items-stretch gap-3 lg:grid-cols-4">
+                <div className="flex h-full flex-col rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-center">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">{t('results.next.attorneyInterest')}</p>
                   <p className="mt-1 text-2xl font-bold text-emerald-600 tabular-nums">{attorneyInterestPercent}%</p>
-                  <p className="text-[11px] text-slate-400">{attorneyInterestPercent >= 70 ? 'High likelihood' : 'Building interest'}</p>
-                  <div className="mx-auto mt-2 h-1.5 w-20 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${attorneyInterestPercent}%` }} /></div>
+                  <p className="text-[11px] text-slate-400">{attorneyInterestPercent >= 70 ? t('results.next.highLikelihood') : t('results.next.buildingInterest')}</p>
+                  <div className="mx-auto mt-auto pt-2 h-2 w-20 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${attorneyInterestPercent}%` }} /></div>
                 </div>
-                <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-center">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Estimated Settlement</p>
-                  <p className="mt-1 text-lg font-bold text-emerald-600 tabular-nums">{formatCurrency(settlementLow)} – {formatCurrency(settlementHigh)}</p>
-                  <p className="text-[11px] text-slate-400">Range (Most Likely)</p>
-                  <div className="relative mx-auto mt-2 h-1.5 w-24 rounded-full bg-slate-200"><div className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-500" /></div>
+                <div className="flex h-full flex-col rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-center">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">{t('results.headings.estimatedSettlement')}</p>
+                  <p className="mt-1 whitespace-nowrap text-base font-bold text-emerald-600 tabular-nums">{formatCurrency(settlementLow)} – {formatCurrency(settlementHigh)}</p>
+                  <p className="text-[11px] text-slate-400">{t('results.next.rangeMostLikely')}</p>
+                  <div className="relative mx-auto mt-auto h-2 w-24 rounded-full bg-slate-200"><div className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-500" /></div>
                 </div>
-                <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-center">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Liability Strength</p>
-                  <p className="mt-1 text-lg font-bold text-amber-500">{liabilityClarityLabel === 'Strong' ? 'Strong' : liabilityClarityLabel === 'Mixed' ? 'Moderate' : 'Developing'}</p>
-                  <p className="text-[11px] text-slate-400">{liabilityClarityLabel === 'Strong' ? 'Well supported' : 'Room to improve'}</p>
-                  <span className="mx-auto mt-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-amber-50 text-amber-500"><Scale className="h-4 w-4" aria-hidden /></span>
+                <div className="flex h-full flex-col rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-center">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">{t('results.headings.liabilityStrength')}</p>
+                  <p className="mt-1 text-lg font-bold text-amber-500">{liabilityClarityLabel === 'Strong' ? t('results.next.strong') : liabilityClarityLabel === 'Mixed' ? t('results.next.moderate') : t('results.next.developing')}</p>
+                  <p className="text-[11px] text-slate-400">{liabilityClarityLabel === 'Strong' ? t('results.next.wellSupported') : t('results.next.roomToImprove')}</p>
+                  <span className="mx-auto mt-auto flex h-7 w-7 items-center justify-center rounded-full bg-amber-50 text-amber-500"><Scale className="h-4 w-4" aria-hidden /></span>
                 </div>
-                <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-center">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Review Time</p>
-                  <p className="mt-1 text-lg font-bold text-blue-600">1 Day</p>
-                  <p className="text-[11px] text-slate-400">Average response</p>
-                  <span className="mx-auto mt-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-blue-600"><Calendar className="h-4 w-4" aria-hidden /></span>
+                <div className="flex h-full flex-col rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-center">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">{t('results.next.reviewTime')}</p>
+                  <p className="mt-1 text-lg font-bold text-blue-600">{t('results.next.oneDay')}</p>
+                  <p className="text-[11px] text-slate-400">{t('results.next.averageResponse')}</p>
+                  <span className="mx-auto mt-auto flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-blue-600"><Calendar className="h-4 w-4" aria-hidden /></span>
                 </div>
               </div>
             </div>
@@ -5068,7 +5105,7 @@ Checklist:
             <div className="space-y-5 lg:col-span-2">
               {/* Attorney Review Readiness */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="font-display text-base font-semibold text-slate-900">Attorney Review Readiness</p>
+                <p className="font-display text-base font-semibold text-slate-900">{t('results.headings.attorneyReviewReadiness')}</p>
                 <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:items-start">
                   <div className="flex shrink-0 flex-col items-center">
                     <div className="relative inline-flex h-28 w-28 items-center justify-center">
@@ -5078,13 +5115,13 @@ Checklist:
                       </svg>
                       <div className="relative text-center">
                         <p className="text-2xl font-bold text-slate-900 tabular-nums">{readinessDetails?.percent ?? 0}%</p>
-                        <p className="text-[10px] font-medium text-emerald-600">{(readinessDetails?.percent ?? 0) >= 75 ? 'Strong' : (readinessDetails?.percent ?? 0) >= 50 ? 'Good' : 'Building'}<br />Submission</p>
+                        <p className="text-[10px] font-medium text-emerald-600">{(readinessDetails?.percent ?? 0) >= 75 ? t('results.next.strong') : (readinessDetails?.percent ?? 0) >= 50 ? t('results.next.good') : t('results.next.building')}<br />{t('results.next.submission')}</p>
                       </div>
                     </div>
                   </div>
                   <div className="grid flex-1 gap-5 sm:grid-cols-2">
                     <div>
-                      <p className="text-xs font-semibold text-slate-700">What we have</p>
+                      <p className="text-xs font-semibold text-slate-700">{t('results.next.whatWeHave')}</p>
                       <ul className="mt-2 space-y-1.5">
                         {evidenceCompletionChecklist.filter(c => c.done).slice(0, 5).map((c) => (
                           <li key={c.label} className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />{c.label}</li>
@@ -5092,19 +5129,19 @@ Checklist:
                       </ul>
                     </div>
                     <div>
-                      <p className="text-xs font-semibold text-slate-700">Items that will strengthen your case</p>
+                      <p className="text-xs font-semibold text-slate-700">{t('results.next.itemsStrengthen')}</p>
                       <ul className="mt-2 space-y-2">
                         {missingDocItems.slice(0, 3).map((item: any) => {
                           const action = getMissingDocAction(item, assessment?.id)
                           return (
                             <li key={item.key ?? item.label} className="flex items-center justify-between gap-2">
-                              <span className="flex items-center gap-2 text-xs text-slate-600"><AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" aria-hidden />{item?.label}</span>
-                              <Link to={action.to} className="inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-50">Upload</Link>
+                              <span className="flex items-center gap-2 text-xs text-slate-600"><AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" aria-hidden />{item?.label?.trim() ? item.label : t('results.shared.missingDocument')}</span>
+                              <Link to={action.to} className="inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-50">{t('results.shared.upload')}</Link>
                             </li>
                           )
                         })}
                         {missingDocItems.length === 0 && (
-                          <li className="flex items-center gap-2 text-xs text-emerald-600"><CheckCircle className="h-4 w-4 shrink-0" aria-hidden />Your file looks complete.</li>
+                          <li className="flex items-center gap-2 text-xs text-emerald-600"><CheckCircle className="h-4 w-4 shrink-0" aria-hidden />{t('results.next.fileComplete')}</li>
                         )}
                       </ul>
                     </div>
@@ -5112,21 +5149,21 @@ Checklist:
                 </div>
                 {missingDocItems.length > 0 && (
                   <div className="mt-4 flex flex-col gap-2 rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="flex items-center gap-2 text-xs text-emerald-800"><TrendingUp className="h-4 w-4 shrink-0" aria-hidden />Adding these items could increase your attorney interest by up to 20% and improve your settlement estimate.</p>
-                    <Link to={assessment?.id ? `/evidence-upload/${assessment.id}` : '/evidence-upload'} className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900">See more ways to improve <ChevronRight className="h-3.5 w-3.5" /></Link>
+                    <p className="flex items-center gap-2 text-xs text-emerald-800"><TrendingUp className="h-4 w-4 shrink-0" aria-hidden />{t('results.next.addingItems')}</p>
+                    <Link to={assessment?.id ? `/evidence-upload/${assessment.id}` : '/evidence-upload'} className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900">{t('results.next.seeMoreWays')} <ChevronRight className="h-3.5 w-3.5" /></Link>
                   </div>
                 )}
               </div>
 
               {/* What happens next */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="font-display text-base font-semibold text-slate-900">What happens next?</p>
+                <p className="font-display text-base font-semibold text-slate-900">{t('results.next.whatHappensNext')}</p>
                 <div className="mt-4 grid gap-4 sm:grid-cols-4">
                   {[
-                    { Icon: FileText, title: 'We send your case', sub: 'to our network of trusted attorneys.' },
-                    { Icon: User, title: 'Interested attorneys', sub: 'review your case and may contact you.' },
-                    { Icon: HelpCircle, title: 'You choose whether', sub: 'to speak with any attorney.' },
-                    { Icon: ShieldCheck, title: 'No obligation', sub: 'You decide if you want to hire anyone.' },
+                    { Icon: FileText, title: t('results.next.step1Title'), sub: t('results.next.step1Sub') },
+                    { Icon: User, title: t('results.next.step2Title'), sub: t('results.next.step2Sub') },
+                    { Icon: HelpCircle, title: t('results.next.step3Title'), sub: t('results.next.step3Sub') },
+                    { Icon: ShieldCheck, title: t('results.next.step4Title'), sub: t('results.next.step4Sub') },
                   ].map((s, i) => (
                     <div key={s.title} className="flex flex-col items-center text-center">
                       <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-600"><s.Icon className="h-5 w-5" aria-hidden /></span>
@@ -5137,25 +5174,25 @@ Checklist:
                 </div>
                 <div className="mt-4 flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs text-blue-900">
                   <Shield className="h-4 w-4 shrink-0 text-blue-600" aria-hidden />
-                  <span><span className="font-semibold">100% Free. 100% Private. You're in control.</span> Attorney review does not mean you are hiring a lawyer.</span>
+                  <span><span className="font-semibold">{t('results.next.freePrivate')}</span> {t('results.next.reviewNotHiring')}</span>
                 </div>
               </div>
 
               {/* Increase your case value */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="font-display text-base font-semibold text-slate-900">Increase Your Case Value</p>
-                <p className="mt-0.5 text-xs text-slate-500">A few more documents can lead to a significantly higher outcome.</p>
+                <p className="font-display text-base font-semibold text-slate-900">{t('results.headings.increaseValue')}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{t('results.next.increaseValueSub')}</p>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   {improveCaseValueItems.map((item) => (
                     <div key={item.label} className="rounded-xl border border-slate-200 p-3">
                       <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 text-violet-600"><Upload className="h-4 w-4" aria-hidden /></span>
                       <p className="mt-2 text-xs font-semibold text-slate-800">{item.label}</p>
                       <p className="text-sm font-bold text-emerald-600">{item.boost.replace(' potential increase', '')}</p>
-                      <Link to={assessment?.id ? `/evidence-upload/${assessment.id}` : '/evidence-upload'} className="mt-2 inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-50">{item.done ? 'Added' : 'Upload Now'}</Link>
+                      <Link to={assessment?.id ? `/evidence-upload/${assessment.id}` : '/evidence-upload'} className="mt-2 inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-50">{item.done ? t('results.next.added') : t('results.next.uploadNow')}</Link>
                     </div>
                   ))}
                 </div>
-                <Link to={assessment?.id ? `/evidence-upload/${assessment.id}` : '/evidence-upload'} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-900">See all ways to strengthen your case <ChevronRight className="h-3.5 w-3.5" /></Link>
+                <Link to={assessment?.id ? `/evidence-upload/${assessment.id}` : '/evidence-upload'} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-900">{t('results.next.seeAllWays')} <ChevronRight className="h-3.5 w-3.5" /></Link>
               </div>
             </div>
 
@@ -5164,10 +5201,10 @@ Checklist:
               {/* Top attorney matches */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <p className="font-display text-base font-semibold text-slate-900">Top Attorney Matches</p>
-                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Preview</span>
+                  <p className="font-display text-base font-semibold text-slate-900">{t('results.headings.topAttorneyMatches')}</p>
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{t('results.next.preview')}</span>
                 </div>
-                <p className="mt-0.5 text-xs text-slate-500">These attorneys regularly handle cases like yours.</p>
+                <p className="mt-0.5 text-xs text-slate-500">{t('results.next.handleCasesLikeYours')}</p>
                 <div className="mt-4 space-y-3">
                   {rankedSnapshotAttorneys.length > 0 ? rankedSnapshotAttorneys.map((attorney: any) => {
                     const initials = String(attorney?.name ?? 'AT').split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
@@ -5178,52 +5215,73 @@ Checklist:
                       <div key={attorney.id || attorney.attorney_id} className="flex items-start gap-3 border-b border-slate-100 pb-3 last:border-0 last:pb-0">
                         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">{initials}</span>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-slate-900">{attorney?.law_firm?.name ?? attorney?.name ?? 'Law Firm'}</p>
-                          <p className="truncate text-[11px] text-slate-500">{getAttorneyPracticePreview(attorney, { venueState, venueCounty }) || 'Personal Injury'}</p>
+                          <p className="truncate text-sm font-semibold text-slate-900">{attorney?.law_firm?.name ?? attorney?.name ?? t('results.next.lawFirm')}</p>
+                          <p className="truncate text-[11px] text-slate-500">{getAttorneyPracticePreview(attorney, { venueState, venueCounty }) || t('results.next.personalInjury')}</p>
                           {rating > 0 && (
-                            <p className="mt-0.5 flex items-center gap-1 text-[11px] text-amber-600"><Star className="h-3 w-3" aria-hidden />{rating.toFixed(1)}{reviews > 0 ? ` (${reviews} reviews)` : ''}</p>
+                            <p className="mt-0.5 flex items-center gap-1 text-[11px] text-amber-600"><Star className="h-3 w-3" aria-hidden />{rating.toFixed(1)}{reviews > 0 ? ` (${reviews} ${t('results.next.reviewsSuffix')})` : ''}</p>
                           )}
                         </div>
                         <div className="shrink-0 text-right">
-                          <p className="text-[10px] font-medium text-slate-400">Match Score</p>
+                          <p className="text-[10px] font-medium text-slate-400">{t('results.next.matchScore')}</p>
                           <p className="text-sm font-bold text-emerald-600">{matchScore}%</p>
                         </div>
                       </div>
                     )
                   }) : (
-                    <p className="text-xs text-slate-500">Submit your case to see matched attorneys in your area.</p>
+                    <p className="text-xs text-slate-500">{t('results.next.submitToSee')}</p>
                   )}
                 </div>
                 <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] text-slate-500">
                   <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  Create an account to unlock full attorney profiles and contact information.
+                  {t('results.next.unlockProfiles')}
                 </div>
               </div>
 
-              {/* Save your case */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="flex items-center gap-1.5 font-display text-base font-semibold text-slate-900">Save Your Case <Lock className="h-3.5 w-3.5 text-slate-400" aria-hidden /></p>
-                <p className="mt-0.5 text-xs text-slate-500">Create a free account to save your progress and stay updated.</p>
-                <ul className="mt-3 space-y-1.5">
-                  {['Save your case and return anytime', 'Upload more documents', 'Track attorney responses', 'Access your full case report', 'Generate demand package'].map((b) => (
-                    <li key={b} className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />{b}</li>
-                  ))}
-                </ul>
-                <Link
-                  to={createAccountForReviewUrl}
-                  onClick={() => { if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId) }}
-                  className="mt-4 block w-full rounded-lg bg-brand-700 px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
-                >
-                  Create Free Account
-                </Link>
-                <Link
-                  to={signInForReviewUrl}
-                  onClick={() => { if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId) }}
-                  className="mt-2 block w-full rounded-lg border border-brand-200 bg-white px-4 py-2.5 text-center text-sm font-semibold text-brand-700 hover:bg-brand-50"
-                >
-                  I Already Have an Account
-                </Link>
-              </div>
+              {/* Save your case — signed-out users create/sign in; signed-in users jump to their case */}
+              {isLoggedIn ? (
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="flex items-center gap-1.5 font-display text-base font-semibold text-slate-900">{t('results.next.caseSaved')} <CheckCircle className="h-4 w-4 text-emerald-500" aria-hidden /></p>
+                  <p className="mt-0.5 text-xs text-slate-500">{t('results.next.caseSavedSub')}</p>
+                  <Link
+                    to="/dashboard"
+                    className="mt-4 block w-full rounded-lg bg-brand-700 px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
+                  >
+                    {t('results.next.goToDashboard')}
+                  </Link>
+                  {resolvedAssessmentId && (
+                    <Link
+                      to={`/dashboard?case=${resolvedAssessmentId}`}
+                      className="mt-2 block w-full rounded-lg border border-brand-200 bg-white px-4 py-2.5 text-center text-sm font-semibold text-brand-700 hover:bg-brand-50"
+                    >
+                      {t('results.next.viewThisCase')}
+                    </Link>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="flex items-center gap-1.5 font-display text-base font-semibold text-slate-900">{t('results.next.saveYourCase')} <Lock className="h-3.5 w-3.5 text-slate-400" aria-hidden /></p>
+                  <p className="mt-0.5 text-xs text-slate-500">{t('results.next.saveYourCaseSub')}</p>
+                  <ul className="mt-3 space-y-1.5">
+                    {[t('results.next.benefit1'), t('results.next.benefit2'), t('results.next.benefit3'), t('results.next.benefit4'), t('results.next.benefit5')].map((b) => (
+                      <li key={b} className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />{b}</li>
+                    ))}
+                  </ul>
+                  <Link
+                    to={createAccountForReviewUrl}
+                    onClick={() => { if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId) }}
+                    className="mt-4 block w-full rounded-lg bg-brand-700 px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
+                  >
+                    {t('results.next.createFreeAccount')}
+                  </Link>
+                  <Link
+                    to={signInForReviewUrl}
+                    onClick={() => { if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId) }}
+                    className="mt-2 block w-full rounded-lg border border-brand-200 bg-white px-4 py-2.5 text-center text-sm font-semibold text-brand-700 hover:bg-brand-50"
+                  >
+                    {t('results.next.alreadyHaveAccount')}
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
 
@@ -5231,15 +5289,15 @@ Checklist:
           <div id="attorney-handoff" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             {medicalReviewPending && (
               <p className="mb-3 text-center text-sm text-amber-700">
-                Review your treatment timeline before submitting. You can confirm it or skip it for now.
+                {t('results.next.reviewBeforeSubmit')}
               </p>
             )}
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600"><Star className="h-5 w-5" aria-hidden /></span>
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">Ready to see which attorneys want your case?</p>
-                  <p className="text-xs text-slate-500">Submit now and typically receive responses within one business day.</p>
+                  <p className="text-sm font-semibold text-slate-900">{t('results.next.readyToSee')}</p>
+                  <p className="text-xs text-slate-500">{t('results.next.submitNowResponses')}</p>
                 </div>
               </div>
               <div className="text-center sm:text-right">
@@ -5248,10 +5306,10 @@ Checklist:
                   onClick={openAttorneyReviewFlow}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-6 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 sm:w-auto"
                 >
-                  {medicalReviewPending ? 'Continue to Attorney Review' : 'Send My Case for Attorney Review'}
+                  {medicalReviewPending ? t('results.shared.continueReview') : t('results.next.sendMyCase')}
                   <ChevronRight className="h-4 w-4" aria-hidden />
                 </button>
-                <p className="mt-1.5 text-[11px] text-slate-400">No obligation • Free review • Cancel anytime</p>
+                <p className="mt-1.5 text-[11px] text-slate-400">{t('results.next.noObligationFree')}</p>
               </div>
             </div>
           </div>
@@ -5260,9 +5318,9 @@ Checklist:
           <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.08)] backdrop-blur lg:hidden">
             <div className="mx-auto flex max-w-lg items-center gap-3">
               <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Next step</p>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('results.next.nextStep')}</p>
                 <p className="truncate text-sm font-semibold text-slate-900">
-                  {medicalReviewPending ? 'Review your treatment timeline' : 'Send your case for attorney review'}
+                  {medicalReviewPending ? t('results.next.reviewTimeline') : t('results.next.sendCaseReview')}
                 </p>
               </div>
               <button
@@ -5270,7 +5328,7 @@ Checklist:
                 onClick={openAttorneyReviewFlow}
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
               >
-                {medicalReviewPending ? 'Review' : 'Send for review'}
+                {medicalReviewPending ? t('results.next.review') : t('results.next.sendForReview')}
                 <ChevronRight className="h-4 w-4" aria-hidden />
               </button>
             </div>
@@ -5282,7 +5340,7 @@ Checklist:
         </div>
       </div>
 
-      <Suspense fallback={<ResultsPanelSkeleton message="Loading report details..." />}>
+      <Suspense fallback={<ResultsPanelSkeleton message={t('results.next.loadingReport')} />}>
         <ResultsReportDetails
           assessmentId={assessment.id}
           assessmentClaimType={assessment?.claimType}

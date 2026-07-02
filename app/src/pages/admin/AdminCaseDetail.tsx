@@ -250,9 +250,17 @@ export default function AdminCaseDetail() {
         return
       }
       setRouteError(null)
+      // Surface when the invite email could not actually be delivered (e.g. no
+      // email provider configured) instead of implying it always sends (#40).
+      const inviteLabel = result?.invited?.email
+        ? `${result.invited.email} (invited${result.invited.emailSent === false ? ' — invite email could NOT be sent' : ''})`
+        : targetAttorneyName
+      if (result?.invited?.email && result.invited.emailSent === false) {
+        setRouteError('The attorney profile was created, but the invite email could not be sent. Check the email provider configuration and notify the attorney directly.')
+      }
       setRouteSuccess({
         attorneyId: targetAttorneyId || target,
-        attorneyName: result?.invited?.email ? `${result.invited.email} (invited)` : targetAttorneyName,
+        attorneyName: inviteLabel,
         invitedEmail: result?.invited?.email,
       })
       window.setTimeout(() => {
@@ -454,16 +462,12 @@ export default function AdminCaseDetail() {
             {(() => {
               const s = deriveCaseStatus(caseData)
               return (
-                <>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${s.tone}`}>
-                    {s.label}
-                  </span>
-                  {s.raw && s.raw.toLowerCase() !== s.label.toLowerCase() && (
-                    <p className="mt-0.5 text-[10px] uppercase tracking-wide text-slate-400" title="Raw assessment status">
-                      {s.raw}
-                    </p>
-                  )}
-                </>
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${s.tone}`}
+                  title={s.raw && s.raw.toLowerCase() !== s.label.toLowerCase() ? `Raw status: ${s.raw}` : undefined}
+                >
+                  {s.label}
+                </span>
               )
             })()}
           </div>

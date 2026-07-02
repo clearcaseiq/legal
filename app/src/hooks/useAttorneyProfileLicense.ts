@@ -6,6 +6,7 @@ import {
   updateAttorneyProfile,
   uploadAttorneyLicense,
 } from '../lib/api'
+import { invalidateAttorneyDashboardSummary } from './useAttorneyDashboardSummary'
 
 type SetPageError = (message: string | null) => void
 
@@ -202,6 +203,10 @@ export function useAttorneyProfileLicense(setPageError: SetPageError) {
       setPageError(null)
       setEditing(false)
       await loadProfile()
+      // The dashboard header/greeting reads the name from a separate cached
+      // summary; refresh it so a renamed attorney updates without a full page
+      // reload (#66).
+      invalidateAttorneyDashboardSummary()
 
       const successMsg = document.createElement('div')
       successMsg.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-md shadow-lg z-50'

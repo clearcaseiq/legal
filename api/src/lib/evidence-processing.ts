@@ -418,6 +418,55 @@ function computeDocumentTotal(ocrText: string, dollarAmounts: string[]): number 
   return dollarAmounts.reduce((sum, amount) => sum + parseMoney(amount), 0)
 }
 
+export type WageFigures = { grossPerPeriod: number; payFrequency: string; weeklyIncome: number }
+
+/**
+ * Extract a documented income rate from a pay stub / wage-verification doc. A pay stub
+ * shows *income*, not the loss, so summing every "$x" on it (as computeDocumentTotal does)
+ * yields a meaningless number (gross + net + YTD + deductions). Instead we pull the
+ * current-period gross pay and the pay frequency, then derive a weekly income. The intake
+ * valuation multiplies this by the client's missed-work duration to get a documented
+ * wage-loss figure. Returns undefined when no gross-pay figure is found so callers fall
+ * back to the self-reported range.
+ */
+function computeWageFigures(ocrText: string): WageFigures | undefined {
+  if (!ocrText) return undefined
+  const text = ocrText.replace(/\r/g, '')
+  const grossRegex =
+    /(?:current\s+)?(?:total\s+gross|gross\s+(?:pay|earnings|wages|income)|gross)[^$]{0,40}\$?\s*([\d,]+(?:\.\d{1,2})?)/gi
+  const candidates: number[] = []
+  let match: RegExpExecArray | null
+  while ((match = grossRegex.exec(text)) !== null) {
+    // Skip year-to-date figures — we want the per-period gross, not the annual sum. The
+    // "YTD"/"year to date" label precedes its amount, so only look *backward* (a forward
+    // window would wrongly catch the next line's YTD label and drop a valid gross figure).
+    const windowText = text.slice(Math.max(0, match.index - 20), match.index).toLowerCase()
+    if (/ytd|year[\s-]*to[\s-]*date/.test(windowText)) continue
+    const value = parseMoney(match[1])
+    if (value > 0) candidates.push(value)
+  }
+  if (candidates.length === 0) return undefined
+  // Current-period gross is the smaller figure when a YTD amount slips past the filter.
+  // Cap to a sane per-period ceiling so an OCR misread can't explode the estimate.
+  const grossPerPeriod = Math.min(Math.min(...candidates), 100000)
+
+  const lower = text.toLowerCase()
+  let payFrequency = 'biweekly'
+  if (/semi[\s-]*month|twice a month|24 pay periods/.test(lower)) payFrequency = 'semimonthly'
+  else if (/bi[\s-]*week|every (?:two|2) weeks|26 pay periods/.test(lower)) payFrequency = 'biweekly'
+  else if (/\bweekly\b|52 pay periods/.test(lower)) payFrequency = 'weekly'
+  else if (/\bmonthly\b|12 pay periods/.test(lower)) payFrequency = 'monthly'
+
+  const periodsPerWeek: Record<string, number> = {
+    weekly: 1,
+    biweekly: 0.5,
+    semimonthly: 24 / 52,
+    monthly: 12 / 52,
+  }
+  const weeklyIncome = Math.round(grossPerPeriod * (periodsPerWeek[payFrequency] ?? 0.5))
+  return { grossPerPeriod, payFrequency, weeklyIncome }
+}
+
 async function processExtractedData(ocrText: string, category: string, originalName: string): Promise<any> {
   try {
     const moneyRegex = /\$[\d,]+\.?\d*/g
@@ -433,6 +482,11 @@ async function processExtractedData(ocrText: string, category: string, originalN
 
     const totalAmount = computeDocumentTotal(ocrText, dollarAmounts)
 
+    // Pay stubs / wage-verification docs get an income-rate extraction instead of a
+    // (meaningless) summed dollar total. Kept in `entities.wage` so it persists to
+    // ExtractedData and is available to prior-session valuation seeding.
+    const wage = category === 'wage_verification' ? computeWageFigures(ocrText) : undefined
+
     const medicalEvents = buildStructuredMedicalEvents({
       category,
       originalName,
@@ -444,6 +498,7 @@ async function processExtractedData(ocrText: string, category: string, originalN
     return {
       dollarAmounts,
       totalAmount,
+      ...(wage ? { wage } : {}),
       dates,
       icdCodes,
       cptCodes,
@@ -451,6 +506,7 @@ async function processExtractedData(ocrText: string, category: string, originalN
       entities: {
         provider: extractProvider(ocrText),
         visitType: inferVisitType(ocrText, category),
+        ...(wage ? { wage } : {}),
       },
       confidence: ocrText ? (medicalEvents.some((event) => event.confidence === 'needs_review') ? 0.45 : 0.82) : 0.2,
       keywords: ocrText.toLowerCase().split(/\s+/).filter(word =>
@@ -497,7 +553,7 @@ export async function extractDataFromBuffer(
   mimetype: string,
   category: string,
   originalName: string,
-): Promise<{ dollarAmounts: string[]; totalAmount?: number }> {
+): Promise<{ dollarAmounts: string[]; totalAmount?: number; wage?: WageFigures }> {
   const rasterOcrAllowed = process.env.ENABLE_OCR !== 'false'
   const safeName = (originalName || 'document').replace(/[^\w.\-]/g, '_')
   const tmpPath = path.join(os.tmpdir(), `extract_${Date.now()}_${Math.random().toString(36).slice(2)}_${safeName}`)
@@ -524,6 +580,7 @@ export async function extractDataFromBuffer(
     return {
       dollarAmounts: (extracted?.dollarAmounts as string[]) || [],
       totalAmount: extracted?.totalAmount,
+      wage: extracted?.wage as WageFigures | undefined,
     }
   } finally {
     try {

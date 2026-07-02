@@ -2541,6 +2541,9 @@ export default function AttorneyDashboard() {
     return scheduleIdlePrefetch(() => {
       void loadAttorneyDashboardAnalyticsTab()
       void loadAttorneyDashboardProfileTab()
+      // Also warm the leads ("My Cases") chunk so switching to it after
+      // Analytics doesn't flash the Suspense skeleton on first load (#75).
+      void loadAttorneyDashboardLeadsTab()
     })
   }, [activeTab])
 
