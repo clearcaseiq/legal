@@ -186,12 +186,6 @@ importers:
       '@hookform/resolvers':
         specifier: ^5.2.2
         version: 5.2.2(react-hook-form@7.63.0)
-      '@stripe/react-stripe-js':
-        specifier: ^6.7.0
-        version: 6.7.0(@stripe/stripe-js@9.9.0)(react-dom@19.1.0)(react@19.1.0)
-      '@stripe/stripe-js':
-        specifier: ^9.9.0
-        version: 9.9.0
       '@tanstack/react-query':
         specifier: ^5.101.0
         version: 5.101.0(react@19.1.0)
@@ -5914,24 +5908,6 @@ packages:
 
   /@standard-schema/utils@0.3.0:
     resolution: {integrity: sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g==}
-    dev: false
-
-  /@stripe/react-stripe-js@6.7.0(@stripe/stripe-js@9.9.0)(react-dom@19.1.0)(react@19.1.0):
-    resolution: {integrity: sha512-KSWTQHcDlAOlxcOz+uq0pTA/k9G4+IBF/X8mtSFkkBX+nb74buMTIFcCUCHWNhjuPqfD+yJm7NWDan1EaxSyzQ==}
-    peerDependencies:
-      '@stripe/stripe-js': '>=9.5.0 <10.0.0'
-      react: '>=16.8.0 <20.0.0'
-      react-dom: '>=16.8.0 <20.0.0'
-    dependencies:
-      '@stripe/stripe-js': 9.9.0
-      prop-types: 15.8.1
-      react: 19.1.0
-      react-dom: 19.1.0(react@19.1.0)
-    dev: false
-
-  /@stripe/stripe-js@9.9.0:
-    resolution: {integrity: sha512-Vwqe6Q5cU4i82tPyAv2BpaW/fQSNdOSO4/J8EeDLPp5/oIZiMmdB+Hgh863zFH+rtoxpuWGvD1L7QPh8k1Rdvw==}
-    engines: {node: '>=12.16'}
     dev: false
 
   /@swc/helpers@0.5.15:
@@ -12230,14 +12206,6 @@ packages:
     dependencies:
       kleur: 3.0.3
       sisteransi: 1.0.5
-
-  /prop-types@15.8.1:
-    resolution: {integrity: sha512-oj87CgZICdulUohogVAR7AjlC0327U4el4L6eAvOqCeudMDVU0NThNaV+b9Df4dXgSP1gXMTnPdhfe/2qDH5cg==}
-    dependencies:
-      loose-envify: 1.4.0
-      object-assign: 4.1.1
-      react-is: 16.13.1
-    dev: false
 
   /proxy-addr@2.0.7:
     resolution: {integrity: sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==}
