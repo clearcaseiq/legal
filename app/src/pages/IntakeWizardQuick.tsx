@@ -2597,6 +2597,13 @@ export default function IntakeWizardQuick() {
                       {errors.contactPhone && (
                         <p className="text-xs text-red-600">{errors.contactPhone}</p>
                       )}
+                    {/* SMS consent — documents opt-in for A2P/toll-free compliance. */}
+                    <p className="mt-1 text-[11px] leading-snug text-gray-400">
+                      {tx('contact_smsConsent')}{' '}
+                      <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-gray-600">{tx('contact_smsConsentTerms')}</a>
+                      {' '}&{' '}
+                      <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-gray-600">{tx('contact_smsConsentPrivacy')}</a>.
+                    </p>
                     {/* Trust badges */}
                     <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-gray-400">
                       <span className="flex items-center gap-1"><Lock className="h-3.5 w-3.5" aria-hidden /> {tx('badge_private')}</span>

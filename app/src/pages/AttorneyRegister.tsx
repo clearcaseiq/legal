@@ -356,6 +356,14 @@ export default function AttorneyRegister() {
                       placeholder="(555) 123-4567"
                     />
                     {fieldErrors.phone && <p className="mt-1 text-xs text-red-600">{fieldErrors.phone}</p>}
+                    <p className="mt-1 text-[11px] leading-snug text-gray-400">
+                      By providing your phone number, you agree to receive SMS text messages from ClearCaseIQ about case
+                      routing offers and case activity. Msg &amp; data rates may apply. Message frequency varies. Reply STOP
+                      to opt out, HELP for help. Consent is not a condition of service. See our{' '}
+                      <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-gray-600">Terms of Service</a>
+                      {' '}&amp;{' '}
+                      <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-gray-600">Privacy Policy</a>.
+                    </p>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
