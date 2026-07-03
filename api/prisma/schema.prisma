@@ -491,6 +491,32 @@ model StripeWebhookEvent {
   @@map("stripe_webhook_events")
 }
 
+// Litigation-funding referral submitted by a plaintiff. Tracks the requested
+// amount, matched partners, and (once a partner is chosen) the selected terms
+// so the plaintiff can track status and the platform can report referral volume.
+model FundingRequest {
+  id                  String   @id @default(cuid())
+  userId              String
+  assessmentId        String?
+  requestedAmount     Float
+  purpose             String?
+  status              String   @default("pending") // pending, submitted, approved, funded, declined, cancelled
+  suitablePartners    String? // JSON array of matched partners
+  referralFeePct      Float?
+  selectedPartnerId   String?
+  selectedPartnerName String?
+  approvedAmount      Float?
+  interestRate        Float?
+  termMonths          Int?
+  monthlyPayment      Float?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([userId])
+  @@index([assessmentId])
+  @@map("funding_requests")
+}
+
 model CaseHealthSnapshot {
   id           String     @id @default(cuid())
   assessmentId String
