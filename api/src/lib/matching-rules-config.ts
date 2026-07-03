@@ -39,6 +39,10 @@ export interface CaseRoutingPricingTier {
   caseTypes: string[]
   description: string
   enabled: boolean
+  // When no tier's caseTypes match a case's claim type, the tier flagged as
+  // default is used so a routable case is never left unpriced. If no tier is
+  // flagged, the lowest-priced enabled tier is used as the fallback.
+  isDefault?: boolean
 }
 
 export interface AttorneySubscriptionTier {
@@ -159,9 +163,25 @@ export const DEFAULT_MATCHING_RULES: MatchingRulesConfig = {
       id: 'attorney_ready',
       label: 'Attorney-Ready Case',
       priceCents: 75000,
-      caseTypes: ['auto', 'auto_accident', 'slip_and_fall', 'premises'],
+      caseTypes: [
+        'auto',
+        'auto_accident',
+        'slip_and_fall',
+        'premises',
+        'personal_injury',
+        'car_accident',
+        'motor_vehicle',
+        'motor_vehicle_accident',
+        'truck_accident',
+        'motorcycle_accident',
+        'pedestrian_accident',
+        'bicycle_accident',
+        'rideshare_accident',
+      ],
       description: 'Standard routable PI cases with enough facts for attorney review, but no major value enhancer yet.',
       enabled: true,
+      // Fallback tier for any routable claim type not explicitly priced above.
+      isDefault: true,
     },
     {
       id: 'high_value',
@@ -351,11 +371,23 @@ export function getCaseRoutingPricingForClaimType(
   config: MatchingRulesConfig,
   claimType: unknown
 ): CaseRoutingPricingTier | null {
+  const enabledTiers = (config.caseRoutingPricingTiers || []).filter((tier) => tier.enabled !== false)
+  if (enabledTiers.length === 0) return null
+
   const normalizedClaimType = normalizeClaimType(claimType)
-  if (!normalizedClaimType) return null
-  return (config.caseRoutingPricingTiers || [])
-    .filter((tier) => tier.enabled !== false)
-    .find((tier) => (tier.caseTypes || []).map(normalizeClaimType).includes(normalizedClaimType)) || null
+  if (normalizedClaimType) {
+    const exact = enabledTiers.find((tier) =>
+      (tier.caseTypes || []).map(normalizeClaimType).includes(normalizedClaimType)
+    )
+    if (exact) return exact
+  }
+
+  // No tier explicitly prices this claim type. Fall back so a routable case is
+  // never left "unpriced": prefer a tier flagged isDefault, otherwise the
+  // lowest-priced enabled tier.
+  const explicitDefault = enabledTiers.find((tier) => tier.isDefault)
+  if (explicitDefault) return explicitDefault
+  return [...enabledTiers].sort((a, b) => (a.priceCents ?? 0) - (b.priceCents ?? 0))[0] || null
 }
 
 export function getAttorneySubscriptionTier(
