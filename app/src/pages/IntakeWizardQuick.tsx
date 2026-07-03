@@ -7,7 +7,7 @@ import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, ext
 import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import { useLanguage } from '../contexts/LanguageContext'
-import { buildCaseTaxonomy, injuryTypeToClaimType, sanitizeDetectedCounty } from '../lib/intakeQuickHelpers'
+import { buildCaseTaxonomy, injuryTypeToClaimType, sanitizeDetectedCounty, usesPoliceReportLabel } from '../lib/intakeQuickHelpers'
 import { US_STATES } from '../lib/constants'
 import { getCountiesForState } from '../lib/usLocationData'
 import { formatPhoneInput, validatePhoneField } from '../lib/phone'
@@ -3872,7 +3872,8 @@ export default function IntakeWizardQuick() {
           const itemDefs: Record<string, EvItem> = {
             photos: { category: 'photos', subcategory: 'injury_photos', title: tx('evidence_photos'), helper: tx('evidence_photosHelper'), button: t('intake.uploadPhotos'), icon: Camera },
             video: { category: 'video', subcategory: 'incident_video', title: tx('evidence_videos'), helper: tx('evidence_videosHelper'), button: tx('evidence_uploadVideos'), icon: Video },
-            police_report: { category: 'police_report', subcategory: 'report', title: tx('evidence_policeReport'), helper: tx('evidence_policeReportHelper'), button: t('intake.uploadReport'), icon: Shield },
+            police_report: { category: 'police_report', subcategory: 'report', title: usesPoliceReportLabel(formData.injuryType) ? tx('evidence_policeReport') : tx('evidence_incidentReport'), helper: tx('evidence_policeReportHelper'), button: t('intake.uploadReport'), icon: Shield },
+            witness_statements: { category: 'witness_statements', subcategory: 'statements', title: tx('evidence_witnessStatements'), helper: tx('evidence_witnessStatementsHelper'), button: tx('evidence_uploadWitnessStatements'), icon: Users },
             medical_records: { category: 'medical_records', subcategory: 'records', title: tx('evidence_medicalRecords'), helper: tx('evidence_medicalRecordsHelper'), button: t('intake.uploadRecords'), icon: Hospital },
             bills: { category: 'bills', subcategory: 'medical_bill', title: tx('evidence_medicalBills'), helper: tx('evidence_medicalBillsHelper'), button: t('intake.uploadBills'), icon: FileText },
             insurance_letters: { category: 'insurance_letters', subcategory: 'carrier_letters', title: tx('evidence_insuranceLetters'), helper: tx('evidence_insuranceLettersHelper'), button: tx('evidence_uploadInsuranceLetters'), icon: Mail },
@@ -3881,7 +3882,7 @@ export default function IntakeWizardQuick() {
           // Goal-centric grouping, highest-value documents first within each group.
           const groupIcons: Record<string, LucideIcon> = { accident: Car, medical: HeartPulse, financial: DollarSign }
           const evGroups = [
-            { id: 'accident', title: tx('evidence_groupAccident'), helper: tx('evidence_sectionEvidenceHelper'), items: [itemDefs.photos, itemDefs.video, itemDefs.police_report] },
+            { id: 'accident', title: tx('evidence_groupAccident'), helper: tx('evidence_sectionEvidenceHelper'), items: [itemDefs.photos, itemDefs.video, itemDefs.police_report, itemDefs.witness_statements] },
             { id: 'medical', title: tx('evidence_groupMedical'), helper: tx('evidence_sectionMedicalHelper'), items: [itemDefs.bills, itemDefs.medical_records] },
             { id: 'financial', title: tx('evidence_groupFinancial'), helper: tx('evidence_groupFinancialHelper'), items: [itemDefs.wage_verification] },
           ]
@@ -4194,15 +4195,20 @@ export default function IntakeWizardQuick() {
         const trialLow = roundTo(mostLikely * 2.2, 1000)
         const trialHigh = roundTo(mostLikely * 4.8, 1000)
 
-        const hasPolice = !!formData.branch.policeReport
-        const hasWitnesses = !!formData.branch.witnesses
+        // A report the client filed OR uploaded (police or incident report both land in
+        // the police_report category) should flip this factor to Included.
+        const hasPolice = !!formData.branch.policeReport || (pendingEvidenceFiles['police_report']?.length || 0) > 0
+        // Witnesses confirmed via the liability question OR by an uploaded coworker /
+        // bystander statement. Workplace intakes never ask the question, so without the
+        // upload path this factor was permanently "Missing".
+        const hasWitnesses = !!formData.branch.witnesses || (pendingEvidenceFiles['witness_statements']?.length || 0) > 0
         const sharedFault = (formData.casePosture?.faultBelief === 'shared_fault') || (formData.branch.faultParty === 'shared')
 
         const dvConfidenceFactors: { label: string; status: 'included' | 'partial' | 'missing' }[] = [
           { label: tx('dv_factorMedRecords'), status: (idet.bodyParts.length > 0 || hasUploadedMedicalRecords) ? 'included' : 'missing' },
           { label: tx('dv_factorTreatmentHistory'), status: formData.medicalTreatment.length > 0 ? 'included' : 'missing' },
           { label: tx('dv_factorMedBills'), status: hasMedicalBillsInfo ? 'included' : 'missing' },
-          { label: tx('dv_factorPoliceReport'), status: hasPolice ? 'included' : (isVehicle ? 'missing' : 'partial') },
+          { label: usesPoliceReportLabel(formData.injuryType) ? tx('dv_factorPoliceReport') : tx('dv_factorIncidentReport'), status: hasPolice ? 'included' : (isVehicle ? 'missing' : 'partial') },
           { label: tx('dv_factorWitness'), status: hasWitnesses ? 'included' : 'missing' },
           { label: tx('dv_factorEmployment'), status: ((cpFinancial.missedWork && cpFinancial.missedWork !== 'no') || hasUploadedWageDocs) ? ((cpFinancial.lostWagesRange || hasUploadedWageDocs) ? 'included' : 'partial') : 'missing' },
         ]
@@ -5101,7 +5107,7 @@ export default function IntakeWizardQuick() {
           const ringCirc = 2 * Math.PI * 15.5
           const readinessLabel = previewConfidence === 'high' ? tx('readiness_high') : previewConfidence === 'moderate' ? tx('readiness_moderate') : tx('readiness_building')
           const strengthenItems = ([
-            evCount('police_report') === 0 ? { label: tx('strengthen_police'), step: 'evidence' as Step } : null,
+            evCount('police_report') === 0 ? { label: usesPoliceReportLabel(formData.injuryType) ? tx('strengthen_police') : tx('strengthen_incident'), step: 'evidence' as Step } : null,
             evCount('medical_records') === 0 ? { label: tx('strengthen_records'), step: 'evidence' as Step } : null,
             (!formData.casePosture.missedWork || formData.casePosture.missedWork === 'no') ? { label: tx('strengthen_income'), step: 'financial_impact' as Step } : null,
           ].filter(Boolean) as { label: string; step: Step }[]).slice(0, 3)
@@ -5134,16 +5140,26 @@ export default function IntakeWizardQuick() {
                   ? { k: tx('card_medicalBills'), v: tx('evidence_uploadedCount').replace('{count}', String(evCount('bills'))), doc: true }
                   : { k: tx('card_medicalBills'), v: tx('notAnsweredYet'), doc: false },
             { k: tx('card_futureMedical'), v: formData.insuranceCoverage.futureMedicalRange ? labelForValue(FUTURE_MEDICAL_RANGE_OPTIONS, formData.insuranceCoverage.futureMedicalRange) : tx('notAnsweredYet'), doc: false },
+            // Keep this in sync with the "Employment / Income" confidence factor: an
+            // uploaded pay stub, a missed-work answer, or a lost-wages range each count
+            // as answered, so the summary must not show "Not answered yet" when the
+            // factor reads Included/Partial.
             wageDocLoss > 0
               ? { k: tx('card_lostIncome'), v: fmtMoney(wageDocLoss), doc: true }
-              : { k: tx('card_lostIncome'), v: formData.casePosture.missedWork ? labelForValue(MISSED_WORK_OPTIONS, formData.casePosture.missedWork) : tx('notAnsweredYet'), doc: false },
+              : evCount('wage_verification') > 0
+                ? { k: tx('card_lostIncome'), v: tx('evidence_uploadedCount').replace('{count}', String(evCount('wage_verification'))), doc: true }
+                : formData.casePosture.missedWork
+                  ? { k: tx('card_lostIncome'), v: labelForValue(MISSED_WORK_OPTIONS, formData.casePosture.missedWork), doc: false }
+                  : formData.casePosture.lostWagesRange
+                    ? { k: tx('card_lostIncome'), v: labelForValue(WAGE_LOSS_RANGE_OPTIONS, formData.casePosture.lostWagesRange), doc: false }
+                    : { k: tx('card_lostIncome'), v: tx('notAnsweredYet'), doc: false },
           ]
           const docRows = [
             { k: tx('evidence_medicalBills'), n: evCount('bills') },
             { k: tx('evidence_medicalRecords'), n: evCount('medical_records') },
             { k: tx('evidence_photos'), n: evCount('photos') },
             { k: tx('evidence_videos'), n: evCount('video') },
-            { k: tx('evidence_policeReport'), n: evCount('police_report') },
+            { k: usesPoliceReportLabel(formData.injuryType) ? tx('evidence_policeReport') : tx('evidence_incidentReport'), n: evCount('police_report') },
           ]
           const legalLines = [
             { k: tx('card_settlementOffer'), v: formData.casePosture.settlementOfferStatus ? (formData.casePosture.settlementOfferStatus === 'yes' ? tx('optionYes') : formData.casePosture.settlementOfferStatus === 'no' ? tx('optionNo') : tx('optionNotSure')) : tx('notAnsweredYet') },
@@ -5384,7 +5400,7 @@ export default function IntakeWizardQuick() {
   const evidenceStatusItems = [
     { category: 'photos', label: tx('evidence_photos'), weight: 20 },
     { category: 'video', label: tx('evidence_videos'), weight: 0 },
-    { category: 'police_report', label: tx('evidence_policeReport'), weight: 25 },
+    { category: 'police_report', label: usesPoliceReportLabel(formData.injuryType) ? tx('evidence_policeReport') : tx('evidence_incidentReport'), weight: 25 },
     { category: 'bills', label: tx('evidence_medicalBills'), weight: 25 },
     { category: 'medical_records', label: tx('evidence_medicalRecords'), weight: 30 },
     { category: 'insurance_letters', label: tx('evidence_insuranceLetters'), weight: 0 },

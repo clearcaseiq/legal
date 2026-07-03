@@ -192,3 +192,17 @@ export function sanitizeDetectedCounty(state: string, county: string): string {
 export function injuryTypeToClaimType(injuryType: string): string {
   return INJURY_TO_CLAIM[injuryType] ?? 'product'
 }
+
+/**
+ * Whether the "police report" document label applies for a given injury type.
+ *
+ * Police reliably respond to vehicle collisions and assaults, so those cases
+ * produce a police report. Premises, workplace, dog-bite, product, and other
+ * cases are usually documented by an incident report filed by the property
+ * owner or employer instead — showing "Police Report" there makes plaintiffs
+ * think they have nothing to upload. For those we use an "Incident Report /
+ * Police Report" label so the right document gets collected.
+ */
+export function usesPoliceReportLabel(injuryType: string): boolean {
+  return injuryType === 'vehicle' || injuryType === 'assault'
+}
