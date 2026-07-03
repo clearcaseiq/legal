@@ -9,7 +9,7 @@ import { runRoutingEngine } from '../lib/routing-engine'
 import { startAssessmentRouting } from '../lib/assessment-routing'
 import { runRoutingEscalationSweep } from '../lib/routing-escalation-sweep'
 import { routeTier1Case } from '../lib/tier1-routing'
-import { sendCaseOfferSms } from '../lib/sms'
+import { sendCaseOfferSms, sendSms, isSmsConfigured } from '../lib/sms'
 import { routeTier2Case } from '../lib/tier2-routing'
 import { assignCaseTier } from '../lib/case-tier-classifier'
 import { getMatchingRules, saveMatchingRules } from '../lib/matching-rules-config'
@@ -325,6 +325,49 @@ async function adminMiddleware(req: AuthRequest, res: any, next: any) {
     res.status(500).json({ error: 'Internal server error' })
   }
 }
+
+// ===== SMS configuration + test send =====
+// Lets an admin confirm the SMS provider (SNS/Twilio) is wired up end-to-end
+// without waiting for a real case-routing event.
+router.get('/sms/status', authMiddleware, adminMiddleware, async (_req: AuthRequest, res) => {
+  const provider = (process.env.SMS_PROVIDER || '').trim().toLowerCase() || 'auto'
+  const origination = process.env.SNS_ORIGINATION_NUMBER || process.env.TWILIO_PHONE_NUMBER || ''
+  res.json({
+    configured: isSmsConfigured(),
+    provider,
+    region: process.env.SNS_REGION || process.env.AWS_REGION || 'us-east-1',
+    // Only expose the last 4 digits of the sending number.
+    originationNumber: origination ? `••••${origination.slice(-4)}` : null,
+  })
+})
+
+router.post('/sms/test', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const schema = z.object({
+      phone: z.string().trim().min(7).max(40),
+      message: z.string().trim().max(320).optional(),
+    })
+    const parsed = schema.safeParse(req.body || {})
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'A valid phone number is required.' })
+    }
+    if (!isSmsConfigured()) {
+      return res.status(409).json({
+        error: 'SMS is not configured. Set SMS_PROVIDER (and SNS_ORIGINATION_NUMBER for SNS) and redeploy.',
+      })
+    }
+    const body = parsed.data.message || 'ClearCaseIQ: this is a test message. SMS is working. Reply STOP to opt out.'
+    const sent = await sendSms(parsed.data.phone, body)
+    if (!sent) {
+      return res.status(502).json({ error: 'The SMS provider rejected or dropped the message. Check API logs and AWS/Twilio status.' })
+    }
+    logger.info('Admin test SMS sent', { to: parsed.data.phone.slice(-4) })
+    res.json({ ok: true })
+  } catch (error: any) {
+    logger.error('Admin test SMS failed', { error: error?.message })
+    res.status(500).json({ error: 'Failed to send test SMS.' })
+  }
+})
 
 // ===== Admin Dashboard Stats =====
 router.get('/stats', authMiddleware, adminMiddleware, async (_req: AuthRequest, res) => {

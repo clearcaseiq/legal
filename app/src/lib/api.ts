@@ -2386,6 +2386,23 @@ export async function getAdminStats() {
   return data
 }
 
+export interface AdminSmsStatus {
+  configured: boolean
+  provider: string
+  region: string
+  originationNumber: string | null
+}
+
+export async function getAdminSmsStatus(): Promise<AdminSmsStatus> {
+  const { data } = await api.get<AdminSmsStatus>('/v1/admin/sms/status')
+  return data
+}
+
+export async function sendAdminTestSms(phone: string, message?: string): Promise<{ ok: boolean }> {
+  const { data } = await api.post('/v1/admin/sms/test', { phone, message })
+  return data
+}
+
 export interface AdminIntakeLead {
   id: string
   email: string | null

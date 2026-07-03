@@ -36,6 +36,7 @@ import tierRouting from './routes/tier-routing'
 import featureToggles from './routes/feature-toggles'
 import compliance from './routes/compliance'
 import smsWebhook from './routes/sms-webhook'
+import snsWebhook from './routes/sns-webhook'
 import caseInsights from './routes/case-insights'
 import caseRouting from './routes/case-routing'
 import rose from './routes/rose'
@@ -88,6 +89,7 @@ export function buildApp(): Express {
   app.use('/v1/sol', sol)
   app.use('/v1/notify', notifications)
   app.use('/v1/sms', smsWebhook)
+  app.use('/v1/sms/sns', snsWebhook)
   app.use('/v1/admin', admin)
   app.use('/v1/admin/communications', adminCommunications)
   app.use('/v1/support-tickets', supportTickets)
