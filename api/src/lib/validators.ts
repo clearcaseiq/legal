@@ -190,7 +190,9 @@ export const UserRegister = z.object({
   ),
   password: z.string().min(8),
   firstName: z.string().min(1),
-  lastName: z.string().min(1),
+  // Optional: intake only collects a first name, so the streamlined signup can
+  // finish without a last name. Defaults to empty rather than failing validation.
+  lastName: z.string().optional().default(''),
   phone: optionalPhone
 })
 

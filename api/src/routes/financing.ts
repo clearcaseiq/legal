@@ -23,6 +23,10 @@ const CostCalculator = z.object({
   settlementAmount: z.number().min(1000).optional()
 })
 
+// Platform monetization: referral fee (% of funded amount) paid by the funding
+// partner when a plaintiff we refer is funded. Overridable via env.
+const PLATFORM_FUNDING_REFERRAL_PCT = Number(process.env.FINANCING_REFERRAL_FEE_PCT ?? 8)
+
 // Pre-settlement funding partners
 const FUNDING_PARTNERS = [
   {
@@ -184,37 +188,42 @@ router.post('/request', authMiddleware, async (req: AuthRequest, res) => {
       })
     }
 
-    // Create funding request record
-    const fundingRequest = {
-      id: `fund_${Date.now()}`,
-      userId,
-      assessmentId,
-      requestedAmount,
-      purpose: purpose || 'Case expenses and living costs',
-      status: 'PENDING',
-      suitablePartners: suitablePartners.map(p => ({
-        partnerId: p.id,
-        partnerName: p.name,
-        estimatedTerms: {
-          interestRate: p.interestRate,
-          termMonths: p.termMonths,
-          monthlyPayment: calculateMonthlyPayment(requestedAmount, p.interestRate, p.termMonths)
-        }
-      })),
-      createdAt: new Date().toISOString()
-    }
+    const matchedPartners = suitablePartners.map(p => ({
+      partnerId: p.id,
+      partnerName: p.name,
+      estimatedTerms: {
+        interestRate: p.interestRate,
+        termMonths: p.termMonths,
+        monthlyPayment: calculateMonthlyPayment(requestedAmount, p.interestRate, p.termMonths)
+      }
+    }))
 
-    logger.info('Funding request submitted', { 
+    // Persist the funding request so the plaintiff can track it and the platform
+    // can report on referral volume.
+    const fundingRequest = await prisma.fundingRequest.create({
+      data: {
+        userId,
+        assessmentId,
+        requestedAmount,
+        purpose: purpose || 'Case expenses and living costs',
+        status: 'pending',
+        suitablePartners: JSON.stringify(matchedPartners),
+        referralFeePct: PLATFORM_FUNDING_REFERRAL_PCT,
+      }
+    })
+
+    logger.info('Funding request submitted', {
       userId,
       assessmentId,
       requestedAmount,
+      requestId: fundingRequest.id,
       suitablePartners: suitablePartners.length
     })
 
     res.status(201).json({
       requestId: fundingRequest.id,
-      status: 'PENDING',
-      suitablePartners: fundingRequest.suitablePartners,
+      status: fundingRequest.status,
+      suitablePartners: matchedPartners,
       nextSteps: [
         'Review funding partner options',
         'Compare terms and rates',
@@ -234,30 +243,95 @@ router.get('/requests', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id
 
-    // In a real app, this would query a funding_requests table
-    // For now, return mock data
-    const mockRequests = [
-      {
-        id: 'fund_1704067200000',
-        assessmentId: 'assessment_123',
-        requestedAmount: 15000,
-        status: 'APPROVED',
-        partner: 'Oasis Financial',
-        approvedAmount: 12000,
-        interestRate: 18,
-        termMonths: 24,
-        monthlyPayment: 587.50,
-        submittedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-      }
-    ]
+    const records = await prisma.fundingRequest.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' }
+    })
+
+    const requests = records.map(r => ({
+      id: r.id,
+      assessmentId: r.assessmentId,
+      requestedAmount: r.requestedAmount,
+      purpose: r.purpose,
+      status: r.status,
+      partner: r.selectedPartnerName,
+      selectedPartnerId: r.selectedPartnerId,
+      approvedAmount: r.approvedAmount,
+      interestRate: r.interestRate,
+      termMonths: r.termMonths,
+      monthlyPayment: r.monthlyPayment,
+      suitablePartners: safeParseJson(r.suitablePartners),
+      submittedAt: r.createdAt.toISOString(),
+      updatedAt: r.updatedAt.toISOString()
+    }))
 
     res.json({
-      requests: mockRequests,
-      totalRequests: mockRequests.length,
-      totalApproved: mockRequests.filter(r => r.status === 'APPROVED').length
+      requests,
+      totalRequests: requests.length,
+      totalApproved: requests.filter(r => ['approved', 'funded'].includes(r.status)).length
     })
   } catch (error) {
     logger.error('Failed to get funding requests', { error, userId: req.user?.id })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+const FundingRequestUpdate = z.object({
+  status: z.enum(['pending', 'submitted', 'approved', 'funded', 'declined', 'cancelled']).optional(),
+  selectedPartnerId: z.string().optional(),
+  approvedAmount: z.number().min(0).optional(),
+  interestRate: z.number().min(0).max(50).optional(),
+  termMonths: z.number().min(1).max(60).optional()
+})
+
+// Update a funding request (e.g. select a partner, submit, or cancel).
+router.patch('/requests/:id', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.user!.id
+    const parsed = FundingRequestUpdate.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+    }
+
+    const existing = await prisma.fundingRequest.findFirst({ where: { id: req.params.id, userId } })
+    if (!existing) {
+      return res.status(404).json({ error: 'Funding request not found' })
+    }
+
+    const { status, selectedPartnerId, approvedAmount, interestRate, termMonths } = parsed.data
+    const data: Record<string, unknown> = {}
+    if (status) data.status = status
+    if (approvedAmount != null) data.approvedAmount = approvedAmount
+    if (interestRate != null) data.interestRate = interestRate
+    if (termMonths != null) data.termMonths = termMonths
+
+    if (selectedPartnerId) {
+      const partner = FUNDING_PARTNERS.find(p => p.id === selectedPartnerId)
+      if (!partner) return res.status(400).json({ error: 'Unknown funding partner' })
+      data.selectedPartnerId = partner.id
+      data.selectedPartnerName = partner.name
+      const rate = interestRate ?? partner.interestRate
+      const term = termMonths ?? partner.termMonths
+      const amount = approvedAmount ?? existing.requestedAmount
+      data.interestRate = rate
+      data.termMonths = term
+      data.monthlyPayment = calculateMonthlyPayment(amount, rate, term)
+    }
+
+    const updated = await prisma.fundingRequest.update({ where: { id: existing.id }, data })
+
+    res.json({
+      id: updated.id,
+      status: updated.status,
+      partner: updated.selectedPartnerName,
+      selectedPartnerId: updated.selectedPartnerId,
+      approvedAmount: updated.approvedAmount,
+      interestRate: updated.interestRate,
+      termMonths: updated.termMonths,
+      monthlyPayment: updated.monthlyPayment
+    })
+  } catch (error) {
+    logger.error('Failed to update funding request', { error, userId: req.user?.id })
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -350,6 +424,15 @@ router.get('/medical-providers', async (req, res) => {
 })
 
 // Helper functions
+function safeParseJson(value: string | null | undefined) {
+  if (!value) return null
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
+}
+
 function calculateMonthlyPayment(principal: number, annualRate: number, months: number): number {
   const monthlyRate = annualRate / 100 / 12
   const payment = principal * (monthlyRate * Math.pow(1 + monthlyRate, months)) / 

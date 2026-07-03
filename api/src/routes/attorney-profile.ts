@@ -7,6 +7,7 @@ import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
+import { ENV } from '../env'
 
 const router = Router()
 const CA_BAR_SEARCH_URL = 'https://apps.calbar.ca.gov/attorney/LicenseeSearch/QuickSearch'
@@ -715,6 +716,19 @@ router.post('/featured-purchase', authMiddleware, async (req: any, res) => {
     const price = boostPrices[boostLevel as keyof typeof boostPrices]
     if (!price) {
       return res.status(400).json({ error: 'Invalid boost level' })
+    }
+
+    // When Stripe is configured, featured placement must be paid for through the
+    // Checkout flow (POST /v1/payments/platform/featured-checkout-session), which
+    // grants the boost from the webhook after payment succeeds. This endpoint only
+    // grants directly when Stripe is not configured (local/dev), so boosts are
+    // never handed out for free in production.
+    if (ENV.STRIPE_SECRET_KEY) {
+      return res.status(402).json({
+        error: 'Payment required',
+        paymentRequired: true,
+        checkoutEndpoint: '/v1/payments/platform/featured-checkout-session',
+      })
     }
 
     // Calculate featured until date

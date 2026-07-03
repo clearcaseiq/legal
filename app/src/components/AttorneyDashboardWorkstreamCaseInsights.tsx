@@ -1,5 +1,7 @@
-import { Calendar, ClipboardList } from 'lucide-react'
+import { useState } from 'react'
+import { Activity, Calendar, ClipboardList, FileText, Pill, Scan, Scissors, Stethoscope, Trophy } from 'lucide-react'
 import { formatCurrency } from '../lib/formatters'
+import { updateLeadDecisionOutcome, type MedicalChronologySummary } from '../lib/api'
 
 type MedicalChronologyEvent = {
   id?: string
@@ -17,8 +19,11 @@ type MedicalChronologyEvent = {
 }
 
 type AttorneyDashboardWorkstreamCaseInsightsProps = {
+  leadId?: string
   medicalChronology: MedicalChronologyEvent[]
+  medicalChronologySummary?: MedicalChronologySummary | null
   casePreparation: any
+  decisionMemory?: any
   settlementBenchmarks: any
 }
 
@@ -106,9 +111,230 @@ function getCleanMedicalFacts(event: MedicalChronologyEvent) {
   return fields.filter((field): field is { label: string; value: string } => Boolean(field.value))
 }
 
+function ChronologySummaryChips({ items }: { items: string[] }) {
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
+      {items.map((item) => (
+        <span key={item} className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700">
+          {item}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function MedicalChronologySummaryPanel({ summary }: { summary: MedicalChronologySummary }) {
+  const sections: { key: string; icon: any; title: string; items: string[] }[] = [
+    { key: 'providers', icon: Stethoscope, title: 'Providers', items: summary.providers },
+    { key: 'diagnoses', icon: Activity, title: 'Diagnoses (ICD-10)', items: summary.diagnoses.map((d) => `${d.label} [${d.code}]`) },
+    { key: 'procedures', icon: FileText, title: 'Procedures (CPT)', items: summary.procedures.map((p) => `${p.label} [${p.code}]`) },
+    { key: 'medications', icon: Pill, title: 'Medications', items: summary.medications },
+    { key: 'imaging', icon: Scan, title: 'Imaging', items: summary.imaging },
+    { key: 'surgeries', icon: Scissors, title: 'Surgeries', items: summary.surgeries },
+  ]
+  const activeSections = sections.filter((s) => s.items.length > 0)
+  const hasAnything =
+    activeSections.length > 0 ||
+    summary.visitCount > 0 ||
+    summary.billedTotal > 0 ||
+    summary.treatmentGaps.length > 0
+
+  if (!hasAnything) return null
+
+  return (
+    <div className="rounded-md border border-brand-100 bg-brand-50/40 p-4">
+      <h5 className="text-sm font-semibold text-gray-900">Extracted Medical Summary</h5>
+      <p className="mt-0.5 text-xs text-gray-500">
+        Auto-extracted from uploaded records &amp; bills — providers, diagnoses, procedures, medications, imaging, surgeries, bills, and treatment gaps.
+      </p>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+        <div className="rounded-md border border-gray-200 bg-white p-2">
+          <div className="text-gray-500">Visits</div>
+          <div className="mt-0.5 font-semibold text-gray-900">{summary.visitCount}</div>
+        </div>
+        <div className="rounded-md border border-gray-200 bg-white p-2">
+          <div className="text-gray-500">Providers</div>
+          <div className="mt-0.5 font-semibold text-gray-900">{summary.providers.length}</div>
+        </div>
+        <div className="rounded-md border border-gray-200 bg-white p-2">
+          <div className="text-gray-500">Billed total</div>
+          <div className="mt-0.5 font-semibold text-gray-900">{summary.billedTotal > 0 ? formatCurrency(summary.billedTotal) : '—'}</div>
+        </div>
+        <div className="rounded-md border border-gray-200 bg-white p-2">
+          <div className="text-gray-500">Treatment gaps</div>
+          <div className="mt-0.5 font-semibold text-gray-900">{summary.treatmentGaps.length}</div>
+        </div>
+      </div>
+
+      {activeSections.length > 0 ? (
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {activeSections.map((section) => {
+            const Icon = section.icon
+            return (
+              <div key={section.key} className="rounded-md border border-gray-200 bg-white p-2.5">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-800">
+                  <Icon className="h-3.5 w-3.5 text-brand-600" />
+                  {section.title}
+                  <span className="text-[11px] font-normal text-gray-400">({section.items.length})</span>
+                </div>
+                <ChronologySummaryChips items={section.items} />
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
+
+      {summary.treatmentGaps.length > 0 ? (
+        <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
+          <span className="font-semibold">Gaps in treatment:</span>{' '}
+          {summary.treatmentGaps.map((g) => `${g.gapDays} days (${g.startDate} → ${g.endDate})`).join('; ')}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+const OUTCOME_OPTIONS = [
+  { value: '', label: 'Select outcome…' },
+  { value: 'consulted', label: 'Consulted' },
+  { value: 'retained', label: 'Retained' },
+  { value: 'settled', label: 'Settled' },
+  { value: 'won', label: 'Won at trial' },
+  { value: 'lost', label: 'Lost / not pursued' },
+]
+
+function OutcomeFeedbackPanel({ leadId, decisionMemory }: { leadId: string; decisionMemory?: any }) {
+  const [outcomeStatus, setOutcomeStatus] = useState<string>(decisionMemory?.outcomeStatus || '')
+  const [retained, setRetained] = useState<boolean>(Boolean(decisionMemory?.retained))
+  const [settlementAmount, setSettlementAmount] = useState<string>(
+    decisionMemory?.settlementAmount != null ? String(decisionMemory.settlementAmount) : '',
+  )
+  const [wentToTrial, setWentToTrial] = useState<boolean>(Boolean(decisionMemory?.wentToTrial))
+  const [satisfaction, setSatisfaction] = useState<number>(decisionMemory?.attorneySatisfaction || 0)
+  const [notes, setNotes] = useState<string>(decisionMemory?.attorneySatisfactionNotes || decisionMemory?.outcomeNotes || '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSave = async () => {
+    setSaving(true)
+    setError(null)
+    setSaved(false)
+    try {
+      await updateLeadDecisionOutcome(leadId, {
+        outcomeStatus: outcomeStatus || null,
+        outcomeNotes: notes || undefined,
+        retained,
+        settlementAmount: settlementAmount ? Number(settlementAmount) : undefined,
+        wentToTrial,
+        attorneySatisfaction: satisfaction || undefined,
+        attorneySatisfactionNotes: notes || undefined,
+      })
+      setSaved(true)
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Failed to save outcome')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="rounded-md border border-gray-200 p-4">
+      <h5 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+        <Trophy className="h-4 w-4" />
+        Outcome &amp; Feedback
+      </h5>
+      <p className="mt-0.5 text-xs text-gray-500">Record the case resolution and your satisfaction. Settlement/verdict amounts feed the valuation model.</p>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="text-xs">
+          <span className="text-gray-600">Outcome</span>
+          <select
+            value={outcomeStatus}
+            onChange={(e) => setOutcomeStatus(e.target.value)}
+            className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs"
+          >
+            {OUTCOME_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="text-xs">
+          <span className="text-gray-600">Settlement / verdict amount</span>
+          <input
+            type="number"
+            min="0"
+            value={settlementAmount}
+            onChange={(e) => setSettlementAmount(e.target.value)}
+            placeholder="e.g. 75000"
+            className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs"
+          />
+        </label>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-700">
+        <label className="flex items-center gap-1.5">
+          <input type="checkbox" checked={retained} onChange={(e) => setRetained(e.target.checked)} />
+          Retained
+        </label>
+        <label className="flex items-center gap-1.5">
+          <input type="checkbox" checked={wentToTrial} onChange={(e) => setWentToTrial(e.target.checked)} />
+          Went to trial
+        </label>
+      </div>
+
+      <div className="mt-3">
+        <span className="text-xs text-gray-600">Your satisfaction</span>
+        <div className="mt-1 flex gap-1.5">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setSatisfaction(n === satisfaction ? 0 : n)}
+              className={`h-8 w-8 rounded-md border text-xs font-semibold ${
+                satisfaction >= n && satisfaction > 0
+                  ? 'border-brand-500 bg-brand-500 text-white'
+                  : 'border-gray-300 bg-white text-gray-600'
+              }`}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="Notes (optional)"
+        rows={2}
+        className="mt-3 w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs"
+      />
+
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+        >
+          {saving ? 'Saving…' : 'Save outcome'}
+        </button>
+        {saved ? <span className="text-xs font-medium text-emerald-600">Saved</span> : null}
+        {error ? <span className="text-xs font-medium text-red-600">{error}</span> : null}
+      </div>
+    </div>
+  )
+}
+
 export default function AttorneyDashboardWorkstreamCaseInsights({
+  leadId,
   medicalChronology,
+  medicalChronologySummary,
   casePreparation,
+  decisionMemory,
   settlementBenchmarks,
 }: AttorneyDashboardWorkstreamCaseInsightsProps) {
   const datedEvents = medicalChronology.filter((event) => event.date && !Number.isNaN(Date.parse(event.date)))
@@ -123,6 +349,10 @@ export default function AttorneyDashboardWorkstreamCaseInsights({
     <div className="rounded-md border border-gray-200 p-4 space-y-6">
       <h4 className="text-sm font-semibold text-gray-900">Case Insights</h4>
       <p className="text-xs text-gray-500">Medical chronology, case preparation, and settlement benchmarks.</p>
+
+      {medicalChronologySummary ? <MedicalChronologySummaryPanel summary={medicalChronologySummary} /> : null}
+
+      {leadId ? <OutcomeFeedbackPanel leadId={leadId} decisionMemory={decisionMemory} /> : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="rounded-md border border-gray-200 p-4">

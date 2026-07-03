@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import {
   buildMedicalChronology,
+  buildMedicalChronologySummary,
   buildPlaintiffMedicalReview,
   computeCasePreparation,
   getSettlementBenchmarks,
@@ -50,8 +51,11 @@ router.get('/assessments/:assessmentId/medical-chronology', optionalAuthMiddlewa
       return res.status(403).json({ error: 'Unauthorized to view this assessment' })
     }
 
-    const chronology = await buildMedicalChronology(assessmentId)
-    res.json({ chronology })
+    const [chronology, summary] = await Promise.all([
+      buildMedicalChronology(assessmentId),
+      buildMedicalChronologySummary(assessmentId),
+    ])
+    res.json({ chronology, summary })
   } catch (error: any) {
     logger.error('Failed to build medical chronology', { error: error.message, assessmentId: req.params.assessmentId })
     res.status(500).json({ error: 'Failed to build medical chronology' })
@@ -189,6 +193,101 @@ router.get('/assessments/:assessmentId/settlement-benchmarks', optionalAuthMiddl
   } catch (error: any) {
     logger.error('Failed to get settlement benchmarks', { error: error.message, assessmentId: req.params.assessmentId })
     res.status(500).json({ error: 'Failed to get settlement benchmarks' })
+  }
+})
+
+const PlaintiffSatisfactionUpdate = z.object({
+  satisfaction: z.number().int().min(1).max(5),
+  notes: z.string().trim().max(2000).optional(),
+})
+
+// Plaintiff-reported satisfaction with their attorney/experience. Stored on the
+// case's DecisionMemory record so it sits alongside the accept/decline/outcome data.
+router.get('/assessments/:assessmentId/satisfaction', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { assessmentId } = req.params
+    const userId = req.user?.id
+
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: { userId: true },
+    })
+    if (!assessment) return res.status(404).json({ error: 'Assessment not found' })
+    if (assessment.userId && userId && assessment.userId !== userId) {
+      return res.status(403).json({ error: 'Unauthorized to view this assessment' })
+    }
+
+    const memory = await prisma.decisionMemory.findFirst({
+      where: { assessmentId },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        plaintiffSatisfaction: true,
+        plaintiffSatisfactionNotes: true,
+        plaintiffSatisfactionAt: true,
+      },
+    })
+    res.json(memory || { plaintiffSatisfaction: null, plaintiffSatisfactionNotes: null, plaintiffSatisfactionAt: null })
+  } catch (error: any) {
+    logger.error('Failed to get plaintiff satisfaction', { error: error.message, assessmentId: req.params.assessmentId })
+    res.status(500).json({ error: 'Failed to get plaintiff satisfaction' })
+  }
+})
+
+router.post('/assessments/:assessmentId/satisfaction', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { assessmentId } = req.params
+    const userId = req.user?.id
+    const parsed = PlaintiffSatisfactionUpdate.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid satisfaction payload', details: parsed.error.flatten() })
+    }
+
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: { userId: true },
+    })
+    if (!assessment) return res.status(404).json({ error: 'Assessment not found' })
+    if (assessment.userId && userId && assessment.userId !== userId) {
+      return res.status(403).json({ error: 'Unauthorized to update this assessment' })
+    }
+
+    const lead = await prisma.leadSubmission.findFirst({
+      where: { assessmentId },
+      select: { id: true, assignedAttorneyId: true },
+    })
+
+    const satisfactionData = {
+      plaintiffSatisfaction: parsed.data.satisfaction,
+      plaintiffSatisfactionNotes: parsed.data.notes ?? null,
+      plaintiffSatisfactionAt: new Date(),
+    }
+
+    const existing = lead
+      ? await prisma.decisionMemory.findUnique({ where: { leadId: lead.id }, select: { id: true } })
+      : await prisma.decisionMemory.findFirst({ where: { assessmentId }, select: { id: true } })
+
+    if (existing) {
+      await prisma.decisionMemory.update({ where: { id: existing.id }, data: satisfactionData })
+    } else if (lead?.assignedAttorneyId) {
+      // No decision record yet, but a matched attorney exists — create one to hold the rating.
+      await prisma.decisionMemory.create({
+        data: {
+          leadId: lead.id,
+          assessmentId,
+          attorneyId: lead.assignedAttorneyId,
+          recommendedDecision: 'accept',
+          recommendedConfidence: 50,
+          ...satisfactionData,
+        },
+      })
+    } else {
+      return res.status(409).json({ error: 'No matched attorney yet — satisfaction can be recorded once a case is engaged.' })
+    }
+
+    res.json({ ok: true, ...satisfactionData })
+  } catch (error: any) {
+    logger.error('Failed to save plaintiff satisfaction', { error: error.message, assessmentId: req.params.assessmentId })
+    res.status(500).json({ error: 'Failed to save plaintiff satisfaction' })
   }
 })
 

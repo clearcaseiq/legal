@@ -12,6 +12,17 @@ import { useToast } from '../contexts/ToastContext'
 import { resetCachedPlaintiffSessionSummary, updateCachedPlaintiffAssessments, updateCachedPlaintiffUser } from '../hooks/usePlaintiffSessionSummary'
 import { type RegisterFieldErrors, type RegisterInput, validateRegisterInput } from '../lib/registerValidation'
 import { formatPhoneInput } from '../lib/phone'
+import { clearPendingRegistration, getPendingRegistration } from '../lib/pendingRegistration'
+
+// Turn an email local-part into a friendly first name when intake didn't collect
+// one (e.g. "joe.rogan@x.com" → "Joe"). Falls back to "there" so the required
+// name is never empty. The user can change it later in their profile.
+function deriveFirstNameFromEmail(email: string): string {
+  const local = (email.split('@')[0] || '').trim()
+  const first = local.split(/[._\-+\d]+/).filter(Boolean)[0] || local
+  if (!first) return 'there'
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()
+}
 
 export default function Register() {
   const { t } = useLanguage()
@@ -30,14 +41,19 @@ export default function Register() {
   const [acceptedLegalSignup, setAcceptedLegalSignup] = useState(false)
   const [consentSaving, setConsentSaving] = useState(false)
   const [consentSaveError, setConsentSaveError] = useState<string | null>(null)
+  // When the user came from intake we already know their contact details, so the
+  // signup collapses to "set a password". They can still expand to edit anything.
+  const [streamlined, setStreamlined] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
   const navigate = useNavigate()
   const { showToast } = useToast()
   const [searchParams] = useSearchParams()
   const assessmentId = searchParams.get('assessmentId')
-  const rawRedirectTo = searchParams.get('redirect') || (assessmentId ? `/results/${assessmentId}` : '/dashboard')
-  const redirectTo = assessmentId && rawRedirectTo === '/dashboard'
+  // After an intake signup, send the user straight to their dashboard (with the
+  // new case linked). Otherwise honor an explicit redirect or fall back home.
+  const redirectTo = assessmentId
     ? `/dashboard?case=${encodeURIComponent(assessmentId)}`
-    : rawRedirectTo
+    : searchParams.get('redirect') || '/dashboard'
 
   // Persist assessmentId for OAuth flow (assessmentId is lost during OAuth redirect)
   useEffect(() => {
@@ -46,11 +62,38 @@ export default function Register() {
     }
   }, [assessmentId])
 
+  // Prefill the details the plaintiff already gave during intake so they only
+  // need to set a password to finish.
+  useEffect(() => {
+    const pending = getPendingRegistration()
+    const hasPrefill = Boolean(pending.firstName || pending.email || pending.phone)
+    if (!hasPrefill) return
+    setForm((current) => ({
+      ...current,
+      firstName: pending.firstName || current.firstName,
+      lastName: pending.lastName || current.lastName,
+      email: pending.email || current.email,
+      phone: pending.phone ? formatPhoneInput(pending.phone) : current.phone,
+    }))
+    // Only treat it as the streamlined "just set a password" flow when we have an
+    // email (the account identifier). Phone-only intakes still need an email.
+    setStreamlined(Boolean(pending.email))
+  }, [])
+
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const nextFieldErrors = validateRegisterInput(form)
+    // Intake never asks for a name, so in the streamlined flow derive a friendly
+    // first name from the email local-part (e.g. joe@rogan.com → "Joe") when one
+    // wasn't provided. It stays editable later in the profile.
+    const derivedFirstName = form.firstName.trim() || deriveFirstNameFromEmail(form.email)
+    const normalizedForm = { ...form, firstName: derivedFirstName }
+    const nextFieldErrors = validateRegisterInput(normalizedForm)
     setFieldErrors(nextFieldErrors)
     if (Object.keys(nextFieldErrors).length > 0) {
+      // In the collapsed streamlined view the name/email/phone inputs are hidden;
+      // expand them so any validation error (e.g. an invalid email) is visible
+      // instead of the button appearing to do nothing.
+      setShowDetails(true)
       return
     }
 
@@ -59,7 +102,7 @@ export default function Register() {
 
     try {
       const response = await register({
-        firstName: form.firstName.trim(),
+        firstName: derivedFirstName,
         lastName: form.lastName.trim(),
         email: form.email.trim(),
         password: form.password,
@@ -84,6 +127,8 @@ export default function Register() {
         }
       }
       
+      clearPendingRegistration()
+
       // Set up consent workflow
       setRegisteredUserId(response.user.id)
       showToast({
@@ -171,18 +216,24 @@ export default function Register() {
           <p className="text-sm text-gray-600 dark:text-slate-400">AI-Powered Legal Assessment Platform</p>
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          Create your account
+          {streamlined ? "You're almost done" : 'Create your account'}
         </h2>
-        <p className="mt-2 text-center text-sm text-gray-600">
-          Already have an account?{' '}
-          <Link to="/login" className="font-medium text-brand-600 hover:text-brand-500">
-            Sign in
-          </Link>
-          {' '}•{' '}
-          <Link to="/attorney-register" className="font-medium text-brand-600 hover:text-brand-500">
-            Attorney Sign Up
-          </Link>
-        </p>
+        {streamlined ? (
+          <p className="mt-2 text-center text-sm text-gray-600">
+            We saved the details from your case. Just set a password to finish and open your dashboard.
+          </p>
+        ) : (
+          <p className="mt-2 text-center text-sm text-gray-600">
+            Already have an account?{' '}
+            <Link to="/login" className="font-medium text-brand-600 hover:text-brand-500">
+              Sign in
+            </Link>
+            {' '}•{' '}
+            <Link to="/attorney-register" className="font-medium text-brand-600 hover:text-brand-500">
+              Attorney Sign Up
+            </Link>
+          </p>
+        )}
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
@@ -209,6 +260,8 @@ export default function Register() {
           </div>
 
           <form className="space-y-6" onSubmit={onSubmit}>
+            {(!streamlined || showDetails) ? (
+            <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">
@@ -234,7 +287,7 @@ export default function Register() {
 
               <div>
                 <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">
-                  Last name
+                  Last name <span className="text-gray-400">(optional)</span>
                 </label>
                 <div className="mt-1">
                   <input
@@ -276,6 +329,27 @@ export default function Register() {
                 <p className="mt-1 text-sm text-red-600">{fieldErrors.email}</p>
               )}
             </div>
+            </>
+            ) : (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900">
+                      {[form.firstName, form.lastName].filter(Boolean).join(' ') || 'Your account'}
+                    </p>
+                    <p className="mt-0.5 truncate text-sm text-gray-600">{form.email}</p>
+                    {form.phone && <p className="mt-0.5 text-sm text-gray-600">{form.phone}</p>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowDetails(true)}
+                    className="shrink-0 text-sm font-medium text-brand-600 hover:text-brand-500"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">
@@ -300,6 +374,7 @@ export default function Register() {
               )}
             </div>
 
+            {(!streamlined || showDetails) && (
             <div>
               <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
                 Phone number (optional)
@@ -320,6 +395,7 @@ export default function Register() {
                 {fieldErrors.phone && <p className="mt-1 text-sm text-red-600">{fieldErrors.phone}</p>}
               </div>
             </div>
+            )}
 
             <div className="flex gap-2 items-start">
               <input

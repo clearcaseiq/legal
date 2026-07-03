@@ -599,6 +599,90 @@ export async function getAttorneyProfile(attorneyId: string) {
   return data
 }
 
+export interface AttorneyTrustMetrics {
+  attorneyId: string
+  averageRating: number
+  totalReviews: number
+  averageResponseHours: number | null
+  responseBadge: string
+  introductionsCount: number
+  respondedCount: number
+  acceptanceRate: number
+  casesHandled: number
+  resolvedCount: number
+  retainRate: number
+  favorableRate: number
+  outcomeBreakdown: { retained: number; settled: number; won: number; lost: number; consulted: number }
+  averageSettlement: number
+  totalSettlements: number
+  settlementCount: number
+  wentToTrialCount: number
+  plaintiffSatisfaction: number | null
+  attorneySatisfaction: number | null
+}
+
+export async function getAttorneyTrustMetrics(attorneyId: string): Promise<AttorneyTrustMetrics> {
+  const { data } = await api.get(`/v1/attorney-profiles/${attorneyId}/trust-metrics`)
+  return data
+}
+
+export interface FirmTrustMetrics {
+  firmId: string
+  attorneyCount: number
+  averageRating: number
+  totalReviews: number
+  acceptanceRate: number
+  retainRate: number
+  favorableRate: number
+  averageSettlement: number
+  totalSettlements: number
+  settlementCount: number
+  casesHandled: number
+  plaintiffSatisfaction: number | null
+  averageResponseHours: number | null
+}
+
+export interface FirmProfile {
+  id: string
+  name: string
+  slug: string
+  tagline: string | null
+  description: string | null
+  logoUrl: string | null
+  website: string | null
+  phone: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
+  foundedYear: number | null
+  practiceAreas: string[]
+  offices: { id: string; name: string; city: string | null; state: string | null; practiceAreas: string[] }[]
+  attorneys: {
+    id: string
+    name: string
+    specialties: string[]
+    averageRating: number
+    totalReviews: number
+    isVerified: boolean
+    responseTimeHours: number
+  }[]
+}
+
+export async function getPublicFirms(params?: { state?: string; q?: string }) {
+  const search = new URLSearchParams()
+  if (params?.state) search.append('state', params.state)
+  if (params?.q) search.append('q', params.q)
+  const { data } = await api.get<{ firms: Array<{ id: string; name: string; slug: string; tagline: string | null; logoUrl: string | null; city: string | null; state: string | null; practiceAreas: string[]; attorneyCount: number }> }>(
+    `/v1/firms?${search.toString()}`,
+  )
+  return data.firms
+}
+
+export async function getFirmProfile(slug: string): Promise<{ firm: FirmProfile; metrics: FirmTrustMetrics }> {
+  const { data } = await api.get(`/v1/firms/${slug}`)
+  return data
+}
+
 export async function createAttorneyReview(attorneyId: string, reviewData: any) {
   const { data } = await api.post(`/v1/attorney-profiles/${attorneyId}/reviews`, reviewData)
   return data
@@ -1275,9 +1359,36 @@ export async function saveLeadDecisionOverride(leadId: string, payload: { decisi
 
 export async function updateLeadDecisionOutcome(
   leadId: string,
-  payload: { outcomeStatus: string | null; outcomeNotes?: string }
+  payload: {
+    outcomeStatus: string | null
+    outcomeNotes?: string
+    retained?: boolean
+    settlementAmount?: number
+    wentToTrial?: boolean
+    attorneySatisfaction?: number
+    attorneySatisfactionNotes?: string
+  }
 ) {
   const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/decision-intelligence/outcome`, payload)
+  return data
+}
+
+export interface PlaintiffSatisfaction {
+  plaintiffSatisfaction: number | null
+  plaintiffSatisfactionNotes: string | null
+  plaintiffSatisfactionAt: string | null
+}
+
+export async function getPlaintiffSatisfaction(assessmentId: string): Promise<PlaintiffSatisfaction> {
+  const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/satisfaction`)
+  return data
+}
+
+export async function submitPlaintiffSatisfaction(
+  assessmentId: string,
+  payload: { satisfaction: number; notes?: string }
+) {
+  const { data } = await api.post(`/v1/case-insights/assessments/${assessmentId}/satisfaction`, payload)
   return data
 }
 
@@ -1619,6 +1730,29 @@ export async function getLeadMedicalChronology(leadId: string) {
   return data.chronology
 }
 
+export interface MedicalChronologySummary {
+  providers: string[]
+  visitCount: number
+  diagnoses: { code: string; label: string }[]
+  icd10Codes: string[]
+  procedures: { code: string; label: string }[]
+  cptCodes: string[]
+  medications: string[]
+  imaging: string[]
+  surgeries: string[]
+  billedTotal: number
+  treatmentGaps: { startDate: string; endDate: string; gapDays: number }[]
+  firstTreatmentDate: string | null
+  lastTreatmentDate: string | null
+  eventCount: number
+  timeline: any[]
+}
+
+export async function getLeadMedicalChronologySummary(leadId: string): Promise<MedicalChronologySummary | null> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/medical-chronology`)
+  return data.summary ?? null
+}
+
 export async function getLeadCasePreparation(leadId: string) {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/case-preparation`)
   return data
@@ -1812,6 +1946,52 @@ export async function createStripeConnectAccountLink(payload?: { refreshUrl?: st
 export async function getStripeConnectStatus() {
   const { data } = await api.get('/v1/payments/connect/status')
   return data
+}
+
+export async function getStripeConfig() {
+  const { data } = await api.get('/v1/payments/config')
+  return data as { publishableKey: string | null; enabled: boolean }
+}
+
+// Creates a SetupIntent for in-app card entry via the Stripe Payment Element.
+export async function createStripeSetupIntent() {
+  const { data } = await api.post('/v1/payments/payment-methods/setup-intent', {})
+  return data as { clientSecret: string; customerId: string }
+}
+
+// Whether the attorney has a saved default card on file (drives the onboarding gate).
+export async function getPaymentMethodStatus() {
+  const { data } = await api.get('/v1/payments/payment-methods/status')
+  return data as {
+    stripeEnabled: boolean
+    hasDefaultPaymentMethod: boolean
+    brand?: string | null
+    last4?: string | null
+  }
+}
+
+// Promotes the newest saved card to the customer default immediately after
+// in-app card entry (avoids waiting on the setup_intent.succeeded webhook).
+export async function syncDefaultPaymentMethod() {
+  const { data } = await api.post('/v1/payments/payment-methods/sync-default', {})
+  return data as { hasDefaultPaymentMethod: boolean; brand?: string | null; last4?: string | null }
+}
+
+// Stripe Customer Portal — manage/cancel subscription, update card, view invoices.
+export async function createStripePortalSession(payload?: { returnUrl?: string }) {
+  const { data } = await api.post('/v1/payments/portal-session', payload || {})
+  return data as { url: string }
+}
+
+// Featured-placement / visibility boost purchase.
+export async function createFeaturedPlacementCheckoutSession(payload: {
+  boostLevel: number
+  duration?: number
+  successUrl?: string
+  cancelUrl?: string
+}) {
+  const { data } = await api.post('/v1/payments/platform/featured-checkout-session', payload)
+  return data as { checkoutUrl: string; sessionId: string }
 }
 
 export async function updateLeadInvoice(leadId: string, invoiceId: string, payload: any) {

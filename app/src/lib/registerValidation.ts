@@ -19,9 +19,8 @@ export function validateRegisterInput(input: RegisterInput): RegisterFieldErrors
     errors.firstName = 'First name is required'
   }
 
-  if (!input.lastName.trim()) {
-    errors.lastName = 'Last name is required'
-  }
+  // Last name is optional: intake only ever collects a first name, so requiring
+  // it here would force users to invent one to finish the streamlined signup.
 
   const phoneError = validatePhoneField(input.phone)
   if (phoneError) {

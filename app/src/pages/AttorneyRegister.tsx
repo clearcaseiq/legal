@@ -193,7 +193,10 @@ export default function AttorneyRegister() {
         }
       }
 
-      navigate(licenseVerificationSucceeded ? '/attorney-dashboard' : '/attorney-license-upload')
+      // Require a saved card before reaching the dashboard, so accepting a case
+      // charges the routing fee instantly instead of redirecting to checkout.
+      const destination = licenseVerificationSucceeded ? '/attorney-dashboard' : '/attorney-license-upload'
+      navigate(`/attorney-onboarding/payment?next=${encodeURIComponent(destination)}`)
     } catch (err: any) {
       const d = err.response?.data as { error?: string; details?: string | Record<string, unknown> } | undefined
       let msg = d?.error || err.message || 'Registration failed'

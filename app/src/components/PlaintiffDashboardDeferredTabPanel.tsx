@@ -46,6 +46,13 @@ type RecentActivityItem = {
   done: boolean
 }
 
+type DashboardTask = {
+  label: string
+  detail: string
+  done: boolean
+  href: string
+}
+
 type JournalEntry = {
   date: string
   level: number
@@ -90,6 +97,7 @@ type Props = {
   evidenceCount: number
   hasWageLoss: boolean
   onDownloadReport: () => void | Promise<void>
+  tasks: DashboardTask[]
   evidenceImpact: EvidenceImpactItem[]
   recentActivity: RecentActivityItem[]
   notification: string | null
@@ -142,6 +150,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
   evidenceCount,
   hasWageLoss,
   onDownloadReport,
+  tasks,
   evidenceImpact,
   recentActivity,
   notification,
@@ -226,47 +235,17 @@ export default function PlaintiffDashboardDeferredTabPanel({
   })
 
   if (activeTab === 'tasks') {
-    const scoreTasks = scoreFactors
-      .filter((factor) => factor.improve)
-      .map((factor) => ({
-        label: factor.label,
-        detail: factor.improve || '',
-        done: false,
-        href: `/evidence-upload/${activeAssessmentId}`,
-      }))
-    const evidenceTasks = evidenceImpact
-      .filter((item) => !item.done)
-      .slice(0, 3)
-      .map((item) => ({
-        label: item.label,
-        detail: `${item.impact} estimated impact when added.`,
-        done: false,
-        href: `/evidence-upload/${activeAssessmentId}`,
-      }))
-    const reviewTask = submittedForReview
-      ? {
-          label: attorneyMatched ? 'Schedule or prepare for consultation' : 'Wait for attorney review',
-          detail: attorneyMatched
-            ? hasUpcomingConsult
-              ? 'Your consultation is scheduled. Upload any documents your attorney may need.'
-              : 'Book a consultation with your matched attorney.'
-            : 'You do not need to do anything urgent unless we request more information.',
-          done: attorneyMatched && hasUpcomingConsult,
-          href: attorneyMatched ? '/messaging' : `/results/${activeAssessmentId}`,
-        }
-      : {
-          label: 'Submit for attorney review',
-          detail: 'Send your case when you are ready to see attorney matches.',
-          done: false,
-          href: `/results/${activeAssessmentId}?review=1`,
-        }
-    const tasks = [reviewTask, ...evidenceTasks, ...scoreTasks].slice(0, 6)
+    const openTaskCount = tasks.filter((task) => !task.done).length
 
     return (
       <div className="space-y-6">
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-2">Tasks</h3>
-          <p className="text-sm text-gray-600 mb-5">The most useful things to do next for your case.</p>
+          <p className="text-sm text-gray-600 mb-5">
+            {openTaskCount > 0
+              ? `The most useful things to do next for your case (${openTaskCount} to do).`
+              : 'You are all caught up — nothing to do right now.'}
+          </p>
           <div className="space-y-3">
             {tasks.map((task) => (
               <div key={`${task.label}-${task.detail}`} className="rounded-lg border border-gray-200 bg-gray-50 p-4">

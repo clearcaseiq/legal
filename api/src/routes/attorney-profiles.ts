@@ -5,8 +5,23 @@ import { z } from 'zod'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { generateAvailableTimeSlots, getDayBounds } from '../lib/availability-slots'
 import { buildAttorneyConversionMetrics, getResponseTimeBadge, maybeVerifyAttorneyReview } from '../lib/appointment-engagement'
+import { computeAttorneyTrustMetrics } from '../lib/attorney-trust-metrics'
 
 const router = Router()
+
+// Public trust metrics — real response/acceptance/outcome/settlement numbers.
+router.get('/:attorneyId/trust-metrics', async (req, res) => {
+  try {
+    const { attorneyId } = req.params
+    const attorney = await prisma.attorney.findUnique({ where: { id: attorneyId }, select: { id: true } })
+    if (!attorney) return res.status(404).json({ error: 'Attorney not found' })
+    const metrics = await computeAttorneyTrustMetrics(attorneyId)
+    res.json(metrics)
+  } catch (error) {
+    logger.error('Failed to get attorney trust metrics', { error, attorneyId: req.params.attorneyId })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
 
 function busyBlocksToAppointments(busyBlocks: Array<{ startTime: Date; endTime: Date }>) {
   return busyBlocks.map((block) => ({

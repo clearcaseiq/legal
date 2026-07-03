@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, Link, useLocation } from 'react-router-dom'
-import { searchAttorneys, getAttorneyProfile } from '../lib/api'
+import { searchAttorneys, getAttorneyProfile, getAttorneyTrustMetrics, type AttorneyTrustMetrics } from '../lib/api'
 import { type AttorneySummary } from '../lib/schemas'
 import { 
   Search, 
@@ -24,6 +24,7 @@ export default function Attorneys() {
   const fromPath = (location.state as { from?: string })?.from ?? (localStorage.getItem('auth_token') ? '/dashboard' : '/')
   const [attorneys, setAttorneys] = useState<AttorneySummary[]>([])
   const [selectedAttorney, setSelectedAttorney] = useState<any>(null)
+  const [trustMetrics, setTrustMetrics] = useState<AttorneyTrustMetrics | null>(null)
   const [loading, setLoading] = useState(false)
   const [searchForm, setSearchForm] = useState({
     venue: searchParams.get('venue') || '',
@@ -60,8 +61,12 @@ export default function Attorneys() {
 
   const handleAttorneyClick = async (attorneyId: string) => {
     try {
+      setTrustMetrics(null)
       const attorney = await getAttorneyProfile(attorneyId)
       setSelectedAttorney(attorney)
+      getAttorneyTrustMetrics(attorneyId)
+        .then(setTrustMetrics)
+        .catch(() => setTrustMetrics(null))
     } catch (error) {
       console.error('Failed to load attorney details:', error)
     }
@@ -328,6 +333,34 @@ export default function Attorneys() {
                   </div>
                 </div>
               </div>
+
+              {trustMetrics && (trustMetrics.introductionsCount > 0 || trustMetrics.casesHandled > 0) ? (
+                <div className="mb-6">
+                  <h4 className="font-medium text-gray-900 mb-2">Track record</h4>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-lg border border-gray-200 p-2.5">
+                      <div className="text-gray-500">Acceptance rate</div>
+                      <div className="mt-0.5 text-sm font-semibold text-gray-900">{Math.round(trustMetrics.acceptanceRate * 100)}%</div>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 p-2.5">
+                      <div className="text-gray-500">Favorable outcomes</div>
+                      <div className="mt-0.5 text-sm font-semibold text-gray-900">{Math.round(trustMetrics.favorableRate * 100)}%</div>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 p-2.5">
+                      <div className="text-gray-500">Avg settlement</div>
+                      <div className="mt-0.5 text-sm font-semibold text-gray-900">
+                        {trustMetrics.averageSettlement > 0 ? `$${trustMetrics.averageSettlement.toLocaleString()}` : '—'}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-gray-200 p-2.5">
+                      <div className="text-gray-500">Client satisfaction</div>
+                      <div className="mt-0.5 text-sm font-semibold text-gray-900">
+                        {trustMetrics.plaintiffSatisfaction != null ? `${trustMetrics.plaintiffSatisfaction}/5` : '—'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               {(selectedAttorney.profile?.bio || selectedAttorney.bio) && (
                 <div className="mb-6">

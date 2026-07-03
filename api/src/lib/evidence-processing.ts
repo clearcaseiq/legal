@@ -338,6 +338,41 @@ function summarizeText(ocrText: string) {
   return sentences.slice(0, 2).join('. ').slice(0, 500)
 }
 
+// Common PI-relevant medications (generic + brand). Kept deterministic and
+// explainable rather than model-guessed. Also catches "<Drug> <dose>mg" patterns
+// so unlisted meds with an explicit dose are still surfaced for the chronology.
+const KNOWN_MEDICATIONS = [
+  'ibuprofen', 'naproxen', 'acetaminophen', 'tylenol', 'advil', 'aleve', 'motrin',
+  'aspirin', 'meloxicam', 'mobic', 'celecoxib', 'celebrex', 'diclofenac', 'voltaren',
+  'ketorolac', 'toradol', 'gabapentin', 'neurontin', 'pregabalin', 'lyrica',
+  'cyclobenzaprine', 'flexeril', 'methocarbamol', 'robaxin', 'baclofen', 'tizanidine', 'zanaflex',
+  'carisoprodol', 'soma', 'prednisone', 'methylprednisolone', 'medrol',
+  'tramadol', 'ultram', 'hydrocodone', 'norco', 'vicodin', 'oxycodone', 'percocet', 'oxycontin',
+  'codeine', 'morphine', 'lidocaine', 'diazepam', 'valium', 'duloxetine', 'cymbalta', 'amitriptyline',
+]
+
+/** Extract medication mentions from OCR text (known list + dosed drug names). */
+export function extractMedications(ocrText: string): string[] {
+  if (!ocrText) return []
+  const text = ocrText.toLowerCase()
+  const found = new Set<string>()
+  for (const med of KNOWN_MEDICATIONS) {
+    if (new RegExp(`\\b${med}\\b`, 'i').test(text)) {
+      found.add(med.charAt(0).toUpperCase() + med.slice(1))
+    }
+  }
+  // Capture "<Capitalized drug name> 500 mg" style mentions not in the known list.
+  const doseRegex = /\b([A-Z][a-z]{3,20})\s+\d{1,4}\s?(?:mg|mcg|ml)\b/g
+  let m: RegExpExecArray | null
+  while ((m = doseRegex.exec(ocrText)) !== null) {
+    const name = m[1]
+    if (!/^(Date|Page|Total|Visit|Exam|Note|Report|Patient|Amount|Balance)$/i.test(name)) {
+      found.add(name)
+    }
+  }
+  return [...found].slice(0, 25)
+}
+
 function classifyEvidence(filename: string, category: string, ocrText: string) {
   const haystack = `${filename} ${category} ${ocrText}`.toLowerCase()
   if (haystack.includes('police') || haystack.includes('incident report')) return 'police_report'
@@ -506,6 +541,7 @@ async function processExtractedData(ocrText: string, category: string, originalN
       entities: {
         provider: extractProvider(ocrText),
         visitType: inferVisitType(ocrText, category),
+        medications: extractMedications(ocrText),
         ...(wage ? { wage } : {}),
       },
       confidence: ocrText ? (medicalEvents.some((event) => event.confidence === 'needs_review') ? 0.45 : 0.82) : 0.2,

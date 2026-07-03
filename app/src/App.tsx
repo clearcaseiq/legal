@@ -16,6 +16,7 @@ const AttorneyRegister = lazy(() => import('./pages/AttorneyRegister'))
 const ClaimProfile = lazy(() => import('./pages/ClaimProfile'))
 const AttorneyNetwork = lazy(() => import('./pages/AttorneyNetwork'))
 const AttorneyLicenseUpload = lazy(() => import('./pages/AttorneyLicenseUpload'))
+const AttorneyOnboardingPayment = lazy(() => import('./pages/AttorneyOnboardingPayment'))
 const AdminLogin = lazy(() => import('./pages/AdminLogin'))
 const OAuthCallback = lazy(() => import('./pages/OAuthCallback'))
 const IntakeWizard = lazy(() => import('./pages/IntakeWizard'))
@@ -23,6 +24,8 @@ const IntakeWizardQuick = lazy(() => import('./pages/IntakeWizardQuick'))
 const Results = lazy(() => import('./pages/Results'))
 const Attorneys = lazy(() => import('./pages/Attorneys'))
 const AttorneysEnhanced = lazy(() => import('./pages/AttorneysEnhanced'))
+const FirmProfile = lazy(() => import('./pages/FirmProfile'))
+const Firms = lazy(() => import('./pages/Firms'))
 const CaseTracker = lazy(() => import('./pages/CaseTracker'))
 const AICopilot = lazy(() => import('./pages/AICopilot'))
 const Financing = lazy(() => import('./pages/Financing'))
@@ -226,6 +229,7 @@ function App() {
               <Route path="/attorney-network" element={<AttorneyNetwork />} />
               <Route path="/attorney-register" element={<AttorneyRegister />} />
               <Route path="/attorney-license-upload" element={<AttorneyLicenseUpload />} />
+              <Route path="/attorney-onboarding/payment" element={<AttorneyOnboardingPayment />} />
             </Route>
             <Route element={<GuestRoute role="admin" />}>
               <Route path="/admin-login" element={<AdminLogin />} />
@@ -378,6 +382,8 @@ function App() {
             <Route path="/results/:assessmentId" element={<ResultsRouteBoundary />} />
             <Route path="/attorneys" element={<Attorneys />} />
             <Route path="/attorneys-enhanced" element={<AttorneysEnhanced />} />
+            <Route path="/firms" element={<Firms />} />
+            <Route path="/firms/:slug" element={<FirmProfile />} />
           </Routes>
         </Suspense>
         </RouteErrorBoundary>

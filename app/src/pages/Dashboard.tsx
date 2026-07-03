@@ -6,6 +6,7 @@ import { CheckCircle, Square, Upload, FileText, TrendingUp, MessageCircle, BarCh
 import CaseProgressPipeline from '../components/CaseProgressPipeline'
 import { getPlaintiffCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
 import OpposingDocSuggestionCard from '../components/OpposingDocSuggestionCard'
+import PlaintiffSatisfactionCard from '../components/PlaintiffSatisfactionCard'
 import { DashboardPageSkeleton, DashboardTabPanelSkeleton } from '../components/PageSkeletons'
 import { clearStoredAuth, getLoginRedirect } from '../lib/auth'
 import { loadPlaintiffSessionSummary, updateCachedPlaintiffAssessments } from '../hooks/usePlaintiffSessionSummary'
@@ -804,8 +805,6 @@ export default function Dashboard() {
     { label: 'Proof of Lost Wages', sub: 'Income & loss documentation', impact: 'Low', metric: 'Value', potential: `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`, done: hasWageLoss },
   ]
 
-  const pendingItems = checklist.filter(c => !c.done)
-  const actionItemsCount = pendingItems.length
   const caseCoachTips = [
     { tip: 'Insurance companies often challenge treatment gaps.', action: 'Uploading medical records strengthens your case and reduces disputes.' },
     { tip: 'Documenting lost wages can add thousands to your settlement.', action: 'Add pay stubs or employer verification to strengthen this factor.' },
@@ -834,6 +833,49 @@ export default function Dashboard() {
   ]
 
   const strengths = checklist.filter(c => c.done).map(c => c.label)
+
+  // Single source of truth for "what to do next". The Tasks tab renders exactly
+  // this list, and the Tasks tab badge counts exactly these open items, so the
+  // number on the tab can never disagree with the list inside it. Combines the
+  // submit-for-review step, the top evidence gaps, and score-improvement tips.
+  const assessmentIdForTasks = activeAssessment?.id ?? ''
+  const scoreImprovementTasks = scoreFactors
+    .filter((factor) => factor.improve)
+    .map((factor) => ({
+      label: factor.label,
+      detail: factor.improve || '',
+      done: false,
+      href: `/evidence-upload/${assessmentIdForTasks}`,
+    }))
+  const evidenceGapTasks = evidenceImpact
+    .filter((item) => !item.done)
+    .slice(0, 3)
+    .map((item) => ({
+      label: item.label,
+      detail: `${item.impact} estimated impact when added.`,
+      done: false,
+      href: `/evidence-upload/${assessmentIdForTasks}`,
+    }))
+  const reviewTask = submittedForReview
+    ? {
+        label: attorneyMatched ? 'Schedule or prepare for consultation' : 'Wait for attorney review',
+        detail: attorneyMatched
+          ? hasUpcomingConsult
+            ? 'Your consultation is scheduled. Upload any documents your attorney may need.'
+            : 'Book a consultation with your matched attorney.'
+          : 'You do not need to do anything urgent unless we request more information.',
+        done: attorneyMatched && hasUpcomingConsult,
+        href: attorneyMatched ? '/messaging' : `/results/${assessmentIdForTasks}`,
+      }
+    : {
+        label: 'Submit for attorney review',
+        detail: 'Send your case when you are ready to see attorney matches.',
+        done: false,
+        href: `/results/${assessmentIdForTasks}?review=1`,
+      }
+  const dashboardTasks = [reviewTask, ...evidenceGapTasks, ...scoreImprovementTasks].slice(0, 6)
+  const actionItemsCount = dashboardTasks.filter((task) => !task.done).length
+
   const riskLevel: 'Low' | 'Moderate' | 'High' = docLabel === 'Missing' ? 'Moderate' : evidenceCount === 0 ? 'Moderate' : 'Low'
   const potentialValueIncrease = !hasNarrative
     ? { msg: 'Completing your accident description could increase your estimated value by $2,000–$5,000.', show: true }
@@ -1276,7 +1318,7 @@ export default function Dashboard() {
                 {activeAssessment && submittedForReview
                   ? `Your case is currently being reviewed. ${attorneyReviewCount} attorney${attorneyReviewCount !== 1 ? 's are' : ' is'} reviewing your information. Expected response: ${responseDeadlineLabel}. Current estimate: ${formatCurrency(settlementLow)}–${formatCurrency(settlementHigh)}.`
                   : activeAssessment
-                  ? `Your case is ${docPercent}% complete.${actionItemsCount > 0 ? ' Two more documents could significantly increase your case value.' : ''}`
+                  ? `Your case is ${docPercent}% complete.${actionItemsCount > 0 ? ` You have ${actionItemsCount} ${actionItemsCount === 1 ? 'thing' : 'things'} to do next to strengthen your case.` : ''}`
                   : "Let's find out if you may have a personal injury case."}
               </p>
             </div>
@@ -1292,7 +1334,7 @@ export default function Dashboard() {
           {activeAssessment && (
             <nav className="-mx-1 flex gap-2 overflow-x-auto pb-1">
               {TABS.map((tab) => {
-                const badge = tab.id === 'tasks' ? actionItemsCount : tab.id === 'documents' ? strengthOpportunities.length : tab.id === 'requested-documents' ? pendingDocumentRequests.length : 0
+                const badge = tab.id === 'tasks' ? actionItemsCount : tab.id === 'requested-documents' ? pendingDocumentRequests.length : 0
                 return (
                 <button
                   key={tab.id}
@@ -1610,6 +1652,9 @@ export default function Dashboard() {
                         </div>
                       </div>
                     </div>
+
+                    {/* Plaintiff satisfaction */}
+                    <PlaintiffSatisfactionCard assessmentId={activeAssessment?.id} />
 
                     {/* Schedule Consultation | Next Best Action */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2504,6 +2549,7 @@ export default function Dashboard() {
                   evidenceCount={evidenceCount}
                   hasWageLoss={hasWageLoss}
                   onDownloadReport={handleDownloadReport}
+                  tasks={dashboardTasks}
                   evidenceImpact={evidenceImpact}
                   recentActivity={recentActivity}
                   notification={notification}

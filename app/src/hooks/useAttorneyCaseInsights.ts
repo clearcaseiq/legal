@@ -8,7 +8,9 @@ import {
   getLeadLiens,
   getLeadInsuranceSuggestion,
   getLeadMedicalChronology,
+  getLeadMedicalChronologySummary,
   getLeadSettlementBenchmarks,
+  type MedicalChronologySummary,
   requestLeadDecPage,
   updateLeadInsurance,
 } from '../lib/api'
@@ -38,6 +40,7 @@ const DEFAULT_LIEN_FORM = {
 export function useAttorneyCaseInsights(selectedLeadId?: string, isPostAcceptance = false) {
   const [leadEvidenceFiles, setLeadEvidenceFiles] = useState<any[]>([])
   const [medicalChronology, setMedicalChronology] = useState<any[]>([])
+  const [medicalChronologySummary, setMedicalChronologySummary] = useState<MedicalChronologySummary | null>(null)
   const [casePreparation, setCasePreparation] = useState<any>(null)
   const [settlementBenchmarks, setSettlementBenchmarks] = useState<any>(null)
   const [insuranceItems, setInsuranceItems] = useState<any[]>([])
@@ -181,6 +184,7 @@ export function useAttorneyCaseInsights(selectedLeadId?: string, isPostAcceptanc
   useEffect(() => {
     if (!selectedLeadId || !isPostAcceptance) {
       setMedicalChronology([])
+      setMedicalChronologySummary(null)
       setCasePreparation(null)
       setSettlementBenchmarks(null)
       return
@@ -188,16 +192,19 @@ export function useAttorneyCaseInsights(selectedLeadId?: string, isPostAcceptanc
 
     const loadCaseInsights = async () => {
       try {
-        const [chronology, preparation, benchmarks] = await Promise.all([
+        const [chronology, summary, preparation, benchmarks] = await Promise.all([
           getLeadMedicalChronology(selectedLeadId).catch(() => []),
+          getLeadMedicalChronologySummary(selectedLeadId).catch(() => null),
           getLeadCasePreparation(selectedLeadId).catch(() => null),
           getLeadSettlementBenchmarks(selectedLeadId).catch(() => null),
         ])
         setMedicalChronology(Array.isArray(chronology) ? chronology : [])
+        setMedicalChronologySummary(summary)
         setCasePreparation(preparation)
         setSettlementBenchmarks(benchmarks)
       } catch {
         setMedicalChronology([])
+        setMedicalChronologySummary(null)
         setCasePreparation(null)
         setSettlementBenchmarks(null)
       }
@@ -220,6 +227,7 @@ export function useAttorneyCaseInsights(selectedLeadId?: string, isPostAcceptanc
     lienForm,
     lienItems,
     medicalChronology,
+    medicalChronologySummary,
     setInsuranceForm,
     setLienForm,
     settlementBenchmarks,

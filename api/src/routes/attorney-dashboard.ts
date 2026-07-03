@@ -15,7 +15,8 @@ import { Document, Packer, Paragraph, TextRun } from 'docx'
 import PDFDocument from 'pdfkit'
 import crypto from 'crypto'
 import { calculateSOL, getSOLStatus } from '../lib/solRules'
-import { buildMedicalChronology, computeCasePreparation, getSettlementBenchmarks } from '../lib/case-insights'
+import { buildMedicalChronology, buildMedicalChronologySummary, computeCasePreparation, getSettlementBenchmarks } from '../lib/case-insights'
+import { recordCaseOutcome } from '../lib/case-outcomes'
 import {
   calculateAttorneyReputationScore,
   recordRoutingEvent,
@@ -556,6 +557,14 @@ const decisionMemorySelect = {
   outcomeStatus: true,
   outcomeNotes: true,
   outcomeAt: true,
+  retained: true,
+  settlementAmount: true,
+  wentToTrial: true,
+  attorneySatisfaction: true,
+  attorneySatisfactionNotes: true,
+  plaintiffSatisfaction: true,
+  plaintiffSatisfactionNotes: true,
+  plaintiffSatisfactionAt: true,
   createdAt: true,
   updatedAt: true,
 } as const
@@ -5013,10 +5022,13 @@ router.get('/leads/:leadId/medical-chronology', authMiddleware, async (req: any,
     })
     const medicalSharing = buildMedicalSharingStatus(assessment)
     if (!medicalSharing.canShareMedicalData) {
-      return res.json({ chronology: [], medicalSharing })
+      return res.json({ chronology: [], summary: null, medicalSharing })
     }
-    const chronology = await buildMedicalChronology(auth.lead.assessmentId)
-    res.json({ chronology, medicalSharing })
+    const [chronology, summary] = await Promise.all([
+      buildMedicalChronology(auth.lead.assessmentId),
+      buildMedicalChronologySummary(auth.lead.assessmentId),
+    ])
+    res.json({ chronology, summary, medicalSharing })
   } catch (error: any) {
     logger.error('Failed to get medical chronology', { error: error.message, leadId: req.params.leadId })
     res.status(500).json({ error: 'Failed to get medical chronology' })
@@ -9018,12 +9030,66 @@ router.post('/leads/:leadId/decision-intelligence/override', authMiddleware, asy
 router.patch('/leads/:leadId/decision-intelligence/outcome', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
-    const { outcomeStatus, outcomeNotes } = req.body
+    const {
+      outcomeStatus,
+      outcomeNotes,
+      retained,
+      settlementAmount,
+      wentToTrial,
+      attorneySatisfaction,
+      attorneySatisfactionNotes,
+    } = req.body
     const auth = await getAuthorizedLead(req, leadId)
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const { lead, attorney } = auth
+
+    const normalizedOutcome = String(outcomeStatus || '').toLowerCase()
+
+    // Coerce/validate optional resolution + satisfaction inputs.
+    const parsedSettlement =
+      settlementAmount === undefined || settlementAmount === null || settlementAmount === ''
+        ? undefined
+        : Number(settlementAmount)
+    if (parsedSettlement !== undefined && (!Number.isFinite(parsedSettlement) || parsedSettlement < 0)) {
+      return res.status(400).json({ error: 'settlementAmount must be a non-negative number' })
+    }
+    const parsedAttorneySatisfaction =
+      attorneySatisfaction === undefined || attorneySatisfaction === null || attorneySatisfaction === ''
+        ? undefined
+        : Number(attorneySatisfaction)
+    if (
+      parsedAttorneySatisfaction !== undefined &&
+      (!Number.isInteger(parsedAttorneySatisfaction) || parsedAttorneySatisfaction < 1 || parsedAttorneySatisfaction > 5)
+    ) {
+      return res.status(400).json({ error: 'attorneySatisfaction must be an integer from 1 to 5' })
+    }
+
+    // Derive retained/trial from the outcome status when not explicitly provided.
+    const resolvedRetained =
+      typeof retained === 'boolean'
+        ? retained
+        : ['retained', 'settled', 'won'].includes(normalizedOutcome)
+          ? true
+          : undefined
+    const resolvedWentToTrial =
+      typeof wentToTrial === 'boolean'
+        ? wentToTrial
+        : normalizedOutcome === 'won' || normalizedOutcome === 'verdict'
+          ? true
+          : undefined
+
+    const outcomeFields = {
+      outcomeStatus: outcomeStatus || null,
+      outcomeNotes: outcomeNotes || null,
+      outcomeAt: outcomeStatus ? new Date() : null,
+      ...(resolvedRetained !== undefined ? { retained: resolvedRetained } : {}),
+      ...(parsedSettlement !== undefined ? { settlementAmount: parsedSettlement } : {}),
+      ...(resolvedWentToTrial !== undefined ? { wentToTrial: resolvedWentToTrial } : {}),
+      ...(parsedAttorneySatisfaction !== undefined ? { attorneySatisfaction: parsedAttorneySatisfaction } : {}),
+      ...(attorneySatisfactionNotes !== undefined ? { attorneySatisfactionNotes: attorneySatisfactionNotes || null } : {}),
+    }
 
     const memory = await prisma.decisionMemory.upsert({
       where: { leadId },
@@ -9034,19 +9100,32 @@ router.patch('/leads/:leadId/decision-intelligence/outcome', authMiddleware, asy
         lawFirmId: attorney.lawFirmId || null,
         recommendedDecision: 'accept',
         recommendedConfidence: 50,
-        outcomeStatus: outcomeStatus || null,
-        outcomeNotes: outcomeNotes || null,
-        outcomeAt: outcomeStatus ? new Date() : null
+        ...outcomeFields,
       },
-      update: {
-        outcomeStatus: outcomeStatus || null,
-        outcomeNotes: outcomeNotes || null,
-        outcomeAt: outcomeStatus ? new Date() : null
-      },
+      update: outcomeFields,
       select: decisionMemorySelect
     })
 
-    const normalizedOutcome = String(outcomeStatus || '').toLowerCase()
+    // When a monetary resolution is reported, mirror it into CaseOutcome so the
+    // valuation-calibration dataset learns from the real settlement/verdict.
+    if (parsedSettlement !== undefined && parsedSettlement > 0) {
+      try {
+        await recordCaseOutcome({
+          assessmentId: lead.assessmentId,
+          outcomeType: resolvedWentToTrial ? 'verdict' : 'settlement',
+          grossAmount: parsedSettlement,
+          resolvedAt: new Date(),
+          source: 'attorney_reported',
+          notes: outcomeNotes || null,
+        })
+      } catch (err: any) {
+        logger.warn('Failed to record CaseOutcome from attorney outcome report', {
+          error: err?.message,
+          leadId,
+        })
+      }
+    }
+
     if (normalizedOutcome) {
       const leadUpdate: Record<string, unknown> = {}
       if (normalizedOutcome === 'retained' || normalizedOutcome === 'settled' || normalizedOutcome === 'won') {

@@ -403,6 +403,7 @@ export default function AttorneyDashboard() {
     lienForm,
     lienItems,
     medicalChronology,
+    medicalChronologySummary,
     setInsuranceForm,
     setLienForm,
     settlementBenchmarks,
@@ -2460,7 +2461,9 @@ export default function AttorneyDashboard() {
         return (
           <Suspense fallback={<AttorneyDashboardPanelSkeleton message="Loading case insights..." />}>
             <AttorneyDashboardWorkstreamCaseInsights
+              leadId={selectedLead?.id}
               medicalChronology={medicalChronology}
+              medicalChronologySummary={medicalChronologySummary}
               casePreparation={casePreparation}
               settlementBenchmarks={settlementBenchmarks}
             />

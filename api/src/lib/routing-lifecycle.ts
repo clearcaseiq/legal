@@ -895,10 +895,43 @@ export async function calculateAttorneyReputationScore(attorneyId: string): Prom
     _avg: { rating: true },
     _count: true
   })
-  const plaintiffSatisfaction = reviews._count > 0 ? (reviews._avg.rating ?? 3) / 5 : 0.5
 
-  const caseFollowThrough = 0.7 // TODO: derive from lead contact/conversion
-  const evidenceRequestQuality = 0.7 // TODO: derive from request quality
+  // Prefer real plaintiff-reported satisfaction from resolved cases; fall back to
+  // star reviews, then a neutral prior. Both scales are 1-5, normalized to 0-1.
+  const [memories, docRequests] = await Promise.all([
+    prisma.decisionMemory.findMany({
+      where: { attorneyId },
+      select: { outcomeStatus: true, retained: true, plaintiffSatisfaction: true },
+    }),
+    prisma.documentRequest.findMany({
+      where: { attorneyId },
+      select: { status: true },
+    }),
+  ])
+
+  const plaintiffScores = memories
+    .map((m) => m.plaintiffSatisfaction)
+    .filter((s): s is number => typeof s === 'number')
+  const plaintiffSatisfaction =
+    plaintiffScores.length > 0
+      ? plaintiffScores.reduce((sum, s) => sum + s, 0) / plaintiffScores.length / 5
+      : reviews._count > 0
+        ? (reviews._avg.rating ?? 3) / 5
+        : 0.5
+
+  // Case follow-through: of the cases the attorney engaged, how many reached a
+  // favorable resolution (retained / settled / won).
+  const favorable = new Set(['retained', 'settled', 'won'])
+  const resolved = new Set(['retained', 'settled', 'won', 'lost', 'rejected'])
+  const resolvedMemories = memories.filter((m) => resolved.has(String(m.outcomeStatus || '').toLowerCase()))
+  const favorableMemories = memories.filter(
+    (m) => m.retained === true || favorable.has(String(m.outcomeStatus || '').toLowerCase()),
+  )
+  const caseFollowThrough = resolvedMemories.length > 0 ? favorableMemories.length / resolvedMemories.length : 0.7
+
+  // Evidence-request quality: share of document requests that were fulfilled.
+  const completedRequests = docRequests.filter((r) => String(r.status).toLowerCase() === 'completed').length
+  const evidenceRequestQuality = docRequests.length > 0 ? completedRequests / docRequests.length : 0.7
 
   const overallScore =
     responseSpeedScore * 0.3 +

@@ -5,6 +5,7 @@
 
 import { prisma } from './prisma'
 import type { Prisma } from '@prisma/client'
+import { analyzeClinicalCodes } from './clinical-codes'
 
 export interface MedicalChronologyEvent {
   id: string
@@ -17,6 +18,24 @@ export interface MedicalChronologyEvent {
   sourceFileId?: string
   sourceFileName?: string
   extractionConfidence?: 'documented' | 'estimated' | 'needs_review'
+}
+
+export interface MedicalChronologySummary {
+  providers: string[]
+  visitCount: number
+  diagnoses: { code: string; label: string }[]
+  icd10Codes: string[]
+  procedures: { code: string; label: string }[]
+  cptCodes: string[]
+  medications: string[]
+  imaging: string[]
+  surgeries: string[]
+  billedTotal: number
+  treatmentGaps: { startDate: string; endDate: string; gapDays: number }[]
+  firstTreatmentDate: string | null
+  lastTreatmentDate: string | null
+  eventCount: number
+  timeline: MedicalChronologyEvent[]
 }
 
 export interface CasePreparationResult {
@@ -414,6 +433,180 @@ export async function buildMedicalChronology(assessmentId: string): Promise<Medi
   events.sort(sortChronologyEvents)
 
   return events
+}
+
+type EntitiesBlob = { provider?: string; visitType?: string; medications?: unknown }
+
+function parseEntities(value: string | null | undefined): EntitiesBlob {
+  if (!value) return {}
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed && typeof parsed === 'object' ? (parsed as EntitiesBlob) : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Consolidated, attorney-ready medical chronology summary. Aggregates the raw
+ * extracted data (from uploaded records/bills) and intake facts into the discrete
+ * categories an attorney needs at a glance: providers, visits, diagnoses (ICD-10),
+ * procedures (CPT), medications, imaging, surgeries, bills, and treatment gaps —
+ * plus the ordered timeline. Every value is derived deterministically from stored
+ * extractions so it is explainable and stable.
+ */
+export async function buildMedicalChronologySummary(
+  assessmentId: string,
+): Promise<MedicalChronologySummary> {
+  const [assessment, timeline, preparation] = await Promise.all([
+    prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: {
+        facts: true,
+        evidenceFiles: {
+          select: {
+            category: true,
+            originalName: true,
+            aiSummary: true,
+            extractedData: {
+              take: 1,
+              select: {
+                icdCodes: true,
+                cptCodes: true,
+                entities: true,
+                totalAmount: true,
+              },
+            },
+          },
+        },
+      },
+    }),
+    buildMedicalChronology(assessmentId),
+    computeCasePreparation(assessmentId),
+  ])
+
+  const empty: MedicalChronologySummary = {
+    providers: [],
+    visitCount: 0,
+    diagnoses: [],
+    icd10Codes: [],
+    procedures: [],
+    cptCodes: [],
+    medications: [],
+    imaging: [],
+    surgeries: [],
+    billedTotal: 0,
+    treatmentGaps: [],
+    firstTreatmentDate: null,
+    lastTreatmentDate: null,
+    eventCount: 0,
+    timeline: [],
+  }
+  if (!assessment) return empty
+
+  const facts = parseFactsJson(assessment.facts)
+  const evidenceFiles = assessment.evidenceFiles || []
+
+  const icdSet = new Set<string>()
+  const cptSet = new Set<string>()
+  const medications = new Set<string>()
+  const imaging = new Set<string>()
+  const providers = new Set<string>()
+  let billedTotal = 0
+
+  for (const file of evidenceFiles) {
+    const ex = file.extractedData?.[0]
+    toStringArray(ex?.icdCodes as any).forEach((c) => icdSet.add(c.trim().toUpperCase()))
+    toStringArray(ex?.cptCodes as any).forEach((c) => cptSet.add(c.trim()))
+    const entities = parseEntities(ex?.entities as any)
+    if (Array.isArray(entities.medications)) {
+      entities.medications
+        .filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
+        .forEach((m) => medications.add(m.trim()))
+    }
+    if (hasText(entities.provider)) providers.add(entities.provider.trim())
+    // Imaging documents surfaced by their inferred visit type or filename.
+    const label = `${entities.visitType || ''} ${file.originalName || ''}`.toLowerCase()
+    if (/imaging|mri|ct scan|x-ray|xray|radiolog|ultrasound/.test(label)) {
+      imaging.add(file.originalName || entities.visitType || 'Imaging study')
+    }
+    if (file.category === 'bills' && typeof ex?.totalAmount === 'number') {
+      billedTotal += ex.totalAmount
+    }
+  }
+
+  // Providers from the timeline and intake facts.
+  timeline.forEach((event) => {
+    if (hasText(event.provider)) providers.add(event.provider.trim())
+    if (/imaging|mri|ct|x-ray|xray|radiolog|ultrasound/i.test(event.label || '')) {
+      imaging.add(event.label)
+    }
+  })
+  const factTreatment = facts?.treatment as Array<{ provider?: string }> | undefined
+  if (Array.isArray(factTreatment)) {
+    factTreatment.forEach((t) => {
+      if (hasText(t.provider) && t.provider.toLowerCase() !== 'from uploaded records') {
+        providers.add(t.provider.trim())
+      }
+    })
+  }
+
+  // Classify codes into human-readable diagnoses / procedures and derive
+  // surgeries + imaging signals from CPT categories.
+  const analysis = analyzeClinicalCodes([...icdSet], [...cptSet])
+  const diagnoses = analysis.signals
+    .filter((s) => s.system === 'ICD10')
+    .map((s) => ({ code: s.code, label: s.label }))
+  const procedures = analysis.signals
+    .filter((s) => s.system === 'CPT')
+    .map((s) => ({ code: s.code, label: s.label }))
+  const surgeries = new Set<string>()
+  analysis.signals
+    .filter((s) => s.category === 'surgery' || s.category === 'spinal_surgery')
+    .forEach((s) => surgeries.add(`${s.label} [${s.code}]`))
+  analysis.signals
+    .filter((s) => s.category === 'advanced_imaging')
+    .forEach((s) => imaging.add(`${s.label} [${s.code}]`))
+
+  // Narrative-mentioned surgery (e.g. facts describe a procedure without a code).
+  const narrative = `${facts?.incident?.narrative || ''} ${facts?.injuries ? JSON.stringify(facts.injuries) : ''}`.toLowerCase()
+  if (/surg|arthroscop|fusion|laminectomy|discectomy|orif\b|operat/.test(narrative)) {
+    if (surgeries.size === 0) surgeries.add('Surgery indicated in intake narrative')
+  }
+
+  // Bills fallback: sum timeline event amounts when no bill totals were extracted.
+  if (billedTotal === 0) {
+    billedTotal = timeline.reduce((sum, e) => sum + (typeof e.amount === 'number' ? e.amount : 0), 0)
+  }
+  const factMedCharges = Number(facts?.damages?.med_charges) || 0
+  if (billedTotal === 0 && factMedCharges > 0) billedTotal = factMedCharges
+
+  const treatmentDates = timeline
+    .filter((e) => (e.source === 'treatment' || e.source === 'medical_record') && e.date)
+    .map((e) => e.date as string)
+    .sort()
+
+  const visitCount = timeline.filter(
+    (e) => e.source === 'treatment' || e.source === 'medical_record',
+  ).length
+
+  return {
+    providers: [...providers],
+    visitCount,
+    diagnoses,
+    icd10Codes: [...icdSet],
+    procedures,
+    cptCodes: [...cptSet],
+    medications: [...medications],
+    imaging: [...imaging],
+    surgeries: [...surgeries],
+    billedTotal: Math.round(billedTotal),
+    treatmentGaps: preparation.treatmentGaps,
+    firstTreatmentDate: treatmentDates[0] || null,
+    lastTreatmentDate: treatmentDates[treatmentDates.length - 1] || null,
+    eventCount: timeline.length,
+    timeline,
+  }
 }
 
 export async function computeCasePreparation(assessmentId: string): Promise<CasePreparationResult> {

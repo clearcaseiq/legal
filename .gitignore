@@ -175,3 +175,6 @@ tmp-*
 app/tmp-*
 api/_schema-diff-report.json
 COMMIT_MSG.txt
+
+# Local dev tooling (e.g. downloaded Stripe CLI binary)
+.tools/

@@ -480,6 +480,17 @@ model PlatformPayment {
   @@map("platform_payments")
 }
 
+// Idempotency ledger for Stripe webhook deliveries. The event id is the primary
+// key so a duplicate delivery hits a unique-constraint and is safely skipped.
+model StripeWebhookEvent {
+  id        String   @id // Stripe event id (evt_...)
+  type      String
+  createdAt DateTime @default(now())
+
+  @@index([type])
+  @@map("stripe_webhook_events")
+}
+
 model CaseHealthSnapshot {
   id           String     @id @default(cuid())
   assessmentId String
@@ -733,6 +744,14 @@ model LawFirm {
   city         String?
   state        String?
   zip          String?
+
+  // Public marketplace profile
+  tagline       String?
+  description   String? @db.Text
+  logoUrl       String?
+  practiceAreas String? @db.Text // JSON array
+  foundedYear   Int?
+  isPublic      Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1597,6 +1616,17 @@ model DecisionMemory {
   outcomeStatus         String?
   outcomeNotes          String?
   outcomeAt             DateTime?
+
+  // Case resolution + satisfaction tracking (attorney- and plaintiff-reported).
+  retained                   Boolean?  // whether the attorney was retained on this case
+  settlementAmount           Float? // gross resolution amount (settlement or verdict)
+  wentToTrial                Boolean?  // true when the case was resolved at trial (verdict)
+  attorneySatisfaction       Int? // attorney-reported satisfaction, 1-5
+  attorneySatisfactionNotes  String?   @db.Text
+  plaintiffSatisfaction      Int? // plaintiff-reported satisfaction, 1-5
+  plaintiffSatisfactionNotes String?   @db.Text
+  plaintiffSatisfactionAt    DateTime?
+
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
 

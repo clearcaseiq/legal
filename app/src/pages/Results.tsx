@@ -31,6 +31,7 @@ import EstimateAccuracyStages from '../components/EstimateAccuracyStages'
 import CaseFileChecklist from '../components/CaseFileChecklist'
 import { useLanguage } from '../contexts/LanguageContext'
 import { formatPhoneInput, validatePhoneField } from '../lib/phone'
+import { savePendingRegistration } from '../lib/pendingRegistration'
 import type { CaseCommandCenter } from '../lib/api'
 import { loadPlaintiffSessionSummary } from '../hooks/usePlaintiffSessionSummary'
 import { getStoredRole, hasValidAuthToken } from '../lib/auth'
@@ -2403,6 +2404,17 @@ Checklist:
   const authAssessmentQuery = resolvedAssessmentId ? `&assessmentId=${encodeURIComponent(resolvedAssessmentId)}` : ''
   const createAccountForReviewUrl = `/register?redirect=${encodeURIComponent(attorneyReviewRedirect)}${authAssessmentQuery}`
   const signInForReviewUrl = `/login?redirect=${encodeURIComponent(attorneyReviewRedirect)}${authAssessmentQuery}`
+  // Hand the contact details we already have to the signup step so the plaintiff
+  // only has to set a password there (name/email/phone arrive prefilled).
+  const handleGoCreateAccount = () => {
+    if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
+    savePendingRegistration({
+      firstName: contactForm.firstName,
+      email: contactForm.email,
+      phone: contactForm.phone,
+    })
+  }
+
   const closeSaveReviewPrompt = () => {
     if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
     setSaveReviewPromptOpen(false)
@@ -2770,9 +2782,7 @@ Checklist:
               <div className="mt-6 grid gap-3">
                 <Link
                   to={createAccountForReviewUrl}
-                  onClick={() => {
-                    if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
-                  }}
+                  onClick={handleGoCreateAccount}
                   className="btn-primary w-full justify-center py-3"
                 >
                   Create Free Account
@@ -5268,7 +5278,7 @@ Checklist:
                   </ul>
                   <Link
                     to={createAccountForReviewUrl}
-                    onClick={() => { if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId) }}
+                    onClick={handleGoCreateAccount}
                     className="mt-4 block w-full rounded-lg bg-brand-700 px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
                   >
                     {t('results.next.createFreeAccount')}

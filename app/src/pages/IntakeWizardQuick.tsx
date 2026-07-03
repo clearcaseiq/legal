@@ -11,6 +11,7 @@ import { buildCaseTaxonomy, injuryTypeToClaimType, sanitizeDetectedCounty, usesP
 import { US_STATES } from '../lib/constants'
 import { getCountiesForState } from '../lib/usLocationData'
 import { formatPhoneInput, validatePhoneField } from '../lib/phone'
+import { savePendingRegistration } from '../lib/pendingRegistration'
 
 type Step =
   | 'injury_type'
@@ -1891,6 +1892,12 @@ export default function IntakeWizardQuick() {
       } catch {
         /* ignore quota / private mode */
       }
+      // Carry the contact info the user already gave into the signup step so
+      // account creation collapses to "just set a password".
+      savePendingRegistration({
+        email: formData.contact.email.trim(),
+        phone: formData.contact.phone.trim(),
+      })
       clearDraft()
       void syncLead({ assessmentId: id, status: 'completed' })
       // Prediction and analysis are best-effort background work; the results page
@@ -5234,16 +5241,13 @@ export default function IntakeWizardQuick() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">{tx('strengthen_title')}</p>
                 <ul className="mt-2 space-y-1">
                   {strengthenItems.length ? strengthenItems.map((it) => (
-                    <li key={it.label}>
-                      <button type="button" onClick={() => editReviewStep(it.step)} className="flex w-full items-center gap-1.5 text-left text-xs font-medium text-amber-900 hover:underline dark:text-amber-200">
-                        <HelpCircle className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />{it.label}
-                      </button>
+                    <li key={it.label} className="flex w-full items-center gap-1.5 text-left text-xs font-medium text-amber-900 dark:text-amber-200">
+                      <HelpCircle className="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />{it.label}
                     </li>
                   )) : (
                     <li className="flex items-center gap-1.5 text-xs font-medium text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />{tx('strengthen_allGood')}</li>
                   )}
                 </ul>
-                <button type="button" onClick={() => editReviewStep('evidence')} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">{tx('strengthen_nextSteps')} <ChevronRight className="h-3 w-3" aria-hidden /></button>
               </div>
             </div>
 

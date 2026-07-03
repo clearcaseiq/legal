@@ -1,45 +1,21 @@
 import { Router } from 'express'
-import Stripe from 'stripe'
 import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { ENV } from '../env'
 import { getAttorneySubscriptionTier, getCaseRoutingPricingForClaimType, getMatchingRules } from '../lib/matching-rules-config'
+import {
+  getStripe,
+  webUrl,
+  toCents,
+  fromCents,
+  toStripeMetadataValue,
+  parseJsonMaybe,
+  FEATURED_BOOST_PRICES,
+} from '../lib/stripe'
 
 const router = Router()
 const db = prisma as any
-
-function getStripe() {
-  if (!ENV.STRIPE_SECRET_KEY) {
-    throw Object.assign(new Error('Stripe is not configured'), { statusCode: 503 })
-  }
-  return new Stripe(ENV.STRIPE_SECRET_KEY)
-}
-
-function webUrl(path: string) {
-  return `${ENV.WEB_URL.replace(/\/$/, '')}${path}`
-}
-
-function toCents(amount: number) {
-  return Math.round(Number(amount) * 100)
-}
-
-function fromCents(amount: number | null | undefined) {
-  return amount == null ? null : amount / 100
-}
-
-function toStripeMetadataValue(value: unknown) {
-  return value == null ? '' : String(value)
-}
-
-function parseJsonMaybe(value: unknown) {
-  if (!value || typeof value !== 'string') return value
-  try {
-    return JSON.parse(value)
-  } catch {
-    return null
-  }
-}
 
 function getPricingClaimType(assessment: any) {
   const facts = parseJsonMaybe(assessment?.facts) || {}
@@ -646,6 +622,192 @@ router.get('/connect/status', authMiddleware, async (req: AuthRequest, res) => {
   }
 })
 
+// Public, unauthenticated config for the frontend to initialize Stripe.js.
+// Returns only the publishable key (safe to expose) so we don't need a separate
+// build-time env var baked into the web bundle.
+router.get('/config', (_req, res) => {
+  res.json({
+    publishableKey: ENV.STRIPE_PUBLISHABLE_KEY || null,
+    enabled: Boolean(ENV.STRIPE_SECRET_KEY && ENV.STRIPE_PUBLISHABLE_KEY),
+  })
+})
+
+// Creates a SetupIntent so the attorney can enter a card directly in-app with
+// the Stripe Payment Element (no redirect to hosted Checkout). The resulting
+// payment method is promoted to the customer default via the
+// setup_intent.succeeded webhook.
+router.post('/payment-methods/setup-intent', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const stripe = getStripe()
+    const attorney = await getAttorneyForUser(req)
+    if (!attorney) return res.status(403).json({ error: 'Attorney profile not found' })
+
+    const customerId = await getOrCreateStripeCustomer(attorney, stripe)
+    const setupIntent = await stripe.setupIntents.create({
+      customer: customerId,
+      payment_method_types: ['card'],
+      usage: 'off_session',
+      metadata: { kind: 'attorney_payment_method', attorneyId: attorney.id },
+    })
+
+    res.json({ clientSecret: setupIntent.client_secret, customerId })
+  } catch (error: any) {
+    return stripeError(res, error, 'Failed to create card setup intent')
+  }
+})
+
+// Whether the attorney has a saved default card on file. Powers the onboarding
+// "add payment method" gate and lets the accept flow charge off-session instead
+// of redirecting to hosted Checkout.
+router.get('/payment-methods/status', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const stripeEnabled = Boolean(ENV.STRIPE_SECRET_KEY && ENV.STRIPE_PUBLISHABLE_KEY)
+    if (!stripeEnabled) return res.json({ stripeEnabled: false, hasDefaultPaymentMethod: false })
+
+    const attorney = await getAttorneyForUser(req)
+    if (!attorney) return res.status(403).json({ error: 'Attorney profile not found' })
+
+    const profile = attorney.attorneyProfile || (await ensureAttorneyProfile(attorney.id))
+    const customerId = profile.stripeCustomerId
+    if (!customerId) return res.json({ stripeEnabled: true, hasDefaultPaymentMethod: false })
+
+    const stripe = getStripe()
+    const paymentMethodId = await getDefaultPaymentMethodId(stripe, customerId)
+    if (!paymentMethodId) return res.json({ stripeEnabled: true, hasDefaultPaymentMethod: false })
+
+    const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId)
+    return res.json({
+      stripeEnabled: true,
+      hasDefaultPaymentMethod: true,
+      brand: paymentMethod.card?.brand || null,
+      last4: paymentMethod.card?.last4 || null,
+    })
+  } catch (error: any) {
+    return stripeError(res, error, 'Failed to load payment method status')
+  }
+})
+
+// After a card is entered via the embedded Payment Element, promote the newest
+// card to the customer's default payment method right away. This makes the
+// saved card usable for off-session charges immediately, without waiting on the
+// setup_intent.succeeded webhook (which may not be forwarded in local/dev).
+// Idempotent: if a default is already set it is returned unchanged.
+router.post('/payment-methods/sync-default', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const stripe = getStripe()
+    const attorney = await getAttorneyForUser(req)
+    if (!attorney) return res.status(403).json({ error: 'Attorney profile not found' })
+
+    const customerId = await getOrCreateStripeCustomer(attorney, stripe)
+    let defaultPaymentMethodId = await getDefaultPaymentMethodId(stripe, customerId)
+
+    if (!defaultPaymentMethodId) {
+      const methods = await stripe.paymentMethods.list({ customer: customerId, type: 'card', limit: 10 })
+      const newest = methods.data?.[0]
+      if (newest) {
+        await stripe.customers.update(customerId, {
+          invoice_settings: { default_payment_method: newest.id },
+        })
+        defaultPaymentMethodId = newest.id
+      }
+    }
+
+    if (!defaultPaymentMethodId) return res.json({ hasDefaultPaymentMethod: false })
+
+    const paymentMethod = await stripe.paymentMethods.retrieve(defaultPaymentMethodId)
+    return res.json({
+      hasDefaultPaymentMethod: true,
+      brand: paymentMethod.card?.brand || null,
+      last4: paymentMethod.card?.last4 || null,
+    })
+  } catch (error: any) {
+    return stripeError(res, error, 'Failed to sync default payment method')
+  }
+})
+
+// Stripe Customer Portal — lets an attorney manage/cancel their subscription,
+// update the card on file, and view past invoices.
+router.post('/portal-session', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const stripe = getStripe()
+    const attorney = await getAttorneyForUser(req)
+    if (!attorney) return res.status(403).json({ error: 'Attorney profile not found' })
+
+    const profile = attorney.attorneyProfile || await ensureAttorneyProfile(attorney.id)
+    const customerId = profile.stripeCustomerId
+      ? profile.stripeCustomerId
+      : await getOrCreateStripeCustomer(attorney, stripe)
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: req.body?.returnUrl || webUrl('/attorney-billing'),
+    })
+
+    res.json({ url: session.url })
+  } catch (error: any) {
+    return stripeError(res, error, 'Failed to create customer portal session')
+  }
+})
+
+// Featured-placement / visibility boost purchase via Stripe Checkout.
+router.post('/platform/featured-checkout-session', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const stripe = getStripe()
+    const attorney = await getAttorneyForUser(req)
+    if (!attorney) return res.status(403).json({ error: 'Attorney profile not found' })
+
+    const boostLevel = Number(req.body?.boostLevel)
+    const duration = Number(req.body?.duration || 30)
+    const boost = FEATURED_BOOST_PRICES[boostLevel]
+    if (!boost) return res.status(400).json({ error: 'Invalid boost level' })
+
+    const customerId = await getOrCreateStripeCustomer(attorney, stripe)
+    const metadata = {
+      kind: 'featured_placement',
+      attorneyId: attorney.id,
+      boostLevel: toStripeMetadataValue(boostLevel),
+      duration: toStripeMetadataValue(duration),
+    }
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer: customerId,
+      success_url: req.body?.successUrl || webUrl('/payment/success?type=featured&session_id={CHECKOUT_SESSION_ID}'),
+      cancel_url: req.body?.cancelUrl || webUrl('/payment/cancel?type=featured'),
+      metadata,
+      payment_intent_data: { metadata },
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: 'usd',
+            unit_amount: toCents(boost.price),
+            product_data: {
+              name: `CaseIQ ${boost.name}`,
+              description: `${duration}-day featured placement (level ${boostLevel})`,
+            },
+          },
+        },
+      ],
+    })
+
+    await db.platformPayment.create({
+      data: {
+        attorneyId: attorney.id,
+        type: 'featured_placement',
+        amount: boost.price,
+        status: 'checkout_created',
+        stripeCustomerId: customerId,
+        stripeCheckoutSessionId: session.id,
+        metadata: JSON.stringify(metadata),
+      },
+    })
+
+    res.json({ checkoutUrl: session.url, sessionId: session.id })
+  } catch (error: any) {
+    return stripeError(res, error, 'Failed to create featured placement checkout session')
+  }
+})
+
 async function recordCaseInvoicePayment(session: any) {
   const invoiceId = session.metadata?.invoiceId
   if (!invoiceId) return
@@ -756,6 +918,96 @@ async function recordPlatformCheckout(session: any) {
   }
 }
 
+async function applyFeaturedPlacementFromSession(session: any) {
+  const attorneyId = session.metadata?.attorneyId
+  if (!attorneyId || session.payment_status !== 'paid') return
+
+  const boostLevel = Number(session.metadata?.boostLevel) || 0
+  const duration = Number(session.metadata?.duration) || 30
+  const paymentIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id
+  const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id
+  const amount = fromCents(session.amount_total)
+
+  const featuredUntil = new Date()
+  featuredUntil.setDate(featuredUntil.getDate() + duration)
+
+  await db.attorneyProfile.update({
+    where: { attorneyId },
+    data: { isFeatured: true, boostLevel, featuredUntil },
+  })
+
+  await db.attorneyDashboard.upsert({
+    where: { attorneyId },
+    update: { totalPlatformSpend: { increment: amount || 0 } },
+    create: { attorneyId, totalPlatformSpend: amount || 0 },
+  })
+
+  const existing = await db.platformPayment.findFirst({ where: { stripeCheckoutSessionId: session.id } })
+  const data = {
+    attorneyId,
+    type: 'featured_placement',
+    amount,
+    status: 'paid',
+    stripeCustomerId: customerId || null,
+    stripeCheckoutSessionId: session.id,
+    stripePaymentIntentId: paymentIntentId || null,
+    metadata: JSON.stringify(session.metadata || {}),
+  }
+  if (existing) {
+    await db.platformPayment.update({ where: { id: existing.id }, data })
+  } else {
+    await db.platformPayment.create({ data })
+  }
+}
+
+// A subscription invoice failed — mark the attorney's subscription past due and
+// stop consuming included-case credit until payment recovers.
+async function handleInvoicePaymentFailed(invoice: any) {
+  const subscriptionId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id
+  const customerId = typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id
+  const where = subscriptionId
+    ? { stripeSubscriptionId: subscriptionId }
+    : customerId
+      ? { stripeCustomerId: customerId }
+      : null
+  if (!where) return
+
+  await db.attorneyProfile.updateMany({
+    where,
+    data: {
+      stripeSubscriptionStatus: 'past_due',
+      subscriptionActive: false,
+      subscriptionRemainingCases: 0,
+    },
+  })
+}
+
+// A charge was refunded — flag the matching platform/billing payment records.
+async function handleChargeRefunded(charge: any) {
+  const paymentIntentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id
+  const fullyRefunded = charge.amount_refunded >= charge.amount
+  const status = fullyRefunded ? 'refunded' : 'partially_refunded'
+
+  if (paymentIntentId) {
+    await db.platformPayment.updateMany({ where: { stripePaymentIntentId: paymentIntentId }, data: { status } })
+    await db.billingPayment.updateMany({
+      where: { stripePaymentIntentId: paymentIntentId },
+      data: { notes: `Refunded via Stripe (${status})` },
+    })
+  }
+}
+
+// Stripe Connect account state changed — keep charges/payouts flags in sync.
+async function handleConnectAccountUpdated(account: any) {
+  await db.attorneyProfile.updateMany({
+    where: { stripeConnectAccountId: account.id },
+    data: {
+      stripeConnectChargesEnabled: Boolean(account.charges_enabled),
+      stripeConnectPayoutsEnabled: Boolean(account.payouts_enabled),
+    },
+  })
+}
+
 async function saveDefaultPaymentMethodFromSetupSession(stripe: any, session: any) {
   const attorneyId = session.metadata?.attorneyId
   const setupIntentId = typeof session.setup_intent === 'string' ? session.setup_intent : session.setup_intent?.id
@@ -767,6 +1019,25 @@ async function saveDefaultPaymentMethodFromSetupSession(stripe: any, session: an
     ? setupIntent.payment_method
     : setupIntent.payment_method?.id
   if (!paymentMethodId) return
+
+  await stripe.customers.update(customerId, {
+    invoice_settings: { default_payment_method: paymentMethodId },
+  })
+  await db.attorneyProfile.update({
+    where: { attorneyId },
+    data: { stripeCustomerId: customerId },
+  })
+}
+
+// A card entered via the embedded Payment Element (SetupIntent) succeeded —
+// promote it to the customer's default payment method.
+async function saveDefaultPaymentMethodFromSetupIntent(stripe: any, setupIntent: any) {
+  const attorneyId = setupIntent.metadata?.attorneyId
+  const customerId = typeof setupIntent.customer === 'string' ? setupIntent.customer : setupIntent.customer?.id
+  const paymentMethodId = typeof setupIntent.payment_method === 'string'
+    ? setupIntent.payment_method
+    : setupIntent.payment_method?.id
+  if (!attorneyId || !customerId || !paymentMethodId) return
 
   await stripe.customers.update(customerId, {
     invoice_settings: { default_payment_method: paymentMethodId },
@@ -850,36 +1121,66 @@ router.post('/stripe-webhook', async (req, res) => {
     return res.status(400).json({ error: 'Invalid Stripe signature' })
   }
 
+  // Idempotency: record the event id first; if it already exists, we've handled
+  // this delivery before and can safely acknowledge without reprocessing.
   try {
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object as any
-      if (session.metadata?.kind === 'case_invoice') {
-        await recordCaseInvoicePayment(session)
-      } else if (session.metadata?.kind === 'attorney_payment_method') {
-        await saveDefaultPaymentMethodFromSetupSession(stripe, session)
-      } else if (
-        session.metadata?.kind === 'attorney_subscription' ||
-        session.metadata?.kind === 'lead_credit' ||
-        session.metadata?.kind === 'routing_fee'
-      ) {
-        await recordPlatformCheckout(session)
+    await db.stripeWebhookEvent.create({ data: { id: event.id, type: event.type } })
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      logger.info('Duplicate Stripe webhook event ignored', { id: event.id, type: event.type })
+      return res.json({ received: true, duplicate: true })
+    }
+    logger.warn('Failed to persist Stripe webhook event id', { id: event.id, error: error?.message })
+  }
+
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as any
+        const kind = session.metadata?.kind
+        if (kind === 'case_invoice') {
+          await recordCaseInvoicePayment(session)
+        } else if (kind === 'attorney_payment_method') {
+          await saveDefaultPaymentMethodFromSetupSession(stripe, session)
+        } else if (kind === 'featured_placement') {
+          await applyFeaturedPlacementFromSession(session)
+        } else if (kind === 'attorney_subscription' || kind === 'lead_credit' || kind === 'routing_fee') {
+          await recordPlatformCheckout(session)
+        }
+        break
       }
-    }
-
-    if (
-      event.type === 'customer.subscription.created' ||
-      event.type === 'customer.subscription.updated' ||
-      event.type === 'customer.subscription.deleted'
-    ) {
-      await syncSubscription(event.data.object as any)
-    }
-
-    if (event.type === 'invoice.paid') {
-      await resetSubscriptionAllotmentFromInvoice(stripe, event.data.object as any)
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted':
+        await syncSubscription(event.data.object as any)
+        break
+      case 'invoice.paid':
+        await resetSubscriptionAllotmentFromInvoice(stripe, event.data.object as any)
+        break
+      case 'invoice.payment_failed':
+        await handleInvoicePaymentFailed(event.data.object as any)
+        break
+      case 'charge.refunded':
+        await handleChargeRefunded(event.data.object as any)
+        break
+      case 'account.updated':
+        await handleConnectAccountUpdated(event.data.object as any)
+        break
+      case 'setup_intent.succeeded': {
+        const setupIntent = event.data.object as any
+        if (setupIntent.metadata?.kind === 'attorney_payment_method') {
+          await saveDefaultPaymentMethodFromSetupIntent(stripe, setupIntent)
+        }
+        break
+      }
+      default:
+        break
     }
 
     res.json({ received: true })
   } catch (error: any) {
+    // Roll back the idempotency marker so Stripe's retry can reprocess the event.
+    await db.stripeWebhookEvent.delete({ where: { id: event.id } }).catch(() => {})
     logger.error('Failed to process Stripe webhook', { type: event.type, error: error.message })
     res.status(500).json({ error: 'Failed to process Stripe webhook' })
   }

@@ -32,6 +32,7 @@ import consent from './routes/consent'
 import chatgpt from './routes/chatgpt'
 import admin from './routes/admin'
 import firmDashboard from './routes/firm-dashboard'
+import firms from './routes/firms'
 import tierRouting from './routes/tier-routing'
 import featureToggles from './routes/feature-toggles'
 import compliance from './routes/compliance'
@@ -94,6 +95,7 @@ export function buildApp(): Express {
   app.use('/v1/admin/communications', adminCommunications)
   app.use('/v1/support-tickets', supportTickets)
   app.use('/v1/firm-dashboard', firmDashboard)
+  app.use('/v1/firms', firms)
   app.use('/v1/tier-routing', tierRouting)
   app.use('/v1/feature-toggles', featureToggles)
   app.use('/v1/compliance', compliance)
