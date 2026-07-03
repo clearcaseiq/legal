@@ -749,6 +749,87 @@ router.post('/portal-session', authMiddleware, async (req: AuthRequest, res) => 
   }
 })
 
+// Attorney-facing ledger of platform charges (routing fees, subscriptions, lead
+// credits, featured placement) so an attorney can see what they've paid CaseIQ.
+// Reads the platform_payments records the checkout/charge flows already write.
+router.get('/platform/history', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const attorney = await getAttorneyForUser(req)
+    if (!attorney) return res.status(403).json({ error: 'Attorney profile not found' })
+
+    const records = await db.platformPayment.findMany({
+      where: { attorneyId: attorney.id },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    const TYPE_LABELS: Record<string, string> = {
+      routing_fee: 'Case routing fee',
+      routing_fee_subscription_credit: 'Included case (subscription)',
+      attorney_subscription: 'Subscription',
+      subscription: 'Subscription',
+      lead_credit: 'Lead credits',
+      featured_placement: 'Featured placement',
+    }
+
+    // A row counts toward paid totals only when Stripe reports it settled.
+    // Skipped (payments disabled) and pending/checkout-created rows are listed
+    // for transparency but excluded from the amount paid.
+    const isPaid = (status: unknown) =>
+      ['succeeded', 'paid', 'complete', 'completed'].includes(String(status || '').toLowerCase())
+
+    const now = new Date()
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+
+    let totalPaidCents = 0
+    let paidThisMonthCents = 0
+    let paidCount = 0
+    const byTypeCents: Record<string, number> = {}
+
+    const payments = records.map((r: any) => {
+      const meta = parseJsonMaybe(r.metadata) || {}
+      const amountCents = Math.round(Number(r.amount || 0) * 100)
+      const paid = isPaid(r.status)
+      if (paid) {
+        totalPaidCents += amountCents
+        paidThisMonthCents += new Date(r.createdAt) >= startOfMonth ? amountCents : 0
+        byTypeCents[r.type] = (byTypeCents[r.type] || 0) + amountCents
+        paidCount += 1
+      }
+      return {
+        id: r.id,
+        type: r.type,
+        typeLabel: TYPE_LABELS[r.type] || String(r.type || 'Charge'),
+        description: meta.tierLabel || meta.description || null,
+        leadId: meta.leadId || null,
+        assessmentId: meta.assessmentId || null,
+        amount: Number(r.amount || 0),
+        currency: (r.currency || 'usd').toUpperCase(),
+        status: r.status,
+        paid,
+        createdAt: new Date(r.createdAt).toISOString(),
+      }
+    })
+
+    res.json({
+      payments,
+      summary: {
+        currency: 'USD',
+        totalPaid: totalPaidCents / 100,
+        paidThisMonth: paidThisMonthCents / 100,
+        paidCount,
+        byType: Object.fromEntries(
+          Object.entries(byTypeCents).map(([type, cents]) => [
+            type,
+            { label: TYPE_LABELS[type] || type, amount: cents / 100 },
+          ])
+        ),
+      },
+    })
+  } catch (error: any) {
+    return stripeError(res, error, 'Failed to load payment history')
+  }
+})
+
 // Featured-placement / visibility boost purchase via Stripe Checkout.
 router.post('/platform/featured-checkout-session', authMiddleware, async (req: AuthRequest, res) => {
   try {

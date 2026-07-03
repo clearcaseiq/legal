@@ -7,8 +7,31 @@ import {
   createPlatformSubscriptionCheckoutSession,
   createStripePortalSession,
   getMyAttorneyProfile,
+  getPlatformPaymentHistory,
+  type PlatformPaymentRecord,
 } from '../lib/api'
 import EmbeddedCardSetup from '../components/EmbeddedCardSetup'
+
+const currencyFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+const formatMoney = (amount: number) => currencyFormatter.format(Number.isFinite(amount) ? amount : 0)
+const formatDate = (iso: string) => {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+const statusBadgeClass = (record: PlatformPaymentRecord) => {
+  if (record.paid) return 'bg-emerald-100 text-emerald-700'
+  const s = record.status?.toLowerCase() || ''
+  if (s.startsWith('skipped')) return 'bg-slate-100 text-slate-600'
+  if (s.includes('fail') || s.includes('cancel')) return 'bg-red-100 text-red-700'
+  return 'bg-amber-100 text-amber-700'
+}
+const statusLabel = (record: PlatformPaymentRecord) => {
+  if (record.paid) return 'Paid'
+  const s = record.status?.toLowerCase() || ''
+  if (s.startsWith('skipped')) return 'No charge'
+  if (s === 'checkout_created' || s === 'requires_payment_method' || s === 'processing') return 'Pending'
+  return record.status || 'Unknown'
+}
 
 const featuredTiers = [
   { level: 1, name: 'Basic Boost', price: 99, blurb: 'Priority in search results' },
@@ -40,6 +63,8 @@ export default function AttorneyBilling() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showCardForm, setShowCardForm] = useState(false)
+  const [history, setHistory] = useState<Awaited<ReturnType<typeof getPlatformPaymentHistory>> | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(true)
   const status = searchParams.get('status')
 
   useEffect(() => {
@@ -54,6 +79,17 @@ export default function AttorneyBilling() {
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
+      })
+
+    getPlatformPaymentHistory()
+      .then((data) => {
+        if (!cancelled) setHistory(data)
+      })
+      .catch(() => {
+        if (!cancelled) setHistory(null)
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false)
       })
 
     return () => {
@@ -281,6 +317,85 @@ export default function AttorneyBilling() {
             </p>
           </aside>
         </div>
+
+        <section className="mt-5 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">Fees &amp; Payments</h2>
+              <p className="mt-2 max-w-2xl text-sm text-gray-600">
+                Everything you&rsquo;ve paid CaseIQ &mdash; routing fees, subscriptions, lead credits, and featured placement. Stripe also emails a receipt after each charge.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Total paid</p>
+              <p className="mt-1 text-2xl font-bold text-gray-900">
+                {historyLoading ? '—' : formatMoney(history?.summary.totalPaid ?? 0)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Paid this month</p>
+              <p className="mt-1 text-2xl font-bold text-gray-900">
+                {historyLoading ? '—' : formatMoney(history?.summary.paidThisMonth ?? 0)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Payments</p>
+              <p className="mt-1 text-2xl font-bold text-gray-900">
+                {historyLoading ? '—' : history?.summary.paidCount ?? 0}
+              </p>
+            </div>
+          </div>
+
+          {history && Object.keys(history.summary.byType).length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {Object.entries(history.summary.byType).map(([type, info]) => (
+                <span key={type} className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700">
+                  {info.label}: {formatMoney(info.amount)}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-6 overflow-x-auto">
+            {historyLoading ? (
+              <p className="py-6 text-center text-sm text-gray-500">Loading payment history…</p>
+            ) : !history || history.payments.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-gray-200 py-8 text-center text-sm text-gray-500">
+                No payments yet. Charges appear here after you accept a case or purchase an add-on.
+              </p>
+            ) : (
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead>
+                  <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <th className="px-3 py-2">Date</th>
+                    <th className="px-3 py-2">Type</th>
+                    <th className="px-3 py-2">Details</th>
+                    <th className="px-3 py-2 text-right">Amount</th>
+                    <th className="px-3 py-2 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {history.payments.map((p) => (
+                    <tr key={p.id} className="text-gray-800">
+                      <td className="whitespace-nowrap px-3 py-2 text-gray-600">{formatDate(p.createdAt)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 font-medium">{p.typeLabel}</td>
+                      <td className="px-3 py-2 text-gray-600">{p.description || '—'}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right font-semibold">{formatMoney(p.amount)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right">
+                        <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadgeClass(p)}`}>
+                          {statusLabel(p)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
 
         <section className="mt-5 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">

@@ -1938,6 +1938,34 @@ export async function createRoutingFeePaymentSession(payload: {
   }
 }
 
+export type PlatformPaymentRecord = {
+  id: string
+  type: string
+  typeLabel: string
+  description: string | null
+  leadId: string | null
+  assessmentId: string | null
+  amount: number
+  currency: string
+  status: string
+  paid: boolean
+  createdAt: string
+}
+
+export async function getPlatformPaymentHistory() {
+  const { data } = await api.get('/v1/payments/platform/history')
+  return data as {
+    payments: PlatformPaymentRecord[]
+    summary: {
+      currency: string
+      totalPaid: number
+      paidThisMonth: number
+      paidCount: number
+      byType: Record<string, { label: string; amount: number }>
+    }
+  }
+}
+
 export async function createStripeConnectAccountLink(payload?: { refreshUrl?: string; returnUrl?: string }) {
   const { data } = await api.post('/v1/payments/connect/account-link', payload || {})
   return data as { url: string; accountId: string }
