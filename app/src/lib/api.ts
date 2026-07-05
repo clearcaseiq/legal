@@ -3,6 +3,7 @@ import { clearStoredAuth } from './auth'
 import { apiDebug } from './debug'
 import type { AttorneyDashboardResponse } from '../../../shared/api-contracts'
 import type { HeuristicsConfig } from './heuristics'
+import type { FieldMappingsConfig } from './field-mappings'
 
 export type { HeuristicsConfig }
 
@@ -2810,6 +2811,16 @@ export async function saveAdminHeuristics(config: Partial<HeuristicsConfig>) {
 
 export async function getHeuristics() {
   const { data } = await api.get<HeuristicsConfig>('/v1/heuristics')
+  return data
+}
+
+export async function getAdminFieldMappings() {
+  const { data } = await api.get<FieldMappingsConfig>('/v1/admin/field-mappings')
+  return data
+}
+
+export async function saveAdminFieldMappings(config: FieldMappingsConfig) {
+  const { data } = await api.put<FieldMappingsConfig>('/v1/admin/field-mappings', config)
   return data
 }
 

@@ -2560,18 +2560,18 @@ export default function AttorneyDashboard() {
   const activeWorkstream = isLeadSection ? leadSection : workstreamTab
 
   useEffect(() => {
-    if (activeTab !== 'overview') {
-      return
-    }
-
+    // Warm the primary tab chunks once on mount, independent of the active tab,
+    // so switching between Overview, My Cases (leads), and Analytics never flashes
+    // the Suspense skeleton regardless of navigation order or deep links (#75).
+    // Previously this was gated on `activeTab === 'overview'`, so arriving on
+    // Analytics first (or deep-linking to it) left the leads chunk unwarmed and
+    // flickered on the way back to My Cases.
     return scheduleIdlePrefetch(() => {
       void loadAttorneyDashboardAnalyticsTab()
       void loadAttorneyDashboardProfileTab()
-      // Also warm the leads ("My Cases") chunk so switching to it after
-      // Analytics doesn't flash the Suspense skeleton on first load (#75).
       void loadAttorneyDashboardLeadsTab()
     })
-  }, [activeTab])
+  }, [])
 
   useEffect(() => {
     if (!selectedLead?.id || !isPostAcceptance) {

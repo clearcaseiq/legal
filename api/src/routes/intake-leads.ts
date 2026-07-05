@@ -10,6 +10,12 @@ const router = Router()
 
 const MAX_SNAPSHOT_LENGTH = 100_000
 
+// A resume link stops resurfacing saved contact + case answers once the lead has
+// been idle this long. Keyed off last activity (updatedAt), so an active intake
+// keeps working while a stale or forwarded link expires. Mirrors the abandonment
+// re-engagement window (ABANDON_WINDOW_HOURS in intake-abandonment.ts).
+const RESUME_LINK_TTL_HOURS = 72
+
 function webBaseUrl(): string {
   return (process.env.WEB_URL || 'https://www.clearcaseiq.com').replace(/\/$/, '')
 }
@@ -194,6 +200,13 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Lead not found' })
     }
 
+    // Expire stale/forwarded links so saved PII isn't resurfaced indefinitely.
+    const expiresAt = lead.updatedAt.getTime() + RESUME_LINK_TTL_HOURS * 60 * 60_000
+    if (Date.now() > expiresAt) {
+      logger.info('Expired intake resume link accessed', { leadId: lead.id })
+      return res.status(410).json({ error: 'This resume link has expired. Please start a new assessment.' })
+    }
+
     let formSnapshot: Record<string, unknown> | null = null
     if (lead.formSnapshot) {
       try {
@@ -207,6 +220,8 @@ router.get('/:id', async (req, res) => {
     res.json({
       id: lead.id,
       status: lead.status,
+      email: lead.email,
+      phone: lead.phone,
       currentStep: lead.currentStep,
       injuryType: lead.injuryType,
       venueState: lead.venueState,

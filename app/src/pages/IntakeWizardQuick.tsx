@@ -737,6 +737,50 @@ function SectionHeader({ icon: Icon, number, title, helper, accent = 'brand' }: 
   )
 }
 
+/**
+ * Full-screen "AI is working" overlay shown while the case report is generated.
+ * Cycles through reassuring status lines so the multi-second submit + analysis
+ * wait reads as deliberate progress rather than a frozen screen.
+ */
+function ReportGeneratingOverlay({ title, subtitle, steps }: { title: string; subtitle: string; steps: string[] }) {
+  const [stepIndex, setStepIndex] = useState(0)
+  useEffect(() => {
+    if (steps.length <= 1) return
+    const handle = setInterval(() => {
+      setStepIndex(index => (index + 1) % steps.length)
+    }, 2200)
+    return () => clearInterval(handle)
+  }, [steps.length])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <div className="relative mx-auto mb-6 flex h-20 w-20 items-center justify-center">
+          <span
+            className="absolute inset-0 animate-spin rounded-full border-4 border-accent-100 border-t-accent-600 dark:border-accent-900/60 dark:border-t-accent-400 [animation-duration:1.3s]"
+            aria-hidden
+          />
+          <Sparkles className="h-8 w-8 animate-pulse text-accent-600 dark:text-accent-400" aria-hidden />
+        </div>
+        <h2 className="text-lg font-bold text-slate-900 dark:text-white">{title}</h2>
+        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>
+        <div className="mt-5 flex min-h-[1.5rem] items-center justify-center">
+          <p key={stepIndex} className="animate-toast-in text-sm font-semibold text-accent-700 dark:text-accent-300">
+            {steps[stepIndex]}
+          </p>
+        </div>
+        <div className="mt-5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+          <div className="h-full w-full animate-shimmer rounded-full bg-[length:200%_100%] bg-gradient-to-r from-accent-200 via-accent-600 to-accent-200" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function IntakeWizardQuick() {
   const { t } = useLanguage()
   const navigate = useNavigate()
@@ -783,6 +827,7 @@ export default function IntakeWizardQuick() {
 
   const [currentStep, setCurrentStep] = useState<Step>('injury_type')
   const [loading, setLoading] = useState(false)
+  const [generatingReport, setGeneratingReport] = useState(false)
   const [assessmentId, setAssessmentId] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [uploadFailures, setUploadFailures] = useState<string[]>([])
@@ -874,6 +919,13 @@ export default function IntakeWizardQuick() {
   const visibleSteps = STEPS.filter(s => !hiddenSteps.includes(s.key))
   const currentStepIndex = visibleSteps.findIndex(s => s.key === currentStep)
   const progressPercent = Math.round(((currentStepIndex + 1) / visibleSteps.length) * 100)
+  // Estimate remaining time from steps left (whole assessment budgeted at ~60s),
+  // rounded to a friendly 5-second increment so the header reflects real progress
+  // instead of showing a static "about 60 seconds total" on every step.
+  const estimatedSecondsLeft = Math.max(
+    5,
+    Math.round(((visibleSteps.length - currentStepIndex - 1) / Math.max(visibleSteps.length, 1)) * 60 / 5) * 5,
+  )
   const uploadedEvidenceCount = Object.values(pendingEvidenceFiles).reduce((total, files) => total + (Array.isArray(files) ? files.length : 0), 0)
 
   // --- Draft autosave: nothing used to be saved until final submit, so a refresh lost all 15 steps. ---
@@ -886,33 +938,41 @@ export default function IntakeWizardQuick() {
         try {
           const lead = await getIntakeLead(leadParam)
           const snap: any = lead?.formSnapshot
-          // Restore whenever the saved snapshot has any answers — not only when
-          // injuryType is present — so a resume link reliably rehydrates progress
-          // even on a fresh device / private window (no local draft to fall back on).
-          if (snap && typeof snap === 'object' && Object.keys(snap).length > 0) {
-            const { customDate: snapCustomDate, ...answers } = snap
-            setFormData(prev => ({
-              ...prev,
-              ...answers,
-              venue: { ...prev.venue, ...(answers.venue || {}) },
-              injuryDetails: { ...prev.injuryDetails, ...(answers.injuryDetails || {}) },
-              insuranceCoverage: { ...prev.insuranceCoverage, ...(answers.insuranceCoverage || {}) },
-              // Contact + consents are intentionally re-collected, never restored from a link.
-              contact: { ...prev.contact },
-              consents: { tos: false, privacy: false, ml_use: false },
-            }))
-            if (typeof snapCustomDate === 'string') setCustomDate(snapCustomDate)
-            const hidden = HIDDEN_STEPS_BY_INJURY[snap.injuryType] || []
-            const validKeys = STEPS.map(s => s.key).filter(key => !hidden.includes(key))
-            const restoredStep = typeof lead.currentStep === 'string'
-              ? (LEGACY_STEP_MAP[lead.currentStep] ?? lead.currentStep)
-              : undefined
-            if (restoredStep && validKeys.includes(restoredStep as Step)) {
-              setCurrentStep(restoredStep as Step)
-            }
-            leadIdRef.current = lead.id
-            setDraftRestored(true)
+          const hasSnapshot = snap && typeof snap === 'object' && Object.keys(snap).length > 0
+          const { customDate: snapCustomDate, ...answers } = hasSnapshot ? snap : {}
+
+          // Always restore the email/phone the user already provided (they returned
+          // via a link sent to that contact) plus any saved answers. The snapshot
+          // never stores contact, so pull it from the lead's own columns — this way
+          // it rehydrates even if the user left right after entering contact info,
+          // before answering anything else. Consents are legal confirmations, not
+          // answers, so they are always re-collected.
+          setFormData(prev => ({
+            ...prev,
+            ...answers,
+            venue: { ...prev.venue, ...(answers.venue || {}) },
+            injuryDetails: { ...prev.injuryDetails, ...(answers.injuryDetails || {}) },
+            insuranceCoverage: { ...prev.insuranceCoverage, ...(answers.insuranceCoverage || {}) },
+            contact: {
+              ...prev.contact,
+              ...(lead.email ? { email: lead.email } : {}),
+              ...(lead.phone ? { phone: lead.phone } : {}),
+            },
+            consents: { tos: false, privacy: false, ml_use: false },
+          }))
+          if (typeof snapCustomDate === 'string') setCustomDate(snapCustomDate)
+          const hidden = HIDDEN_STEPS_BY_INJURY[snap?.injuryType] || []
+          const validKeys = STEPS.map(s => s.key).filter(key => !hidden.includes(key))
+          const restoredStep = typeof lead.currentStep === 'string'
+            ? (LEGACY_STEP_MAP[lead.currentStep] ?? lead.currentStep)
+            : undefined
+          if (restoredStep && validKeys.includes(restoredStep as Step)) {
+            setCurrentStep(restoredStep as Step)
           }
+          // Track the lead id so continued progress updates the same lead instead
+          // of spawning a duplicate.
+          leadIdRef.current = lead.id
+          if (hasSnapshot) setDraftRestored(true)
         } catch {
           /* invalid or expired link; fall through to a fresh start */
         } finally {
@@ -1682,6 +1742,14 @@ export default function IntakeWizardQuick() {
     setErrors(err)
     if (Object.keys(err).length > 0) return
     setLoading(true)
+    setGeneratingReport(true)
+    // Keep the "AI is working" overlay up for at least this long so a fast submit
+    // reads as deliberate progress rather than a jarring flash.
+    const overlayStartedAt = Date.now()
+    const holdOverlay = async () => {
+      const remaining = 1500 - (Date.now() - overlayStartedAt)
+      if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining))
+    }
     try {
       const claimType = injuryTypeToClaimType(formData.injuryType)
       const caseTaxonomy = buildCaseTaxonomy({
@@ -1908,15 +1976,18 @@ export default function IntakeWizardQuick() {
       const failedUploads = await uploadPendingEvidence(id)
       if (failedUploads.length > 0) {
         // Stay on this step so the user can retry or knowingly continue without the documents.
+        await holdOverlay()
         setUploadFailures(failedUploads)
         return
       }
+      await holdOverlay()
       goToResults(id)
     } catch (e: any) {
       const msg = e.response?.data?.error || e.message || tx('error_submitFailed')
       setErrors({ submit: msg })
     } finally {
       setLoading(false)
+      setGeneratingReport(false)
     }
   }
 
@@ -2293,7 +2364,8 @@ export default function IntakeWizardQuick() {
                   <div className="mt-2 grid grid-cols-1 gap-3 sm:pl-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,15rem)] lg:items-start">
                     <div>
                       {/* Exact date drives the filing deadline, so lead with it. */}
-                      <div className={`rounded-xl border px-3 py-1.5 transition-colors focus-within:border-brand-500 focus-within:ring-1 focus-within:ring-brand-500 ${errors.incidentDate ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-300 dark:border-slate-600'}`}>
+                      <div className={`relative rounded-xl border py-1.5 pl-3 pr-10 transition-colors focus-within:border-brand-500 focus-within:ring-1 focus-within:ring-brand-500 ${errors.incidentDate ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-300 dark:border-slate-600'}`}>
+                        <CalendarDays className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-brand-600 dark:text-brand-400" aria-hidden />
                         <label htmlFor="incident-exact-date" className="block !text-[11px] font-medium text-gray-500">{tx('when_selectDate')}</label>
                         <input
                           id="incident-exact-date"
@@ -2380,12 +2452,12 @@ export default function IntakeWizardQuick() {
                       </span>
                     </div>
                     {/* Helpful details */}
-                    <div className="mt-2 flex flex-nowrap items-center gap-x-2 rounded-lg bg-slate-50 px-2.5 py-1.5 dark:bg-slate-800/50">
+                    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-slate-50 px-2.5 py-1.5 dark:bg-slate-800/50">
                       <span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-[10px] font-semibold text-slate-500">
                         <Info className="h-3 w-3 text-slate-400" aria-hidden /> {tx('narrative_hintsLabel')}
                       </span>
                       {narrativeHints.map(hint => (
-                        <span key={hint} className="flex min-w-0 items-center gap-0.5 truncate text-[10px] text-slate-600 dark:text-slate-300">
+                        <span key={hint} className="flex items-center gap-0.5 text-[10px] text-slate-600 dark:text-slate-300">
                           <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" aria-hidden /> {hint}
                         </span>
                       ))}
@@ -2768,12 +2840,12 @@ export default function IntakeWizardQuick() {
             <div className={`grid grid-cols-2 gap-2 ${snapshotCards.length >= 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
               {snapshotCards.map(({ key, icon: Icon, label, value, sub, tone }) => (
                 <div key={key} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 dark:border-slate-700 dark:bg-slate-900/40">
-                  <div className="flex items-center gap-1 text-[9px] font-semibold uppercase leading-none tracking-wide text-gray-400">
+                  <div className="flex items-center gap-1 text-[9px] font-semibold uppercase leading-none tracking-wide text-gray-600 dark:text-slate-300">
                     <Icon className="h-3 w-3 shrink-0" aria-hidden />
                     <span className="truncate">{label}</span>
                   </div>
                   <p className={`mt-0.5 font-display text-[13px] font-bold leading-none ${tone}`}>{value}</p>
-                  <p className="mt-0.5 truncate text-[9px] leading-none text-gray-400">{sub}</p>
+                  <p className="mt-0.5 truncate text-[9px] font-medium leading-none text-gray-600 dark:text-slate-400">{sub}</p>
                 </div>
               ))}
             </div>
@@ -2913,7 +2985,7 @@ export default function IntakeWizardQuick() {
             {/* 1. Treatment received — recap of step 2 selections + only the extra imaging detail (de-duped) */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
               <SectionHeader number={1} title={tx('injuryDetails_treatmentReceived')} />
-              <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{tx('injuryDetails_treatmentRecapTitle')}</p>
+              <p className="mt-2 text-xs font-semibold text-gray-600 dark:text-slate-300">{tx('injuryDetails_treatmentRecapTitle')}</p>
               {(() => {
                 const picked = MEDICAL_TREATMENT_OPTIONS.filter(o => o.value !== 'none' && formData.medicalTreatment.includes(o.value))
                 return picked.length > 0 ? (
@@ -5457,6 +5529,19 @@ export default function IntakeWizardQuick() {
 
   return (
     <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-7xl flex-col overflow-visible px-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:px-4 md:min-h-[calc(100dvh-7.5rem)] md:overflow-visible md:px-8 md:py-3 ${isFirstStep ? 'py-1' : 'py-1.5 sm:py-2'}`}>
+      {generatingReport && (
+        <ReportGeneratingOverlay
+          title={tx('generatingTitle')}
+          subtitle={tx('generatingSubtitle')}
+          steps={[
+            tx('generatingStep_analyzing'),
+            tx('generatingStep_liability'),
+            tx('generatingStep_value'),
+            tx('generatingStep_evidence'),
+            tx('generatingStep_finalizing'),
+          ]}
+        />
+      )}
       <div className="mb-1 shrink-0" aria-busy={loading}>
         <p className={`mb-0.5 text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300 md:text-sm ${isFirstStep ? 'hidden sm:block' : ''}`}>
           {t('intake.timePromise')}
@@ -5476,7 +5561,7 @@ export default function IntakeWizardQuick() {
           <span className="flex items-center gap-3">
             <span>
               {currentStepIndex + 1 < visibleSteps.length
-                ? `• ${t('intake.progressTime')}`
+                ? `• ${t('intake.progressTimeRemaining').replace('{seconds}', String(estimatedSecondsLeft))}`
                 : `• ${t('intake.almostDone')}`}
             </span>
             <button
@@ -5526,8 +5611,8 @@ export default function IntakeWizardQuick() {
                 </>
               )}
               <span className="text-slate-300 dark:text-slate-600" aria-hidden>·</span>
-              <span className="text-slate-500 dark:text-slate-400">{tx('sol_basedOnAnswers')}</span>
-              <span className="text-slate-400 dark:text-slate-500">{tx('sol_notLegalAdvice')}</span>
+              <span className="text-slate-600 dark:text-slate-300">{tx('sol_basedOnAnswers')}</span>
+              <span className="font-medium text-slate-600 dark:text-slate-300">{tx('sol_notLegalAdvice')}</span>
               {showExactDatePrompt && (
                 <button
                   type="button"

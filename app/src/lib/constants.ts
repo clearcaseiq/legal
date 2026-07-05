@@ -91,6 +91,9 @@ export const ATTORNEY_CASE_TYPES = [
   { value: 'product', label: 'Defective Product' },
   { value: 'assault', label: 'Assault or Negligent Security' },
   { value: 'toxic', label: 'Exposure to Toxic Substances' },
+  { value: 'nursing_home_abuse', label: 'Nursing Home Abuse' },
+  { value: 'wrongful_death', label: 'Wrongful Death' },
+  { value: 'high_severity_surgery', label: 'Catastrophic / High-Severity Injury' },
   { value: 'other', label: 'Other Injury' },
 ]
 

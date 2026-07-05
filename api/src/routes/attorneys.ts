@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma'
 import { AttorneySearch } from '../lib/validators'
 import { logger } from '../lib/logger'
 import { getHeuristics, computeAttorneyFitScore, getResponseBadge } from '../lib/heuristics-config'
+import { getFieldMappings, resolveMatchValues } from '../lib/field-mappings-config'
 
 const router: Router = Router()
 
@@ -20,6 +21,17 @@ router.get('/search', async (req: Request, res: Response) => {
 
     const { venue, claim_type, limit } = parsed.data
     const groupByFirm = req.query.group_by_firm === 'true'
+
+    // Search exposes plaintiff-facing claim-type slugs, but attorney specialties are
+    // stored in the attorney vocabulary (ATTORNEY_CASE_TYPES) and older profiles use
+    // legacy slugs. The admin-configured field mappings resolve each searchable claim
+    // type to every equivalent specialty slug so filtering/scoring works across
+    // vocabularies (aligned with #49) and can be tuned without a deploy.
+    const fieldMappings = claim_type ? await getFieldMappings() : null
+    const claimTypeMatchSlugs =
+      claim_type && fieldMappings ? resolveMatchValues(fieldMappings, 'claimType', claim_type) : []
+    const specialtiesMatchClaim = (list: string[]) =>
+      Array.isArray(list) && claimTypeMatchSlugs.some((slug) => list.includes(slug))
     
     // Score a broad candidate pool first, then apply the requested limit.
     const attorneys = await prisma.attorney.findMany({
@@ -62,7 +74,7 @@ router.get('/search', async (req: Request, res: Response) => {
       // Deterministic fit score from admin-configurable heuristics
       const fitScore = computeAttorneyFitScore(heuristics, {
         venueMatch: Boolean(venue && venues?.includes?.(venue)),
-        claimTypeMatch: Boolean(claim_type && specialties?.includes?.(claim_type)),
+        claimTypeMatch: Boolean(claim_type && specialtiesMatchClaim(specialties)),
         isVerified: Boolean((attorney as any).isVerified),
         rating,
         responseTimeHours,
@@ -122,9 +134,22 @@ router.get('/search', async (req: Request, res: Response) => {
       }
     })
 
+    // When a state (venue) and/or case type is selected, actually filter results
+    // rather than only boosting fit score. Previously these were scoring-only, so
+    // the State/Case Type selectors appeared to do nothing and unrelated attorneys
+    // were still listed for the chosen filters.
+    const filteredResults = attorneyResults.filter((a) => {
+      const venueOk =
+        !venue ||
+        (Array.isArray(a.venues) && a.venues.includes(venue)) ||
+        (a.law_firm as { state?: string } | undefined)?.state === venue
+      const claimOk = !claim_type || specialtiesMatchClaim(a.specialties)
+      return venueOk && claimOk
+    })
+
     // Sort by fit score
-    attorneyResults.sort((a, b) => b.fit_score - a.fit_score)
-    const limitedAttorneyResults = attorneyResults.slice(0, limit)
+    filteredResults.sort((a, b) => b.fit_score - a.fit_score)
+    const limitedAttorneyResults = filteredResults.slice(0, limit)
 
     if (!groupByFirm) {
       logger.info('Attorney search completed (individual)')

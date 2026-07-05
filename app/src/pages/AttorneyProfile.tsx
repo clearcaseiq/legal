@@ -573,6 +573,8 @@ export default function AttorneyProfile() {
                           <input
                             type="text"
                             value={language}
+                            autoFocus={!language.trim()}
+                            placeholder="e.g., Spanish"
                             onChange={(e) => {
                               const newLanguages = [...profile.languages]
                               newLanguages[index] = e.target.value

@@ -104,6 +104,8 @@ export async function updateIntakeLead(id: string, payload: IntakeLeadPayload) {
 export interface IntakeLeadResume {
   id: string
   status?: string | null
+  email?: string | null
+  phone?: string | null
   currentStep?: string | null
   injuryType?: string | null
   venueState?: string | null

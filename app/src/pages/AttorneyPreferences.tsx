@@ -307,6 +307,8 @@ export default function AttorneyPreferences() {
                           <label className="block text-xs font-medium text-gray-600 mb-1">ZIP</label>
                           <input
                             type="text"
+                            inputMode="numeric"
+                            maxLength={10}
                             value={location.zip}
                             onChange={(e) => updateFirmLocation(index, { zip: e.target.value })}
                             className="input"
@@ -318,6 +320,7 @@ export default function AttorneyPreferences() {
                         <label className="block text-xs font-medium text-gray-600 mb-1">Phone (optional)</label>
                         <input
                           type="tel"
+                          maxLength={20}
                           value={location.phone || ''}
                           onChange={(e) => updateFirmLocation(index, { phone: e.target.value })}
                           className="input"
@@ -441,10 +444,12 @@ export default function AttorneyPreferences() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Min Damages ($)</label>
                   <input
                     type="number"
+                    min="0"
+                    max={100000000}
                     value={formData.minDamagesRange ?? ''}
                     onChange={(e) => setFormData(prev => ({ 
                       ...prev, 
-                      minDamagesRange: e.target.value ? parseFloat(e.target.value) : null 
+                      minDamagesRange: e.target.value ? Math.min(100000000, Math.max(0, parseFloat(e.target.value))) : null 
                     }))}
                     className="input"
                     placeholder="0"
@@ -455,10 +460,12 @@ export default function AttorneyPreferences() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Max Damages ($)</label>
                   <input
                     type="number"
+                    min="0"
+                    max={100000000}
                     value={formData.maxDamagesRange ?? ''}
                     onChange={(e) => setFormData(prev => ({ 
                       ...prev, 
-                      maxDamagesRange: e.target.value ? parseFloat(e.target.value) : null 
+                      maxDamagesRange: e.target.value ? Math.min(100000000, Math.max(0, parseFloat(e.target.value))) : null 
                     }))}
                     className="input"
                     placeholder="No maximum"
@@ -475,10 +482,12 @@ export default function AttorneyPreferences() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Max Cases Per Week</label>
                   <input
                     type="number"
+                    min="0"
+                    max={1000}
                     value={formData.maxCasesPerWeek ?? ''}
                     onChange={(e) => setFormData(prev => ({ 
                       ...prev, 
-                      maxCasesPerWeek: e.target.value ? parseInt(e.target.value) : null 
+                      maxCasesPerWeek: e.target.value ? Math.min(1000, Math.max(0, parseInt(e.target.value))) : null 
                     }))}
                     className="input"
                     placeholder="No limit"
@@ -489,10 +498,12 @@ export default function AttorneyPreferences() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Max Cases Per Month</label>
                   <input
                     type="number"
+                    min="0"
+                    max={5000}
                     value={formData.maxCasesPerMonth ?? ''}
                     onChange={(e) => setFormData(prev => ({ 
                       ...prev, 
-                      maxCasesPerMonth: e.target.value ? parseInt(e.target.value) : null 
+                      maxCasesPerMonth: e.target.value ? Math.min(5000, Math.max(0, parseInt(e.target.value))) : null 
                     }))}
                     className="input"
                     placeholder="No limit"

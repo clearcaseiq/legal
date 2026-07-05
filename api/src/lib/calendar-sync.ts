@@ -41,6 +41,7 @@ type ExternalBusyBlock = {
 type ExternalCalendarEvent = {
   externalEventId: string
   provider: CalendarProvider
+  meetingUrl: string | null
 }
 
 const GOOGLE_CALENDAR_SCOPE = [
@@ -698,27 +699,51 @@ async function createGoogleCalendarEvent(connection: CalendarConnectionRecord, p
   start: Date
   end: Date
   description?: string
+  createVideoLink?: boolean
 }) {
   const accessToken = await ensureFreshAccessToken(connection)
-  const payload = await readJson(await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(connection.calendarId || 'primary')}/events`, {
+  const body: Record<string, unknown> = {
+    summary: params.title,
+    description: params.description,
+    start: { dateTime: params.start.toISOString() },
+    end: { dateTime: params.end.toISOString() },
+  }
+
+  if (params.createVideoLink) {
+    body.conferenceData = {
+      createRequest: {
+        requestId: randomUUID(),
+        conferenceSolutionKey: { type: 'hangoutsMeet' },
+      },
+    }
+  }
+
+  const url = new URL(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(connection.calendarId || 'primary')}/events`)
+  if (params.createVideoLink) {
+    url.searchParams.set('conferenceDataVersion', '1')
+  }
+
+  const payload = await readJson(await fetch(url.toString(), {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      summary: params.title,
-      description: params.description,
-      start: { dateTime: params.start.toISOString() },
-      end: { dateTime: params.end.toISOString() },
-    }),
-  })) as { id?: string }
+    body: JSON.stringify(body),
+  })) as {
+    id?: string
+    hangoutLink?: string
+    conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> }
+  }
 
   if (!payload.id) {
     throw new Error('Google calendar did not return an event id')
   }
 
-  return payload.id
+  const videoEntry = payload.conferenceData?.entryPoints?.find((entry) => entry.entryPointType === 'video')
+  const meetingUrl = payload.hangoutLink || videoEntry?.uri || null
+
+  return { eventId: payload.id, meetingUrl }
 }
 
 async function createMicrosoftCalendarEvent(connection: CalendarConnectionRecord, params: {
@@ -726,6 +751,7 @@ async function createMicrosoftCalendarEvent(connection: CalendarConnectionRecord
   start: Date
   end: Date
   description?: string
+  createVideoLink?: boolean
 }) {
   const accessToken = await ensureFreshAccessToken(connection)
   const payload = await readJson(await fetch('https://graph.microsoft.com/v1.0/me/events', {
@@ -739,14 +765,17 @@ async function createMicrosoftCalendarEvent(connection: CalendarConnectionRecord
       body: params.description ? { contentType: 'text', content: params.description } : undefined,
       start: { dateTime: params.start.toISOString(), timeZone: 'UTC' },
       end: { dateTime: params.end.toISOString(), timeZone: 'UTC' },
+      ...(params.createVideoLink
+        ? { isOnlineMeeting: true, onlineMeetingProvider: 'teamsForBusiness' }
+        : {}),
     }),
-  })) as { id?: string }
+  })) as { id?: string; onlineMeeting?: { joinUrl?: string } }
 
   if (!payload.id) {
     throw new Error('Microsoft calendar did not return an event id')
   }
 
-  return payload.id
+  return { eventId: payload.id, meetingUrl: payload.onlineMeeting?.joinUrl || null }
 }
 
 export async function createExternalCalendarEvent(params: {
@@ -755,6 +784,7 @@ export async function createExternalCalendarEvent(params: {
   start: Date
   end: Date
   description?: string
+  createVideoLink?: boolean
 }): Promise<ExternalCalendarEvent | null> {
   const connection = await prisma.attorneyCalendarConnection.findFirst({
     where: {
@@ -768,7 +798,7 @@ export async function createExternalCalendarEvent(params: {
     return null
   }
 
-  const eventId = connection.provider === 'google'
+  const created = connection.provider === 'google'
     ? await createGoogleCalendarEvent(connection, params)
     : await createMicrosoftCalendarEvent(connection, params)
 
@@ -777,8 +807,9 @@ export async function createExternalCalendarEvent(params: {
   })
 
   return {
-    externalEventId: eventId,
+    externalEventId: created.eventId,
     provider: connection.provider as CalendarProvider,
+    meetingUrl: created.meetingUrl,
   }
 }
 

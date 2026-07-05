@@ -66,6 +66,22 @@ export default function Layout({ children }: LayoutProps) {
   const isDashboard = location.pathname.startsWith('/dashboard')
   const isFocusRoute = ['/assess', '/intake', '/rose'].includes(location.pathname)
   const isAttorney = !isAdmin && (!!attorney || location.pathname.startsWith('/attorney-dashboard') || location.pathname.startsWith('/firm-dashboard'))
+
+  // Highlight a nav item when the current route matches its href. Some hrefs carry
+  // query params (e.g. My Cases -> /attorney-dashboard?tab=leads); comparing against
+  // location.pathname alone never matched those, so the tab never highlighted. Match
+  // the path and require every query param in the href to be present in the URL.
+  const isNavItemActive = (href: string): boolean => {
+    const [path, query] = href.split('?')
+    if (location.pathname !== path) return false
+    if (!query) return true
+    const target = new URLSearchParams(query)
+    const current = new URLSearchParams(location.search)
+    for (const [key, value] of target.entries()) {
+      if (current.get(key) !== value) return false
+    }
+    return true
+  }
   // Clicking the logo takes signed-in users to their home surface (plaintiffs to
   // their Dashboard) rather than the marketing landing page.
   const logoDestination = !isAuthenticated
@@ -160,15 +176,15 @@ export default function Layout({ children }: LayoutProps) {
         Skip to main content
       </a>
       {/* Header - single row, compact */}
-      <header className="relative z-50 border-b border-slate-200/70 bg-white/78 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-2xl transition-colors dark:border-slate-800/80 dark:bg-slate-900/82 dark:shadow-[0_1px_0_rgba(255,255,255,0.03)] md:sticky md:top-0">
+      <header className="relative z-50 border-b border-slate-200/70 bg-white shadow-[0_1px_0_rgba(15,23,42,0.04)] transition-colors dark:border-slate-800/80 dark:bg-slate-900 dark:shadow-[0_1px_0_rgba(255,255,255,0.03)] md:sticky md:top-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between h-[72px] md:h-20 py-1">
+            <div className="flex items-center justify-between gap-3 h-[72px] md:h-20 py-1">
             {/* Left: Hamburger (mobile) + Logo */}
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden -ml-2 rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                className="lg:hidden -ml-2 rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                 aria-label="Toggle menu"
               >
                 {mobileMenuOpen ? <CloseIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}
@@ -184,7 +200,7 @@ export default function Layout({ children }: LayoutProps) {
 
             {/* Center nav - hidden during intake for focus mode */}
               {!isFocusRoute && (
-            <nav className="hidden md:flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/72 px-2 py-1 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
+            <nav className="hidden lg:flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/72 px-2 py-1 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
               {navItems.map((item) => {
                 const Icon = item.icon
                 return (
@@ -192,7 +208,7 @@ export default function Layout({ children }: LayoutProps) {
                     key={item.name}
                     to={item.href}
                     className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                      location.pathname === item.href
+                      isNavItemActive(item.href)
                         ? 'bg-brand-50 text-brand-700 shadow-sm dark:bg-brand-950/40 dark:text-brand-300'
                         : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
                     }`}
@@ -206,18 +222,18 @@ export default function Layout({ children }: LayoutProps) {
             )}
 
             {/* Right: Language + Primary CTA + User menu */}
-            <div className="flex min-w-0 items-center gap-2 md:gap-6">
+            <div className="flex min-w-0 items-center gap-2 lg:gap-6">
               {showWorkspaceThemeToggle && (
                 <button
                   type="button"
                   onClick={toggle}
-                  className="hidden sm:inline-flex rounded-full border border-slate-200 bg-white/80 p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+                  className="hidden lg:inline-flex rounded-full border border-slate-200 bg-white/80 p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                   aria-label={darkMode ? 'Use light theme' : 'Use dark theme'}
                 >
                   {darkMode ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
                 </button>
               )}
-              <div className="hidden sm:block">
+              <div className="hidden lg:block">
                 <Suspense fallback={languageFallback}>
                   <LanguageSwitcher />
                 </Suspense>
@@ -226,7 +242,7 @@ export default function Layout({ children }: LayoutProps) {
                 <>
                   {/* Notification bell for attorneys */}
                   {isAttorney && (
-                    <div className="hidden md:block">
+                    <div className="hidden lg:block">
                       <Suspense fallback={shellIconFallback}>
                         <NotificationBell />
                       </Suspense>
@@ -234,14 +250,14 @@ export default function Layout({ children }: LayoutProps) {
                   )}
                   {/* Notification bell for plaintiffs */}
                   {!isAttorney && !isAdmin && !isAdminArea && (
-                    <div className="hidden md:block">
+                    <div className="hidden lg:block">
                       <Suspense fallback={shellIconFallback}>
                         <PlaintiffNotificationBell />
                       </Suspense>
                     </div>
                   )}
                   {/* User profile dropdown - hidden on mobile, menu in hamburger */}
-                  <div className="relative hidden md:block" ref={userMenuRef}>
+                  <div className="relative hidden lg:block" ref={userMenuRef}>
                     <button
                       onClick={() => setUserMenuOpen(!userMenuOpen)}
                       className="flex items-center gap-1 rounded-full border border-slate-200 bg-white/78 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900/78 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
@@ -321,7 +337,7 @@ export default function Layout({ children }: LayoutProps) {
               ) : (
                 <>
                   {/* Sign In dropdown - hidden on mobile, in hamburger */}
-                  <div className="relative hidden md:block" ref={signInRef}>
+                  <div className="relative hidden lg:block" ref={signInRef}>
                     <button
                       onClick={() => setSignInOpen(!signInOpen)}
                       className="flex items-center gap-1 text-sm font-medium text-slate-600 hover:text-slate-900"
@@ -376,7 +392,7 @@ export default function Layout({ children }: LayoutProps) {
         </div>
 
         {!isFocusRoute && !isAuthenticated && (
-          <div className="border-t border-slate-200/60 px-3 pb-2 md:hidden dark:border-slate-800/70">
+          <div className="border-t border-slate-200/60 px-3 pb-2 lg:hidden dark:border-slate-800/70">
             <div className="flex items-center gap-2 overflow-x-auto py-2 [-webkit-overflow-scrolling:touch]">
               <Link to={navLinks.howItWorks} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
                 {t('common.howItWorks')}
@@ -401,7 +417,7 @@ export default function Layout({ children }: LayoutProps) {
 
         {/* Mobile menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-slate-200/80 bg-white/95 px-4 py-4 shadow-xl shadow-slate-900/5 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95">
+          <div className="lg:hidden border-t border-slate-200/80 bg-white px-4 py-4 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mx-auto flex max-w-lg flex-col gap-2">
               <div className="mb-2 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/40">
                 <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Menu</span>

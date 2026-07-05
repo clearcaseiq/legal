@@ -23,6 +23,7 @@ import {
   syncDecisionMemoryForAssessment
 } from '../lib/routing-lifecycle'
 import { sendPlaintiffAttorneyAccepted } from '../lib/case-notifications'
+import { createExternalCalendarEvent } from '../lib/calendar-sync'
 import { deliverDirectNotification } from '../lib/platform-notifications'
 import { translateToEnglish, looksNonEnglish } from '../lib/translate'
 import { isValidPhone, normalizePhone, PHONE_ERROR_MESSAGE } from '../lib/phone'
@@ -4430,15 +4431,53 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
       }
     })
 
+    // For video consults, mint a join link (Google Meet / Teams) via the
+    // attorney's connected calendar and persist it so it shows up on the
+    // dashboard, calendar, and confirmation email. Skip if one already exists
+    // to avoid creating a fresh room on repeated "Schedule Consultation" clicks.
+    let meetingUrl = appointment.meetingUrl
+    if (meetingType === 'video' && !meetingUrl) {
+      try {
+        const externalEvent = await createExternalCalendarEvent({
+          attorneyId: attorney.id,
+          title: `ClearCaseIQ Consultation (video)`,
+          start: scheduledAt,
+          end: new Date(scheduledAt.getTime() + appointment.duration * 60000),
+          description: `Video consultation booked in ClearCaseIQ for assessment ${lead.assessmentId}.`,
+          createVideoLink: true,
+        })
+
+        if (externalEvent) {
+          meetingUrl = externalEvent.meetingUrl
+          await prisma.appointment.update({
+            where: { id: appointment.id },
+            data: {
+              externalCalendarProvider: externalEvent.provider,
+              externalCalendarEventId: externalEvent.externalEventId,
+              externalCalendarSyncedAt: new Date(),
+              ...(externalEvent.meetingUrl ? { meetingUrl: externalEvent.meetingUrl } : {}),
+            },
+          })
+        }
+      } catch (calendarError: any) {
+        logger.warn('Video link creation for consult failed', {
+          calendarError: calendarError?.message,
+          appointmentId: appointment.id,
+          attorneyId: attorney.id,
+        })
+      }
+    }
+
     const user = assessment.user
     const plaintiffEmail = user?.email
     if (plaintiffEmail) {
       const attorneyName = attorney.name || 'Smith Injury Law'
       const dateStr = scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       const timeStr = scheduledAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-      const typeLabel = meetingType === 'phone' ? 'Phone consultation' : meetingType === 'video' ? 'Zoom' : 'In person'
+      const typeLabel = meetingType === 'phone' ? 'Phone consultation' : meetingType === 'video' ? 'Video call' : 'In person'
       const subject = 'Your consultation has been scheduled'
-      const message = `Hi${user?.firstName ? ` ${user.firstName}` : ''},\n\nYour consultation has been scheduled.\n\nAttorney: ${attorneyName}\nDate: ${dateStr}\nTime: ${timeStr}\nType: ${typeLabel}\n\n${notes ? `Notes: ${notes}\n\n` : ''}Best regards,\nClearCaseIQ`
+      const joinLine = meetingType === 'video' && meetingUrl ? `Join link: ${meetingUrl}\n` : ''
+      const message = `Hi${user?.firstName ? ` ${user.firstName}` : ''},\n\nYour consultation has been scheduled.\n\nAttorney: ${attorneyName}\nDate: ${dateStr}\nTime: ${timeStr}\nType: ${typeLabel}\n${joinLine}\n${notes ? `Notes: ${notes}\n\n` : ''}Best regards,\nClearCaseIQ`
       await createNotification(plaintiffEmail, subject, message, {
         leadId,
         assessmentId: lead.assessmentId,
@@ -4453,7 +4492,7 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
       })
     }
 
-    res.json(appointment)
+    res.json({ ...appointment, meetingUrl })
   } catch (error: any) {
     logger.error('Failed to schedule consultation', { error: error.message })
     res.status(500).json({ error: 'Failed to schedule consultation' })

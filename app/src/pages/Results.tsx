@@ -118,44 +118,50 @@ type TimelineEstimate = {
   drivers: string[]
 }
 
-function formatClaimTypeLabel(claimType?: string) {
-  if (!claimType) return 'personal injury'
-  const labels: Record<string, string> = {
-    auto: 'auto accident',
-    slip_and_fall: 'slip and fall',
-    workplace: 'workplace injury',
-    medmal: 'medical malpractice',
-    dog_bite: 'dog bite',
-    product: 'product liability',
-    assault: 'assault',
-    toxic: 'toxic exposure',
-  }
-  return labels[claimType] || claimType.replace(/_/g, ' ')
+const CLAIM_TYPE_LABELS: Record<string, string> = {
+  auto: 'auto accident',
+  slip_and_fall: 'slip and fall',
+  workplace: 'workplace injury',
+  medmal: 'medical malpractice',
+  dog_bite: 'dog bite',
+  product: 'product liability',
+  assault: 'assault',
+  toxic: 'toxic exposure',
 }
 
-function formatCaseSubtypeLabel(caseSubtype?: string) {
+const CASE_SUBTYPE_LABELS: Record<string, string> = {
+  rideshare_accident: 'rideshare accident',
+  truck_accident: 'truck accident',
+  delivery_vehicle_accident: 'delivery vehicle accident',
+  pedestrian_accident: 'pedestrian accident',
+  bicycle_accident: 'bicycle accident',
+  multi_vehicle_accident: 'multi-vehicle accident',
+  rear_end_collision: 'rear-end collision',
+  head_on_collision: 'head-on collision',
+  left_turn_collision: 'left-turn collision',
+  grocery_premises: 'grocery store premises case',
+  restaurant_premises: 'restaurant premises case',
+  apartment_premises: 'apartment premises case',
+  hotel_premises: 'hotel premises case',
+  workplace_injury: 'workplace injury',
+  birth_injury: 'birth injury malpractice',
+  nursing_home_abuse: 'nursing home abuse',
+  negligent_security: 'negligent security',
+  toxic_exposure: 'toxic exposure',
+}
+
+// Passing the `t` translator localizes the label; omitting it keeps the English
+// fallback (used where a translator is not in scope, e.g. attorney tags).
+function formatClaimTypeLabel(claimType?: string, t?: (key: string) => string) {
+  if (!claimType) return t ? t('results.claimTypes.default') : 'personal injury'
+  if (t && claimType in CLAIM_TYPE_LABELS) return t(`results.claimTypes.${claimType}`)
+  return CLAIM_TYPE_LABELS[claimType] || claimType.replace(/_/g, ' ')
+}
+
+function formatCaseSubtypeLabel(caseSubtype?: string, t?: (key: string) => string) {
   if (!caseSubtype) return ''
-  const labels: Record<string, string> = {
-    rideshare_accident: 'rideshare accident',
-    truck_accident: 'truck accident',
-    delivery_vehicle_accident: 'delivery vehicle accident',
-    pedestrian_accident: 'pedestrian accident',
-    bicycle_accident: 'bicycle accident',
-    multi_vehicle_accident: 'multi-vehicle accident',
-    rear_end_collision: 'rear-end collision',
-    head_on_collision: 'head-on collision',
-    left_turn_collision: 'left-turn collision',
-    grocery_premises: 'grocery store premises case',
-    restaurant_premises: 'restaurant premises case',
-    apartment_premises: 'apartment premises case',
-    hotel_premises: 'hotel premises case',
-    workplace_injury: 'workplace injury',
-    birth_injury: 'birth injury malpractice',
-    nursing_home_abuse: 'nursing home abuse',
-    negligent_security: 'negligent security',
-    toxic_exposure: 'toxic exposure',
-  }
-  return labels[caseSubtype] || caseSubtype.replace(/_/g, ' ')
+  if (t && caseSubtype in CASE_SUBTYPE_LABELS) return t(`results.caseSubtypes.${caseSubtype}`)
+  return CASE_SUBTYPE_LABELS[caseSubtype] || caseSubtype.replace(/_/g, ' ')
 }
 
 function formatVenueLabel(venueState?: string, venueCounty?: string) {
@@ -838,7 +844,7 @@ export default function Results() {
   const venueState = assessment?.venue?.state || assessment?.venueState || 'Unknown'
   const venueCounty = assessment?.venue?.county || assessment?.venueCounty
   const caseSubtype = parsedFacts?.caseSubtype || parsedFacts?.caseTaxonomy?.caseSubtype || parsedFacts?.intakeData?.caseTaxonomy?.caseSubtype
-  const caseSnapshotClaimLabel = formatCaseSubtypeLabel(caseSubtype) || formatClaimTypeLabel(assessment?.claimType)
+  const caseSnapshotClaimLabel = formatCaseSubtypeLabel(caseSubtype, t) || formatClaimTypeLabel(assessment?.claimType, t)
   const hasHipaaConsent = parsedFacts?.consents?.hipaa === true || hipaaAuthorizationComplete
 
   const refreshMatchedAttorneys = async () => {
@@ -1764,9 +1770,9 @@ export default function Results() {
   })
   const liabilityPercent = clampPercent(liabilityScore * 100)
   const liabilitySnapshotLabel = scoreLabel(liabilityPercent, {
-    high: 'Moderate-Strong',
-    medium: 'Mixed',
-    low: 'Needs Proof',
+    high: t('results.snapshotGrades.moderateStrong'),
+    medium: t('results.snapshotGrades.mixed'),
+    low: t('results.snapshotGrades.needsProof'),
   })
   const severityPercent = clampPercent(
     typeof underwriting?.scores?.severity === 'number'
@@ -1778,9 +1784,9 @@ export default function Results() {
         : (viability?.damages ?? 0.5) * 100,
   )
   const severitySnapshotLabel = scoreLabel(severityPercent, {
-    high: 'Moderate-Severe',
-    medium: 'Moderate',
-    low: 'Developing',
+    high: t('results.snapshotGrades.moderateSevere'),
+    medium: t('results.snapshotGrades.moderate'),
+    low: t('results.snapshotGrades.developing'),
   })
 
   // ---- Potential litigation costs (itemized, informational) ----
@@ -1854,9 +1860,9 @@ export default function Results() {
     policyLimitConstrained,
   })
   const attorneyAcceptanceLabel = scoreLabel(attorneyAcceptanceProbability, {
-    high: 'Very Likely',
-    medium: 'Possible',
-    low: 'Uncertain',
+    high: t('results.snapshotGrades.veryLikely'),
+    medium: t('results.snapshotGrades.possible'),
+    low: t('results.snapshotGrades.uncertain'),
   })
   const attorneyAcceptanceDrivers = [
     liabilityOutlook === 'strong' && 'Strong liability',
@@ -1930,19 +1936,19 @@ export default function Results() {
   const missingValueDrivers = caseCompletenessItems.filter((item) => !item.done)
   const aiCaseSummaryBullets = Array.from(new Set([
     liabilityOutlook === 'strong'
-      ? 'Defendant appears primarily responsible.'
+      ? t('results.summaryBullets.defendantResponsible')
       : liabilityOutlook === 'moderate'
-        ? 'Responsibility may be disputed or shared.'
-        : 'Liability needs more supporting facts.',
+        ? t('results.summaryBullets.responsibilityDisputed')
+        : t('results.summaryBullets.liabilityNeedsFacts'),
     treatment.length > 0 || hasMedicalRecords
-      ? 'Injuries appear supported by reported treatment or records.'
-      : 'Treatment documentation is still limited.',
+      ? t('results.summaryBullets.injuriesSupported')
+      : t('results.summaryBullets.treatmentLimited'),
     hasMedicalRecords || hasMedicalBills || hasPoliceReport
-      ? 'Current documentation supports attorney review.'
-      : 'Additional evidence may increase projected value.',
+      ? t('results.summaryBullets.documentationSupports')
+      : t('results.summaryBullets.additionalEvidence'),
     missingValueDrivers.length > 0
-      ? 'Additional evidence may increase projected value.'
-      : 'Core value documents are present.'
+      ? t('results.summaryBullets.additionalEvidence')
+      : t('results.summaryBullets.coreDocsPresent')
   ]))
   const totalEconomicLoss = documentedMedicalCharges + documentedWageLoss + documentedOutOfPocket
   const venueFriendlinessScore = venueState === 'CA'
@@ -2049,7 +2055,7 @@ export default function Results() {
     : sol?.status === 'warning'
       ? 'bg-amber-50 border-amber-200 text-amber-800'
       : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-  const caseStrengthLabel = (s: number) => s >= 75 ? 'Strong' : s >= 50 ? 'Moderately Strong' : s >= 25 ? 'Moderate' : 'Needs Work'
+  const caseStrengthLabel = (s: number) => s >= 75 ? t('results.snapshotGrades.strong') : s >= 50 ? t('results.snapshotGrades.moderatelyStrong') : s >= 25 ? t('results.snapshotGrades.moderate') : t('results.snapshotGrades.needsWork')
 
   const handleCopyShareLink = () => {
     // Build a read-only share URL (?share=1) so recipients get a view-only
@@ -2305,6 +2311,9 @@ Checklist:
       ? 'We will ask you to confirm or skip the medical story before attorneys receive the case.'
     : 'Cases with similar characteristics are commonly reviewed by personal injury attorneys.'
   const liabilityClarityLabel = liabilityOutlook === 'strong' ? 'Strong' : liabilityOutlook === 'moderate' ? 'Mixed' : 'Unclear'
+  // Translated display of the same value; the English `liabilityClarityLabel`
+  // above is kept as a stable enum for the branching logic further below.
+  const liabilityClarityDisplay = liabilityOutlook === 'strong' ? t('results.snapshotGrades.strong') : liabilityOutlook === 'moderate' ? t('results.snapshotGrades.mixed') : t('results.snapshotGrades.unclear')
   const liabilityModifierExplanation = getLiabilityModifierExplanation({
     liabilityScore,
     comparativeFaultPercent,
@@ -2369,7 +2378,7 @@ Checklist:
   ].filter(Boolean) as string[]
   const resultsTabs: Array<{ id: ResultsTab; label: string; badge?: string; badgeNeedsAction?: boolean }> = [
     { id: 'overview', label: t('results.tabs.overview') },
-    { id: 'liability', label: t('results.tabs.liability'), badge: liabilityClarityLabel },
+    { id: 'liability', label: t('results.tabs.liability'), badge: liabilityClarityDisplay },
     { id: 'medical', label: t('results.tabs.medical'), badge: medicalReviewPending ? t('results.tabs.reviewNeeded') : undefined, badgeNeedsAction: medicalReviewPending },
     { id: 'value', label: t('results.tabs.value') },
     { id: 'documents', label: t('results.tabs.documents'), badge: missingDocItems.length > 0 ? `${missingDocItems.length} ${t('results.tabs.missingSuffix')}` : t('results.tabs.ready'), badgeNeedsAction: missingDocItems.length > 0 },
@@ -2459,15 +2468,15 @@ Checklist:
     return d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
   })()
   const attorneyInterestWord =
-    attorneyInterestLevel === 'High' ? 'Strong' : attorneyInterestLevel === 'Medium' ? 'Building' : 'Early'
+    attorneyInterestLevel === 'High' ? t('results.snapshotGrades.strong') : attorneyInterestLevel === 'Medium' ? t('results.snapshotGrades.building') : t('results.snapshotGrades.early')
   const attorneyInterestPct =
     attorneyInterestLevel === 'High' ? 85 : attorneyInterestLevel === 'Medium' ? 55 : 28
   const hasWitnessStatements = /witness/i.test(String(parsedFacts?.incident?.narrative || ''))
   const liabilityChecklist = [
-    { label: 'Police report', ok: hasPoliceReport },
-    { label: 'Photos of damage', ok: hasInjuryPhotos },
-    { label: 'Witness statements', ok: hasWitnessStatements },
-    { label: 'Fault appears clear', ok: liabilityOutlook === 'strong' },
+    { label: t('results.liabilityChecklist.policeReport'), ok: hasPoliceReport },
+    { label: t('results.liabilityChecklist.photosOfDamage'), ok: hasInjuryPhotos },
+    { label: t('results.liabilityChecklist.witnessStatements'), ok: hasWitnessStatements },
+    { label: t('results.liabilityChecklist.faultAppearsClear'), ok: liabilityOutlook === 'strong' },
   ]
   const impactWord = (level: ConsumerConfidenceLevel) =>
     level === 'High' ? 'High impact' : level === 'Medium' ? 'Medium impact' : 'Low impact'
@@ -2563,7 +2572,7 @@ Checklist:
 
   // ---- Full Case Report: Case Overview tab derived values ----
   const overviewQualityScore = (Math.round(caseStrengthScore / 10 * 10) / 10).toFixed(1)
-  const overviewQualityLabel = scoreLabel(caseStrengthScore, { high: 'Strong', medium: 'Good', low: 'Developing' })
+  const overviewQualityLabel = scoreLabel(caseStrengthScore, { high: t('results.snapshotGrades.strong'), medium: t('results.snapshotGrades.good'), low: t('results.snapshotGrades.developing') })
   const solDaysRemaining = sol?.expiresAt
     ? Math.max(0, Math.round((new Date(sol.expiresAt).getTime() - Date.now()) / 86_400_000))
     : null
@@ -2673,12 +2682,12 @@ Checklist:
   const medTreatmentStrengthPct = clampPercent(
     30 + Math.min(medTreatmentEvents.length, 6) * 8 + (hasMriReportedFlag ? 8 : 0) + (hasErTreatment ? 6 : 0),
   )
-  const medTreatmentStrengthLabel = scoreLabel(medTreatmentStrengthPct, { high: 'Strong', medium: 'Moderate', low: 'Limited' })
+  const medTreatmentStrengthLabel = scoreLabel(medTreatmentStrengthPct, { high: t('results.snapshotGrades.strong'), medium: t('results.snapshotGrades.moderate'), low: t('results.snapshotGrades.limited') })
   const medAttorneyReadinessPct = attorneyInterestPct
   const medAttorneyReadinessLabel = medAttorneyReadinessPct >= 70 ? 'Strong readiness' : 'Needs more records'
   const medSeverityPct = Math.round(severityPercent)
   const medCaseConfidencePct = caseStrengthScore
-  const medCaseConfidenceLabel = scoreLabel(caseStrengthScore, { high: 'Strong', medium: 'Moderate', low: 'Developing' })
+  const medCaseConfidenceLabel = scoreLabel(caseStrengthScore, { high: t('results.snapshotGrades.strong'), medium: t('results.snapshotGrades.moderate'), low: t('results.snapshotGrades.developing') })
 
   const medTimelineTimes = medTreatmentEvents
     .map((e) => (e?.date ? new Date(e.date).getTime() : NaN))
@@ -3428,7 +3437,7 @@ Checklist:
                 {([
                   { icon: Scale, label: t('results.chrome.faultLiability'), value: liabilitySnapshotLabel, tone: liabilityOutlook === 'strong' ? 'strong' : liabilityOutlook === 'moderate' ? 'moderate' : 'weak', desc: liabilitySummary || t('results.chrome.basedOnFacts') },
                   { icon: Activity, label: t('results.chrome.injurySeverity'), value: severitySnapshotLabel, tone: severityPercent >= 66 ? 'strong' : severityPercent >= 40 ? 'moderate' : 'weak', desc: t('results.chrome.reportedInjuries') },
-                  { icon: Calendar, label: t('results.chrome.treatmentHistory'), value: treatmentStrengthLevel, tone: treatmentStrengthLevel === 'High' ? 'strong' : treatmentStrengthLevel === 'Medium' ? 'moderate' : 'weak', desc: treatment.length > 0 ? `${treatment.length} ${t('results.chrome.treatmentRecords')}` : t('results.chrome.noTreatmentRecords') },
+                  { icon: Calendar, label: t('results.chrome.treatmentHistory'), value: treatmentStrengthLevel === 'High' ? t('results.shared.high') : treatmentStrengthLevel === 'Medium' ? t('results.shared.medium') : t('results.shared.low'), tone: treatmentStrengthLevel === 'High' ? 'strong' : treatmentStrengthLevel === 'Medium' ? 'moderate' : 'weak', desc: treatment.length > 0 ? `${treatment.length} ${t('results.chrome.treatmentRecords')}` : t('results.chrome.noTreatmentRecords') },
                   { icon: DollarSign, label: t('results.chrome.lostIncome'), value: documentedWageLoss > 0 ? t('results.chrome.documented') : t('results.chrome.notAdded'), tone: documentedWageLoss > 0 ? 'moderate' : 'weak', desc: documentedWageLoss > 0 ? `${formatCurrency(documentedWageLoss)} ${t('results.chrome.wageLossReported')}` : t('results.chrome.addWageLoss') },
                   { icon: Shield, label: t('results.chrome.insuranceCoverage'), value: insuranceRecoveryPercent >= 75 ? t('results.chrome.sufficient') : insuranceRecoveryPercent >= 50 ? t('results.chrome.developing') : t('results.chrome.unclear'), tone: insuranceRecoveryPercent >= 75 ? 'strong' : insuranceRecoveryPercent >= 50 ? 'moderate' : 'weak', desc: insuranceRecoveryLabel },
                   { icon: FileText, label: t('results.chrome.documentation'), value: scoreLabel(documentationScore, { high: t('results.chrome.docStrong'), medium: t('results.chrome.docDeveloping'), low: t('results.chrome.docLow') }), tone: documentationScore >= 66 ? 'strong' : documentationScore >= 40 ? 'moderate' : 'weak', desc: `${documentationScore}% ${t('results.chrome.docsAdded')}` },
@@ -5086,25 +5095,33 @@ Checklist:
                   <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">{t('results.next.attorneyInterest')}</p>
                   <p className="mt-1 text-2xl font-bold text-emerald-600 tabular-nums">{attorneyInterestPercent}%</p>
                   <p className="text-[11px] text-slate-400">{attorneyInterestPercent >= 70 ? t('results.next.highLikelihood') : t('results.next.buildingInterest')}</p>
-                  <div className="mx-auto mt-auto pt-2 h-2 w-20 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${attorneyInterestPercent}%` }} /></div>
+                  <div className="mt-auto flex h-8 items-center justify-center pt-2">
+                    <div className="h-2 w-20 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${attorneyInterestPercent}%` }} /></div>
+                  </div>
                 </div>
                 <div className="flex h-full flex-col rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-center">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">{t('results.headings.estimatedSettlement')}</p>
                   <p className="mt-1 whitespace-nowrap text-base font-bold text-emerald-600 tabular-nums">{formatCurrency(settlementLow)} – {formatCurrency(settlementHigh)}</p>
                   <p className="text-[11px] text-slate-400">{t('results.next.rangeMostLikely')}</p>
-                  <div className="relative mx-auto mt-auto h-2 w-24 rounded-full bg-slate-200"><div className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-500" /></div>
+                  <div className="mt-auto flex h-8 items-center justify-center pt-2">
+                    <div className="relative h-2 w-24 rounded-full bg-slate-200"><div className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-500" /></div>
+                  </div>
                 </div>
                 <div className="flex h-full flex-col rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-center">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">{t('results.headings.liabilityStrength')}</p>
                   <p className="mt-1 text-lg font-bold text-amber-500">{liabilityClarityLabel === 'Strong' ? t('results.next.strong') : liabilityClarityLabel === 'Mixed' ? t('results.next.moderate') : t('results.next.developing')}</p>
                   <p className="text-[11px] text-slate-400">{liabilityClarityLabel === 'Strong' ? t('results.next.wellSupported') : t('results.next.roomToImprove')}</p>
-                  <span className="mx-auto mt-auto flex h-7 w-7 items-center justify-center rounded-full bg-amber-50 text-amber-500"><Scale className="h-4 w-4" aria-hidden /></span>
+                  <div className="mt-auto flex h-8 items-center justify-center pt-2">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-50 text-amber-500"><Scale className="h-4 w-4" aria-hidden /></span>
+                  </div>
                 </div>
                 <div className="flex h-full flex-col rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-center">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">{t('results.next.reviewTime')}</p>
                   <p className="mt-1 text-lg font-bold text-blue-600">{t('results.next.oneDay')}</p>
                   <p className="text-[11px] text-slate-400">{t('results.next.averageResponse')}</p>
-                  <span className="mx-auto mt-auto flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-blue-600"><Calendar className="h-4 w-4" aria-hidden /></span>
+                  <div className="mt-auto flex h-8 items-center justify-center pt-2">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-blue-600"><Calendar className="h-4 w-4" aria-hidden /></span>
+                  </div>
                 </div>
               </div>
             </div>
