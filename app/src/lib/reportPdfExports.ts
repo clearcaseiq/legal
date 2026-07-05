@@ -244,17 +244,38 @@ function savePdf(bytes: Uint8Array, fileName: string) {
   blobBytes.set(bytes)
   const blob = new Blob([blobBytes], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = fileName
-  link.rel = 'noopener'
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
   // Revoking synchronously right after click() can cancel the download in some
   // browsers before it starts, so the file appears to never download (#17).
-  // Defer the cleanup to the next tick to let the browser begin the save.
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  // Defer the cleanup well past the point the browser has started the save (or
+  // loaded the fallback tab) rather than the next tick.
+  const cleanup = () => setTimeout(() => URL.revokeObjectURL(url), 60_000)
+
+  // Fallback when the anchor download is unsupported or blocked: open the PDF in
+  // a new tab so the user can still view/save it. As a last resort (popup
+  // blocked), navigate the current tab.
+  const openFallback = () => {
+    const opened = window.open(url, '_blank', 'noopener')
+    if (!opened) window.location.href = url
+  }
+
+  try {
+    const link = document.createElement('a')
+    if (!('download' in link)) {
+      openFallback()
+      cleanup()
+      return
+    }
+    link.href = url
+    link.download = fileName
+    link.rel = 'noopener'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    cleanup()
+  } catch {
+    openFallback()
+    cleanup()
+  }
 }
 
 export async function downloadDashboardCaseReportPdf(input: DashboardReportInput) {

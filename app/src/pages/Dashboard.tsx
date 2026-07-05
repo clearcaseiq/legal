@@ -1150,18 +1150,24 @@ export default function Dashboard() {
   }
 
   const handleDownloadReport = async () => {
-    const { downloadDashboardCaseReportPdf } = await import('../lib/reportPdfExports')
-    await downloadDashboardCaseReportPdf({
-      incidentSummaryComplete: hasNarrative,
-      medicalChronologyCount: treatment.length,
-      damagesDocumented: hasWageLoss || !!damages.med_charges,
-      evidenceCount,
-      caseScore,
-      caseScoreLabel,
-      estimatedValueText: `${formatCurrency(settlementLow)} – ${formatCurrency(settlementHigh)}`,
-      documentationPercent: docPercent,
-      assessmentId: activeAssessment?.id,
-    })
+    try {
+      const { downloadDashboardCaseReportPdf } = await import('../lib/reportPdfExports')
+      await downloadDashboardCaseReportPdf({
+        incidentSummaryComplete: hasNarrative,
+        medicalChronologyCount: treatment.length,
+        damagesDocumented: hasWageLoss || !!damages.med_charges,
+        evidenceCount,
+        caseScore,
+        caseScoreLabel,
+        estimatedValueText: `${formatCurrency(settlementLow)} – ${formatCurrency(settlementHigh)}`,
+        documentationPercent: docPercent,
+        assessmentId: activeAssessment?.id,
+      })
+    } catch (err) {
+      console.error('Failed to generate dashboard case report PDF:', err)
+      const detail = err instanceof Error && err.message ? `\n\nDetails: ${err.message}` : ''
+      alert(`Sorry, the case report PDF could not be generated right now. Please try again.${detail}`)
+    }
   }
 
   if (isLoading) {

@@ -2113,7 +2113,8 @@ export default function Results() {
     })
    } catch (err) {
      console.error('Failed to generate case report PDF:', err)
-     alert('Sorry, the PDF could not be generated right now. Please try again.')
+     const detail = err instanceof Error && err.message ? `\n\nDetails: ${err.message}` : ''
+     alert(`Sorry, the case report PDF could not be generated right now. Please try again.${detail}`)
    }
   }
   const nextSteps = missingDocItems.length > 0
