@@ -982,6 +982,25 @@ export default function IntakeWizardQuick() {
       return
     }
 
+    // "Free case assessment" routes through /assessment/start → /assess?fresh=1 to
+    // signal an intentional new start. Without honoring it, a returning/new user on
+    // a device that already has a browser-global draft was dropped onto their old
+    // step instead of step 1 (#214). Clear the draft and start at the first step.
+    if (new URLSearchParams(window.location.search).get('fresh') === '1') {
+      try { localStorage.removeItem(DRAFT_STORAGE_KEY) } catch { /* ignore */ }
+      setCurrentStep('injury_type')
+      setFurthestReachedStepIndex(0)
+      draftLoadedRef.current = true
+      // Drop the one-shot ?fresh flag so a later refresh mid-assessment doesn't
+      // wipe the in-progress draft we start saving below.
+      try {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('fresh')
+        window.history.replaceState(null, '', url.pathname + url.search + url.hash)
+      } catch { /* ignore */ }
+      return
+    }
+
     try {
       const raw = localStorage.getItem(DRAFT_STORAGE_KEY)
       if (raw) {

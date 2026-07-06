@@ -24,6 +24,12 @@ const DEFAULT_AVATAR = 'https://ui-avatars.com/api/?name=Attorney&background=e0f
 // Stored photos can be absolute URLs (legacy) or server-relative upload paths
 // (/uploads/avatars/...). Relative paths must be resolved against the API origin
 // because the web app and API are served from different hosts.
+// Show whole-number rates without a trailing ".0" (e.g. "0%" not "0.0%").
+function formatSuccessRate(value: number | null | undefined): string {
+  const rounded = Math.round((Number(value) || 0) * 10) / 10
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+}
+
 function resolvePhotoUrl(photoUrl: string | null | undefined): string {
   if (!photoUrl) return DEFAULT_AVATAR
   if (/^(https?:)?\/\//.test(photoUrl) || photoUrl.startsWith('data:')) return photoUrl
@@ -854,7 +860,7 @@ export default function AttorneyDashboardProfileTab({
             <div className="text-sm text-blue-700">Total Cases</div>
           </div>
           <div className="text-center p-4 bg-green-50 rounded-lg">
-            <div className="text-2xl font-bold text-green-600">{Number(profile.successRate || 0).toFixed(1)}%</div>
+            <div className="text-2xl font-bold text-green-600">{formatSuccessRate(profile.successRate)}%</div>
             <div className="text-sm text-green-700">Success Rate</div>
           </div>
           <div className="text-center p-4 bg-purple-50 rounded-lg">

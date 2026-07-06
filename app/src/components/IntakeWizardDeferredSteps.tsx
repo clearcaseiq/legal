@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom'
 import { AlertCircle, Info } from 'lucide-react'
 import InlineEvidenceUpload from './InlineEvidenceUpload'
 import Tooltip from './Tooltip'
@@ -95,11 +96,15 @@ export default function IntakeWizardDeferredSteps({
   setCurrentStep,
   setPreviewFile,
 }: IntakeWizardDeferredStepsProps) {
+  // Return to the wizard the user came from (e.g. an attorney's
+  // /edit-assessment/:id manual case) instead of the public /assess page (#119).
+  const location = useLocation()
+  const consentReturn = encodeURIComponent(location.pathname || '/assess')
   const consentDefinitions: ConsentDefinition[] = [
-    { key: 'tos', prefix: 'I accept the', href: '/terms-of-service?return=/assess&step=review', label: 'Terms of Service', required: true },
-    { key: 'privacy', prefix: 'I accept the', href: '/privacy-policy?return=/assess&step=review', label: 'Privacy Policy', required: true },
-    { key: 'ml_use', prefix: 'I consent to', href: '/ai-ml-consent?return=/assess&step=review', label: 'AI/ML processing of my data for case analysis', required: true },
-    { key: 'hipaa', prefix: 'I consent to', href: '/hipaa-authorization?return=/assess&step=review', label: 'HIPAA disclosure for medical records', required: false },
+    { key: 'tos', prefix: 'I accept the', href: `/terms-of-service?return=${consentReturn}&step=review`, label: 'Terms of Service', required: true },
+    { key: 'privacy', prefix: 'I accept the', href: `/privacy-policy?return=${consentReturn}&step=review`, label: 'Privacy Policy', required: true },
+    { key: 'ml_use', prefix: 'I consent to', href: `/ai-ml-consent?return=${consentReturn}&step=review`, label: 'AI/ML processing of my data for case analysis', required: true },
+    { key: 'hipaa', prefix: 'I consent to', href: `/hipaa-authorization?return=${consentReturn}&step=review`, label: 'HIPAA disclosure for medical records', required: false },
   ]
 
   switch (currentStep) {

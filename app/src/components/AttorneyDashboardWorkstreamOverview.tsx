@@ -51,14 +51,25 @@ export default function AttorneyDashboardWorkstreamOverview({
   const incidentDate = formatRelativeDate(facts?.incident?.date)
   const injury = injuries.length > 0 ? injuries[0]?.type || injuries[0]?.description || 'Not documented' : 'Not documented'
   const evidenceCount = (Array.isArray(selectedLead?.assessment?.files) ? selectedLead.assessment.files.length : 0) + leadEvidenceFiles.length
-  const hasMedical = treatments.length > 0 || leadEvidenceFiles.some((f: any) => f?.category === 'medical')
-  const hasPolice = leadEvidenceFiles.some((f: any) => f?.category === 'police')
-  const hasPhotos = leadEvidenceFiles.some((f: any) => f?.category === 'photos')
+  // Uploads are stored with categories like "police_report", "medical_records",
+  // "wage_loss", "employment", etc. — exact-match checks (=== 'police') missed
+  // them, so freshly uploaded evidence still showed a cross, and Wage Loss was
+  // hard-coded to false so it never registered at all (#166).
+  const fileCategory = (f: any) => String(f?.category || f?.subcategory || '').toLowerCase()
+  const hasCategory = (...keywords: string[]) =>
+    leadEvidenceFiles.some((f: any) => {
+      const cat = fileCategory(f)
+      return keywords.some((k) => cat.includes(k))
+    })
+  const hasMedical = treatments.length > 0 || hasCategory('medical', 'med_record', 'bill')
+  const hasPolice = hasCategory('police')
+  const hasPhotos = hasCategory('photo')
+  const hasWageLoss = hasCategory('wage', 'employ', 'paystub', 'pay_stub', 'income')
   const evidenceList = [
     { label: 'Medical Records', status: hasMedical },
     { label: 'Injury Photos', status: hasPhotos },
     { label: 'Police Report', status: hasPolice },
-    { label: 'Wage Loss Docs', status: false },
+    { label: 'Wage Loss Docs', status: hasWageLoss },
   ]
   const nextActions: string[] = []
   if (contactHistory.length === 0) nextActions.push('Call plaintiff to confirm injuries')

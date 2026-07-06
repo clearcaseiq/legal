@@ -45,6 +45,7 @@ export function useAttorneyCaseHealth(selectedLeadId?: string) {
   const [cadenceTemplateForm, setCadenceTemplateForm] = useState(DEFAULT_CADENCE_TEMPLATE_FORM)
   const [cadenceStepForm, setCadenceStepForm] = useState(DEFAULT_CADENCE_STEP_FORM)
   const [cadenceSteps, setCadenceSteps] = useState<any[]>([])
+  const [cadenceMessage, setCadenceMessage] = useState('')
   const [recurringInvoiceForm, setRecurringInvoiceForm] = useState(DEFAULT_RECURRING_INVOICE_FORM)
 
   const handleAddHealthRule = useCallback(async () => {
@@ -84,20 +85,43 @@ export function useAttorneyCaseHealth(selectedLeadId?: string) {
   }, [cadenceStepForm])
 
   const handleCreateCadenceTemplate = useCallback(async () => {
-    if (!cadenceTemplateForm.name.trim() || cadenceSteps.length === 0) return
+    // Fold in a step the attorney typed but didn't explicitly "Add" — filling
+    // the step fields and clicking Save should just work rather than silently
+    // no-op with no feedback (#170).
+    const pendingStep = cadenceStepForm.message.trim()
+      ? [{
+          offsetDays: Number(cadenceStepForm.offsetDays) || 0,
+          channel: cadenceStepForm.channel,
+          message: cadenceStepForm.message,
+        }]
+      : []
+    const steps = [...cadenceSteps, ...pendingStep]
+
+    if (!cadenceTemplateForm.name.trim()) {
+      setCadenceMessage('Enter a template name before saving.')
+      return
+    }
+    if (steps.length === 0) {
+      setCadenceMessage('Add at least one step (offset, channel, and message) before saving.')
+      return
+    }
+
     try {
       const record = await createNegotiationCadenceTemplate({
         name: cadenceTemplateForm.name,
         triggerEventType: cadenceTemplateForm.triggerEventType,
-        steps: cadenceSteps,
+        steps,
       })
       setNegotiationCadenceTemplates((prev) => [record, ...prev])
       setCadenceTemplateForm(DEFAULT_CADENCE_TEMPLATE_FORM)
+      setCadenceStepForm(DEFAULT_CADENCE_STEP_FORM)
       setCadenceSteps([])
-    } catch (err) {
+      setCadenceMessage('Template saved.')
+    } catch (err: any) {
       console.error('Failed to create negotiation cadence template:', err)
+      setCadenceMessage(err?.response?.data?.error || 'Failed to save template. Please try again.')
     }
-  }, [cadenceTemplateForm, cadenceSteps])
+  }, [cadenceTemplateForm, cadenceStepForm, cadenceSteps])
 
   const handleDeleteCadenceTemplate = useCallback(async (templateId: string) => {
     try {
@@ -204,6 +228,7 @@ export function useAttorneyCaseHealth(selectedLeadId?: string) {
   }, [])
 
   return {
+    cadenceMessage,
     cadenceStepForm,
     cadenceSteps,
     cadenceTemplateForm,

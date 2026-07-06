@@ -5,6 +5,8 @@ import EmptyState from '../components/EmptyState'
 import ErrorBanner from '../components/ErrorBanner'
 import { getLoginRedirect } from '../lib/auth'
 import { usePlaintiffSessionSummary } from '../hooks/usePlaintiffSessionSummary'
+import { getPlaintiffCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
+import { formatClaimTypeShort } from '../lib/constants'
 
 interface Assessment {
   id: string
@@ -12,6 +14,9 @@ interface Assessment {
   venue: { state: string; county?: string }
   status: string
   created_at: string
+  submittedForReview?: boolean
+  lifecycleState?: string | null
+  leadStatus?: string | null
 }
 
 export default function Assessments() {
@@ -92,7 +97,7 @@ export default function Assessments() {
                   to={`/results/${assessment.id}`}
                   className="font-medium text-ui-md text-slate-900 dark:text-slate-100 hover:text-brand-600 dark:hover:text-brand-400"
                 >
-                  {assessment.claimType.charAt(0).toUpperCase() + assessment.claimType.slice(1)} case
+                  {formatClaimTypeShort(assessment.claimType)} case
                 </Link>
                 <p className="text-ui-sm text-slate-500 dark:text-slate-400 mt-0.5">
                   {assessment.venue.state}
@@ -100,17 +105,46 @@ export default function Assessments() {
                   {new Date(assessment.created_at).toLocaleDateString()}
                 </p>
               </div>
-              <span
-                className={`inline-flex self-start px-2.5 py-1 text-ui-xs font-semibold rounded-full tabular-nums ${
-                  assessment.status === 'COMPLETED'
-                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
-                    : assessment.status === 'DRAFT'
-                      ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200'
-                      : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200'
-                }`}
-              >
-                {assessment.status}
-              </span>
+              {(() => {
+                // Once a case has entered the attorney funnel (submitted, has a
+                // lifecycle state, or a lead status), show the case funnel status
+                // (e.g. "Accepted", "In Review") rather than the assessment report
+                // status (#147, #193).
+                if (assessment.submittedForReview || assessment.lifecycleState || assessment.leadStatus) {
+                  const key = getPlaintiffCaseStatusKey({
+                    lifecycleState: assessment.lifecycleState,
+                    attorneyMatched:
+                      assessment.leadStatus === 'contacted' ||
+                      assessment.leadStatus === 'consulted' ||
+                      assessment.leadStatus === 'retained',
+                    submittedForReview: assessment.submittedForReview,
+                  })
+                  return (
+                    <span
+                      className={`inline-flex self-start px-2.5 py-1 text-ui-xs font-semibold rounded-full tabular-nums border ${caseStatusColor(key)}`}
+                    >
+                      {caseStatusLabel(key)}
+                    </span>
+                  )
+                }
+                // Case has not been submitted for attorney review yet. Showing the
+                // assessment report status ("COMPLETED") here misleads users into
+                // thinking the case itself is done, so surface the real state: a
+                // draft (still being built) or a finished assessment awaiting
+                // submission (#193).
+                const isDraft = assessment.status === 'DRAFT'
+                return (
+                  <span
+                    className={`inline-flex self-start px-2.5 py-1 text-ui-xs font-semibold rounded-full tabular-nums ${
+                      isDraft
+                        ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200'
+                        : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200'
+                    }`}
+                  >
+                    {isDraft ? 'Draft' : 'Not Submitted'}
+                  </span>
+                )
+              })()}
             </div>
           ))}
         </div>

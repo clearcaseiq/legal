@@ -32,6 +32,11 @@ const FIRM_ROLES = [
 const formatRole = (role: string) =>
   role.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
 
+// Basic RFC-5322-ish email check — the invite field sits outside the <form>, so
+// the native type="email" validation never fires on submit (#184).
+const isValidEmail = (value: string): boolean =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+
 interface FirmDashboardData {
   firm: {
     id: string
@@ -259,6 +264,10 @@ export default function FirmDashboard() {
       setAddError('Attorney email is required.')
       return
     }
+    if (!isValidEmail(newAttorney.email)) {
+      setAddError('Please enter a valid email address.')
+      return
+    }
     if (newAttorney.specialties.length === 0) {
       setAddError('Please select at least one specialty.')
       return
@@ -303,6 +312,10 @@ export default function FirmDashboard() {
     setMemberSuccess(null)
     if (!newMember.email.trim()) {
       setMemberError('Team member email is required.')
+      return
+    }
+    if (!isValidEmail(newMember.email)) {
+      setMemberError('Please enter a valid email address.')
       return
     }
     try {

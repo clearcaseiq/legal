@@ -2,8 +2,40 @@ import { Router, Request, Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { authMiddleware, AuthRequest } from '../lib/auth'
+import { sendTransactionalEmail } from '../lib/claims'
 
 const router: Router = Router()
+
+// Best-effort invite email for a newly added firm member. Never throws so it
+// can't fail the member-creation request (#226).
+async function sendFirmMemberInvite(params: {
+  to: string
+  firstName?: string | null
+  firmName?: string | null
+  role: string
+}): Promise<boolean> {
+  try {
+    if (!params.to) return false
+    const base = (process.env.WEB_URL || 'https://www.clearcaseiq.com').replace(/\/$/, '')
+    const roleLabel = params.role.replace(/_/g, ' ')
+    const body = [
+      `Hi ${params.firstName || 'there'},`,
+      '',
+      `You've been added to ${params.firmName || 'your law firm'} on ClearCaseIQ as a ${roleLabel}.`,
+      '',
+      `Sign in (or create your password if this is your first time) to get started:`,
+      `${base}/login`,
+      '',
+      'If you were not expecting this, you can ignore this email.',
+      '',
+      '— The ClearCaseIQ team',
+    ].join('\n')
+    return await sendTransactionalEmail({ to: params.to, subject: `You've been added to ${params.firmName || 'a law firm'} on ClearCaseIQ`, body })
+  } catch (error) {
+    logger.error('Failed to send firm member invite email', { error: error instanceof Error ? error.message : error })
+    return false
+  }
+}
 
 const FIRM_ROLE_PERMISSIONS: Record<string, string[]> = {
   firm_admin: [
@@ -427,10 +459,25 @@ router.post('/members', authMiddleware as any, async (req: any, res: Response) =
       }
     })
 
+    // Look up the firm name for a friendlier invite, then send best-effort.
+    let firmName: string | null = null
+    try {
+      const firm = await prisma.lawFirm.findUnique({ where: { id: context.lawFirmId }, select: { name: true } })
+      firmName = firm?.name ?? null
+    } catch { /* non-fatal */ }
+    void sendFirmMemberInvite({ to: normalizedEmail, firstName: user.firstName, firmName, role })
+
     res.status(201).json({ member, user, attorney })
   } catch (error: any) {
     logger.error('Failed to add firm member', { error: error?.message || String(error), stack: error?.stack })
-    res.status(500).json({ error: 'Failed to add firm member' })
+    res.status(500).json({
+      error: 'Failed to add firm member',
+      // Surface the real reason outside production so QA/staging sees the actual
+      // failure (e.g. a missing table) instead of an opaque 500 (#226).
+      ...(process.env.NODE_ENV !== 'production'
+        ? { detail: error?.message || String(error) }
+        : {}),
+    })
   }
 })
 
@@ -558,6 +605,9 @@ router.post('/attorneys', authMiddleware as any, async (req: any, res: Response)
     } = req.body || {}
     if (!email || typeof email !== 'string') {
       return res.status(400).json({ error: 'Attorney email is required' })
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return res.status(400).json({ error: 'Please enter a valid email address' })
     }
 
     const currentAttorney: any = await prisma.attorney.findFirst({

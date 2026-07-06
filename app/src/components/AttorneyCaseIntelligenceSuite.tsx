@@ -110,14 +110,14 @@ export default function AttorneyCaseIntelligenceSuite({
       <div className="border-b border-slate-200 p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="section-heading">
-            <p className="section-kicker">Claims intelligence platform</p>
+            <p className="section-kicker">Claims Intelligence Platform</p>
             <h3 className="section-title">Case Intelligence Suite</h3>
             <p className="section-copy">
               Timeline, workup readiness, medical/bills, demand package, and cited case companion in one attorney workspace.
             </p>
           </div>
           <div className="metric-card min-w-[170px] text-right">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Demand readiness</p>
+            <p className="text-xs uppercase tracking-wide text-slate-500">Demand Readiness</p>
             <p className="text-2xl font-bold text-slate-900">{readiness.demandReadiness}%</p>
           </div>
         </div>
@@ -172,11 +172,11 @@ export default function AttorneyCaseIntelligenceSuite({
               <ReadinessCard label="Insurance" value={readiness.insuranceReadiness} />
             </div>
             <div className="grid gap-4 lg:grid-cols-2">
-              <ActionList title="Top blockers" items={[
+              <ActionList title="Top Blockers" items={[
                 ...(leadCommandCenter?.missingItems || []).map((item: any) => item.label),
                 ...readiness.defenseRisks,
               ].slice(0, 5)} empty="No major blockers detected." />
-              <ActionList title="Recommended next actions" items={[
+              <ActionList title="Recommended Next Actions" items={[
                 leadCommandCenter?.nextBestAction?.title,
                 readiness.documentReadiness < 75 ? 'Strengthen exhibits and document file' : null,
                 readiness.medicalReadiness < 70 ? 'Review chronology and treatment gaps' : null,
@@ -193,7 +193,7 @@ export default function AttorneyCaseIntelligenceSuite({
             )}
           <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
             <div className="subtle-panel p-4">
-              <h4 className="font-semibold text-slate-900">Medical chronology</h4>
+              <h4 className="font-semibold text-slate-900">Medical Chronology</h4>
               <p className="mt-1 text-sm text-slate-600">
                 {medicalSharingPending ? 'Medical chronology is hidden until authorization is complete.' : chronologySummary || 'No chronology summary available yet.'}
               </p>
@@ -207,15 +207,15 @@ export default function AttorneyCaseIntelligenceSuite({
               </div>
             </div>
             <div className="subtle-panel p-4">
-              <h4 className="font-semibold text-slate-900">Bills and records</h4>
+              <h4 className="font-semibold text-slate-900">Bills and Records</h4>
               <dl className="mt-3 space-y-2 text-sm">
-                <InfoRow label="Medical records" value={medicalSharingPending ? 'Pending authorization' : String(medicalFiles.length)} />
-                <InfoRow label="Bill files" value={medicalSharingPending ? 'Pending authorization' : String(billFiles.length)} />
-                <InfoRow label="Extracted bill total" value={medicalSharingPending ? 'Hidden pending authorization' : extractedTotal > 0 ? formatCurrency(extractedTotal) : 'Not extracted'} />
-                <InfoRow label="Providers detected" value={medicalSharingPending ? 'Hidden pending authorization' : String(chronologyProviderCount)} />
+                <InfoRow label="Medical Records" value={medicalSharingPending ? 'Pending authorization' : String(medicalFiles.length)} />
+                <InfoRow label="Bill Files" value={medicalSharingPending ? 'Pending authorization' : String(billFiles.length)} />
+                <InfoRow label="Extracted Bill Total" value={medicalSharingPending ? 'Hidden pending authorization' : extractedTotal > 0 ? formatCurrency(extractedTotal) : 'Not extracted'} />
+                <InfoRow label="Providers Detected" value={medicalSharingPending ? 'Hidden pending authorization' : String(chronologyProviderCount)} />
               </dl>
               <button type="button" onClick={() => onOpenWorkstream('case-insights')} className="btn-outline mt-4">
-                Open chronology and benchmarks
+                Open Chronology and Benchmarks
               </button>
             </div>
           </div>
@@ -225,7 +225,7 @@ export default function AttorneyCaseIntelligenceSuite({
         {activeTab === 'demand' && (
           <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
             <div className="subtle-panel p-4">
-              <h4 className="font-semibold text-slate-900">Demand package factory</h4>
+              <h4 className="font-semibold text-slate-900">Demand Package Factory</h4>
               <p className="mt-1 text-sm text-slate-600">
                 Working value range: {valueLow || valueHigh ? `${formatCurrency(valueLow)} to ${formatCurrency(valueHigh)}` : 'Not available'}.
               </p>
@@ -238,14 +238,14 @@ export default function AttorneyCaseIntelligenceSuite({
               </div>
             </div>
             <div className="subtle-panel p-4">
-              <h4 className="font-semibold text-slate-900">Package actions</h4>
+              <h4 className="font-semibold text-slate-900">Package Actions</h4>
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" onClick={() => onOpenWorkstream('demand')} className="btn-outline">
-                  Open demand workspace
+                  Open Demand Workspace
                 </button>
                 {onDraftDemand && (
                   <button type="button" onClick={onDraftDemand} disabled={demandDraftLoading} className="btn-primary disabled:opacity-50">
-                    {demandDraftLoading ? 'Drafting...' : 'Draft demand'}
+                    {demandDraftLoading ? 'Drafting...' : 'Draft Demand'}
                   </button>
                 )}
               </div>
@@ -277,7 +277,7 @@ export default function AttorneyCaseIntelligenceSuite({
             <div className="subtle-panel p-4">
               <h4 className="flex items-center gap-2 font-semibold text-slate-900">
                 <ShieldCheck className="h-4 w-4 text-brand-600" />
-                Cited answer
+                Cited Answer
               </h4>
               {copilotAnswer ? (
                 <div className="mt-3 space-y-3">

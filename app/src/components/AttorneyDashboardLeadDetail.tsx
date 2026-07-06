@@ -184,7 +184,7 @@ export default function AttorneyDashboardLeadDetail({
                 disabled={caseFileLoading}
                 className="btn-outline disabled:opacity-50"
               >
-                {caseFileLoading ? 'Preparing…' : 'Download case file'}
+                {caseFileLoading ? 'Preparing…' : 'Download Case File'}
               </button>
               <button onClick={onClose} className="btn-ghost">
                 ✕
@@ -193,8 +193,15 @@ export default function AttorneyDashboardLeadDetail({
           </div>
 
           <div className="subtle-panel mb-4 flex items-center justify-between px-4 py-3">
-            <div className="status-pill-info">
-              {isPostAcceptance ? 'Post-Acceptance' : 'Pre-Acceptance'}
+            <div
+              className="status-pill-info"
+              title={
+                isPostAcceptance
+                  ? 'This case has been accepted. The full case-management workspace (medical chronology, demand factory, tasks, and negotiation) is unlocked.'
+                  : 'This is a new match you are reviewing. Accept it to unlock the full case-management workspace.'
+              }
+            >
+              {isPostAcceptance ? 'Post-Acceptance · Case accepted' : 'Pre-Acceptance · New match under review'}
             </div>
             {!isPostAcceptance && (!selectedLead.status || selectedLead.status === 'submitted') ? (
               <div className="flex items-center gap-2">
@@ -284,7 +291,7 @@ export default function AttorneyDashboardLeadDetail({
                     onClick={() => goToSection('overview')}
                     className="btn-outline bg-white"
                   >
-                    Back to command center
+                    Back to Command Center
                   </button>
                 </div>
               </div>
@@ -292,7 +299,7 @@ export default function AttorneyDashboardLeadDetail({
 
           {leadPhaseTab === 'post' && !isPostAcceptance ? (
             <div className="helpful-empty mb-4">
-              Post-acceptance workstreams unlock after acceptance.
+              Post-Acceptance workstreams unlock after acceptance.
             </div>
           ) : null}
 
@@ -948,8 +955,8 @@ function PostAcceptanceWorkupPanel({
     <section className="premium-panel mb-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="section-heading">
-          <p className="section-kicker">Case readiness</p>
-          <h3 className="section-title">Proactive case command center</h3>
+          <p className="section-kicker">Case Readiness</p>
+          <h3 className="section-title">Proactive Case Command Center</h3>
           <p className="section-copy">
             Track missing records, treatment gaps, upcoming care, medical spend, and demand readiness from one place.
           </p>
@@ -960,14 +967,14 @@ function PostAcceptanceWorkupPanel({
             onClick={onRequestDocuments}
             className="btn-outline"
           >
-            Request docs
+            Request Docs
           </button>
           <button
             type="button"
             onClick={onScheduleConsult}
             className="btn-outline"
           >
-            Schedule consult
+            Schedule Consult
           </button>
           {onDraftDemand && (
             <button
@@ -976,43 +983,43 @@ function PostAcceptanceWorkupPanel({
               disabled={demandDraftLoading}
               className="btn-primary disabled:opacity-50"
             >
-              {demandDraftLoading ? 'Drafting...' : 'Draft demand'}
+              {demandDraftLoading ? 'Drafting...' : 'Draft Demand'}
             </button>
           )}
         </div>
       </div>
 
       <div className="mt-5 grid gap-3 md:grid-cols-4">
-        <ReadinessCard label="Demand readiness" value={workup.demandReadiness} helper="Narrative, proof, contact, and value readiness" />
-        <ReadinessCard label="Medical readiness" value={workup.medicalReadiness} helper="Records, treatment history, and bills" />
-        <ReadinessCard label="Document readiness" value={workup.documentReadiness} helper="Police, medical, photos, and evidence file" />
-        <ReadinessCard label="Insurance readiness" value={workup.insuranceReadiness} helper="Coverage, liens, and policy facts" />
+        <ReadinessCard label="Demand Readiness" value={workup.demandReadiness} helper="Narrative, proof, contact, and value readiness" />
+        <ReadinessCard label="Medical Readiness" value={workup.medicalReadiness} helper="Records, treatment history, and bills" />
+        <ReadinessCard label="Document Readiness" value={workup.documentReadiness} helper="Police, medical, photos, and evidence file" />
+        <ReadinessCard label="Insurance Readiness" value={workup.insuranceReadiness} helper="Coverage, liens, and policy facts" />
       </div>
 
       <div className="mt-5 grid gap-3 md:grid-cols-4">
         <CaseReadinessSignal
-          label="Missing documents"
+          label="Missing Documents"
           value={`${workup.missingDocuments.length}`}
           helper={workup.missingDocuments.length > 0 ? workup.missingDocuments.slice(0, 2).join(', ') : 'No major document gaps'}
           tone={workup.missingDocuments.length > 0 ? 'warn' : 'good'}
           onClick={onRequestDocuments}
         />
         <CaseReadinessSignal
-          label="Treatment gaps"
+          label="Treatment Gaps"
           value={`${workup.treatmentGaps.length}`}
           helper={workup.treatmentGaps[0] || 'No major treatment gaps flagged'}
           tone={workup.treatmentGaps.length > 0 ? 'warn' : 'good'}
           onClick={() => onOpenWorkstream('chronology')}
         />
         <CaseReadinessSignal
-          label="Upcoming appointments"
+          label="Upcoming Appointments"
           value={`${workup.upcomingAppointments}`}
           helper={workup.upcomingAppointments > 0 ? 'Upcoming case activity scheduled' : 'No upcoming appointments logged'}
           tone={workup.upcomingAppointments > 0 ? 'good' : 'neutral'}
           onClick={onScheduleConsult}
         />
         <CaseReadinessSignal
-          label="Medical spend"
+          label="Medical Spend"
           value={workup.medicalSpend > 0 ? `${formatCurrency(workup.medicalSpend)}${workup.medicalSpendIsFloor ? '+' : ''}` : '$0'}
           helper={medicalSpendHelper(workup)}
           tone={workup.medicalDiscrepancy ? 'warn' : workup.medicalSpend > 0 ? 'good' : 'neutral'}
@@ -1024,7 +1031,7 @@ function PostAcceptanceWorkupPanel({
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1fr]">
         <div className="subtle-panel border-amber-200 bg-amber-50 p-4">
-          <h4 className="text-sm font-semibold text-amber-950">Blockers and defense risks</h4>
+          <h4 className="text-sm font-semibold text-amber-950">Blockers and Defense Risks</h4>
           {blockers.length > 0 ? (
             <ul className="mt-3 space-y-2 text-sm text-amber-900">
               {blockers.map((blocker) => (
@@ -1039,7 +1046,7 @@ function PostAcceptanceWorkupPanel({
           )}
         </div>
         <div className="subtle-panel p-4">
-          <h4 className="text-sm font-semibold text-slate-900">Next best action</h4>
+          <h4 className="text-sm font-semibold text-slate-900">Next Best Action</h4>
           <button
             type="button"
             onClick={() => {
@@ -1055,7 +1062,7 @@ function PostAcceptanceWorkupPanel({
           </button>
           {secondaryNextActions.length > 0 ? (
             <>
-              <h4 className="mt-4 text-sm font-semibold text-slate-900">Other suggested actions</h4>
+              <h4 className="mt-4 text-sm font-semibold text-slate-900">Other Suggested Actions</h4>
               <div className="mt-3 space-y-2">
                 {secondaryNextActions.map((action) => (
                   <button
@@ -1142,7 +1149,7 @@ function PostAcceptanceActionSummary({
     <section className="rounded-xl border-2 border-brand-200 bg-brand-50/30 p-5 mb-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Post-acceptance command summary</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Post-Acceptance Command Summary</p>
           <h2 className="mt-1 text-xl font-semibold text-gray-900">
             {claimType} – {location}
           </h2>
@@ -1350,7 +1357,7 @@ function MedicalSpecialsProvenance({
   return (
     <div className="subtle-panel mt-5 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h4 className="text-sm font-semibold text-slate-900">Medical specials — verifiable breakdown</h4>
+        <h4 className="text-sm font-semibold text-slate-900">Medical Specials — Verifiable Breakdown</h4>
         <MedSourceBadge kind={workup.medicalDiscrepancy ? 'needs_verification' : source === 'documented' ? 'document' : 'self_reported'} />
       </div>
 
@@ -1388,12 +1395,12 @@ function MedicalSpecialsProvenance({
       </ul>
 
       <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total used in valuation</span>
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Used in Valuation</span>
         <span className="text-sm font-bold text-slate-900">{formatCurrency(workup.medicalSpend)}{workup.medicalSpendIsFloor ? '+' : ''}</span>
       </div>
 
       <details className="mt-3 group">
-        <summary className="cursor-pointer text-xs font-semibold text-brand-700 hover:underline">How this was calculated</summary>
+        <summary className="cursor-pointer text-xs font-semibold text-brand-700 hover:underline">How This Was Calculated</summary>
         <div className="mt-2 space-y-2 text-xs leading-5 text-slate-600">
           <ul className="list-disc space-y-1 pl-4">
             {methodology.map((note) => (
@@ -1408,7 +1415,7 @@ function MedicalSpecialsProvenance({
                   <li key={note}>{note}</li>
                 ))}
               </ul>
-              <button type="button" onClick={onRequestDocuments} className="btn-outline mt-2 text-xs">Request documents</button>
+              <button type="button" onClick={onRequestDocuments} className="btn-outline mt-2 text-xs">Request Documents</button>
             </div>
           )}
         </div>

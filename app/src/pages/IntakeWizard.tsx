@@ -92,6 +92,10 @@ export default function IntakeWizard() {
   const [pendingEvidenceFiles, setPendingEvidenceFiles] = useState<Record<string, any[]>>({})
   const [previewFile, setPreviewFile] = useState<{url: string, name: string} | null>(null)
   const isEditMode = !!routeAssessmentId
+  // Consent documents (ToS/Privacy/etc.) navigate away and return via ?return=.
+  // Send the user back to the wizard they came from (e.g. an attorney's
+  // /edit-assessment/:id manual case) instead of the public /assess page (#119).
+  const consentReturnBase = routeAssessmentId ? `/edit-assessment/${routeAssessmentId}` : '/assess'
   const [consentRead, setConsentRead] = useState({
     tos: false,
     privacy: false,
@@ -1547,7 +1551,7 @@ export default function IntakeWizard() {
                   step="0.01"
                   value={formData.damages?.med_charges || ''}
                   onChange={(e) => updateFormData({ 
-                    damages: { ...formData.damages, med_charges: parseFloat(e.target.value) || undefined }
+                    damages: { ...formData.damages, med_charges: Math.max(0, parseFloat(e.target.value)) || undefined }
                   })}
                   className="input"
                   placeholder="0.00"
@@ -1566,7 +1570,7 @@ export default function IntakeWizard() {
                   step="0.01"
                   value={formData.damages?.med_paid || ''}
                   onChange={(e) => updateFormData({ 
-                    damages: { ...formData.damages, med_paid: parseFloat(e.target.value) || undefined }
+                    damages: { ...formData.damages, med_paid: Math.max(0, parseFloat(e.target.value)) || undefined }
                   })}
                   className="input"
                   placeholder="0.00"
@@ -1585,7 +1589,7 @@ export default function IntakeWizard() {
                   step="0.01"
                   value={formData.damages?.wage_loss || ''}
                   onChange={(e) => updateFormData({ 
-                    damages: { ...formData.damages, wage_loss: parseFloat(e.target.value) || undefined }
+                    damages: { ...formData.damages, wage_loss: Math.max(0, parseFloat(e.target.value)) || undefined }
                   })}
                   className="input"
                   placeholder="0.00"
@@ -1604,7 +1608,7 @@ export default function IntakeWizard() {
                   step="0.01"
                   value={formData.damages?.services || ''}
                   onChange={(e) => updateFormData({ 
-                    damages: { ...formData.damages, services: parseFloat(e.target.value) || undefined }
+                    damages: { ...formData.damages, services: Math.max(0, parseFloat(e.target.value)) || undefined }
                   })}
                   className="input"
                   placeholder="0.00"
@@ -1875,7 +1879,7 @@ export default function IntakeWizard() {
                   <span className={`ml-2 text-sm ${errors.tos ? 'text-red-600' : 'text-gray-700'}`}>
                     I accept the{' '}
                     <a
-                      href="/terms-of-service?return=/assess&step=review"
+                      href={`/terms-of-service?return=${encodeURIComponent(consentReturnBase)}&step=review`}
                       className="text-brand-600 hover:text-brand-800 underline"
                     >
                       Terms of Service
@@ -1897,7 +1901,7 @@ export default function IntakeWizard() {
                   <span className={`ml-2 text-sm ${errors.privacy ? 'text-red-600' : 'text-gray-700'}`}>
                     I accept the{' '}
                     <a
-                      href="/privacy-policy?return=/assess&step=review"
+                      href={`/privacy-policy?return=${encodeURIComponent(consentReturnBase)}&step=review`}
                       className="text-brand-600 hover:text-brand-800 underline"
                     >
                       Privacy Policy
@@ -1919,7 +1923,7 @@ export default function IntakeWizard() {
                   <span className={`ml-2 text-sm ${errors.ml_use ? 'text-red-600' : 'text-gray-700'}`}>
                     I consent to{' '}
                     <a
-                      href="/ai-ml-consent?return=/assess&step=review"
+                      href={`/ai-ml-consent?return=${encodeURIComponent(consentReturnBase)}&step=review`}
                       className="text-brand-600 hover:text-brand-800 underline"
                     >
                       AI/ML processing of my data for case analysis
@@ -1941,7 +1945,7 @@ export default function IntakeWizard() {
                   <span className="ml-2 text-sm text-gray-700">
                     I consent to{' '}
                     <a
-                      href="/hipaa-authorization?return=/assess&step=review"
+                      href={`/hipaa-authorization?return=${encodeURIComponent(consentReturnBase)}&step=review`}
                       className="text-brand-600 hover:text-brand-800 underline"
                     >
                       HIPAA disclosure for medical records

@@ -19,6 +19,7 @@ import { loadPlaintiffHasCase, resetPlaintiffCaseHintCache } from '../lib/plaint
 
 const NotificationBell = lazy(() => import('./NotificationBell'))
 const PlaintiffNotificationBell = lazy(() => import('./PlaintiffNotificationBell'))
+const PlaintiffNotificationsBell = lazy(() => import('./PlaintiffNotificationsBell'))
 const LanguageSwitcher = lazy(() => import('./LanguageSwitcher'))
 
 interface LayoutProps {
@@ -156,9 +157,11 @@ export default function Layout({ children }: LayoutProps) {
         : null
 
   const navItems = [
-    { name: t('common.howItWorks'), href: navLinks.howItWorks, icon: null },
+    // Marketing links are only relevant pre-login; hide them once a user is
+    // signed in so the nav focuses on their workspace (#138).
+    isAuthenticated ? null : { name: t('common.howItWorks'), href: navLinks.howItWorks, icon: null },
     caseNavItem,
-    { name: t('common.forAttorneys'), href: navLinks.forAttorneys, icon: ScaleIcon },
+    isAuthenticated ? null : { name: t('common.forAttorneys'), href: navLinks.forAttorneys, icon: ScaleIcon },
     { name: t('common.help'), href: navLinks.help, icon: HelpCircleIcon },
   ].filter((item): item is { name: string; href: string; icon: typeof FileTextIcon | null } => Boolean(item))
 
@@ -248,11 +251,15 @@ export default function Layout({ children }: LayoutProps) {
                       </Suspense>
                     </div>
                   )}
-                  {/* Notification bell for plaintiffs */}
+                  {/* Messages + notifications for plaintiffs — the header exposes both
+                      a Message icon and a separate Notification bell (#179). */}
                   {!isAttorney && !isAdmin && !isAdminArea && (
-                    <div className="hidden lg:block">
+                    <div className="hidden lg:flex items-center gap-1">
                       <Suspense fallback={shellIconFallback}>
                         <PlaintiffNotificationBell />
+                      </Suspense>
+                      <Suspense fallback={shellIconFallback}>
+                        <PlaintiffNotificationsBell />
                       </Suspense>
                     </div>
                   )}
@@ -451,7 +458,6 @@ export default function Layout({ children }: LayoutProps) {
                           <Link to="/firm-settings" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Settings</Link>
                         </>
                       )}
-                  <Link to={navLinks.howItWorks} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.howItWorks')}</Link>
                   <Link to={navLinks.help} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.help')}</Link>
                     </>
                   )}

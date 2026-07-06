@@ -195,11 +195,18 @@ export default function AttorneyPreferences() {
   }
 
   if (loading) {
+    // Keep the same page shell (background + centered container) as the loaded
+    // view so the transition from the route Suspense fallback to content doesn't
+    // swap the whole screen and read as a flicker (#212).
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading preferences...</p>
+      <div className="min-h-screen bg-gray-50 py-8">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="bg-white shadow rounded-lg p-6">
+            <div className="flex items-center gap-3 text-gray-600">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-brand-600"></div>
+              <span>Loading preferences...</span>
+            </div>
+          </div>
         </div>
       </div>
     )
@@ -310,7 +317,7 @@ export default function AttorneyPreferences() {
                             inputMode="numeric"
                             maxLength={10}
                             value={location.zip}
-                            onChange={(e) => updateFirmLocation(index, { zip: e.target.value })}
+                            onChange={(e) => updateFirmLocation(index, { zip: e.target.value.replace(/[^0-9-]/g, '') })}
                             className="input"
                             placeholder="90012"
                           />
@@ -320,9 +327,12 @@ export default function AttorneyPreferences() {
                         <label className="block text-xs font-medium text-gray-600 mb-1">Phone (optional)</label>
                         <input
                           type="tel"
+                          inputMode="tel"
                           maxLength={20}
                           value={location.phone || ''}
-                          onChange={(e) => updateFirmLocation(index, { phone: e.target.value })}
+                          // Phone numbers never contain letters; strip anything
+                          // that isn't a digit or common phone punctuation (#115).
+                          onChange={(e) => updateFirmLocation(index, { phone: e.target.value.replace(/[^0-9+()\-.\s]/g, '') })}
                           className="input"
                           placeholder="(213) 555-0100"
                         />

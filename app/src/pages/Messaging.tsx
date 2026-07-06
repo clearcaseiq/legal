@@ -21,6 +21,7 @@ import {
   Filter
 } from 'lucide-react'
 import Tooltip from '../components/Tooltip'
+import { formatClaimTypeShort } from '../lib/constants'
 
 interface ChatRoom {
   id: string
@@ -203,7 +204,8 @@ export default function Messaging() {
 
   const filteredChatRooms = chatRooms.filter(room =>
     room.attorney.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    room.assessment?.claimType.toLowerCase().includes(searchTerm.toLowerCase())
+    room.assessment?.claimType.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    formatClaimTypeShort(room.assessment?.claimType).toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   if (isLoading) {
@@ -292,7 +294,7 @@ export default function Messaging() {
                         
                         {room.assessment && (
                           <p className="text-xs text-gray-500 truncate">
-                            {room.assessment.claimType} • {room.assessment.venueState}
+                            {formatClaimTypeShort(room.assessment.claimType)} • {room.assessment.venueState}
                           </p>
                         )}
                         
@@ -333,7 +335,7 @@ export default function Messaging() {
                         {selectedRoom.attorney.name}
                       </h2>
                       <p className="text-sm text-gray-500">
-                        {selectedRoom.assessment?.claimType} • {selectedRoom.assessment?.venueState}
+                        {formatClaimTypeShort(selectedRoom.assessment?.claimType)} • {selectedRoom.assessment?.venueState}
                       </p>
                     </div>
                   </div>

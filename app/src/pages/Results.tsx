@@ -17,6 +17,7 @@ import {
   savePlaintiffMedicalReview,
   saveDamageEstimates,
   searchAttorneys,
+  getWaveConfig,
   submitCaseForReview,
   type PlaintiffMedicalReviewEdit,
   type PlaintiffMedicalReviewPayload,
@@ -807,6 +808,9 @@ export default function Results() {
   const [matchedAttorneys, setMatchedAttorneys] = useState<any[]>([])
   const [attorneySearchLoading, setAttorneySearchLoading] = useState(false)
   const [rankedAttorneyIds, setRankedAttorneyIds] = useState<string[]>([])
+  // Admin-configured wave-1 size caps how many attorney choices the plaintiff
+  // sees/ranks in the Case Snapshot popup (#219). Defaults to 3.
+  const [waveOneSize, setWaveOneSize] = useState(3)
   const [autoReviewHandled, setAutoReviewHandled] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)
   const [caseSubmittedForReview, setCaseSubmittedForReview] = useState(false)
@@ -847,6 +851,14 @@ export default function Results() {
   const caseSnapshotClaimLabel = formatCaseSubtypeLabel(caseSubtype, t) || formatClaimTypeLabel(assessment?.claimType, t)
   const hasHipaaConsent = parsedFacts?.consents?.hipaa === true || hipaaAuthorizationComplete
 
+  useEffect(() => {
+    let cancelled = false
+    void getWaveConfig().then((config) => {
+      if (!cancelled) setWaveOneSize(Math.max(1, config.maxAttorneysWave1 || 3))
+    })
+    return () => { cancelled = true }
+  }, [])
+
   const refreshMatchedAttorneys = async () => {
     if (!assessment || !venueState) return []
     try {
@@ -854,11 +866,25 @@ export default function Results() {
       const data = await searchAttorneys({
         venue: venueState,
         claim_type: assessment.claimType,
-        limit: 3
+        limit: Math.max(waveOneSize, 3)
       })
-      const list = (Array.isArray(data) ? data : (data?.attorneys ?? [])).slice(0, 3)
+      const list = (Array.isArray(data) ? data : (data?.attorneys ?? [])).slice(0, Math.max(waveOneSize, 3))
       setMatchedAttorneys(list)
-      setRankedAttorneyIds(list.map((attorney: any) => attorney.id || attorney.attorney_id).filter(Boolean).slice(0, 3))
+      const defaultIds = list.map((attorney: any) => attorney.id || attorney.attorney_id).filter(Boolean)
+      // If the plaintiff already customized their attorney order (persisted on the
+      // assessment when they sent it for review), preserve that order instead of
+      // resetting to the default match ranking — otherwise the case report shows
+      // the wrong choice order (#189).
+      const savedRankedIds = Array.isArray(parsedFacts?.plaintiffAttorneyPreferences?.rankedAttorneyIds)
+        ? (parsedFacts.plaintiffAttorneyPreferences.rankedAttorneyIds as string[]).filter(Boolean)
+        : []
+      const orderedIds = savedRankedIds.length > 0
+        ? [
+            ...savedRankedIds.filter((id) => defaultIds.includes(id)),
+            ...defaultIds.filter((id: string) => !savedRankedIds.includes(id)),
+          ]
+        : defaultIds
+      setRankedAttorneyIds(orderedIds.slice(0, waveOneSize))
       return list
     } catch {
       setMatchedAttorneys([])
@@ -871,7 +897,13 @@ export default function Results() {
 
   const openSendModal = async (medicalReviewStatusOverride?: PlaintiffMedicalReviewStatus) => {
     const currentMedicalReviewStatus = medicalReviewStatusOverride ?? plaintiffMedicalReview?.review.status ?? 'pending'
-    if (currentMedicalReviewStatus === 'pending') {
+    // Only force the medical-timeline review when there is actually a timeline to
+    // review. medicalReviewPending defaults to 'pending' whenever the review
+    // payload hasn't loaded (or the case has no medical story), which left
+    // "Continue to Attorney Review" silently redirecting to an empty medical
+    // section instead of opening the send popup the user expects (#225).
+    const hasMedicalStoryToReview = Array.isArray(medicalChronology) && medicalChronology.length > 0
+    if (currentMedicalReviewStatus === 'pending' && hasMedicalStoryToReview) {
       setMedicalReviewError('Review your treatment timeline before submitting. You can confirm it, make changes, or skip it for now.')
       openAnchoredResultsSection('#medical-story-review')
       return
@@ -1021,7 +1053,7 @@ export default function Results() {
         selectedRankedAttorneyIds = refreshedMatches
           .map((attorney: any) => attorney.id || attorney.attorney_id)
           .filter(Boolean)
-          .slice(0, 3)
+          .slice(0, waveOneSize)
       }
     }
     try {
@@ -1353,9 +1385,9 @@ export default function Results() {
       const availableIds = matchedAttorneys.map((attorney) => attorney.id || attorney.attorney_id).filter(Boolean)
       const preserved = current.filter((attorneyId) => availableIds.includes(attorneyId))
       const missing = availableIds.filter((attorneyId) => !preserved.includes(attorneyId))
-      return [...preserved, ...missing].slice(0, 3)
+      return [...preserved, ...missing].slice(0, waveOneSize)
     })
-  }, [matchedAttorneys])
+  }, [matchedAttorneys, waveOneSize])
 
   // Associate assessment with user when they become logged in
   useEffect(() => {
@@ -2294,7 +2326,10 @@ Checklist:
           .filter((item: any) => !String(`${item?.key ?? ''} ${item?.label ?? ''}`).toLowerCase().includes('hipaa')),
       }
     : commandCenter
-  const medicalReviewPending = (plaintiffMedicalReview?.review.status ?? 'pending') === 'pending'
+  // Only treat the medical-story review as "pending" when there's an actual
+  // timeline to confirm; otherwise the attorney-review CTA stayed stuck
+  // redirecting to an empty medical section instead of opening the popup (#225).
+  const medicalReviewPending = medicalChronology.length > 0 && (plaintiffMedicalReview?.review.status ?? 'pending') === 'pending'
   const topMissingDocLabels = missingDocItems
     .slice(0, 3)
     .map((item: any) => item?.label)
@@ -3493,7 +3528,7 @@ Checklist:
                 </div>
               ))}
             </div>
-            <button type="button" onClick={openAttorneyReviewFlow} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.chrome.seeMoreMatches')} <ChevronRight className="h-3 w-3" /></button>
+            <button type="button" onClick={() => { document.getElementById('attorney-matches')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.chrome.seeMoreMatches')} <ChevronRight className="h-3 w-3" /></button>
           </div>
 
           {deadlineWarningText ? (
@@ -5227,7 +5262,7 @@ Checklist:
             {/* Right column */}
             <div className="space-y-5">
               {/* Top attorney matches */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div id="attorney-matches" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between">
                   <p className="font-display text-base font-semibold text-slate-900">{t('results.headings.topAttorneyMatches')}</p>
                   <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{t('results.next.preview')}</span>

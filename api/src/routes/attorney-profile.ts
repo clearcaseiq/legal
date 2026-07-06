@@ -575,7 +575,13 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
       }
     })
 
-    res.json(profile)
+    // Return the profile with the attorney relation so the client keeps the
+    // display name/bio after saving (the upsert result alone omits `attorney`).
+    const profileWithAttorney = await prisma.attorneyProfile.findUnique({
+      where: { attorneyId },
+      include: { attorney: true },
+    })
+    res.json(profileWithAttorney ?? profile)
   } catch (error: any) {
     logger.error('Failed to update attorney profile', { error: error.message })
     res.status(500).json({ error: 'Failed to update profile' })
@@ -636,8 +642,14 @@ router.post('/photo', authMiddleware, avatarUpload.single('photo'), async (req: 
       fs.promises.unlink(previousPath).catch(() => undefined)
     }
 
+    // Include the attorney relation so the client keeps the display name/bio
+    // after uploading a new photo (#113).
+    const profileWithAttorney = await prisma.attorneyProfile.findUnique({
+      where: { attorneyId },
+      include: { attorney: true },
+    })
     logger.info('Attorney profile photo uploaded', { attorneyId, fileName: req.file.originalname })
-    res.json(profile)
+    res.json(profileWithAttorney ?? profile)
   } catch (error: any) {
     logger.error('Failed to upload attorney profile photo', { error: error.message })
     res.status(500).json({ error: 'Failed to upload profile photo' })

@@ -1,5 +1,6 @@
 import { ChevronRight } from 'lucide-react'
 import { formatCurrency, formatPercentage } from '../lib/formatters'
+import { formatClaimTypeShort } from '../lib/constants'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import {
   acceptanceRateLabel as computeAcceptanceRateLabel,
@@ -34,8 +35,21 @@ export default function AttorneyDashboardAnalyticsTab({
   const staleContactCount = readinessLeads.filter((lead: any) => (lead?.demandReadiness?.blockers || []).some((blocker: any) => (blocker.key || blocker.type) === 'stale_contact')).length
   const funnel = dashboardData?.funnel || {}
   const activeCases = dashboardData?.activeCases || {}
-  const leadsReceived = Number(funnel.matched ?? dashboardData?.dashboard?.totalLeadsReceived ?? readinessLeads.length ?? 0)
-  const acceptedLeads = Number(funnel.accepted ?? dashboardData?.dashboard?.totalLeadsAccepted ?? 0)
+  // The funnel buckets are pipeline snapshots: `funnel.matched` counts only
+  // still-pending (submitted) leads, and `funnel.accepted` is effectively always
+  // 0 because accepting a lead moves it into the "contacted" bucket. That left
+  // the Acceptance Rate stuck at 0% right after accepting a case. Prefer the
+  // lifetime totals the backend increments on accept, mirroring the Overview
+  // tab's working calculation (#213).
+  const lifetimeReceived = Number(dashboardData?.dashboard?.totalLeadsReceived ?? 0)
+  const lifetimeAccepted = Number(dashboardData?.dashboard?.totalLeadsAccepted ?? 0)
+  const hasLifetimeTotals = lifetimeReceived > 0
+  const leadsReceived = hasLifetimeTotals
+    ? lifetimeReceived
+    : Number(funnel.matched ?? readinessLeads.length ?? 0)
+  const acceptedLeads = hasLifetimeTotals
+    ? lifetimeAccepted
+    : Number(funnel.accepted ?? 0)
   const consultedLeads = Number(funnel.consultScheduled ?? funnel.consulted ?? activeCases.consultScheduled ?? 0)
   const retainedLeads = Number(funnel.retained ?? activeCases.retained ?? 0)
   const acceptanceRate = leadsReceived > 0 ? Math.min(100, Math.round((acceptedLeads / leadsReceived) * 100)) : 0
@@ -92,15 +106,15 @@ export default function AttorneyDashboardAnalyticsTab({
         <h3 className="text-lg font-medium text-gray-900 mb-4">Consult Conversion Snapshot</h3>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
           <div className="rounded-md border border-gray-100 p-3">
-            <div className="text-gray-500">Acceptance rate</div>
+            <div className="text-gray-500">Acceptance Rate</div>
             <div className="text-gray-900">{acceptanceRate}%</div>
           </div>
           <div className="rounded-md border border-gray-100 p-3">
-            <div className="text-gray-500">Accepted to consult</div>
+            <div className="text-gray-500">Accepted to Consult</div>
             <div className="text-gray-900">{consultRate}%</div>
           </div>
           <div className="rounded-md border border-gray-100 p-3">
-            <div className="text-gray-500">Consult to retained</div>
+            <div className="text-gray-500">Consult to Retained</div>
             <div className="text-gray-900">{retainRate}%</div>
           </div>
           <div className="rounded-md border border-gray-100 p-3 md:col-span-1">
@@ -132,23 +146,23 @@ export default function AttorneyDashboardAnalyticsTab({
         <h3 className="text-lg font-medium text-gray-900 mb-4">Operations Pulse</h3>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4 text-sm">
           <div className="rounded-md border border-gray-100 p-3">
-            <div className="text-gray-500">Avg readiness</div>
+            <div className="text-gray-500">Avg Readiness</div>
             <div className="text-gray-900">{avgReadiness}%</div>
           </div>
           <div className="rounded-md border border-gray-100 p-3">
-            <div className="text-gray-500">Demand-ready files</div>
+            <div className="text-gray-500">Demand-Ready Files</div>
             <div className="text-gray-900">{demandReadyCount}</div>
           </div>
           <div className="rounded-md border border-gray-100 p-3">
-            <div className="text-gray-500">Doc-blocked files</div>
+            <div className="text-gray-500">Doc-Blocked Files</div>
             <div className="text-gray-900">{docBlockedCount}</div>
           </div>
           <div className="rounded-md border border-gray-100 p-3">
-            <div className="text-gray-500">Overdue tasks</div>
+            <div className="text-gray-500">Overdue Tasks</div>
             <div className="text-gray-900">{overdueTaskCount}</div>
           </div>
           <div className="rounded-md border border-gray-100 p-3">
-            <div className="text-gray-500">Stale contact files</div>
+            <div className="text-gray-500">Stale Contact Files</div>
             <div className="text-gray-900">{staleContactCount}</div>
           </div>
         </div>
@@ -201,7 +215,7 @@ export default function AttorneyDashboardAnalyticsTab({
         <h3 className="text-lg font-medium text-gray-900 mb-4">Case-Level Intelligence</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
           <div className="rounded-md border border-gray-100 p-3">
-            <div className="text-gray-500">Cost vs outcome</div>
+            <div className="text-gray-500">Cost vs Outcome</div>
             <div className="text-gray-900">
               {formatCurrency(
                 (analyticsIntel?.caseLevel || []).reduce(
@@ -212,7 +226,7 @@ export default function AttorneyDashboardAnalyticsTab({
             </div>
           </div>
           <div className="rounded-md border border-gray-100 p-3">
-            <div className="text-gray-500">Duration vs value</div>
+            <div className="text-gray-500">Duration vs Value</div>
             <div className="text-gray-900">
               {analyticsIntel?.caseLevel?.length
                 ? `${Math.round((analyticsIntel.caseLevel.reduce((sum: number, item: any) => sum + (item.durationDays || 0), 0) / analyticsIntel.caseLevel.length) || 0)} days avg`
@@ -220,7 +234,7 @@ export default function AttorneyDashboardAnalyticsTab({
             </div>
           </div>
           <div className="rounded-md border border-gray-100 p-3">
-            <div className="text-gray-500">Settlement efficiency</div>
+            <div className="text-gray-500">Settlement Efficiency</div>
             <div className="text-gray-900">
               {analyticsIntel?.caseLevel?.length
                 ? `${Math.round((analyticsIntel.caseLevel.reduce((sum: number, item: any) => sum + (item.settlementEfficiency || 0), 0) / analyticsIntel.caseLevel.length) || 0)}%`
@@ -287,7 +301,7 @@ export default function AttorneyDashboardAnalyticsTab({
             {analyticsIntel?.firmLevel?.profitabilityByCaseType ? (
               Object.entries(analyticsIntel.firmLevel.profitabilityByCaseType).map(([caseType, metrics]: any) => (
                 <div key={caseType} className="flex justify-between">
-                  <span className="text-gray-600">{caseType}</span>
+                  <span className="text-gray-600">{formatClaimTypeShort(caseType)}</span>
                   <span className="font-semibold">{formatCurrency(metrics.profit || 0)}</span>
                 </div>
               ))

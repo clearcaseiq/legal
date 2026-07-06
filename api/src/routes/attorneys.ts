@@ -4,8 +4,27 @@ import { AttorneySearch } from '../lib/validators'
 import { logger } from '../lib/logger'
 import { getHeuristics, computeAttorneyFitScore, getResponseBadge } from '../lib/heuristics-config'
 import { getFieldMappings, resolveMatchValues } from '../lib/field-mappings-config'
+import { getMatchingRules, getConfiguredWaveSize } from '../lib/matching-rules-config'
 
 const router: Router = Router()
+
+// Public, non-sensitive routing sizing so the plaintiff Case Snapshot popup can
+// cap the number of attorney choices to the admin-configured wave-1 size.
+// Previously the popup always showed 3 choices even when Wave 1 was set to 1 (#219).
+router.get('/wave-config', async (_req: Request, res: Response) => {
+  try {
+    const config = await getMatchingRules()
+    res.json({
+      maxAttorneysWave1: getConfiguredWaveSize(config, 1),
+      maxAttorneysWave2: getConfiguredWaveSize(config, 2),
+      maxAttorneysWave3: getConfiguredWaveSize(config, 3),
+    })
+  } catch (error) {
+    logger.error('Failed to load wave config', { error: error instanceof Error ? error.message : error })
+    // Fall back to the default wave-1 size so the popup still renders.
+    res.json({ maxAttorneysWave1: 3, maxAttorneysWave2: 5, maxAttorneysWave3: 10 })
+  }
+})
 
 // Search attorneys
 // Optional: group_by_firm=true will group results by firm

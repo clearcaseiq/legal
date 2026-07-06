@@ -246,6 +246,22 @@ export async function searchAttorneys(params: { venue?: string; claim_type?: str
   return data
 }
 
+// Admin-configured wave sizing (how many attorney choices the plaintiff sees on
+// the Case Snapshot popup). Public + non-sensitive; defaults keep the popup
+// working if the request fails (#219).
+export async function getWaveConfig(): Promise<{ maxAttorneysWave1: number; maxAttorneysWave2: number; maxAttorneysWave3: number }> {
+  try {
+    const { data } = await api.get('/v1/attorneys/wave-config')
+    return {
+      maxAttorneysWave1: Number(data?.maxAttorneysWave1) || 3,
+      maxAttorneysWave2: Number(data?.maxAttorneysWave2) || 5,
+      maxAttorneysWave3: Number(data?.maxAttorneysWave3) || 10,
+    }
+  } catch {
+    return { maxAttorneysWave1: 3, maxAttorneysWave2: 5, maxAttorneysWave3: 10 }
+  }
+}
+
 export async function calculateSOL(incidentDate: string, venue: { state: string; county?: string }, claimType: string) {
   const { data } = await api.post('/v1/sol/calculate', { incidentDate, venue, claimType })
   return data

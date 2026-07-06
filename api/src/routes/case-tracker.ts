@@ -396,10 +396,14 @@ router.get('/dashboard', authMiddleware, async (req: AuthRequest, res) => {
       }, 0)
     }
 
-    // Translate attorney messages and status text to plaintiff's preferred language
+    // Translate attorney messages and status text to plaintiff's preferred language.
+    // A failed translation call (e.g. provider unreachable/misconfigured) must not
+    // 500 the whole Case Tracker page for non-English plaintiffs — fall back to the
+    // untranslated cards instead of surfacing a generic error (#218).
     const plaintiffLang = getPlaintiffLanguage(req)
     let outputCases = caseData
     if (plaintiffLang !== 'en') {
+      try {
       outputCases = await Promise.all(
         caseData.map(async (c) => {
           const chatRooms = await Promise.all(
@@ -437,6 +441,14 @@ router.get('/dashboard', authMiddleware, async (req: AuthRequest, res) => {
           }
         })
       )
+      } catch (translationError) {
+        logger.error('Case-tracker translation failed; returning untranslated cards', {
+          userId,
+          plaintiffLang,
+          error: translationError instanceof Error ? translationError.message : translationError,
+        })
+        outputCases = caseData
+      }
     }
 
     res.json({

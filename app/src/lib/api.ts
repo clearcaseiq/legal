@@ -304,6 +304,24 @@ export async function getPlaintiffDocumentRequests(assessmentId: string): Promis
   return data
 }
 
+export type PlaintiffCaseTask = {
+  id: string
+  title: string
+  notes?: string | null
+  status: string
+  priority: string
+  dueDate?: string | null
+  taskType?: string
+}
+
+export async function getPlaintiffCaseTasks(assessmentId: string): Promise<{
+  assessmentId: string
+  tasks: PlaintiffCaseTask[]
+}> {
+  const { data } = await api.get(`/v1/assessments/${assessmentId}/tasks`)
+  return data
+}
+
 // Case Insights - Medical Chronology, Case Preparation, Settlement Benchmarks
 export async function getMedicalChronology(assessmentId: string) {
   const { data } = await api.get(`/v1/case-insights/assessments/${assessmentId}/medical-chronology`)

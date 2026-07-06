@@ -18,6 +18,7 @@ import ErrorBoundary from '../components/ErrorBoundary'
 import { AttorneyDashboardPanelSkeleton, AttorneyDashboardSkeleton } from '../components/PageSkeletons'
 import { clearStoredAuth, getLoginRedirect, hasValidAuthToken } from '../lib/auth'
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
+import { formatPhoneInput } from '../lib/phone'
 import { useAttorneyCommunications } from '../hooks/useAttorneyCommunications'
 import { useAttorneyCaseActivity } from '../hooks/useAttorneyCaseActivity'
 import { useAttorneyCaseHealth } from '../hooks/useAttorneyCaseHealth'
@@ -259,6 +260,7 @@ interface Lead {
   offerExpiresAt?: string | null
   offerStatus?: string | null
   assessment: any
+  lastContactAt?: string | null
   contactAttempts: any[]
   conflictChecks: any[]
   qualityReports: any[]
@@ -443,6 +445,7 @@ export default function AttorneyDashboard() {
     setReferralForm,
   } = useAttorneyFinanceCollaboration(selectedLead?.id)
   const {
+    cadenceMessage,
     cadenceStepForm,
     cadenceSteps,
     cadenceTemplateForm,
@@ -577,6 +580,12 @@ export default function AttorneyDashboard() {
   } | null>(null)
   const [chatDraftPrefill, setChatDraftPrefill] = useState('')
   const [activePipelineTile, setActivePipelineTile] = useState<string | null>(() => searchParams.get('stage') || null)
+  // Which leads sub-view the nav highlights ("New Matches" vs "Active Cases").
+  // Tracked explicitly so changing the in-list stage filter doesn't flip the
+  // highlighted tab and make it look like a redirect to New Matches (#131).
+  const [leadsSection, setLeadsSection] = useState<'matches' | 'active'>(() =>
+    (searchParams.get('stage') || '') === 'retained' ? 'active' : 'matches',
+  )
   const [pendingQuickAction, setPendingQuickAction] = useState<{ action: string; section?: string } | null>(null)
   const [leadPickerOpen, setLeadPickerOpen] = useState(false)
   const [leadPickerAction, setLeadPickerAction] = useState<{ action: string; section?: string } | null>(null)
@@ -705,6 +714,7 @@ export default function AttorneyDashboard() {
       const nextFilters = { ...DEFAULT_CASE_LEADS_FILTER, ...overrides }
       setCaseLeadsFilter(nextFilters)
       setActivePipelineTile(options?.pipelineTile ?? (nextFilters.pipelineStage || null))
+      setLeadsSection(nextFilters.pipelineStage === 'retained' ? 'active' : 'matches')
       setActiveTab('leads')
       if (options?.openConsultCalendar) {
         setConsultCalendarModalOpen(true)
@@ -1615,7 +1625,7 @@ export default function AttorneyDashboard() {
       updateLeadInState(selectedLead.id, { status: updated.status || status })
     } catch (err: any) {
       console.error('Failed to update lead status:', err)
-      setError(err.response?.data?.error || 'Failed to update lead status')
+      setError(toErrorMessage(err.response?.data?.error) || 'Failed to update lead status')
     } finally {
       setLeadDecisionLoading(false)
     }
@@ -1636,7 +1646,7 @@ export default function AttorneyDashboard() {
       window.URL.revokeObjectURL(url)
     } catch (err: any) {
       console.error('Failed to download case file:', err)
-      setError(err.response?.data?.error || 'Failed to download case file')
+      setError(toErrorMessage(err.response?.data?.error) || 'Failed to download case file')
     } finally {
       setCaseFileLoading(false)
     }
@@ -2200,6 +2210,7 @@ export default function AttorneyDashboard() {
               handleAddCadenceStep={handleAddCadenceStep}
               handleCreateCadenceTemplate={handleCreateCadenceTemplate}
               cadenceSteps={cadenceSteps}
+              cadenceMessage={cadenceMessage}
               negotiationCadenceTemplates={negotiationCadenceTemplates}
               handleDeleteCadenceTemplate={handleDeleteCadenceTemplate}
               leadCommandCenter={leadCommandCenter}
@@ -2221,6 +2232,7 @@ export default function AttorneyDashboard() {
               commentMessage={commentMessage}
               setCommentMessage={setCommentMessage}
               handleAddComment={handleAddComment}
+              mentionableUsers={firmAttorneys}
               noteForm={noteForm}
               setNoteForm={setNoteForm}
               handleAddNote={handleAddNote}
@@ -2386,8 +2398,16 @@ export default function AttorneyDashboard() {
                   </select>
                 ) : (
                   <input
+                    type={activityType === 'call' || activityType === 'sms' ? 'tel' : activityType === 'email' ? 'email' : 'text'}
+                    inputMode={activityType === 'call' || activityType === 'sms' ? 'tel' : undefined}
                     value={contactForm.contactMethod}
-                    onChange={(e) => setContactForm(prev => ({ ...prev, contactMethod: e.target.value }))}
+                    onChange={(e) => {
+                      // Format + cap phone entries at 10 digits for call/SMS (#128).
+                      const next = activityType === 'call' || activityType === 'sms'
+                        ? formatPhoneInput(e.target.value)
+                        : e.target.value
+                      setContactForm(prev => ({ ...prev, contactMethod: next }))
+                    }}
                     className="input"
                     placeholder={copy.placeholder}
                   />
@@ -2636,6 +2656,15 @@ export default function AttorneyDashboard() {
     dashboardData?.pipelineAlerts?.consultToday ?? 0,
     dashboardData?.upcomingConsults?.length ?? 0,
   )
+  // "Consults Scheduled" reflects every case moved into the consultation stage,
+  // not just today's appointments. Scheduling a consult flips the lead to the
+  // consulted state (activeCases.consultScheduled), so key off that so the card
+  // updates immediately after scheduling — even for a future date (#151).
+  const consultsScheduledCount = Math.max(
+    dashboardData?.activeCases?.consultScheduled ?? 0,
+    dashboardData?.upcomingConsults?.length ?? 0,
+    dashboardData?.pipelineAlerts?.consultToday ?? 0,
+  )
   const allLeads = dashboardData.recentLeads ?? []
   const postAcceptanceStatuses = ['contacted', 'consulted', 'retained']
   const newPlaintiffMatches = (dashboardData.newCaseMatches?.length ? dashboardData.newCaseMatches : allLeads.filter((lead) => !lead.status || lead.status === 'submitted'))
@@ -2712,12 +2741,12 @@ export default function AttorneyDashboard() {
   const profileSpecialties = Array.isArray(parsedProfileSpecialties) ? parsedProfileSpecialties : []
   const profileLanguages = Array.isArray(parsedProfileLanguages) ? parsedProfileLanguages : []
   const plaintiffSelectionReasons = [
-    Number(attorneyRating) >= 4.5 ? 'High rating' : null,
-    responseSpeedScore >= 0.65 ? 'Fast response time' : null,
-    profileSpecialties.includes('auto') || profileSpecialties.includes('auto_accidents') ? 'Auto accident experience' : null,
-    profileLanguages.some((language) => String(language).toLowerCase() === 'spanish') ? 'Spanish speaking' : null,
-    revenuePipeline > 0 ? 'Strong settlements' : null,
-    acceptanceRate >= 50 ? 'Strong acceptance rate' : null,
+    Number(attorneyRating) >= 4.5 ? 'High Rating' : null,
+    responseSpeedScore >= 0.65 ? 'Fast Response Time' : null,
+    profileSpecialties.includes('auto') || profileSpecialties.includes('auto_accidents') ? 'Auto Accident Experience' : null,
+    profileLanguages.some((language) => String(language).toLowerCase() === 'spanish') ? 'Spanish Speaking' : null,
+    revenuePipeline > 0 ? 'Strong Settlements' : null,
+    acceptanceRate >= 50 ? 'Strong Acceptance Rate' : null,
   ].filter(Boolean) as string[]
   const hotMatchesCount = dashboardData.qualityMetrics?.hotLeads ?? allLeads.filter((lead) => lead.hotnessLevel === 'hot').length
   const agingOver24hCount = allLeads.filter((lead) => {
@@ -2725,7 +2754,18 @@ export default function AttorneyDashboard() {
     return Date.now() - new Date(lead.submittedAt).getTime() > 24 * 60 * 60 * 1000
   }).length
   const waitingPlaintiffResponseCount = dashboardData.messagingSummary?.awaitingResponseCount ?? 0
-  const consultReadyCount = dashboardData.dailyQueueSummary?.demandReady ?? allLeads.filter((lead) => Number(lead.demandReadiness?.score || 0) >= 85).length
+  // "Consult Ready" must use the same predicate as the leads-tab consultReady
+  // filter (status=contacted AND contact has been made). Previously this counted
+  // demand-ready leads (score >= 85), so the tile could show a count while the
+  // opened queue displayed no cases (#205).
+  const consultReadyCount = allLeads.filter(
+    (lead) =>
+      (lead.status || '') === 'contacted' &&
+      Boolean(
+        lead.lastContactAt ||
+        (lead.contactAttempts || []).some((attempt: any) => attempt?.completedAt || attempt?.createdAt),
+      ),
+  ).length
   const retainedAwaitingIntakeCount = allLeads.filter((lead) => lead.status === 'retained' && Number(lead.demandReadiness?.score || 0) < 100).length
   const demandReadyCasesCount = allLeads.filter((lead) => Number(lead.demandReadiness?.score || 0) >= 85).length
   const settlementOpportunitiesCount = allLeads.filter((lead) => ['consulted', 'retained'].includes(lead.status || '') || Number(lead.demandReadiness?.score || 0) >= 85).length
@@ -2768,9 +2808,9 @@ export default function AttorneyDashboard() {
   const hasCaseCapacity = Number(attorneyProfile.maxCasesPerWeek || attorneyProfile.maxCasesPerMonth || 0) > 0
   const hasConsultAvailability = calendarConnections.some((connection) => connection.connected)
   const routingReadinessItems = [
-    { label: 'County coverage', done: hasCountyCoverage },
-    { label: 'Case capacity', done: hasCaseCapacity },
-    { label: 'Consultation availability', done: hasConsultAvailability },
+    { label: 'County Coverage', done: hasCountyCoverage },
+    { label: 'Case Capacity', done: hasCaseCapacity },
+    { label: 'Consultation Availability', done: hasConsultAvailability },
   ]
   const routingReadiness = Math.round((routingReadinessItems.filter((item) => item.done).length / routingReadinessItems.length) * 100)
   const leadPlaintiffName = (lead: Lead) => {
@@ -2854,7 +2894,8 @@ export default function AttorneyDashboard() {
             <div className="mt-3 space-y-2">
               {notificationItems.length ? notificationItems.map((item) => (
                 <div key={item.id} className={`rounded-lg px-3 py-2 text-sm font-medium ${item.tone}`}>
-                  {item.label}
+                  {/* Ensure each notification reads as a complete sentence (#122). */}
+                  {/[.!?]$/.test(item.label) ? item.label : `${item.label}.`}
                 </div>
               )) : (
                 <div className="rounded-lg bg-white px-3 py-2 text-sm text-slate-500">No new notifications.</div>
@@ -2871,9 +2912,9 @@ export default function AttorneyDashboard() {
             const Icon = tab.icon
             const resolvedTab = tab.id === 'activeCases' || tab.id === 'aiInsights' || tab.id === 'consultations' ? 'leads' : tab.id
             const isActive = tab.id === 'activeCases'
-              ? activeTab === 'leads' && caseLeadsFilter.pipelineStage === 'retained'
+              ? activeTab === 'leads' && leadsSection === 'active'
               : tab.id === 'leads'
-              ? activeTab === 'leads' && caseLeadsFilter.pipelineStage !== 'retained'
+              ? activeTab === 'leads' && leadsSection === 'matches'
               : tab.id === 'consultations'
               ? consultCalendarModalOpen
               : tab.id === 'aiInsights'
@@ -2888,6 +2929,7 @@ export default function AttorneyDashboard() {
                   if (tab.id === 'activeCases') {
                     setOverviewFocus('dashboard')
                     setActiveTab('leads')
+                    setLeadsSection('active')
                     setCaseLeadsFilter((prev) => ({ ...prev, status: 'retained', pipelineStage: 'retained' }))
                     setActivePipelineTile('retained')
                     return
@@ -2897,6 +2939,7 @@ export default function AttorneyDashboard() {
                     // Cases (retained filter) actually changes the list (#42).
                     setOverviewFocus('dashboard')
                     setActiveTab('leads')
+                    setLeadsSection('matches')
                     setCaseLeadsFilter((prev) => ({ ...prev, status: 'submitted', pipelineStage: 'matched' }))
                     setActivePipelineTile('matched')
                     return
@@ -3218,7 +3261,7 @@ export default function AttorneyDashboard() {
           <p className="mt-1 text-sm font-semibold text-slate-700">Imported</p>
           {pendingImportedCaseCount > 0 ? (
             <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
-              {pendingImportedCaseCount} pending import{pendingImportedCaseCount === 1 ? '' : 's'}
+              {pendingImportedCaseCount} Pending Import{pendingImportedCaseCount === 1 ? '' : 's'}
             </p>
           ) : (
             <p className="mt-3 text-sm text-slate-500">Import Filevine, Needles, Litify, or spreadsheet cases.</p>
@@ -3243,7 +3286,7 @@ export default function AttorneyDashboard() {
             </div>
             <div className="rounded-xl bg-emerald-50 p-4">
               <p className="text-xs font-semibold text-emerald-700">Consults Scheduled</p>
-              <p className="mt-2 text-2xl font-bold text-emerald-950">{consultsToday}</p>
+              <p className="mt-2 text-2xl font-bold text-emerald-950">{consultsScheduledCount}</p>
             </div>
             <div className="rounded-xl bg-emerald-50 p-4">
               <p className="text-xs font-semibold text-emerald-700">Settlement Opportunities</p>
@@ -3327,7 +3370,7 @@ export default function AttorneyDashboard() {
           <details className="card group">
             <summary className="flex cursor-pointer list-none items-center justify-between [&::-webkit-details-marker]:hidden">
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">More automated reminders</h3>
+                <h3 className="text-lg font-semibold text-gray-900">More Automated Reminders</h3>
                 <p className="mt-1 text-sm text-gray-600">Open only when you want the detailed readiness feed.</p>
               </div>
               <ChevronRight className="h-5 w-5 text-gray-400 transition-transform group-open:rotate-90" />
@@ -3335,7 +3378,7 @@ export default function AttorneyDashboard() {
             <div className="mt-5 border-t border-gray-100 pt-5">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Automation feed</h3>
+                <h3 className="text-lg font-semibold text-gray-900">Automation Feed</h3>
                 <p className="mt-1 text-sm text-gray-600">Readiness-generated reminders and nudges the system queued automatically.</p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -3973,7 +4016,7 @@ function buildAttorneyAiOpportunities(data: DashboardData): AttorneyAiOpportunit
   if (topMatch?.id) {
     opportunities.push({
       id: `top-match-${topMatch.id}`,
-      label: 'Match quality',
+      label: 'Match Quality',
       title: `${dashboardClaimLabel(topMatch.assessment?.claimType || 'case')} needs a decision`,
       detail: `${dashboardLeadValueRange(topMatch)} estimated value with strength ${Math.round((topMatch.viabilityScore || 0) * 100)}/100.`,
       actionLabel: 'Review match',
@@ -4001,7 +4044,7 @@ function buildAttorneyAiOpportunities(data: DashboardData): AttorneyAiOpportunit
   if (demandReadyLead?.id) {
     opportunities.push({
       id: `demand-ready-${demandReadyLead.id}`,
-      label: 'Demand ready',
+      label: 'Demand Ready',
       title: `${dashboardClaimLabel(demandReadyLead.assessment?.claimType || 'case')} is ready for demand prep`,
       detail: `Readiness score is ${Math.round(Number(demandReadyLead.demandReadiness?.score || 0))}%. Draft or refresh the demand package.`,
       actionLabel: 'Open demand tools',
@@ -4015,7 +4058,7 @@ function buildAttorneyAiOpportunities(data: DashboardData): AttorneyAiOpportunit
   if (missingDocsLead?.id) {
     opportunities.push({
       id: `missing-docs-${missingDocsLead.id}`,
-      label: 'Evidence gap',
+      label: 'Evidence Gap',
       title: `${dashboardClaimLabel(missingDocsLead.assessment?.claimType || 'case')} has no uploaded documents`,
       detail: 'Request core evidence now so evaluation and demand readiness can advance.',
       actionLabel: 'Request documents',
@@ -4028,7 +4071,7 @@ function buildAttorneyAiOpportunities(data: DashboardData): AttorneyAiOpportunit
 
   opportunities.push({
     id: 'portfolio-analytics',
-    label: 'Firm intelligence',
+    label: 'Firm Intelligence',
     title: 'Review settlement trends and demand success rates',
     detail: 'Use firm intelligence to compare venue performance, insurer behavior, and demand outcomes across active cases.',
     actionLabel: 'Open firm intelligence',

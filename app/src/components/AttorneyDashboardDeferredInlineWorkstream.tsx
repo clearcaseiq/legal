@@ -532,19 +532,23 @@ export default function AttorneyDashboardDeferredInlineWorkstream({
         </div>
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
+        {/* Stages are cumulative milestones on a single status field. Once a lead
+            is consulted/retained, marking an earlier stage would regress it
+            (e.g. Retained → Consulted flipped Retained back to Pending), so we
+            disable a stage button once that stage is already reached (#165). */}
         <button
           onClick={() => handleStatusUpdate('consulted')}
-          disabled={leadDecisionLoading}
-          className="px-3 py-1.5 text-sm font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700 disabled:opacity-50"
+          disabled={leadDecisionLoading || selectedLead?.status === 'consulted' || selectedLead?.status === 'retained'}
+          className="px-3 py-1.5 text-sm font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Mark Consulted
+          {selectedLead?.status === 'consulted' || selectedLead?.status === 'retained' ? 'Consulted ✓' : 'Mark Consulted'}
         </button>
         <button
           onClick={() => handleStatusUpdate('retained')}
-          disabled={leadDecisionLoading}
-          className="px-3 py-1.5 text-sm font-medium text-white bg-emerald-600 rounded-md hover:bg-emerald-700 disabled:opacity-50"
+          disabled={leadDecisionLoading || selectedLead?.status === 'retained'}
+          className="px-3 py-1.5 text-sm font-medium text-white bg-emerald-600 rounded-md hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Mark Retained
+          {selectedLead?.status === 'retained' ? 'Retained ✓' : 'Mark Retained'}
         </button>
       </div>
     </div>
