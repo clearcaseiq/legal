@@ -70,10 +70,23 @@ function formatFromAddress(email: string, fromName?: string): string {
 }
 
 /** Convert a plain-text body into simple paragraph HTML, escaping unsafe chars. */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 function bodyToHtml(body: string): string {
+  // Turn bare http(s) URLs into clickable links. We escape first, then match on
+  // the escaped text (query separators become `&amp;`, which is still valid
+  // inside an href), so reset/verification links are actually clickable in mail
+  // clients instead of arriving as plain text.
+  const urlRe = /(https?:\/\/[^\s<]+)/g
   return String(body || '')
     .split('\n')
-    .map((line) => `<p>${line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
+    .map((line) => {
+      const escaped = escapeHtml(line)
+      const linked = escaped.replace(urlRe, (url) => `<a href="${url}" style="color:#2563eb;text-decoration:underline;word-break:break-all">${url}</a>`)
+      return `<p>${linked}</p>`
+    })
     .join('')
 }
 
