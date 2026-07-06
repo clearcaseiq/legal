@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BarChart3, Users, DollarSign, AlertTriangle, Star, Building2, ArrowLeft, Plus, Briefcase, ClipboardList, ShieldCheck } from 'lucide-react'
-import { addFirmAttorney, addFirmMember, updateFirmAttorney } from '../lib/api'
+import { addFirmAttorney, addFirmMember, addFirmOffice, addFirmTeam, updateFirmAttorney } from '../lib/api'
 import { formatCurrency } from '../lib/formatters'
 import { US_STATES } from '../lib/constants'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
@@ -27,6 +27,16 @@ const FIRM_ROLES = [
   { value: 'legal_assistant', label: 'Legal Assistant' },
   { value: 'demand_writer', label: 'Demand Writer' },
   { value: 'medical_records', label: 'Medical Records' }
+]
+
+const TEAM_TYPES = [
+  { value: 'case_team', label: 'Case Team' },
+  { value: 'intake', label: 'Intake' },
+  { value: 'litigation', label: 'Litigation' },
+  { value: 'records', label: 'Medical Records' },
+  { value: 'demand', label: 'Demand Writing' },
+  { value: 'billing', label: 'Billing' },
+  { value: 'negotiation', label: 'Negotiation' }
 ]
 
 const formatRole = (role: string) =>
@@ -166,6 +176,14 @@ export default function FirmDashboard() {
   const [memberSaving, setMemberSaving] = useState(false)
   const [memberError, setMemberError] = useState<string | null>(null)
   const [memberSuccess, setMemberSuccess] = useState<string | null>(null)
+  const [newOffice, setNewOffice] = useState({ name: '', city: '', state: '', capacity: '' })
+  const [officeSaving, setOfficeSaving] = useState(false)
+  const [officeError, setOfficeError] = useState<string | null>(null)
+  const [officeSuccess, setOfficeSuccess] = useState<string | null>(null)
+  const [newTeam, setNewTeam] = useState({ name: '', teamType: 'case_team', officeId: '' })
+  const [teamSaving, setTeamSaving] = useState(false)
+  const [teamError, setTeamError] = useState<string | null>(null)
+  const [teamSuccess, setTeamSuccess] = useState<string | null>(null)
   const [stateSearchQuery, setStateSearchQuery] = useState('')
   const [editingAttorneyId, setEditingAttorneyId] = useState<string | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
@@ -340,6 +358,57 @@ export default function FirmDashboard() {
       setMemberError(err.response?.data?.error || 'Failed to add firm team member.')
     } finally {
       setMemberSaving(false)
+    }
+  }
+
+  const handleAddOffice = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setOfficeError(null)
+    setOfficeSuccess(null)
+    if (!newOffice.name.trim()) {
+      setOfficeError('Office name is required.')
+      return
+    }
+    try {
+      setOfficeSaving(true)
+      await addFirmOffice({
+        name: newOffice.name.trim(),
+        city: newOffice.city.trim() || undefined,
+        state: newOffice.state.trim() || undefined,
+        capacity: newOffice.capacity.trim() ? Number(newOffice.capacity) : undefined
+      })
+      setOfficeSuccess('Office added.')
+      setNewOffice({ name: '', city: '', state: '', capacity: '' })
+      invalidateFirmDashboardSummary()
+    } catch (err: any) {
+      setOfficeError(err.response?.data?.error || 'Failed to add office.')
+    } finally {
+      setOfficeSaving(false)
+    }
+  }
+
+  const handleAddTeam = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setTeamError(null)
+    setTeamSuccess(null)
+    if (!newTeam.name.trim()) {
+      setTeamError('Team name is required.')
+      return
+    }
+    try {
+      setTeamSaving(true)
+      await addFirmTeam({
+        name: newTeam.name.trim(),
+        teamType: newTeam.teamType,
+        officeId: newTeam.officeId || undefined
+      })
+      setTeamSuccess('Team added.')
+      setNewTeam({ name: '', teamType: 'case_team', officeId: '' })
+      invalidateFirmDashboardSummary()
+    } catch (err: any) {
+      setTeamError(err.response?.data?.error || 'Failed to add team.')
+    } finally {
+      setTeamSaving(false)
     }
   }
 
@@ -560,9 +629,101 @@ export default function FirmDashboard() {
               <p className="text-sm font-semibold text-gray-900">Teams</p>
               <p className="mt-1 text-2xl font-bold text-gray-900">{teams.length}</p>
               <p className="mt-1 text-xs text-gray-500">
-                Intake, litigation, records, demand writing, billing
+                {teams.length ? teams.map(team => team.name).slice(0, 3).join(', ') : 'Intake, litigation, records, demand writing, billing'}
               </p>
             </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Add Office */}
+            <form onSubmit={handleAddOffice} className="rounded-lg border border-gray-200 p-4 space-y-3">
+              <p className="text-sm font-semibold text-gray-900">Add Office</p>
+              <input
+                type="text"
+                value={newOffice.name}
+                onChange={(e) => setNewOffice({ ...newOffice, name: e.target.value })}
+                placeholder="Office name, e.g. Los Angeles"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  value={newOffice.city}
+                  onChange={(e) => setNewOffice({ ...newOffice, city: e.target.value })}
+                  placeholder="City"
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
+                <select
+                  value={newOffice.state}
+                  onChange={(e) => setNewOffice({ ...newOffice, state: e.target.value })}
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                >
+                  <option value="">State</option>
+                  {US_STATES.map(state => (
+                    <option key={state.code} value={state.code}>{state.code}</option>
+                  ))}
+                </select>
+              </div>
+              <input
+                type="number"
+                min={0}
+                value={newOffice.capacity}
+                onChange={(e) => setNewOffice({ ...newOffice, capacity: e.target.value })}
+                placeholder="Capacity (optional)"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              />
+              {officeError && <p className="text-sm text-red-600">{officeError}</p>}
+              {officeSuccess && <p className="text-sm text-green-600">{officeSuccess}</p>}
+              <button
+                type="submit"
+                disabled={officeSaving}
+                className="w-full inline-flex items-center justify-center px-4 py-2 rounded-md bg-brand-600 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                {officeSaving ? 'Adding…' : 'Add Office'}
+              </button>
+            </form>
+
+            {/* Add Team */}
+            <form onSubmit={handleAddTeam} className="rounded-lg border border-gray-200 p-4 space-y-3">
+              <p className="text-sm font-semibold text-gray-900">Add Team</p>
+              <input
+                type="text"
+                value={newTeam.name}
+                onChange={(e) => setNewTeam({ ...newTeam, name: e.target.value })}
+                placeholder="Team name, e.g. Intake Team"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              />
+              <select
+                value={newTeam.teamType}
+                onChange={(e) => setNewTeam({ ...newTeam, teamType: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              >
+                {TEAM_TYPES.map(type => (
+                  <option key={type.value} value={type.value}>{type.label}</option>
+                ))}
+              </select>
+              <select
+                value={newTeam.officeId}
+                onChange={(e) => setNewTeam({ ...newTeam, officeId: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              >
+                <option value="">No office (firm-wide)</option>
+                {offices.map(office => (
+                  <option key={office.id} value={office.id}>{office.name}</option>
+                ))}
+              </select>
+              {teamError && <p className="text-sm text-red-600">{teamError}</p>}
+              {teamSuccess && <p className="text-sm text-green-600">{teamSuccess}</p>}
+              <button
+                type="submit"
+                disabled={teamSaving}
+                className="w-full inline-flex items-center justify-center px-4 py-2 rounded-md bg-brand-600 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                {teamSaving ? 'Adding…' : 'Add Team'}
+              </button>
+            </form>
           </div>
         </div>
 
