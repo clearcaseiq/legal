@@ -507,6 +507,60 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
   }
 })
 
+// Tasks the attorney assigned to the client/plaintiff for this case. Only tasks
+// explicitly assigned to the client role are surfaced — internal attorney and
+// paralegal tasks stay private to the firm (#157).
+router.get('/:id/tasks', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const assessment = await prisma.assessment.findUnique({
+      where: { id },
+      select: { userId: true },
+    })
+
+    if (!assessment) {
+      return res.status(404).json({ error: 'Assessment not found' })
+    }
+
+    if (!assessment.userId || assessment.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Unauthorized to view this assessment' })
+    }
+
+    const tasks = await prisma.caseTask.findMany({
+      where: {
+        assessmentId: id,
+        assignedRole: { in: ['client', 'plaintiff'] },
+      },
+      orderBy: [{ status: 'desc' }, { dueDate: 'asc' }, { createdAt: 'desc' }],
+      select: {
+        id: true,
+        title: true,
+        notes: true,
+        status: true,
+        priority: true,
+        dueDate: true,
+        taskType: true,
+      },
+    })
+
+    res.json({
+      assessmentId: id,
+      tasks: tasks.map((task) => ({
+        id: task.id,
+        title: task.title,
+        notes: task.notes,
+        status: task.status,
+        priority: task.priority,
+        dueDate: task.dueDate,
+        taskType: task.taskType,
+      })),
+    })
+  } catch (error) {
+    logger.error('Failed to load plaintiff case tasks', { error, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Failed to load tasks' })
+  }
+})
+
 const opposingSuggestionSchema = z.object({
   requestedDocs: z.array(z.string()).optional(),
   recipientName: z.string().max(200).optional(),
@@ -622,7 +676,7 @@ router.get('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
           orderBy: { createdAt: 'desc' },
           take: 1
         },
-        leadSubmission: { select: { id: true, submittedAt: true, status: true } }
+        leadSubmission: { select: { id: true, submittedAt: true, status: true, lifecycleState: true } }
       }
     })
 
@@ -636,6 +690,10 @@ router.get('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
         status: a.status,
         created_at: a.createdAt,
         submittedForReview: !!a.leadSubmission,
+        // Expose the case funnel state so the plaintiff sees the real case
+        // status (e.g. "Accepted") instead of the assessment report status (#147).
+        lifecycleState: a.leadSubmission?.lifecycleState ?? null,
+        leadStatus: a.leadSubmission?.status ?? null,
         latest_prediction: latest ? {
           id: latest.id,
           model_version: latest.modelVersion,

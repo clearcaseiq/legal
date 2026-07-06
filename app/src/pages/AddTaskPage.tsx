@@ -27,6 +27,7 @@ export default function AddTaskPage() {
   const [title, setTitle] = useState('')
   const [dueDate, setDueDate] = useState(dateFromUrl || '')
   const [priority, setPriority] = useState('medium')
+  const [assignedRole, setAssignedRole] = useState('attorney')
   useEffect(() => {
     if (dateFromUrl) setDueDate(dateFromUrl)
   }, [dateFromUrl])
@@ -57,6 +58,7 @@ export default function AddTaskPage() {
         taskType: 'general',
         dueDate: dueDate || undefined,
         priority,
+        assignedRole,
         notes: notes.trim() || undefined,
         status: 'open'
       })
@@ -149,6 +151,19 @@ export default function AddTaskPage() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Assign to</label>
+              <select
+                value={assignedRole}
+                onChange={(e) => setAssignedRole(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+              >
+                <option value="attorney">Attorney</option>
+                <option value="paralegal">Paralegal</option>
+                <option value="client">Client (Plaintiff)</option>
+              </select>
+              <p className="mt-1 text-xs text-gray-500">Tasks assigned to the client are visible to the plaintiff in their Tasks section.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>

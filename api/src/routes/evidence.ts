@@ -926,7 +926,9 @@ const UpdateEvidenceFileSchema = z.object({
   accessLevel: z.enum(['private', 'attorney', 'shared']).optional(),
   isVerified: z.boolean().optional(),
   tags: z.union([z.string(), z.array(z.string())]).nullable().optional(),
-  relevanceScore: z.number().optional(),
+  // Relevance is a 0–1 score; clamp so a negative or out-of-range value can't be
+  // persisted even if the client bypasses the input controls (#210).
+  relevanceScore: z.number().transform((value) => Math.min(1, Math.max(0, value))).optional(),
   provenanceSource: z.string().nullable().optional(),
   provenanceNotes: z.string().nullable().optional(),
   provenanceActor: z.string().nullable().optional(),
@@ -1026,6 +1028,13 @@ router.delete('/:fileId', optionalAuthMiddleware, async (req: any, res) => {
     await prisma.evidenceFile.delete({
       where: { id: fileId }
     })
+
+    // Recompute derived damages (e.g. documented medical specials) now that a
+    // document was removed. Uploads already recalc; deletes did not, so the
+    // Medical Specials figure went stale after removing a bill (#163).
+    if (evidenceFile.assessmentId) {
+      void runCaseRecalculation(evidenceFile.assessmentId, 'document_deleted')
+    }
 
     res.json({ message: 'Evidence file deleted successfully' })
   } catch (error) {

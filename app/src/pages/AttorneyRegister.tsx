@@ -53,6 +53,14 @@ export default function AttorneyRegister() {
   const venues = form.venues
   const selectedCounties = form.preferredCounties
 
+  // Practice-area options reuse the exact incident-type labels a plaintiff sees
+  // during intake (the `intake.injuryType_*` keys), so the attorney list can
+  // never drift from the client-facing list and stays localized (#49).
+  const practiceAreaOptions = CASE_TYPES.map((caseType) => ({
+    value: caseType.value,
+    label: t(`intake.injuryType_${caseType.value}`),
+  }))
+
   const updateField = <K extends keyof AttorneyRegisterFormInput>(
     field: K,
     value: AttorneyRegisterFormInput[K]
@@ -438,23 +446,23 @@ export default function AttorneyRegister() {
                 <h3 className="text-lg font-medium text-gray-900">Practice Areas</h3>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Which cases do you want? *</label>
-                  <p className="mb-2 text-xs text-gray-500">These cover the same incident types clients select: "Slip &amp; Fall / Premises" also includes workplace and assault/negligent-security matters, and "Product Liability / Toxic" includes toxic-exposure claims.</p>
+                  <p className="mb-2 text-xs text-gray-500">These are the same incident types clients choose when they start a case.</p>
                   <div className="flex flex-wrap gap-2">
-                    {CASE_TYPES.map((t) => (
+                    {practiceAreaOptions.map((opt) => (
                       <label
-                        key={t.value}
+                        key={opt.value}
                         className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-sm transition ${
-                          specialties.includes(t.value) ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                          specialties.includes(opt.value) ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
                         }`}
                       >
                         <input
                           type="checkbox"
-                          checked={specialties.includes(t.value)}
-                          onChange={() => toggleArray('specialties', t.value)}
+                          checked={specialties.includes(opt.value)}
+                          onChange={() => toggleArray('specialties', opt.value)}
                           className="sr-only"
                         />
-                        <span>{specialties.includes(t.value) ? '✓' : '+'}</span>
-                        <span>{t.label}</span>
+                        <span>{specialties.includes(opt.value) ? '✓' : '+'}</span>
+                        <span>{opt.label}</span>
                       </label>
                     ))}
                   </div>
@@ -646,7 +654,7 @@ export default function AttorneyRegister() {
                       </label>
                     ))}
                   </div>
-                  <p className="mt-2 text-xs text-gray-500">Consultation method, pricing, and payment settings can be edited later.</p>
+                  <p className="mt-2 text-xs text-gray-500">You can update your capacity and intake status anytime in Settings.</p>
                 </div>
                 <div className="flex justify-between pt-2">
                   <button type="button" onClick={() => setCurrentStep(3)} className="btn-secondary">
@@ -754,7 +762,7 @@ export default function AttorneyRegister() {
                     {firmName && ` • ${firmName}`}
                   </p>
                   <p className="text-sm text-gray-600 mt-1">
-                    Practice Areas: {specialties.map((v) => CASE_TYPES.find((t) => t.value === v)?.label || v).join(', ') || '—'}
+                    Practice Areas: {specialties.map((v) => practiceAreaOptions.find((o) => o.value === v)?.label || v).join(', ') || '—'}
                   </p>
                   <p className="text-sm text-gray-600">
                     Jurisdiction: {venues.join(', ') || '—'}

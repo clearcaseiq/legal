@@ -108,6 +108,8 @@ export default function AttorneyProfile() {
   const [activeTab, setActiveTab] = useState('overview')
   const [editing, setEditing] = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
+  const [verdictToDelete, setVerdictToDelete] = useState<number | null>(null)
+  const [deletingVerdict, setDeletingVerdict] = useState(false)
   const photoInputRef = useRef<HTMLInputElement | null>(null)
   const [newVerdict, setNewVerdict] = useState({
     caseType: '',
@@ -119,6 +121,9 @@ export default function AttorneyProfile() {
 
   useEffect(() => {
     void loadProfile({ initial: true })
+    // Warm the Profile Settings (preferences) chunk so navigating there from the
+    // "Profile Settings" button doesn't flash the route Suspense spinner (#212).
+    void import('./AttorneyPreferences')
     const intervalId = window.setInterval(() => {
       void loadProfile({ initial: false })
     }, 30000)
@@ -218,7 +223,10 @@ export default function AttorneyProfile() {
   }
 
   const formatPercentage = (value: number) => {
-    return `${value.toFixed(1)}%`
+    // Show whole numbers without a trailing ".0" (e.g. "0%" not "0.0%"), but keep
+    // one decimal for fractional rates (e.g. "87.5%").
+    const rounded = Math.round((Number(value) || 0) * 10) / 10
+    return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}%`
   }
 
   const handleSaveProfile = async () => {
@@ -321,7 +329,10 @@ export default function AttorneyProfile() {
       setUploadingPhoto(true)
       setError(null)
       const updated = await uploadAttorneyProfilePhoto(file)
-      setProfile(normalizeProfile(updated))
+      // The /photo endpoint returns only the AttorneyProfile record (no attorney
+      // relation), so replacing the whole profile wiped the displayed name/bio.
+      // Merge just the new photo URL and keep the rest of the loaded profile.
+      setProfile((prev) => (prev ? { ...prev, photoUrl: updated?.photoUrl ?? prev.photoUrl } : prev))
       setLastUpdatedAt(new Date())
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Failed to upload profile photo.')
@@ -350,14 +361,22 @@ export default function AttorneyProfile() {
     }
   }
 
-  const handleDeleteVerdict = async (index: number) => {
+  const handleDeleteVerdict = (index: number) => {
     if (!profile) return
-    if (!window.confirm('Remove this verdict from your profile?')) return
+    setVerdictToDelete(index)
+  }
+
+  const confirmDeleteVerdict = async () => {
+    if (!profile || verdictToDelete === null) return
+    setDeletingVerdict(true)
     try {
-      await persistVerdicts(profile.verifiedVerdicts.filter((_, i) => i !== index))
+      await persistVerdicts(profile.verifiedVerdicts.filter((_, i) => i !== verdictToDelete))
       setError(null)
+      setVerdictToDelete(null)
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Failed to remove verdict.')
+    } finally {
+      setDeletingVerdict(false)
     }
   }
 
@@ -573,6 +592,8 @@ export default function AttorneyProfile() {
                           <input
                             type="text"
                             value={language}
+                            autoFocus={!language.trim()}
+                            placeholder="e.g., Spanish"
                             onChange={(e) => {
                               const newLanguages = [...profile.languages]
                               newLanguages[index] = e.target.value
@@ -742,8 +763,18 @@ export default function AttorneyProfile() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Settlement Amount</label>
                 <input
                   type="number"
+                  min="0"
+                  step="1000"
                   value={newVerdict.settlementAmount}
-                  onChange={(e) => setNewVerdict({ ...newVerdict, settlementAmount: e.target.value })}
+                  onChange={(e) => {
+                    const raw = e.target.value
+                    // Prevent negatives (e.g. via the down arrow) while still
+                    // allowing the field to be cleared.
+                    setNewVerdict({
+                      ...newVerdict,
+                      settlementAmount: raw === '' ? '' : String(Math.max(0, parseInt(raw, 10) || 0)),
+                    })
+                  }}
                   className="form-input"
                   placeholder="2500000"
                 />
@@ -828,6 +859,53 @@ export default function AttorneyProfile() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {verdictToDelete !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-verdict-title"
+          onClick={() => { if (!deletingVerdict) setVerdictToDelete(null) }}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100">
+                <Trash2 className="h-5 w-5 text-red-600" />
+              </div>
+              <div>
+                <h3 id="delete-verdict-title" className="text-base font-semibold text-gray-900">
+                  Remove verdict
+                </h3>
+                <p className="mt-1 text-sm text-gray-600">
+                  Are you sure you want to remove this verdict from your profile? This action can’t be undone.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setVerdictToDelete(null)}
+                disabled={deletingVerdict}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => { void confirmDeleteVerdict() }}
+                disabled={deletingVerdict}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deletingVerdict ? 'Removing…' : 'Remove'}
+              </button>
+            </div>
           </div>
         </div>
       )}

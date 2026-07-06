@@ -437,7 +437,7 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
       photoUrl,
       specialties,
       languages,
-      yearsExperience,
+      yearsExperience: rawYearsExperience,
       totalCases,
       totalSettlements,
       averageSettlement,
@@ -451,11 +451,11 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
       // Case preferences
       minInjurySeverity,
       excludedCaseTypes,
-      minDamagesRange,
-      maxDamagesRange,
+      minDamagesRange: rawMinDamagesRange,
+      maxDamagesRange: rawMaxDamagesRange,
       // Capacity signals
-      maxCasesPerWeek,
-      maxCasesPerMonth,
+      maxCasesPerWeek: rawMaxCasesPerWeek,
+      maxCasesPerMonth: rawMaxCasesPerMonth,
       intakeHours,
       responseTimeHours,
       // Buying preferences
@@ -463,6 +463,40 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
       paymentModel,
       subscriptionTier
     } = req.body
+
+    // Defense-in-depth: damages and case-capacity numbers can never be negative
+    // and must stay within sane upper bounds. The UI clamps these, but a crafted
+    // request could still send out-of-range values, so enforce the same limits
+    // server-side. `undefined` is preserved so an omitted field leaves the stored
+    // value unchanged rather than clearing it.
+    const MAX_DAMAGES = 100_000_000
+    const MAX_CASES_PER_WEEK = 1000
+    const MAX_CASES_PER_MONTH = 5000
+    const MAX_YEARS_EXPERIENCE = 80
+    const clampNumber = (value: unknown, max: number): number | null | undefined => {
+      if (value === undefined) return undefined
+      if (value === null || value === '') return null
+      const n = Number(value)
+      return Number.isFinite(n) ? Math.min(max, Math.max(0, n)) : null
+    }
+    const minDamagesRange = clampNumber(rawMinDamagesRange, MAX_DAMAGES)
+    const maxDamagesRange = clampNumber(rawMaxDamagesRange, MAX_DAMAGES)
+    const maxCasesPerWeek = clampNumber(rawMaxCasesPerWeek, MAX_CASES_PER_WEEK)
+    const maxCasesPerMonth = clampNumber(rawMaxCasesPerMonth, MAX_CASES_PER_MONTH)
+    const yearsExperience = clampNumber(rawYearsExperience, MAX_YEARS_EXPERIENCE)
+
+    // Cap ZIP and phone length per firm location so a crafted request can't store
+    // oversized strings that bypass the client-side maxLength limits.
+    const sanitizeFirmLocations = (value: unknown): unknown[] | undefined => {
+      if (value === undefined || !Array.isArray(value)) return undefined
+      const trim = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : v)
+      return value.map((loc) => {
+        if (!loc || typeof loc !== 'object') return loc
+        const l = loc as Record<string, unknown>
+        return { ...l, zip: trim(l.zip, 10), phone: trim(l.phone, 20) }
+      })
+    }
+    const firmLocationsSanitized = sanitizeFirmLocations(firmLocations)
 
     const profile = await prisma.attorneyProfile.upsert({
       where: { attorneyId },
@@ -479,7 +513,7 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
         verifiedVerdicts: verifiedVerdicts ? JSON.stringify(verifiedVerdicts) : undefined,
         // Firm information
         firmName,
-        firmLocations: firmLocations ? JSON.stringify(firmLocations) : undefined,
+        firmLocations: firmLocationsSanitized ? JSON.stringify(firmLocationsSanitized) : undefined,
         // Jurisdictions
         jurisdictions: jurisdictions ? JSON.stringify(jurisdictions) : undefined,
         // Case preferences
@@ -512,7 +546,7 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
         averageRating: 0,
         // Firm information
         firmName: firmName || null,
-        firmLocations: firmLocations ? JSON.stringify(firmLocations) : null,
+        firmLocations: firmLocationsSanitized ? JSON.stringify(firmLocationsSanitized) : null,
         // Jurisdictions
         jurisdictions: jurisdictions ? JSON.stringify(jurisdictions) : null,
         // Case preferences
@@ -541,7 +575,13 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
       }
     })
 
-    res.json(profile)
+    // Return the profile with the attorney relation so the client keeps the
+    // display name/bio after saving (the upsert result alone omits `attorney`).
+    const profileWithAttorney = await prisma.attorneyProfile.findUnique({
+      where: { attorneyId },
+      include: { attorney: true },
+    })
+    res.json(profileWithAttorney ?? profile)
   } catch (error: any) {
     logger.error('Failed to update attorney profile', { error: error.message })
     res.status(500).json({ error: 'Failed to update profile' })
@@ -602,8 +642,14 @@ router.post('/photo', authMiddleware, avatarUpload.single('photo'), async (req: 
       fs.promises.unlink(previousPath).catch(() => undefined)
     }
 
+    // Include the attorney relation so the client keeps the display name/bio
+    // after uploading a new photo (#113).
+    const profileWithAttorney = await prisma.attorneyProfile.findUnique({
+      where: { attorneyId },
+      include: { attorney: true },
+    })
     logger.info('Attorney profile photo uploaded', { attorneyId, fileName: req.file.originalname })
-    res.json(profile)
+    res.json(profileWithAttorney ?? profile)
   } catch (error: any) {
     logger.error('Failed to upload attorney profile photo', { error: error.message })
     res.status(500).json({ error: 'Failed to upload profile photo' })

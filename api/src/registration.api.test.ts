@@ -118,10 +118,22 @@ describe('Plaintiff registration POST /v1/auth/register', () => {
     expect(res.status).toBe(400)
   })
 
-  it('400 empty lastName', async () => {
+  it('201 allows empty lastName (optional for streamlined signup)', async () => {
+    // Intake only collects a first name, so last name is optional and defaults
+    // to empty rather than failing validation (#35).
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null as any)
+    vi.mocked(prisma.user.create).mockResolvedValue({
+      id: 'user-pl-nolast',
+      email: plaintiffValid.email,
+      firstName: plaintiffValid.firstName,
+      lastName: '',
+      phone: plaintiffValid.phone,
+      createdAt: new Date(),
+    } as any)
+
     const res = await request(app).post('/v1/auth/register').send({ ...plaintiffValid, lastName: '' })
 
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(201)
   })
 
   it('400 missing body fields', async () => {

@@ -137,10 +137,10 @@ export default function PreAcceptanceView({
   const hasWageLoss = leadEvidenceFiles.some((f: any) => ['wage', 'wage_loss'].includes(String(f?.category || f?.subcategory || '')))
 
   const evidenceList = [
-    { label: 'Medical records', status: medicalSharingPending ? 'Pending authorization' : hasMedical ? 'Uploaded' : 'Missing' },
-    { label: 'Injury photos', status: hasPhotos ? 'Uploaded' : 'Missing' },
-    { label: 'Police report', status: hasPolice ? 'Uploaded' : 'Missing' },
-    { label: 'Wage loss docs', status: hasWageLoss ? 'Uploaded' : 'Missing' }
+    { label: 'Medical Records', status: medicalSharingPending ? 'Pending authorization' : hasMedical ? 'Uploaded' : 'Missing' },
+    { label: 'Injury Photos', status: hasPhotos ? 'Uploaded' : 'Missing' },
+    { label: 'Police Report', status: hasPolice ? 'Uploaded' : 'Missing' },
+    { label: 'Wage Loss Docs', status: hasWageLoss ? 'Uploaded' : 'Missing' }
   ]
   const derivedEvidenceUploaded = evidenceList.filter((item) => item.status === 'Uploaded').length
   const derivedEvidenceTotal = evidenceList.length
@@ -208,10 +208,10 @@ export default function PreAcceptanceView({
         ? 'Accept if capacity and missing documents are manageable'
         : 'Review risks before accepting'
   const riskRows = [
-    { label: 'Treatment continuity', value: treatmentContinuity || 'Not assessed yet', level: treatmentContinuity === 'Fragmented' || treatments.length <= 1 ? 'high' : 'low' },
-    { label: 'Documentation completeness', value: `${evidenceScore}%`, level: evidenceScore < 50 ? 'high' : evidenceScore < 75 ? 'medium' : 'low' },
-    { label: 'Comparative fault', value: comparativeRisk, level: comparativeRisk === 'Yes' || comparativeRisk === 'Possible' ? 'medium' : 'low' },
-    { label: 'Value estimate confidence', value: `${confidenceScore}%`, level: confidenceScore < 50 ? 'medium' : 'low' },
+    { label: 'Treatment Continuity', value: treatmentContinuity || 'Not assessed yet', level: treatmentContinuity === 'Fragmented' || treatments.length <= 1 ? 'high' : 'low' },
+    { label: 'Documentation Completeness', value: `${evidenceScore}%`, level: evidenceScore < 50 ? 'high' : evidenceScore < 75 ? 'medium' : 'low' },
+    { label: 'Comparative Fault', value: comparativeRisk, level: comparativeRisk === 'Yes' || comparativeRisk === 'Possible' ? 'medium' : 'low' },
+    { label: 'Value Estimate Confidence', value: `${confidenceScore}%`, level: confidenceScore < 50 ? 'medium' : 'low' },
   ]
 
   return (
@@ -383,12 +383,12 @@ export default function PreAcceptanceView({
             <div className="space-y-4">
               <div className="grid gap-3 md:grid-cols-4">
                 <DecisionMetric label="Acceptability" value={`${readinessScore}%`} helper={decisionRecommendation} tone={scoreTone(heuristics, readinessScore)} />
-                <DecisionMetric label="Attorney fit" value={`${attorneyFitScore}%`} helper={matchReasons[0] || 'Fit based on case and venue signals'} tone="blue" />
-                <DecisionMetric label="File completeness" value={`${evidenceScore}%`} helper={`${evidenceUploaded}/${evidenceTotal} key items uploaded`} tone={evidenceScore >= heuristics.evidenceCompleteness.highMin ? 'green' : 'amber'} />
+                <DecisionMetric label="Attorney Fit" value={`${attorneyFitScore}%`} helper={matchReasons[0] || 'Fit based on case and venue signals'} tone="blue" />
+                <DecisionMetric label="File Completeness" value={`${evidenceScore}%`} helper={`${evidenceUploaded}/${evidenceTotal} key items uploaded`} tone={evidenceScore >= heuristics.evidenceCompleteness.highMin ? 'green' : 'amber'} />
                 <DecisionMetric label="Urgency" value={expiresIn || 'Normal'} helper={deadlineUrgency} tone={expiresIn ? 'amber' : 'slate'} />
               </div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <h3 className="text-sm font-semibold text-slate-900">60-second case story</h3>
+                <h3 className="text-sm font-semibold text-slate-900">60-Second Case Story</h3>
                 <p className="mt-2 text-sm text-slate-700">
                   {claimType} in {location}.{' '}
                   {valueLow || valueHigh
@@ -412,7 +412,7 @@ export default function PreAcceptanceView({
           {activeTab === 'value' && (
             <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
               <div className="rounded-lg border border-slate-200 p-4">
-                <h3 className="text-sm font-semibold text-slate-900">Value confidence</h3>
+                <h3 className="text-sm font-semibold text-slate-900">Value Confidence</h3>
                 <p className="mt-2 text-2xl font-bold text-slate-900">
                   {valueLow || valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : 'Not available'}
                 </p>
@@ -421,12 +421,12 @@ export default function PreAcceptanceView({
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 p-4">
-                <h3 className="text-sm font-semibold text-slate-900">Comparable case signal</h3>
+                <h3 className="text-sm font-semibold text-slate-900">Comparable Case Signal</h3>
                 <dl className="mt-3 space-y-2 text-sm">
-                  <InfoRow label="Similar cases" value={comparableCount != null ? `${comparableCount} on file` : 'Not enough data'} />
-                  <InfoRow label="Typical range" value={valueLow && valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : '—'} />
-                  <InfoRow label="Venue signal" value={venueSignal || 'No venue data'} />
-                  <InfoRow label="Average settlement" value={comparableAvgSettlement ? formatCurrency(comparableAvgSettlement) : '—'} />
+                  <InfoRow label="Similar Cases" value={comparableCount != null ? `${comparableCount} On File` : 'Not Enough Data'} />
+                  <InfoRow label="Typical Range" value={valueLow && valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : '—'} />
+                  <InfoRow label="Venue Signal" value={venueSignal || 'No Venue Data'} />
+                  <InfoRow label="Average Settlement" value={comparableAvgSettlement ? formatCurrency(comparableAvgSettlement) : '—'} />
                 </dl>
               </div>
             </div>
@@ -441,7 +441,7 @@ export default function PreAcceptanceView({
                     <p className="text-sm text-slate-600">{row.value}</p>
                   </div>
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${riskTone(row.level)}`}>
-                    {row.level === 'high' ? 'High risk' : row.level === 'medium' ? 'Watch' : 'Low risk'}
+                    {row.level === 'high' ? 'High Risk' : row.level === 'medium' ? 'Watch' : 'Low Risk'}
                   </span>
                 </div>
               ))}
@@ -475,7 +475,7 @@ export default function PreAcceptanceView({
           {activeTab === 'decision' && (
             <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
               <div className="rounded-lg border border-slate-200 p-4">
-                <h3 className="text-sm font-semibold text-slate-900">Decision recommendation</h3>
+                <h3 className="text-sm font-semibold text-slate-900">Decision Recommendation</h3>
                 <p className="mt-2 text-lg font-bold text-slate-900">{decisionRecommendation}</p>
                 <ul className="mt-3 space-y-2 text-sm text-slate-700">
                   <li>Case score: {hasCaseScore ? `${caseScore}/100` : 'Not scored yet'}</li>
@@ -485,7 +485,7 @@ export default function PreAcceptanceView({
                 </ul>
               </div>
               <div className="rounded-lg border border-slate-200 p-4">
-                <h3 className="text-sm font-semibold text-slate-900">Decision capture</h3>
+                <h3 className="text-sm font-semibold text-slate-900">Decision Capture</h3>
                 <p className="mt-2 text-sm text-slate-600">
                   Use Accept when the case fits your venue, value, and capacity. Use Decline with a reason when there is a conflict, jurisdiction issue, capacity issue, or low-value concern.
                 </p>
@@ -632,18 +632,18 @@ export default function PreAcceptanceView({
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
           <div>
-            <span className="text-gray-500">Average settlement:</span>
+            <span className="text-gray-500">Average Settlement:</span>
             <p className="font-medium">
               {comparableAvgSettlement ? formatCurrency(comparableAvgSettlement) : valueLow && valueHigh ? formatCurrency((valueLow + valueHigh) / 2) : '—'}
             </p>
           </div>
           <div>
-            <span className="text-gray-500">Typical range:</span>
+            <span className="text-gray-500">Typical Range:</span>
             <p className="font-medium">{valueLow && valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : '—'}</p>
           </div>
           <div>
-            <span className="text-gray-500">Similar cases accepted:</span>
-            <p className="font-medium">{comparableCount != null ? `${comparableCount} on file` : '—'}</p>
+            <span className="text-gray-500">Similar Cases Accepted:</span>
+            <p className="font-medium">{comparableCount != null ? `${comparableCount} On File` : '—'}</p>
           </div>
         </div>
       </div>
@@ -651,7 +651,7 @@ export default function PreAcceptanceView({
       {/* 9. Why This Case Matched You */}
       {matchReasons.length > 0 && (
         <div className="rounded-lg border border-brand-200 bg-brand-50/30 p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Why this case matched your profile</h3>
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">Why This Case Matched Your Profile</h3>
           <ul className="space-y-1 text-sm text-gray-700">
             {matchReasons.map((r, i) => (
               <li key={i} className="flex items-center gap-2">

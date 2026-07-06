@@ -14,6 +14,7 @@ import { routeTier2Case } from '../lib/tier2-routing'
 import { assignCaseTier } from '../lib/case-tier-classifier'
 import { getMatchingRules, saveMatchingRules } from '../lib/matching-rules-config'
 import { getHeuristics, saveHeuristics } from '../lib/heuristics-config'
+import { getFieldMappings, saveFieldMappings } from '../lib/field-mappings-config'
 import { getAdminCalendarHealth } from '../lib/calendar-sync'
 import { CLAIM_INVITE_TTL_DAYS, claimUrl, generateClaimToken, sendClaimEmail } from '../lib/claims'
 
@@ -633,6 +634,40 @@ router.put('/heuristics', authMiddleware, adminMiddleware, async (req: AuthReque
   } catch (error) {
     logger.error('Failed to save heuristics', { error })
     res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Field mappings (admin-editable value synonym/alias maps, e.g. case type ↔ specialty)
+router.get('/field-mappings', authMiddleware, adminMiddleware, async (_req: AuthRequest, res) => {
+  try {
+    const config = await getFieldMappings()
+    res.json(config)
+  } catch (error: any) {
+    logger.error('Failed to get field mappings', { error, message: error?.message })
+    res.status(500).json({
+      error: 'Internal server error',
+      detail: process.env.NODE_ENV === 'development' ? error?.message : undefined,
+    })
+  }
+})
+
+router.put('/field-mappings', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const config = await saveFieldMappings(req.body)
+    await writeAdminAudit(req, {
+      action: 'field_mappings_updated',
+      entityType: 'field_mappings',
+      entityId: 'global',
+      metadata: {
+        fields: Array.isArray(req.body?.mappings)
+          ? req.body.mappings.map((m: { field?: string }) => m?.field).filter(Boolean)
+          : [],
+      },
+    })
+    res.json(config)
+  } catch (error: any) {
+    logger.error('Failed to save field mappings', { error })
+    res.status(500).json({ error: error?.message || 'Internal server error' })
   }
 })
 

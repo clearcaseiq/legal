@@ -24,6 +24,12 @@ const DEFAULT_AVATAR = 'https://ui-avatars.com/api/?name=Attorney&background=e0f
 // Stored photos can be absolute URLs (legacy) or server-relative upload paths
 // (/uploads/avatars/...). Relative paths must be resolved against the API origin
 // because the web app and API are served from different hosts.
+// Show whole-number rates without a trailing ".0" (e.g. "0%" not "0.0%").
+function formatSuccessRate(value: number | null | undefined): string {
+  const rounded = Math.round((Number(value) || 0) * 10) / 10
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+}
+
 function resolvePhotoUrl(photoUrl: string | null | undefined): string {
   if (!photoUrl) return DEFAULT_AVATAR
   if (/^(https?:)?\/\//.test(photoUrl) || photoUrl.startsWith('data:')) return photoUrl
@@ -464,8 +470,10 @@ export default function AttorneyDashboardProfileTab({
                 {editing ? (
                   <input
                     type="number"
+                    min="0"
+                    max={80}
                     value={profile.yearsExperience}
-                    onChange={(e) => updateProfile({ yearsExperience: parseInt(e.target.value, 10) || 0 })}
+                    onChange={(e) => updateProfile({ yearsExperience: e.target.value ? Math.min(80, Math.max(0, parseInt(e.target.value, 10))) : 0 })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
                   />
                 ) : (
@@ -484,6 +492,11 @@ export default function AttorneyDashboardProfileTab({
                     <input
                       type="text"
                       value={language}
+                      // Only one empty row can exist at a time (#69), so focusing
+                      // the empty row focuses the one just added — making it clear
+                      // the user must type a language before saving.
+                      autoFocus={!language.trim()}
+                      placeholder="e.g., Spanish"
                       onChange={(e) => {
                         const next = [...languages]
                         next[index] = e.target.value
@@ -652,8 +665,10 @@ export default function AttorneyDashboardProfileTab({
                 {editing ? (
                   <input
                     type="number"
+                    min="0"
+                    max={100000000}
                     value={profile.minDamagesRange ?? ''}
-                    onChange={(e) => updateProfile({ minDamagesRange: e.target.value ? parseFloat(e.target.value) : null })}
+                    onChange={(e) => updateProfile({ minDamagesRange: e.target.value ? Math.min(100000000, Math.max(0, parseFloat(e.target.value))) : null })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
                     placeholder="$0"
                   />
@@ -666,8 +681,10 @@ export default function AttorneyDashboardProfileTab({
                 {editing ? (
                   <input
                     type="number"
+                    min="0"
+                    max={100000000}
                     value={profile.maxDamagesRange ?? ''}
-                    onChange={(e) => updateProfile({ maxDamagesRange: e.target.value ? parseFloat(e.target.value) : null })}
+                    onChange={(e) => updateProfile({ maxDamagesRange: e.target.value ? Math.min(100000000, Math.max(0, parseFloat(e.target.value))) : null })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
                     placeholder="No limit"
                   />
@@ -721,8 +738,9 @@ export default function AttorneyDashboardProfileTab({
                   <input
                     type="number"
                     min="0"
+                    max={1000}
                     value={profile.maxCasesPerWeek ?? ''}
-                    onChange={(e) => updateProfile({ maxCasesPerWeek: e.target.value ? parseInt(e.target.value, 10) : null })}
+                    onChange={(e) => updateProfile({ maxCasesPerWeek: e.target.value ? Math.min(1000, Math.max(0, parseInt(e.target.value, 10))) : null })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
                   />
                 ) : (
@@ -735,8 +753,9 @@ export default function AttorneyDashboardProfileTab({
                   <input
                     type="number"
                     min="0"
+                    max={5000}
                     value={profile.maxCasesPerMonth ?? ''}
-                    onChange={(e) => updateProfile({ maxCasesPerMonth: e.target.value ? parseInt(e.target.value, 10) : null })}
+                    onChange={(e) => updateProfile({ maxCasesPerMonth: e.target.value ? Math.min(5000, Math.max(0, parseInt(e.target.value, 10))) : null })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
                   />
                 ) : (
@@ -841,7 +860,7 @@ export default function AttorneyDashboardProfileTab({
             <div className="text-sm text-blue-700">Total Cases</div>
           </div>
           <div className="text-center p-4 bg-green-50 rounded-lg">
-            <div className="text-2xl font-bold text-green-600">{Number(profile.successRate || 0).toFixed(1)}%</div>
+            <div className="text-2xl font-bold text-green-600">{formatSuccessRate(profile.successRate)}%</div>
             <div className="text-sm text-green-700">Success Rate</div>
           </div>
           <div className="text-center p-4 bg-purple-50 rounded-lg">

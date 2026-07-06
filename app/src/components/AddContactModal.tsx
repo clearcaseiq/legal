@@ -3,6 +3,7 @@
  */
 import { useState } from 'react'
 import { X } from 'lucide-react'
+import { formatPhoneInput } from '../lib/phone'
 
 const CONTACT_TYPES = [
   { id: 'client', label: 'Client / Plaintiff' },
@@ -161,8 +162,10 @@ export default function AddContactModal({
             <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
             <input
               type="tel"
+              inputMode="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              // Format as the user types and cap US numbers at 10 digits (#128).
+              onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
               placeholder="(555) 123-4567"
             />

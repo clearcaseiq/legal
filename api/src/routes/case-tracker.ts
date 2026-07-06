@@ -315,6 +315,7 @@ router.get('/dashboard', authMiddleware, async (req: AuthRequest, res) => {
 
     // Parse JSON fields and structure data
     const caseData = assessments.map(assessment => {
+      try {
       const facts = safeParse<any>(assessment.facts, {})
       const latestPrediction = assessment.predictions[0] ? {
         ...assessment.predictions[0],
@@ -362,7 +363,17 @@ router.get('/dashboard', authMiddleware, async (req: AuthRequest, res) => {
           settlementExpectation
         }
       }
-    })
+      } catch (mapError) {
+        // One malformed assessment (e.g. bad facts/prediction JSON) must not
+        // 500 the entire Case Tracker dashboard — log it and skip that card.
+        logger.error('Failed to build case-tracker card; skipping assessment', {
+          assessmentId: assessment.id,
+          userId,
+          error: mapError instanceof Error ? mapError.stack : mapError,
+        })
+        return null
+      }
+    }).filter((c): c is NonNullable<typeof c> => c !== null)
 
     // Calculate summary statistics
     const summary = {
@@ -385,10 +396,14 @@ router.get('/dashboard', authMiddleware, async (req: AuthRequest, res) => {
       }, 0)
     }
 
-    // Translate attorney messages and status text to plaintiff's preferred language
+    // Translate attorney messages and status text to plaintiff's preferred language.
+    // A failed translation call (e.g. provider unreachable/misconfigured) must not
+    // 500 the whole Case Tracker page for non-English plaintiffs — fall back to the
+    // untranslated cards instead of surfacing a generic error (#218).
     const plaintiffLang = getPlaintiffLanguage(req)
     let outputCases = caseData
     if (plaintiffLang !== 'en') {
+      try {
       outputCases = await Promise.all(
         caseData.map(async (c) => {
           const chatRooms = await Promise.all(
@@ -426,6 +441,14 @@ router.get('/dashboard', authMiddleware, async (req: AuthRequest, res) => {
           }
         })
       )
+      } catch (translationError) {
+        logger.error('Case-tracker translation failed; returning untranslated cards', {
+          userId,
+          plaintiffLang,
+          error: translationError instanceof Error ? translationError.message : translationError,
+        })
+        outputCases = caseData
+      }
     }
 
     res.json({
@@ -433,8 +456,18 @@ router.get('/dashboard', authMiddleware, async (req: AuthRequest, res) => {
       cases: outputCases
     })
   } catch (error) {
-    logger.error('Failed to get case dashboard', { error, userId: req.user?.id })
-    res.status(500).json({ error: 'Internal server error' })
+    logger.error('Failed to get case dashboard', {
+      userId: req.user?.id,
+      error: error instanceof Error ? error.stack : error,
+    })
+    res.status(500).json({
+      error: 'Internal server error',
+      // Surface the real reason outside production so QA/staging sees the actual
+      // failure instead of an opaque 500.
+      ...(process.env.NODE_ENV !== 'production'
+        ? { detail: error instanceof Error ? error.message : String(error) }
+        : {}),
+    })
   }
 })
 

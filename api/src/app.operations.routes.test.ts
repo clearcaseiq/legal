@@ -755,7 +755,10 @@ describe('HTTP operations regressions', () => {
         claimType: 'auto',
         venueState: 'CA',
         venueCounty: { contains: 'ora', mode: 'insensitive' },
-        leadSubmission: { routingLocked: true },
+        // "Accepted" filters on an actually-accepted introduction, not merely a
+        // routing-locked lead (which also happens on ranked routing / admin
+        // assignment) — matching the case-list column and /stats counts (#36).
+        introductions: { some: { status: 'ACCEPTED' } },
       },
       take: 20,
       skip: 10,
@@ -860,6 +863,10 @@ describe('HTTP operations regressions', () => {
           createdAt: new Date('2026-04-01T01:00:00Z'),
         },
       ],
+      // Intake-uploaded documents live on the EvidenceFile relation (#44); the
+      // route spreads them into `files`, so the mock must include the relation
+      // or the spread throws (500).
+      evidenceFiles: [],
     } as any)
 
     const res = await request(app)
@@ -2092,6 +2099,7 @@ describe('HTTP operations regressions', () => {
         lastNudgeAt: '2026-04-10T10:00:00.000Z',
         createdAt: '2026-04-09T09:00:00.000Z',
         claimType: 'slip_and_fall',
+        uploadedCount: 0,
       },
     ])
     expect(vi.mocked(prisma.documentRequest.findMany).mock.calls[0]?.[0]).toEqual({
@@ -2106,6 +2114,11 @@ describe('HTTP operations regressions', () => {
         attorneyViewedAt: true,
         lastNudgeAt: true,
         createdAt: true,
+        targetType: true,
+        recipientName: true,
+        recipientRole: true,
+        origin: true,
+        _count: { select: { externalUploads: true } },
         lead: {
           select: {
             id: true,
@@ -2153,13 +2166,16 @@ describe('HTTP operations regressions', () => {
         lastNudgeAt: true,
         uploadLink: true,
         leadId: true,
+        targetType: true,
+        recipientName: true,
+        recipientEmail: true,
         lead: {
           select: {
             assessmentId: true,
             assessment: {
               select: {
                 facts: true,
-                user: { select: { email: true, firstName: true, lastName: true } },
+                user: { select: { id: true, email: true, firstName: true, lastName: true } },
               },
             },
           },
@@ -2168,6 +2184,10 @@ describe('HTTP operations regressions', () => {
     })
     expect(prisma.notification.create).toHaveBeenCalledWith({
       data: {
+        // Notifications are recorded PENDING then delivered async by
+        // deliverDirectNotification; userId is null here since the mock user
+        // carries no id.
+        userId: null,
         type: 'email',
         recipient: 'plaintiff@example.com',
         subject: 'Reminder: documents requested for your case',
@@ -2179,7 +2199,7 @@ describe('HTTP operations regressions', () => {
           uploadLink: 'https://uploads.example.com/docreq-1',
           nudge: true,
         }),
-        status: 'SENT',
+        status: 'PENDING',
       },
     })
     expect(prisma.documentRequest.update).toHaveBeenCalledWith({
@@ -2560,6 +2580,7 @@ describe('HTTP operations regressions', () => {
       select: {
         id: true,
         name: true,
+        email: true,
       },
     })
     expect(vi.mocked(prisma.leadSubmission.findUnique).mock.calls[0]?.[0]).toEqual({
@@ -2599,6 +2620,7 @@ describe('HTTP operations regressions', () => {
     })
     expect(prisma.notification.create).toHaveBeenCalledWith({
       data: {
+        userId: 'plaintiff-user-1',
         type: 'email',
         recipient: 'plaintiff@example.com',
         subject: 'Message from Ari Attorney',
@@ -2609,7 +2631,7 @@ describe('HTTP operations regressions', () => {
           contactType: 'sms',
           contactId: 'contact-1',
         }),
-        status: 'SENT',
+        status: 'PENDING',
       },
     })
   })
@@ -2701,12 +2723,13 @@ describe('HTTP operations regressions', () => {
     })
     expect(prisma.notification.create).toHaveBeenCalledWith({
       data: {
+        userId: 'plaintiff-user-1',
         type: 'email',
         recipient: 'plaintiff@example.com',
         subject: 'Your attorney requested additional documents',
         message: expect.stringContaining('Please upload recent treatment records.'),
         metadata: expect.any(String),
-        status: 'SENT',
+        status: 'PENDING',
       },
     })
   })
@@ -2788,12 +2811,13 @@ describe('HTTP operations regressions', () => {
     })
     expect(prisma.notification.create).toHaveBeenCalledWith({
       data: {
+        userId: 'plaintiff-user-1',
         type: 'email',
         recipient: 'plaintiff@example.com',
         subject: 'Your consultation has been scheduled',
         message: expect.stringContaining('Bring any available records.'),
         metadata: expect.any(String),
-        status: 'SENT',
+        status: 'PENDING',
       },
     })
   })
@@ -4330,6 +4354,13 @@ describe('HTTP operations regressions', () => {
         adjusterEmail: true,
         adjusterPhone: true,
         notes: true,
+        insuredParty: true,
+        coverageType: true,
+        claimNumber: true,
+        claimStatus: true,
+        claimOpenedAt: true,
+        decPageRequestId: true,
+        coverageConfirmed: true,
         createdAt: true,
         updatedAt: true,
       },

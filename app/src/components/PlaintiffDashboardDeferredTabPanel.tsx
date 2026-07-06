@@ -57,6 +57,8 @@ type JournalEntry = {
   date: string
   level: number
   note: string
+  days?: number
+  dailyWage?: number
 }
 
 type AttorneyActivityItem = {
@@ -114,6 +116,7 @@ type Props = {
   editingEntryIndex: number | null
   onCancelEdit: () => void
   journalSaved: boolean
+  journalError?: string | null
   journalEntries: JournalEntry[]
   onEditEntry: (index: number) => void
   onDeleteEntry: (index: number) => void
@@ -167,6 +170,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
   editingEntryIndex,
   onCancelEdit,
   journalSaved,
+  journalError,
   journalEntries,
   onEditEntry,
   onDeleteEntry,
@@ -808,14 +812,18 @@ export default function PlaintiffDashboardDeferredTabPanel({
               <span className="text-xs text-gray-500">10</span>
             </div>
             <p className="text-sm font-medium text-gray-700 mb-2">{painLevel} / 10</p>
-            <p className="text-sm text-gray-600 mb-1">How did this affect your day?</p>
+            <p className="text-sm text-gray-600 mb-1">
+              How did this affect your day? <span className="text-red-500">*</span>
+            </p>
             <p className="text-xs text-gray-500 mb-2">Examples: Couldn't work • Missed activities • Trouble sleeping</p>
             <textarea
               value={painNote}
               onChange={(event) => onPainNoteChange(event.target.value)}
               placeholder="Describe how your injuries affected your daily life..."
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mb-2 min-h-[80px]"
+              aria-invalid={journalError ? true : undefined}
+              className={`w-full rounded-lg border px-3 py-2 text-sm mb-2 min-h-[80px] ${journalError ? 'border-red-400' : 'border-gray-300'}`}
             />
+            {journalError && <p className="text-sm text-red-600 mb-2">{journalError}</p>}
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
@@ -853,6 +861,21 @@ export default function PlaintiffDashboardDeferredTabPanel({
                             {new Date(entry.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                           </span>
                           <span className="text-brand-600 font-medium">Pain: {entry.level}/10</span>
+                          {typeof entry.days === 'number' && entry.days > 0 && (
+                            <span className="text-gray-600">
+                              Days missed: {entry.days}
+                            </span>
+                          )}
+                          {typeof entry.dailyWage === 'number' && entry.dailyWage > 0 && (
+                            <span className="text-gray-600">
+                              Daily wage: {formatCurrency(entry.dailyWage)}
+                            </span>
+                          )}
+                          {typeof entry.days === 'number' && entry.days > 0 && typeof entry.dailyWage === 'number' && entry.dailyWage > 0 && (
+                            <span className="text-emerald-700 font-medium">
+                              Wage loss: {formatCurrency(entry.days * entry.dailyWage)}
+                            </span>
+                          )}
                         </div>
                         {entry.note && <p className="text-gray-600">{entry.note}</p>}
                       </div>

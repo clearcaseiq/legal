@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Download } from 'lucide-react'
 import { cloneCaseTemplate, createManualIntake, importCase, saveSmartIntakeConfig } from '../lib/api'
 
 type AttorneyDashboardIntakeTabProps = {
@@ -29,6 +30,61 @@ export default function AttorneyDashboardIntakeTab({
     autoFollowUps: true,
   })
   const [smartIntakeMessage, setSmartIntakeMessage] = useState<string | null>(null)
+
+  // Provide a downloadable template so attorneys can see the expected columns
+  // for a spreadsheet/CSV case import (#121). Generated client-side to avoid a
+  // separate static asset that could 404 depending on deployment.
+  const downloadSampleImportFile = () => {
+    const headers = [
+      'client_first_name',
+      'client_last_name',
+      'email',
+      'phone',
+      'case_type',
+      'incident_date',
+      'state',
+      'county',
+      'description',
+      'status',
+    ]
+    const sampleRows = [
+      [
+        'Jane',
+        'Doe',
+        'jane.doe@example.com',
+        '(213) 555-0100',
+        'auto',
+        '2025-03-14',
+        'CA',
+        'Los Angeles',
+        'Rear-ended at a red light; neck and back injuries with ongoing PT.',
+        'open',
+      ],
+      [
+        'John',
+        'Smith',
+        'john.smith@example.com',
+        '(415) 555-0182',
+        'slip_and_fall',
+        '2025-01-08',
+        'CA',
+        'San Francisco',
+        'Slipped on unmarked wet floor at a grocery store; wrist fracture.',
+        'open',
+      ],
+    ]
+    const escape = (value: string) => (/[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value)
+    const csv = [headers, ...sampleRows].map((row) => row.map(escape).join(',')).join('\r\n')
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'sample-case-import.csv'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  }
 
   return (
     <div className="space-y-4">
@@ -93,7 +149,20 @@ export default function AttorneyDashboardIntakeTab({
         </div>
 
         <div>
-          <h4 className="text-sm font-semibold text-gray-900 mb-3">Case Import</h4>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h4 className="text-sm font-semibold text-gray-900">Case Import</h4>
+            <button
+              type="button"
+              onClick={downloadSampleImportFile}
+              className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-800 underline"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Download sample file
+            </button>
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            Importing a spreadsheet? Download the sample CSV to see the expected columns and formatting.
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
             <select
               value={importForm.source}

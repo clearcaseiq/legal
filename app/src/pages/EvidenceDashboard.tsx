@@ -861,7 +861,25 @@ export default function EvidenceDashboard() {
                   max="1"
                   step="0.01"
                   value={relevanceInput}
-                  onChange={(e) => setRelevanceInput(e.target.value)}
+                  onChange={(e) => {
+                    // Relevance is a 0–1 score. Strip anything but digits/decimal so a
+                    // negative sign can't be entered; the upper bound is clamped on
+                    // blur/save (#210).
+                    let next = e.target.value.replace(/[^0-9.]/g, '')
+                    const firstDot = next.indexOf('.')
+                    if (firstDot !== -1) {
+                      next = next.slice(0, firstDot + 1) + next.slice(firstDot + 1).replace(/\./g, '')
+                    }
+                    setRelevanceInput(next)
+                  }}
+                  onBlur={() => {
+                    setRelevanceInput((prev) => {
+                      if (prev === '') return ''
+                      const num = Number(prev)
+                      if (Number.isNaN(num)) return ''
+                      return String(Math.min(1, Math.max(0, num)))
+                    })
+                  }}
                   className="input"
                 />
               </div>
@@ -986,7 +1004,10 @@ export default function EvidenceDashboard() {
                   subcategory: editingFile.subcategory,
                   description: editingFile.description,
                   tags: tagsInput,
-                  relevanceScore: relevanceInput ? Number(relevanceInput) : undefined,
+                  relevanceScore:
+                    relevanceInput && !Number.isNaN(Number(relevanceInput))
+                      ? Math.min(1, Math.max(0, Number(relevanceInput)))
+                      : undefined,
                   provenanceSource: editingFile.provenanceSource,
                   provenanceActor: editingFile.provenanceActor,
                   provenanceNotes: editingFile.provenanceNotes

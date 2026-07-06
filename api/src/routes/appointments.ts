@@ -200,6 +200,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
         description: assessmentId
           ? `Consultation booked in ClearCaseIQ for assessment ${assessmentId}.`
           : 'Consultation booked in ClearCaseIQ.',
+        createVideoLink: type === 'video' && !meetingUrl,
       })
 
       if (externalEvent) {
@@ -209,6 +210,9 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
             externalCalendarProvider: externalEvent.provider,
             externalCalendarEventId: externalEvent.externalEventId,
             externalCalendarSyncedAt: new Date(),
+            ...(externalEvent.meetingUrl && !meetingUrl
+              ? { meetingUrl: externalEvent.meetingUrl }
+              : {}),
           },
         })
       }

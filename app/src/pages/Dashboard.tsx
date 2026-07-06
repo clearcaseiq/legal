@@ -1,8 +1,9 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments, getRoutingStatus, createAppointment, getAttorneyAvailability, updateAppointment, cancelAppointment, joinAppointmentWaitlist, updateAppointmentPreparation, sendMessage, getOrCreateChatRoom, getPlaintiffConsentCompliance, requestEmailVerification, getPlaintiffDocumentRequests, createAttorneyReview, getMedicalChronology, type PlaintiffDocumentRequest } from '../lib/api'
+import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments, getRoutingStatus, createAppointment, getAttorneyAvailability, updateAppointment, cancelAppointment, joinAppointmentWaitlist, updateAppointmentPreparation, sendMessage, getOrCreateChatRoom, getPlaintiffConsentCompliance, requestEmailVerification, getPlaintiffDocumentRequests, getPlaintiffCaseTasks, createAttorneyReview, getMedicalChronology, type PlaintiffDocumentRequest, type PlaintiffCaseTask } from '../lib/api'
 import { formatCurrency } from '../lib/formatters'
-import { CheckCircle, Square, Upload, FileText, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, ExternalLink, Send, Star } from 'lucide-react'
+import { formatClaimTypeShort } from '../lib/constants'
+import { CheckCircle, Square, Upload, FileText, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, Send, Star } from 'lucide-react'
 import CaseProgressPipeline from '../components/CaseProgressPipeline'
 import { getPlaintiffCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
 import OpposingDocSuggestionCard from '../components/OpposingDocSuggestionCard'
@@ -167,7 +168,8 @@ export default function Dashboard() {
   const [painLevel, setPainLevel] = useState(5)
   const [painNote, setPainNote] = useState('')
   const [journalSaved, setJournalSaved] = useState(false)
-  const [journalEntries, setJournalEntries] = useState<{ date: string; level: number; note: string }[]>([])
+  const [journalEntries, setJournalEntries] = useState<{ date: string; level: number; note: string; days?: number; dailyWage?: number }[]>([])
+  const [journalError, setJournalError] = useState<string | null>(null)
   const [editingEntryIndex, setEditingEntryIndex] = useState<number | null>(null)
   const [wageDays, setWageDays] = useState('')
   const [wageDaily, setWageDaily] = useState('')
@@ -228,6 +230,7 @@ export default function Dashboard() {
   const [reviewSubmitting, setReviewSubmitting] = useState(false)
   const [latestNotification, setLatestNotification] = useState<string | null>(null)
   const [documentRequests, setDocumentRequests] = useState<PlaintiffDocumentRequest[]>([])
+  const [attorneyTasks, setAttorneyTasks] = useState<PlaintiffCaseTask[]>([])
   const [verifyNotice, setVerifyNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [verifySending, setVerifySending] = useState(false)
   const navigate = useNavigate()
@@ -254,6 +257,15 @@ export default function Dashboard() {
   useEffect(() => {
     loadDashboardData()
   }, [])
+
+  // Allow deep-linking to a specific tab via ?tab= (e.g. notification links that
+  // jump straight to Requested Documents).
+  useEffect(() => {
+    const requestedTab = searchParams.get('tab')
+    if (requestedTab && TABS.some((tab) => tab.id === requestedTab)) {
+      setActiveTab(requestedTab as TabId)
+    }
+  }, [searchParams])
 
   // Switching cases from the "My Cases" list only changes the ?case= query
   // param on the same route, so the initial mount-only loader never re-ran and
@@ -283,6 +295,24 @@ export default function Dashboard() {
     })()
     return () => { cancelled = true }
   }, [caseIdFromUrl, activeAssessment, assessments])
+
+  // Surface tasks the attorney assigned to the plaintiff in the Tasks tab (#157).
+  useEffect(() => {
+    const assessmentId = activeAssessment?.id
+    if (!assessmentId) {
+      setAttorneyTasks([])
+      return
+    }
+    let cancelled = false
+    getPlaintiffCaseTasks(assessmentId)
+      .then((data) => {
+        if (!cancelled) setAttorneyTasks(Array.isArray(data?.tasks) ? data.tasks : [])
+      })
+      .catch(() => {
+        if (!cancelled) setAttorneyTasks([])
+      })
+    return () => { cancelled = true }
+  }, [activeAssessment?.id])
 
   useEffect(() => {
     if (activeAssessment?.id) {
@@ -873,7 +903,19 @@ export default function Dashboard() {
         done: false,
         href: `/results/${assessmentIdForTasks}?review=1`,
       }
-  const dashboardTasks = [reviewTask, ...evidenceGapTasks, ...scoreImprovementTasks].slice(0, 6)
+  // Tasks the attorney assigned to the plaintiff come first — these are explicit
+  // requests from the legal team, so they take priority over generated tips (#157).
+  const attorneyTaskItems = attorneyTasks.map((task) => ({
+    label: task.title,
+    detail: task.notes?.trim()
+      ? task.notes.trim()
+      : task.dueDate
+      ? `Requested by your attorney — due ${new Date(task.dueDate).toLocaleDateString()}.`
+      : 'Requested by your attorney.',
+    done: task.status === 'done',
+    href: '/messaging',
+  }))
+  const dashboardTasks = [...attorneyTaskItems, reviewTask, ...evidenceGapTasks, ...scoreImprovementTasks].slice(0, 6 + attorneyTaskItems.length)
   const actionItemsCount = dashboardTasks.filter((task) => !task.done).length
 
   const riskLevel: 'Low' | 'Moderate' | 'High' = docLabel === 'Missing' ? 'Moderate' : evidenceCount === 0 ? 'Moderate' : 'Low'
@@ -958,20 +1000,42 @@ export default function Dashboard() {
 
   const handleSavePainJournal = () => {
     if (!activeAssessment?.id) return
+    // A journal entry with no description of the impact isn't useful evidence, so
+    // require the note before logging (#195).
+    if (!painNote.trim()) {
+      setJournalError('Please describe how your injuries affected your day before logging the entry.')
+      return
+    }
+    // Days/daily wage are optional, but only attach them when both are positive
+    // numbers so "00" or blank inputs don't create a meaningless $0 wage claim (#196).
+    const days = parseInt(wageDays, 10)
+    const dailyWage = parseFloat(String(wageDaily).replace(/[^0-9.]/g, ''))
+    const hasWage = Number.isFinite(days) && days > 0 && Number.isFinite(dailyWage) && dailyWage > 0
     const key = `pain_journal_${activeAssessment.id}`
-    let updated: { date: string; level: number; note: string }[]
+    let updated: { date: string; level: number; note: string; days?: number; dailyWage?: number }[]
     if (editingEntryIndex !== null) {
       updated = journalEntries.map((e, i) =>
-        i === editingEntryIndex ? { ...e, level: painLevel, note: painNote } : e
+        i === editingEntryIndex
+          ? { ...e, level: painLevel, note: painNote.trim(), days: hasWage ? days : undefined, dailyWage: hasWage ? dailyWage : undefined }
+          : e
       )
       setEditingEntryIndex(null)
     } else {
-      const newEntry = { date: new Date().toISOString(), level: painLevel, note: painNote }
+      const newEntry = {
+        date: new Date().toISOString(),
+        level: painLevel,
+        note: painNote.trim(),
+        ...(hasWage ? { days, dailyWage } : {}),
+      }
       updated = [...journalEntries, newEntry].slice(-30)
     }
     localStorage.setItem(key, JSON.stringify(updated))
     setJournalEntries(updated)
+    // Reset the inputs so the next entry starts from a clean state (#197).
     setPainNote('')
+    setWageDays('')
+    setWageDaily('')
+    setJournalError(null)
     setJournalSaved(true)
     setTimeout(() => setJournalSaved(false), 2500)
   }
@@ -980,6 +1044,9 @@ export default function Dashboard() {
     const entry = journalEntries[index]
     setPainLevel(entry.level)
     setPainNote(entry.note)
+    setWageDays(entry.days != null ? String(entry.days) : '')
+    setWageDaily(entry.dailyWage != null ? String(entry.dailyWage) : '')
+    setJournalError(null)
     setEditingEntryIndex(index)
   }
 
@@ -1002,6 +1069,26 @@ export default function Dashboard() {
     setEditingEntryIndex(null)
     setPainNote('')
     setPainLevel(5)
+    setWageDays('')
+    setWageDaily('')
+    setJournalError(null)
+  }
+
+  // Days is a whole number; strip non-digits and collapse leading zeros so
+  // values like "00" can't be entered (#196).
+  const handleWageDaysChange = (value: string) => {
+    setWageDays(value.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, ''))
+  }
+
+  // Daily wage is a currency amount; keep digits and a single decimal point and
+  // drop leading zeros so "00" / "007" normalise cleanly (#196).
+  const handleWageDailyChange = (value: string) => {
+    let cleaned = value.replace(/[^0-9.]/g, '')
+    const firstDot = cleaned.indexOf('.')
+    if (firstDot !== -1) {
+      cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '')
+    }
+    setWageDaily(cleaned.replace(/^0+(?=\d)/, ''))
   }
 
 
@@ -1150,18 +1237,24 @@ export default function Dashboard() {
   }
 
   const handleDownloadReport = async () => {
-    const { downloadDashboardCaseReportPdf } = await import('../lib/reportPdfExports')
-    await downloadDashboardCaseReportPdf({
-      incidentSummaryComplete: hasNarrative,
-      medicalChronologyCount: treatment.length,
-      damagesDocumented: hasWageLoss || !!damages.med_charges,
-      evidenceCount,
-      caseScore,
-      caseScoreLabel,
-      estimatedValueText: `${formatCurrency(settlementLow)} – ${formatCurrency(settlementHigh)}`,
-      documentationPercent: docPercent,
-      assessmentId: activeAssessment?.id,
-    })
+    try {
+      const { downloadDashboardCaseReportPdf } = await import('../lib/reportPdfExports')
+      await downloadDashboardCaseReportPdf({
+        incidentSummaryComplete: hasNarrative,
+        medicalChronologyCount: treatment.length,
+        damagesDocumented: hasWageLoss || !!damages.med_charges,
+        evidenceCount,
+        caseScore,
+        caseScoreLabel,
+        estimatedValueText: `${formatCurrency(settlementLow)} – ${formatCurrency(settlementHigh)}`,
+        documentationPercent: docPercent,
+        assessmentId: activeAssessment?.id,
+      })
+    } catch (err) {
+      console.error('Failed to generate dashboard case report PDF:', err)
+      const detail = err instanceof Error && err.message ? `\n\nDetails: ${err.message}` : ''
+      alert(`Sorry, the case report PDF could not be generated right now. Please try again.${detail}`)
+    }
   }
 
   if (isLoading) {
@@ -1173,7 +1266,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen transition-colors">
       {user.emailVerified === false && (
-        <div className="page-shell pb-0 pt-4 print:hidden">
+        <div className="mx-auto w-full max-w-5xl px-4 pb-0 pt-4 sm:px-6 print:hidden">
           <div className="subtle-panel flex flex-col gap-2 px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p>
@@ -1205,8 +1298,8 @@ export default function Dashboard() {
       )}
       {/* Schedule Consultation Modal */}
       {scheduleModalOpen && routingStatus?.attorneyMatched && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
-          <div className="surface-panel w-full max-w-md p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/55 p-4 backdrop-blur-sm">
+          <div className="surface-panel my-auto max-h-[90vh] w-full max-w-md overflow-y-auto p-6 shadow-xl">
             <h3 className="section-title text-ui-xl">Schedule Consultation</h3>
             <p className="section-copy mb-4">Book a call with {routingStatus.attorneyMatched.name} to discuss your case.</p>
             <div className="space-y-4">
@@ -1615,11 +1708,13 @@ export default function Dashboard() {
                               try {
                                 const arr = typeof s === 'string' ? JSON.parse(s) : s
                                 if (Array.isArray(arr)) {
-                                  const labels: Record<string, string> = { auto: 'Auto accidents', slip_and_fall: 'Slip and fall', medmal: 'Medical malpractice' }
-                                  return `Specializes in ${arr.map((x: string) => labels[x] || x).join(', ') || 'personal injury'}`
+                                  // Format every stored specialty slug so none render
+                                  // with raw underscores (e.g. dog_bite, wrongful_death).
+                                  const formatted = arr.map((x: string) => formatClaimTypeShort(x)).filter(Boolean)
+                                  return `Specializes in ${formatted.join(', ') || 'Personal Injury'}`
                                 }
                               } catch {}
-                              return `Specializes in ${s}`
+                              return `Specializes in ${formatClaimTypeShort(String(s))}`
                             })()}
                           </p>
                           <p className="text-sm text-brand-600 mt-1">
@@ -1642,13 +1737,8 @@ export default function Dashboard() {
                             <MessageCircle className="h-4 w-4" />
                             Message
                           </Link>
-                          <Link
-                            to={activeAssessment?.id ? `/attorneys?assessmentId=${activeAssessment.id}` : '/attorneys'}
-                            className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium"
-                          >
-                            <ExternalLink className="h-4 w-4" />
-                            Browse Attorneys
-                          </Link>
+                          {/* Once an attorney has accepted the case, the plaintiff is
+                              working with them, so browsing other attorneys is hidden (#141). */}
                         </div>
                       </div>
                     </div>
@@ -2554,14 +2644,15 @@ export default function Dashboard() {
                   recentActivity={recentActivity}
                   notification={notification}
                   wageDays={wageDays}
-                  onWageDaysChange={setWageDays}
+                  onWageDaysChange={handleWageDaysChange}
                   wageDaily={wageDaily}
-                  onWageDailyChange={setWageDaily}
+                  onWageDailyChange={handleWageDailyChange}
+                  journalError={journalError}
                   wageLossEstimate={wageLossEstimate}
                   painLevel={painLevel}
                   onPainLevelChange={setPainLevel}
                   painNote={painNote}
-                  onPainNoteChange={setPainNote}
+                  onPainNoteChange={(value) => { setPainNote(value); if (journalError) setJournalError(null) }}
                   onSavePainJournal={handleSavePainJournal}
                   editingEntryIndex={editingEntryIndex}
                   onCancelEdit={handleCancelEdit}

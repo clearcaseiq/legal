@@ -13,6 +13,7 @@ type AttorneyDashboardWorkstreamNegotiationProps = {
   handleAddCadenceStep: any
   handleCreateCadenceTemplate: any
   cadenceSteps: any[]
+  cadenceMessage?: string
   negotiationCadenceTemplates: any[]
   handleDeleteCadenceTemplate: any
   leadCommandCenter?: any
@@ -33,6 +34,7 @@ export default function AttorneyDashboardWorkstreamNegotiation({
   handleAddCadenceStep,
   handleCreateCadenceTemplate,
   cadenceSteps,
+  cadenceMessage,
   negotiationCadenceTemplates,
   handleDeleteCadenceTemplate,
   leadCommandCenter,
@@ -351,6 +353,11 @@ export default function AttorneyDashboardWorkstreamNegotiation({
               Save Template
             </button>
           </div>
+          {cadenceMessage ? (
+            <p className={`text-xs ${cadenceMessage === 'Template saved.' ? 'text-emerald-600' : 'text-amber-600'}`}>
+              {cadenceMessage}
+            </p>
+          ) : null}
           {cadenceSteps.length > 0 ? (
             <div className="text-xs text-gray-600">
               Steps: {cadenceSteps.map((step) => `${step.offsetDays}d ${step.channel}`).join(' • ')}

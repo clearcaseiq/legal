@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, Link, useLocation } from 'react-router-dom'
-import { searchAttorneys, getAttorneyProfile, getAttorneyTrustMetrics, type AttorneyTrustMetrics } from '../lib/api'
+import { searchAttorneys, getAttorneyProfile, getAttorneyTrustMetrics, requestIntroduction, type AttorneyTrustMetrics } from '../lib/api'
 import { type AttorneySummary } from '../lib/schemas'
 import { 
   Search, 
@@ -24,8 +24,16 @@ export default function Attorneys() {
   const fromPath = (location.state as { from?: string })?.from ?? (localStorage.getItem('auth_token') ? '/dashboard' : '/')
   const [attorneys, setAttorneys] = useState<AttorneySummary[]>([])
   const [selectedAttorney, setSelectedAttorney] = useState<any>(null)
+  const [selectedAttorneyId, setSelectedAttorneyId] = useState<string | null>(null)
   const [trustMetrics, setTrustMetrics] = useState<AttorneyTrustMetrics | null>(null)
   const [loading, setLoading] = useState(false)
+  // Captured once on mount so it survives the URL rewrite performed after each
+  // search (which only re-emits venue/claim_type). Needed to request an intro.
+  const [assessmentId] = useState(() => searchParams.get('assessmentId') || '')
+  const [introState, setIntroState] = useState<{ status: 'idle' | 'submitting' | 'success' | 'error'; message: string }>({
+    status: 'idle',
+    message: '',
+  })
   const [searchForm, setSearchForm] = useState({
     venue: searchParams.get('venue') || '',
     claim_type: searchParams.get('claim_type') || '',
@@ -38,8 +46,9 @@ export default function Attorneys() {
       const results = await searchAttorneys(searchForm)
       setAttorneys(results)
       
-      // Update URL params
+      // Update URL params (preserve assessmentId so Request Introduction keeps working)
       const params = new URLSearchParams()
+      if (assessmentId) params.set('assessmentId', assessmentId)
       if (searchForm.venue) params.set('venue', searchForm.venue)
       if (searchForm.claim_type) params.set('claim_type', searchForm.claim_type)
       setSearchParams(params)
@@ -62,6 +71,8 @@ export default function Attorneys() {
   const handleAttorneyClick = async (attorneyId: string) => {
     try {
       setTrustMetrics(null)
+      setIntroState({ status: 'idle', message: '' })
+      setSelectedAttorneyId(attorneyId)
       const attorney = await getAttorneyProfile(attorneyId)
       setSelectedAttorney(attorney)
       getAttorneyTrustMetrics(attorneyId)
@@ -69,6 +80,32 @@ export default function Attorneys() {
         .catch(() => setTrustMetrics(null))
     } catch (error) {
       console.error('Failed to load attorney details:', error)
+    }
+  }
+
+  const handleRequestIntroduction = async () => {
+    if (!selectedAttorneyId) return
+    if (!assessmentId) {
+      setIntroState({
+        status: 'error',
+        message: 'Start or open a case first, then use “Browse Attorneys” from your dashboard to request an introduction.',
+      })
+      return
+    }
+    setIntroState({ status: 'submitting', message: '' })
+    try {
+      const result = await requestIntroduction(assessmentId, selectedAttorneyId)
+      setIntroState({
+        status: 'success',
+        message: result?.message || 'Introduction request submitted. The attorney will be notified.',
+      })
+    } catch (error: any) {
+      setIntroState({
+        status: 'error',
+        message:
+          error?.response?.data?.error ||
+          'We couldn’t submit your introduction request right now. Please try again.',
+      })
     }
   }
 
@@ -155,7 +192,7 @@ export default function Attorneys() {
               <button
                 type="submit"
                 disabled={loading}
-                className="btn-primary w-full disabled:opacity-50"
+                className="btn-primary inline-flex w-full items-center justify-center disabled:opacity-50"
               >
                 {loading ? 'Searching...' : (
                   <>
@@ -454,9 +491,30 @@ export default function Attorneys() {
               )}
 
               <div className="mt-6">
-                <button className="btn-primary w-full">
-                  Request Introduction
+                <button
+                  type="button"
+                  onClick={handleRequestIntroduction}
+                  disabled={introState.status === 'submitting' || introState.status === 'success'}
+                  className="btn-primary inline-flex w-full items-center justify-center disabled:opacity-50"
+                >
+                  {introState.status === 'submitting'
+                    ? 'Sending…'
+                    : introState.status === 'success'
+                    ? 'Introduction Requested'
+                    : 'Request Introduction'}
                 </button>
+                {introState.message && (
+                  <p
+                    className={`mt-2 rounded-md px-3 py-2 text-sm ${
+                      introState.status === 'success'
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'bg-red-50 text-red-700'
+                    }`}
+                    role="status"
+                  >
+                    {introState.message}
+                  </p>
+                )}
               </div>
             </div>
           ) : (

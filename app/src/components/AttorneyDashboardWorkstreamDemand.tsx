@@ -266,14 +266,20 @@ function buildDamagesBreakdown(damages: any, analysis: any, ledgerBilled?: numbe
   const futureMedical = Number(damages?.estimated_future_med_charges || 0)
   const specials = medical + wages + futureMedical
 
-  const demand = Number(
+  const analysisDemand = Number(
     analysis?.expectedSettlementRange?.mid ??
       analysis?.estimatedValue?.medium ??
       analysis?.estimatedValue?.mid ??
       0
   )
   const painSufferingSplit = Number(analysis?.valuationBreakdown?.damageSplits?.painSuffering || 0)
-  const general = demand > specials ? demand - specials : painSufferingSplit
+  const general = analysisDemand > specials ? analysisDemand - specials : painSufferingSplit
+
+  // Total demand must never fall below the economic specials. When the analysis
+  // valuation is missing (e.g. a fresh match), it was 0 — which showed "$0"
+  // even though medical specials were calculated (#162). Fall back to
+  // specials + general so the demand always reflects the documented damages.
+  const demand = analysisDemand > 0 ? analysisDemand : specials + general
 
   const reconciles = demand > 0 && Math.abs(specials + general - demand) <= Math.max(1, demand * 0.02)
 

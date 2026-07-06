@@ -3,6 +3,7 @@ import { clearStoredAuth } from './auth'
 import { apiDebug } from './debug'
 import type { AttorneyDashboardResponse } from '../../../shared/api-contracts'
 import type { HeuristicsConfig } from './heuristics'
+import type { FieldMappingsConfig } from './field-mappings'
 
 export type { HeuristicsConfig }
 
@@ -300,6 +301,24 @@ export async function getPlaintiffDocumentRequests(assessmentId: string): Promis
   requests: PlaintiffDocumentRequest[]
 }> {
   const { data } = await api.get(`/v1/assessments/${assessmentId}/document-requests`)
+  return data
+}
+
+export type PlaintiffCaseTask = {
+  id: string
+  title: string
+  notes?: string | null
+  status: string
+  priority: string
+  dueDate?: string | null
+  taskType?: string
+}
+
+export async function getPlaintiffCaseTasks(assessmentId: string): Promise<{
+  assessmentId: string
+  tasks: PlaintiffCaseTask[]
+}> {
+  const { data } = await api.get(`/v1/assessments/${assessmentId}/tasks`)
   return data
 }
 
@@ -2810,6 +2829,16 @@ export async function saveAdminHeuristics(config: Partial<HeuristicsConfig>) {
 
 export async function getHeuristics() {
   const { data } = await api.get<HeuristicsConfig>('/v1/heuristics')
+  return data
+}
+
+export async function getAdminFieldMappings() {
+  const { data } = await api.get<FieldMappingsConfig>('/v1/admin/field-mappings')
+  return data
+}
+
+export async function saveAdminFieldMappings(config: FieldMappingsConfig) {
+  const { data } = await api.put<FieldMappingsConfig>('/v1/admin/field-mappings', config)
   return data
 }
 

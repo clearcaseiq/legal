@@ -30,6 +30,41 @@ function emailVerificationUrl(rawToken: string): string {
   return `${base}/verify-email?token=${encodeURIComponent(rawToken)}`
 }
 
+// Mint a single-use, expiring email-verification token and email the link.
+// Best-effort: returns whether the message was actually dispatched, and never
+// throws so callers (e.g. signup) can fire-and-forget without blocking (#224).
+async function issueEmailVerification(user: { id: string; email: string; firstName?: string | null }): Promise<boolean> {
+  try {
+    await prisma.emailVerificationToken.deleteMany({ where: { userId: user.id, usedAt: null } })
+    const rawToken = crypto.randomBytes(32).toString('hex')
+    await prisma.emailVerificationToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: hashResetToken(rawToken),
+        expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS),
+      },
+    })
+    const link = emailVerificationUrl(rawToken)
+    const body = [
+      `Hi ${user.firstName || 'there'},`,
+      '',
+      'Welcome to ClearCaseIQ! Please confirm your email address so we can keep your account secure and send you case updates. Click the link below to verify. This link expires in 24 hours and can be used once.',
+      '',
+      link,
+      '',
+      "If you didn't create this account, you can safely ignore this email.",
+      '',
+      '— The ClearCaseIQ team',
+    ].join('\n')
+    const sent = await sendClaimEmail({ to: user.email, subject: 'Verify your ClearCaseIQ email', body })
+    logger.info('Email verification issued', { userId: user.id, emailSent: sent })
+    return sent
+  } catch (error) {
+    logger.error('Failed to issue email verification', { userId: user.id, error })
+    return false
+  }
+}
+
 const router = Router()
 
 function parseStringArrayField(raw: string | null | undefined): string[] {
@@ -115,6 +150,10 @@ router.post('/register', async (req, res) => {
     const token = generateToken(user.id)
 
     logger.info(existingUser ? 'Provisional account upgraded via registration' : 'User registered', { userId: user.id, email: user.email })
+
+    // Send the email-verification link on signup (best-effort — never blocks or
+    // fails registration if the email provider is unconfigured or slow) (#224).
+    void issueEmailVerification(user)
 
     res.status(201).json({
       user,

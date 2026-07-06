@@ -425,8 +425,10 @@ export default function AttorneyDashboardWorkstreamCaseInsights({
                               </span>
                             </div>
                             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-gray-600">
-                              {event.provider ? <span>Provider: <span className="font-medium text-gray-800">{event.provider}</span></span> : null}
-                              <span>Source: <span className="font-medium text-gray-800">{getSourceLabel(event)}</span></span>
+                              {event.provider ? <span className="min-w-0 break-words">Provider: <span className="font-medium text-gray-800">{event.provider}</span></span> : null}
+                              {/* Long, space-less file names (e.g. scanned_medical_bill_2024_final.pdf) overflowed
+                                  the card. Constrain + break so they wrap inside the timeline entry (#164). */}
+                              <span className="min-w-0 max-w-full break-all">Source: <span className="font-medium text-gray-800" title={getSourceLabel(event)}>{getSourceLabel(event)}</span></span>
                               {typeof event.amount === 'number' ? (
                                 <span>Amount: <span className="font-medium text-gray-800">{formatCurrency(event.amount)}</span></span>
                               ) : null}
