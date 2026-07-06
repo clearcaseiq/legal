@@ -676,6 +676,76 @@ export default function FirmDashboard() {
         </div>
       </div>
 
+      {/* Firm team roster — everyone in the firm (attorneys + support staff). */}
+      <div className="bg-white shadow rounded-lg overflow-hidden mb-10">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-brand-600" />
+              <h2 className="text-lg font-semibold text-gray-900">Firm Team</h2>
+            </div>
+            <p className="text-sm text-gray-500">
+              {members.length} {members.length === 1 ? 'person' : 'people'} in this firm
+            </p>
+          </div>
+          <p className="mt-1 text-sm text-gray-500">
+            Everyone in the firm — attorneys and support staff (case managers, paralegals, intake, billing, and more).
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          {members.length === 0 ? (
+            <div className="px-6 py-6 text-sm text-gray-500">
+              No team members yet. Add attorneys below, or add support staff with “Add Legal Staff” above.
+            </div>
+          ) : (
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Office</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {members.map((member) => {
+                  const userName = [member.user?.firstName, member.user?.lastName]
+                    .filter(Boolean)
+                    .join(' ')
+                    .trim()
+                  const displayName = member.attorney?.name || userName || member.user?.email || member.attorney?.email || '—'
+                  const displayEmail = member.user?.email || member.attorney?.email || '—'
+                  const isAttorney = member.role === 'attorney' || Boolean(member.attorney)
+                  return (
+                    <tr key={member.id}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{displayName}</div>
+                        {member.title && (
+                          <div className="text-xs text-gray-500">{member.title}</div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                            isAttorney ? 'bg-brand-50 text-brand-700' : 'bg-gray-100 text-gray-700'
+                          }`}
+                        >
+                          {formatRole(member.role)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{displayEmail}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {member.office?.name || '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
       {/* Attorneys table */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200">
