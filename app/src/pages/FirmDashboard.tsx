@@ -39,6 +39,11 @@ const TEAM_TYPES = [
   { value: 'negotiation', label: 'Negotiation' }
 ]
 
+// Upper bounds so long pastes can't break layout or overflow storage. Trimming
+// still happens in the submit handlers; these just cap what the field accepts.
+const NAME_MAX = 120
+const EMAIL_MAX = 254
+
 const formatRole = (role: string) =>
   role.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
 
@@ -369,13 +374,17 @@ export default function FirmDashboard() {
       setOfficeError('Office name is required.')
       return
     }
+    const parsedCapacity = Number(newOffice.capacity)
+    const capacity = newOffice.capacity.trim() && Number.isFinite(parsedCapacity)
+      ? Math.max(0, Math.floor(parsedCapacity))
+      : undefined
     try {
       setOfficeSaving(true)
       await addFirmOffice({
         name: newOffice.name.trim(),
         city: newOffice.city.trim() || undefined,
         state: newOffice.state.trim() || undefined,
-        capacity: newOffice.capacity.trim() ? Number(newOffice.capacity) : undefined
+        capacity
       })
       setOfficeSuccess('Office added.')
       setNewOffice({ name: '', city: '', state: '', capacity: '' })
@@ -643,6 +652,7 @@ export default function FirmDashboard() {
                 value={newOffice.name}
                 onChange={(e) => setNewOffice({ ...newOffice, name: e.target.value })}
                 placeholder="Office name, e.g. Los Angeles"
+                maxLength={NAME_MAX}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
               />
               <div className="grid grid-cols-2 gap-2">
@@ -651,6 +661,7 @@ export default function FirmDashboard() {
                   value={newOffice.city}
                   onChange={(e) => setNewOffice({ ...newOffice, city: e.target.value })}
                   placeholder="City"
+                  maxLength={NAME_MAX}
                   className="px-3 py-2 border border-gray-300 rounded-md text-sm"
                 />
                 <select
@@ -667,6 +678,7 @@ export default function FirmDashboard() {
               <input
                 type="number"
                 min={0}
+                step={1}
                 value={newOffice.capacity}
                 onChange={(e) => setNewOffice({ ...newOffice, capacity: e.target.value })}
                 placeholder="Capacity (optional)"
@@ -692,6 +704,7 @@ export default function FirmDashboard() {
                 value={newTeam.name}
                 onChange={(e) => setNewTeam({ ...newTeam, name: e.target.value })}
                 placeholder="Team name, e.g. Intake Team"
+                maxLength={NAME_MAX}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
               />
               <select
@@ -789,6 +802,7 @@ export default function FirmDashboard() {
                 value={newMember.firstName}
                 onChange={(e) => setNewMember({ ...newMember, firstName: e.target.value })}
                 placeholder="First name"
+                maxLength={NAME_MAX}
                 className="px-3 py-2 border border-gray-300 rounded-md text-sm"
               />
               <input
@@ -796,6 +810,7 @@ export default function FirmDashboard() {
                 value={newMember.lastName}
                 onChange={(e) => setNewMember({ ...newMember, lastName: e.target.value })}
                 placeholder="Last name"
+                maxLength={NAME_MAX}
                 className="px-3 py-2 border border-gray-300 rounded-md text-sm"
               />
             </div>
@@ -804,6 +819,7 @@ export default function FirmDashboard() {
               value={newMember.email}
               onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
               placeholder="Email"
+              maxLength={EMAIL_MAX}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
               required
             />
@@ -821,6 +837,7 @@ export default function FirmDashboard() {
               value={newMember.title}
               onChange={(e) => setNewMember({ ...newMember, title: e.target.value })}
               placeholder="Title, e.g. Senior Case Manager"
+              maxLength={NAME_MAX}
               className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
             />
             {memberError && <p className="text-sm text-red-600">{memberError}</p>}
@@ -922,6 +939,7 @@ export default function FirmDashboard() {
               value={newAttorney.firstName}
               onChange={(e) => setNewAttorney({ ...newAttorney, firstName: e.target.value })}
               placeholder="First name"
+              maxLength={NAME_MAX}
               className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500 text-sm"
             />
             <input
@@ -929,6 +947,7 @@ export default function FirmDashboard() {
               value={newAttorney.middleName}
               onChange={(e) => setNewAttorney({ ...newAttorney, middleName: e.target.value })}
               placeholder="Middle name"
+              maxLength={NAME_MAX}
               className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500 text-sm"
             />
             <input
@@ -936,6 +955,7 @@ export default function FirmDashboard() {
               value={newAttorney.lastName}
               onChange={(e) => setNewAttorney({ ...newAttorney, lastName: e.target.value })}
               placeholder="Last name"
+              maxLength={NAME_MAX}
               className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500 text-sm"
             />
             <button
@@ -953,6 +973,7 @@ export default function FirmDashboard() {
               value={newAttorney.email}
               onChange={(e) => setNewAttorney({ ...newAttorney, email: e.target.value })}
               placeholder="Attorney email"
+              maxLength={EMAIL_MAX}
               className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500 text-sm sm:col-span-3"
               required
             />
@@ -1164,6 +1185,7 @@ export default function FirmDashboard() {
                   value={editAttorney.firstName}
                   onChange={(e) => setEditAttorney({ ...editAttorney, firstName: e.target.value })}
                   placeholder="First name"
+                  maxLength={NAME_MAX}
                   className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500 text-sm"
                 />
                 <input
@@ -1171,6 +1193,7 @@ export default function FirmDashboard() {
                   value={editAttorney.middleName}
                   onChange={(e) => setEditAttorney({ ...editAttorney, middleName: e.target.value })}
                   placeholder="Middle name"
+                  maxLength={NAME_MAX}
                   className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500 text-sm"
                 />
                 <input
@@ -1178,6 +1201,7 @@ export default function FirmDashboard() {
                   value={editAttorney.lastName}
                   onChange={(e) => setEditAttorney({ ...editAttorney, lastName: e.target.value })}
                   placeholder="Last name"
+                  maxLength={NAME_MAX}
                   className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500 text-sm"
                 />
               </div>

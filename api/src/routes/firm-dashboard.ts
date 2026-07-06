@@ -285,15 +285,15 @@ router.post('/offices', authMiddleware as any, async (req: any, res: Response) =
     const office = await (prisma as any).firmOffice.create({
       data: {
         lawFirmId: context.lawFirmId,
-        name: name.trim(),
-        city: typeof city === 'string' ? city.trim() : null,
-        state: typeof state === 'string' ? state.trim() : null,
-        address: typeof address === 'string' ? address.trim() : null,
-        phone: typeof phone === 'string' ? phone.trim() : null,
+        name: name.trim().slice(0, 120),
+        city: typeof city === 'string' ? city.trim().slice(0, 120) : null,
+        state: typeof state === 'string' ? state.trim().slice(0, 120) : null,
+        address: typeof address === 'string' ? address.trim().slice(0, 255) : null,
+        phone: typeof phone === 'string' ? phone.trim().slice(0, 40) : null,
         countiesServed: Array.isArray(countiesServed) ? JSON.stringify(countiesServed) : null,
         languages: Array.isArray(languages) ? JSON.stringify(languages) : null,
         practiceAreas: Array.isArray(practiceAreas) ? JSON.stringify(practiceAreas) : null,
-        capacity: Number.isFinite(Number(capacity)) ? Number(capacity) : null
+        capacity: Number.isFinite(Number(capacity)) ? Math.max(0, Math.floor(Number(capacity))) : null
       }
     })
 
@@ -323,9 +323,9 @@ router.post('/teams', authMiddleware as any, async (req: any, res: Response) => 
       data: {
         lawFirmId: context.lawFirmId,
         officeId: typeof officeId === 'string' && officeId ? officeId : null,
-        name: name.trim(),
+        name: name.trim().slice(0, 120),
         teamType,
-        description: typeof description === 'string' ? description.trim() : null
+        description: typeof description === 'string' ? description.trim().slice(0, 500) : null
       }
     })
 
