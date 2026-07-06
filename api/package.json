@@ -32,6 +32,7 @@
     "create:ca-cases": "node ../node_modules/tsx/dist/cli.mjs scripts/create-100-ca-cases.ts",
     "add:apple-evidence": "node ../node_modules/tsx/dist/cli.mjs scripts/add-evidence-for-apple.ts",
     "create:attorneys-firms": "node ../node_modules/tsx/dist/cli.mjs scripts/create-attorneys-and-firms.ts",
+    "seed:salman-cases": "node ../node_modules/tsx/dist/cli.mjs scripts/seed-salman-firm-cases.ts",
     "seed:ca-attorneys": "node ../node_modules/tsx/dist/cli.mjs scripts/seed-california-attorneys.ts",
     "seed:attorney-login": "node ../node_modules/tsx/dist/cli.mjs scripts/ensure-seed-attorney-login.ts",
     "seed:attorney-logins": "node ../node_modules/tsx/dist/cli.mjs scripts/ensure-seed-attorney-logins.ts",
