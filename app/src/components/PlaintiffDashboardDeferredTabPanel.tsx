@@ -776,6 +776,8 @@ export default function PlaintiffDashboardDeferredTabPanel({
               <input
                 type="number"
                 min="0"
+                max="3650"
+                step="1"
                 value={wageDays}
                 onChange={(event) => onWageDaysChange(event.target.value)}
                 className="w-20 rounded-lg border border-gray-300 px-3 py-2 text-sm"
@@ -787,6 +789,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
             <input
               type="number"
               min="0"
+              max="100000"
               step="0.01"
               value={wageDaily}
               onChange={(event) => onWageDailyChange(event.target.value)}
@@ -821,6 +824,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
               onChange={(event) => onPainNoteChange(event.target.value)}
               placeholder="Describe how your injuries affected your daily life..."
               aria-invalid={journalError ? true : undefined}
+              maxLength={2000}
               className={`w-full rounded-lg border px-3 py-2 text-sm mb-2 min-h-[80px] ${journalError ? 'border-red-400' : 'border-gray-300'}`}
             />
             {journalError && <p className="text-sm text-red-600 mb-2">{journalError}</p>}

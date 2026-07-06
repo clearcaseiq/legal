@@ -308,6 +308,7 @@ export default function AttorneyDashboardProfileTab({
                   onChange={(e) => updateProfile({ attorney: { ...profile.attorney, name: e.target.value } })}
                   className="text-2xl font-bold text-gray-900 border border-gray-300 rounded-md px-2 py-1 focus:ring-brand-500 focus:border-brand-500"
                   placeholder="Your name"
+                  maxLength={120}
                 />
               ) : (
                 <h3 className="text-2xl font-bold text-gray-900">{profile.attorney?.name || 'Your Profile'}</h3>
@@ -332,6 +333,7 @@ export default function AttorneyDashboardProfileTab({
                 className="w-full p-3 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
                 rows={3}
                 placeholder="Write your professional bio..."
+                maxLength={2000}
               />
             ) : (
               <p className="text-gray-600">{profile.bio || 'No bio available. Click Edit Profile to add one.'}</p>
@@ -497,6 +499,7 @@ export default function AttorneyDashboardProfileTab({
                       // the user must type a language before saving.
                       autoFocus={!language.trim()}
                       placeholder="e.g., Spanish"
+                      maxLength={40}
                       onChange={(e) => {
                         const next = [...languages]
                         next[index] = e.target.value
@@ -583,6 +586,7 @@ export default function AttorneyDashboardProfileTab({
                     onChange={(e) => updateProfile({ firmName: e.target.value || null })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
                     placeholder="Enter firm name"
+                    maxLength={160}
                   />
                 ) : (
                   <p className="text-gray-900">{profile.firmName || 'Not provided'}</p>
@@ -651,8 +655,13 @@ export default function AttorneyDashboardProfileTab({
                     type="number"
                     min="0"
                     max="4"
+                    step="1"
                     value={profile.minInjurySeverity ?? ''}
-                    onChange={(e) => updateProfile({ minInjurySeverity: e.target.value ? parseInt(e.target.value, 10) : null })}
+                    onChange={(e) => {
+                      if (!e.target.value) { updateProfile({ minInjurySeverity: null }); return }
+                      const parsed = parseInt(e.target.value, 10)
+                      updateProfile({ minInjurySeverity: Number.isFinite(parsed) ? Math.min(4, Math.max(0, parsed)) : null })
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-brand-500 focus:border-brand-500"
                     placeholder="0"
                   />
@@ -969,6 +978,7 @@ export default function AttorneyDashboardProfileTab({
                 onChange={(e) => setLicenseNumber(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500"
                 placeholder="Enter your state bar license number"
+                maxLength={40}
                 required
               />
             </div>
@@ -1033,6 +1043,7 @@ export default function AttorneyDashboardProfileTab({
                 onChange={(e) => setLicenseNumber(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-brand-500 focus:border-brand-500"
                 placeholder="Enter your license number if known"
+                maxLength={40}
               />
             </div>
             <div>

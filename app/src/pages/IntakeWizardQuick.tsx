@@ -2546,12 +2546,12 @@ export default function IntakeWizardQuick() {
                               {(countyOptions ?? []).map(c => (<option key={c} value={c}>{c}</option>))}
                             </select>
                           ) : (
-                            <input type="text" value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.county ? 'border-red-500' : ''}`} placeholder={tx('where_countyPlaceholder')} />
+                            <input type="text" maxLength={80} value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.county ? 'border-red-500' : ''}`} placeholder={tx('where_countyPlaceholder')} />
                           )}
                         </div>
                         <div>
                           <label className="mb-1 flex items-center gap-2 text-sm font-medium text-gray-700"><MapPin className="h-4 w-4 text-brand-600" /> {t('intake.city')}</label>
-                          <input type="text" value={formData.venue.city} onChange={e => updateVenue({ city: e.target.value })} className="input w-full border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0" placeholder={tx('where_cityPlaceholder')} />
+                          <input type="text" maxLength={80} value={formData.venue.city} onChange={e => updateVenue({ city: e.target.value })} className="input w-full border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0" placeholder={tx('where_cityPlaceholder')} />
                         </div>
                       </div>
                     )}
@@ -2643,6 +2643,7 @@ export default function IntakeWizardQuick() {
                           onBlur={saveContactProgress}
                           onChange={e => updateForm({ contact: { ...formData.contact, email: e.target.value } })}
                           placeholder="name@email.com"
+                          maxLength={254}
                           aria-invalid={!!errors.contactEmail}
                           className="!min-h-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0 !text-sm text-gray-900 placeholder:text-gray-400 focus:!ring-0 dark:text-slate-100"
                         />
@@ -2669,6 +2670,7 @@ export default function IntakeWizardQuick() {
                           onBlur={saveContactProgress}
                           onChange={e => updateForm({ contact: { ...formData.contact, phone: formatPhoneInput(e.target.value) } })}
                           placeholder="(555) 123-4567"
+                          maxLength={20}
                           aria-invalid={!!errors.contactPhone}
                           className="!min-h-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0 !text-sm text-gray-900 placeholder:text-gray-400 focus:!ring-0 dark:text-slate-100"
                         />
@@ -2941,6 +2943,7 @@ export default function IntakeWizardQuick() {
                     onChange={(e) => updateForm({ injuryDetails: { ...formData.injuryDetails, bodyPartsOther: e.target.value } })}
                     placeholder={tx('injuryDetails_otherInjuryPlaceholder')}
                     rows={3}
+                    maxLength={2000}
                     className="mt-2 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                   />
                 </div>
@@ -3114,6 +3117,7 @@ export default function IntakeWizardQuick() {
                 </div>
                 <input
                   type="text"
+                  maxLength={200}
                   value={formData.injuryDetails.lifestyleOther}
                   onChange={(e) => updateForm({ injuryDetails: { ...formData.injuryDetails, lifestyleOther: e.target.value } })}
                   placeholder={tx('injuryDetails_otherPlaceholder')}
@@ -3487,7 +3491,7 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.tellMore')}</p>
-              <textarea value={formData.branch.otherDetails || ''} onChange={e => setBranch('otherDetails', e.target.value)} placeholder={t('intake.otherDetailsPlaceholder')} rows={3} className="input w-full resize-none border-gray-300" />
+              <textarea value={formData.branch.otherDetails || ''} onChange={e => setBranch('otherDetails', e.target.value)} placeholder={t('intake.otherDetailsPlaceholder')} rows={3} maxLength={2000} className="input w-full resize-none border-gray-300" />
             </div>
           )
         }
@@ -3688,7 +3692,7 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.product_injuryCauseQuestion')}</p>
-              <textarea value={formData.branch.injuryCause || ''} onChange={e => setBranch('injuryCause', e.target.value)} placeholder={t('intake.product_injuryPlaceholder')} rows={3} className="input w-full resize-none border-gray-300" />
+              <textarea value={formData.branch.injuryCause || ''} onChange={e => setBranch('injuryCause', e.target.value)} placeholder={t('intake.product_injuryPlaceholder')} rows={3} maxLength={2000} className="input w-full resize-none border-gray-300" />
             </div>
           )
         }
@@ -3707,7 +3711,7 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.toxic_symptomsQuestion')}</p>
-              <textarea value={formData.branch.symptoms || ''} onChange={e => setBranch('symptoms', e.target.value)} placeholder={t('intake.toxic_symptomsPlaceholder')} rows={3} className="input w-full resize-none border-gray-300" />
+              <textarea value={formData.branch.symptoms || ''} onChange={e => setBranch('symptoms', e.target.value)} placeholder={t('intake.toxic_symptomsPlaceholder')} rows={3} maxLength={2000} className="input w-full resize-none border-gray-300" />
             </div>
           )
         }
@@ -3799,7 +3803,7 @@ export default function IntakeWizardQuick() {
           return (
             <div className="space-y-4">
               <p className="font-display text-sm font-semibold text-slate-950">{t('intake.assault_propertyOwnerQuestion')}</p>
-              <input type="text" value={formData.branch.propertyOwner || ''} onChange={e => setBranch('propertyOwner', e.target.value)} placeholder={t('intake.assault_propertyPlaceholder')} className="input w-full border-gray-300" />
+              <input type="text" maxLength={160} value={formData.branch.propertyOwner || ''} onChange={e => setBranch('propertyOwner', e.target.value)} placeholder={t('intake.assault_propertyPlaceholder')} className="input w-full border-gray-300" />
             </div>
           )
         }
@@ -4607,6 +4611,7 @@ export default function IntakeWizardQuick() {
                       <input
                         id="medical-bill-exact"
                         inputMode="numeric"
+                        maxLength={12}
                         placeholder={tx('financial_exactAmountPlaceholder')}
                         value={icFinancial.medicalBillExact}
                         onChange={(event) => updateForm({ insuranceCoverage: { ...icFinancial, medicalBillExact: event.target.value.replace(/[^\d.,]/g, '') } })}
@@ -5150,6 +5155,7 @@ export default function IntakeWizardQuick() {
                       <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_plaintiffCarrierHelper')}</p>
                       <input
                         type="text"
+                        maxLength={120}
                         value={icLegal.plaintiffAutoCarrier}
                         onChange={(event) => updateForm({ insuranceCoverage: { ...icLegal, plaintiffAutoCarrier: event.target.value } })}
                         placeholder={tx('legal_plaintiffCarrierPlaceholder')}

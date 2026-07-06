@@ -5,6 +5,15 @@ import {
   type MatchingRulesConfig,
 } from '../../lib/api'
 
+// Clamp a raw input string to an integer within [min, max], falling back when
+// the value is blank or non-numeric. Prevents typed negatives / over-max values
+// from slipping past the number field's min/max attributes.
+const clampInt = (raw: string, min: number, max: number, fallback: number): number => {
+  const parsed = parseInt(raw, 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(max, Math.max(min, parsed))
+}
+
 const RANKING_WEIGHT_KEYS = [
   { key: 'jurisdiction_fit' as const, label: 'Jurisdiction fit' },
   { key: 'case_type_fit' as const, label: 'Case type fit' },
@@ -490,7 +499,7 @@ export default function AdminMatchingRules() {
               min={1}
               max={20}
               value={config.maxAttorneysWave1}
-              onChange={(e) => update({ maxAttorneysWave1: parseInt(e.target.value, 10) || 1 })}
+              onChange={(e) => update({ maxAttorneysWave1: clampInt(e.target.value, 1, 20, 1) })}
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
@@ -501,7 +510,7 @@ export default function AdminMatchingRules() {
               min={1}
               max={20}
               value={config.maxAttorneysWave2}
-              onChange={(e) => update({ maxAttorneysWave2: parseInt(e.target.value, 10) || 1 })}
+              onChange={(e) => update({ maxAttorneysWave2: clampInt(e.target.value, 1, 20, 1) })}
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
@@ -512,7 +521,7 @@ export default function AdminMatchingRules() {
               min={1}
               max={20}
               value={config.maxAttorneysWave3}
-              onChange={(e) => update({ maxAttorneysWave3: parseInt(e.target.value, 10) || 1 })}
+              onChange={(e) => update({ maxAttorneysWave3: clampInt(e.target.value, 1, 20, 1) })}
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
@@ -538,7 +547,7 @@ export default function AdminMatchingRules() {
               min={0}
               max={168}
               value={responseDeadlineHoursInput === 0 ? '' : responseDeadlineHoursInput}
-              onChange={(e) => updateResponseDeadline(parseInt(e.target.value, 10) || 0, responseDeadlineMinutesInput)}
+              onChange={(e) => updateResponseDeadline(clampInt(e.target.value, 0, 168, 0), responseDeadlineMinutesInput)}
               placeholder="0"
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
@@ -551,7 +560,7 @@ export default function AdminMatchingRules() {
               min={0}
               max={59}
               value={responseDeadlineMinutesInput === 0 ? '' : responseDeadlineMinutesInput}
-              onChange={(e) => updateResponseDeadline(responseDeadlineHoursInput, parseInt(e.target.value, 10) || 0)}
+              onChange={(e) => updateResponseDeadline(responseDeadlineHoursInput, clampInt(e.target.value, 0, 59, 0))}
               placeholder="0"
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
@@ -579,7 +588,7 @@ export default function AdminMatchingRules() {
               min={0}
               max={168}
               value={config.wave1WaitHours}
-              onChange={(e) => update({ wave1WaitHours: parseInt(e.target.value, 10) || 0 })}
+              onChange={(e) => update({ wave1WaitHours: clampInt(e.target.value, 0, 168, 0) })}
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
@@ -590,7 +599,7 @@ export default function AdminMatchingRules() {
               min={0}
               max={168}
               value={config.wave2WaitHours}
-              onChange={(e) => update({ wave2WaitHours: parseInt(e.target.value, 10) || 0 })}
+              onChange={(e) => update({ wave2WaitHours: clampInt(e.target.value, 0, 168, 0) })}
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
@@ -601,7 +610,7 @@ export default function AdminMatchingRules() {
               min={0}
               max={168}
               value={config.wave3WaitHours}
-              onChange={(e) => update({ wave3WaitHours: parseInt(e.target.value, 10) || 0 })}
+              onChange={(e) => update({ wave3WaitHours: clampInt(e.target.value, 0, 168, 0) })}
               className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
           </label>
@@ -675,7 +684,7 @@ export default function AdminMatchingRules() {
                 max={100}
                 step={5}
                 value={Math.round((config.minCaseScore || 0) * 100)}
-                onChange={(e) => update({ preRoutingGateMode: 'custom', minCaseScore: (parseFloat(e.target.value) || 0) / 100 })}
+                onChange={(e) => update({ preRoutingGateMode: 'custom', minCaseScore: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) / 100 })}
                 className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
               <span className="text-sm text-slate-500">%</span>
@@ -690,7 +699,7 @@ export default function AdminMatchingRules() {
                 max={100}
                 step={5}
                 value={Math.round((config.minEvidenceScore || 0) * 100)}
-                onChange={(e) => update({ preRoutingGateMode: 'custom', minEvidenceScore: (parseFloat(e.target.value) || 0) / 100 })}
+                onChange={(e) => update({ preRoutingGateMode: 'custom', minEvidenceScore: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) / 100 })}
                 className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
               <span className="text-sm text-slate-500">%</span>
@@ -741,6 +750,7 @@ export default function AdminMatchingRules() {
                 value={customJurisdiction}
                 onChange={(e) => setCustomJurisdiction(e.target.value)}
                 placeholder="Add state code"
+                maxLength={4}
                 className="block w-40 rounded-md border border-slate-300 px-3 py-2 text-sm"
               />
               <button type="button" onClick={addCustomJurisdiction} className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">

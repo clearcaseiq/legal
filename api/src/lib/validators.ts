@@ -2,20 +2,20 @@ import { z } from 'zod'
 import { optionalPhone } from './phone'
 
 export const Venue = z.object({ 
-  state: z.string(), 
-  county: z.string().optional() 
+  state: z.string().max(80), 
+  county: z.string().max(100).optional() 
 })
 
 const IncidentBase = z.object({
   date: z.string().min(1),
-  location: z.string().optional(),
-  narrative: z.string().optional(),
-  caseSubtype: z.string().optional(),
+  location: z.string().max(300).optional(),
+  narrative: z.string().max(5000).optional(),
+  caseSubtype: z.string().max(120).optional(),
   incidentTags: z.array(z.string()).optional(),
   taxonomyPath: z.array(z.string()).optional(),
   parties: z.array(z.string()).optional(),
   timeline: z.array(z.object({
-    label: z.string(),
+    label: z.string().max(200),
     order: z.number(),
     approxDate: z.string().optional()
   })).optional()
@@ -64,14 +64,14 @@ export const ConsentsAccepted = z.object({
 
 export const CaseAcceleration = z.object({
   wageLoss: z.object({
-    employerName: z.string().optional(),
-    supervisorContact: z.string().optional(),
-    positionTitle: z.string().optional(),
-    datesMissed: z.string().optional(),
-    reasonMissed: z.string().optional(),
-    hourlyRate: z.string().optional(),
-    typicalHours: z.string().optional(),
-    notes: z.string().optional()
+    employerName: z.string().max(160).optional(),
+    supervisorContact: z.string().max(200).optional(),
+    positionTitle: z.string().max(160).optional(),
+    datesMissed: z.string().max(200).optional(),
+    reasonMissed: z.string().max(500).optional(),
+    hourlyRate: z.string().max(40).optional(),
+    typicalHours: z.string().max(40).optional(),
+    notes: z.string().max(2000).optional()
   }).optional()
 }).partial()
 
@@ -163,11 +163,11 @@ export const AttorneySearch = z.object({
 export const IntroRequest = z.object({
   assessmentId: z.string(),
   attorneyId: z.string(),
-  message: z.string().optional()
+  message: z.string().max(5000).optional()
 })
 
 export const SubmitCaseForReview = z.object({
-  firstName: z.string().trim().min(1).optional(),
+  firstName: z.string().trim().min(1).max(80).optional(),
   email: z.preprocess(
     (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
     z.string().email().optional()
@@ -188,11 +188,11 @@ export const UserRegister = z.object({
     (v) => (typeof v === 'string' ? v.trim().toLowerCase() : v),
     z.string().email()
   ),
-  password: z.string().min(8),
-  firstName: z.string().min(1),
+  password: z.string().min(8).max(200),
+  firstName: z.string().min(1).max(80),
   // Optional: intake only collects a first name, so the streamlined signup can
   // finish without a last name. Defaults to empty rather than failing validation.
-  lastName: z.string().optional().default(''),
+  lastName: z.string().max(80).optional().default(''),
   phone: optionalPhone
 })
 
@@ -213,18 +213,18 @@ export const PasswordResetRequest = z.object({
 
 export const PasswordReset = z.object({
   token: z.string().min(10),
-  password: z.string().min(8),
+  password: z.string().min(8).max(200),
 })
 
 export const UserUpdate = z.object({
-  firstName: z.string().min(1).optional(),
-  lastName: z.string().min(1).optional(),
+  firstName: z.string().min(1).max(80).optional(),
+  lastName: z.string().min(1).max(80).optional(),
   phone: optionalPhone
 })
 
 export const FavoriteAttorneyRequest = z.object({
   attorneyId: z.string(),
-  notes: z.string().optional()
+  notes: z.string().max(2000).optional()
 })
 
 export type AssessmentWrite = z.infer<typeof AssessmentWrite>

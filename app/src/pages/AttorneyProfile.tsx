@@ -488,6 +488,7 @@ export default function AttorneyProfile() {
                   onChange={(e) => setProfile({ ...profile, attorney: { ...profile.attorney, name: e.target.value } })}
                   className="text-2xl font-bold text-gray-900 border border-gray-300 rounded-md px-2 py-1"
                   placeholder="Your name"
+                  maxLength={120}
                 />
               ) : (
                 <h2 className="text-2xl font-bold text-gray-900">{profile.attorney?.name || 'Your Profile'}</h2>
@@ -511,6 +512,7 @@ export default function AttorneyProfile() {
                 className="w-full p-3 border border-gray-300 rounded-md"
                 rows={3}
                 placeholder="Write your professional bio..."
+                maxLength={2000}
               />
             ) : (
               <p className="text-gray-600">{profile.bio}</p>
@@ -575,8 +577,14 @@ export default function AttorneyProfile() {
                   {editing ? (
                     <input
                       type="number"
+                      min={0}
+                      max={80}
+                      step={1}
                       value={profile.yearsExperience}
-                      onChange={(e) => setProfile({ ...profile, yearsExperience: parseInt(e.target.value) })}
+                      onChange={(e) => {
+                        const parsed = parseInt(e.target.value, 10)
+                        setProfile({ ...profile, yearsExperience: Number.isFinite(parsed) ? Math.min(80, Math.max(0, parsed)) : 0 })
+                      }}
                       className="form-input"
                     />
                   ) : (
@@ -594,6 +602,7 @@ export default function AttorneyProfile() {
                             value={language}
                             autoFocus={!language.trim()}
                             placeholder="e.g., Spanish"
+                            maxLength={40}
                             onChange={(e) => {
                               const newLanguages = [...profile.languages]
                               newLanguages[index] = e.target.value
@@ -757,6 +766,7 @@ export default function AttorneyProfile() {
                   onChange={(e) => setNewVerdict({ ...newVerdict, caseType: e.target.value })}
                   className="form-input"
                   placeholder="e.g., Auto Accident"
+                  maxLength={120}
                 />
               </div>
               <div>
@@ -787,6 +797,7 @@ export default function AttorneyProfile() {
                   className="form-input"
                   rows={3}
                   placeholder="Brief description of the case..."
+                  maxLength={1000}
                 />
               </div>
               <div>
@@ -806,6 +817,7 @@ export default function AttorneyProfile() {
                   onChange={(e) => setNewVerdict({ ...newVerdict, venue: e.target.value })}
                   className="form-input"
                   placeholder="Los Angeles County"
+                  maxLength={120}
                 />
               </div>
             </div>

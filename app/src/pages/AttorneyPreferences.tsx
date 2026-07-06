@@ -263,6 +263,7 @@ export default function AttorneyPreferences() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Firm Name</label>
                 <input
                   type="text"
+                  maxLength={160}
                   value={formData.firmName}
                   onChange={(e) => setFormData(prev => ({ ...prev, firmName: e.target.value }))}
                   className="input"
@@ -280,6 +281,7 @@ export default function AttorneyPreferences() {
                         <label className="block text-xs font-medium text-gray-600 mb-1">Street Address</label>
                         <input
                           type="text"
+                          maxLength={200}
                           value={location.address}
                           onChange={(e) => updateFirmLocation(index, { address: e.target.value })}
                           className="input"
@@ -290,6 +292,7 @@ export default function AttorneyPreferences() {
                         <label className="block text-xs font-medium text-gray-600 mb-1">City</label>
                         <input
                           type="text"
+                          maxLength={80}
                           value={location.city}
                           onChange={(e) => updateFirmLocation(index, { city: e.target.value })}
                           className="input"
@@ -380,6 +383,7 @@ export default function AttorneyPreferences() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Counties (comma-separated)</label>
                       <input
                         type="text"
+                        maxLength={500}
                         value={(jurisdiction.counties || []).join(', ')}
                         onChange={(e) => updateJurisdiction(index, { 
                           counties: e.target.value.split(',').map(c => c.trim()).filter(c => c) 

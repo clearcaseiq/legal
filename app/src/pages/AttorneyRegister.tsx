@@ -329,6 +329,7 @@ export default function AttorneyRegister() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
                     <input
                       type="text"
+                      maxLength={80}
                       value={form.firstName}
                       onChange={(e) => updateField('firstName', e.target.value)}
                       className={`input ${fieldErrors.firstName ? 'border-red-500' : ''}`}
@@ -339,6 +340,7 @@ export default function AttorneyRegister() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
                     <input
                       type="text"
+                      maxLength={80}
                       value={form.lastName}
                       onChange={(e) => updateField('lastName', e.target.value)}
                       className={`input ${fieldErrors.lastName ? 'border-red-500' : ''}`}
@@ -351,6 +353,7 @@ export default function AttorneyRegister() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
                     <input
                       type="email"
+                      maxLength={254}
                       value={form.email}
                       onChange={(e) => updateField('email', e.target.value)}
                       className={`input ${fieldErrors.email ? 'border-red-500' : ''}`}
@@ -361,6 +364,7 @@ export default function AttorneyRegister() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
                     <input
                       type="tel"
+                      maxLength={20}
                       value={form.phone}
                       onChange={(e) => updateField('phone', formatPhoneInput(e.target.value))}
                       className={`input ${fieldErrors.phone ? 'border-red-500' : ''}`}
@@ -393,6 +397,7 @@ export default function AttorneyRegister() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Firm Name</label>
                     <input
                       type="text"
+                      maxLength={160}
                       value={form.firmName}
                       onChange={(e) => updateField('firmName', e.target.value)}
                       className="input"
@@ -404,6 +409,7 @@ export default function AttorneyRegister() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">State Bar #</label>
                   <input
                     type="text"
+                    maxLength={40}
                     value={form.stateBarNumber}
                     onChange={(e) => {
                       updateField('stateBarNumber', e.target.value)
@@ -431,7 +437,7 @@ export default function AttorneyRegister() {
                 </div>
                 <div hidden aria-hidden="true">
                   <div>
-                    <input type="url" value={form.firmWebsite} onChange={(e) => updateField('firmWebsite', e.target.value)} />
+                    <input type="url" maxLength={200} value={form.firmWebsite} onChange={(e) => updateField('firmWebsite', e.target.value)} />
                   </div>
                 </div>
                 <div className="flex justify-end pt-2">
@@ -718,6 +724,7 @@ export default function AttorneyRegister() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Firm Website</label>
                     <input
                       type="url"
+                      maxLength={200}
                       value={form.firmWebsite}
                       onChange={(e) => updateField('firmWebsite', e.target.value)}
                       className={`input ${fieldErrors.firmWebsite ? 'border-red-500' : ''}`}

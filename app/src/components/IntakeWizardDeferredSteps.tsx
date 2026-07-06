@@ -176,6 +176,7 @@ export default function IntakeWizardDeferredSteps({
                               <input
                                 type="text"
                                 value={event.label}
+                                maxLength={120}
                                 onChange={(e) => {
                                   const next = timeline.map((item: any) =>
                                     item.order === eventOrder ? { ...item, label: e.target.value } : item,
@@ -306,6 +307,7 @@ export default function IntakeWizardDeferredSteps({
                 onChange={(e) => updateLiability({ defenseNotes: e.target.value })}
                 className="textarea"
                 rows={3}
+                maxLength={2000}
                 placeholder="Optional context to explain any answers above..."
               />
             </div>
@@ -329,6 +331,7 @@ export default function IntakeWizardDeferredSteps({
               onChange={(e) => updateFormData({ incident: { ...formData.incident, narrative: e.target.value } })}
               className={`textarea ${errors.narrative ? 'border-red-500' : ''}`}
               rows={6}
+              maxLength={5000}
               placeholder="Please describe what happened in detail..."
             />
             {errors.narrative && <p className="mt-1 text-sm text-red-600">{errors.narrative}</p>}
@@ -495,6 +498,7 @@ export default function IntakeWizardDeferredSteps({
                     onChange={(e) => updateTreatmentField('missingRecordsNotes', e.target.value)}
                     className="textarea"
                     rows={3}
+                    maxLength={2000}
                     placeholder="e.g., imaging results, ER records, physical therapy notes..."
                   />
                 </div>
@@ -509,6 +513,7 @@ export default function IntakeWizardDeferredSteps({
               onChange={(e) => updateFormData({ injuries: [{ description: e.target.value }] })}
               className={`textarea ${errors.injuries ? 'border-red-500' : ''}`}
               rows={4}
+              maxLength={3000}
               placeholder="Describe any injuries you sustained..."
             />
             {errors.injuries && <p className="mt-1 text-sm text-red-600">{errors.injuries}</p>}
@@ -571,6 +576,7 @@ export default function IntakeWizardDeferredSteps({
               onChange={(e) => updateFormData({ treatment: [{ description: e.target.value }] })}
               className="textarea"
               rows={4}
+              maxLength={3000}
               placeholder="Any additional treatment details you want us to know..."
             />
             <p className="mt-2 text-xs text-gray-500">
@@ -606,13 +612,18 @@ export default function IntakeWizardDeferredSteps({
                 <input
                   type="number"
                   min="0"
+                  max={100000000}
                   step="0.01"
                   value={formData.damages?.[field] || ''}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const parsed = parseFloat(e.target.value)
                     updateFormData({
-                      damages: { ...formData.damages, [field]: parseFloat(e.target.value) || undefined },
+                      damages: {
+                        ...formData.damages,
+                        [field]: Number.isFinite(parsed) ? Math.min(100000000, Math.max(0, parsed)) : undefined,
+                      },
                     })
-                  }
+                  }}
                   className="input"
                   placeholder="0.00"
                 />

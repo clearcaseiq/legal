@@ -1075,20 +1075,29 @@ export default function Dashboard() {
   }
 
   // Days is a whole number; strip non-digits and collapse leading zeros so
-  // values like "00" can't be entered (#196).
+  // values like "00" can't be entered (#196). Cap at 3650 (~10 years) so a
+  // fat-fingered paste can't produce an absurd figure.
   const handleWageDaysChange = (value: string) => {
-    setWageDays(value.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, ''))
+    const digits = value.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '')
+    if (digits === '') { setWageDays(''); return }
+    setWageDays(String(Math.min(3650, Number(digits))))
   }
 
   // Daily wage is a currency amount; keep digits and a single decimal point and
-  // drop leading zeros so "00" / "007" normalise cleanly (#196).
+  // drop leading zeros so "00" / "007" normalise cleanly (#196). Cap the whole
+  // portion at 100,000 so the field can't overflow with an unrealistic value.
   const handleWageDailyChange = (value: string) => {
     let cleaned = value.replace(/[^0-9.]/g, '')
     const firstDot = cleaned.indexOf('.')
     if (firstDot !== -1) {
-      cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '')
+      cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '').slice(0, 2)
     }
-    setWageDaily(cleaned.replace(/^0+(?=\d)/, ''))
+    cleaned = cleaned.replace(/^0+(?=\d)/, '')
+    const numeric = Number(cleaned)
+    if (Number.isFinite(numeric) && numeric > 100000) {
+      cleaned = '100000'
+    }
+    setWageDaily(cleaned)
   }
 
 

@@ -107,6 +107,7 @@ export default function ScheduleConsultModal({
               placeholder="e.g. Call plaintiff to confirm injuries before consult"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none"
               rows={2}
+              maxLength={2000}
             />
           </div>
         </div>

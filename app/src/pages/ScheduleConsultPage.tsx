@@ -168,6 +168,7 @@ export default function ScheduleConsultPage() {
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="e.g. Call plaintiff to confirm injuries before consult"
                 rows={3}
+                maxLength={2000}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
               />
             </div>

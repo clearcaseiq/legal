@@ -406,6 +406,7 @@ export default function Messaging() {
                     onChange={(e) => setNewMessage(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                     placeholder="Type a message..."
+                    maxLength={5000}
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     disabled={isSending}
                   />
@@ -492,6 +493,7 @@ export default function Messaging() {
                   onChange={(e) => setChatBotInput(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleChatBotMessage()}
                   placeholder="Ask a question..."
+                  maxLength={1000}
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
                 />
                 <button
