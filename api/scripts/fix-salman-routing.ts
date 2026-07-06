@@ -83,35 +83,68 @@ async function main() {
     return
   }
 
+  // Deterministic order so the distribution is stable across re-runs.
   const assessments = await prisma.assessment.findMany({
     where: { lawFirmId: firm.id },
+    orderBy: { createdAt: 'asc' },
     select: { id: true, claimType: true },
   })
 
-  let introFixed = 0
-  let leadFixed = 0
+  // Give the demo book a realistic pipeline spread. Crucially a good chunk are
+  // brand-new matches (status 'submitted' + PENDING introduction, not yet
+  // assigned) so the dashboard's default "New Matches" view is populated; the
+  // rest are active/retained cases.
+  type Stage = 'new' | 'contacted' | 'consulted' | 'retained'
+  const lifecycleFor: Record<Exclude<Stage, 'new'>, string> = {
+    contacted: 'attorney_matched',
+    consulted: 'consultation_scheduled',
+    retained: 'engaged',
+  }
+  const stageFor = (i: number): Stage => {
+    const m = i % 10
+    if (m < 4) return 'new'        // 40% -> New Matches
+    if (m < 6) return 'contacted'  // 20%
+    if (m < 8) return 'consulted'  // 20%
+    return 'retained'              // 20%
+  }
+
+  const counts: Record<Stage, number> = { new: 0, contacted: 0, consulted: 0, retained: 0 }
+  let i = 0
   for (const a of assessments) {
+    const stage = stageFor(i++)
+    counts[stage]++
+    const isNew = stage === 'new'
+
+    // Introduction: PENDING (offered) for new matches, ACCEPTED for active cases.
     const existingIntro = await prisma.introduction.findFirst({ where: { assessmentId: a.id, attorneyId: attorney.id } })
-    if (!existingIntro) {
-      await prisma.introduction.create({
+    if (existingIntro) {
+      await prisma.introduction.update({
+        where: { id: existingIntro.id },
         data: {
-          assessmentId: a.id, attorneyId: attorney.id, status: 'ACCEPTED',
-          message: 'Re-linked to Salman Law Firm (routing repair).',
-          respondedAt: new Date(), waveNumber: 1,
+          status: isNew ? 'PENDING' : 'ACCEPTED',
+          respondedAt: isNew ? null : new Date(),
         },
       })
-      introFixed++
+    } else {
+      await prisma.introduction.create({
+        data: {
+          assessmentId: a.id, attorneyId: attorney.id,
+          status: isNew ? 'PENDING' : 'ACCEPTED',
+          message: isNew ? 'New plaintiff match for Salman Law Firm.' : 'Accepted by Salman Law Firm.',
+          respondedAt: isNew ? null : new Date(), waveNumber: 1,
+        },
+      })
     }
+
+    // Lead submission: new matches are unassigned + 'submitted'; active cases are
+    // assigned + locked to the lead attorney.
+    const leadData = isNew
+      ? { assignedAttorneyId: null as string | null, assignmentType: 'shared', status: 'submitted', lifecycleState: 'routing_active', routingLocked: false }
+      : { assignedAttorneyId: attorney.id, assignmentType: 'exclusive', status: stage, lifecycleState: lifecycleFor[stage as Exclude<Stage, 'new'>], routingLocked: true }
 
     const existingLead = await prisma.leadSubmission.findUnique({ where: { assessmentId: a.id } })
     if (existingLead) {
-      if (existingLead.assignedAttorneyId !== attorney.id || !existingLead.routingLocked) {
-        await prisma.leadSubmission.update({
-          where: { assessmentId: a.id },
-          data: { assignedAttorneyId: attorney.id, assignmentType: 'exclusive', routingLocked: true, lifecycleState: 'attorney_matched', status: 'contacted' },
-        })
-        leadFixed++
-      }
+      await prisma.leadSubmission.update({ where: { assessmentId: a.id }, data: leadData })
     } else {
       await prisma.leadSubmission.create({
         data: {
@@ -122,12 +155,10 @@ async function main() {
           damagesScore: Number((0.5 + Math.random() * 0.45).toFixed(2)),
           sourceType: rand(['organic_search', 'referral', 'paid_ad', 'direct']),
           hotnessLevel: rand(['hot', 'warm']),
-          assignedAttorneyId: attorney.id, assignmentType: 'exclusive',
-          status: 'contacted', lifecycleState: 'attorney_matched', routingLocked: true,
           evidenceChecklist: JSON.stringify({ photos: true, bills: true, medical_records: true }),
+          ...leadData,
         },
       })
-      leadFixed++
     }
 
     if (adminUser) {
@@ -146,9 +177,11 @@ async function main() {
     }
   }
 
-  console.log(`\nRepair: created ${introFixed} introductions, fixed/created ${leadFixed} lead submissions.`)
+  console.log(`\nPipeline distribution applied: new(submitted)=${counts.new}, contacted=${counts.contacted}, consulted=${counts.consulted}, retained=${counts.retained}`)
   await report('AFTER', firm.id, attorney.id)
-  console.log('\nDone. Refresh Salman\'s dashboard.')
+  const newMatches = await prisma.leadSubmission.count({ where: { status: 'submitted', assessment: { lawFirmId: firm.id } } })
+  console.log(`\nLeads that will show under "New Matches" (status=submitted): ${newMatches}`)
+  console.log('Done. Refresh Salman\'s dashboard — New Matches + Active Cases will both be populated.')
 }
 
 main().catch((e) => { console.error(e); process.exit(1) }).finally(() => prisma.$disconnect())
