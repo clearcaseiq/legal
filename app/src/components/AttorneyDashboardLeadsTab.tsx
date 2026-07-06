@@ -104,7 +104,13 @@ export default function AttorneyDashboardLeadsTab({
   }
 
   const getLeadBands = (lead: any) => {
-    const pred = lead?.assessment?.predictions?.[0] || lead?.assessment?.predictions || {}
+    // Use the LATEST prediction (by createdAt) so this matches the pre-acceptance
+    // snapshot, which also reads the latest. Reading predictions[0] (oldest) made
+    // the list value disagree with the snapshot value (A3-09).
+    const preds = lead?.assessment?.predictions
+    const pred = Array.isArray(preds)
+      ? [...preds].sort((a: any, b: any) => new Date(a?.createdAt || 0).getTime() - new Date(b?.createdAt || 0).getTime()).pop()
+      : preds || {}
     let bands: any = {}
     if (pred?.bands) {
       try {
@@ -229,7 +235,11 @@ export default function AttorneyDashboardLeadsTab({
       if (caseLeadsFilter.routingInboxView === 'awaitingDecision' && (lead?.status || '') !== 'submitted') {
         return false
       }
-      if (caseLeadsFilter.routingInboxView === 'hotMatches' && getPriorityLabel(lead).label !== 'Hot') {
+      // "Hot Matches" filters by the canonical hotnessLevel === 'hot' (the same
+      // signal the overview tile counts), not getPriorityLabel — which flags any
+      // lead with >=4 evidence files or >=$50k as "Hot" and therefore matched
+      // essentially every case, so the filter showed everything (A3-18).
+      if (caseLeadsFilter.routingInboxView === 'hotMatches' && (lead?.hotnessLevel || '') !== 'hot') {
         return false
       }
       if (caseLeadsFilter.routingInboxView === 'staleMatches') {
@@ -301,7 +311,7 @@ export default function AttorneyDashboardLeadsTab({
   const starredLeads = (dashboardData?.recentLeads || []).filter((lead: any) => starredLeadIds.has(lead.id))
   const routingInboxSummary = {
     awaitingDecision: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.status || '') === 'submitted').length,
-    hotMatches: (dashboardData?.recentLeads || []).filter((lead: any) => getPriorityLabel(lead).label === 'Hot').length,
+    hotMatches: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.hotnessLevel || '') === 'hot').length,
     staleMatches: (dashboardData?.recentLeads || []).filter((lead: any) => {
       const submittedAt = Date.parse(lead?.submittedAt || '')
       if (Number.isNaN(submittedAt)) return false

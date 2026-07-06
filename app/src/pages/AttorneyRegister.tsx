@@ -44,6 +44,13 @@ export default function AttorneyRegister() {
   const [showFirmWebsite, setShowFirmWebsite] = useState(false)
   const [licenseVerified, setLicenseVerified] = useState(false)
   const [form, setForm] = useState<AttorneyRegisterFormInput>(ATTORNEY_REGISTER_DEFAULTS)
+  // Explicit service-area choice. Previously the "Entire State" vs "Selected
+  // Counties" selection was inferred from whether any counties were picked,
+  // which made the "Selected Counties" button unresponsive (clicking it with no
+  // counties yet did nothing). Tracking the mode explicitly fixes that (A3-01).
+  const [serviceAreaMode, setServiceAreaMode] = useState<'state' | 'counties'>(
+    ATTORNEY_REGISTER_DEFAULTS.preferredCounties.length > 0 ? 'counties' : 'state',
+  )
   const navigate = useNavigate()
 
   const firstName = form.firstName
@@ -544,17 +551,21 @@ export default function AttorneyRegister() {
                       <label
                         key={option.value}
                         className={`cursor-pointer rounded-lg border px-3 py-3 text-center text-sm font-medium ${
-                          (option.value === 'state' && selectedCounties.length === 0) ||
-                          (option.value === 'counties' && selectedCounties.length > 0)
+                          serviceAreaMode === option.value
                             ? 'border-brand-600 bg-brand-50 text-brand-700'
                             : 'border-gray-200 text-gray-700 hover:border-gray-300'
                         }`}
                       >
                         <input
                           type="radio"
-                          checked={(option.value === 'state' && selectedCounties.length === 0) || (option.value === 'counties' && selectedCounties.length > 0)}
+                          checked={serviceAreaMode === option.value}
                           onChange={() => {
-                            if (option.value !== 'counties') updateField('preferredCounties', [])
+                            if (option.value === 'counties') {
+                              setServiceAreaMode('counties')
+                            } else {
+                              setServiceAreaMode('state')
+                              updateField('preferredCounties', [])
+                            }
                           }}
                           className="sr-only"
                         />
@@ -563,7 +574,7 @@ export default function AttorneyRegister() {
                     ))}
                   </div>
                 </div>
-                {venues.includes('CA') ? (
+                {serviceAreaMode === 'counties' && (venues.includes('CA') ? (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">California counties</label>
                     <p className="mb-3 text-xs text-gray-500">County matters most for PI routing. Cities can be added later in Settings.</p>
@@ -594,7 +605,7 @@ export default function AttorneyRegister() {
                   <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
                     County preferences for your selected states can be added in Settings after verification.
                   </div>
-                )}
+                ))}
                 <div className="flex justify-between pt-2">
                   <button type="button" onClick={() => setCurrentStep(2)} className="btn-secondary">
                     Back
@@ -634,33 +645,11 @@ export default function AttorneyRegister() {
                     ))}
                   </div>
                   {fieldErrors.maxCasesPerMonth && <p className="mt-1 text-xs text-red-600">{fieldErrors.maxCasesPerMonth}</p>}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Current status</label>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    {[
-                      { value: 'accept_immediately', label: 'Accepting Cases', tone: 'text-emerald-700', dot: '●' },
-                      { value: 'vacation', label: 'Limited Capacity', tone: 'text-amber-700', dot: '●' },
-                      { value: 'pause', label: 'Pause Intake', tone: 'text-red-700', dot: '●' }
-                    ].map((o) => (
-                      <label
-                        key={o.value}
-                        className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border px-3 py-3 text-sm font-medium ${
-                          form.intakeStatus === o.value ? 'border-brand-600 bg-brand-50' : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          checked={form.intakeStatus === o.value}
-                          onChange={() => updateField('intakeStatus', o.value as AttorneyRegisterFormInput['intakeStatus'])}
-                          className="sr-only"
-                        />
-                        <span className={o.tone}>{o.dot}</span>
-                        <span>{o.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                  <p className="mt-2 text-xs text-gray-500">You can update your capacity and intake status anytime in Settings.</p>
+                  {/* Availability / intake status is an operational setting that
+                      belongs on the dashboard after the account is active, not at
+                      registration where there is nothing to pause yet (A3-02). New
+                      registrants default to "accepting" and can change it later. */}
+                  <p className="mt-2 text-xs text-gray-500">You can update your capacity and set your intake availability (accepting, limited, or paused) anytime from your dashboard after verification.</p>
                 </div>
                 <div className="flex justify-between pt-2">
                   <button type="button" onClick={() => setCurrentStep(3)} className="btn-secondary">

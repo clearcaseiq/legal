@@ -2788,7 +2788,7 @@ export default function AttorneyDashboard() {
   ]
   const decisionQueueItems = [
     { label: 'Needs Review', count: awaitingDecisionCount, onClick: () => openLeadQueue({ status: 'submitted', pipelineStage: '', routingInboxView: 'awaitingDecision' }, { pipelineTile: null }) },
-    { label: 'Hot Matches', count: hotMatchesCount, onClick: () => openLeadQueue({ status: 'submitted', pipelineStage: 'matched', routingInboxView: 'hotMatches' }, { pipelineTile: 'matched' }) },
+    { label: 'Hot Matches', count: hotMatchesCount, onClick: () => openLeadQueue({ status: '', pipelineStage: '', routingInboxView: 'hotMatches' }, { pipelineTile: null }) },
     { label: 'Aging Over 24h', count: agingOver24hCount, onClick: () => openLeadQueue({ status: 'submitted', pipelineStage: 'matched', routingInboxView: 'staleMatches' }, { pipelineTile: 'matched' }) },
     { label: 'Consult Ready', count: consultReadyCount, onClick: () => openLeadQueue({ status: 'contacted', pipelineStage: 'accepted', routingInboxView: 'consultReady' }, { pipelineTile: 'accepted' }) },
   ]
@@ -3965,10 +3965,20 @@ function dashboardFormatCurrency(amount: number) {
   }).format(amount)
 }
 
+// Pick the most recent prediction by createdAt. Using predictions[0] (arbitrary
+// insertion order, effectively the oldest) made the case-list value disagree
+// with the pre-acceptance snapshot, which reads the latest prediction (A3-09).
+function latestLeadPrediction(lead: Lead): any {
+  const preds: any = lead.assessment?.predictions
+  if (!Array.isArray(preds)) return preds
+  if (preds.length === 0) return undefined
+  return [...preds]
+    .sort((a: any, b: any) => new Date(a?.createdAt || 0).getTime() - new Date(b?.createdAt || 0).getTime())
+    .pop()
+}
+
 function dashboardLeadValueRange(lead: Lead) {
-  const prediction = Array.isArray(lead.assessment?.predictions)
-    ? lead.assessment.predictions[0]
-    : lead.assessment?.predictions
+  const prediction = latestLeadPrediction(lead)
   let bands: any = {}
   try {
     bands = typeof prediction?.bands === 'string' ? JSON.parse(prediction.bands) : prediction?.bands || {}
@@ -3981,9 +3991,7 @@ function dashboardLeadValueRange(lead: Lead) {
 }
 
 function dashboardLeadHighValue(lead: Lead) {
-  const prediction = Array.isArray(lead.assessment?.predictions)
-    ? lead.assessment.predictions[0]
-    : lead.assessment?.predictions
+  const prediction = latestLeadPrediction(lead)
   let bands: any = {}
   try {
     bands = typeof prediction?.bands === 'string' ? JSON.parse(prediction.bands) : prediction?.bands || {}
