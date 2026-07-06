@@ -190,9 +190,12 @@ describe('UserRegister', () => {
     expect(UserRegister.safeParse({ ...ok, password: '1234567' }).success).toBe(false)
   })
 
-  it('rejects empty first or last name', () => {
+  it('rejects empty first name but allows empty/optional last name', () => {
+    // First name is required. Last name is intentionally optional so the
+    // streamlined signup (intake collects only a first name) can complete
+    // without one — it defaults to empty rather than failing validation (#35).
     expect(UserRegister.safeParse({ ...ok, firstName: '' }).success).toBe(false)
-    expect(UserRegister.safeParse({ ...ok, lastName: '' }).success).toBe(false)
+    expect(UserRegister.safeParse({ ...ok, lastName: '' }).success).toBe(true)
   })
 
   it('accepts optional phone', () => {
