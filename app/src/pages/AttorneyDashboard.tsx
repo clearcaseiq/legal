@@ -291,7 +291,7 @@ const DEFAULT_CASE_LEADS_FILTER = {
   pipelineStage: '',
   evidenceLevel: '',
   jurisdiction: '',
-  routingInboxView: '' as '' | 'awaitingDecision' | 'hotMatches' | 'staleMatches' | 'consultReady',
+  routingInboxView: '' as '' | 'newMatches' | 'awaitingDecision' | 'hotMatches' | 'staleMatches' | 'consultReady',
 }
 
 const ATTORNEY_DASHBOARD_TABS = ['overview', 'leads', 'analytics', 'intake', 'profile'] as const
@@ -2775,7 +2775,7 @@ export default function AttorneyDashboard() {
     setTimeout(() => document.getElementById('attorney-dashboard-tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
   }
   const todayPriorities = [
-    { label: 'New Matches', value: newMatchesCount, tone: 'border-brand-200 bg-brand-50 text-brand-900', onClick: () => openLeadQueue({ status: 'submitted', pipelineStage: 'matched', routingInboxView: '' }, { pipelineTile: 'matched' }) },
+    { label: 'New Matches', value: newMatchesCount, tone: 'border-brand-200 bg-brand-50 text-brand-900', onClick: () => openLeadQueue({ status: '', pipelineStage: '', routingInboxView: 'newMatches' }, { pipelineTile: null }) },
     { label: 'Awaiting Decision', value: awaitingDecisionCount, tone: 'border-amber-200 bg-amber-50 text-amber-900', onClick: () => openLeadQueue({ status: 'submitted', pipelineStage: '', routingInboxView: 'awaitingDecision' }, { pipelineTile: null }) },
     { label: 'Consults Today', value: consultsToday, tone: 'border-sky-200 bg-sky-50 text-sky-900', onClick: () => setConsultCalendarModalOpen(true) },
     { label: 'Potential Fee Pipeline', value: dashboardFormatCurrency(revenuePipeline), tone: 'border-emerald-200 bg-emerald-50 text-emerald-900', onClick: openAnalyticsTab },
@@ -2820,20 +2820,26 @@ export default function AttorneyDashboard() {
       : ''
     return userName || facts.plaintiffName || facts.name || 'Plaintiff'
   }
+  const goToLeadOverview = (lead: any) => {
+    prepareLeadWorkspace(lead)
+    navigate(`/attorney-dashboard/lead/${lead.id}/overview`)
+  }
   const notificationItems = [
-    newMatchesCount > 0 ? { id: 'new-match-selected', label: `New plaintiff selected you #1`, tone: 'bg-brand-50 text-brand-800' } : null,
+    newMatchesCount > 0
+      ? { id: 'new-match-selected', label: `New plaintiff selected you #1`, tone: 'bg-brand-50 text-brand-800', onClick: () => openLeadQueue({ status: 'submitted', pipelineStage: 'matched', routingInboxView: '' }, { pipelineTile: 'matched' }) }
+      : null,
     ...allLeads
       .filter((lead) => dashboardLeadDocumentCount(lead) > 0)
       .slice(0, 1)
-      .map((lead) => ({ id: `docs-${lead.id}`, label: `${leadPlaintiffName(lead)} uploaded records`, tone: 'bg-emerald-50 text-emerald-800' })),
+      .map((lead) => ({ id: `docs-${lead.id}`, label: `${leadPlaintiffName(lead)} uploaded records`, tone: 'bg-emerald-50 text-emerald-800', onClick: () => goToLeadOverview(lead) })),
     ...allLeads
       .filter((lead) => lead.status === 'consulted')
       .slice(0, 1)
-      .map((lead) => ({ id: `consult-${lead.id}`, label: `${leadPlaintiffName(lead)} scheduled consultation`, tone: 'bg-sky-50 text-sky-800' })),
+      .map((lead) => ({ id: `consult-${lead.id}`, label: `${leadPlaintiffName(lead)} scheduled consultation`, tone: 'bg-sky-50 text-sky-800', onClick: () => goToLeadOverview(lead) })),
     dashboardData.upcomingConsults?.[0]
-      ? { id: 'upcoming-consult', label: `Consultation tomorrow at ${new Date(dashboardData.upcomingConsults[0].scheduledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`, tone: 'bg-amber-50 text-amber-800' }
+      ? { id: 'upcoming-consult', label: `Consultation tomorrow at ${new Date(dashboardData.upcomingConsults[0].scheduledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`, tone: 'bg-amber-50 text-amber-800', onClick: () => setConsultCalendarModalOpen(true) }
       : null,
-  ].filter(Boolean).slice(0, 4) as Array<{ id: string; label: string; tone: string }>
+  ].filter(Boolean).slice(0, 4) as Array<{ id: string; label: string; tone: string; onClick: () => void }>
   const aiRecommendationItems = allLeads
     .filter((lead) => dashboardLeadDocumentCount(lead) === 0 || lead.demandReadiness?.blockers?.length)
     .slice(0, 2)
@@ -2863,11 +2869,39 @@ export default function AttorneyDashboard() {
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Firm Snapshot</p>
             <h1 className="mt-1 truncate text-2xl font-extrabold text-gray-900">{firmSnapshotName}</h1>
-            <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-700">
-              <span><strong className="text-slate-950">New Matches:</strong> {newMatchesCount}</span>
-              <span><strong className="text-slate-950">Awaiting Decision:</strong> {awaitingDecisionCount}</span>
-              <span><strong className="text-slate-950">Active Cases:</strong> {activeCasesCount}</span>
-              <span><strong className="text-slate-950">Potential Pipeline:</strong> {dashboardFormatCurrency(revenuePipeline)}</span>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <button
+                type="button"
+                onClick={() => openLeadQueue({ status: '', pipelineStage: '', routingInboxView: 'newMatches' }, { pipelineTile: null })}
+                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-brand-200 hover:bg-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1"
+              >
+                <span className="block text-xs font-medium text-slate-500">New Matches</span>
+                <span className="mt-0.5 block text-lg font-bold text-slate-950">{newMatchesCount}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => openLeadQueue({ status: 'submitted', pipelineStage: 'matched', routingInboxView: 'awaitingDecision' }, { pipelineTile: 'matched' })}
+                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-brand-200 hover:bg-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1"
+              >
+                <span className="block text-xs font-medium text-slate-500">Awaiting Decision</span>
+                <span className="mt-0.5 block text-lg font-bold text-slate-950">{awaitingDecisionCount}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => openLeadQueue({ status: 'retained', pipelineStage: 'retained' }, { pipelineTile: 'retained' })}
+                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-brand-200 hover:bg-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1"
+              >
+                <span className="block text-xs font-medium text-slate-500">Active Cases</span>
+                <span className="mt-0.5 block text-lg font-bold text-slate-950">{activeCasesCount}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => openLeadQueue({ status: '', pipelineStage: '', routingInboxView: '' }, { pipelineTile: null })}
+                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left transition hover:border-brand-200 hover:bg-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1"
+              >
+                <span className="block text-xs font-medium text-slate-500">Potential Pipeline</span>
+                <span className="mt-0.5 block text-lg font-bold text-slate-950">{dashboardFormatCurrency(revenuePipeline)}</span>
+              </button>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <button
@@ -2893,10 +2927,15 @@ export default function AttorneyDashboard() {
             </div>
             <div className="mt-3 space-y-2">
               {notificationItems.length ? notificationItems.map((item) => (
-                <div key={item.id} className={`rounded-lg px-3 py-2 text-sm font-medium ${item.tone}`}>
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={item.onClick}
+                  className={`block w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition hover:opacity-90 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1 ${item.tone}`}
+                >
                   {/* Ensure each notification reads as a complete sentence (#122). */}
                   {/[.!?]$/.test(item.label) ? item.label : `${item.label}.`}
-                </div>
+                </button>
               )) : (
                 <div className="rounded-lg bg-white px-3 py-2 text-sm text-slate-500">No new notifications.</div>
               )}
@@ -3382,15 +3421,27 @@ export default function AttorneyDashboard() {
                 <p className="mt-1 text-sm text-gray-600">Readiness-generated reminders and nudges the system queued automatically.</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setAutomationFeedFilter('all')}
+                  className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-1"
+                >
                   {dashboardData.automationFeed?.length ?? 0} queued
-                </span>
-                <span className="inline-flex rounded-full bg-red-100 px-3 py-1 text-xs font-medium text-red-700">
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAutomationFeedFilter('high')}
+                  className="inline-flex rounded-full bg-red-100 px-3 py-1 text-xs font-medium text-red-700 transition hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1"
+                >
                   {(dashboardData.automationFeed || []).filter((item) => item.severity === 'high').length} high severity
-                </span>
-                <span className="inline-flex rounded-full bg-brand-100 px-3 py-1 text-xs font-medium text-brand-700">
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAutomationFeedFilter('all')}
+                  className="inline-flex rounded-full bg-brand-100 px-3 py-1 text-xs font-medium text-brand-700 transition hover:bg-brand-200 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:ring-offset-1"
+                >
                   {new Set((dashboardData.automationFeed || []).map((item) => item.category)).size} groups
-                </span>
+                </button>
               </div>
             </div>
 

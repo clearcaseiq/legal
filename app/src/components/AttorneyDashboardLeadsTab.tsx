@@ -9,7 +9,7 @@ type CaseLeadsFilter = {
   pipelineStage: string
   evidenceLevel: string
   jurisdiction: string
-  routingInboxView: 'awaitingDecision' | 'hotMatches' | 'staleMatches' | 'consultReady' | ''
+  routingInboxView: 'newMatches' | 'awaitingDecision' | 'hotMatches' | 'staleMatches' | 'consultReady' | ''
 }
 
 type PendingQuickAction = {
@@ -231,7 +231,23 @@ export default function AttorneyDashboardLeadsTab({
   }
 
   const getFilteredAndSortedLeads = () => {
+    // "New matches" is the curated set the backend surfaces as newCaseMatches
+    // (newly routed / unreviewed), which is a strict subset of "awaiting
+    // decision" (all submitted). Filtering by these ids keeps the two views
+    // distinct instead of both showing every submitted case (A3-25).
+    const newMatchIds = new Set(
+      ((dashboardData?.newCaseMatches as any[]) || []).map((m: any) => m?.id).filter(Boolean),
+    )
     const filtered = (dashboardData?.recentLeads || []).filter((lead: any) => {
+      if (caseLeadsFilter.routingInboxView === 'newMatches') {
+        // Prefer the curated set; if it isn't provided, fall back to submitted
+        // cases so the view is never accidentally empty.
+        if (newMatchIds.size > 0) {
+          if (!newMatchIds.has(lead?.id)) return false
+        } else if ((lead?.status || '') !== 'submitted') {
+          return false
+        }
+      }
       if (caseLeadsFilter.routingInboxView === 'awaitingDecision' && (lead?.status || '') !== 'submitted') {
         return false
       }
@@ -402,50 +418,46 @@ export default function AttorneyDashboardLeadsTab({
           <p className="text-sm text-slate-500">Use this to spot which routed matters need attorney attention first.</p>
         </div>
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => applyRoutingInboxView('awaitingDecision', { status: 'submitted', pipelineStage: 'matched' }, 'matched')}
+            aria-pressed={caseLeadsFilter.routingInboxView === 'awaitingDecision'}
+            className={`block w-full rounded-lg border px-4 py-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 ${caseLeadsFilter.routingInboxView === 'awaitingDecision' ? 'border-amber-400 bg-amber-100 ring-2 ring-amber-500 ring-offset-1' : 'border-amber-200 bg-amber-50 hover:bg-amber-100'}`}
+          >
             <p className="text-xs font-medium uppercase tracking-wide text-amber-700">Awaiting decision</p>
-            <button
-              type="button"
-              onClick={() => applyRoutingInboxView('awaitingDecision', { status: 'submitted', pipelineStage: 'matched' }, 'matched')}
-              className="mt-1 text-2xl font-semibold text-amber-900 underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
-            >
-              {routingInboxSummary.awaitingDecision}
-            </button>
+            <p className="mt-1 text-2xl font-semibold text-amber-900">{routingInboxSummary.awaitingDecision}</p>
             <p className="text-xs text-amber-700">Newly routed cases still waiting for accept or decline.</p>
-          </div>
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-red-700">Hot matches</p>
-            <button
-              type="button"
-              onClick={() => applyRoutingInboxView('hotMatches', {}, null)}
-              className="mt-1 text-2xl font-semibold text-red-900 underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-            >
-              {routingInboxSummary.hotMatches}
-            </button>
-            <p className="text-xs text-red-700">High-value or evidence-rich matters that should move quickly.</p>
-          </div>
-          <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+          </button>
+          <button
+            type="button"
+            onClick={() => applyRoutingInboxView('hotMatches', {}, null)}
+            aria-pressed={caseLeadsFilter.routingInboxView === 'hotMatches'}
+            className={`block w-full rounded-lg border px-4 py-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 ${caseLeadsFilter.routingInboxView === 'hotMatches' ? 'border-orange-400 bg-orange-100 ring-2 ring-orange-500 ring-offset-1' : 'border-orange-200 bg-orange-50 hover:bg-orange-100'}`}
+          >
+            <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-orange-700">Hot matches</p>
+            <p className="mt-1 text-2xl font-semibold text-orange-900">{routingInboxSummary.hotMatches}</p>
+            <p className="text-xs text-orange-700">High-value or evidence-rich matters that should move quickly.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => applyRoutingInboxView('staleMatches', { status: 'submitted', pipelineStage: 'matched' }, 'matched')}
+            aria-pressed={caseLeadsFilter.routingInboxView === 'staleMatches'}
+            className={`block w-full rounded-lg border px-4 py-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${caseLeadsFilter.routingInboxView === 'staleMatches' ? 'border-blue-400 bg-blue-100 ring-2 ring-blue-500 ring-offset-1' : 'border-blue-200 bg-blue-50 hover:bg-blue-100'}`}
+          >
             <p className="text-xs font-medium uppercase tracking-wide text-blue-700">Aging over 24h</p>
-            <button
-              type="button"
-              onClick={() => applyRoutingInboxView('staleMatches', { status: 'submitted', pipelineStage: 'matched' }, 'matched')}
-              className="mt-1 text-2xl font-semibold text-blue-900 underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            >
-              {routingInboxSummary.staleMatches}
-            </button>
+            <p className="mt-1 text-2xl font-semibold text-blue-900">{routingInboxSummary.staleMatches}</p>
             <p className="text-xs text-blue-700">Matched cases that may be slipping beyond the response commitment.</p>
-          </div>
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+          </button>
+          <button
+            type="button"
+            onClick={() => applyRoutingInboxView('consultReady', { status: 'contacted', pipelineStage: 'contacted' }, 'contacted')}
+            aria-pressed={caseLeadsFilter.routingInboxView === 'consultReady'}
+            className={`block w-full rounded-lg border px-4 py-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${caseLeadsFilter.routingInboxView === 'consultReady' ? 'border-emerald-400 bg-emerald-100 ring-2 ring-emerald-500 ring-offset-1' : 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100'}`}
+          >
             <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">Consult ready</p>
-            <button
-              type="button"
-              onClick={() => applyRoutingInboxView('consultReady', { status: 'contacted', pipelineStage: 'contacted' }, 'contacted')}
-              className="mt-1 text-2xl font-semibold text-emerald-900 underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
-            >
-              {routingInboxSummary.consultReady}
-            </button>
+            <p className="mt-1 text-2xl font-semibold text-emerald-900">{routingInboxSummary.consultReady}</p>
             <p className="text-xs text-emerald-700">Accepted cases with contact made and ready for consultation scheduling.</p>
-          </div>
+          </button>
         </div>
       </div>
 
