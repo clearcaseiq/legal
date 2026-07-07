@@ -493,7 +493,7 @@ export default function AttorneyDashboardLeadDetail({
                   bands={bands}
                   viability={prediction?.viability || {}}
                   confidenceScore={confidenceScore}
-                  liabilityScore={selectedLead.liabilityScore || 0}
+                  liabilityScore={selectedLead.liabilityScore || prediction?.viability?.liability || 0}
                   comparativeRisk={comparativeRisk}
                   treatments={treatments}
                   treatmentContinuity={treatmentContinuity}
@@ -862,15 +862,15 @@ export default function AttorneyDashboardLeadDetail({
                 <div className="grid grid-cols-3 gap-2 mt-2">
                   <div className="text-center p-2 bg-blue-50 rounded">
                     <div className="text-sm font-medium">Liability</div>
-                    <div className="text-lg font-bold text-blue-600">{formatPercentage(selectedLead.liabilityScore ?? 0)}</div>
+                    <div className="text-lg font-bold text-blue-600">{formatPercentage(selectedLead.liabilityScore || (selectedLeadPrediction?.viability as any)?.liability || 0)}</div>
                   </div>
                   <div className="text-center p-2 bg-green-50 rounded">
                     <div className="text-sm font-medium">Causation</div>
-                    <div className="text-lg font-bold text-green-600">{formatPercentage(selectedLead.causationScore ?? 0)}</div>
+                    <div className="text-lg font-bold text-green-600">{formatPercentage(selectedLead.causationScore || (selectedLeadPrediction?.viability as any)?.causation || 0)}</div>
                   </div>
                   <div className="text-center p-2 bg-purple-50 rounded">
                     <div className="text-sm font-medium">Damages</div>
-                    <div className="text-lg font-bold text-purple-600">{formatPercentage(selectedLead.damagesScore ?? 0)}</div>
+                    <div className="text-lg font-bold text-purple-600">{formatPercentage(selectedLead.damagesScore || (selectedLeadPrediction?.viability as any)?.damages || 0)}</div>
                   </div>
                 </div>
               </div>

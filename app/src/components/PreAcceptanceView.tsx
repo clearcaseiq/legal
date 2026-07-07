@@ -522,7 +522,7 @@ export default function PreAcceptanceView({
         </div>
         <div className="rounded-lg border border-gray-200 p-4">
           <h3 className="text-sm font-semibold text-gray-900 mb-2">Liability</h3>
-          <p className="text-lg font-bold text-gray-900">{Math.round(liabilityScore * 100)}% likelihood</p>
+          <p className="text-lg font-bold text-gray-900">{liabilityScore > 0 ? `${Math.round(liabilityScore * 100)}% likelihood` : 'Not scored yet'}</p>
           <p className="text-xs text-gray-500 mt-1">Comparative negligence risk: {comparativeRisk}</p>
         </div>
         <div className="rounded-lg border border-gray-200 p-4">
@@ -597,6 +597,13 @@ export default function PreAcceptanceView({
               Accident → {deterministicChronology.timeline[0] || 'First visit'} → {deterministicChronology.timeline[deterministicChronology.timeline.length - 1] || lastVisit}
             </p>
           </div>
+        ) : medicalSharingPending ? (
+          <p className="text-gray-500 text-sm">{medicalPendingMessage}</p>
+        ) : hasMedical ? (
+          // Don't contradict the Evidence Status ("Medical Records: Uploaded"). When
+          // records exist but no structured treatment timeline has been extracted yet,
+          // say so instead of claiming there is no medical data (A3-31).
+          <p className="text-gray-500 text-sm">Medical records uploaded — structured treatment details will appear once extracted from the documents.</p>
         ) : (
           <p className="text-gray-500 text-sm">No medical treatment data yet</p>
         )}
