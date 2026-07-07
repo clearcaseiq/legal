@@ -21,6 +21,7 @@ const AdminLogin = lazy(() => import('./pages/AdminLogin'))
 const OAuthCallback = lazy(() => import('./pages/OAuthCallback'))
 const IntakeWizard = lazy(() => import('./pages/IntakeWizard'))
 const IntakeWizardQuick = lazy(() => import('./pages/IntakeWizardQuick'))
+const IntakeWizardV2 = lazy(() => import('./pages/IntakeWizardV2'))
 const Results = lazy(() => import('./pages/Results'))
 const Attorneys = lazy(() => import('./pages/Attorneys'))
 const AttorneysEnhanced = lazy(() => import('./pages/AttorneysEnhanced'))
@@ -379,6 +380,7 @@ function App() {
             <Route path="/drafts/:assessmentId" element={<Drafts />} />
             <Route path="/intake" element={<IntakeWizardQuick />} />
             <Route path="/assess" element={<IntakeWizardQuick />} />
+            <Route path="/intake-v2" element={<IntakeWizardV2 />} />
             <Route path="/rose" element={<RoseIntake />} />
             <Route path="/edit-assessment/:assessmentId" element={<IntakeWizard />} />
             <Route path="/results/:assessmentId" element={<ResultsRouteBoundary />} />

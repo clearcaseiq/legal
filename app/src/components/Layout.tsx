@@ -65,7 +65,7 @@ export default function Layout({ children }: LayoutProps) {
   const isAdmin = isAuthenticated && storedRole === 'admin'
   const isAdminArea = location.pathname.startsWith('/admin')
   const isDashboard = location.pathname.startsWith('/dashboard')
-  const isFocusRoute = ['/assess', '/intake', '/rose'].includes(location.pathname)
+  const isFocusRoute = ['/assess', '/intake', '/intake-v2', '/rose'].includes(location.pathname)
   const isAttorney = !isAdmin && (!!attorney || location.pathname.startsWith('/attorney-dashboard') || location.pathname.startsWith('/firm-dashboard'))
 
   // Highlight a nav item when the current route matches its href. Some hrefs carry
@@ -380,7 +380,7 @@ export default function Layout({ children }: LayoutProps) {
                   </div>
 
                   {/* Primary CTA - hidden during assessment/results/attorney registration */}
-                  {!['/assess', '/intake', '/rose', '/assessment/start'].includes(location.pathname) &&
+                  {!['/assess', '/intake', '/intake-v2', '/rose', '/assessment/start'].includes(location.pathname) &&
                     !location.pathname.startsWith('/results') &&
                     !location.pathname.startsWith('/attorney-register') &&
                     !location.pathname.startsWith('/attorney-license-upload') && (
@@ -492,7 +492,7 @@ export default function Layout({ children }: LayoutProps) {
                     <Link to={navLinks.attorneyLogin} onClick={() => setMobileMenuOpen(false)} className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.attorneyLogin')}</Link>
                     <Link to={navLinks.adminLogin} onClick={() => setMobileMenuOpen(false)} className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{t('common.adminLogin')}</Link>
                   </div>
-                  {!['/assess', '/intake', '/rose', '/assessment/start'].includes(location.pathname) &&
+                  {!['/assess', '/intake', '/intake-v2', '/rose', '/assessment/start'].includes(location.pathname) &&
                     !location.pathname.startsWith('/results') &&
                     !location.pathname.startsWith('/attorney-register') &&
                     !location.pathname.startsWith('/attorney-license-upload') && (
@@ -516,18 +516,18 @@ export default function Layout({ children }: LayoutProps) {
       <main
         id="main-content"
         className={`mx-auto w-full max-w-7xl overflow-x-clip sm:px-6 lg:px-8 ${
-          ['/assess', '/intake'].includes(location.pathname)
+          ['/assess', '/intake', '/intake-v2'].includes(location.pathname)
             ? 'h-[calc(100dvh-4.5rem-1px)] overflow-y-auto overscroll-y-contain py-2 md:h-[calc(100dvh-5rem-1px)]'
             : 'py-8'
         }`}
       >
-        <div className={`min-w-0 px-3 sm:px-0 ${['/assess', '/intake'].includes(location.pathname) ? 'min-h-full' : ''}`}>
+        <div className={`min-w-0 px-3 sm:px-0 ${['/assess', '/intake', '/intake-v2'].includes(location.pathname) ? 'min-h-full' : ''}`}>
           {children}
         </div>
       </main>
 
       {/* Footer - hidden during assessment flow to reduce distractions */}
-      {!['/assess', '/intake', '/rose'].includes(location.pathname) && (
+      {!['/assess', '/intake', '/intake-v2', '/rose'].includes(location.pathname) && (
       isDashboard ? (
       <footer className="mt-auto border-t border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
