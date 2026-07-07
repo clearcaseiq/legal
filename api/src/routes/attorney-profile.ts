@@ -505,7 +505,9 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
         photoUrl,
         specialties: specialties ? JSON.stringify(specialties) : undefined,
         languages: languages ? JSON.stringify(languages) : undefined,
-        yearsExperience,
+        // yearsExperience is a non-nullable Int; a cleared/invalid value yields null
+        // from clampNumber, so coerce to undefined to leave the stored value intact.
+        yearsExperience: yearsExperience ?? undefined,
         totalCases,
         totalSettlements,
         averageSettlement,
