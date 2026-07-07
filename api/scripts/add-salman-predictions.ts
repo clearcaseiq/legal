@@ -1,11 +1,15 @@
 /**
- * Add valuation predictions (Est. Value) to the Salman Law Firm demo cases.
- *
- * The seed created assessments + facts but no Prediction rows, so the attorney
- * dashboard shows $0 estimated value (Est. Value / pipeline value read from
- * assessment.predictions[].bands.median). This computes realistic value bands
- * from each case's documented specials + injury severity + comparative fault and
- * writes one Prediction per Salman assessment.
+ * Add valuation predictions (Est. Value + viability) to the Salman Law Firm demo
+ * cases using the SAME engine the live API uses (computeFeatures ->
+ * predictViabilityHeuristic). The seed created assessments + facts but no
+ * Prediction rows, so the attorney dashboard showed $0 estimated value and a 0%
+ * viability breakdown (see A3-09, A3-29). This writes one Prediction per Salman
+ * assessment with:
+ *   - bands      (value p25/median/p75)  -> Est. Value / pipeline value
+ *   - viability  (overall/liability/causation/damages) -> Viability Breakdown
+ *   - explain    (heuristic explainability)
+ * and syncs the LeadSubmission quality scores to match so every view is
+ * consistent.
  *
  * Usage (inside the api container):
  *   docker cp api/scripts/add-salman-predictions.ts clearcaseiq-api:/app/add-salman-predictions.ts
@@ -13,47 +17,17 @@
  *     node ../node_modules/tsx/dist/cli.mjs add-salman-predictions.ts
  *
  * Idempotent: skips assessments that already have a prediction (set FORCE=1 to
- * overwrite / add a fresh prediction).
+ * add a fresh prediction and re-sync scores).
  */
 import { PrismaClient } from '@prisma/client'
+import { computeFeatures, predictViabilityHeuristic } from '../src/lib/prediction'
 
 const prisma = new PrismaClient()
 
 const FIRM_SLUG = process.env.FIRM_SLUG || 'salman-law-firm'
 const FORCE = process.env.FORCE === '1'
-const MODEL_VERSION = 'seed-valuation-v1'
 
-function num(v: any): number { const n = Number(v); return Number.isFinite(n) ? n : 0 }
-function round(n: number, step = 500): number { return Math.max(0, Math.round(n / step) * step) }
-
-function painMultiplier(severity: number): number {
-  if (severity >= 4) return 3.5
-  if (severity >= 3) return 2.4
-  if (severity >= 2) return 1.6
-  return 1.1
-}
-
-function computeBands(facts: any): { p25: number; median: number; p75: number; severity: number; specials: number } {
-  const d = facts?.damages || {}
-  const specials =
-    num(d.med_charges) + num(d.wage_loss) + num(d.future_medical) +
-    num(d.estimated_property_damage) + num(d.services)
-
-  const injuries: any[] = Array.isArray(facts?.injuries) ? facts.injuries : []
-  const severity = injuries.length
-    ? Math.round(injuries.reduce((s, i) => s + num(i.severity || 2), 0) / injuries.length)
-    : 2
-
-  // Comparative fault reduces recovery (facts.liability.comparativeFault like "5%").
-  const compRaw = String(facts?.liability?.comparativeFault || '0').replace('%', '')
-  const comparative = Math.min(0.5, Math.max(0, num(compRaw) / 100))
-
-  const gross = specials * (1 + painMultiplier(severity))
-  const median = round(gross * (1 - comparative))
-  const p25 = round(median * 0.6)
-  const p75 = round(median * 1.75)
-  return { p25, median, p75, severity, specials }
-}
+function clamp01(n: number): number { return Math.max(0, Math.min(1, Number(n) || 0)) }
 
 async function main() {
   const firm = await prisma.lawFirm.findFirst({ where: { slug: FIRM_SLUG } })
@@ -61,7 +35,7 @@ async function main() {
 
   const assessments = await prisma.assessment.findMany({
     where: { lawFirmId: firm.id },
-    select: { id: true, claimType: true, facts: true, leadSubmission: { select: { viabilityScore: true, liabilityScore: true, causationScore: true, damagesScore: true } } },
+    select: { id: true, claimType: true, venueState: true, venueCounty: true, facts: true },
   })
   console.log(`Firm: ${firm.name} — ${assessments.length} assessments`)
 
@@ -72,35 +46,35 @@ async function main() {
     const existing = await prisma.prediction.findFirst({ where: { assessmentId: a.id } })
     if (existing && !FORCE) { skipped++; continue }
 
-    let facts: any = {}
-    try { facts = JSON.parse(a.facts) } catch { facts = {} }
-    const { p25, median, p75, severity, specials } = computeBands(facts)
+    // Real engine: features -> heuristic valuation. viability.liability is the
+    // deterministic rules-based liability score; value_bands are derived from the
+    // documented specials + injury severity + venue/insurance constraints.
+    const features = computeFeatures(a as any)
+    const resp = predictViabilityHeuristic(features)
+    const bands: any = resp.value_bands || {}
+    const median = Number(bands.median ?? bands.p50 ?? 0) || 0
     totalMedian += median
-
-    const ls = a.leadSubmission
-    const viability = {
-      overall: Number((ls?.viabilityScore ?? 0.7).toFixed(2)),
-      liability: Number((ls?.liabilityScore ?? 0.7).toFixed(2)),
-      causation: Number((ls?.causationScore ?? 0.65).toFixed(2)),
-      damages: Number((ls?.damagesScore ?? 0.7).toFixed(2)),
-    }
-    const explain = {
-      summary: `Estimated on documented specials of $${specials.toLocaleString('en-US')} with injury severity ${severity}/4.`,
-      drivers: [
-        `Documented medical + wage specials`,
-        `Injury severity ${severity}/4`,
-        `Comparative fault adjustment applied`,
-      ],
-      model: MODEL_VERSION,
-    }
 
     await prisma.prediction.create({
       data: {
         assessmentId: a.id,
-        modelVersion: MODEL_VERSION,
-        viability: JSON.stringify(viability),
-        bands: JSON.stringify({ p25, median, p75 }),
-        explain: JSON.stringify(explain),
+        modelVersion: resp.modelVersion,
+        viability: JSON.stringify(resp.viability),
+        bands: JSON.stringify(resp.value_bands),
+        explain: JSON.stringify(resp.explainability),
+      },
+    })
+
+    // Keep the LeadSubmission quality scores in sync with the prediction so views
+    // that read those columns agree with the Viability Breakdown.
+    const v: any = resp.viability || {}
+    await prisma.leadSubmission.updateMany({
+      where: { assessmentId: a.id },
+      data: {
+        viabilityScore: clamp01(v.overall),
+        liabilityScore: clamp01(v.liability),
+        causationScore: clamp01(v.causation),
+        damagesScore: clamp01(v.damages),
       },
     })
     created++
@@ -108,7 +82,7 @@ async function main() {
 
   console.log(`\nCreated ${created} predictions, skipped ${skipped} (already had one).`)
   if (created > 0) console.log(`Average Est. Value (median): $${Math.round(totalMedian / created).toLocaleString('en-US')}`)
-  console.log('Done. Refresh Salman\'s dashboard — Est. Value / pipeline value will populate.')
+  console.log("Done. Refresh Salman's dashboard — Est. Value, pipeline value, and the viability breakdown will populate.")
 }
 
 main().catch((e) => { console.error(e); process.exit(1) }).finally(() => prisma.$disconnect())
