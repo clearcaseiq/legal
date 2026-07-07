@@ -2832,13 +2832,20 @@ export default function AttorneyDashboard() {
       .filter((lead) => dashboardLeadDocumentCount(lead) > 0)
       .slice(0, 1)
       .map((lead) => ({ id: `docs-${lead.id}`, label: `${leadPlaintiffName(lead)} uploaded records`, tone: 'bg-emerald-50 text-emerald-800', onClick: () => goToLeadOverview(lead) })),
-    ...allLeads
-      .filter((lead) => lead.status === 'consulted')
+    // A3-26: the "scheduled consultation" notification must be sourced from the
+    // SAME data as the consult calendar (actual upcoming appointments). Deriving
+    // it from lead.status === 'consulted' produced a notification for leads that
+    // had no appointment, directly contradicting an empty calendar. Sourcing both
+    // from upcomingConsults keeps notification and calendar consistent by
+    // construction — no consult = no notification.
+    ...(dashboardData.upcomingConsults || [])
       .slice(0, 1)
-      .map((lead) => ({ id: `consult-${lead.id}`, label: `${leadPlaintiffName(lead)} scheduled consultation`, tone: 'bg-sky-50 text-sky-800', onClick: () => goToLeadOverview(lead) })),
-    dashboardData.upcomingConsults?.[0]
-      ? { id: 'upcoming-consult', label: `Consultation tomorrow at ${new Date(dashboardData.upcomingConsults[0].scheduledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`, tone: 'bg-amber-50 text-amber-800', onClick: () => setConsultCalendarModalOpen(true) }
-      : null,
+      .map((c) => ({
+        id: `consult-${c.id}`,
+        label: `${c.plaintiffName || 'Client'} — consultation scheduled for ${new Date(c.scheduledAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`,
+        tone: 'bg-sky-50 text-sky-800',
+        onClick: () => setConsultCalendarModalOpen(true),
+      })),
   ].filter(Boolean).slice(0, 4) as Array<{ id: string; label: string; tone: string; onClick: () => void }>
   const aiRecommendationItems = allLeads
     .filter((lead) => dashboardLeadDocumentCount(lead) === 0 || lead.demandReadiness?.blockers?.length)
