@@ -692,6 +692,24 @@ const STEPS: { key: Step; title: string }[] = [
   { key: 'consent', title: 'Your Case Report Is Ready' }
 ]
 
+/**
+ * Which phase each step belongs to. This lets the UI frame the short, required
+ * "basics" separately from the optional detail steps that only strengthen the
+ * report — keeping the "~60 seconds" promise honest (only the basics are
+ * required; everything after is skippable).
+ */
+const STEP_PHASE: Record<string, 'basics' | 'optional' | 'report'> = {
+  injury_type: 'basics',
+  when: 'basics',
+  injury_severity: 'optional',
+  injury_details: 'optional',
+  case_details: 'optional',
+  evidence: 'optional',
+  financial_impact: 'optional',
+  legal_status: 'optional',
+  consent: 'report',
+}
+
 /** Steps that have no questions for a given injury type are skipped entirely. */
 const HIDDEN_STEPS_BY_INJURY: Record<string, Step[]> = {}
 
@@ -919,6 +937,15 @@ export default function IntakeWizardV2() {
   const visibleSteps = STEPS.filter(s => !hiddenSteps.includes(s.key))
   const currentStepIndex = visibleSteps.findIndex(s => s.key === currentStep)
   const progressPercent = Math.round(((currentStepIndex + 1) / visibleSteps.length) * 100)
+  // Two-phase segmented progress: the required "basics" vs the optional detail
+  // steps. This makes the short required core visually distinct from the long,
+  // skippable tail so the "~60 seconds" promise reads honestly.
+  const basicsStepCount = visibleSteps.filter(s => STEP_PHASE[s.key] === 'basics').length
+  const optionalStepCount = Math.max(1, visibleSteps.length - basicsStepCount)
+  const basicsSegmentPercent = Math.min(100, Math.round(((currentStepIndex + 1) / Math.max(basicsStepCount, 1)) * 100))
+  const optionalSegmentPercent = currentStepIndex + 1 <= basicsStepCount
+    ? 0
+    : Math.min(100, Math.round(((currentStepIndex + 1 - basicsStepCount) / optionalStepCount) * 100))
   // Estimate remaining time from steps left (whole assessment budgeted at ~60s),
   // rounded to a friendly 5-second increment so the header reflects real progress
   // instead of showing a static "about 60 seconds total" on every step.
@@ -1735,6 +1762,21 @@ export default function IntakeWizardV2() {
     if (currentStep === 'when' && (formData.contact.email.trim() || formData.contact.phone.trim())) {
       void syncLead()
     }
+    if (returnToReviewFromStep === currentStep) {
+      setReturnToReviewFromStep(null)
+      setCurrentStep('consent')
+      return
+    }
+    if (currentStepIndex < visibleSteps.length - 1) {
+      setCurrentStep(visibleSteps[currentStepIndex + 1].key)
+    }
+  }
+
+  // Advance without validation — used by the "Skip" affordance on optional
+  // steps so a claimant can breeze past detail questions without being blocked
+  // by soft requirements (e.g. injury severity).
+  const goToNextStep = () => {
+    setErrors({})
     if (returnToReviewFromStep === currentStep) {
       setReturnToReviewFromStep(null)
       setCurrentStep('consent')
@@ -5386,6 +5428,50 @@ export default function IntakeWizardV2() {
               </ul>
             </section>
 
+            {/* Contact soft-gate at the highest-intent moment: anyone who skipped
+                the optional contact fields (incl. via "Skip to my report") gets one
+                last, non-blocking chance to leave an email/phone so we can capture
+                the lead and they can access the report later. */}
+            {!formData.contact.email.trim() && !formData.contact.phone.trim() && (
+              <div className="rounded-2xl border border-brand-200 bg-brand-50/60 p-3 dark:border-brand-500/30 dark:bg-brand-500/5">
+                <p className="flex items-center gap-2 text-sm font-semibold text-brand-800 dark:text-brand-200">
+                  <Mail className="h-4 w-4" aria-hidden />{tx('report_contactTitle')}
+                </p>
+                <p className="mt-0.5 text-xs leading-snug text-brand-900/80 dark:text-brand-200/80">{tx('report_contactDesc')}</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <input
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    value={formData.contact.email}
+                    onBlur={saveContactProgress}
+                    onChange={e => updateForm({ contact: { ...formData.contact, email: e.target.value } })}
+                    placeholder="name@email.com"
+                    maxLength={254}
+                    aria-invalid={!!errors.contactEmail}
+                    aria-label={tx('contact_emailShort')}
+                    className="min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  />
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    value={formData.contact.phone}
+                    onBlur={saveContactProgress}
+                    onChange={e => updateForm({ contact: { ...formData.contact, phone: formatPhoneInput(e.target.value) } })}
+                    placeholder="(555) 123-4567"
+                    maxLength={20}
+                    aria-invalid={!!errors.contactPhone}
+                    aria-label={tx('contact_phoneShort')}
+                    className="min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  />
+                </div>
+                <p className="mt-1.5 flex items-center gap-1 text-[11px] text-brand-900/70 dark:text-brand-200/70">
+                  <Lock className="h-3 w-3" aria-hidden />{tx('report_contactTrust')}
+                </p>
+              </div>
+            )}
+
             <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
               <div className="grid gap-2 sm:grid-cols-2">
                 <label className={`flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2 transition-all ${consents.tos && consents.privacy ? 'border-brand-300 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-200 bg-slate-50 hover:border-brand-200 dark:border-slate-700 dark:bg-slate-800/40'}`}>
@@ -5452,6 +5538,8 @@ export default function IntakeWizardV2() {
   }
 
   const isFirstStep = currentStep === 'injury_type'
+  const currentPhase = STEP_PHASE[currentStep] || 'optional'
+  const isOptionalStep = currentPhase === 'optional'
   const isRevisitingAnsweredStep =
     currentStepIndex >= 0 &&
     currentStepIndex < furthestReachedStepIndex &&
@@ -5579,6 +5667,39 @@ export default function IntakeWizardV2() {
             {t('intake.startHelper')}
           </p>
         )}
+        {(
+          <div className="mt-1 flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold sm:text-xs ${
+                currentPhase === 'basics'
+                  ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300'
+                  : currentPhase === 'optional'
+                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300'
+                    : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
+              }`}
+            >
+              {currentPhase === 'basics'
+                ? tx('phase_basics')
+                : currentPhase === 'optional'
+                  ? tx('phase_optional')
+                  : tx('phase_report')}
+            </span>
+            {isOptionalStep && (
+              <button
+                type="button"
+                onClick={() => {
+                  setErrors({})
+                  setReturnToReviewFromStep(null)
+                  setCurrentStep('consent')
+                }}
+                className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-blue-600 transition-colors hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300 sm:text-xs"
+              >
+                {tx('skipToReport')}
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            )}
+          </div>
+        )}
         <div className="mt-1 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 tabular-nums sm:text-sm">
           <span>
             {t('intake.step')} {currentStepIndex + 1} {t('intake.of')} {visibleSteps.length}
@@ -5607,11 +5728,27 @@ export default function IntakeWizardV2() {
           aria-valuenow={Math.round(progressPercent)}
           aria-label={tx('progress_ariaLabel')}
         >
-          <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden shadow-inner">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-brand-600 to-accent-500 transition-[width] duration-300 ease-out motion-reduce:transition-none"
-              style={{ width: `${progressPercent}%` }}
-            />
+          <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide sm:text-[11px]">
+            <span className={`flex-[2] ${currentPhase === 'basics' ? 'text-brand-700 dark:text-brand-300' : 'text-slate-400 dark:text-slate-500'}`}>
+              {tx('phase_basics')}
+            </span>
+            <span className={`flex-[6] text-right ${currentPhase !== 'basics' ? 'text-amber-700 dark:text-amber-300' : 'text-slate-400 dark:text-slate-500'}`}>
+              {tx('phase_optionalShort')}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-2 flex-[2] overflow-hidden rounded-full bg-slate-200 shadow-inner dark:bg-slate-700">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-brand-600 to-brand-500 transition-[width] duration-300 ease-out motion-reduce:transition-none"
+                style={{ width: `${basicsSegmentPercent}%` }}
+              />
+            </div>
+            <div className="h-2 flex-[6] overflow-hidden rounded-full bg-slate-200 shadow-inner dark:bg-slate-700">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-amber-500 to-accent-500 transition-[width] duration-300 ease-out motion-reduce:transition-none"
+                style={{ width: `${optionalSegmentPercent}%` }}
+              />
+            </div>
           </div>
         </div>
         <p className="sr-only">{Math.round(progressPercent)} {tx('progress_percentComplete')}</p>
@@ -5774,14 +5911,14 @@ export default function IntakeWizardV2() {
           >
             {t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
           </button>
-        ) : currentStep === 'evidence' || currentStep === 'case_details' ? (
+        ) : isOptionalStep ? (
           <div className="flex items-center justify-end gap-3">
             <button
               type="button"
-              onClick={validateAndNext}
+              onClick={goToNextStep}
               className="!min-h-0 text-sm font-semibold text-slate-500 underline-offset-2 transition-colors hover:text-slate-700 hover:underline dark:text-slate-400 dark:hover:text-slate-200"
             >
-              {currentStep === 'case_details' ? tx('caseDetails_skip') : tx('evidence_skipForNow')}
+              {tx('skipOptionalStep')}
             </button>
             <button
               type="button"
