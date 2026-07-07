@@ -20,7 +20,6 @@
  * add a fresh prediction and re-sync scores).
  */
 import { PrismaClient } from '@prisma/client'
-import { computeFeatures, predictViabilityHeuristic } from '../src/lib/prediction'
 
 const prisma = new PrismaClient()
 
@@ -29,7 +28,39 @@ const FORCE = process.env.FORCE === '1'
 
 function clamp01(n: number): number { return Math.max(0, Math.min(1, Number(n) || 0)) }
 
+type Engine = {
+  computeFeatures: (a: any) => any
+  predictViabilityHeuristic: (features: any) => any
+}
+
+/**
+ * Load the live valuation engine. In the production runtime image only the
+ * compiled JS is shipped (dist/lib/prediction.js) and this script is typically
+ * copied to /app, so a static `../src/...` import can't resolve. Probe the likely
+ * locations at runtime and use whichever exports the engine functions.
+ */
+async function loadEngine(): Promise<Engine> {
+  const candidates = [
+    './dist/lib/prediction.js',
+    '../dist/lib/prediction.js',
+    './lib/prediction.js',
+    '../src/lib/prediction',
+    './src/lib/prediction',
+  ]
+  for (const candidate of candidates) {
+    try {
+      const imported: any = await import(candidate)
+      const mod = imported?.computeFeatures ? imported : imported?.default ?? imported
+      if (mod?.computeFeatures && mod?.predictViabilityHeuristic) return mod as Engine
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  throw new Error('Could not locate the valuation engine (expected dist/lib/prediction.js).')
+}
+
 async function main() {
+  const { computeFeatures, predictViabilityHeuristic } = await loadEngine()
   const firm = await prisma.lawFirm.findFirst({ where: { slug: FIRM_SLUG } })
   if (!firm) { console.error(`No firm with slug ${FIRM_SLUG}`); process.exit(1) }
 
