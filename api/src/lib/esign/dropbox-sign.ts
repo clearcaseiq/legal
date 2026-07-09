@@ -37,6 +37,13 @@ function authHeader(): string {
 }
 
 function isTestMode(): boolean {
+  // Explicit override wins so you can send test_mode requests even in a
+  // production build (e.g. verifying the flow on EC2 without a paid API plan),
+  // or force live sends in a non-prod build. Falls back to NODE_ENV otherwise.
+  const override = process.env.DROPBOX_SIGN_TEST_MODE
+  if (override != null && override.trim() !== '') {
+    return /^(1|true|yes|on)$/i.test(override.trim())
+  }
   return process.env.NODE_ENV !== 'production'
 }
 

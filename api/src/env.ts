@@ -41,6 +41,13 @@ export const ENV = {
   ESIGN_PROVIDER: process.env.ESIGN_PROVIDER,
   /** Dropbox Sign (HelloSign) API key. */
   DROPBOX_SIGN_API_KEY: process.env.DROPBOX_SIGN_API_KEY,
+  /**
+   * Force Dropbox Sign test_mode on/off regardless of NODE_ENV. Set to true to
+   * send free non-binding test requests even from a production build (e.g. EC2
+   * without a paid API plan). Leave unset to follow NODE_ENV (test in dev, live
+   * in production).
+   */
+  DROPBOX_SIGN_TEST_MODE: process.env.DROPBOX_SIGN_TEST_MODE,
   /** Self-hosted Documenso v2 API base, e.g. https://sign.yourfirm.com/api/v2. */
   DOCUMENSO_API_URL: process.env.DOCUMENSO_API_URL,
   DOCUMENSO_API_KEY: process.env.DOCUMENSO_API_KEY,
