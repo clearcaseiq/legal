@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, ChevronDown, SlidersHorizontal, X } from 'lucide-react'
 
 // `info` maps to the muted `brand` navy; `blue` is a true sky-blue matching the
 // prototype's accent tiles (e.g. "Consults today").
@@ -129,34 +129,71 @@ export function FilterBar({
   onChange: (key: string, value: string) => void
   onReset?: () => void
 }) {
-  const hasActive = Object.values(values).some((v) => v)
+  const activeCount = Object.values(values).filter((v) => v).length
+  const hasActive = activeCount > 0
   return (
-    <div id="cases-filters" className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3">
-      {fields.map((field) => (
-        <label key={field.key} className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-          {field.label}
-          <select
-            value={values[field.key] ?? ''}
-            onChange={(e) => onChange(field.key, e.target.value)}
-            className="min-w-[9rem] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+    <div
+      id="cases-filters"
+      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+    >
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+            <SlidersHorizontal className="h-4 w-4" />
+          </span>
+          <span className="text-sm font-semibold text-slate-800">Filters</span>
+          {hasActive && (
+            <span className="inline-flex items-center rounded-full bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-700 ring-1 ring-inset ring-brand-100">
+              {activeCount} active
+            </span>
+          )}
+        </div>
+        {hasActive && onReset && (
+          <button
+            type="button"
+            onClick={onReset}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
           >
-            {field.options.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      ))}
-      {hasActive && onReset && (
-        <button
-          type="button"
-          onClick={onReset}
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-        >
-          Clear filters
-        </button>
-      )}
+            <X className="h-3.5 w-3.5" />
+            Clear all
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {fields.map((field) => {
+          const selected = Boolean(values[field.key])
+          return (
+            <label key={field.key} className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                {field.label}
+              </span>
+              <div className="relative">
+                <select
+                  value={values[field.key] ?? ''}
+                  onChange={(e) => onChange(field.key, e.target.value)}
+                  className={`w-full appearance-none rounded-lg border bg-white px-3 py-2 pr-9 text-sm shadow-sm transition focus:outline-none focus:ring-2 focus:ring-brand-100 ${
+                    selected
+                      ? 'border-brand-300 font-medium text-slate-900'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                  }`}
+                >
+                  {field.options.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  className={`pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 ${
+                    selected ? 'text-brand-500' : 'text-slate-400'
+                  }`}
+                />
+              </div>
+            </label>
+          )
+        })}
+      </div>
     </div>
   )
 }

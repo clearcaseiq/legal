@@ -1,7 +1,7 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
 import { Clock, Lock, LockOpen, MessageSquare, Phone, Star, Users } from 'lucide-react'
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
-import { FilterStat } from '../features/shared/ui'
+import { FilterStat, FilterBar, type FilterField } from '../features/shared/ui'
 
 type CaseLeadsFilter = {
   caseType: string
@@ -444,6 +444,58 @@ export default function AttorneyDashboardLeadsTab({
     ),
   ]
 
+  const leadsFilterFields: FilterField[] = [
+    {
+      key: 'caseType',
+      label: 'Type',
+      options: [{ value: '', label: 'All types' }, ...caseTypes.map((type) => ({ value: type, label: claimLabel(type) }))],
+    },
+    {
+      key: 'valueRange',
+      label: 'Value',
+      options: [
+        { value: '', label: 'All values' },
+        { value: 'low', label: '$0–$10K' },
+        { value: 'mid', label: '$10K–$50K' },
+        { value: 'high', label: '$50K+' },
+      ],
+    },
+    // The pipeline-stage filter is only meaningful for the accepted caseload
+    // (contacted → consulted → retained). On the pre-acceptance "New Matches" inbox
+    // every lead is still "submitted", so it's only offered when the routing inbox is
+    // hidden (i.e. the accepted case-management view).
+    ...(hideRoutingInbox
+      ? [{
+          key: 'pipelineStage',
+          label: 'Stage',
+          options: [
+            { value: '', label: 'All stages' },
+            { value: 'active', label: 'Active' },
+            { value: 'accepted', label: 'Accepted' },
+            { value: 'contacted', label: 'Contacted' },
+            { value: 'consultScheduled', label: 'Consultation scheduled' },
+            { value: 'retained', label: 'Completed' },
+            { value: 'closed', label: 'Closed' },
+          ],
+        } as FilterField]
+      : []),
+    {
+      key: 'jurisdiction',
+      label: 'Jurisdiction',
+      options: [{ value: '', label: 'All jurisdictions' }, ...jurisdictions.map((j) => ({ value: j, label: j }))],
+    },
+    {
+      key: 'evidenceLevel',
+      label: 'Evidence',
+      options: [
+        { value: '', label: 'All evidence' },
+        { value: 'none', label: 'No docs' },
+        { value: 'some', label: '1–3 docs' },
+        { value: 'full', label: '4+ docs' },
+      ],
+    },
+  ]
+
   const toggleStarred = (id: string) => {
     setStarredLeadIds((prev) => {
       const next = new Set(prev)
@@ -530,105 +582,48 @@ export default function AttorneyDashboardLeadsTab({
       </div>
       )}
 
-      <div id="cases-filters" className="card scroll-mt-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm font-medium text-gray-700">Filters:</span>
-          <select
-            value={caseLeadsFilter.caseType}
-            onChange={(e) => setCaseLeadsFilter((prev) => ({ ...prev, caseType: e.target.value, routingInboxView: '' }))}
-            className="text-sm border border-gray-200 rounded-md px-2 py-1"
-          >
-            <option value="">All Types</option>
-            {caseTypes.map((type: string) => (
-              <option key={type} value={type}>
-                {claimLabel(type)}
-              </option>
-            ))}
-          </select>
-          <select
-            value={caseLeadsFilter.valueRange}
-            onChange={(e) => setCaseLeadsFilter((prev) => ({ ...prev, valueRange: e.target.value, routingInboxView: '' }))}
-            className="text-sm border border-gray-200 rounded-md px-2 py-1"
-          >
-            <option value="">All Values</option>
-            <option value="low">$0-$10K</option>
-            <option value="mid">$10K-$50K</option>
-            <option value="high">$50K+</option>
-          </select>
-          {/* The pipeline-stage filter is only meaningful for the accepted caseload
-              (contacted → consulted → retained). On the pre-acceptance "New Matches"
-              inbox every lead is still "submitted", so offering post-acceptance stages
-              here produced a filter that appeared to do nothing (those cases live under
-              Case Management → Active Cases). The routing-inbox tiles above already
-              provide the relevant pre-acceptance filtering. */}
-          {hideRoutingInbox && (
-            <select
-              value={caseLeadsFilter.pipelineStage || caseLeadsFilter.status}
-              onChange={(e) => {
-                const value = e.target.value
-                const statusMap: Record<string, string> = {
-                  matched: 'submitted',
-                  active: '',
-                  accepted: '',
-                  contacted: 'contacted',
-                  consultScheduled: 'consulted',
-                  retained: 'retained',
-                  closed: 'rejected',
-                }
-                setCaseLeadsFilter((prev) => ({ ...prev, pipelineStage: value, status: value ? statusMap[value] : '', routingInboxView: '' }))
-                setActivePipelineTile(value || null)
-              }}
-              className="text-sm border border-gray-200 rounded-md px-2 py-1"
-            >
-              <option value="">All Stages</option>
-              <option value="active">Active</option>
-              <option value="accepted">Accepted</option>
-              <option value="contacted">Contacted</option>
-              <option value="consultScheduled">Consultation Scheduled</option>
-              <option value="retained">Completed</option>
-              <option value="closed">Closed</option>
-            </select>
-          )}
-          <select
-            value={caseLeadsFilter.jurisdiction}
-            onChange={(e) => setCaseLeadsFilter((prev) => ({ ...prev, jurisdiction: e.target.value, routingInboxView: '' }))}
-            className="text-sm border border-gray-200 rounded-md px-2 py-1"
-          >
-            <option value="">All Jurisdictions</option>
-            {jurisdictions.map((jurisdiction: string) => (
-              <option key={jurisdiction} value={jurisdiction}>
-                {jurisdiction}
-              </option>
-            ))}
-          </select>
-          <select
-            value={caseLeadsFilter.evidenceLevel}
-            onChange={(e) => setCaseLeadsFilter((prev) => ({ ...prev, evidenceLevel: e.target.value, routingInboxView: '' }))}
-            className="text-sm border border-gray-200 rounded-md px-2 py-1"
-          >
-            <option value="">All Evidence</option>
-            <option value="none">No Docs</option>
-            <option value="some">1-3 Docs</option>
-            <option value="full">4+ Docs</option>
-          </select>
-          <button
-            onClick={() => {
-              setCaseLeadsFilter({
-                caseType: '',
-                valueRange: '',
-                status: '',
-                pipelineStage: '',
-                evidenceLevel: '',
-                jurisdiction: '',
-                routingInboxView: '',
-              })
-              setActivePipelineTile(null)
-            }}
-            className="text-xs text-brand-600 hover:underline"
-          >
-            Clear
-          </button>
-        </div>
+      <div id="cases-filters" className="scroll-mt-4">
+        <FilterBar
+          fields={leadsFilterFields}
+          values={{
+            caseType: caseLeadsFilter.caseType,
+            valueRange: caseLeadsFilter.valueRange,
+            pipelineStage: caseLeadsFilter.pipelineStage || caseLeadsFilter.status,
+            jurisdiction: caseLeadsFilter.jurisdiction,
+            evidenceLevel: caseLeadsFilter.evidenceLevel,
+          }}
+          onChange={(key, value) => {
+            if (key === 'pipelineStage') {
+              // The pipeline-stage filter is only meaningful for the accepted caseload
+              // (contacted → consulted → retained); map the stage to a lead status.
+              const statusMap: Record<string, string> = {
+                matched: 'submitted',
+                active: '',
+                accepted: '',
+                contacted: 'contacted',
+                consultScheduled: 'consulted',
+                retained: 'retained',
+                closed: 'rejected',
+              }
+              setCaseLeadsFilter((prev) => ({ ...prev, pipelineStage: value, status: value ? statusMap[value] : '', routingInboxView: '' }))
+              setActivePipelineTile(value || null)
+              return
+            }
+            setCaseLeadsFilter((prev) => ({ ...prev, [key]: value, routingInboxView: '' }))
+          }}
+          onReset={() => {
+            setCaseLeadsFilter({
+              caseType: '',
+              valueRange: '',
+              status: '',
+              pipelineStage: '',
+              evidenceLevel: '',
+              jurisdiction: '',
+              routingInboxView: '',
+            })
+            setActivePipelineTile(null)
+          }}
+        />
       </div>
 
       {selectedLeadIds.size > 0 && (
