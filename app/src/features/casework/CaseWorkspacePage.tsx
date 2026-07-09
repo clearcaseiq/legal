@@ -40,6 +40,7 @@ import { getApiOrigin } from '../../lib/runtimeEnv'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
 import ChatDrawer from '../../components/ChatDrawer'
 import { BackButton, EmptyState } from '../shared/ui'
+import { recordRecentCase } from './recentCases'
 
 const CLAIM_LABELS: Record<string, string> = {
   auto: 'Auto',
@@ -270,6 +271,12 @@ export default function CaseWorkspacePage() {
       evidenceFiles: (a.evidenceFiles || a.files || []) as any[],
     }
   }, [lead, cc])
+
+  // Remember this case as "recently opened" once it resolves, so the Case
+  // Workspace launcher can offer quick re-entry (Continue working / Recent).
+  useEffect(() => {
+    if (leadId && lead) recordRecentCase(leadId)
+  }, [leadId, lead])
 
   if (!leadId) return <EmptyState message="No case selected." />
 
