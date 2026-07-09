@@ -30,6 +30,7 @@
  * duplicating.
  */
 import { PrismaClient } from '@prisma/client'
+import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
@@ -39,6 +40,14 @@ const NUM_NEW = Number(process.env.NUM_NEW || 4)
 const FORCE = process.env.FORCE === '1'
 // Short, stable namespace for deterministic demo plaintiff emails.
 const EMAIL_NS = 'admin-cases'
+
+// Used only when the attorney/firm must be created (ATTORNEY_EMAIL not found).
+const FIRM_NAME = process.env.FIRM_NAME || 'Admin Law Firm'
+const FIRM_SLUG = process.env.FIRM_SLUG || 'admin-law-firm'
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Password1234!'
+const ADMIN_FIRST_NAME = process.env.ADMIN_FIRST_NAME || 'Admin'
+const ADMIN_LAST_NAME = process.env.ADMIN_LAST_NAME || 'Attorney'
+const LEAD_ATTORNEY_NAME = process.env.LEAD_ATTORNEY_NAME || `${ADMIN_FIRST_NAME} ${ADMIN_LAST_NAME}`
 
 const CASE_TYPES = [
   'auto',
@@ -453,38 +462,136 @@ async function addPrediction(engine: Engine | null, assessmentId: string) {
   }
 }
 
+// -------------------- Ensure attorney (create if missing) --------------------
+interface ResolvedAttorney {
+  attorneyId: string
+  attorneyName: string
+  firmId: string | null
+  officeId: string | null
+  firmName: string
+  adminUserId: string | null
+  created: boolean
+}
+
+async function ensureAttorney(email: string): Promise<ResolvedAttorney> {
+  const existing = await prisma.attorney.findFirst({
+    where: { OR: [{ email }, { email: email.toLowerCase() }, { email: email.toUpperCase() }] },
+    select: { id: true, name: true, lawFirmId: true },
+  })
+
+  if (existing) {
+    let firmId: string | null = existing.lawFirmId ?? null
+    let officeId: string | null = null
+    let firmName = 'the firm'
+    if (firmId) {
+      const firm = await prisma.lawFirm.findUnique({ where: { id: firmId }, select: { name: true } })
+      firmName = firm?.name ?? firmName
+      const office = await prisma.firmOffice.findFirst({ where: { lawFirmId: firmId }, select: { id: true } })
+      officeId = office?.id ?? null
+    }
+    const adminUser = await prisma.user.findFirst({
+      where: { OR: [{ email }, { email: email.toLowerCase() }, { email: email.toUpperCase() }] },
+      select: { id: true },
+    })
+    return { attorneyId: existing.id, attorneyName: existing.name, firmId, officeId, firmName, adminUserId: adminUser?.id ?? null, created: false }
+  }
+
+  // -------- Create firm + office + login user + attorney + profile/dashboard/membership --------
+  console.log(`No attorney found for ${email} — creating firm "${FIRM_NAME}", login user, and attorney...`)
+  const specialties = [...CASE_TYPES]
+
+  const firm = await prisma.lawFirm.upsert({
+    where: { slug: FIRM_SLUG },
+    update: { name: FIRM_NAME, state: 'CA', city: 'Los Angeles', isPublic: true, practiceAreas: JSON.stringify(specialties) },
+    create: {
+      name: FIRM_NAME, slug: FIRM_SLUG, primaryEmail: email, phone: '(213) 555-0100',
+      city: 'Los Angeles', state: 'CA', zip: '90017',
+      tagline: 'California personal injury advocates',
+      description: `${FIRM_NAME} represents injured Californians across auto, premises, medical malpractice, product liability, elder abuse, and wrongful death matters.`,
+      practiceAreas: JSON.stringify(specialties), isPublic: true,
+    },
+  })
+
+  const office = await prisma.firmOffice.findFirst({ where: { lawFirmId: firm.id } })
+    ?? await prisma.firmOffice.create({
+      data: {
+        lawFirmId: firm.id, name: 'Los Angeles HQ', city: 'Los Angeles', state: 'CA',
+        address: '600 Wilshire Blvd, Suite 1500', phone: '(213) 555-0100',
+        countiesServed: JSON.stringify(CA_COUNTIES), languages: JSON.stringify(['English', 'Spanish']),
+        practiceAreas: JSON.stringify(specialties), capacity: 500, isActive: true,
+      },
+    })
+
+  const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12)
+  const adminUser = await prisma.user.upsert({
+    where: { email },
+    update: { role: 'attorney', isActive: true, emailVerified: true },
+    create: {
+      email, passwordHash, firstName: ADMIN_FIRST_NAME, lastName: ADMIN_LAST_NAME,
+      phone: '(213) 555-0100', role: 'attorney', isActive: true, emailVerified: true, provider: 'local',
+    },
+  })
+
+  const attorney = await prisma.attorney.create({
+    data: {
+      name: LEAD_ATTORNEY_NAME, email, phone: '(213) 555-0100',
+      specialties: JSON.stringify(specialties), venues: JSON.stringify(['CA']),
+      isActive: true, isVerified: true, claimStatus: 'claimed', claimedByUserId: adminUser.id,
+      claimedAt: new Date(), responseTimeHours: 4, averageRating: 4.8, totalReviews: 42, lawFirmId: firm.id,
+    },
+  })
+
+  await prisma.attorneyProfile.upsert({
+    where: { attorneyId: attorney.id },
+    update: { firmName: FIRM_NAME },
+    create: {
+      attorneyId: attorney.id,
+      bio: `${LEAD_ATTORNEY_NAME} leads ${FIRM_NAME}'s California personal injury practice.`,
+      specialties: JSON.stringify(specialties), languages: JSON.stringify(['English', 'Spanish']),
+      yearsExperience: 12, totalCases: 320, totalSettlements: 18500000, averageSettlement: 165000,
+      successRate: 90, firmName: FIRM_NAME,
+      jurisdictions: JSON.stringify([{ state: 'CA', counties: CA_COUNTIES, cities: [] }]),
+      verifiedVerdicts: JSON.stringify([]), totalReviews: 42, averageRating: 4.8,
+    },
+  })
+
+  await prisma.attorneyDashboard.upsert({
+    where: { attorneyId: attorney.id },
+    update: {},
+    create: {
+      attorneyId: attorney.id,
+      leadFilters: JSON.stringify({ caseTypes: specialties, venues: ['CA'] }),
+      exclusivitySettings: JSON.stringify({ preferredAssignment: 'exclusive' }),
+      pricingModel: 'per_retainer',
+    },
+  })
+
+  await prisma.firmMember.upsert({
+    where: { lawFirmId_userId: { lawFirmId: firm.id, userId: adminUser.id } },
+    update: { attorneyId: attorney.id, role: 'firm_admin', officeId: office.id, status: 'active' },
+    create: {
+      lawFirmId: firm.id, userId: adminUser.id, attorneyId: attorney.id, officeId: office.id,
+      role: 'firm_admin', title: 'Managing Partner', status: 'active', joinedAt: new Date(),
+    },
+  })
+
+  console.log(`Created attorney "${attorney.name}" (${attorney.id}) — login: ${email} / ${ADMIN_PASSWORD}`)
+  return { attorneyId: attorney.id, attorneyName: attorney.name, firmId: firm.id, officeId: office.id, firmName: FIRM_NAME, adminUserId: adminUser.id, created: true }
+}
+
 // -------------------- Main --------------------
 async function main() {
   const email = ATTORNEY_EMAIL
   console.log(`\n=== Creating cases for attorney "${email}" (${NUM_ACTIVE} active + ${NUM_NEW} new matches) ===`)
 
-  const attorney = await prisma.attorney.findFirst({
-    where: { OR: [{ email }, { email: email.toLowerCase() }, { email: email.toUpperCase() }] },
-    select: { id: true, name: true, email: true, lawFirmId: true },
-  })
-  if (!attorney) {
-    console.error(`\nNo Attorney row found with email ${email}. This script attaches cases to an EXISTING attorney.`)
-    console.error(`Create/ensure the attorney first (e.g. scripts/ensure-attorney-for-email.ts) or pass ATTORNEY_EMAIL.`)
-    process.exit(1)
-  }
+  const resolved = await ensureAttorney(email)
+  const attorney = { id: resolved.attorneyId, name: resolved.attorneyName }
+  const firmId = resolved.firmId
+  const officeId = resolved.officeId
+  const firmName = resolved.firmName
+  const adminUser = resolved.adminUserId ? { id: resolved.adminUserId } : null
 
-  // Resolve firm + office (optional) so accepted cases also get a firm assignment.
-  let firmId: string | null = attorney.lawFirmId ?? null
-  let officeId: string | null = null
-  let firmName = 'the firm'
-  if (firmId) {
-    const firm = await prisma.lawFirm.findUnique({ where: { id: firmId }, select: { id: true, name: true } })
-    firmName = firm?.name ?? firmName
-    const office = await prisma.firmOffice.findFirst({ where: { lawFirmId: firmId }, select: { id: true } })
-    officeId = office?.id ?? null
-  }
-  // Resolve an admin user to record as the assigner (best-effort).
-  const adminUser = await prisma.user.findFirst({
-    where: { OR: [{ email }, { email: email.toLowerCase() }, { email: email.toUpperCase() }] },
-    select: { id: true },
-  })
-
-  console.log(`Attorney: ${attorney.name} (${attorney.id})`)
+  console.log(`Attorney: ${attorney.name} (${attorney.id})${resolved.created ? ' [newly created]' : ''}`)
   console.log(`Firm: ${firmId ? `${firmName} (${firmId})` : 'none — cases attach to the attorney directly'}${officeId ? `, office ${officeId}` : ''}`)
 
   // Idempotency guard: if this attorney already has cases and FORCE isn't set, stop.
