@@ -23,7 +23,10 @@ import { PrismaClient } from '@prisma/client'
 const prisma = new PrismaClient()
 
 const FIRM_SLUG = process.env.FIRM_SLUG || 'salman-law-firm'
-const FIRM_ADMIN_EMAIL = 'salman@salmanlawfirm.com'
+// The dashboard resolves the attorney by req.user.email == attorney.email, so we
+// re-link cases to whatever email Salman actually logs in with. If the login was
+// repointed to a real inbox (change-salman-email.ts), pass that via LOGIN_EMAIL.
+const FIRM_ADMIN_EMAIL = (process.env.LOGIN_EMAIL || process.env.FIRM_ADMIN_EMAIL || 'salman@salmanlawfirm.com').trim()
 const DRY_RUN = process.env.DRY_RUN === '1'
 
 function rand<T>(arr: readonly T[]): T { return arr[Math.floor(Math.random() * arr.length)] }
@@ -61,6 +64,21 @@ async function main() {
 
   const firm = await prisma.lawFirm.findFirst({ where: { slug: FIRM_SLUG } })
   if (!firm) { console.error(`No firm with slug ${FIRM_SLUG}`); process.exit(1) }
+
+  // Show EVERY attorney attached to this firm and what each would see on their
+  // dashboard. This immediately reveals the common failure: a re-run seed created
+  // a second attorney (salman@salmanlawfirm.com) holding all the cases while the
+  // real login email resolves to a different attorney that sees nothing.
+  const firmAttorneys = await prisma.attorney.findMany({
+    where: { lawFirmId: firm.id },
+    select: { id: true, email: true, name: true, isActive: true },
+  })
+  console.log(`\nAttorneys linked to firm "${firm.name}": ${firmAttorneys.length}`)
+  for (const a of firmAttorneys) {
+    const dash = await dashboardWhereCount(a.id)
+    console.log(`  - ${a.email}  (id=${a.id}, active=${a.isActive})  dashboard=${dash}`)
+  }
+  console.log(`\nTarget login email to re-link to: ${FIRM_ADMIN_EMAIL}`)
 
   // Detect duplicate attorney rows with the same email (a common cause of the
   // dashboard resolving a *different* attorney id than the one routing points to).
