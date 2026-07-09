@@ -44,7 +44,7 @@ const EMAIL_NS = 'admin-cases'
 // Used only when the attorney/firm must be created (ATTORNEY_EMAIL not found).
 const FIRM_NAME = process.env.FIRM_NAME || 'Admin Law Firm'
 const FIRM_SLUG = process.env.FIRM_SLUG || 'admin-law-firm'
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Password1234!'
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'password123'
 const ADMIN_FIRST_NAME = process.env.ADMIN_FIRST_NAME || 'Admin'
 const ADMIN_LAST_NAME = process.env.ADMIN_LAST_NAME || 'Attorney'
 const LEAD_ATTORNEY_NAME = process.env.LEAD_ATTORNEY_NAME || `${ADMIN_FIRST_NAME} ${ADMIN_LAST_NAME}`
