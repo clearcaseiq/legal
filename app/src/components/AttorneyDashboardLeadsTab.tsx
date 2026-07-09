@@ -1,6 +1,7 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
 import { Clock, Lock, LockOpen, MessageSquare, Phone, Star, Users } from 'lucide-react'
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
+import { FilterStat } from '../features/shared/ui'
 
 type CaseLeadsFilter = {
   caseType: string
@@ -9,7 +10,7 @@ type CaseLeadsFilter = {
   pipelineStage: string
   evidenceLevel: string
   jurisdiction: string
-  routingInboxView: 'newMatches' | 'awaitingDecision' | 'hotMatches' | 'staleMatches' | 'consultReady' | ''
+  routingInboxView: 'newMatches' | 'awaitingDecision' | 'hotMatches' | 'staleMatches' | 'consultReady' | 'expired' | ''
 }
 
 type PendingQuickAction = {
@@ -24,6 +25,7 @@ type AttorneyDashboardLeadsTabProps = {
   caseLeadsFilter: CaseLeadsFilter
   dashboardData: any
   formatCurrency: (value: number) => string
+  hideRoutingInbox?: boolean
   onAcceptLead: (leadId: string) => void
   onDeclineLead: (leadId: string) => void
   onHandleQuickActionForLead: (lead: any, action: string, section?: string) => void
@@ -48,6 +50,7 @@ export default function AttorneyDashboardLeadsTab({
   caseLeadsFilter,
   dashboardData,
   formatCurrency,
+  hideRoutingInbox,
   onAcceptLead,
   onDeclineLead,
   onHandleQuickActionForLead,
@@ -92,6 +95,18 @@ export default function AttorneyDashboardLeadsTab({
       isExpired: remainingMs <= 0,
       label: formatCountdown(remainingMs),
     }
+  }
+
+  // A match is "expired/missed" once its response window lapses. The backend marks the
+  // introduction EXPIRED (offerStatus), but we also derive it from offerExpiresAt so the
+  // list updates the moment the clock runs out, before the next sweep runs.
+  const isExpiredMatch = (lead: any) => {
+    if ((lead?.offerStatus || '') === 'EXPIRED') return true
+    if ((lead?.status || '') === 'submitted' && lead?.offerExpiresAt) {
+      const t = Date.parse(lead.offerExpiresAt)
+      return !Number.isNaN(t) && t <= now
+    }
+    return false
   }
 
   const isIdentityRevealed = (lead: any) => ['contacted', 'consulted', 'retained'].includes(lead?.status || '')
@@ -239,6 +254,23 @@ export default function AttorneyDashboardLeadsTab({
       ((dashboardData?.newCaseMatches as any[]) || []).map((m: any) => m?.id).filter(Boolean),
     )
     const filtered = (dashboardData?.recentLeads || []).filter((lead: any) => {
+      // Active Cases (Case Management) is the accepted caseload only. A case that
+      // hasn't been accepted (still 'submitted', or 'rejected') never belongs here,
+      // regardless of any other filter state.
+      if (hideRoutingInbox && !['contacted', 'consulted', 'retained'].includes(lead?.status || '')) {
+        return false
+      }
+      // Expired/missed matches are pulled out of every ordinary view (New Matches,
+      // Awaiting decision, Hot, etc.) and only surface under the dedicated "Missed /
+      // Expired" view, since the response window has closed and they've been released
+      // to the next attorney.
+      const expiredMatch = isExpiredMatch(lead)
+      if (caseLeadsFilter.routingInboxView === 'expired') {
+        return expiredMatch
+      }
+      if (expiredMatch) {
+        return false
+      }
       if (caseLeadsFilter.routingInboxView === 'newMatches') {
         // Prefer the curated set; if it isn't provided, fall back to submitted
         // cases so the view is never accidentally empty.
@@ -255,7 +287,12 @@ export default function AttorneyDashboardLeadsTab({
       // signal the overview tile counts), not getPriorityLabel — which flags any
       // lead with >=4 evidence files or >=$50k as "Hot" and therefore matched
       // essentially every case, so the filter showed everything (A3-18).
-      if (caseLeadsFilter.routingInboxView === 'hotMatches' && (lead?.hotnessLevel || '') !== 'hot') {
+      if (
+        caseLeadsFilter.routingInboxView === 'hotMatches' &&
+        ((lead?.hotnessLevel || '') !== 'hot' || (lead?.status || '') !== 'submitted')
+      ) {
+        // Hot matches are open, unaccepted matches only; an accepted case that happens
+        // to be hot belongs to Active Cases, not the New Matches inbox.
         return false
       }
       if (caseLeadsFilter.routingInboxView === 'staleMatches') {
@@ -284,7 +321,10 @@ export default function AttorneyDashboardLeadsTab({
         const statusMap: Record<string, string[]> = {
           matched: ['submitted'],
           active: ['contacted', 'consulted', 'retained'],
-          accepted: ['contacted'],
+          // "Accepted" = the whole accepted caseload, not just the contacted stage;
+          // mapping it to only ['contacted'] made it silently drop consulted/retained
+          // cases and behave identically to "Contacted".
+          accepted: ['contacted', 'consulted', 'retained'],
           contacted: ['contacted'],
           consultScheduled: ['consulted'],
           retained: ['retained'],
@@ -325,16 +365,52 @@ export default function AttorneyDashboardLeadsTab({
 
   const filteredLeads = getFilteredAndSortedLeads()
   const starredLeads = (dashboardData?.recentLeads || []).filter((lead: any) => starredLeadIds.has(lead.id))
+
+  // Post-acceptance bulk actions (document requests, scheduling a consult) only make
+  // sense once a case is accepted. On the pre-acceptance "New Matches" list the leads
+  // are still status "submitted" — selecting one should not surface case-management
+  // actions the attorney hasn't unlocked by accepting.
+  const selectedLeadsList = (dashboardData?.recentLeads || []).filter((lead: any) => selectedLeadIds.has(lead.id))
+  const hasAcceptedSelection = selectedLeadsList.some((lead: any) =>
+    ['contacted', 'consulted', 'retained'].includes(lead?.status || ''),
+  )
   const routingInboxSummary = {
-    awaitingDecision: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.status || '') === 'submitted').length,
-    hotMatches: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.hotnessLevel || '') === 'hot').length,
+    // Expired/missed matches are counted only under their own tile, never under the
+    // active tiles, so the tile numbers match the lists they open (an expired case is
+    // no longer "awaiting decision", "hot", or "aging").
+    awaitingDecision: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.status || '') === 'submitted' && !isExpiredMatch(lead)).length,
+    hotMatches: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.hotnessLevel || '') === 'hot' && (lead?.status || '') === 'submitted' && !isExpiredMatch(lead)).length,
     staleMatches: (dashboardData?.recentLeads || []).filter((lead: any) => {
+      if (isExpiredMatch(lead)) return false
       const submittedAt = Date.parse(lead?.submittedAt || '')
       if (Number.isNaN(submittedAt)) return false
       return (lead?.status || '') === 'submitted' && (Date.now() - submittedAt) >= (24 * 60 * 60 * 1000)
     }).length,
     consultReady: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.status || '') === 'contacted' && hasMadeContact(lead)).length,
+    expired: (dashboardData?.recentLeads || []).filter((lead: any) => isExpiredMatch(lead)).length,
   }
+
+  // Header performance metrics (mirrors the prototype): how fast the attorney responds
+  // to routed offers and how often they accept — both computed server-side from real
+  // introduction records (respondedAt − requestedAt, and ACCEPTED / total).
+  const perf = dashboardData?.performanceMetrics
+  const totalReceived = Number(dashboardData?.dashboard?.totalLeadsReceived ?? 0)
+  const totalAccepted = Number(dashboardData?.dashboard?.totalLeadsAccepted ?? 0)
+  const acceptanceRatePct = typeof perf?.acceptanceRate === 'number'
+    ? perf.acceptanceRate
+    : totalReceived > 0 ? Math.round((totalAccepted / totalReceived) * 100) : 0
+  const responseMinutes = typeof perf?.avgResponseMinutes === 'number'
+    ? perf.avgResponseMinutes
+    : Math.round(Number(dashboardData?.dashboard?.attorney?.responseTimeHours ?? 0) * 60)
+  const responseTimeLabel = !responseMinutes || responseMinutes <= 0
+    ? '—'
+    : responseMinutes < 60
+      ? `${responseMinutes}m`
+      : `${Math.floor(responseMinutes / 60)}h ${responseMinutes % 60}m`
+  const newMatchIdSet = new Set(((dashboardData?.newCaseMatches as any[]) || []).map((m: any) => m?.id).filter(Boolean))
+  const newMatchesCount = (dashboardData?.recentLeads || []).filter(
+    (l: any) => newMatchIdSet.has(l?.id) && !isExpiredMatch(l),
+  ).length
   const applyRoutingInboxView = (
     view: NonNullable<CaseLeadsFilter['routingInboxView']>,
     filterPatch: Partial<CaseLeadsFilter>,
@@ -409,57 +485,50 @@ export default function AttorneyDashboardLeadsTab({
         </div>
       )}
 
+      {hideRoutingInbox ? null : (
       <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Routing inbox</p>
-            <h3 className="text-lg font-semibold text-slate-900">Decision queue health</h3>
-          </div>
-          <p className="text-sm text-slate-500">Use this to spot which routed matters need attorney attention first.</p>
+        <div className="mb-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">New matches</p>
+          <h3 className="text-lg font-semibold text-slate-900">Cases ready for review</h3>
         </div>
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <button
-            type="button"
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <FilterStat
+            value={newMatchesCount}
+            label="New matches"
+            tone="info"
+            filled
+            active={caseLeadsFilter.routingInboxView === 'newMatches'}
+            onClick={() => applyRoutingInboxView('newMatches', {}, null)}
+          />
+          <FilterStat
+            value={routingInboxSummary.awaitingDecision}
+            label="Awaiting decision"
+            tone="warning"
+            filled
+            active={caseLeadsFilter.routingInboxView === 'awaitingDecision'}
             onClick={() => applyRoutingInboxView('awaitingDecision', { status: 'submitted', pipelineStage: 'matched' }, 'matched')}
-            aria-pressed={caseLeadsFilter.routingInboxView === 'awaitingDecision'}
-            className={`block w-full rounded-lg border px-4 py-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 ${caseLeadsFilter.routingInboxView === 'awaitingDecision' ? 'border-amber-400 bg-amber-100 ring-2 ring-amber-500 ring-offset-1' : 'border-amber-200 bg-amber-50 hover:bg-amber-100'}`}
-          >
-            <p className="text-xs font-medium uppercase tracking-wide text-amber-700">Awaiting decision</p>
-            <p className="mt-1 text-2xl font-semibold text-amber-900">{routingInboxSummary.awaitingDecision}</p>
-            <p className="text-xs text-amber-700">Newly routed cases still waiting for accept or decline.</p>
-          </button>
-          <button
-            type="button"
+          />
+          <FilterStat
+            value={routingInboxSummary.hotMatches}
+            label="Hot matches"
+            tone="danger"
+            filled
+            active={caseLeadsFilter.routingInboxView === 'hotMatches'}
             onClick={() => applyRoutingInboxView('hotMatches', {}, null)}
-            aria-pressed={caseLeadsFilter.routingInboxView === 'hotMatches'}
-            className={`block w-full rounded-lg border px-4 py-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 ${caseLeadsFilter.routingInboxView === 'hotMatches' ? 'border-orange-400 bg-orange-100 ring-2 ring-orange-500 ring-offset-1' : 'border-orange-200 bg-orange-50 hover:bg-orange-100'}`}
-          >
-            <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-orange-700">Hot matches</p>
-            <p className="mt-1 text-2xl font-semibold text-orange-900">{routingInboxSummary.hotMatches}</p>
-            <p className="text-xs text-orange-700">High-value or evidence-rich matters that should move quickly.</p>
-          </button>
-          <button
-            type="button"
-            onClick={() => applyRoutingInboxView('staleMatches', { status: 'submitted', pipelineStage: 'matched' }, 'matched')}
-            aria-pressed={caseLeadsFilter.routingInboxView === 'staleMatches'}
-            className={`block w-full rounded-lg border px-4 py-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${caseLeadsFilter.routingInboxView === 'staleMatches' ? 'border-blue-400 bg-blue-100 ring-2 ring-blue-500 ring-offset-1' : 'border-blue-200 bg-blue-50 hover:bg-blue-100'}`}
-          >
-            <p className="text-xs font-medium uppercase tracking-wide text-blue-700">Aging over 24h</p>
-            <p className="mt-1 text-2xl font-semibold text-blue-900">{routingInboxSummary.staleMatches}</p>
-            <p className="text-xs text-blue-700">Matched cases that may be slipping beyond the response commitment.</p>
-          </button>
-          <button
-            type="button"
-            onClick={() => applyRoutingInboxView('consultReady', { status: 'contacted', pipelineStage: 'contacted' }, 'contacted')}
-            aria-pressed={caseLeadsFilter.routingInboxView === 'consultReady'}
-            className={`block w-full rounded-lg border px-4 py-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${caseLeadsFilter.routingInboxView === 'consultReady' ? 'border-emerald-400 bg-emerald-100 ring-2 ring-emerald-500 ring-offset-1' : 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100'}`}
-          >
-            <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">Consult ready</p>
-            <p className="mt-1 text-2xl font-semibold text-emerald-900">{routingInboxSummary.consultReady}</p>
-            <p className="text-xs text-emerald-700">Accepted cases with contact made and ready for consultation scheduling.</p>
-          </button>
+          />
+          <FilterStat
+            value={routingInboxSummary.expired}
+            label="Missed / expired"
+            tone="neutral"
+            filled
+            active={caseLeadsFilter.routingInboxView === 'expired'}
+            onClick={() => applyRoutingInboxView('expired', {}, null)}
+          />
+          <FilterStat value={responseTimeLabel} label="Avg. response time" tone="neutral" filled />
+          <FilterStat value={`${acceptanceRatePct}%`} label="Acceptance rate" tone="success" filled />
         </div>
       </div>
+      )}
 
       <div id="cases-filters" className="card scroll-mt-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -486,33 +555,40 @@ export default function AttorneyDashboardLeadsTab({
             <option value="mid">$10K-$50K</option>
             <option value="high">$50K+</option>
           </select>
-          <select
-            value={caseLeadsFilter.pipelineStage || caseLeadsFilter.status}
-            onChange={(e) => {
-              const value = e.target.value
-              const statusMap: Record<string, string> = {
-                matched: 'submitted',
-                active: '',
-                accepted: 'contacted',
-                contacted: 'contacted',
-                consultScheduled: 'consulted',
-                retained: 'retained',
-                closed: 'rejected',
-              }
-              setCaseLeadsFilter((prev) => ({ ...prev, pipelineStage: value, status: value ? statusMap[value] : '', routingInboxView: '' }))
-              setActivePipelineTile(value || null)
-            }}
-            className="text-sm border border-gray-200 rounded-md px-2 py-1"
-          >
-            <option value="">All Stages</option>
-            <option value="matched">In Review</option>
-            <option value="active">Active</option>
-            <option value="accepted">Accepted</option>
-            <option value="contacted">Contacted</option>
-            <option value="consultScheduled">Consultation Scheduled</option>
-            <option value="retained">Completed</option>
-            <option value="closed">Closed</option>
-          </select>
+          {/* The pipeline-stage filter is only meaningful for the accepted caseload
+              (contacted → consulted → retained). On the pre-acceptance "New Matches"
+              inbox every lead is still "submitted", so offering post-acceptance stages
+              here produced a filter that appeared to do nothing (those cases live under
+              Case Management → Active Cases). The routing-inbox tiles above already
+              provide the relevant pre-acceptance filtering. */}
+          {hideRoutingInbox && (
+            <select
+              value={caseLeadsFilter.pipelineStage || caseLeadsFilter.status}
+              onChange={(e) => {
+                const value = e.target.value
+                const statusMap: Record<string, string> = {
+                  matched: 'submitted',
+                  active: '',
+                  accepted: '',
+                  contacted: 'contacted',
+                  consultScheduled: 'consulted',
+                  retained: 'retained',
+                  closed: 'rejected',
+                }
+                setCaseLeadsFilter((prev) => ({ ...prev, pipelineStage: value, status: value ? statusMap[value] : '', routingInboxView: '' }))
+                setActivePipelineTile(value || null)
+              }}
+              className="text-sm border border-gray-200 rounded-md px-2 py-1"
+            >
+              <option value="">All Stages</option>
+              <option value="active">Active</option>
+              <option value="accepted">Accepted</option>
+              <option value="contacted">Contacted</option>
+              <option value="consultScheduled">Consultation Scheduled</option>
+              <option value="retained">Completed</option>
+              <option value="closed">Closed</option>
+            </select>
+          )}
           <select
             value={caseLeadsFilter.jurisdiction}
             onChange={(e) => setCaseLeadsFilter((prev) => ({ ...prev, jurisdiction: e.target.value, routingInboxView: '' }))}
@@ -558,23 +634,31 @@ export default function AttorneyDashboardLeadsTab({
       {selectedLeadIds.size > 0 && (
         <div className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-brand-50 border border-brand-200">
           <span className="text-sm font-medium text-brand-800">{selectedLeadIds.size} selected</span>
-          <button
-            onClick={onOpenDocumentRequest}
-            disabled={bulkActionLoading}
-            className="text-sm text-brand-600 hover:underline disabled:opacity-50"
-          >
-            Send document request
-          </button>
-          <button
-            onClick={onOpenScheduleConsult}
-            disabled={bulkActionLoading || selectedLeadIds.size !== 1}
-            title={selectedLeadIds.size !== 1 ? 'Select exactly 1 case to schedule consult' : ''}
-            className="text-sm text-brand-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Schedule consult
-          </button>
-          {selectedLeadIds.size !== 1 && (
-            <span className="text-xs text-gray-500">(Schedule consult: select 1 case)</span>
+          {hasAcceptedSelection ? (
+            <>
+              <button
+                onClick={onOpenDocumentRequest}
+                disabled={bulkActionLoading}
+                className="text-sm text-brand-600 hover:underline disabled:opacity-50"
+              >
+                Send document request
+              </button>
+              <button
+                onClick={onOpenScheduleConsult}
+                disabled={bulkActionLoading || selectedLeadIds.size !== 1}
+                title={selectedLeadIds.size !== 1 ? 'Select exactly 1 case to schedule consult' : ''}
+                className="text-sm text-brand-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Schedule consult
+              </button>
+              {selectedLeadIds.size !== 1 && (
+                <span className="text-xs text-gray-500">(Schedule consult: select 1 case)</span>
+              )}
+            </>
+          ) : (
+            <span className="text-xs text-gray-500">
+              Accept a match to unlock document requests and consult scheduling.
+            </span>
           )}
           <button
             onClick={clearSelectedLeads}
@@ -631,54 +715,54 @@ export default function AttorneyDashboardLeadsTab({
             Cases {activePipelineTile ? `(${activePipelineTile})` : ''}
           </h3>
           <div className="flex items-center gap-2">
-            <button onClick={selectAllLeads} className="text-xs text-brand-600 hover:underline">
+            <button
+              onClick={selectAllLeads}
+              className="rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700 ring-1 ring-inset ring-brand-200 hover:bg-brand-100"
+            >
               Select all
             </button>
-            <button onClick={clearSelectedLeads} className="text-xs text-gray-500 hover:underline">
+            <button
+              onClick={clearSelectedLeads}
+              className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200 hover:bg-rose-100"
+            >
               Clear
             </button>
           </div>
         </div>
         <div className="w-full min-w-0 overflow-x-auto">
-          <table className="w-full min-w-[1760px] table-fixed divide-y divide-gray-200">
+          <table className="w-full min-w-[1280px] table-fixed divide-y divide-slate-100">
             <colgroup>
-              <col className="w-10" />
+              <col className="w-16" />
               <col className="w-10" />
               <col className="w-[220px]" />
-              <col className="w-[260px]" />
+              <col className="w-[90px]" />
               <col className="w-[110px]" />
               <col className="w-[130px]" />
               <col className="w-[145px]" />
               <col className="w-[135px]" />
               <col className="w-[95px]" />
-              <col className="w-[115px]" />
-              <col className="w-[175px]" />
-              <col className="w-[155px]" />
-              <col className="w-[100px]" />
+              <col className="w-[140px]" />
               <col className="w-[230px]" />
             </colgroup>
-            <thead className="bg-gray-50">
+            <thead className="bg-slate-50/60">
               <tr>
-                <th className="w-10 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase"></th>
-                <th className="w-10 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase"></th>
-                <th className="w-[230px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lead</th>
-                <th className="w-[270px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                <th className="w-[105px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priority</th>
-                <th className="w-[140px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
-                <th className="w-[150px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Est. Value</th>
-                <th className="w-[135px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Case Strength</th>
-                <th className="w-[100px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Evidence</th>
-                <th className="w-[110px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="w-[180px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Relationship</th>
-                <th className="w-[150px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Attention</th>
-                <th className="w-[100px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Received</th>
-                <th className="w-[220px] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Readiness / Next Action</th>
+                <th className="w-16 px-3 py-3 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider">Lead</th>
+                <th className="w-10 px-3 py-3 text-left text-[11px] font-bold text-slate-700 uppercase"></th>
+                <th className="w-[230px] px-4 py-3 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider">Description</th>
+                <th className="w-[90px] px-4 py-3 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider">Actions</th>
+                <th className="w-[105px] px-4 py-3 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider">Priority</th>
+                <th className="w-[140px] px-4 py-3 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider">Location</th>
+                <th className="w-[150px] px-4 py-3 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider">Est. Value</th>
+                <th className="w-[135px] px-4 py-3 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider">Case Strength</th>
+                <th className="w-[95px] px-4 py-3 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider">Evidence</th>
+                <th className="w-[140px] px-4 py-3 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider">Status</th>
+                <th className="w-[230px] px-4 py-3 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider">Readiness / Next Action</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-white divide-y divide-slate-100">
               {filteredLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="px-6 py-12 text-center">
+                  <td colSpan={11} className="px-6 py-12 text-center">
                     <Users className="mx-auto h-12 w-12 text-gray-400" />
                     <h3 className="mt-2 text-sm font-medium text-gray-900">
                       {(dashboardData?.recentLeads?.length || 0) === 0 ? 'No leads yet' : 'No cases match your filters'}
@@ -697,25 +781,26 @@ export default function AttorneyDashboardLeadsTab({
                   </td>
                 </tr>
               ) : (
-                filteredLeads.map((lead: any) => {
+                filteredLeads.map((lead: any, index: number) => {
                   const bands = getLeadBands(lead)
                   const priority = getPriorityLabel(lead)
-                  const attention = getAttentionLabel(lead)
-                  const relationship = getRelationshipActivity(lead)
                   const evidenceCount = getLeadEvidenceCount(lead)
                   const rawStrength = Number(lead.viabilityScore || 0)
                   const strength = rawStrength <= 1 ? Math.round(rawStrength * 100) : Math.min(100, Math.round(rawStrength))
                   const offerCountdown = getOfferCountdown(lead)
 
                   return (
-                    <tr key={lead.id} className="hover:bg-gray-50">
+                    <tr key={lead.id} className="transition-colors hover:bg-slate-50/70">
                       <td className="px-3 py-3 align-top">
-                        <input
-                          type="checkbox"
-                          checked={selectedLeadIds.has(lead.id)}
-                          onChange={() => toggleSelectLead(lead.id)}
-                          className="rounded border-gray-300"
-                        />
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-semibold tabular-nums text-slate-400">{index + 1}</span>
+                          <input
+                            type="checkbox"
+                            checked={selectedLeadIds.has(lead.id)}
+                            onChange={() => toggleSelectLead(lead.id)}
+                            className="rounded border-gray-300"
+                          />
+                        </div>
                       </td>
                       <td className="px-3 py-3 align-top">
                         <button onClick={() => toggleStarred(lead.id)} className="text-gray-400 hover:text-amber-500">
@@ -757,13 +842,13 @@ export default function AttorneyDashboardLeadsTab({
                         )}
                       </td>
                       <td className="px-4 py-3 align-top">
-                        <div className="grid grid-cols-2 gap-1.5">
+                        <div className="flex">
                           {pendingQuickAction ? (
                             <button
                               onClick={() =>
                                 onHandleQuickActionForLead(lead, pendingQuickAction.action, pendingQuickAction.section)
                               }
-                              className="col-span-2 inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded border border-brand-200 px-3 py-1 text-xs font-medium text-brand-600 hover:bg-brand-50"
+                              className="inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded border border-brand-200 px-3 py-1 text-xs font-medium text-brand-600 hover:bg-brand-50"
                             >
                               {pendingQuickAction.action === 'scheduleConsult' && 'Schedule'}
                               {pendingQuickAction.action === 'documents' && 'Documents'}
@@ -776,43 +861,12 @@ export default function AttorneyDashboardLeadsTab({
                               {pendingQuickAction.section === 'billing' && 'Create invoice'}
                             </button>
                           ) : (
-                            <>
-                              <button
-                                onClick={() => onOpenLead(lead)}
-                                className="inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded border border-brand-200 px-3 py-1 text-xs font-medium text-brand-600 hover:bg-brand-50"
-                              >
-                                Review
-                              </button>
-                              <button
-                                onClick={() => onHandleQuickActionForLead(lead, 'addContact', 'communications')}
-                                className="inline-flex min-h-7 items-center justify-center gap-1 whitespace-nowrap rounded border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                              >
-                                <Phone className="h-3 w-3" /> Call
-                              </button>
-                              <button
-                                onClick={() => onOpenLeadChat(lead)}
-                                className="inline-flex min-h-7 items-center justify-center gap-1 whitespace-nowrap rounded border border-gray-200 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                              >
-                                <MessageSquare className="h-3 w-3" /> Message
-                              </button>
-                              {(!lead.status || lead.status === 'submitted') && (
-                                <>
-                                  <button
-                                    onClick={() => onAcceptLead(lead.id)}
-                                    disabled={offerCountdown?.isExpired}
-                                    className="inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded border border-green-200 px-3 py-1 text-xs font-medium text-green-700 hover:bg-green-50"
-                                  >
-                                    Accept
-                                  </button>
-                                  <button
-                                    onClick={() => onDeclineLead(lead.id)}
-                                    className="inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded border border-red-200 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
-                                  >
-                                    Decline
-                                  </button>
-                                </>
-                              )}
-                            </>
+                            <button
+                              onClick={() => onOpenLead(lead)}
+                              className="inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700"
+                            >
+                              Review
+                            </button>
                           )}
                         </div>
                       </td>
@@ -844,15 +898,6 @@ export default function AttorneyDashboardLeadsTab({
                         <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded ${getFlowStatus(lead).color}`}>
                           {getCaseStatusLabel(lead)}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <div className="text-sm font-medium text-gray-800">{relationship.primary}</div>
-                        <div className="text-xs text-gray-500">{relationship.secondary}</div>
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded ${attention.class}`}>
-                          {attention.icon} {attention.label}
-                        </span>
                         {offerCountdown && (
                           <div className={`mt-1 inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ${
                             offerCountdown.isExpired
@@ -864,7 +909,6 @@ export default function AttorneyDashboardLeadsTab({
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 align-top text-sm text-gray-500 whitespace-nowrap">{getRelativeTime(lead.submittedAt || '')}</td>
                       <td className="px-4 py-3 align-top">
                         {lead.demandReadiness ? (
                           <div className="space-y-1.5">
@@ -899,3 +943,4 @@ export default function AttorneyDashboardLeadsTab({
     </div>
   )
 }
+

@@ -726,6 +726,7 @@ model Attorney {
   leadContacts                LeadContact[]
   caseContacts                CaseContact[]
   documentRequests            DocumentRequest[]
+  documentEnvelopes           DocumentEnvelope[]
   leadAnalytics               LeadAnalytics[]
   conflictChecks              ConflictCheck[]
   providerReferrals           ProviderReferral[]
@@ -745,6 +746,7 @@ model Attorney {
   importSources               AttorneyImportSource[]
   profileClaims               ProfileClaim[]
   calendarConnections         AttorneyCalendarConnection[]
+  zoomConnection              AttorneyZoomConnection?
   calendarBusyBlocks          AttorneyCalendarBusyBlock[]
   platformPayments            PlatformPayment[]
   firmMemberships             FirmMember[]
@@ -1305,7 +1307,8 @@ model Appointment {
   notes       String?
 
   // Meeting details
-  meetingUrl               String? // For video calls
+  meetingUrl               String? // For video calls (attendee join link)
+  hostMeetingUrl           String? // Host/start link for the attorney (e.g. Zoom start_url)
   location                 String? // For in-person meetings
   phoneNumber              String? // For phone calls
   externalCalendarProvider String?
@@ -1349,6 +1352,26 @@ model AttorneyCalendarConnection {
   @@unique([attorneyId, provider])
   @@index([syncStatus])
   @@map("attorney_calendar_connections")
+}
+
+model AttorneyZoomConnection {
+  id                   String    @id @default(cuid())
+  attorneyId           String    @unique
+  attorney             Attorney  @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  externalAccountId    String? // Zoom user id
+  externalAccountEmail String?
+  displayName          String?
+  accessToken          String?   @db.Text
+  refreshToken         String?   @db.Text
+  tokenExpiresAt       DateTime?
+  scopes               String?   @db.Text // JSON array
+  syncStatus           String    @default("disconnected") // disconnected, connected, sync_error
+  lastError            String?   @db.Text
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([syncStatus])
+  @@map("attorney_zoom_connections")
 }
 
 model AttorneyCalendarBusyBlock {
@@ -1586,6 +1609,7 @@ model LeadSubmission {
   lettersOfProtection LetterOfProtection[]
   decisionMemory      DecisionMemory?
   documentRequests    DocumentRequest[]
+  documentEnvelopes   DocumentEnvelope[]
 
   @@map("lead_submissions")
 }
@@ -1731,6 +1755,13 @@ model DocumentRequest {
   caseContactId  String? // optional link to a CaseContact representing the recipient
   origin         String  @default("attorney") // 'attorney' | 'plaintiff_suggested'
 
+  // Links a provider-directed medical-records request to the signed HIPAA
+  // authorization (DocumentEnvelope) that legally permits the disclosure. The
+  // custodian portal exposes this authorization; the request is gated on it
+  // being signed before it can be served.
+  documentEnvelopeId String?
+  documentEnvelope   DocumentEnvelope? @relation(fields: [documentEnvelopeId], references: [id], onDelete: SetNull)
+
   attorneyViewedAt DateTime?
   lastNudgeAt      DateTime?
 
@@ -1765,6 +1796,54 @@ model ExternalDocumentUpload {
 
   @@index([documentRequestId])
   @@map("external_document_uploads")
+}
+
+// Tracks an e-signature envelope for a signable case document (retainer
+// agreement, HIPAA authorization, fee agreement). Provider-agnostic: the same
+// record works whether the envelope is created via Dropbox Sign, a self-hosted
+// Documenso instance, or an in-house signer. `status` is the source of truth
+// for the "Documents & E-sign" surface, so the app no longer has to infer
+// "retained" from lifecycle state — a signed retainer sets it explicitly.
+model DocumentEnvelope {
+  id         String         @id @default(cuid())
+  leadId     String
+  lead       LeadSubmission @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  attorneyId String
+  attorney   Attorney       @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+
+  // What is being signed and by whom (the client, usually).
+  documentType String // 'retainer' | 'hipaa_authorization' | 'fee_agreement' | 'other'
+  title        String
+  signerName   String
+  signerEmail  String
+
+  // Provider-agnostic signing state — the value the UI reads.
+  status String @default("draft") // draft, sent, viewed, signed, declined, voided, expired
+
+  // Provider linkage (null until the envelope is created remotely).
+  provider           String  @default("dropbox_sign") // 'dropbox_sign' | 'documenso' | 'internal'
+  externalEnvelopeId String? // provider's envelope / signature-request id
+  signingUrl         String? // embedded or hosted signing URL for the signer
+  auditTrailUrl      String? // provider certificate of completion / audit trail
+  signedFilePath     String? // stored fully-executed PDF once completed
+
+  // Lifecycle timestamps, set as provider webhooks arrive.
+  sentAt     DateTime?
+  viewedAt   DateTime?
+  signedAt   DateTime?
+  declinedAt DateTime?
+  expiresAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  documentRequests DocumentRequest[]
+
+  @@index([leadId])
+  @@index([attorneyId])
+  @@index([status])
+  @@index([provider, externalEnvelopeId])
+  @@map("document_envelopes")
 }
 
 // A plaintiff-initiated suggestion that documents should be requested from the

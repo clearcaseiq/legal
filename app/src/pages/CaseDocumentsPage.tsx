@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { getLead, getLeadEvidenceFiles, uploadEvidenceFile, uploadMultipleEvidenceFiles, deleteEvidenceFile } from '../lib/api'
 import { getApiOrigin } from '../lib/runtimeEnv'
+import SignatureRequestPanel from '../components/SignatureRequestPanel'
 
 const CATEGORIES = [
   { id: 'medical_records', label: 'Medical records' },
@@ -231,6 +232,9 @@ export default function CaseDocumentsPage() {
             </div>
           </div>
         </div>
+
+        {/* E-signature */}
+        <SignatureRequestPanel leadId={leadId} />
 
         {/* Document list */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">

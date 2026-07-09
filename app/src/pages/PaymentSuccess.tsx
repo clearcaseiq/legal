@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { decideLead } from '../lib/api'
 
 export default function PaymentSuccess() {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const sessionId = searchParams.get('session_id')
   const type = searchParams.get('type')
   const leadId = searchParams.get('leadId')
   const [acceptanceStatus, setAcceptanceStatus] = useState<'idle' | 'accepting' | 'accepted' | 'failed'>('idle')
+  const caseWorkspacePath = leadId ? `/attorney-dashboard/lead/${leadId}/overview` : '/attorney-dashboard'
 
   useEffect(() => {
     if (type !== 'routing_fee' || !leadId) return
@@ -35,6 +37,17 @@ export default function PaymentSuccess() {
     }
   }, [leadId, sessionId, type])
 
+  // Once the routing fee is paid and the case is accepted, drop the attorney
+  // straight into the Case Workspace rather than leaving them on this receipt
+  // screen. Small delay so the "payment received" confirmation is visible.
+  useEffect(() => {
+    if (type !== 'routing_fee' || !leadId || acceptanceStatus !== 'accepted') return
+    const timer = setTimeout(() => {
+      navigate(caseWorkspacePath, { replace: true })
+    }, 1200)
+    return () => clearTimeout(timer)
+  }, [acceptanceStatus, type, leadId, caseWorkspacePath, navigate])
+
   return (
     <div className="mx-auto max-w-2xl px-4 py-16">
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-emerald-950 shadow-sm">
@@ -46,8 +59,8 @@ export default function PaymentSuccess() {
         {type === 'routing_fee' && (
           <p className="mt-3 text-sm text-emerald-800">
             {acceptanceStatus === 'accepting' && 'Finalizing the case acceptance...'}
-            {acceptanceStatus === 'accepted' && 'The case has been accepted and moved into your attorney dashboard.'}
-            {acceptanceStatus === 'failed' && 'Payment succeeded, but the case acceptance could not be finalized automatically. Please return to the attorney dashboard and try again.'}
+            {acceptanceStatus === 'accepted' && 'The case has been accepted — taking you to the Case Workspace...'}
+            {acceptanceStatus === 'failed' && 'Payment succeeded, but the case acceptance could not be finalized automatically. Please open the case from your attorney dashboard and try again.'}
           </p>
         )}
         {type === 'payment_method' && (
@@ -57,9 +70,15 @@ export default function PaymentSuccess() {
         )}
         {sessionId && <p className="mt-4 text-xs text-emerald-700">Stripe session: {sessionId}</p>}
         <div className="mt-6 flex flex-wrap gap-3">
-          <Link to={type === 'routing_fee' ? '/attorney-dashboard' : '/dashboard'} className="btn-primary">
-            Go to Dashboard
-          </Link>
+          {type === 'routing_fee' ? (
+            <Link to={caseWorkspacePath} className="btn-primary">
+              Open Case Workspace
+            </Link>
+          ) : (
+            <Link to="/dashboard" className="btn-primary">
+              Go to Dashboard
+            </Link>
+          )}
           <Link to="/" className="btn-outline">
             Back Home
           </Link>

@@ -11,6 +11,7 @@ const router = Router()
 // Labels mirror OPPOSING_DOC_LABELS in attorney-dashboard so the portal can render
 // human-readable document names to the external recipient.
 const OPPOSING_DOC_LABELS: Record<string, string> = {
+  medical_records: 'Medical records',
   insurance_policy: 'Insurance policy / declarations page',
   incident_report: 'Incident / accident report',
   surveillance: 'Surveillance or camera footage',
@@ -65,6 +66,9 @@ async function loadOpposingRequest(token: string) {
     include: {
       externalUploads: { orderBy: { createdAt: 'desc' } },
       attorney: { select: { name: true, lawFirm: { select: { name: true } } } },
+      documentEnvelope: {
+        select: { id: true, title: true, status: true, signedAt: true, signedFilePath: true },
+      },
     },
   })
   if (!docRequest || docRequest.targetType !== 'opposing_party') return null
@@ -95,6 +99,18 @@ router.get('/:token', async (req, res) => {
     if (!docRequest) return res.status(404).json({ error: 'This document request was not found or has expired.' })
 
     const requestedDocs = parseDocs(docRequest.requestedDocs)
+    const env = docRequest.documentEnvelope
+    // Custodians legally require a signed authorization on file before releasing
+    // records. Surface it (metadata + a download link) when one is linked.
+    const authorization =
+      env && env.status === 'signed'
+        ? {
+            title: env.title,
+            signedAt: env.signedAt,
+            available: Boolean(env.signedFilePath),
+            downloadUrl: env.signedFilePath ? `/v1/public/document-requests/${req.params.token}/authorization` : null,
+          }
+        : null
     res.json({
       recipientName: docRequest.recipientName,
       recipientRole: docRequest.recipientRole,
@@ -102,6 +118,7 @@ router.get('/:token', async (req, res) => {
       firmName: docRequest.attorney?.lawFirm?.name || null,
       customMessage: docRequest.customMessage,
       status: docRequest.status,
+      authorization,
       requestedDocs: requestedDocs.map((d) => ({ key: d, label: OPPOSING_DOC_LABELS[d] || d })),
       uploads: docRequest.externalUploads.map((u) => ({
         id: u.id,
@@ -165,6 +182,24 @@ router.post('/:token/upload', upload.single('file'), async (req: any, res) => {
   } catch (error: any) {
     logger.error('Failed to accept document portal upload', { error: error.message })
     res.status(500).json({ error: 'Failed to upload file' })
+  }
+})
+
+// Public: stream the executed HIPAA authorization to the custodian so they can
+// verify the disclosure is permitted (token-gated, only when signed).
+router.get('/:token/authorization', async (req, res) => {
+  try {
+    const docRequest = await loadOpposingRequest(req.params.token)
+    const env = docRequest?.documentEnvelope
+    if (!env || env.status !== 'signed' || !env.signedFilePath || !fs.existsSync(env.signedFilePath)) {
+      return res.status(404).json({ error: 'No signed authorization is available for this request.' })
+    }
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', 'inline; filename="hipaa-authorization.pdf"')
+    fs.createReadStream(env.signedFilePath).pipe(res)
+  } catch (error: any) {
+    logger.error('Failed to serve authorization document', { error: error.message })
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 

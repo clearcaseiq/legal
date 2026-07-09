@@ -603,45 +603,12 @@ export async function attorneyDeclineCase(
   return { success: true }
 }
 
-/**
- * Step 10: Attorney requests more info
- */
-export async function attorneyRequestMoreInfo(
-  introductionId: string,
-  attorneyId: string,
-  notes: string
-): Promise<{ success: boolean; error?: string }> {
-  const intro = await prisma.introduction.findFirst({
-    where: { id: introductionId, attorneyId }
-  })
-  if (!intro || intro.status !== 'PENDING') {
-    return { success: false, error: 'Introduction not found or already responded' }
-  }
-
-  await prisma.introduction.update({
-    where: { id: introductionId },
-    data: { status: 'REQUESTED_INFO', respondedAt: new Date(), requestedInfoNotes: notes }
-  })
-
-  await recordRoutingEvent(intro.assessmentId, introductionId, attorneyId, 'requested_info', { notes })
-  await updateLeadLifecycleState(intro.assessmentId, 'plaintiff_info_requested', {
-    lastContactAt: new Date()
-  })
-  await syncDecisionMemoryForAssessment({
-    assessmentId: intro.assessmentId,
-    attorneyId,
-    attorneyDecision: 'request_info',
-    attorneyRationale: notes || null
-  })
-  await calculateAttorneyReputationScore(attorneyId).catch((err: unknown) => {
-    logger.warn('Failed to recalculate attorney reputation after info request', {
-      attorneyId,
-      error: (err as Error).message
-    })
-  })
-  logger.info('Attorney requested more info', { introductionId, attorneyId })
-  return { success: true }
-}
+// NOTE: "Request more info" is intentionally NOT a pre-acceptance routing
+// decision. An attorney's options on a PENDING introduction are accept or
+// decline only. Requesting information/documents from the client is a
+// post-acceptance action handled by the separate DocumentRequest flow
+// (POST /leads/:leadId/document-request), available once the attorney owns
+// the case. The former attorneyRequestMoreInfo() routing decision was removed.
 
 /**
  * Step 14: Record routing analytics event

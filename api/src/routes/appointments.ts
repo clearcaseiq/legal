@@ -6,6 +6,7 @@ import { authMiddleware, AuthRequest } from '../lib/auth'
 import { generateAvailableTimeSlots, getDayBounds, hasAppointmentConflict } from '../lib/availability-slots'
 import { recordRoutingEvent } from '../lib/routing-lifecycle'
 import { createExternalCalendarEvent, deleteExternalCalendarEvent } from '../lib/calendar-sync'
+import { createZoomMeeting } from '../lib/zoom'
 import {
   getAppointmentPreparation,
   joinAppointmentWaitlist,
@@ -191,6 +192,43 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
       logger.warn('Appointment scheduled notification failed', { notificationError, appointmentId: appointment.id })
     })
 
+    // For video consults, prefer a real Zoom meeting on the attorney's connected
+    // account (Option B). Falls back to a Meet/Teams link below when Zoom isn't
+    // connected. `resolvedMeetingUrl` tracks whether we already have a link so
+    // the calendar step doesn't mint a duplicate room.
+    let resolvedMeetingUrl = meetingUrl
+    if (type === 'video' && !resolvedMeetingUrl) {
+      try {
+        const zoomMeeting = await createZoomMeeting({
+          attorneyId,
+          topic: 'ClearCaseIQ Consultation',
+          start: appointment.scheduledAt,
+          durationMinutes: appointment.duration,
+          agenda: assessmentId
+            ? `Consultation booked in ClearCaseIQ for assessment ${assessmentId}.`
+            : 'Consultation booked in ClearCaseIQ.',
+        })
+        if (zoomMeeting) {
+          resolvedMeetingUrl = zoomMeeting.joinUrl
+          await prisma.appointment.update({
+            where: { id: appointment.id },
+            data: {
+              meetingUrl: zoomMeeting.joinUrl,
+              hostMeetingUrl: zoomMeeting.startUrl,
+              externalCalendarProvider: 'zoom',
+              externalCalendarSyncedAt: new Date(),
+            },
+          })
+        }
+      } catch (zoomError) {
+        logger.warn('Zoom meeting creation failed', {
+          zoomError,
+          appointmentId: appointment.id,
+          attorneyId,
+        })
+      }
+    }
+
     try {
       const externalEvent = await createExternalCalendarEvent({
         attorneyId,
@@ -200,7 +238,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
         description: assessmentId
           ? `Consultation booked in ClearCaseIQ for assessment ${assessmentId}.`
           : 'Consultation booked in ClearCaseIQ.',
-        createVideoLink: type === 'video' && !meetingUrl,
+        createVideoLink: type === 'video' && !resolvedMeetingUrl,
       })
 
       if (externalEvent) {
@@ -210,7 +248,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
             externalCalendarProvider: externalEvent.provider,
             externalCalendarEventId: externalEvent.externalEventId,
             externalCalendarSyncedAt: new Date(),
-            ...(externalEvent.meetingUrl && !meetingUrl
+            ...(externalEvent.meetingUrl && !resolvedMeetingUrl
               ? { meetingUrl: externalEvent.meetingUrl }
               : {}),
           },

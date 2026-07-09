@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { 
   BarChart3, 
   TrendingUp, 
@@ -12,7 +12,7 @@ import {
   ClipboardList,
   FileText,
 } from 'lucide-react'
-import { getAttorneyDashboard, decideLead, updateLeadStatus, createDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, getAttorneyCalendarConnectUrl, syncAttorneyCalendar, disconnectAttorneyCalendar, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type CaseCommandCenter } from '../lib/api'
+import { getAttorneyDashboard, decideLead, updateLeadStatus, createDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, getAttorneyCalendarConnectUrl, syncAttorneyCalendar, disconnectAttorneyCalendar, getAttorneyZoomStatus, getAttorneyZoomConnectUrl, disconnectAttorneyZoom, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type AttorneyZoomStatus, type CaseCommandCenter } from '../lib/api'
 import Tooltip from '../components/Tooltip'
 import ErrorBoundary from '../components/ErrorBoundary'
 import { AttorneyDashboardPanelSkeleton, AttorneyDashboardSkeleton } from '../components/PageSkeletons'
@@ -159,6 +159,12 @@ interface DashboardData {
   dashboard: any
   recentLeads: Lead[]
   qualityMetrics: any
+  performanceMetrics?: {
+    avgResponseMinutes: number | null
+    acceptanceRate: number
+    respondedIntroductions?: number
+    totalIntroductions?: number
+  }
   urgentLeads: Lead[]
   analytics: any
   activeCases?: CaseStageCounts
@@ -291,7 +297,7 @@ const DEFAULT_CASE_LEADS_FILTER = {
   pipelineStage: '',
   evidenceLevel: '',
   jurisdiction: '',
-  routingInboxView: '' as '' | 'newMatches' | 'awaitingDecision' | 'hotMatches' | 'staleMatches' | 'consultReady',
+  routingInboxView: '' as '' | 'newMatches' | 'awaitingDecision' | 'hotMatches' | 'staleMatches' | 'consultReady' | 'expired',
 }
 
 const ATTORNEY_DASHBOARD_TABS = ['overview', 'leads', 'analytics', 'intake', 'profile'] as const
@@ -322,8 +328,26 @@ function toErrorMessage(value: unknown): string | null {
   return 'Something went wrong. Please try again.'
 }
 
-export default function AttorneyDashboard() {
+export interface AttorneyDashboardInitialView {
+  tab?: (typeof ATTORNEY_DASHBOARD_TABS)[number]
+  leadsSection?: 'matches' | 'active'
+  overviewFocus?: 'dashboard' | 'ai'
+}
+
+export interface AttorneyDashboardProps {
+  /**
+   * When true, the engine hides its own internal tab bar because the two-domain
+   * workspace shell provides navigation, and it stops rewriting the URL to the
+   * legacy ?tab= contract (each shell route mounts it with a fixed initialView).
+   */
+  chromeless?: boolean
+  /** Initial tab/sub-view when mounted from a shell route rather than a deep link. */
+  initialView?: AttorneyDashboardInitialView
+}
+
+export default function AttorneyDashboard({ chromeless = false, initialView }: AttorneyDashboardProps = {}) {
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const { leadId: leadIdParam, section: leadSectionParam } = useParams()
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
@@ -339,12 +363,13 @@ export default function AttorneyDashboard() {
   // normalize to a string before it reaches state.
   const setError = useCallback((value: unknown) => setErrorState(toErrorMessage(value)), [])
   const [activeTab, setActiveTab] = useState<(typeof ATTORNEY_DASHBOARD_TABS)[number]>(() => {
+    if (initialView?.tab) return initialView.tab
     const requestedTab = searchParams.get('tab')
     return ATTORNEY_DASHBOARD_TABS.includes(requestedTab as (typeof ATTORNEY_DASHBOARD_TABS)[number])
       ? (requestedTab as (typeof ATTORNEY_DASHBOARD_TABS)[number])
       : 'overview'
   })
-  const [overviewFocus, setOverviewFocus] = useState<'dashboard' | 'ai'>('dashboard')
+  const [overviewFocus, setOverviewFocus] = useState<'dashboard' | 'ai'>(initialView?.overviewFocus ?? 'dashboard')
   const [automationFeedFilter, setAutomationFeedFilter] = useState<'all' | 'high' | 'resolved' | 'due_today'>(() => {
     try {
       const stored = localStorage.getItem('clearcaseiq_automation_feed_filter')
@@ -540,15 +565,36 @@ export default function AttorneyDashboard() {
   }
   const [negotiationTab, setNegotiationTab] = useState<'tracker' | 'cadence'>('tracker')
   const [insuranceTab, setInsuranceTab] = useState<'insurance' | 'liens'>('insurance')
-  const [caseLeadsFilter, setCaseLeadsFilter] = useState(() => ({
-    ...DEFAULT_CASE_LEADS_FILTER,
-    caseType: searchParams.get('caseType') || '',
-    valueRange: searchParams.get('valueRange') || '',
-    status: searchParams.get('status') || '',
-    pipelineStage: searchParams.get('stage') || '',
-    evidenceLevel: searchParams.get('evidence') || '',
-    jurisdiction: searchParams.get('jurisdiction') || '',
-  }))
+  const [caseLeadsFilter, setCaseLeadsFilter] = useState(() => {
+    // When mounted from the shell's "Active Cases" route, seed the retained
+    // filter so the list shows the caseload immediately (mirrors the nav click).
+    if (initialView?.leadsSection === 'active') {
+      // Active Cases = the attorney's accepted caseload only (contacted/consulted/
+      // retained). Non-accepted matches never belong here. Default to the whole
+      // accepted book, but honor ?stage= (e.g. 'retained') and ?caseType= deep
+      // links from Lead Quality drill-downs.
+      const stage = searchParams.get('stage') || 'active'
+      return {
+        ...DEFAULT_CASE_LEADS_FILTER,
+        status: stage === 'retained' ? 'retained' : '',
+        pipelineStage: stage,
+        caseType: searchParams.get('caseType') || '',
+      }
+    }
+    if (initialView?.leadsSection === 'matches') {
+      // Honor an optional ?caseType= deep link (e.g. from Lead Quality practice-area rows).
+      return { ...DEFAULT_CASE_LEADS_FILTER, status: 'submitted', pipelineStage: 'matched', caseType: searchParams.get('caseType') || '' }
+    }
+    return {
+      ...DEFAULT_CASE_LEADS_FILTER,
+      caseType: searchParams.get('caseType') || '',
+      valueRange: searchParams.get('valueRange') || '',
+      status: searchParams.get('status') || '',
+      pipelineStage: searchParams.get('stage') || '',
+      evidenceLevel: searchParams.get('evidence') || '',
+      jurisdiction: searchParams.get('jurisdiction') || '',
+    }
+  })
   const [starredLeadIds, setStarredLeadIds] = useState<Set<string>>(() => {
     try {
       const s = localStorage.getItem('clearcaseiq_starred_leads')
@@ -569,6 +615,8 @@ export default function AttorneyDashboard() {
   } | null>(null)
   const [calendarConnectionsLoading, setCalendarConnectionsLoading] = useState(false)
   const [calendarActionProvider, setCalendarActionProvider] = useState<string | null>(null)
+  const [zoomStatus, setZoomStatus] = useState<AttorneyZoomStatus | null>(null)
+  const [zoomActionLoading, setZoomActionLoading] = useState(false)
   const [documentRequestModalOpen, setDocumentRequestModalOpen] = useState(false)
   const [scheduleConsultModalOpen, setScheduleConsultModalOpen] = useState(false)
   const [consultCalendarModalOpen, setConsultCalendarModalOpen] = useState(false)
@@ -583,9 +631,10 @@ export default function AttorneyDashboard() {
   // Which leads sub-view the nav highlights ("New Matches" vs "Active Cases").
   // Tracked explicitly so changing the in-list stage filter doesn't flip the
   // highlighted tab and make it look like a redirect to New Matches (#131).
-  const [leadsSection, setLeadsSection] = useState<'matches' | 'active'>(() =>
-    (searchParams.get('stage') || '') === 'retained' ? 'active' : 'matches',
-  )
+  const [leadsSection, setLeadsSection] = useState<'matches' | 'active'>(() => {
+    if (initialView?.leadsSection) return initialView.leadsSection
+    return (searchParams.get('stage') || '') === 'retained' ? 'active' : 'matches'
+  })
   const [pendingQuickAction, setPendingQuickAction] = useState<{ action: string; section?: string } | null>(null)
   const [leadPickerOpen, setLeadPickerOpen] = useState(false)
   const [leadPickerAction, setLeadPickerAction] = useState<{ action: string; section?: string } | null>(null)
@@ -1071,6 +1120,16 @@ export default function AttorneyDashboard() {
     }
   }, [])
 
+  const loadZoomStatus = useCallback(async () => {
+    try {
+      const status = await getAttorneyZoomStatus()
+      setZoomStatus(status)
+    } catch (err: any) {
+      console.error('Failed to load Zoom status:', err)
+      setZoomStatus(null)
+    }
+  }, [])
+
   const loadDashboardData = useCallback(async (retryCount = 0) => {
     try {
       setLoading(true)
@@ -1201,6 +1260,10 @@ export default function AttorneyDashboard() {
           exclusiveLeads: response.qualityMetrics?.exclusiveLeads || 0,
           hotLeads: response.qualityMetrics?.hotLeads || 0,
           evidenceComplete: response.qualityMetrics?.evidenceComplete || 0
+        },
+        performanceMetrics: response.performanceMetrics ?? {
+          avgResponseMinutes: null,
+          acceptanceRate: 0,
         },
         urgentLeads: response.urgentLeads || [],
         analytics: {
@@ -1527,17 +1590,30 @@ export default function AttorneyDashboard() {
   )
 
   useEffect(() => {
-    if (!leadIdParam || !dashboardData?.recentLeads?.length) return
+    if (!leadIdParam) {
+      // In the two-domain shell the lead detail is fully route-driven (there is no
+      // selectedLead-only modal). Navigating back to a list route (e.g. New Matches)
+      // reuses this component instance, so clear any open lead or it lingers as a
+      // pop-up modal over the list.
+      if (chromeless && selectedLead) setSelectedLead(null)
+      return
+    }
+    if (!dashboardData?.recentLeads?.length) return
     const found = dashboardData.recentLeads.find(lead => lead.id === leadIdParam)
     if (found && (!selectedLead || selectedLead.id !== found.id)) {
       setSelectedLead(found)
     }
-  }, [leadIdParam, dashboardData?.recentLeads, selectedLead])
+  }, [chromeless, leadIdParam, dashboardData?.recentLeads, selectedLead])
 
   useEffect(() => {
     if (!selectedLead) return
-    const isPreAcceptance = !selectedLead.status || selectedLead.status === 'submitted'
-    setLeadPhaseTab(isPreAcceptance ? 'pre' : 'post')
+    // The post-acceptance command center is only for accepted cases
+    // (contacted/consulted/retained) — keep this in lockstep with
+    // `isPostAcceptance`. Pre-acceptance AND terminal states (declined/rejected,
+    // expired, closed) must stay on the read-only pre-acceptance view; otherwise
+    // a declined lead wrongly renders the post-acceptance command summary.
+    const isAccepted = ['contacted', 'consulted', 'retained'].includes(selectedLead.status || '')
+    setLeadPhaseTab(isAccepted ? 'post' : 'pre')
   }, [selectedLead?.id, selectedLead?.status])
 
   useEffect(() => {
@@ -1588,6 +1664,13 @@ export default function AttorneyDashboard() {
         })
         invalidateAttorneyDashboardSummary()
         setDecisionRationale('')
+        // Accepting moves the case out of Lead Generation and into the attorney's
+        // Case Management caseload. Route to the accepted case's workspace so the
+        // attorney isn't left on the (now stale) pre-acceptance snapshot in New Matches.
+        if (decision === 'accept') {
+          setSelectedLead(null)
+          navigate(`/attorney-dashboard/lead/${leadId}/overview`)
+        }
       } catch (err: any) {
         console.error('Failed to update lead decision:', err)
         setBulkActionMessage(err.response?.data?.error || 'Failed to update lead decision')
@@ -1596,7 +1679,7 @@ export default function AttorneyDashboard() {
         setLeadDecisionLoading(false)
       }
     },
-    [updateLeadInState, decisionRationale]
+    [updateLeadInState, decisionRationale, navigate]
   )
 
   const handleTransferLead = useCallback(async () => {
@@ -1667,11 +1750,15 @@ export default function AttorneyDashboard() {
   useEffect(() => {
     if (!hasValidAuthToken()) return
     void loadCalendarConnections()
-  }, [loadCalendarConnections])
+    void loadZoomStatus()
+  }, [loadCalendarConnections, loadZoomStatus])
 
   // Keep dashboard navigation and lead filters restorable from the URL.
   useEffect(() => {
     if (isLeadSection) return
+    // In the two-domain shell the route (not ?tab=) is the source of truth, so
+    // don't rewrite the URL — that would fight the shell's fixed routes.
+    if (chromeless) return
     const nextParams = new URLSearchParams(searchParams)
     if (activeTab === 'overview') nextParams.delete('tab')
     else nextParams.set('tab', activeTab)
@@ -1698,11 +1785,27 @@ export default function AttorneyDashboard() {
 
   // Open Cases tab when navigating via ?tab=leads or other deep-link filters.
   useEffect(() => {
+    if (chromeless) return
     const tab = searchParams.get('tab')
     if (ATTORNEY_DASHBOARD_TABS.includes(tab as (typeof ATTORNEY_DASHBOARD_TABS)[number]) && tab !== activeTab) {
       setActiveTab(tab as (typeof ATTORNEY_DASHBOARD_TABS)[number])
     }
   }, [searchParams])
+
+  // "My Cases" in the top nav must always land on the same fixed default view
+  // (New Matches), not on whichever leads sub-tab the attorney browsed last
+  // (#A3-35). The nav Link carries a resetLeadsView flag in router state; when we
+  // see it we reset the leads sub-view and then clear the flag so back/forward
+  // and re-renders don't re-trigger the reset.
+  useEffect(() => {
+    if (!(location.state as { resetLeadsView?: boolean } | null)?.resetLeadsView) return
+    setActiveTab('leads')
+    setOverviewFocus('dashboard')
+    setLeadsSection('matches')
+    setCaseLeadsFilter({ ...DEFAULT_CASE_LEADS_FILTER, status: 'submitted', pipelineStage: 'matched' })
+    setActivePipelineTile('matched')
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: {} })
+  }, [location.key])
 
   // Open lead picker when navigating via ?action=scheduleConsult (e.g. from Events page)
   useEffect(() => {
@@ -1739,6 +1842,55 @@ export default function AttorneyDashboard() {
 
     return () => window.clearTimeout(timer)
   }, [searchParams, setSearchParams, loadCalendarConnections])
+
+  useEffect(() => {
+    const zoomSync = searchParams.get('zoom_sync')
+    if (!zoomSync) {
+      return
+    }
+
+    if (zoomSync === 'success') {
+      setBulkActionMessage('Zoom account connected.')
+      void loadZoomStatus()
+    } else {
+      setBulkActionMessage(searchParams.get('zoom_error') || 'Zoom connection failed.')
+    }
+    const timer = window.setTimeout(() => setBulkActionMessage(null), 5000)
+
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.delete('zoom_sync')
+    nextParams.delete('zoom_error')
+    setSearchParams(nextParams, { replace: true })
+
+    return () => window.clearTimeout(timer)
+  }, [searchParams, setSearchParams, loadZoomStatus])
+
+  const handleConnectZoom = useCallback(async () => {
+    try {
+      setZoomActionLoading(true)
+      const response = await getAttorneyZoomConnectUrl()
+      window.location.assign(response.authorizeUrl)
+    } catch (err: any) {
+      setBulkActionMessage(err?.response?.data?.error || 'Failed to connect Zoom.')
+      setTimeout(() => setBulkActionMessage(null), 5000)
+    } finally {
+      setZoomActionLoading(false)
+    }
+  }, [])
+
+  const handleDisconnectZoom = useCallback(async () => {
+    try {
+      setZoomActionLoading(true)
+      await disconnectAttorneyZoom()
+      setBulkActionMessage('Zoom account disconnected.')
+      await loadZoomStatus()
+    } catch (err: any) {
+      setBulkActionMessage(err?.response?.data?.error || 'Failed to disconnect Zoom.')
+    } finally {
+      setZoomActionLoading(false)
+      setTimeout(() => setBulkActionMessage(null), 5000)
+    }
+  }, [loadZoomStatus])
 
   const handleConnectCalendar = useCallback(async (provider: 'google' | 'microsoft') => {
     try {
@@ -2017,11 +2169,13 @@ export default function AttorneyDashboard() {
     }
   })()
 
+  // Inside the two-domain workspace shell the lead detail is a full page (matching the
+  // Active Cases / Case Workspace width + feel), not a narrow centered box or modal.
   const leadWrapperClass = isLeadSection
-    ? 'py-6'
+    ? (chromeless ? '' : 'py-6')
     : 'fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50'
   const leadContainerClass = isLeadSection
-    ? 'mx-auto w-11/12 md:w-3/4 lg:w-2/3 border border-gray-200 shadow-lg rounded-md bg-white p-5'
+    ? (chromeless ? 'w-full' : 'mx-auto w-11/12 md:w-3/4 lg:w-2/3 border border-gray-200 shadow-lg rounded-md bg-white p-5')
     : 'relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white'
 
   const renderWorkstream = (sectionKey: string) => {
@@ -2871,6 +3025,9 @@ export default function AttorneyDashboard() {
       {/* When on a lead URL, show only the lead detail (Pre/Post-Acceptance) */}
       {isLeadSection && selectedLead ? null : (
         <>
+      {/* Firm Snapshot header — hidden inside the two-domain workspace shell,
+          where the sidebar and per-page stat tiles already cover this. */}
+      {chromeless ? null : (
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
@@ -2950,9 +3107,11 @@ export default function AttorneyDashboard() {
           </div>
         </div>
       </section>
+      )}
 
-      {/* Tabs */}
-      <div id="attorney-dashboard-tabs" className="scroll-mt-6 border-b border-gray-200">
+      {/* Tabs — hidden when embedded in the two-domain workspace shell, which
+          provides navigation through its sidebar instead. */}
+      <div id="attorney-dashboard-tabs" className={`scroll-mt-6 border-b border-gray-200 ${chromeless ? 'hidden' : ''}`}>
         <nav className="-mb-px flex flex-wrap gap-4">
           {ATTORNEY_DASHBOARD_NAV.map((tab) => {
             const Icon = tab.icon
@@ -3676,6 +3835,7 @@ export default function AttorneyDashboard() {
             caseLeadsFilter={caseLeadsFilter}
             dashboardData={dashboardData}
             formatCurrency={formatCurrency}
+            hideRoutingInbox={leadsSection === 'active'}
             onAcceptLead={(leadId) => handleLeadDecision(leadId, 'accept')}
             onDeclineLead={(leadId) => {
               setDeclineLeadId(leadId)
@@ -3687,7 +3847,13 @@ export default function AttorneyDashboard() {
               setSelectedLead(lead)
               const isPost = ['contacted', 'consulted', 'retained'].includes(lead.status || '')
               setLeadPhaseTab(isPost ? 'post' : 'pre')
-              navigate(`/attorney-dashboard/lead/${lead.id}/overview`)
+              // Accepted cases open the full Case Management case file; a pre-acceptance
+              // or expired match opens a read-only snapshot that stays in Lead Generation.
+              if (isPost) {
+                navigate(`/attorney-dashboard/lead/${lead.id}/overview`)
+              } else {
+                navigate(`/attorney-dashboard/leadgen/matches/${lead.id}/overview`)
+              }
             }}
             onOpenLeadChat={(lead) => {
               setSelectedLead(lead)
@@ -3762,6 +3928,13 @@ export default function AttorneyDashboard() {
               onSync={handleSyncCalendarConnection}
               onDisconnect={handleDisconnectCalendarConnection}
             />
+            <ZoomSyncSettings
+              status={zoomStatus}
+              loading={zoomActionLoading}
+              onRefresh={loadZoomStatus}
+              onConnect={handleConnectZoom}
+              onDisconnect={handleDisconnectZoom}
+            />
           </div>
           </ErrorBoundary>
         </Suspense>
@@ -3783,11 +3956,13 @@ export default function AttorneyDashboard() {
               setSelectedLead(null)
               setLeadPhaseTab('pre')
               setWorkstreamTab('overview')
-              navigate('/attorney-dashboard', { replace: true })
+              // In the two-domain shell, return to the New Matches list (Lead Generation);
+              // the legacy chromeful dashboard returns to its own overview.
+              navigate(chromeless ? '/attorney-dashboard/leadgen/matches' : '/attorney-dashboard', { replace: true })
             }}
             onClose={() => {
               if (isLeadSection) {
-                navigate('/attorney-dashboard', { replace: true })
+                navigate(chromeless ? '/attorney-dashboard/leadgen/matches' : '/attorney-dashboard', { replace: true })
               }
               setSelectedLead(null)
               setLeadPhaseTab('pre')
@@ -3990,6 +4165,14 @@ export default function AttorneyDashboard() {
               )
               setDeclineSuccess(true)
               setSelectedLead(null)
+              // Declining releases the match and removes it from the attorney's
+              // queue — return them to the New Matches list instead of leaving
+              // them on the now-declined lead's detail view.
+              if (chromeless) {
+                setDeclineModalOpen(false)
+                setDeclineLeadId(null)
+                navigate('/attorney-dashboard/leadgen/matches')
+              }
             } catch {
               // Error already shown by handleLeadDecision
             }
@@ -4312,4 +4495,95 @@ function CalendarSyncSettings({
     </section>
   )
 }
+
+function ZoomSyncSettings({
+  status,
+  loading,
+  onRefresh,
+  onConnect,
+  onDisconnect,
+}: {
+  status: AttorneyZoomStatus | null
+  loading: boolean
+  onRefresh: () => void | Promise<void>
+  onConnect: () => void | Promise<void>
+  onDisconnect: () => void | Promise<void>
+}) {
+  const configured = status?.configured ?? false
+  const connected = status?.connected ?? false
+
+  return (
+    <section className="card">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-700">Zoom</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            Connect your Zoom account so video consultations create a real Zoom meeting on your calendar and
+            share a join link with the client automatically.
+          </p>
+        </div>
+        <button
+          onClick={() => void onRefresh()}
+          disabled={loading}
+          className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+        >
+          Refresh
+        </button>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        {!configured ? (
+          <p className="text-xs text-amber-700">
+            Zoom isn't configured on this server yet. Add <code>ZOOM_CLIENT_ID</code> and{' '}
+            <code>ZOOM_CLIENT_SECRET</code> to the API environment to enable per-attorney Zoom.
+          </p>
+        ) : (
+          <>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Zoom Meetings</p>
+                <p className="mt-1 text-xs text-slate-600">
+                  {connected
+                    ? `${status?.email || status?.displayName || 'Connected'}`
+                    : 'Not connected'}
+                </p>
+                {connected && status?.syncStatus === 'sync_error' && (
+                  <p className="mt-1 text-xs text-amber-700">
+                    Last meeting sync failed. Try reconnecting Zoom.
+                  </p>
+                )}
+              </div>
+              <span
+                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                  connected ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'
+                }`}
+              >
+                {connected ? 'Connected' : 'Disconnected'}
+              </span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => void onConnect()}
+                disabled={loading}
+                className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+              >
+                {connected ? 'Reconnect' : 'Connect'}
+              </button>
+              {connected && (
+                <button
+                  onClick={() => void onDisconnect()}
+                  disabled={loading}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                >
+                  Disconnect
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  )
+}
+
 

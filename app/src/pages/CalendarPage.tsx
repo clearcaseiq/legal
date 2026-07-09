@@ -36,7 +36,9 @@ export default function CalendarPage() {
   const handleLeadSelect = (lead: any) => {
     if (addEventDate && lead?.id) {
       if (addType === 'event') {
-        navigate(`/attorney-dashboard/schedule-consult/${lead.id}?date=${addEventDate}`)
+        navigate(
+          `/attorney-dashboard/schedule-consult/${lead.id}?date=${addEventDate}&returnTo=${encodeURIComponent('/attorney-dashboard/cases/calendar')}`,
+        )
       } else if (addType === 'task') {
         navigate(`/attorney-dashboard/add-task/${lead.id}?date=${addEventDate}`)
       }

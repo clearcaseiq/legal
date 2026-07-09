@@ -1,10 +1,10 @@
 /**
  * Schedule consultation page - dedicated screen (not post-acceptance).
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
-import { getLead, scheduleConsultation } from '../lib/api'
+import { ArrowLeft, Video, Check, Loader2 } from 'lucide-react'
+import { getLead, scheduleConsultation, getAttorneyZoomStatus, getAttorneyZoomConnectUrl, type AttorneyZoomStatus } from '../lib/api'
 import { invalidateAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
 
 const MEETING_TYPES = [
@@ -26,6 +26,10 @@ export default function ScheduleConsultPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const dateFromUrl = searchParams.get('date')
+  // Where "Back"/"Cancel"/success returns to — the caller passes ?returnTo=
+  // (e.g. Active Cases). Must be an internal path; falls back to the dashboard.
+  const returnToRaw = searchParams.get('returnTo')
+  const returnTo = returnToRaw && returnToRaw.startsWith('/') ? returnToRaw : '/attorney-dashboard'
   const [lead, setLead] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -39,6 +43,8 @@ export default function ScheduleConsultPage() {
   const [time, setTime] = useState('2:00 PM')
   const [meetingType, setMeetingType] = useState('phone')
   const [notes, setNotes] = useState('')
+  const [zoomStatus, setZoomStatus] = useState<AttorneyZoomStatus | null>(null)
+  const [zoomConnecting, setZoomConnecting] = useState(false)
 
   useEffect(() => {
     if (!leadId) {
@@ -52,8 +58,91 @@ export default function ScheduleConsultPage() {
       .finally(() => setLoading(false))
   }, [leadId])
 
+  useEffect(() => {
+    getAttorneyZoomStatus()
+      .then(setZoomStatus)
+      .catch(() => setZoomStatus(null))
+  }, [])
+
+  const refreshZoomStatus = useCallback(async () => {
+    try {
+      const status = await getAttorneyZoomStatus()
+      setZoomStatus(status)
+      return status
+    } catch {
+      return null
+    }
+  }, [])
+
+  // Connect Zoom in a popup so the half-filled consult form isn't lost. The
+  // /oauth/zoom/complete bounce page posts the result back here; we also poll on
+  // popup close as a fallback in case the message is missed.
+  const connectZoom = useCallback(async () => {
+    if (zoomConnecting) return
+    setZoomConnecting(true)
+    setError(null)
+    try {
+      const { authorizeUrl } = await getAttorneyZoomConnectUrl()
+      const w = 520
+      const h = 660
+      const left = window.screenX + Math.max(0, (window.outerWidth - w) / 2)
+      const top = window.screenY + Math.max(0, (window.outerHeight - h) / 2)
+      const popup = window.open(authorizeUrl, 'zoom-oauth', `width=${w},height=${h},left=${left},top=${top}`)
+      if (!popup) {
+        setError('Your browser blocked the Zoom popup. Allow popups for this site, then click "Connect Zoom" again.')
+        setZoomConnecting(false)
+        return
+      }
+
+      let settled = false
+      const finish = async (ok: boolean, message?: string) => {
+        if (settled) return
+        settled = true
+        window.removeEventListener('message', onMessage)
+        window.clearInterval(poll)
+        if (ok) {
+          await refreshZoomStatus()
+        } else if (message) {
+          setError(message)
+        } else {
+          // Popup closed without confirmation — re-check in case it did connect.
+          await refreshZoomStatus()
+        }
+        setZoomConnecting(false)
+      }
+
+      const onMessage = (e: MessageEvent) => {
+        if (e.origin !== window.location.origin) return
+        if (!e.data || e.data.type !== 'zoom_oauth') return
+        void finish(e.data.status === 'success', e.data.status === 'success' ? undefined : (e.data.error || 'Zoom connection failed.'))
+      }
+      window.addEventListener('message', onMessage)
+
+      const poll = window.setInterval(() => {
+        if (popup.closed) void finish(false)
+      }, 1000)
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Failed to start Zoom connection.')
+      setZoomConnecting(false)
+    }
+  }, [zoomConnecting, refreshZoomStatus])
+
+  const handleSelectMeetingType = (id: string) => {
+    setMeetingType(id)
+    // First-time Zoom selection: pop the connect flow automatically.
+    if (id === 'video' && zoomStatus?.configured && !zoomStatus?.connected && !zoomConnecting) {
+      void connectZoom()
+    }
+  }
+
+  const zoomNeedsConnect = meetingType === 'video' && !!zoomStatus?.configured && !zoomStatus?.connected
+
   const handleSubmit = async () => {
     if (!leadId) return
+    if (zoomNeedsConnect) {
+      setError('Connect your Zoom account to schedule a Zoom consultation.')
+      return
+    }
     setError(null)
     setSaving(true)
     try {
@@ -64,7 +153,7 @@ export default function ScheduleConsultPage() {
         notes: notes.trim() || undefined
       })
       invalidateAttorneyDashboardSummary()
-      navigate('/attorney-dashboard')
+      navigate(returnTo)
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Failed to schedule consultation')
     } finally {
@@ -89,10 +178,10 @@ export default function ScheduleConsultPage() {
       <div className="max-w-2xl mx-auto px-4 py-12">
         <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">{error}</div>
         <button
-          onClick={() => navigate('/attorney-dashboard')}
+          onClick={() => navigate(returnTo)}
           className="mt-4 px-4 py-2 text-brand-600 hover:underline"
         >
-          ← Back to dashboard
+          ← Back
         </button>
       </div>
     )
@@ -102,11 +191,11 @@ export default function ScheduleConsultPage() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-2xl mx-auto px-4 py-8">
         <button
-          onClick={() => navigate('/attorney-dashboard')}
+          onClick={() => navigate(returnTo)}
           className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6"
         >
           <ArrowLeft className="h-4 w-4" />
-          Back to dashboard
+          Back
         </button>
 
         <div className="mb-6">
@@ -153,13 +242,54 @@ export default function ScheduleConsultPage() {
                       name="meetingType"
                       value={t.id}
                       checked={meetingType === t.id}
-                      onChange={() => setMeetingType(t.id)}
+                      onChange={() => handleSelectMeetingType(t.id)}
                       className="text-brand-600"
                     />
                     <span className="text-sm text-gray-800">{t.label}</span>
                   </label>
                 ))}
               </div>
+
+              {meetingType === 'video' && (
+                <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  {!zoomStatus ? (
+                    <p className="flex items-center gap-2 text-sm text-gray-500">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Checking your Zoom connection…
+                    </p>
+                  ) : !zoomStatus.configured ? (
+                    <p className="text-sm text-amber-700">
+                      Zoom isn't enabled on this server yet — a Google Meet / Teams link will be created instead.
+                    </p>
+                  ) : zoomStatus.connected ? (
+                    <p className="flex items-center gap-2 text-sm text-emerald-700">
+                      <Check className="h-4 w-4" />
+                      Zoom connected{zoomStatus.email ? ` as ${zoomStatus.email}` : ''}. A Zoom meeting link will be created automatically.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm text-gray-600">
+                        Connect your Zoom account once — we'll create the meeting link for every Zoom consult after that.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void connectZoom()}
+                        disabled={zoomConnecting}
+                        className="inline-flex items-center gap-2 rounded-lg bg-[#2D8CFF] px-3 py-2 text-sm font-semibold text-white hover:bg-[#2681f2] disabled:opacity-60"
+                      >
+                        {zoomConnecting ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" /> Waiting for Zoom…
+                          </>
+                        ) : (
+                          <>
+                            <Video className="h-4 w-4" /> Connect Zoom
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
@@ -175,14 +305,15 @@ export default function ScheduleConsultPage() {
           </div>
           <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50">
             <button
-              onClick={() => navigate('/attorney-dashboard')}
+              onClick={() => navigate(returnTo)}
               className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
             >
               Cancel
             </button>
             <button
               onClick={handleSubmit}
-              disabled={saving}
+              disabled={saving || zoomNeedsConnect}
+              title={zoomNeedsConnect ? 'Connect your Zoom account first' : undefined}
               className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? 'Scheduling…' : 'Schedule consultation'}

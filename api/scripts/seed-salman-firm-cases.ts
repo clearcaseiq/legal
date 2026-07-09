@@ -35,11 +35,22 @@ try { sharp = require('sharp') } catch { /* fallback to text */ }
 try { PDFDocument = require('pdfkit') } catch { /* fallback to text */ }
 
 const TOTAL_CASES = Number(process.env.TOTAL_CASES || 50)
+// Of the newly-created cases, how many to leave as pre-acceptance "New Matches"
+// (awaiting the attorney's accept/decline) instead of already-accepted cases.
+const NEW_MATCHES = Number(process.env.NEW_MATCHES || 0)
+// When >0, create exactly this many new cases regardless of the TOTAL_CASES
+// top-up math. Useful to add a fixed batch of new matches to an existing firm.
+const ADD_CASES = Number(process.env.ADD_CASES || 0)
 const FIRM_SLUG = process.env.FIRM_SLUG || 'salman-law-firm'
-const FIRM_NAME = 'Salman Law Firm'
-const FIRM_ADMIN_EMAIL = 'salman@salmanlawfirm.com'
+const FIRM_NAME = process.env.FIRM_NAME || 'Salman Law Firm'
+const FIRM_ADMIN_EMAIL = process.env.FIRM_ADMIN_EMAIL || 'salman@salmanlawfirm.com'
 const FIRM_ADMIN_PASSWORD = process.env.FIRM_ADMIN_PASSWORD || 'Password1234!'
-const LEAD_ATTORNEY_NAME = 'Salman Ahmed'
+const LEAD_ATTORNEY_NAME = process.env.LEAD_ATTORNEY_NAME || 'Salman Ahmed'
+// Admin user first/last (parameterized so this book can seed any firm/attorney).
+const ADMIN_FIRST_NAME = process.env.ADMIN_FIRST_NAME || 'Salman'
+const ADMIN_LAST_NAME = process.env.ADMIN_LAST_NAME || 'Ahmed'
+// Short slug used only to namespace deterministic demo plaintiff emails.
+const DEMO_EMAIL_NS = process.env.DEMO_EMAIL_NS || FIRM_SLUG.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
 
 const CASE_TYPES = [
   'auto',
@@ -52,6 +63,16 @@ const CASE_TYPES = [
   'high_severity_surgery',
 ] as const
 type CaseType = typeof CASE_TYPES[number]
+
+// Optional comma-separated list restricting which claim types NEW cases use.
+// Existing counts are still tallied across all CASE_TYPES for the top-up math;
+// this only controls the round-robin used when creating new cases. Defaults to
+// the standard intake claim types (auto, slip_and_fall, dog_bite, medmal,
+// product) so the demo book stays aligned with what the intake wizard produces.
+const NEW_CASE_TYPES: CaseType[] = (process.env.NEW_CASE_TYPES
+  ? process.env.NEW_CASE_TYPES.split(',').map((s) => s.trim()).filter(Boolean)
+  : ['auto', 'slip_and_fall', 'dog_bite', 'medmal', 'product']
+).filter((t): t is CaseType => (CASE_TYPES as readonly string[]).includes(t))
 
 // California-focused venue data (firm is CA-based).
 const CA_COUNTIES = [
@@ -294,14 +315,14 @@ async function writePhoto(destPath: string, title: string, subtitle: string, lin
   <text x="60" y="180" font-family="Arial, sans-serif" font-size="30" fill="#9fb3cc">${esc(subtitle)}</text>
   <line x1="60" y1="210" x2="${W - 60}" y2="210" stroke="#4a5a72" stroke-width="2"/>
   ${textLines}
-  <text x="60" y="${H - 60}" font-family="Arial, sans-serif" font-size="24" fill="#7f93ac">Salman Law Firm — evidence exhibit (demo)</text>
+  <text x="60" y="${H - 60}" font-family="Arial, sans-serif" font-size="24" fill="#7f93ac">${esc(FIRM_NAME)} — evidence exhibit (demo)</text>
 </svg>`
       await sharp(Buffer.from(svg)).jpeg({ quality: 72 }).toFile(destPath)
       return { mimetype: 'image/jpeg', ok: true }
     } catch { /* fall through to text */ }
   }
   const txt = destPath.replace(/\.jpg$/, '.txt')
-  fs.writeFileSync(txt, `${title}\n${subtitle}\n\n${lines.join('\n')}\n\nSalman Law Firm — evidence exhibit (demo placeholder)\n`)
+  fs.writeFileSync(txt, `${title}\n${subtitle}\n\n${lines.join('\n')}\n\n${FIRM_NAME} — evidence exhibit (demo placeholder)\n`)
   return { mimetype: 'text/plain', ok: false }
 }
 
@@ -321,7 +342,7 @@ async function writePdf(destPath: string, title: string, subtitle: string, secti
           doc.fontSize(10.5).fillColor('#222')
           for (const r of s.rows) doc.text(r)
         }
-        doc.moveDown(1).fontSize(8).fillColor('#888').text('This is a demo document generated for the Salman Law Firm sample case book. Not a real medical or legal record.', { align: 'left' })
+        doc.moveDown(1).fontSize(8).fillColor('#888').text(`This is a demo document generated for the ${FIRM_NAME} sample case book. Not a real medical or legal record.`, { align: 'left' })
         doc.end()
         stream.on('finish', () => resolve())
         stream.on('error', reject)
@@ -376,7 +397,7 @@ async function ensureFirm() {
     where: { email: FIRM_ADMIN_EMAIL },
     update: { role: 'attorney', isActive: true, emailVerified: true },
     create: {
-      email: FIRM_ADMIN_EMAIL, passwordHash, firstName: 'Salman', lastName: 'Ahmed',
+      email: FIRM_ADMIN_EMAIL, passwordHash, firstName: ADMIN_FIRST_NAME, lastName: ADMIN_LAST_NAME,
       phone: '(213) 555-0100', role: 'attorney', isActive: true, emailVerified: true, provider: 'local',
     },
   })
@@ -395,7 +416,11 @@ async function ensureFirm() {
   } else {
     attorney = await prisma.attorney.update({
       where: { id: attorney.id },
-      data: { isActive: true, isVerified: true, lawFirmId: firm.id, specialties: JSON.stringify(specialties), venues: JSON.stringify(['CA']) },
+      data: {
+        isActive: true, isVerified: true, lawFirmId: firm.id,
+        specialties: JSON.stringify(specialties), venues: JSON.stringify(['CA']),
+        claimStatus: 'claimed', claimedByUserId: adminUser.id, claimedAt: attorney.claimedAt ?? new Date(),
+      },
     })
   }
 
@@ -404,7 +429,7 @@ async function ensureFirm() {
     update: { firmName: FIRM_NAME },
     create: {
       attorneyId: attorney.id,
-      bio: `${LEAD_ATTORNEY_NAME} leads Salman Law Firm's California personal injury practice.`,
+      bio: `${LEAD_ATTORNEY_NAME} leads ${FIRM_NAME}'s California personal injury practice.`,
       specialties: JSON.stringify(specialties), languages: JSON.stringify(['English', 'Spanish']),
       yearsExperience: 16, totalCases: 640, totalSettlements: 48500000, averageSettlement: 185000,
       successRate: 92, firmName: FIRM_NAME, firmWebsite: 'https://www.salmanlawfirm.com',
@@ -517,7 +542,7 @@ function buildFacts(claimType: CaseType, county: string, city: string, incidentD
     },
     caseTypeValidation: { validatedType: claimType, confidence: Number((0.8 + Math.random() * 0.2).toFixed(2)) },
     consents: { tos: true, privacy: true, ml_use: true, hipaa: true },
-    firm: { name: FIRM_NAME, routedTo: 'Salman Law Firm', jurisdiction: 'CA' },
+    firm: { name: FIRM_NAME, routedTo: FIRM_NAME, jurisdiction: 'CA' },
   }
 }
 
@@ -659,30 +684,48 @@ async function attachEvidence(params: {
   }
 }
 
-async function routeToFirm(params: { assessmentId: string; firmId: string; officeId: string; attorneyId: string; adminUserId: string; facts: any }) {
-  const { assessmentId, firmId, officeId, attorneyId, adminUserId, facts } = params
+async function routeToFirm(params: { assessmentId: string; firmId: string; officeId: string; attorneyId: string; adminUserId: string; facts: any; pending?: boolean }) {
+  const { assessmentId, firmId, officeId, attorneyId, adminUserId, facts, pending } = params
 
-  const lifecycleState = rand(['attorney_matched', 'consultation_scheduled', 'engaged'])
-  const status = lifecycleState === 'engaged' ? 'retained' : (lifecycleState === 'consultation_scheduled' ? 'consulted' : 'contacted')
+  // Pending = a "New Match" awaiting the attorney's accept/decline decision
+  // (status submitted, PENDING introduction with a fresh timer, routing unlocked).
+  const lifecycleState = pending
+    ? 'attorney_matched'
+    : rand(['attorney_matched', 'consultation_scheduled', 'engaged'])
+  const status = pending
+    ? 'submitted'
+    : (lifecycleState === 'engaged' ? 'retained' : (lifecycleState === 'consultation_scheduled' ? 'consulted' : 'contacted'))
 
   await prisma.assessment.update({
     where: { id: assessmentId },
     data: { lawFirmId: firmId, officeId, status: 'COMPLETED' },
   })
 
-  await prisma.introduction.create({
-    data: {
-      assessmentId, attorneyId, status: 'ACCEPTED',
-      message: 'Auto-assigned to Salman Law Firm (demo book).',
-      respondedAt: new Date(), waveNumber: 1,
-    },
-  })
+  if (pending) {
+    // Fresh offer within the response window so the countdown is active.
+    const requestedAt = new Date(Date.now() - randInt(1, 18) * 60 * 1000)
+    await prisma.introduction.create({
+      data: {
+        assessmentId, attorneyId, status: 'PENDING',
+        message: `New match routed to ${FIRM_NAME} (demo book).`,
+        requestedAt, waveNumber: 1,
+      },
+    })
+  } else {
+    await prisma.introduction.create({
+      data: {
+        assessmentId, attorneyId, status: 'ACCEPTED',
+        message: `Auto-assigned to ${FIRM_NAME} (demo book).`,
+        respondedAt: new Date(), waveNumber: 1,
+      },
+    })
+  }
 
   await prisma.leadSubmission.upsert({
     where: { assessmentId },
     update: {
       assignedAttorneyId: attorneyId, assignmentType: 'exclusive',
-      status, lifecycleState, routingLocked: true,
+      status, lifecycleState, routingLocked: !pending,
     },
     create: {
       assessmentId,
@@ -693,20 +736,23 @@ async function routeToFirm(params: { assessmentId: string; firmId: string; offic
       sourceType: rand(['organic_search', 'referral', 'paid_ad', 'direct']),
       hotnessLevel: rand(['hot', 'warm']),
       assignedAttorneyId: attorneyId, assignmentType: 'exclusive',
-      status, lifecycleState, routingLocked: true,
+      status, lifecycleState, routingLocked: !pending,
       evidenceChecklist: JSON.stringify({ photos: true, bills: true, medical_records: true, police_report: TEMPLATES[facts.claimType as CaseType].wantsPolice }),
     },
   })
 
-  try {
-    await prisma.firmCaseAssignment.create({
-      data: {
-        lawFirmId: firmId, assessmentId, assignedAttorneyId: attorneyId, assignedUserId: adminUserId,
-        role: 'lead_attorney', status: 'active', assignedById: adminUserId,
-        notes: 'Lead attorney assignment (demo book).',
-      },
-    })
-  } catch { /* unique constraint on re-run — ignore */ }
+  // Firm assignment only exists once a case is accepted/retained (not for pending matches).
+  if (!pending) {
+    try {
+      await prisma.firmCaseAssignment.create({
+        data: {
+          lawFirmId: firmId, assessmentId, assignedAttorneyId: attorneyId, assignedUserId: adminUserId,
+          role: 'lead_attorney', status: 'active', assignedById: adminUserId,
+          notes: 'Lead attorney assignment (demo book).',
+        },
+      })
+    } catch { /* unique constraint on re-run — ignore */ }
+  }
 }
 
 // -------------------- Main --------------------
@@ -729,13 +775,14 @@ async function main() {
     summary[ct] = c
     existingTotal += c
   }
-  const remaining = Math.max(0, TOTAL_CASES - existingTotal)
-  console.log(`Existing Salman cases: ${existingTotal}. Creating ${remaining} new (target ${TOTAL_CASES}).\n`)
+  const remaining = ADD_CASES > 0 ? ADD_CASES : Math.max(0, TOTAL_CASES - existingTotal)
+  console.log(`Existing ${FIRM_NAME} cases: ${existingTotal}. Creating ${remaining} new${ADD_CASES > 0 ? ` (ADD_CASES=${ADD_CASES})` : ` (target ${TOTAL_CASES})`}.`)
+  console.log(`New-case claim types: ${NEW_CASE_TYPES.join(', ')} | leaving first ${NEW_MATCHES} as pre-acceptance New Matches.\n`)
 
   let totalCreated = 0
   for (let n = 0; n < remaining; n++) {
-    // Round-robin across the case types so the 50 are spread evenly.
-    const claimType = CASE_TYPES[n % CASE_TYPES.length]
+    // Round-robin across the allowed new-case types so the batch is spread evenly.
+    const claimType = NEW_CASE_TYPES[n % NEW_CASE_TYPES.length]
     const first = rand(FIRST_NAMES)
     const last = rand(LAST_NAMES)
     const county = rand(CA_COUNTIES)
@@ -746,7 +793,7 @@ async function main() {
     const caseLabel = `${TEMPLATES[claimType].label} #${seq}`
 
     // Plaintiff user (deterministic email for idempotency).
-    const email = `plaintiff.${claimType}.${seq}@salman-demo.clearcaseiq.test`
+    const email = `plaintiff.${claimType}.${seq}@${DEMO_EMAIL_NS}-demo.clearcaseiq.test`
     const user = await prisma.user.upsert({
       where: { email },
       update: {},
@@ -768,7 +815,9 @@ async function main() {
     })
 
     await attachEvidence({ userId: user.id, assessmentId: assessment.id, claimType, uploadDir, plaintiff, incidentDate, facts, caseLabel })
-    await routeToFirm({ assessmentId: assessment.id, firmId: firm.id, officeId: office.id, attorneyId: attorney.id, adminUserId: adminUser.id, facts })
+    // Leave the first NEW_MATCHES cases as pre-acceptance "New Matches".
+    const pending = n < NEW_MATCHES
+    await routeToFirm({ assessmentId: assessment.id, firmId: firm.id, officeId: office.id, attorneyId: attorney.id, adminUserId: adminUser.id, facts, pending })
 
     summary[claimType] = seq
     totalCreated++

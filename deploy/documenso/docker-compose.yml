@@ -1,0 +1,82 @@
+# Self-hosted Documenso (e-signature) for ClearCaseIQ.
+#
+# Documenso signs retainer agreements and HIPAA authorizations on infrastructure
+# you control, so PHI never leaves your VPC (no third-party BAA required for that
+# boundary). Our API talks to it via api/src/lib/esign/documenso.ts using the v2
+# "envelope" API.
+#
+# Setup (run on the EC2 box):
+#   1. cp .env.example .env  and fill in the values (see that file for how).
+#   2. Generate the signing cert into this directory as cert.p12:
+#        openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem \
+#          -days 730 -nodes -subj "/CN=ClearCaseIQ"
+#        openssl pkcs12 -export -out cert.p12 -inkey key.pem -in cert.pem \
+#          -passout pass:"$SIGNING_PASSPHRASE"
+#   3. docker compose up -d
+#   4. Open the app, create the first (admin) account, then:
+#        - Settings -> API Tokens: create a token  -> DOCUMENSO_API_KEY (api/.env)
+#        - Settings -> Webhooks: URL = https://<api-domain>/v1/webhooks/esign/documenso
+#          with a secret string    -> DOCUMENSO_WEBHOOK_SECRET (api/.env)
+#   5. In api/.env set:
+#        DOCUMENSO_API_URL=https://<documenso-domain>/api/v2
+#        DOCUMENSO_API_KEY=<token from step 4>
+#        DOCUMENSO_WEBHOOK_SECRET=<secret from step 4>
+#        ESIGN_PROVIDER=documenso
+#      and restart the API.
+#
+# Put a TLS-terminating reverse proxy (nginx/ALB/Caddy) in front of port 3000 so
+# the app is served over HTTPS at DOCUMENSO_WEBAPP_URL.
+
+services:
+  documenso-db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - documenso-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  documenso:
+    image: documenso/documenso:latest
+    restart: unless-stopped
+    depends_on:
+      documenso-db:
+        condition: service_healthy
+    ports:
+      # Expose only to the reverse proxy; bind to localhost if the proxy is on-box.
+      - '127.0.0.1:3000:3000'
+    environment:
+      # ---- App URLs (public HTTPS domain of this Documenso instance) ----
+      NEXTAUTH_URL: ${DOCUMENSO_WEBAPP_URL}
+      NEXT_PUBLIC_WEBAPP_URL: ${DOCUMENSO_WEBAPP_URL}
+      # ---- Secrets (generate with: openssl rand -base64 32) ----
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NEXT_PRIVATE_ENCRYPTION_KEY: ${NEXT_PRIVATE_ENCRYPTION_KEY}
+      NEXT_PRIVATE_ENCRYPTION_SECONDARY_KEY: ${NEXT_PRIVATE_ENCRYPTION_SECONDARY_KEY}
+      # ---- Database ----
+      NEXT_PRIVATE_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@documenso-db:5432/${POSTGRES_DB}
+      NEXT_PRIVATE_DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@documenso-db:5432/${POSTGRES_DB}
+      # ---- Outbound email (AWS SES SMTP shown; any SMTP works) ----
+      NEXT_PRIVATE_SMTP_TRANSPORT: smtp
+      NEXT_PRIVATE_SMTP_HOST: ${SMTP_HOST}
+      NEXT_PRIVATE_SMTP_PORT: ${SMTP_PORT}
+      NEXT_PRIVATE_SMTP_USERNAME: ${SMTP_USERNAME}
+      NEXT_PRIVATE_SMTP_PASSWORD: ${SMTP_PASSWORD}
+      NEXT_PRIVATE_SMTP_FROM_NAME: ${SMTP_FROM_NAME}
+      NEXT_PRIVATE_SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS}
+      # ---- PDF signing certificate (mounted below) ----
+      NEXT_PRIVATE_SIGNING_TRANSPORT: local
+      NEXT_PRIVATE_SIGNING_LOCAL_FILE_PATH: /opt/documenso/cert.p12
+      NEXT_PRIVATE_SIGNING_PASSPHRASE: ${SIGNING_PASSPHRASE}
+    volumes:
+      - ./cert.p12:/opt/documenso/cert.p12:ro
+
+volumes:
+  documenso-pgdata:

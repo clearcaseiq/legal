@@ -14,7 +14,8 @@ import {
   Trash2,
   Shield,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  ArrowLeft
 } from 'lucide-react'
 import {
   addAttorneyVerifiedVerdict,
@@ -422,6 +423,15 @@ export default function AttorneyProfile() {
 
   return (
     <div className="space-y-8">
+      {/* Back to the previous screen (New Matches, a case, wherever the attorney came from) */}
+      <button
+        type="button"
+        onClick={() => navigate(-1)}
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-800"
+      >
+        <ArrowLeft className="h-4 w-4" /> Back
+      </button>
+
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>

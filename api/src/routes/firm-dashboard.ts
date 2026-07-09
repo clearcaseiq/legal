@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { sendTransactionalEmail } from '../lib/claims'
+import { computeMarketplacePerformance, computeMarketplacePerformanceByAttorney } from '../lib/marketplace-performance'
 
 const router: Router = Router()
 
@@ -546,6 +547,22 @@ router.post('/cases/:assessmentId/assignments', authMiddleware as any, async (re
       data: { lawFirmId: context.lawFirmId }
     })
 
+    // A role has a single active owner. Deactivate any prior active assignee for
+    // this (case, role) that isn't the person we're assigning now, so downstream
+    // team-caseload aggregation doesn't double-count superseded assignments.
+    await (prisma as any).firmCaseAssignment.updateMany({
+      where: {
+        assessmentId,
+        role,
+        status: 'active',
+        NOT: {
+          assignedUserId: assignedUserId || null,
+          assignedAttorneyId: assignedAttorneyId || null
+        }
+      },
+      data: { status: 'inactive' }
+    })
+
     const existing = await (prisma as any).firmCaseAssignment.findFirst({
       where: {
         assessmentId,
@@ -583,6 +600,134 @@ router.post('/cases/:assessmentId/assignments', authMiddleware as any, async (re
   } catch (error: any) {
     logger.error('Failed to assign firm case', { error: error?.message || String(error), stack: error?.stack })
     res.status(500).json({ error: 'Failed to assign firm case' })
+  }
+})
+
+// Firm-wide contacts directory — every case contact across all attorneys in the
+// firm (the single-attorney version lives at attorney-dashboard/case-contacts).
+router.get('/case-contacts', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) {
+      return res.status(404).json({ error: 'No law firm associated with this user' })
+    }
+    if (!requireFirmPermission(context, 'view_all_cases')) {
+      return res.status(403).json({ error: 'You do not have permission to view firm-wide contacts' })
+    }
+
+    const firmAttorneys = await prisma.attorney.findMany({
+      where: { lawFirmId: context.lawFirmId },
+      select: { id: true }
+    })
+    const attorneyIds = firmAttorneys.map((a) => a.id)
+    if (attorneyIds.length === 0) {
+      return res.json([])
+    }
+
+    const contacts = await prisma.caseContact.findMany({
+      where: { attorneyId: { in: attorneyIds } },
+      select: {
+        id: true,
+        leadId: true,
+        attorneyId: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        companyName: true,
+        companyUrl: true,
+        title: true,
+        contactType: true,
+        notes: true,
+        createdAt: true,
+        updatedAt: true,
+        attorney: { select: { id: true, name: true } },
+        lead: {
+          select: {
+            id: true,
+            assessment: { select: { claimType: true, venueCounty: true, venueState: true } }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    })
+    res.json(contacts)
+  } catch (error: any) {
+    logger.error('Failed to get firm case contacts', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to get firm case contacts' })
+  }
+})
+
+// Per-team caseload aggregation: distinct active cases owned by each team's
+// members, plus per-office capacity utilization.
+router.get('/teams/caseload', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) {
+      return res.status(404).json({ error: 'No law firm associated with this user' })
+    }
+    if (!requireFirmPermission(context, 'view_all_cases') && !requireFirmPermission(context, 'view_analytics')) {
+      return res.status(403).json({ error: 'You do not have permission to view firm caseload' })
+    }
+
+    const [teams, assignments, offices] = await Promise.all([
+      (prisma as any).firmTeam.findMany({
+        where: { lawFirmId: context.lawFirmId },
+        include: {
+          members: { include: { firmMember: { select: { userId: true, attorneyId: true } } } }
+        }
+      }),
+      (prisma as any).firmCaseAssignment.findMany({
+        where: { lawFirmId: context.lawFirmId, status: 'active' },
+        select: { assessmentId: true, assignedUserId: true, assignedAttorneyId: true }
+      }),
+      (prisma as any).firmOffice.findMany({
+        where: { lawFirmId: context.lawFirmId },
+        select: { id: true, name: true, capacity: true, cases: { select: { id: true } } }
+      })
+    ])
+
+    const teamCaseload = (teams as any[]).map((team) => {
+      const memberUserIds = new Set<string>()
+      const memberAttorneyIds = new Set<string>()
+      for (const link of team.members || []) {
+        if (link.firmMember?.userId) memberUserIds.add(link.firmMember.userId)
+        if (link.firmMember?.attorneyId) memberAttorneyIds.add(link.firmMember.attorneyId)
+      }
+      const caseIds = new Set<string>()
+      for (const a of assignments as any[]) {
+        if (
+          (a.assignedUserId && memberUserIds.has(a.assignedUserId)) ||
+          (a.assignedAttorneyId && memberAttorneyIds.has(a.assignedAttorneyId))
+        ) {
+          caseIds.add(a.assessmentId)
+        }
+      }
+      return {
+        teamId: team.id,
+        name: team.name,
+        teamType: team.teamType,
+        memberCount: (team.members || []).length,
+        activeCaseCount: caseIds.size
+      }
+    })
+
+    const officeUtilization = (offices as any[]).map((office) => {
+      const assigned = (office.cases || []).length
+      const capacity = office.capacity ?? null
+      return {
+        officeId: office.id,
+        name: office.name,
+        capacity,
+        assignedCases: assigned,
+        utilization: capacity && capacity > 0 ? Math.round((assigned / capacity) * 100) : null
+      }
+    })
+
+    res.json({ teams: teamCaseload, offices: officeUtilization })
+  } catch (error: any) {
+    logger.error('Failed to get firm team caseload', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to get firm team caseload' })
   }
 })
 
@@ -1107,13 +1252,38 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
       }
     }
 
-    attorneys.forEach((a: any) => {
-      if (a.dashboard) {
-        totalLeadsReceived += a.dashboard.totalLeadsReceived
-        totalLeadsAccepted += a.dashboard.totalLeadsAccepted
-        totalPlatformSpend += a.dashboard.totalPlatformSpend
+    // Platform spend = routing fees / subscriptions / lead credits the firm's
+    // attorneys actually paid ClearCaseIQ. Computed live from platform_payments;
+    // the stored dashboard.totalPlatformSpend is never updated by the accept flow
+    // (which is why the firm KPIs read $0). Skip "skipped_*" records (fee bypassed).
+    if (attorneyIds.length > 0) {
+      try {
+        const platformPayments = await prisma.platformPayment.findMany({
+          where: { attorneyId: { in: attorneyIds } },
+          select: { amount: true, status: true }
+        })
+        totalPlatformSpend = platformPayments
+          .filter((p: any) => !String(p.status || '').startsWith('skipped'))
+          .reduce((sum: number, p: any) => sum + Number(p.amount ?? 0), 0)
+      } catch (spendError: any) {
+        logger.warn('Failed to aggregate firm platform spend', {
+          error: spendError?.message,
+          lawFirmId: firm.id
+        })
       }
-    })
+    }
+
+    // Leads received = all leads routed to the firm (live count).
+    try {
+      totalLeadsReceived = await prisma.leadSubmission.count({
+        where: { assessment: { lawFirmId: firm.id } }
+      })
+    } catch (leadsError: any) {
+      logger.warn('Failed to count firm leads received', {
+        error: leadsError?.message,
+        lawFirmId: firm.id
+      })
+    }
 
     const attorneyCount = attorneys.length
 
@@ -1135,6 +1305,9 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
       ['retained', 'consulted', 'contacted'].includes(assessment.leadSubmission?.status)
     ).length
     const retainedCases = firmCases.filter((assessment: any) => assessment.leadSubmission?.status === 'retained').length
+    // Accepted = live accepted caseload (contacted/consulted/retained), not the
+    // stale stored dashboard counter.
+    totalLeadsAccepted = acceptedCases
     const operationsQueue = firmCases.flatMap((assessment: any) =>
       (assessment.caseTasks || []).map((task: any) => ({
         id: task.id,
@@ -1151,6 +1324,24 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         leadStatus: assessment.leadSubmission?.status || assessment.status
       }))
     ).slice(0, 20)
+
+    // Marketplace Performance (firm scope): KPI tiles, acquisition funnel, and
+    // spend-vs-return monthly series across every attorney in the firm.
+    let marketplace: any = null
+    try {
+      marketplace = await computeMarketplacePerformance(prisma, {
+        attorneyIds,
+        leadWhere: { assessment: { lawFirmId: firm.id } },
+      })
+      // Per-attorney breakdown so a managing partner can see who drives (or drags)
+      // the firm's acquisition ROI.
+      marketplace.byAttorney = await computeMarketplacePerformanceByAttorney(
+        prisma,
+        attorneys.map((a: any) => ({ id: a.id, name: a.name })),
+      )
+    } catch (mpError: any) {
+      logger.warn('Failed to compute firm marketplace performance', { error: mpError?.message, lawFirmId: firm.id })
+    }
 
     // Build response
     const response = {
@@ -1182,6 +1373,14 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         operationsQueueCount: operationsQueue.length,
         firmROI: totalPlatformSpend > 0 ? (feesCollectedFromPayments / totalPlatformSpend) : null
       },
+      // Marketplace Performance KPIs (firm scope). Mirrors the attorney-dashboard
+      // analytics shape the frontend reads for ROI / conversion / average fee.
+      analytics: {
+        conversionRate: acceptedCases > 0 ? Math.round((retainedCases / acceptedCases) * 100) : 0,
+        roi: totalPlatformSpend > 0 ? (feesCollectedFromPayments / totalPlatformSpend) : 0,
+        averageFee: acceptedCases > 0 ? (feesCollectedFromPayments / acceptedCases) : 0
+      },
+      marketplace,
       workspace: {
         currentRole: context?.role || 'attorney',
         permissions: context?.permissions || FIRM_ROLE_PERMISSIONS.attorney,

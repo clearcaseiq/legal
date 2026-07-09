@@ -6,7 +6,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { MessageSquare } from 'lucide-react'
-import { getAttorneyChatRooms, getAttorneyUnreadCount } from '../lib/api'
+import { getAttorneyUnreadSummary } from '../lib/api'
 
 interface ChatRoomPreview {
   id: string
@@ -15,11 +15,13 @@ interface ChatRoomPreview {
   assessment?: { id: string; claimType?: string }
   lastMessage?: { content: string; senderType: string; createdAt: string }
   unreadCount: number
+  awaitingReply?: boolean
 }
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+  const [awaitingReplyCount, setAwaitingReplyCount] = useState(0)
   const [chatRooms, setChatRooms] = useState<ChatRoomPreview[]>([])
   const [loading, setLoading] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -27,14 +29,13 @@ export default function NotificationBell() {
   const loadData = async () => {
     try {
       setLoading(true)
-      const [countRes, roomsRes] = await Promise.all([
-        getAttorneyUnreadCount(),
-        getAttorneyChatRooms()
-      ])
-      setUnreadCount(countRes?.unreadCount ?? 0)
-      setChatRooms(Array.isArray(roomsRes) ? roomsRes : [])
+      const res = await getAttorneyUnreadSummary()
+      setUnreadCount(res?.unreadCount ?? 0)
+      setAwaitingReplyCount(res?.awaitingReplyCount ?? 0)
+      setChatRooms(Array.isArray(res?.rooms) ? res.rooms : [])
     } catch {
       setUnreadCount(0)
+      setAwaitingReplyCount(0)
       setChatRooms([])
     } finally {
       setLoading(false)
@@ -86,9 +87,14 @@ export default function NotificationBell() {
               <MessageSquare className="h-4 w-4 text-brand-600" />
               Messages
             </h3>
-            {unreadCount > 0 && (
-              <span className="text-xs font-medium text-brand-600">{unreadCount} new</span>
-            )}
+            <div className="flex items-center gap-2">
+              {unreadCount > 0 && (
+                <span className="text-xs font-medium text-brand-600">{unreadCount} new</span>
+              )}
+              {awaitingReplyCount > 0 && (
+                <span className="text-xs font-medium text-amber-600">{awaitingReplyCount} awaiting reply</span>
+              )}
+            </div>
           </div>
           <div className="max-h-72 overflow-y-auto">
             {loading ? (
@@ -115,11 +121,15 @@ export default function NotificationBell() {
                           </span>
                         )}
                       </div>
-                      {room.unreadCount > 0 && (
+                      {room.unreadCount > 0 ? (
                         <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-600 px-1.5 text-[10px] font-bold text-white">
                           {room.unreadCount}
                         </span>
-                      )}
+                      ) : room.awaitingReply ? (
+                        <span className="flex h-5 items-center justify-center whitespace-nowrap rounded-full bg-amber-100 px-2 text-[10px] font-semibold text-amber-700">
+                          Awaiting reply
+                        </span>
+                      ) : null}
                     </div>
                     {room.assessment?.id && (
                       <div className="text-xs text-slate-500 mt-0.5">

@@ -8,7 +8,7 @@ import {
   requireClientConsentsMiddleware,
   requireVerifiedEmailMiddleware,
 } from '../lib/client-consent-guard'
-import { translateForPlaintiff, getPlaintiffLanguage } from '../lib/translate'
+import { translateForPlaintiff, getPlaintiffLanguage, translateToEnglish, looksNonEnglish } from '../lib/translate'
 
 const router = Router()
 
@@ -263,6 +263,93 @@ router.get('/unread-summary', authMiddleware, async (req: AuthRequest, res) => {
     res.json({ unreadCount, rooms })
   } catch (error) {
     logger.error('Failed to get unread summary', { error, userId: req.user?.id })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Attorney-side unread summary: total unread client messages plus a per-
+// conversation breakdown (client, case, last message, unread, awaiting reply).
+// Parallels the plaintiff /unread-summary but scoped to the attorney's rooms, so
+// the attorney dashboard can power its Messages badges (Unread / Awaiting reply).
+router.get('/attorney/unread-summary', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const email = req.user?.email
+    if (!email) return res.status(401).json({ error: 'Unauthenticated' })
+    const attorney = await prisma.attorney.findFirst({ where: { email }, select: { id: true } })
+    if (!attorney) return res.status(403).json({ error: 'Not an attorney account' })
+
+    const chatRooms = await prisma.chatRoom.findMany({
+      where: { attorneyId: attorney.id },
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true, email: true } },
+        assessment: { select: { id: true, claimType: true, venueState: true } },
+        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+      orderBy: { lastMessageAt: 'desc' },
+    })
+
+    const assessmentIds = chatRooms.map((r) => r.assessmentId).filter(Boolean) as string[]
+    const roomIds = chatRooms.map((r) => r.id)
+    const [leadRows, unreadByRoom] = await Promise.all([
+      assessmentIds.length > 0
+        ? prisma.leadSubmission.findMany({
+            where: { assessmentId: { in: assessmentIds } },
+            select: { id: true, assessmentId: true },
+          })
+        : Promise.resolve([]),
+      // Unread here means messages the CLIENT sent that the attorney hasn't read.
+      roomIds.length > 0
+        ? prisma.message.groupBy({
+            by: ['chatRoomId'],
+            where: { chatRoomId: { in: roomIds }, senderType: 'user', isRead: false },
+            _count: { id: true },
+          })
+        : Promise.resolve([]),
+    ])
+    const leadByAssessment: Record<string, string> = Object.fromEntries(
+      leadRows.map((l) => [l.assessmentId, l.id])
+    )
+    const unreadMap: Record<string, number> = Object.fromEntries(
+      unreadByRoom.map((u) => [u.chatRoomId, u._count.id])
+    )
+
+    const rooms = await Promise.all(
+      chatRooms.map(async (room) => {
+        const last = room.messages[0]
+        let lastMessage = last
+          ? { content: last.content, senderType: last.senderType, createdAt: last.createdAt }
+          : null
+        // Attorney-facing views are English-only: translate client previews.
+        if (lastMessage && lastMessage.senderType !== 'attorney' && lastMessage.content && looksNonEnglish(lastMessage.content)) {
+          lastMessage = { ...lastMessage, content: await translateToEnglish(lastMessage.content) }
+        }
+        const plaintiff = room.user
+          ? {
+              id: room.user.id,
+              name: `${room.user.firstName || ''} ${room.user.lastName || ''}`.trim() || 'Plaintiff',
+              email: room.user.email,
+            }
+          : null
+        return {
+          id: room.id,
+          leadId: room.assessmentId ? leadByAssessment[room.assessmentId] || null : null,
+          assessmentId: room.assessmentId,
+          plaintiff,
+          assessment: room.assessment,
+          lastMessage,
+          unreadCount: unreadMap[room.id] || 0,
+          // Attorney sent the last message -> waiting on the client to respond.
+          awaitingReply: last?.senderType === 'attorney',
+        }
+      })
+    )
+
+    const unreadCount = rooms.reduce((sum, r) => sum + r.unreadCount, 0)
+    const awaitingReplyCount = rooms.filter((r) => r.awaitingReply).length
+
+    res.json({ unreadCount, awaitingReplyCount, rooms })
+  } catch (error) {
+    logger.error('Failed to get attorney unread summary', { error, userId: req.user?.id })
     res.status(500).json({ error: 'Internal server error' })
   }
 })

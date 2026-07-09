@@ -17,6 +17,7 @@ import crypto from 'crypto'
 import { calculateSOL, getSOLStatus } from '../lib/solRules'
 import { buildMedicalChronology, buildMedicalChronologySummary, computeCasePreparation, getSettlementBenchmarks } from '../lib/case-insights'
 import { recordCaseOutcome } from '../lib/case-outcomes'
+import { computeMarketplacePerformance } from '../lib/marketplace-performance'
 import {
   calculateAttorneyReputationScore,
   recordRoutingEvent,
@@ -24,6 +25,7 @@ import {
 } from '../lib/routing-lifecycle'
 import { sendPlaintiffAttorneyAccepted } from '../lib/case-notifications'
 import { createExternalCalendarEvent } from '../lib/calendar-sync'
+import { createZoomMeeting } from '../lib/zoom'
 import { deliverDirectNotification } from '../lib/platform-notifications'
 import { translateToEnglish, looksNonEnglish } from '../lib/translate'
 import { isValidPhone, normalizePhone, PHONE_ERROR_MESSAGE } from '../lib/phone'
@@ -2087,6 +2089,7 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       },
       assessment: {
         select: {
+          claimType: true,
           predictions: {
             orderBy: { createdAt: 'desc' as const },
             take: 1,
@@ -2242,7 +2245,10 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
     }
 
     let feesCollectedFromPayments = 0
-    const totalPlatformSpend = Number(dashboard.totalPlatformSpend ?? 0)
+    let totalPlatformSpend = Number(dashboard.totalPlatformSpend ?? 0)
+    // Share of billable platform payments that were refunded — surfaced as
+    // "Refund rate" on the Lead Quality header.
+    let platformRefundRate = 0
     try {
       const paymentTotals = await prisma.billingPayment.aggregate({
         where: {
@@ -2260,6 +2266,29 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
     } catch (billingError: any) {
       logger.warn('Failed to aggregate attorney billing payments', {
         error: billingError?.message,
+        attorneyId
+      })
+    }
+
+    // Platform spend = what this attorney has actually paid ClearCaseIQ (routing
+    // fees, subscriptions, lead credits). Computed live from platform_payments —
+    // the legacy stored `dashboard.totalPlatformSpend` is never updated by the
+    // accept/checkout flow, which is why the marketplace KPIs read $0. Skip the
+    // "skipped_*" records (fee bypassed when payments were disabled / Stripe not
+    // configured) so they don't inflate spend.
+    try {
+      const platformPaymentRows = await prisma.platformPayment.findMany({
+        where: { attorneyId },
+        select: { amount: true, status: true }
+      })
+      const billable = platformPaymentRows.filter((p: any) => !String(p.status || '').startsWith('skipped'))
+      const livePlatformSpend = billable.reduce((sum: number, p: any) => sum + Number(p.amount ?? 0), 0)
+      totalPlatformSpend = livePlatformSpend
+      const refundedCount = billable.filter((p: any) => String(p.status || '').toLowerCase().includes('refund')).length
+      platformRefundRate = billable.length > 0 ? refundedCount / billable.length : 0
+    } catch (platformSpendError: any) {
+      logger.warn('Failed to aggregate attorney platform spend', {
+        error: platformSpendError?.message,
         attorneyId
       })
     }
@@ -2293,8 +2322,14 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
     const funnelRetained = retained.length
     const funnelClosed = closed.length
 
-    // Top case today: best by expected_value * viability, from matched
-    const topCaseToday = matched.length > 0
+    // The pipeline projection (allLeadsForPipeline) is intentionally lightweight and
+    // omits venue, viabilityScore, the plaintiff, and full predictions. Surfaces that
+    // render those fields (the "Cases ready for review" table, "top case today") must
+    // read from the fully-hydrated + sanitized recentLeads instead, otherwise the UI
+    // shows "Venue pending" / "Not scored" on first load until a refresh (A3-33).
+    // We only pick the winning id here; hydration happens below once the sanitized
+    // recentLeadsWithMessaging list is built.
+    const topCaseTodayId = matched.length > 0
       ? matched
           .map((lead: any) => {
             const pred = lead.assessment?.predictions?.[0] || lead.assessment?.predictions
@@ -2315,7 +2350,7 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
             }
             return { lead, score: (median || 1000) * (viability || 0.1) }
           })
-          .sort((a: any, b: any) => b.score - a.score)[0]?.lead
+          .sort((a: any, b: any) => b.score - a.score)[0]?.lead?.id ?? null
       : null
 
     // Pipeline value: sum(expected_case_value × contingency_rate) for active leads
@@ -2507,6 +2542,15 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       })
     })
 
+    // "New matches" and "top case today" render venue, value, score, and plaintiff, so
+    // they must be sourced from the fully-hydrated + sanitized leads (not the lightweight
+    // pipeline projection) to avoid "Venue pending"/"Not scored" on first load (A3-33).
+    const recentMatchedLeads = recentLeadsWithMessaging.filter((l: any) => l.status === 'submitted')
+    const newCaseMatches = recentMatchedLeads.slice(0, 10)
+    const topCaseToday = topCaseTodayId
+      ? recentLeadsWithMessaging.find((l: any) => l.id === topCaseTodayId) || newCaseMatches[0] || null
+      : newCaseMatches[0] || null
+
     const workQueueData = await buildAttorneyWorkQueue({
       attorneyId,
       leads: recentLeadsWithMessaging,
@@ -2693,6 +2737,106 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       logger.warn('Automation feed failed', { error: automationErr?.message })
     }
 
+    // Real performance metrics from this attorney's introductions (routed offers):
+    // average time to respond and how often offers are accepted. Both power the
+    // New Matches header tiles.
+    let avgResponseMinutes: number | null = null
+    let introAcceptanceRate = 0
+    let respondedIntroCount = 0
+    let totalIntroCount = 0
+    try {
+      const performanceIntros = await prisma.introduction.findMany({
+        where: { attorneyId },
+        select: { status: true, requestedAt: true, respondedAt: true },
+      })
+      totalIntroCount = performanceIntros.length
+      const acceptedIntros = performanceIntros.filter((i) => i.status === 'ACCEPTED').length
+      introAcceptanceRate = totalIntroCount > 0 ? Math.round((acceptedIntros / totalIntroCount) * 100) : 0
+      const responded = performanceIntros.filter((i) => i.respondedAt && i.requestedAt)
+      respondedIntroCount = responded.length
+      if (responded.length > 0) {
+        const totalMs = responded.reduce(
+          (sum, i) => sum + (i.respondedAt!.getTime() - i.requestedAt.getTime()),
+          0,
+        )
+        avgResponseMinutes = Math.max(0, Math.round(totalMs / responded.length / 60000))
+      }
+    } catch (metricsErr: any) {
+      logger.warn('Performance metrics computation failed', { error: metricsErr?.message })
+    }
+
+    // All-time lead-quality breakdown by practice area. Computed from the
+    // UNBOUNDED pipeline query (`allLeadsForPipeline` has no take cap), so these
+    // numbers reflect the attorney's entire lead history — not the 100-lead
+    // window used for `recentLeads`. The Lead Quality page prefers this block.
+    const leadQuality = (() => {
+      const ACCEPTED = ['contacted', 'consulted', 'retained']
+      const toFraction = (v: any) => {
+        const n = Number(v ?? 0)
+        if (!Number.isFinite(n) || n <= 0) return 0
+        return n <= 1 ? n : n / 100
+      }
+      const groups: Record<string, { matches: number; accepted: number; retained: number; vsum: number }> = {}
+      let total = 0
+      let accepted = 0
+      let retained = 0
+      let vsumAll = 0
+      for (const l of (allLeadsForPipeline || [])) {
+        const status = String(l?.status || '')
+        const key = l?.assessment?.claimType || 'other'
+        const viability = toFraction(l?.assessment?.predictions?.[0]?.viability)
+        const g = groups[key] || (groups[key] = { matches: 0, accepted: 0, retained: 0, vsum: 0 })
+        g.matches += 1
+        g.vsum += viability
+        total += 1
+        vsumAll += viability
+        if (ACCEPTED.includes(status)) {
+          g.accepted += 1
+          accepted += 1
+        }
+        if (status === 'retained') {
+          g.retained += 1
+          retained += 1
+        }
+      }
+      const byPracticeArea = Object.entries(groups)
+        .map(([type, g]) => ({
+          type,
+          matches: g.matches,
+          accepted: g.accepted,
+          retained: g.retained,
+          acceptRate: g.matches ? g.accepted / g.matches : 0,
+          avgMatch: g.matches ? g.vsum / g.matches : 0,
+        }))
+        .sort((a, b) => b.matches - a.matches)
+      return {
+        total,
+        accepted,
+        retained,
+        acceptRate: total ? accepted / total : 0,
+        retainRate: total ? retained / total : 0,
+        avgMatch: total ? vsumAll / total : 0,
+        // Marketplace efficiency: total routing spend divided by retained cases,
+        // and the share of billable platform payments refunded.
+        costPerRetained: retained > 0 ? totalPlatformSpend / retained : 0,
+        refundRate: platformRefundRate,
+        byPracticeArea,
+      }
+    })()
+
+    // Marketplace Performance (mine scope): KPI tiles, acquisition funnel, and
+    // the spend-vs-return monthly series. Computed live from the same lead
+    // universe + this attorney's platform payments.
+    let marketplace: any = null
+    try {
+      marketplace = await computeMarketplacePerformance(prisma, {
+        attorneyIds: [attorneyId],
+        leadWhere: dashboardLeadWhere,
+      })
+    } catch (mpError: any) {
+      logger.warn('Failed to compute marketplace performance', { error: mpError?.message, attorneyId })
+    }
+
     // Build response safely
     const response = {
       dashboard: {
@@ -2700,6 +2844,14 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
         feesCollectedFromPayments,
         totalPlatformSpend,
         totalLeadsReceived
+      },
+      leadQuality,
+      marketplace,
+      performanceMetrics: {
+        avgResponseMinutes,
+        acceptanceRate: introAcceptanceRate,
+        respondedIntroductions: respondedIntroCount,
+        totalIntroductions: totalIntroCount,
       },
       recentLeads: workQueueData.leadsWithReadiness,
       messagingSummary,
@@ -2754,7 +2906,7 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
         retained: funnelRetained,
         closed: funnelClosed
       },
-      newCaseMatches: matched.slice(0, 10),
+      newCaseMatches,
       topCaseToday,
       recentContacts,
       caseContactsCount,
@@ -3102,6 +3254,96 @@ router.delete('/push/register', authMiddleware, async (req: any, res) => {
 })
 
 // Open tasks across all leads the attorney can access (mobile Today / Overdue).
+// Fees collected year-to-date for the signed-in attorney, with a per-case
+// breakdown (sums BillingPayment.amount dated on/after Jan 1 of this year).
+router.get('/fees/ytd', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { attorney } = auth
+
+    const leadSelect = {
+      id: true,
+      assessmentId: true,
+      assessment: {
+        select: {
+          claimType: true,
+          user: { select: { firstName: true, lastName: true } },
+        },
+      },
+    } as const
+    const assignedLeads = await prisma.leadSubmission.findMany({
+      where: { assignedAttorneyId: attorney.id },
+      select: leadSelect,
+    })
+    const introAssessments = await prisma.introduction.findMany({
+      where: { attorneyId: attorney.id },
+      select: { assessmentId: true },
+    })
+    const introAssessIds = [...new Set(introAssessments.map((i) => i.assessmentId))]
+    const introLeads =
+      introAssessIds.length > 0
+        ? await prisma.leadSubmission.findMany({
+            where: { assessmentId: { in: introAssessIds } },
+            select: leadSelect,
+          })
+        : []
+
+    const byAssessment = new Map<
+      string,
+      { leadId: string; claimType?: string | null; clientName: string | null }
+    >()
+    const nameOf = (l: (typeof assignedLeads)[number]) => {
+      const u = l.assessment?.user
+      const name = `${u?.firstName ?? ''} ${u?.lastName ?? ''}`.trim()
+      return name || null
+    }
+    for (const l of assignedLeads) {
+      byAssessment.set(l.assessmentId, { leadId: l.id, claimType: l.assessment?.claimType, clientName: nameOf(l) })
+    }
+    for (const l of introLeads) {
+      if (!byAssessment.has(l.assessmentId)) {
+        byAssessment.set(l.assessmentId, { leadId: l.id, claimType: l.assessment?.claimType, clientName: nameOf(l) })
+      }
+    }
+
+    const assessmentIds = [...byAssessment.keys()]
+    const year = new Date().getFullYear()
+    if (assessmentIds.length === 0) {
+      return res.json({ feesYtd: 0, year, cases: [] })
+    }
+
+    const startOfYear = new Date(year, 0, 1)
+    const grouped = await prisma.billingPayment.groupBy({
+      by: ['assessmentId'],
+      where: { assessmentId: { in: assessmentIds }, receivedAt: { gte: startOfYear } },
+      _sum: { amount: true },
+    })
+
+    let feesYtd = 0
+    const cases = grouped
+      .map((row) => {
+        const amount = Number(row._sum.amount ?? 0)
+        feesYtd += amount
+        const meta = byAssessment.get(row.assessmentId)
+        return {
+          assessmentId: row.assessmentId,
+          leadId: meta?.leadId ?? null,
+          claimType: meta?.claimType ?? null,
+          clientName: meta?.clientName ?? null,
+          amount,
+        }
+      })
+      .filter((c) => c.amount > 0)
+      .sort((a, b) => b.amount - a.amount)
+
+    res.json({ feesYtd, year, cases })
+  } catch (error: any) {
+    logger.error('Failed to compute fees YTD', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to compute fees YTD' })
+  }
+})
+
 router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
   try {
     const auth = await getAttorneyFromReq(req)
@@ -4431,11 +4673,47 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
       }
     })
 
-    // For video consults, mint a join link (Google Meet / Teams) via the
-    // attorney's connected calendar and persist it so it shows up on the
-    // dashboard, calendar, and confirmation email. Skip if one already exists
-    // to avoid creating a fresh room on repeated "Schedule Consultation" clicks.
+    // For video consults, mint a join link and persist it so it shows up on the
+    // dashboard, calendar, and confirmation email. We prefer the attorney's
+    // connected Zoom account (Option B); if Zoom isn't connected we fall back to
+    // a Google Meet / Teams link via the connected calendar. Skip when a link
+    // already exists to avoid creating a fresh room on repeated clicks.
     let meetingUrl = appointment.meetingUrl
+    let hostMeetingUrl = appointment.hostMeetingUrl
+    if (meetingType === 'video' && !meetingUrl) {
+      // 1) Try Zoom on the attorney's own account.
+      try {
+        const zoomMeeting = await createZoomMeeting({
+          attorneyId: attorney.id,
+          topic: 'ClearCaseIQ Consultation',
+          start: scheduledAt,
+          durationMinutes: appointment.duration,
+          agenda: `Video consultation booked in ClearCaseIQ for assessment ${lead.assessmentId}.`,
+        })
+        if (zoomMeeting) {
+          meetingUrl = zoomMeeting.joinUrl
+          hostMeetingUrl = zoomMeeting.startUrl
+          await prisma.appointment.update({
+            where: { id: appointment.id },
+            data: {
+              meetingUrl: zoomMeeting.joinUrl,
+              hostMeetingUrl: zoomMeeting.startUrl,
+              externalCalendarProvider: 'zoom',
+              externalCalendarSyncedAt: new Date(),
+            },
+          })
+        }
+      } catch (zoomError: any) {
+        logger.warn('Zoom link creation for consult failed', {
+          zoomError: zoomError?.message,
+          appointmentId: appointment.id,
+          attorneyId: attorney.id,
+        })
+      }
+    }
+
+    // 2) Fall back to (or still register on) the connected calendar. When Zoom
+    // already produced a link we skip minting a duplicate Meet/Teams room.
     if (meetingType === 'video' && !meetingUrl) {
       try {
         const externalEvent = await createExternalCalendarEvent({
@@ -4492,7 +4770,7 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
       })
     }
 
-    res.json({ ...appointment, meetingUrl })
+    res.json({ ...appointment, meetingUrl, hostMeetingUrl })
   } catch (error: any) {
     logger.error('Failed to schedule consultation', { error: error.message })
     res.status(500).json({ error: 'Failed to schedule consultation' })
@@ -9369,6 +9647,34 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
 
     if (!isShared && !isAssigned && !intro) {
       return res.status(403).json({ error: 'Not authorized to update this lead' })
+    }
+
+    // Prevent accepting a case that another attorney has already claimed. routingLocked
+    // is only set on accept, so a lock held by a different attorney means the case is
+    // gone — block it even if the client's response window looked open.
+    const claimedByOther =
+      !!existingLead.routingLocked &&
+      !!existingLead.assignedAttorneyId &&
+      existingLead.assignedAttorneyId !== attorneyId
+    if (decision === 'accept' && claimedByOther) {
+      return res.status(409).json({ error: 'This case has already been assigned to another attorney.' })
+    }
+
+    // Block accepting a lapsed offer: once the response window elapses the match is
+    // released to the next attorney (marked EXPIRED by the offer-expiry sweep), so it
+    // is no longer this attorney's to accept.
+    if (decision === 'accept' && intro) {
+      let offerLapsed = intro.status === 'EXPIRED'
+      if (!offerLapsed && intro.status === 'PENDING' && intro.requestedAt) {
+        const matchingRules = await getMatchingRules()
+        const deadlineMinutes = getAttorneyResponseDeadlineMinutes(matchingRules)
+        offerLapsed = intro.requestedAt.getTime() + deadlineMinutes * 60 * 1000 <= Date.now()
+      }
+      if (offerLapsed) {
+        return res.status(409).json({
+          error: 'The response window for this match has expired and it has been released to another attorney.',
+        })
+      }
     }
 
     const lead = await prisma.leadSubmission.update({

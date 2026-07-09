@@ -2113,6 +2113,33 @@ export default function Results() {
       { label: 'Documentation', value: scoreLabel(documentationScore, { high: 'Strong', medium: 'Developing', low: 'Low' }), tone: toneFromPct(documentationScore), desc: `${documentationScore}% of key documents added.` },
       { label: 'Venue (Location)', value: venueFriendlinessScore >= 4 ? 'Favorable' : 'Moderate', tone: venueFriendlinessScore >= 4 ? 'strong' : 'moderate', desc: formatVenueLabel(venueState, venueCounty) || 'Venue unavailable' },
     ]
+    const fmtTimelineDate = (iso: unknown) => {
+      if (!iso) return 'Treatment'
+      const t = new Date(iso as string)
+      return Number.isFinite(t.getTime())
+        ? t.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : 'Treatment'
+    }
+    const treatmentTimeline: { label: string; detail: string }[] = (Array.isArray(medicalChronology) ? medicalChronology : [])
+      .filter((e: any) => e?.source === 'medical_record' || e?.source === 'treatment' || e?.date)
+      .slice(0, 6)
+      .map((e: any) => ({
+        label: fmtTimelineDate(e?.date) === 'Treatment' ? String(e?.label || 'Treatment') : fmtTimelineDate(e?.date),
+        detail: String(e?.description || e?.summary || e?.provider || e?.details || e?.label || '').slice(0, 80),
+      }))
+      .filter((r) => r.detail)
+    if (treatmentTimeline.length === 0 && Array.isArray(treatment)) {
+      for (const t of treatment.slice(0, 6)) {
+        const detail = String((t as any)?.type || (t as any)?.provider || (t as any)?.facility || (t as any)?.description || '').slice(0, 80)
+        if (detail) treatmentTimeline.push({ label: fmtTimelineDate((t as any)?.date), detail })
+      }
+    }
+    const hasAnyTreatment = treatment.length > 0 || (Array.isArray(medicalChronology) && medicalChronology.length > 0)
+    const medicalSummary = hasMedicalRecords
+      ? 'Medical records are on file and support the reported injuries and treatment history.'
+      : hasAnyTreatment
+        ? 'Treatment has been reported. Uploading medical records and bills will strengthen the injury and damages picture.'
+        : 'No medical treatment has been documented yet. Adding records and bills will significantly strengthen the case.'
     await downloadResultsCaseReportPdf({
       referenceId: (assessment?.id ?? '').slice(0, 8).toUpperCase() || null,
       claimLabel: caseSnapshotClaimLabel,
@@ -2133,6 +2160,12 @@ export default function Results() {
       liabilitySummary: liabilitySummary || 'Based on the facts provided, fault may rest with the other party. More evidence will strengthen liability.',
       liabilityChecklist: liabilityChecklist.map((r) => ({ label: r.label, ok: r.ok })),
       liabilityPercent: Math.round(liabilityPercent),
+      medicalTreatmentStrength: treatmentStrengthLevel,
+      medicalRecordsOnFile: hasMedicalRecords,
+      medicalBillsDocumented: hasMedicalBills,
+      medicalBillsText: documentedMedicalCharges > 0 ? formatCurrency(documentedMedicalCharges) : null,
+      medicalSummary,
+      treatmentTimeline,
       attorneyInterestWord,
       attorneyInterestSummary: attorneyInterestLevel === 'High' ? 'Your case looks attractive to attorneys based on the current facts.' : 'Your case has potential, but additional records will help attract more attorney interest.',
       attorneyInterestMissing,

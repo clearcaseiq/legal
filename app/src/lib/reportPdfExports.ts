@@ -33,6 +33,12 @@ type ResultsReportInput = {
   liabilitySummary: string
   liabilityChecklist: { label: string; ok: boolean }[]
   liabilityPercent: number
+  medicalTreatmentStrength: string
+  medicalRecordsOnFile: boolean
+  medicalBillsDocumented: boolean
+  medicalBillsText?: string | null
+  medicalSummary: string
+  treatmentTimeline: { label: string; detail: string }[]
   attorneyInterestWord: string
   attorneyInterestSummary: string
   attorneyInterestMissing: string[]
@@ -598,6 +604,36 @@ export async function downloadResultsCaseReportPdf(input: ResultsReportInput) {
   liab.divider()
   liab.row('Liability strength', `${input.liabilityPercent}%`, { rightColor: COLORS.brand })
   drawPanel(doc, liab, { accent: COLORS.brand })
+
+  // ---- Medical & treatment ----
+  drawSectionTitle(doc, 'Medical & Treatment')
+  const med = makeBlock()
+  const medStrengthTone: ToneKey = /high|strong/i.test(input.medicalTreatmentStrength)
+    ? 'strong'
+    : /medium|moderate|building/i.test(input.medicalTreatmentStrength)
+      ? 'moderate'
+      : 'weak'
+  med.row('Treatment strength', input.medicalTreatmentStrength, {
+    rightColor: toneColors(medStrengthTone).text,
+    badge: toneColors(medStrengthTone).soft,
+  })
+  med.row('Medical records on file', input.medicalRecordsOnFile ? 'Yes' : 'Not added', {
+    size: 10,
+    rightColor: input.medicalRecordsOnFile ? COLORS.emerald : COLORS.faint,
+  })
+  med.row('Medical bills documented', input.medicalBillsDocumented ? input.medicalBillsText || 'Yes' : 'Not added', {
+    size: 10,
+    rightColor: input.medicalBillsDocumented ? COLORS.emerald : COLORS.faint,
+  })
+  med.wrapped(input.medicalSummary, { size: 10, color: COLORS.ink })
+  if (input.treatmentTimeline.length) {
+    med.gap(4)
+    med.text('TREATMENT TIMELINE', { font: 'F2', size: 8, color: COLORS.muted })
+    for (const entry of input.treatmentTimeline) {
+      med.row(entry.label, entry.detail, { size: 10, leftColor: COLORS.ink, rightColor: COLORS.muted })
+    }
+  }
+  drawPanel(doc, med, { accent: COLORS.emerald })
 
   // ---- Attorney interest ----
   drawSectionTitle(doc, 'Attorney Interest')

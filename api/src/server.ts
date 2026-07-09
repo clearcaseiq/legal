@@ -163,6 +163,8 @@ export function createServer(): Express {
 
   // Body parsing
   app.use('/v1/payments/stripe-webhook', express.raw({ type: 'application/json' }))
+  // E-sign provider webhooks need the raw body for HMAC signature verification.
+  app.use('/v1/webhooks/esign', express.raw({ type: '*/*' }))
   app.use(express.json({ limit: '10mb' }))
   app.use(express.urlencoded({ extended: true }))
   

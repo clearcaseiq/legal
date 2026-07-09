@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, type ReactNode } from 'react'
-import { Routes, Route, Navigate, Link, useLocation, useParams } from 'react-router-dom'
+import { Routes, Route, Navigate, Link, useLocation, useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import { GuestRoute, ProtectedRoute } from './components/AuthRoute'
@@ -34,6 +34,20 @@ const Messaging = lazy(() => import('./pages/Messaging'))
 const RecoveryHub = lazy(() => import('./pages/RecoveryHub'))
 const SmartRecommendations = lazy(() => import('./pages/SmartRecommendations'))
 const AttorneyDashboard = lazy(() => import('./pages/AttorneyDashboard'))
+// Two-domain attorney workspace (Lead Generation vs Case Management)
+const AttorneyWorkspaceLayout = lazy(() => import('./features/shared/AttorneyWorkspaceLayout'))
+const NewMatchesPage = lazy(() => import('./features/leadgen/NewMatchesPage'))
+const IntakePage = lazy(() => import('./features/leadgen/IntakePage'))
+const MarketplacePerformancePage = lazy(() => import('./features/leadgen/MarketplacePerformancePage'))
+const ActiveCasesPage = lazy(() => import('./features/casework/ActiveCasesPage'))
+const CaseWorkspaceLanding = lazy(() => import('./features/casework/CaseWorkspaceLanding'))
+const CaseWorkspacePage = lazy(() => import('./features/casework/CaseWorkspacePage'))
+const CaseMessagesPage = lazy(() => import('./features/casework/MessagesPage'))
+const CaseDocumentsHubPage = lazy(() => import('./features/casework/DocumentsPage'))
+const CaseTasksPage = lazy(() => import('./features/casework/TasksPage'))
+const CaseContactsPage = lazy(() => import('./features/casework/ContactsPage'))
+const CaseBillingPage = lazy(() => import('./features/casework/BillingPage'))
+const CaseCopilotPage = lazy(() => import('./features/casework/CopilotPage'))
 const AddContactPage = lazy(() => import('./pages/AddContactPage'))
 const ContactsPage = lazy(() => import('./pages/ContactsPage'))
 const CaseDocumentsPage = lazy(() => import('./pages/CaseDocumentsPage'))
@@ -51,6 +65,7 @@ const FirmDashboard = lazy(() => import('./pages/FirmDashboard'))
 const FirmSettings = lazy(() => import('./pages/FirmSettings'))
 const AttorneyBilling = lazy(() => import('./pages/AttorneyBilling'))
 const LeadQuality = lazy(() => import('./pages/LeadQuality'))
+const LeadQualityPage = lazy(() => import('./features/leadgen/LeadQualityPage'))
 const AttorneyProfile = lazy(() => import('./pages/AttorneyProfile'))
 const AttorneyPreferences = lazy(() => import('./pages/AttorneyPreferences'))
 const Integrations = lazy(() => import('./pages/Integrations'))
@@ -106,6 +121,51 @@ function RouteFallback() {
         <div className="h-5 w-5 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
         <span>Loading page...</span>
       </div>
+    </div>
+  )
+}
+
+// Attorneys landing on /attorney-dashboard should see the new two-domain
+// workspace by default. Legacy deep links that carry a ?tab= param
+// (profile/analytics/intake/overview) still render the classic dashboard.
+function AttorneyDashboardEntry() {
+  const location = useLocation()
+  const hasLegacyTab = new URLSearchParams(location.search).get('tab')
+  if (hasLegacyTab) return <AttorneyDashboard />
+  return <Navigate to="/attorney-dashboard/leadgen/matches" replace />
+}
+
+// Lightweight landing for the Zoom OAuth redirect. When opened as a popup (the
+// Schedule Consultation "Connect Zoom" flow) it notifies the opener and closes
+// itself; otherwise it forwards to the dashboard so the settings-card connect
+// flow behaves exactly as before.
+function ZoomOAuthComplete() {
+  const [params] = useSearchParams()
+  const navigate = useNavigate()
+  const status = params.get('zoom_sync') || 'error'
+  const error = params.get('zoom_error') || undefined
+
+  useEffect(() => {
+    if (window.opener && window.opener !== window) {
+      try {
+        window.opener.postMessage({ type: 'zoom_oauth', status, error }, window.location.origin)
+      } catch {
+        /* ignore cross-origin edge cases */
+      }
+      window.close()
+      return
+    }
+    const to = new URLSearchParams()
+    to.set('zoom_sync', status)
+    if (error) to.set('zoom_error', error)
+    navigate(`/attorney-dashboard?${to.toString()}`, { replace: true })
+  }, [status, error, navigate])
+
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4 text-center text-sm text-gray-600">
+      {status === 'success'
+        ? 'Zoom connected. You can close this window.'
+        : 'Zoom connection failed. You can close this window and try again.'}
     </div>
   )
 }
@@ -215,6 +275,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/auth/callback" element={<OAuthCallback />} />
+            <Route path="/oauth/zoom/complete" element={<ZoomOAuthComplete />} />
             {/* Public so a reset link works even if the user happens to be logged in. */}
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
@@ -348,7 +409,37 @@ function App() {
             <Route path="/what-medical-records-do-lawyers-need" element={<SeoLandingPage />} />
             <Route path="/how-insurance-companies-review-medical-records" element={<SeoLandingPage />} />
             <Route element={<ProtectedRoute role="attorney" />}>
-              <Route path="/attorney-dashboard" element={<AttorneyDashboard />} />
+              {/* Two-domain workspace shell (Lead Generation vs Case Management).
+                  Each route mounts the shared sidebar layout and a focused page. */}
+              <Route element={<AttorneyWorkspaceLayout />}>
+                {/* Lead Generation */}
+                <Route path="/attorney-dashboard/leadgen/matches" element={<NewMatchesPage />} />
+                {/* Pre-acceptance / expired review stays inside Lead Generation (read-only
+                    snapshot) — it must never open the Case Management case file. */}
+                <Route path="/attorney-dashboard/leadgen/matches/:leadId/:section" element={<NewMatchesPage />} />
+                <Route path="/attorney-dashboard/leadgen/quality" element={<LeadQualityPage />} />
+                <Route path="/attorney-dashboard/leadgen/marketplace" element={<MarketplacePerformancePage />} />
+                {/* Intake now lives under Case Management; keep the old leadgen path as a redirect. */}
+                <Route path="/attorney-dashboard/leadgen/intake" element={<Navigate to="/attorney-dashboard/cases/intake" replace />} />
+                {/* Case Management */}
+                <Route path="/attorney-dashboard/cases/intake" element={<IntakePage />} />
+                <Route path="/attorney-dashboard/cases/active" element={<ActiveCasesPage />} />
+                <Route path="/attorney-dashboard/cases/workspace" element={<CaseWorkspaceLanding />} />
+                <Route path="/attorney-dashboard/cases/calendar" element={<CalendarPage />} />
+                <Route path="/attorney-dashboard/cases/messages" element={<CaseMessagesPage />} />
+                <Route path="/attorney-dashboard/cases/documents" element={<CaseDocumentsHubPage />} />
+                <Route path="/attorney-dashboard/cases/tasks" element={<CaseTasksPage />} />
+                <Route path="/attorney-dashboard/cases/contacts" element={<CaseContactsPage />} />
+                <Route path="/attorney-dashboard/cases/billing" element={<CaseBillingPage />} />
+                <Route path="/attorney-dashboard/cases/copilot" element={<CaseCopilotPage />} />
+                <Route path="/attorney-dashboard/cases/firm" element={<FirmDashboard />} />
+                {/* Single-case workspace (canonical + plan alias) */}
+                <Route path="/attorney-dashboard/lead/:leadId/:section" element={<CaseWorkspacePage />} />
+                <Route path="/attorney-dashboard/cases/:leadId/:section" element={<CaseWorkspacePage />} />
+              </Route>
+              {/* Default landing → new two-domain workspace; ?tab= deep links
+                  still render the legacy dashboard (see AttorneyDashboardEntry). */}
+              <Route path="/attorney-dashboard" element={<AttorneyDashboardEntry />} />
               <Route path="/attorney-dashboard/contacts" element={<ContactsPage />} />
               <Route path="/attorney-dashboard/documents/:leadId" element={<CaseDocumentsPage />} />
               <Route path="/attorney-dashboard/add-contact/:leadId" element={<AddContactPage />} />
@@ -362,7 +453,6 @@ function App() {
               <Route path="/attorney-dashboard/draft-message/:leadId" element={<DraftMessagePage />} />
               <Route path="/attorney-dashboard/events" element={<EventsPage />} />
               <Route path="/attorney-dashboard/calendar" element={<CalendarPage />} />
-              <Route path="/attorney-dashboard/lead/:leadId/:section" element={<AttorneyDashboard />} />
               <Route path="/firm-dashboard" element={<FirmDashboard />} />
               <Route path="/firm-settings" element={<FirmSettings />} />
               <Route path="/attorney-billing" element={<AttorneyBilling />} />

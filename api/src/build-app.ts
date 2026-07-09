@@ -44,11 +44,14 @@ import rose from './routes/rose'
 import adminCommunications from './routes/admin-communications'
 import supportTickets from './routes/support-tickets'
 import attorneyCalendar from './routes/attorney-calendar'
+import attorneyZoom from './routes/attorney-zoom'
 import payments from './routes/payments'
 import intakeLeads from './routes/intake-leads'
 import heuristics from './routes/heuristics'
 import integrations from './routes/integrations'
 import documentPortal from './routes/document-portal'
+import documents from './routes/documents'
+import esignWebhook from './routes/esign-webhook'
 
 /**
  * Fully configured Express app (no listen). Used by index.ts and integration tests.
@@ -100,10 +103,13 @@ export function buildApp(): Express {
   app.use('/v1/feature-toggles', featureToggles)
   app.use('/v1/compliance', compliance)
   app.use('/v1/attorney-calendar', attorneyCalendar)
+  app.use('/v1/attorney-zoom', attorneyZoom)
   app.use('/v1/payments', payments)
   app.use('/v1/heuristics', heuristics)
   app.use('/v1/integrations', integrations)
   app.use('/v1/public/document-requests', documentPortal)
+  app.use('/v1/documents', documents)
+  app.use('/v1/webhooks/esign', esignWebhook)
 
   app.get('/', (req, res) => {
     res.json({

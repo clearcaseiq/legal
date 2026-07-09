@@ -90,7 +90,7 @@ export default function Layout({ children }: LayoutProps) {
     : isAdmin || isAdminArea
       ? '/admin'
       : isAttorney
-        ? '/attorney-dashboard'
+        ? '/attorney-dashboard/leadgen/matches'
         : '/dashboard'
   const shouldLoadPlaintiffSummary = !!authToken && !isAttorney
   const storedUser = getStoredUser<{ firstName?: string }>('user')
@@ -147,7 +147,13 @@ export default function Layout({ children }: LayoutProps) {
   const caseNavItem = isAdmin
     ? { name: 'Cases', href: '/admin/cases', icon: FileTextIcon }
     : isAttorney
-      ? { name: t('common.myCases'), href: '/attorney-dashboard?tab=leads', icon: FileTextIcon }
+      ? {
+          name: t('common.myCases'),
+          // Fixed New Matches route in the two-domain workspace shell — a stable
+          // landing page independent of the last sub-tab browsed (#A3-35).
+          href: '/attorney-dashboard/leadgen/matches',
+          icon: FileTextIcon,
+        }
       : (isAuthenticated || hasCase)
         ? {
             name: hasCase ? t('common.continueMyCase') : 'My Case Status',
@@ -156,14 +162,20 @@ export default function Layout({ children }: LayoutProps) {
           }
         : null
 
-  const navItems = [
+  type NavItem = {
+    name: string
+    href: string
+    icon: typeof FileTextIcon | null
+    state?: unknown
+  }
+  const navItems = ([
     // Marketing links are only relevant pre-login; hide them once a user is
     // signed in so the nav focuses on their workspace (#138).
     isAuthenticated ? null : { name: t('common.howItWorks'), href: navLinks.howItWorks, icon: null },
     caseNavItem,
     isAuthenticated ? null : { name: t('common.forAttorneys'), href: navLinks.forAttorneys, icon: ScaleIcon },
     { name: t('common.help'), href: navLinks.help, icon: HelpCircleIcon },
-  ].filter((item): item is { name: string; href: string; icon: typeof FileTextIcon | null } => Boolean(item))
+  ] as (NavItem | null)[]).filter((item): item is NavItem => item !== null)
 
   const shellIconFallback = <div className="h-9 w-9 rounded-lg bg-slate-100 dark:bg-slate-800" aria-hidden />
   const languageFallback = <div className="h-5 w-16 rounded bg-slate-100 dark:bg-slate-800" aria-hidden />
@@ -210,6 +222,7 @@ export default function Layout({ children }: LayoutProps) {
                   <Link
                     key={item.name}
                     to={item.href}
+                    state={item.state}
                     className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium transition-colors ${
                       isNavItemActive(item.href)
                         ? 'bg-brand-50 text-brand-700 shadow-sm dark:bg-brand-950/40 dark:text-brand-300'
@@ -282,7 +295,7 @@ export default function Layout({ children }: LayoutProps) {
                           {isAdminArea ? t('common.adminDashboard') : t('common.dashboard')}
                         </Link>
                         <Link
-                          to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard?tab=leads' : '/assessments'}
+                          to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard/leadgen/matches' : '/assessments'}
                           onClick={() => setUserMenuOpen(false)}
                           className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
                         >
@@ -447,7 +460,7 @@ export default function Layout({ children }: LayoutProps) {
                   {!isFocusRoute && (
                     <>
                       <Link to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Admin Dashboard' : 'Dashboard'}</Link>
-                      <Link to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard?tab=leads' : navLinks.myCase} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Cases' : isAttorney ? 'My Cases' : (hasCase ? 'Continue My Case' : 'My Case')}</Link>
+                      <Link to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard/leadgen/matches' : navLinks.myCase} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">{isAdminArea ? 'Cases' : isAttorney ? 'My Cases' : (hasCase ? 'Continue My Case' : 'My Case')}</Link>
                       {!isAdmin && (
                         <Link to={isAttorney ? '/attorney-profile' : '/profile'} onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">My Profile</Link>
                       )}

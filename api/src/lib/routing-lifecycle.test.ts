@@ -18,7 +18,6 @@ import {
   attorneyAcceptCase,
   recordRoutingEvent,
   attorneyDeclineCase,
-  attorneyRequestMoreInfo,
   isRoutingLocked,
   runEscalationWave,
   calculateAttorneyReputationScore,
@@ -177,38 +176,6 @@ describe('attorneyDeclineCase', () => {
       status: 'DECLINED',
     } as any)
     const r = await attorneyDeclineCase('intro-1', 'att-1')
-    expect(r.success).toBe(false)
-  })
-})
-
-describe('attorneyRequestMoreInfo', () => {
-  beforeEach(() => {
-    resetUniversalPrismaMock()
-  })
-
-  it('sets REQUESTED_INFO and records event', async () => {
-    vi.mocked(prisma.introduction.findFirst).mockResolvedValue({
-      id: 'intro-1',
-      attorneyId: 'att-1',
-      assessmentId: 'asm-1',
-      status: 'PENDING',
-    } as any)
-
-    const r = await attorneyRequestMoreInfo('intro-1', 'att-1', 'Please upload police report.')
-    expect(r.success).toBe(true)
-    expect(prisma.introduction.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          status: 'REQUESTED_INFO',
-          requestedInfoNotes: 'Please upload police report.',
-        }),
-      })
-    )
-  })
-
-  it('fails when not pending', async () => {
-    vi.mocked(prisma.introduction.findFirst).mockResolvedValue(null)
-    const r = await attorneyRequestMoreInfo('intro-1', 'att-1', 'notes')
     expect(r.success).toBe(false)
   })
 })

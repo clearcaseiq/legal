@@ -117,7 +117,8 @@ Weighted score (tunable):
 | GET | `/v1/case-routing/introductions/:id/summary` | Case snapshot for review (Step 9) |
 | POST | `/v1/case-routing/introductions/:id/accept` | Accept case (Step 10) |
 | POST | `/v1/case-routing/introductions/:id/decline` | Decline case (body: `{ declineReason? }`) |
-| POST | `/v1/case-routing/introductions/:id/request-info` | Request more info (body: `{ notes }`) |
+
+> Note: A pre-acceptance "request more info" decision no longer exists. On a PENDING introduction the attorney may only accept or decline. Requesting documents/info from the client is a post-acceptance action handled by the DocumentRequest flow (`POST /leads/:leadId/document-request`).
 
 ### Plaintiff
 | Method | Path | Description |

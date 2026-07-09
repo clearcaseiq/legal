@@ -36,6 +36,16 @@ export const ENV = {
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
   STRIPE_PLATFORM_SUBSCRIPTION_PRICE_ID: process.env.STRIPE_PLATFORM_SUBSCRIPTION_PRICE_ID,
   STRIPE_LEAD_CREDIT_PRICE_ID: process.env.STRIPE_LEAD_CREDIT_PRICE_ID,
+  // ---- E-signature (retainers, HIPAA authorizations) ----
+  /** Default provider: 'dropbox_sign' | 'documenso'. Adapters in lib/esign/. */
+  ESIGN_PROVIDER: process.env.ESIGN_PROVIDER,
+  /** Dropbox Sign (HelloSign) API key. */
+  DROPBOX_SIGN_API_KEY: process.env.DROPBOX_SIGN_API_KEY,
+  /** Self-hosted Documenso v2 API base, e.g. https://sign.yourfirm.com/api/v2. */
+  DOCUMENSO_API_URL: process.env.DOCUMENSO_API_URL,
+  DOCUMENSO_API_KEY: process.env.DOCUMENSO_API_KEY,
+  /** Shared secret verified against the Documenso webhook header. */
+  DOCUMENSO_WEBHOOK_SECRET: process.env.DOCUMENSO_WEBHOOK_SECRET,
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
   GOOGLE_CALENDAR_CLIENT_ID: process.env.GOOGLE_CALENDAR_CLIENT_ID,
@@ -48,6 +58,12 @@ export const ENV = {
   MICROSOFT_CALENDAR_WEBHOOK_URI: process.env.MICROSOFT_CALENDAR_WEBHOOK_URI,
   CALENDAR_WEBHOOK_RENEWAL_ENABLED: process.env.CALENDAR_WEBHOOK_RENEWAL_ENABLED !== 'false',
   CALENDAR_WEBHOOK_RENEWAL_INTERVAL_MS: Number(process.env.CALENDAR_WEBHOOK_RENEWAL_INTERVAL_MS ?? 15 * 60 * 1000),
+  // ---- Zoom (per-attorney OAuth) ----
+  /** Zoom Marketplace OAuth app credentials (User-managed app). */
+  ZOOM_CLIENT_ID: process.env.ZOOM_CLIENT_ID,
+  ZOOM_CLIENT_SECRET: process.env.ZOOM_CLIENT_SECRET,
+  /** Defaults to `${API_URL}/v1/attorney-zoom/callback` when unset. */
+  ZOOM_REDIRECT_URI: process.env.ZOOM_REDIRECT_URI,
   APPLE_CLIENT_ID: process.env.APPLE_CLIENT_ID,
   APPLE_TEAM_ID: process.env.APPLE_TEAM_ID,
   APPLE_KEY_ID: process.env.APPLE_KEY_ID,

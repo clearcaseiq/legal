@@ -9,6 +9,7 @@ import { runAppointmentEngagementSweep } from './lib/appointment-engagement'
 import { retryPendingPlatformNotifications } from './lib/platform-notifications'
 import { runIntakeAbandonmentSweep } from './lib/intake-abandonment'
 import { runRoutingEscalationSweep } from './lib/routing-escalation-sweep'
+import { runOfferExpirySweep } from './lib/offer-expiry-sweep'
 
 const app = buildApp()
 
@@ -17,6 +18,7 @@ let appointmentEngagementTimer: NodeJS.Timeout | null = null
 let notificationRetryTimer: NodeJS.Timeout | null = null
 let intakeAbandonmentTimer: NodeJS.Timeout | null = null
 let routingEscalationTimer: NodeJS.Timeout | null = null
+let offerExpiryTimer: NodeJS.Timeout | null = null
 
 async function runCalendarWebhookRenewalSweep(trigger: 'startup' | 'interval') {
   try {
@@ -133,6 +135,29 @@ function startRoutingEscalationLoop() {
   }, intervalMs)
 }
 
+async function runOfferExpiryLoop(trigger: 'startup' | 'interval') {
+  try {
+    const result = await runOfferExpirySweep()
+    if (result.expired > 0 || trigger === 'startup') {
+      logger.info('Offer expiry sweep completed', {
+        trigger,
+        ...result,
+      })
+    }
+  } catch (error) {
+    logger.error('Offer expiry sweep failed', { error, trigger })
+  }
+}
+
+function startOfferExpiryLoop() {
+  // Attorney response windows are short (minutes), so sweep frequently.
+  const intervalMs = 60 * 1000
+  void runOfferExpiryLoop('startup')
+  offerExpiryTimer = setInterval(() => {
+    void runOfferExpiryLoop('interval')
+  }, intervalMs)
+}
+
 const server = app.listen(ENV.PORT, ENV.HOST, () => {
   logger.info(`API server listening on http://${ENV.HOST}:${ENV.PORT}`)
   startCalendarWebhookRenewalLoop()
@@ -140,6 +165,7 @@ const server = app.listen(ENV.PORT, ENV.HOST, () => {
   startNotificationRetryLoop()
   startIntakeAbandonmentLoop()
   startRoutingEscalationLoop()
+  startOfferExpiryLoop()
 })
 
 function stopBackgroundLoops() {
@@ -148,6 +174,7 @@ function stopBackgroundLoops() {
   if (notificationRetryTimer) clearInterval(notificationRetryTimer)
   if (intakeAbandonmentTimer) clearInterval(intakeAbandonmentTimer)
   if (routingEscalationTimer) clearInterval(routingEscalationTimer)
+  if (offerExpiryTimer) clearInterval(offerExpiryTimer)
   calendarWebhookRenewalTimer = null
   appointmentEngagementTimer = null
   notificationRetryTimer = null

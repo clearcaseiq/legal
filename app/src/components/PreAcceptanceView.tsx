@@ -48,7 +48,6 @@ interface PreAcceptanceViewProps {
   attorneyProfile?: { specialties?: string[]; venues?: string[] }
   onAccept: () => void
   onDecline: () => void
-  onRequestInfo?: (notes: string) => void
   loading?: boolean
   caseExpiresAt?: Date | null
   /** When true, hide Accept/Decline buttons (case already accepted) */
@@ -69,21 +68,17 @@ export default function PreAcceptanceView({
   leadEvidenceFiles,
   evidenceChecklist,
   venueSignal,
-  comparableCount,
   comparableAvgSettlement,
   venueState,
   attorneyProfile,
   onAccept,
   onDecline,
-  onRequestInfo,
   loading,
   caseExpiresAt,
   accepted = false
 }: PreAcceptanceViewProps) {
   const heuristics = useHeuristics()
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [requestInfoOpen, setRequestInfoOpen] = useState(false)
-  const [requestInfoNotes, setRequestInfoNotes] = useState('')
   const [activeTab, setActiveTab] = useState<'snapshot' | 'value' | 'risks' | 'documents' | 'decision'>('snapshot')
   const [now, setNow] = useState(() => Date.now())
 
@@ -198,6 +193,15 @@ export default function PreAcceptanceView({
   const timeRemainingMs = caseExpiresAt ? caseExpiresAt.getTime() - now : null
   const isExpired = timeRemainingMs != null && timeRemainingMs <= 0
   const expiresIn = timeRemainingMs != null ? formatCountdown(timeRemainingMs) : null
+  // The case is claimed by someone else when it's routing-locked (only set on an
+  // accept) while this attorney has not accepted it. In that state accepting/paying
+  // must be blocked outright — an expired window alone still leaves it available.
+  const caseTaken =
+    !accepted &&
+    (!!selectedLead?.routingLocked || selectedLead?.offerStatus === 'ACCEPTED')
+  // Once the response window lapses (or the case is taken) the attorney can no longer
+  // act on the match: Accept/Decline are disabled and grayed out.
+  const decisionLocked = !accepted && (caseTaken || isExpired)
   const deadlineUrgency = expiresIn
     ? isExpired ? 'Response window expired' : `Response window: ${expiresIn}`
     : 'No response deadline shown'
@@ -226,15 +230,37 @@ export default function PreAcceptanceView({
             <div className="flex gap-3">
               <button
                 onClick={onAccept}
-                disabled={loading || isExpired}
-                className="px-6 py-3 text-base font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50"
+                disabled={loading || decisionLocked}
+                title={
+                  caseTaken
+                    ? 'This case has been assigned to another attorney'
+                    : isExpired
+                      ? 'The response window for this match has expired'
+                      : undefined
+                }
+                className={`px-6 py-3 text-base font-semibold text-white rounded-lg ${
+                  decisionLocked
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-green-600 hover:bg-green-700 disabled:opacity-50'
+                }`}
               >
-                {routingFee ? `Accept Case - ${routingFee}` : 'Accept Case'}
+                {caseTaken
+                  ? 'No longer available'
+                  : isExpired
+                    ? 'Response window expired'
+                    : routingFee
+                      ? `Accept Case - ${routingFee}`
+                      : 'Accept Case'}
               </button>
               <button
                 onClick={onDecline}
-                disabled={loading || isExpired}
-                className="px-6 py-3 text-base font-semibold text-red-600 border-2 border-red-300 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                disabled={loading || decisionLocked}
+                title={isExpired && !caseTaken ? 'The response window for this match has expired' : undefined}
+                className={`px-6 py-3 text-base font-semibold rounded-lg border-2 ${
+                  decisionLocked
+                    ? 'border-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'text-red-600 border-red-300 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed'
+                }`}
               >
                 Decline
               </button>
@@ -287,21 +313,30 @@ export default function PreAcceptanceView({
                   {routingPricing?.description ? ` - ${routingPricing.description}` : ''}
                 </p>
               </div>
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-700">
+              <span className="rounded-full bg-white px-3 py-1 text-center text-xs font-semibold text-blue-700">
                 Due on acceptance
               </span>
             </div>
           </div>
         )}
-        {!accepted && expiresIn && (
-          <div className={`mt-4 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${
-            isExpired
-              ? 'border-red-200 bg-red-50 text-red-700'
-              : 'border-amber-200 bg-amber-50 text-amber-800'
-          }`}>
+        {!accepted && caseTaken && (
+          <div className="mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
             <Clock className="h-4 w-4" />
-            <span>{isExpired ? 'Response window expired' : `Time left to accept: ${expiresIn}`}</span>
+            <span>This case has been assigned to another attorney. It is no longer available to accept.</span>
           </div>
+        )}
+        {!accepted && !caseTaken && expiresIn && (
+          isExpired ? (
+            <div className="mt-4 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+              <Clock className="h-4 w-4" />
+              <span>Response window expired — this match has been released to another attorney and can no longer be accepted.</span>
+            </div>
+          ) : (
+            <div className="mt-4 inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+              <Clock className="h-4 w-4" />
+              <span>Time left to accept: {expiresIn}</span>
+            </div>
+          )
         )}
         {medicalSharingPending && (
           <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -315,46 +350,6 @@ export default function PreAcceptanceView({
         <div className="flex flex-wrap items-center gap-4">
           <div className="inline-flex items-center px-4 py-2 rounded-lg bg-green-100 text-green-800 font-medium">
             ✓ Case Accepted
-          </div>
-          {onRequestInfo && (
-            <button
-              onClick={() => setRequestInfoOpen(true)}
-              disabled={loading}
-              className="px-6 py-3 text-base font-semibold text-amber-600 border-2 border-amber-300 rounded-lg hover:bg-amber-50 disabled:opacity-50"
-            >
-              Request Info
-            </button>
-          )}
-        </div>
-      )}
-
-      {requestInfoOpen && onRequestInfo && accepted && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-          <label className="block text-sm font-medium text-gray-700 mb-2">What information do you need?</label>
-          <textarea
-            value={requestInfoNotes}
-            onChange={(e) => setRequestInfoNotes(e.target.value)}
-            placeholder="e.g. medical records, police report, wage loss documentation..."
-            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm mb-3"
-            rows={3}
-          />
-          <div className="flex gap-2">
-            <button
-              onClick={() => {
-                onRequestInfo(requestInfoNotes)
-                setRequestInfoOpen(false)
-                setRequestInfoNotes('')
-              }}
-              className="px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-md hover:bg-amber-700"
-            >
-              Send Request
-            </button>
-            <button
-              onClick={() => setRequestInfoOpen(false)}
-              className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
-            >
-              Cancel
-            </button>
           </div>
         </div>
       )}
@@ -423,7 +418,6 @@ export default function PreAcceptanceView({
               <div className="rounded-lg border border-slate-200 p-4">
                 <h3 className="text-sm font-semibold text-slate-900">Comparable Case Signal</h3>
                 <dl className="mt-3 space-y-2 text-sm">
-                  <InfoRow label="Similar Cases" value={comparableCount != null ? `${comparableCount} On File` : 'Not Enough Data'} />
                   <InfoRow label="Typical Range" value={valueLow && valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : '—'} />
                   <InfoRow label="Venue Signal" value={venueSignal || 'No Venue Data'} />
                   <InfoRow label="Average Settlement" value={comparableAvgSettlement ? formatCurrency(comparableAvgSettlement) : '—'} />
@@ -458,9 +452,9 @@ export default function PreAcceptanceView({
               )}
               <div className="grid gap-3 md:grid-cols-4">
                 {evidenceList.map((item) => (
-                  <div key={item.label} className="rounded-lg border border-slate-200 p-4">
+                  <div key={item.label} className="flex h-full flex-col rounded-lg border border-slate-200 p-4">
                     <p className="text-sm font-semibold text-slate-900">{item.label}</p>
-                    <p className={`mt-2 text-sm font-medium ${item.status === 'Uploaded' ? 'text-green-700' : 'text-amber-700'}`}>
+                    <p className={`mt-auto pt-2 text-sm font-medium ${item.status === 'Uploaded' ? 'text-green-700' : 'text-amber-700'}`}>
                       {item.status}
                     </p>
                   </div>
@@ -497,10 +491,31 @@ export default function PreAcceptanceView({
                 )}
                 {!accepted && (
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <button onClick={onAccept} disabled={loading} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50">
-                      {routingFee ? `Accept - ${routingFee}` : 'Accept'}
+                    <button
+                      onClick={onAccept}
+                      disabled={loading || decisionLocked}
+                      title={
+                        caseTaken
+                          ? 'This case has been assigned to another attorney'
+                          : isExpired
+                            ? 'The response window for this match has expired'
+                            : undefined
+                      }
+                      className={`rounded-lg px-4 py-2 text-sm font-semibold text-white ${
+                        decisionLocked ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 disabled:opacity-50'
+                      }`}
+                    >
+                      {caseTaken ? 'No longer available' : isExpired ? 'Response window expired' : routingFee ? `Accept - ${routingFee}` : 'Accept'}
                     </button>
-                    <button onClick={onDecline} disabled={loading} className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">
+                    <button
+                      onClick={onDecline}
+                      disabled={loading || decisionLocked}
+                      className={`rounded-lg border px-4 py-2 text-sm font-semibold ${
+                        decisionLocked
+                          ? 'border-gray-200 text-gray-400 cursor-not-allowed'
+                          : 'border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50'
+                      }`}
+                    >
                       Decline with reason
                     </button>
                   </div>
@@ -637,7 +652,7 @@ export default function PreAcceptanceView({
         <h3 className="text-sm font-semibold text-gray-900 mb-2">
           Comparable Cases {venueState ? `(${venueState})` : ''}
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div>
             <span className="text-gray-500">Average Settlement:</span>
             <p className="font-medium">
@@ -647,10 +662,6 @@ export default function PreAcceptanceView({
           <div>
             <span className="text-gray-500">Typical Range:</span>
             <p className="font-medium">{valueLow && valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : '—'}</p>
-          </div>
-          <div>
-            <span className="text-gray-500">Similar Cases Accepted:</span>
-            <p className="font-medium">{comparableCount != null ? `${comparableCount} On File` : '—'}</p>
           </div>
         </div>
       </div>

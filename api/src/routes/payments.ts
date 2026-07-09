@@ -104,6 +104,15 @@ async function getAuthorizedLeadForAttorney(req: AuthRequest, leadId: string) {
     return { error: { status: 403, message: 'Not authorized to access this lead' } }
   }
 
+  // Guard against paying for a case already claimed by another attorney. routingLocked
+  // is only set when a case is accepted, so a lock held by a different attorney means
+  // the case is gone — never let a stale client start a routing-fee checkout for it.
+  const claimedByOther =
+    !!lead.routingLocked && !!lead.assignedAttorneyId && lead.assignedAttorneyId !== attorney.id
+  if (claimedByOther) {
+    return { error: { status: 409, message: 'This case has already been assigned to another attorney.' } }
+  }
+
   return { attorney, lead }
 }
 
@@ -466,52 +475,26 @@ router.post('/platform/routing-fee-session', authMiddleware, async (req: AuthReq
     const stripe = getStripe()
     const customerId = await getOrCreateStripeCustomer(attorney, stripe)
 
-    const defaultPaymentMethodId = await getDefaultPaymentMethodId(stripe, customerId)
-    if (defaultPaymentMethodId) {
-      try {
-        const paymentIntent = await stripe.paymentIntents.create({
-          amount: pricingTier.priceCents,
-          currency: 'usd',
-          customer: customerId,
-          payment_method: defaultPaymentMethodId,
-          off_session: true,
-          confirm: true,
-          description: `CaseIQ routing fee: ${pricingTier.label}`,
-          metadata,
-        })
-
-        await db.platformPayment.create({
-          data: {
-            attorneyId: attorney.id,
-            type: 'routing_fee',
-            amount,
-            status: paymentIntent.status,
-            stripeCustomerId: customerId,
-            stripePaymentIntentId: paymentIntent.id,
-            metadata: JSON.stringify(metadata),
-          },
-        })
-
-        return res.json({
-          status: paymentIntent.status,
-          paymentIntentId: paymentIntent.id,
-          chargedAutomatically: paymentIntent.status === 'succeeded',
-        })
-      } catch (chargeError: any) {
-        logger.warn('Saved card could not be charged off-session; falling back to Checkout', {
-          attorneyId: attorney.id,
-          leadId: lead.id,
-          error: chargeError?.message,
-        })
-      }
-    }
-
+    // Always send the attorney to hosted Stripe Checkout so they can review and
+    // confirm the routing fee. When they already saved a default card (during
+    // onboarding or later), Checkout surfaces and pre-selects it via
+    // `saved_payment_method_options` + the customer's default_payment_method,
+    // instead of silently charging off-session with no confirmation step.
     const successUrl = req.body?.successUrl || webUrl(`/payment/success?type=routing_fee&leadId=${encodeURIComponent(lead.id)}&session_id={CHECKOUT_SESSION_ID}`)
     const cancelUrl = req.body?.cancelUrl || webUrl(`/payment/cancel?type=routing_fee&leadId=${encodeURIComponent(lead.id)}`)
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       customer: customerId,
       payment_method_types: ['card'],
+      // Surface the attorney's stored cards in Checkout so a saved default is
+      // pre-selected. `allow_redisplay_filters` must include the saved card's
+      // allow_redisplay value for it to appear; cards saved via our SetupIntent
+      // flow are 'always', but include the full set so older/unspecified cards
+      // still show. (We don't set `payment_method_save` here because it conflicts
+      // with `payment_intent_data.setup_future_usage`, which already saves the card.)
+      saved_payment_method_options: {
+        allow_redisplay_filters: ['always', 'limited', 'unspecified'],
+      },
       success_url: successUrl,
       cancel_url: cancelUrl,
       metadata,

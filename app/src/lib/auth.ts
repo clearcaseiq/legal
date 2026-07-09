@@ -54,6 +54,7 @@ export function getLoginRedirect(pathname: string, role?: WebAppRole) {
 
 export function getPostLoginRoute(role?: WebAppRole | null) {
   if (role === 'admin') return '/admin'
-  if (role === 'attorney') return '/attorney-dashboard'
+  // Attorneys land in the two-domain workspace (Lead Generation / Case Management).
+  if (role === 'attorney') return '/attorney-dashboard/leadgen/matches'
   return '/dashboard'
 }

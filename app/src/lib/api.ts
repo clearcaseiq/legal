@@ -765,6 +765,13 @@ export async function getAttorneyUnreadCount() {
   return data
 }
 
+// Consolidated attorney messaging summary: total unread + awaiting-reply counts
+// plus a per-conversation breakdown, in a single call (see messaging route).
+export async function getAttorneyUnreadSummary() {
+  const { data } = await api.get('/v1/messaging/attorney/unread-summary')
+  return data
+}
+
 export async function getOrCreateAttorneyChatRoom(userId: string | null | undefined, assessmentId?: string) {
   const { data } = await api.post('/v1/attorney-dashboard/messaging/chat-room', { userId: userId || undefined, assessmentId })
   return data
@@ -1284,6 +1291,30 @@ export async function disconnectAttorneyCalendar(provider: 'google' | 'microsoft
   return data as { disconnected: boolean }
 }
 
+export interface AttorneyZoomStatus {
+  configured: boolean
+  connected: boolean
+  email?: string | null
+  displayName?: string | null
+  syncStatus?: string
+  updatedAt?: string
+}
+
+export async function getAttorneyZoomStatus() {
+  const { data } = await api.get('/v1/attorney-zoom/status')
+  return data as AttorneyZoomStatus
+}
+
+export async function getAttorneyZoomConnectUrl() {
+  const { data } = await api.post('/v1/attorney-zoom/connect')
+  return data as { authorizeUrl: string }
+}
+
+export async function disconnectAttorneyZoom() {
+  const { data } = await api.delete('/v1/attorney-zoom')
+  return data as { disconnected: boolean }
+}
+
 export async function getAttorneyRoiAnalytics(params?: { period?: string; startDate?: string; endDate?: string }) {
   const { data } = await api.get('/v1/attorney-dashboard/analytics/roi', { params })
   return data
@@ -1497,6 +1528,30 @@ export async function getCaseContacts(leadId: string) {
 
 export async function getAllCaseContacts() {
   const { data } = await api.get(`/v1/attorney-dashboard/case-contacts`)
+  return data
+}
+
+// Firm-wide contacts directory (all attorneys in the firm). Firm-admin scoped.
+export async function getFirmCaseContacts() {
+  const { data } = await api.get(`/v1/firm-dashboard/case-contacts`)
+  return data
+}
+
+// Per-team caseload aggregation (+ office capacity utilization). Firm-admin scoped.
+export async function getFirmTeamCaseload() {
+  const { data } = await api.get(`/v1/firm-dashboard/teams/caseload`)
+  return data
+}
+
+// Cross-case task queue for the signed-in attorney (overdue/today/upcoming/noDueDate).
+export async function getAttorneyTaskSummary() {
+  const { data } = await api.get(`/v1/attorney-dashboard/tasks/summary`)
+  return data
+}
+
+// Fees collected year-to-date, with a per-case breakdown.
+export async function getAttorneyFeesYtd() {
+  const { data } = await api.get(`/v1/attorney-dashboard/fees/ytd`)
   return data
 }
 
@@ -1723,6 +1778,21 @@ export async function scheduleConsultation(
 export async function getLeadEvidenceFiles(leadId: string) {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/evidence`)
   return data
+}
+
+// Download an evidence/case document by its stored fileUrl (e.g. /uploads/evidence/..)
+// as a blob so the browser saves it with the original filename in every environment
+// (same-origin in prod, via the API instance cross-origin in dev).
+export async function downloadEvidenceByUrl(fileUrl: string, fileName: string) {
+  const { data } = await api.get<Blob>(fileUrl, { responseType: 'blob' })
+  const url = URL.createObjectURL(data)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName || 'document'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 // Attorney uploads a document on behalf of the client. The file attaches to the

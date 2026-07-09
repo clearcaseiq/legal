@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react'
-import { Calendar, MessageSquare, Phone } from 'lucide-react'
+import { ArrowLeft, Calendar, MessageSquare, Phone } from 'lucide-react'
 import PreAcceptanceView from './PreAcceptanceView'
 import PersistentCaseHeader from './PersistentCaseHeader'
-import NextBestActionWidget from './NextBestActionWidget'
 import { formatCurrency, formatPercentage } from '../lib/formatters'
 import { getAttorneyCaseStatusKey, caseStatusLabel } from '../lib/caseStatus'
 import { formatLeadCaseId } from '../lib/caseId'
@@ -165,63 +164,88 @@ export default function AttorneyDashboardLeadDetail({
   copilotLoading,
 }: AttorneyDashboardLeadDetailProps) {
   const heuristics = useHeuristics()
+
+  // Component-scope viability breakdown for the non-post-acceptance summary
+  // below. Mirrors the inner header logic: use the first positive of the
+  // component score, the prediction's viability sub-score, then the overall
+  // viability — so we never show a contradictory 0% next to a real case value.
+  const viabilityBreakdown = (() => {
+    const prediction = (selectedLeadPrediction || {}) as any
+    const viabilityObj = (prediction?.viability || {}) as any
+    const overallViability = Number(selectedLead?.viabilityScore ?? viabilityObj.overall ?? 0) || 0
+    const firstPositiveScore = (...vals: any[]) => {
+      for (const v of vals) {
+        const n = Number(v)
+        if (Number.isFinite(n) && n > 0) return n
+      }
+      return 0
+    }
+    return {
+      liability: firstPositiveScore(selectedLead?.liabilityScore, viabilityObj.liability, overallViability),
+      causation: firstPositiveScore(selectedLead?.causationScore, viabilityObj.causation, overallViability),
+      damages: firstPositiveScore(selectedLead?.damagesScore, viabilityObj.damages, overallViability),
+    }
+  })()
+  const liabilityForDisplay = viabilityBreakdown.liability
+  const causationForDisplay = viabilityBreakdown.causation
+  const damagesForDisplay = viabilityBreakdown.damages
+
   return (
     <div className={leadWrapperClass}>
       <div className={leadContainerClass}>
         <div className="mt-3">
-          <div className="premium-panel mb-4 flex items-center justify-between p-4">
-            <div className="flex items-center gap-3">
-              {isLeadSection ? (
-                <button onClick={onBackToOverview} className="btn-ghost">
-                  ← Back to overview
-                </button>
-              ) : null}
-              <h3 className="font-display text-ui-xl font-semibold text-slate-950">Lead Details</h3>
-            </div>
-            <div className="flex items-center gap-2">
+          {/* Inside the workspace shell the header matches the Active Cases / Case
+              Workspace look (slate back link + page title). The legacy modal keeps its
+              boxed header with a close control. */}
+          {isLeadSection ? (
+            <>
               <button
-                onClick={handleDownloadCaseFile}
-                disabled={caseFileLoading}
-                className="btn-outline disabled:opacity-50"
+                onClick={onBackToOverview}
+                className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-800"
               >
-                {caseFileLoading ? 'Preparing…' : 'Download Case File'}
+                <ArrowLeft className="h-4 w-4" /> New matches
               </button>
-              <button onClick={onClose} className="btn-ghost">
-                ✕
-              </button>
-            </div>
-          </div>
-
-          <div className="subtle-panel mb-4 flex items-center justify-between px-4 py-3">
-            <div
-              className="status-pill-info"
-              title={
-                isPostAcceptance
-                  ? 'This case has been accepted. The full case-management workspace (medical chronology, demand factory, tasks, and negotiation) is unlocked.'
-                  : 'This is a new match you are reviewing. Accept it to unlock the full case-management workspace.'
-              }
-            >
-              {isPostAcceptance ? 'Post-Acceptance · Case accepted' : 'Pre-Acceptance · New match under review'}
-            </div>
-            {!isPostAcceptance && (!selectedLead.status || selectedLead.status === 'submitted') ? (
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h1 className="text-xl font-bold text-slate-900">Lead Details</h1>
+                  <p className="mt-1 max-w-2xl text-sm text-slate-500">
+                    {isPostAcceptance ? 'Full case details.' : 'Read-only review of this routed match.'}
+                  </p>
+                </div>
+                {/* Case-file download is gated until the case is accepted — no file
+                    access during the pre-acceptance review stage. */}
+                {isPostAcceptance ? (
+                  <button
+                    onClick={handleDownloadCaseFile}
+                    disabled={caseFileLoading}
+                    className="btn-outline disabled:opacity-50"
+                  >
+                    {caseFileLoading ? 'Preparing…' : 'Download Case File'}
+                  </button>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <div className="premium-panel mb-4 flex items-center justify-between p-4">
+              <div className="flex items-center gap-3">
+                <h3 className="font-display text-ui-xl font-semibold text-slate-950">Lead Details</h3>
+              </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleLeadDecision(selectedLead.id, 'reject')}
-                  disabled={leadDecisionLoading}
-                  className="status-pill-danger hover:bg-red-100 disabled:opacity-50"
-                >
-                  Decline
-                </button>
-                <button
-                  onClick={() => handleLeadDecision(selectedLead.id, 'accept')}
-                  disabled={leadDecisionLoading}
-                  className="btn-primary disabled:opacity-50"
-                >
-                  Accept
+                {isPostAcceptance ? (
+                  <button
+                    onClick={handleDownloadCaseFile}
+                    disabled={caseFileLoading}
+                    className="btn-outline disabled:opacity-50"
+                  >
+                    {caseFileLoading ? 'Preparing…' : 'Download Case File'}
+                  </button>
+                ) : null}
+                <button onClick={onClose} className="btn-ghost">
+                  ✕
                 </button>
               </div>
-            ) : null}
-          </div>
+            </div>
+          )}
 
           {isPostAcceptance && selectedLead.assignedAttorneyId === currentAttorneyId && firmAttorneys.length > 1 ? (
             <div className="subtle-panel mb-4 border-brand-100 bg-brand-50 px-4 py-3">
@@ -253,31 +277,31 @@ export default function AttorneyDashboardLeadDetail({
             </div>
           ) : null}
 
-          <div className="mb-4">
-            <nav className="flex flex-wrap gap-2 text-sm">
-              <button
-                onClick={() => setLeadPhaseTab('pre')}
-                className={`workspace-tab ${
-                  leadPhaseTab === 'pre'
-                    ? 'workspace-tab-active'
-                    : ''
-                }`}
-              >
-                Pre-Acceptance
-              </button>
-              <button
-                onClick={() => setLeadPhaseTab('post')}
-                disabled={!isPostAcceptance}
-                className={`workspace-tab ${
-                  leadPhaseTab === 'post'
-                    ? 'workspace-tab-active'
-                    : ''
-                } ${!isPostAcceptance ? 'opacity-40 cursor-not-allowed' : ''}`}
-              >
-                Post-Acceptance (full details)
-              </button>
-            </nav>
-          </div>
+          {/* Once a case is accepted it's post-acceptance only — drop the
+              Pre-Acceptance tab (and the now single-option tab bar). */}
+          {!isPostAcceptance ? (
+            <div className="mb-4">
+              <nav className="flex flex-wrap gap-2 text-sm">
+                <button
+                  onClick={() => setLeadPhaseTab('pre')}
+                  className={`workspace-tab ${
+                    leadPhaseTab === 'pre'
+                      ? 'workspace-tab-active'
+                      : ''
+                  }`}
+                >
+                  Pre-Acceptance
+                </button>
+                <button
+                  onClick={() => setLeadPhaseTab('post')}
+                  disabled
+                  className="workspace-tab opacity-40 cursor-not-allowed"
+                >
+                  Post-Acceptance (full details)
+                </button>
+              </nav>
+            </div>
+          ) : null}
 
           {leadPhaseTab === 'post' && isLeadSection && isPostAcceptance && activeWorkstream !== 'overview' ? (
               <div className="premium-panel mb-4 border-brand-100 bg-brand-50 px-4 py-3">
@@ -308,6 +332,26 @@ export default function AttorneyDashboardLeadDetail({
             const prediction = (selectedLeadPrediction || {}) as any
             const analysis = (selectedLeadAnalysis || {}) as any
             const bands = prediction?.bands || {}
+            // Viability breakdown coherence (A3-29): the valuation engine clamps every
+            // component (liability/causation/damages) to >= 0.05 and always stores them
+            // alongside the value bands. So a rendered 0% never means "no merit" — it
+            // means that specific sub-score is missing for this lead (legacy/partial
+            // prediction) while the overall score and value are real. Showing "Liability
+            // 0%" next to a six-figure value is contradictory, so we fall back to the
+            // overall viability when a component is absent, and only show "—" when there
+            // is genuinely no score at all.
+            const viabilityObj = (prediction?.viability || {}) as any
+            const overallViability = Number(selectedLead?.viabilityScore ?? viabilityObj.overall ?? 0) || 0
+            const firstPositiveScore = (...vals: any[]) => {
+              for (const v of vals) {
+                const n = Number(v)
+                if (Number.isFinite(n) && n > 0) return n
+              }
+              return 0
+            }
+            const liabilityForDisplay = firstPositiveScore(selectedLead.liabilityScore, viabilityObj.liability, overallViability)
+            const causationForDisplay = firstPositiveScore(selectedLead.causationScore, viabilityObj.causation, overallViability)
+            const damagesForDisplay = firstPositiveScore(selectedLead.damagesScore, viabilityObj.damages, overallViability)
             const explain = prediction?.explain || {}
             const comparable = analysis?.comparableCaseData || {}
             const normalizeSignal = (value: any) => {
@@ -493,7 +537,7 @@ export default function AttorneyDashboardLeadDetail({
                   bands={bands}
                   viability={prediction?.viability || {}}
                   confidenceScore={confidenceScore}
-                  liabilityScore={selectedLead.liabilityScore || prediction?.viability?.liability || 0}
+                  liabilityScore={liabilityForDisplay}
                   comparativeRisk={comparativeRisk}
                   treatments={treatments}
                   treatmentContinuity={treatmentContinuity}
@@ -511,7 +555,6 @@ export default function AttorneyDashboardLeadDetail({
                     setDeclineLeadId(selectedLead.id)
                     setDeclineModalOpen(true)
                   }}
-                  onRequestInfo={(notes) => handleLeadDecision(selectedLead.id, 'reject', notes)}
                   loading={leadDecisionLoading}
                   caseExpiresAt={expiresAt}
                   accepted={isPostAcceptance}
@@ -838,7 +881,6 @@ export default function AttorneyDashboardLeadDetail({
                   ) : null}
                   {renderWorkstream(activeWorkstream)}
                 </div>
-                <NextBestActionWidget actions={nextActionsForWidget} maxVisible={3} />
               </>
             )
           })()}
@@ -862,15 +904,15 @@ export default function AttorneyDashboardLeadDetail({
                 <div className="grid grid-cols-3 gap-2 mt-2">
                   <div className="text-center p-2 bg-blue-50 rounded">
                     <div className="text-sm font-medium">Liability</div>
-                    <div className="text-lg font-bold text-blue-600">{formatPercentage(selectedLead.liabilityScore || (selectedLeadPrediction?.viability as any)?.liability || 0)}</div>
+                    <div className="text-lg font-bold text-blue-600">{liabilityForDisplay > 0 ? formatPercentage(liabilityForDisplay) : '—'}</div>
                   </div>
                   <div className="text-center p-2 bg-green-50 rounded">
                     <div className="text-sm font-medium">Causation</div>
-                    <div className="text-lg font-bold text-green-600">{formatPercentage(selectedLead.causationScore || (selectedLeadPrediction?.viability as any)?.causation || 0)}</div>
+                    <div className="text-lg font-bold text-green-600">{causationForDisplay > 0 ? formatPercentage(causationForDisplay) : '—'}</div>
                   </div>
                   <div className="text-center p-2 bg-purple-50 rounded">
                     <div className="text-sm font-medium">Damages</div>
-                    <div className="text-lg font-bold text-purple-600">{formatPercentage(selectedLead.damagesScore || (selectedLeadPrediction?.viability as any)?.damages || 0)}</div>
+                    <div className="text-lg font-bold text-purple-600">{damagesForDisplay > 0 ? formatPercentage(damagesForDisplay) : '—'}</div>
                   </div>
                 </div>
               </div>

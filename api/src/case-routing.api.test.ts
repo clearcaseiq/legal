@@ -9,7 +9,6 @@ vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
 vi.mock('./lib/routing-lifecycle', () => ({
   attorneyAcceptCase: vi.fn(),
   attorneyDeclineCase: vi.fn(),
-  attorneyRequestMoreInfo: vi.fn(),
   recordRoutingEvent: vi.fn().mockResolvedValue(undefined),
 }))
 
@@ -260,40 +259,25 @@ describe('POST /v1/case-routing/introductions/:id/decline', () => {
   })
 })
 
-describe('POST /v1/case-routing/introductions/:id/request-info', () => {
+describe('POST /v1/case-routing/introductions/:id/request-info (removed)', () => {
   const app = buildApp()
 
   beforeEach(() => {
     resetUniversalPrismaMock()
     vi.mocked(prisma.user.findUnique).mockResolvedValue(attorneyUser as any)
     vi.mocked(prisma.attorney.findFirst).mockResolvedValue({ id: 'att-1' } as any)
-    vi.mocked(lifecycle.attorneyRequestMoreInfo).mockReset()
   })
 
-  it('400 when notes missing', async () => {
-    const res = await request(app)
-      .post('/v1/case-routing/introductions/intro-1/request-info')
-      .set(authHeader(attorneyUser.id))
-      .send({})
-
-    expect(res.status).toBe(400)
-    expect(lifecycle.attorneyRequestMoreInfo).not.toHaveBeenCalled()
-  })
-
-  it('200 when lifecycle succeeds', async () => {
-    vi.mocked(lifecycle.attorneyRequestMoreInfo).mockResolvedValue({ success: true })
-
+  // "Request more info" is no longer a pre-acceptance routing decision — the
+  // route was removed. Attorneys accept or decline a PENDING introduction;
+  // requesting documents happens post-acceptance via the DocumentRequest flow.
+  it('404 — route no longer exists', async () => {
     const res = await request(app)
       .post('/v1/case-routing/introductions/intro-1/request-info')
       .set(authHeader(attorneyUser.id))
       .send({ notes: 'Medical records?' })
 
-    expect(res.status).toBe(200)
-    expect(lifecycle.attorneyRequestMoreInfo).toHaveBeenCalledWith(
-      'intro-1',
-      'att-1',
-      'Medical records?'
-    )
+    expect(res.status).toBe(404)
   })
 })
 

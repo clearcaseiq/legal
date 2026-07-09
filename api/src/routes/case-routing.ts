@@ -10,7 +10,6 @@ import { authMiddleware, AuthRequest } from '../lib/auth'
 import {
   attorneyAcceptCase,
   attorneyDeclineCase,
-  attorneyRequestMoreInfo,
   recordRoutingEvent
 } from '../lib/routing-lifecycle'
 import { formatAttorneyResponseDeadline, getAttorneyResponseDeadlineMinutes, getMatchingRules } from '../lib/matching-rules-config'
@@ -156,28 +155,9 @@ router.post('/introductions/:id/decline', authMiddleware, async (req: AuthReques
   }
 })
 
-/**
- * Step 10: Attorney requests more info
- */
-router.post('/introductions/:id/request-info', authMiddleware, async (req: AuthRequest, res) => {
-  try {
-    const attorney = await getAttorneyFromRequest(req)
-    if (!attorney) return res.status(403).json({ error: 'Attorney access required' })
-
-    const { notes } = req.body || {}
-    if (!notes || typeof notes !== 'string') {
-      return res.status(400).json({ error: 'Notes required for info request' })
-    }
-    const result = await attorneyRequestMoreInfo(req.params.id, attorney.id, notes)
-    if (!result.success) {
-      return res.status(400).json({ error: result.error })
-    }
-    res.json({ success: true, message: 'Info request sent to plaintiff.' })
-  } catch (error: unknown) {
-    logger.error('Request info error', { error: (error as Error).message })
-    res.status(500).json({ error: 'Internal server error' })
-  }
-})
+// "Request more info" is not a pre-acceptance routing decision. On a PENDING
+// introduction the attorney can only accept or decline. Requesting documents
+// from the client happens after acceptance via the DocumentRequest flow.
 
 /**
  * Step 18: Plaintiff dashboard - routing status
