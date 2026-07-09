@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { downloadDemandLetterDocx, generateDemandLetter, getAssessment } from '../lib/api'
 import { formatCurrency } from '../lib/formatters'
-import { AlertCircle, ArrowLeft, CheckCircle, Download, FileText, ShieldCheck } from 'lucide-react'
+import { AlertCircle, CheckCircle, Download, FileText, ShieldCheck } from 'lucide-react'
+import { BackButton } from '../features/shared/ui'
 
 function getDiySuitability(assessment: any) {
   const facts = assessment?.facts || {}
@@ -158,13 +159,7 @@ export default function Demand() {
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       <div>
-        <Link
-          to={`/results/${assessmentId}`}
-          className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to results
-        </Link>
+        <BackButton to={`/results/${assessmentId}`} label="Back to results" />
       </div>
 
       {/* Header */}

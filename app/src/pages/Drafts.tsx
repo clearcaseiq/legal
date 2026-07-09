@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getAssessment } from '../lib/api'
+import { BackButton } from '../features/shared/ui'
 
 interface Assessment {
   id: string
@@ -110,12 +111,7 @@ export default function Drafts() {
           )}
         </div>
         {assessment && (
-          <Link
-            to={`/results/${assessment.id}`}
-            className="inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-brand-700 border border-brand-200 rounded-md hover:bg-brand-50"
-          >
-            Back to results
-          </Link>
+          <BackButton to={`/results/${assessment.id}`} label="Back to results" />
         )}
       </div>
 

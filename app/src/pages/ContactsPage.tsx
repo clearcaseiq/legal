@@ -3,8 +3,9 @@
  */
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, UserPlus, Mail, Phone, Building2, Pencil, Trash2, Users } from 'lucide-react'
+import { UserPlus, Mail, Phone, Building2, Pencil, Trash2, Users } from 'lucide-react'
 import { getAllCaseContacts, updateCaseContact, deleteCaseContact } from '../lib/api'
+import { BackButton } from '../features/shared/ui'
 import LeadPickerModal from '../components/LeadPickerModal'
 import EditContactModal from '../components/EditContactModal'
 import EmptyState from '../components/EmptyState'
@@ -107,14 +108,7 @@ export default function ContactsPage() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <div className="max-w-4xl mx-auto px-4 py-8">
-        <button
-          type="button"
-          onClick={() => navigate('/attorney-dashboard')}
-          className="flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 mb-6 pressable rounded-lg px-1 -ml-1"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to dashboard
-        </button>
+        <BackButton onClick={() => navigate('/attorney-dashboard')} label="Back to dashboard" className="mb-6" />
 
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-ui-2xl font-semibold font-display text-slate-900 dark:text-slate-100 tracking-tight">

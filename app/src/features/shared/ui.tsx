@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { ArrowLeft } from 'lucide-react'
 
 // `info` maps to the muted `brand` navy; `blue` is a true sky-blue matching the
 // prototype's accent tiles (e.g. "Consults today").
@@ -195,6 +196,43 @@ export function CaseLink({
   section?: string
 }) {
   return <ClientLink name={label} leadId={caseId} section={section} />
+}
+
+/**
+ * Prominent, professional back-navigation control used across the app. Renders a
+ * bordered white pill with a subtle arrow-slide on hover. Pass `to` for a router
+ * link or `onClick` for imperative navigation (e.g. navigate(-1)).
+ */
+export function BackButton({
+  to,
+  onClick,
+  label = 'Back',
+  className = '',
+}: {
+  to?: string
+  onClick?: () => void
+  label?: string
+  className?: string
+}) {
+  const cls = `group inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-100 ${className}`
+  const inner = (
+    <>
+      <ArrowLeft className="h-4 w-4 text-slate-400 transition-transform group-hover:-translate-x-0.5 group-hover:text-slate-600" />
+      {label}
+    </>
+  )
+  if (to) {
+    return (
+      <Link to={to} className={cls}>
+        {inner}
+      </Link>
+    )
+  }
+  return (
+    <button type="button" onClick={onClick} className={cls}>
+      {inner}
+    </button>
+  )
 }
 
 export function PageHeader({

@@ -3,8 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { getAdminAttorneyDetail } from '../../lib/api'
 import { formatDate, formatEnumLabel } from '../../lib/formatters'
 import { formatSpecialty } from '../../lib/constants'
+import { BackButton } from '../../features/shared/ui'
 import {
-  ArrowLeft,
   RefreshCw,
   User,
   Settings,
@@ -50,13 +50,7 @@ export default function AdminAttorneyDetail() {
   if (error || !attorney) {
     return (
       <div className="space-y-4">
-        <button
-          onClick={() => navigate('/admin/attorneys')}
-          className="flex items-center gap-2 text-slate-600"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to attorneys
-        </button>
+        <BackButton onClick={() => navigate('/admin/attorneys')} label="Back to attorneys" />
         <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">
           {error || 'Attorney not found'}
         </div>
@@ -70,13 +64,7 @@ export default function AdminAttorneyDetail() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <button
-          onClick={() => navigate('/admin/attorneys')}
-          className="flex items-center gap-2 text-slate-600 hover:text-slate-900"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to attorneys
-        </button>
+        <BackButton onClick={() => navigate('/admin/attorneys')} label="Back to attorneys" />
         <button onClick={loadAttorney} className="p-2 text-slate-600 hover:text-slate-900">
           <RefreshCw className="h-4 w-4" />
         </button>

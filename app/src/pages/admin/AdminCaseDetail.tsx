@@ -4,8 +4,8 @@ import { getAdminCaseDetail, bulkRouteCases, getAdminAttorneys, holdCaseForManua
 import { DECLINE_REASONS } from '../../components/DeclineModal'
 import { formatCurrency, formatDate, formatEnumLabel } from '../../lib/formatters'
 import { formatCaseId } from '../../lib/caseId'
+import { BackButton } from '../../features/shared/ui'
 import {
-  ArrowLeft,
   RefreshCw,
   FileText,
   User,
@@ -354,10 +354,7 @@ export default function AdminCaseDetail() {
   if (error || !caseData) {
     return (
       <div className="space-y-4">
-        <button onClick={() => navigate('/admin/cases')} className="flex items-center gap-2 text-slate-600">
-          <ArrowLeft className="h-4 w-4" />
-          Back to cases
-        </button>
+        <BackButton onClick={() => navigate('/admin/cases')} label="Back to cases" />
         <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">
           {error || 'Case not found'}
         </div>
@@ -384,13 +381,7 @@ export default function AdminCaseDetail() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <button
-          onClick={() => navigate('/admin/cases')}
-          className="flex items-center gap-2 text-slate-600 hover:text-slate-900"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to cases
-        </button>
+        <BackButton onClick={() => navigate('/admin/cases')} label="Back to cases" />
         <div className="flex items-center gap-2">
           {caseData.manualReviewStatus === 'pending' ? (
             <span className="flex items-center gap-2 px-4 py-2 bg-amber-100 text-amber-800 rounded-lg">

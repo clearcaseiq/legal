@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { ArrowLeft, Calendar, MessageSquare, Phone } from 'lucide-react'
+import { Calendar, MessageSquare, Phone } from 'lucide-react'
+import { BackButton } from '../features/shared/ui'
 import PreAcceptanceView from './PreAcceptanceView'
 import PersistentCaseHeader from './PersistentCaseHeader'
 import { formatCurrency, formatPercentage } from '../lib/formatters'
@@ -199,12 +200,7 @@ export default function AttorneyDashboardLeadDetail({
               boxed header with a close control. */}
           {isLeadSection ? (
             <>
-              <button
-                onClick={onBackToOverview}
-                className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-800"
-              >
-                <ArrowLeft className="h-4 w-4" /> New matches
-              </button>
+              <BackButton onClick={onBackToOverview} label="New matches" className="mb-4" />
               <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h1 className="text-xl font-bold text-slate-900">Lead Details</h1>
@@ -872,12 +868,7 @@ export default function AttorneyDashboardLeadDetail({
                 </div>
                 <div className="space-y-4">
                   {['retainer', 'collaboration', 'tasks', 'case-insights', 'demand', 'insurance', 'health', 'finance', 'referrals'].includes(activeWorkstream) ? (
-                    <button
-                      onClick={() => goToSection('overview')}
-                      className="text-sm text-brand-600 hover:text-brand-700 font-medium"
-                    >
-                      ← Back to Overview
-                    </button>
+                    <BackButton onClick={() => goToSection('overview')} label="Back to Overview" />
                   ) : null}
                   {renderWorkstream(activeWorkstream)}
                 </div>

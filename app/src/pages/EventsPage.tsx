@@ -2,8 +2,9 @@
  * Events page - dedicated screen for upcoming consultations (not post-acceptance).
  */
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Calendar } from 'lucide-react'
+import { Calendar } from 'lucide-react'
 import { useAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
+import { BackButton } from '../features/shared/ui'
 
 export default function EventsPage() {
   const navigate = useNavigate()
@@ -21,13 +22,7 @@ export default function EventsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-2xl mx-auto px-4 py-8">
-        <button
-          onClick={() => navigate('/attorney-dashboard')}
-          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to dashboard
-        </button>
+        <BackButton onClick={() => navigate('/attorney-dashboard')} label="Back to dashboard" className="mb-6" />
 
         <div className="mb-6">
           <h1 className="text-2xl font-semibold text-gray-900">Today&apos;s events</h1>

@@ -4,7 +4,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft,
   Upload,
   FileText,
   Image,
@@ -15,6 +14,7 @@ import {
 import { getLead, getLeadEvidenceFiles, uploadEvidenceFile, uploadMultipleEvidenceFiles, deleteEvidenceFile } from '../lib/api'
 import { getApiOrigin } from '../lib/runtimeEnv'
 import SignatureRequestPanel from '../components/SignatureRequestPanel'
+import { BackButton } from '../features/shared/ui'
 
 const CATEGORIES = [
   { id: 'medical_records', label: 'Medical records' },
@@ -153,9 +153,7 @@ export default function CaseDocumentsPage() {
     return (
       <div className="max-w-2xl mx-auto px-4 py-12">
         <p className="text-gray-500">Case not found.</p>
-        <button onClick={() => navigate('/attorney-dashboard')} className="mt-4 text-brand-600 hover:underline">
-          ← Back to dashboard
-        </button>
+        <BackButton onClick={() => navigate('/attorney-dashboard')} label="Back to dashboard" className="mt-4" />
       </div>
     )
   }
@@ -163,13 +161,7 @@ export default function CaseDocumentsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-4xl mx-auto px-4 py-8">
-        <button
-          onClick={() => navigate('/attorney-dashboard')}
-          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to dashboard
-        </button>
+        <BackButton onClick={() => navigate('/attorney-dashboard')} label="Back to dashboard" className="mb-6" />
 
         <div className="mb-6">
           <h1 className="text-2xl font-semibold text-gray-900">Documents</h1>

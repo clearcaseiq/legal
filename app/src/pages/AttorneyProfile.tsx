@@ -14,8 +14,7 @@ import {
   Trash2,
   Shield,
   CheckCircle,
-  AlertCircle,
-  ArrowLeft
+  AlertCircle
 } from 'lucide-react'
 import {
   addAttorneyVerifiedVerdict,
@@ -27,6 +26,7 @@ import {
 } from '../lib/api'
 import { getApiOrigin } from '../lib/runtimeEnv'
 import { formatSpecialty } from '../lib/constants'
+import { BackButton } from '../features/shared/ui'
 
 const DEFAULT_AVATAR = 'https://ui-avatars.com/api/?name=Attorney&background=e0f2fe&color=075985'
 
@@ -424,13 +424,7 @@ export default function AttorneyProfile() {
   return (
     <div className="space-y-8">
       {/* Back to the previous screen (New Matches, a case, wherever the attorney came from) */}
-      <button
-        type="button"
-        onClick={() => navigate(-1)}
-        className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-800"
-      >
-        <ArrowLeft className="h-4 w-4" /> Back
-      </button>
+      <BackButton onClick={() => navigate(-1)} label="Back" />
 
       {/* Header */}
       <div className="flex justify-between items-center">

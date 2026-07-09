@@ -1,7 +1,6 @@
 import { type ComponentType, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
-  ArrowLeft,
   CalendarClock,
   Clock,
   Download,
@@ -40,7 +39,7 @@ import {
 import { getApiOrigin } from '../../lib/runtimeEnv'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
 import ChatDrawer from '../../components/ChatDrawer'
-import { EmptyState } from '../shared/ui'
+import { BackButton, EmptyState } from '../shared/ui'
 
 const CLAIM_LABELS: Record<string, string> = {
   auto: 'Auto',
@@ -276,12 +275,7 @@ export default function CaseWorkspacePage() {
 
   return (
     <div className="space-y-4">
-      <Link
-        to="/attorney-dashboard/cases/active"
-        className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-800"
-      >
-        <ArrowLeft className="h-4 w-4" /> Active cases
-      </Link>
+      <BackButton to="/attorney-dashboard/cases/active" label="Active cases" />
 
       {loading ? (
         <EmptyState message="Loading case workspace…" />
@@ -333,8 +327,8 @@ export default function CaseWorkspacePage() {
             </div>
           </section>
 
-          {/* Tab strip */}
-          <div className="flex flex-wrap gap-1.5 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
+          {/* Tab strip — single row; distributes evenly, scrolls horizontally if the column is too narrow */}
+          <div className="flex items-center gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {TABS.map((t) => {
               const active = t === tab
               const TabIcon = TAB_META[t].icon
@@ -343,14 +337,16 @@ export default function CaseWorkspacePage() {
                   key={t}
                   type="button"
                   onClick={() => navigate(`/attorney-dashboard/cases/${leadId}/${TAB_TO_SECTION[t]}`)}
-                  className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-medium transition ${
+                  title={t}
+                  aria-label={t}
+                  className={`inline-flex flex-1 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 py-1.5 text-[13px] font-medium transition ${
                     active
                       ? 'bg-brand-600 text-white shadow-sm'
                       : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   }`}
                 >
-                  <TabIcon className="h-4 w-4" />
-                  {t}
+                  <TabIcon className={`h-4 w-4 shrink-0 ${active ? 'text-white' : 'text-slate-400'}`} />
+                  <span className="hidden xl:inline">{t}</span>
                 </button>
               )
             })}

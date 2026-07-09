@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams, Link, useLocation } from 'react-router-dom'
 import { searchAttorneys, getAttorneyProfile, getAttorneyTrustMetrics, requestIntroduction, type AttorneyTrustMetrics } from '../lib/api'
 import { type AttorneySummary } from '../lib/schemas'
+import { BackButton } from '../features/shared/ui'
 import { 
   Search, 
   Star, 
@@ -14,8 +15,7 @@ import {
   Phone,
   Mail,
   Globe,
-  ChevronRight,
-  ArrowLeft
+  ChevronRight
 } from 'lucide-react'
 
 export default function Attorneys() {
@@ -126,13 +126,7 @@ export default function Attorneys() {
 
   return (
     <div className="max-w-7xl mx-auto">
-      <Link
-        to={fromPath}
-        className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-4"
-      >
-        <ArrowLeft className="h-4 w-4 mr-2" />
-        Back
-      </Link>
+      <BackButton to={fromPath} label="Back" className="mb-4" />
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Find Attorneys</h1>
         <p className="mt-2 text-gray-600">

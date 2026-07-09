@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAdminFirms, getAdminFirmSettings, upsertAdminFirmSetting } from '../lib/api'
+import { BackButton } from '../features/shared/ui'
 
 interface Firm {
   id: string
@@ -129,12 +130,7 @@ export default function AdminFirmSettings() {
               </option>
             ))}
           </select>
-          <button
-            onClick={() => navigate('/admin')}
-            className="px-4 py-2 text-sm font-medium text-brand-600 border border-brand-200 rounded-md hover:bg-brand-50"
-          >
-            Back to Admin Dashboard
-          </button>
+          <BackButton onClick={() => navigate('/admin')} label="Back to Admin Dashboard" />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

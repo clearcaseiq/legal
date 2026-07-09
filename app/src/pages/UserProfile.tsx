@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { updateProfile } from '../lib/api'
-import { User, Save, AlertCircle, CheckCircle, ArrowLeft, FileText, Activity } from 'lucide-react'
+import { User, Save, AlertCircle, CheckCircle, FileText, Activity } from 'lucide-react'
 import { getLoginRedirect, getStoredUser } from '../lib/auth'
+import { BackButton } from '../features/shared/ui'
 import { updateCachedPlaintiffUser, usePlaintiffSessionSummary } from '../hooks/usePlaintiffSessionSummary'
 import { formatPhoneInput, validatePhoneField } from '../lib/phone'
 
@@ -137,13 +138,7 @@ export default function UserProfile() {
     <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
       {/* Navigation Header */}
       <div className="mb-6">
-        <Link
-          to="/dashboard"
-          className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-4"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Dashboard
-        </Link>
+        <BackButton to="/dashboard" label="Back to Dashboard" className="mb-4" />
         <div className="flex items-center gap-4">
           <Link
             to="/dashboard"

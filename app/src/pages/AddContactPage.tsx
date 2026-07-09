@@ -3,9 +3,9 @@
  */
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
 import { getLead, createCaseContact } from '../lib/api'
 import { invalidateAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
+import { BackButton } from '../features/shared/ui'
 
 const CONTACT_TYPES = [
   { id: 'client', label: 'Client / Plaintiff' },
@@ -112,12 +112,7 @@ export default function AddContactPage() {
     return (
       <div className="max-w-2xl mx-auto px-4 py-12">
         <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">{error}</div>
-        <button
-          onClick={() => navigate('/attorney-dashboard')}
-          className="mt-4 px-4 py-2 text-brand-600 hover:underline"
-        >
-          ← Back to dashboard
-        </button>
+        <BackButton onClick={() => navigate('/attorney-dashboard')} label="Back to dashboard" className="mt-4" />
       </div>
     )
   }
@@ -125,13 +120,7 @@ export default function AddContactPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-2xl mx-auto px-4 py-8">
-        <button
-          onClick={handleBack}
-          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </button>
+        <BackButton onClick={handleBack} label="Back" className="mb-6" />
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="px-6 py-5 border-b border-gray-200">

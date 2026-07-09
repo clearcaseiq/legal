@@ -12,6 +12,7 @@ import { TrashIcon } from '../components/TrashIcon'
 import { openEvidenceFile } from '../lib/evidenceFileUrl'
 import { CameraCaptureModal } from '../components/CameraCaptureModal'
 import { useLanguage } from '../contexts/LanguageContext'
+import { BackButton } from '../features/shared/ui'
 import { 
   Upload, 
   Camera, 
@@ -27,8 +28,7 @@ import {
   Calendar,
   Tag,
   Settings,
-  BarChart3,
-  ArrowLeft
+  BarChart3
 } from 'lucide-react'
 
 interface EvidenceFile {
@@ -323,13 +323,7 @@ export default function EvidenceUpload() {
         </div>
       )}
       {assessmentId && (
-        <Link
-          to={`/results/${assessmentId}`}
-          className="inline-flex items-center gap-2 text-brand-600 hover:text-brand-800 font-medium mb-4"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          {t('evidence.backToCaseReport')}
-        </Link>
+        <BackButton to={`/results/${assessmentId}`} label={t('evidence.backToCaseReport')} className="mb-4" />
       )}
       <div className="text-center">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">{t('evidence.uploadTitle')}</h1>

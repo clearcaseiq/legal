@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createAdminFeatureToggle, getAdminFeatureToggles, updateAdminFeatureToggle } from '../lib/api'
+import { BackButton } from '../features/shared/ui'
 
 interface FeatureToggle {
   id: string
@@ -151,12 +152,7 @@ export default function AdminFeatureToggles() {
           >
             Create Toggle
           </button>
-          <button
-            onClick={() => navigate('/admin')}
-            className="px-4 py-2 text-sm font-medium text-brand-600 border border-brand-200 rounded-md hover:bg-brand-50"
-          >
-            Back to Admin Dashboard
-          </button>
+          <BackButton onClick={() => navigate('/admin')} label="Back to Admin Dashboard" />
         </div>
       </div>
 

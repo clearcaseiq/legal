@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAdminUsers, updateAdminUserRole } from '../lib/api'
+import { BackButton } from '../features/shared/ui'
 
 interface AdminUser {
   id: string
@@ -81,12 +82,7 @@ export default function AdminUserRoles() {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
-          <button
-            onClick={() => navigate('/admin')}
-            className="px-4 py-2 text-sm font-medium text-brand-600 border border-brand-200 rounded-md hover:bg-brand-50"
-          >
-            Back to Admin Dashboard
-          </button>
+          <BackButton onClick={() => navigate('/admin')} label="Back to Admin Dashboard" />
         </div>
       </div>
 

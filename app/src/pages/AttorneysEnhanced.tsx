@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { searchAttorneys, getAttorneyProfile, getAttorneyAvailabilityProfile } from '../lib/api'
+import { BackButton } from '../features/shared/ui'
 import { 
   Star, 
   Clock, 
@@ -13,8 +14,7 @@ import {
   Award,
   MessageSquare,
   BookOpen,
-  Search,
-  ArrowLeft
+  Search
 } from 'lucide-react'
 
 interface Attorney {
@@ -177,13 +177,7 @@ export default function AttorneysEnhanced() {
   if (loading) {
     return (
       <div className="max-w-6xl mx-auto">
-        <Link
-          to={fromPath}
-          className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-4"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back
-        </Link>
+        <BackButton to={fromPath} label="Back" className="mb-4" />
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading attorneys...</p>
@@ -195,13 +189,7 @@ export default function AttorneysEnhanced() {
   if (error) {
     return (
       <div className="max-w-6xl mx-auto">
-        <Link
-          to={fromPath}
-          className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-4"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back
-        </Link>
+        <BackButton to={fromPath} label="Back" className="mb-4" />
         <div className="text-center py-12">
           <div className="text-red-500 mb-4">{error}</div>
           <button onClick={() => { void loadAttorneys() }} className="btn-primary">
@@ -215,13 +203,7 @@ export default function AttorneysEnhanced() {
   return (
     <div className="max-w-6xl mx-auto space-y-8">
       {/* Back link - returns to previous page (Results, Dashboard, Home, etc.) */}
-      <Link
-        to={fromPath}
-        className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-4"
-      >
-        <ArrowLeft className="h-4 w-4 mr-2" />
-        Back
-      </Link>
+      <BackButton to={fromPath} label="Back" className="mb-4" />
 
       {/* Header */}
       <div className="text-center">

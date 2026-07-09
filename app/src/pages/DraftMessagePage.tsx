@@ -3,7 +3,8 @@
  */
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Send } from 'lucide-react'
+import { Send } from 'lucide-react'
+import { BackButton } from '../features/shared/ui'
 import { getLead, getOrCreateAttorneyChatRoom, getAttorneyChatRoomMessages, sendAttorneyMessage, markAttorneyMessagesRead, getAttorneyMessageTemplates } from '../lib/api'
 
 const claimLabel = (s: string) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
@@ -99,12 +100,7 @@ export default function DraftMessagePage() {
     return (
       <div className="max-w-2xl mx-auto px-4 py-12">
         <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">{error}</div>
-        <button
-          onClick={() => navigate('/attorney-dashboard')}
-          className="mt-4 px-4 py-2 text-brand-600 hover:underline"
-        >
-          ← Back to dashboard
-        </button>
+        <BackButton onClick={() => navigate('/attorney-dashboard')} label="Back to dashboard" className="mt-4" />
       </div>
     )
   }
@@ -113,13 +109,7 @@ export default function DraftMessagePage() {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <div className="bg-white border-b border-gray-200 px-4 py-3">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <button
-            onClick={() => navigate('/attorney-dashboard')}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </button>
+          <BackButton onClick={() => navigate('/attorney-dashboard')} label="Back" />
           <div className="text-center">
             <h1 className="text-lg font-semibold text-gray-900">Message plaintiff</h1>
             <p className="text-sm text-gray-500">{caseLabel}</p>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Building2, CheckCircle, Lock } from 'lucide-react'
+import { Building2, CheckCircle, Lock } from 'lucide-react'
+import { BackButton } from '../features/shared/ui'
 import { US_STATES } from '../lib/constants'
 import { updateFirm } from '../lib/api'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
@@ -138,13 +139,7 @@ export default function FirmSettings() {
   return (
     <div className="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
       <div className="flex items-center justify-between mb-6">
-        <button
-          onClick={() => navigate('/firm-dashboard')}
-          className="inline-flex items-center text-sm text-brand-600 hover:text-brand-500"
-        >
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          Back to Firm Dashboard
-        </button>
+        <BackButton onClick={() => navigate('/firm-dashboard')} label="Back to Firm Dashboard" />
       </div>
 
       <div className="flex items-center space-x-4 mb-8">

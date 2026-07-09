@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BarChart3, Users, DollarSign, AlertTriangle, Star, Building2, ArrowLeft, Plus, Briefcase, ClipboardList, ShieldCheck } from 'lucide-react'
+import { BarChart3, Users, DollarSign, AlertTriangle, Star, Building2, Plus, Briefcase, ClipboardList, ShieldCheck } from 'lucide-react'
 import { addFirmAttorney, addFirmMember, addFirmOffice, addFirmTeam, updateFirmAttorney } from '../lib/api'
+import { BackButton } from '../features/shared/ui'
 import { formatCurrency } from '../lib/formatters'
 import { US_STATES } from '../lib/constants'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
@@ -491,13 +492,7 @@ export default function FirmDashboard() {
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
       <div className="flex items-center justify-between mb-6">
-        <button
-          onClick={() => navigate('/attorney-dashboard')}
-          className="inline-flex items-center text-sm text-brand-600 hover:text-brand-500"
-        >
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          Back to Attorney Dashboard
-        </button>
+        <BackButton onClick={() => navigate('/attorney-dashboard')} label="Back to Attorney Dashboard" />
       </div>
 
       {/* Header */}

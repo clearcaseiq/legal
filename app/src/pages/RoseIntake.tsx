@@ -9,6 +9,7 @@ import {
   type RoseConversationPhase,
   type RoseConversationReview,
 } from '../lib/api'
+import { BackButton } from '../features/shared/ui'
 import {
   Bot,
   User,
@@ -17,7 +18,6 @@ import {
   Sparkles,
   PlayCircle,
   CheckCircle2,
-  ArrowLeft,
   FileText,
   Shield,
   Volume2,
@@ -717,13 +717,7 @@ export default function RoseIntake() {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(244,114,182,0.22),_transparent_34%),linear-gradient(135deg,_#fff7ed_0%,_#ffffff_42%,_#f8fafc_100%)] px-4 py-6 sm:py-8">
       <div className="mx-auto max-w-6xl space-y-6">
-        <Link
-          to="/assessment/start"
-          className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-sm font-medium text-slate-600 shadow-sm hover:bg-white hover:text-slate-900"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Assessment options
-        </Link>
+        <BackButton to="/assessment/start" label="Assessment options" />
 
         {!launched && (
           <div className="text-center">

@@ -3,8 +3,8 @@
  */
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
 import { getLead, createLeadTask } from '../lib/api'
+import { BackButton } from '../features/shared/ui'
 
 const PRIORITIES = [
   { id: 'low', label: 'Low' },
@@ -86,12 +86,7 @@ export default function AddTaskPage() {
     return (
       <div className="max-w-2xl mx-auto px-4 py-12">
         <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">{error}</div>
-        <button
-          onClick={() => navigate('/attorney-dashboard')}
-          className="mt-4 px-4 py-2 text-brand-600 hover:underline"
-        >
-          ← Back to dashboard
-        </button>
+        <BackButton onClick={() => navigate('/attorney-dashboard')} label="Back to dashboard" className="mt-4" />
       </div>
     )
   }
@@ -99,13 +94,7 @@ export default function AddTaskPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-2xl mx-auto px-4 py-8">
-        <button
-          onClick={() => navigate('/attorney-dashboard')}
-          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to dashboard
-        </button>
+        <BackButton onClick={() => navigate('/attorney-dashboard')} label="Back to dashboard" className="mb-6" />
 
         <div className="mb-6">
           <h1 className="text-2xl font-semibold text-gray-900">Add task</h1>
