@@ -35,6 +35,7 @@ const prisma = new PrismaClient()
 
 const FIRM_SLUG = process.env.FIRM_SLUG || 'salman-law-firm'
 const LOGIN_EMAIL = (process.env.LOGIN_EMAIL || 'salman@salmanlawfirm.com').trim()
+const DRY_RUN = process.env.DRY_RUN === '1'
 
 async function main() {
   console.log('DATABASE_URL:', (process.env.DATABASE_URL || '').replace(/:[^:@/]+@/, ':****@'))
@@ -52,16 +53,38 @@ async function main() {
   console.log(`Firm: ${firm.name} (id=${firm.id})`)
   console.log(`Login attorney: ${attorney.email} (id=${attorney.id})`)
 
-  // The demo "New Matches" are the submitted (pre-acceptance) leads routed to the firm.
+  // Grab EVERY lead routed to the firm (any status). The demo matches routinely get
+  // advanced out of 'submitted' by the offer-expiry sweep + escalation once their
+  // response window lapses, which leaves them showing in neither New Matches (needs
+  // 'submitted') nor Active Cases (needs an accepted/retained status). We reset the
+  // whole book back to fresh, pre-acceptance New Matches.
   const leads = await prisma.leadSubmission.findMany({
-    where: { status: 'submitted', assessment: { lawFirmId: firm.id } },
-    select: { id: true, assessmentId: true },
+    where: { assessment: { lawFirmId: firm.id } },
+    select: { id: true, assessmentId: true, status: true },
   })
-  console.log(`\nSubmitted (New Match) leads routed to firm: ${leads.length}`)
+  console.log(`\nLeads routed to firm (any status): ${leads.length}`)
+  const byStatus: Record<string, number> = {}
+  for (const l of leads) byStatus[l.status || '(none)'] = (byStatus[l.status || '(none)'] || 0) + 1
+  for (const [s, n] of Object.entries(byStatus).sort((a, b) => b[1] - a[1])) console.log(`  ${s}: ${n}`)
   if (leads.length === 0) {
-    console.log('Nothing to refresh. (Re-seed with NEW_MATCHES to create some.)')
+    console.log('\nNothing to refresh. (Re-seed with NEW_MATCHES to create some.)')
     return
   }
+
+  if (DRY_RUN) {
+    console.log(`\nDRY_RUN=1 — would reset all ${leads.length} lead(s) above to fresh "submitted" New Matches`)
+    console.log('  (introductions -> PENDING, requestedAt = now, routing unlocked, firm-case assignments cleared).')
+    console.log('Re-run without DRY_RUN=1 to apply.')
+    return
+  }
+
+  // Drop any firm-case assignments so the reset matches are truly pre-acceptance
+  // (the seed only creates assignments for accepted/retained cases, not New Matches).
+  const assessmentIds = leads.map((l) => l.assessmentId)
+  const removedAssignments = await prisma.firmCaseAssignment.deleteMany({
+    where: { assessmentId: { in: assessmentIds }, lawFirmId: firm.id },
+  })
+  if (removedAssignments.count > 0) console.log(`\nCleared ${removedAssignments.count} firm-case assignment(s) (back to pre-acceptance).`)
 
   const now = new Date()
   let refreshed = 0
