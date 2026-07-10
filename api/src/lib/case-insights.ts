@@ -38,12 +38,23 @@ export interface MedicalChronologySummary {
   timeline: MedicalChronologyEvent[]
 }
 
+export interface ReadinessFactor {
+  key: string
+  label: string
+  points: number
+  max: number
+  /** Short guidance shown when the factor isn't fully earned. */
+  hint?: string
+}
+
 export interface CasePreparationResult {
   missingDocs: { key: string; label: string; priority: 'high' | 'medium' | 'low' }[]
   treatmentGaps: { startDate: string; endDate: string; gapDays: number }[]
   strengths: string[]
   weaknesses: string[]
   readinessScore: number // 0-100
+  /** Per-factor contribution to readinessScore, for surfacing "what's holding it down". */
+  readinessFactors: ReadinessFactor[]
 }
 
 export interface SettlementBenchmark {
@@ -625,6 +636,7 @@ export async function computeCasePreparation(assessmentId: string): Promise<Case
         take: 1,
         select: {
           id: true,
+          viability: true,
         },
       },
     },
@@ -636,7 +648,8 @@ export async function computeCasePreparation(assessmentId: string): Promise<Case
       treatmentGaps: [],
       strengths: [],
       weaknesses: [],
-      readinessScore: 0
+      readinessScore: 0,
+      readinessFactors: [],
     }
   }
 
@@ -714,22 +727,95 @@ export async function computeCasePreparation(assessmentId: string): Promise<Case
     }
   }
 
-  // Readiness score
-  const maxScore = 100
-  let score = 50
-  if (evidenceCategories.has('medical_records')) score += 15
-  if (evidenceCategories.has('bills')) score += 15
-  if (hasHipaa) score += 10
-  if (missingDocs.length === 0) score += 5
-  if (treatmentGaps.length === 0) score += 5
-  const readinessScore = Math.min(100, score)
+  // Readiness score (0-100), broken into weighted factors so the UI can show
+  // exactly what's earned vs. what's holding the score down. Weights sum to 100.
+  //
+  // Beyond the raw evidence checklist we now fold in two qualitative signals:
+  //   - liability strength (how defensible fault is), and
+  //   - treatment continuity graded by GAP SEVERITY (a 100-day gap hurts more than
+  //     a 35-day one), rather than a flat "any gap = penalty".
+  const liabilityConfidence01 = (() => {
+    const explicit = facts?.liability?.confidence
+    if (typeof explicit === 'number' && explicit > 0) return Math.min(1, explicit / 10)
+    // Fall back to the model's predicted liability (stored 0-1) when facts omit it.
+    const viability = (() => {
+      const raw = (pred as any)?.viability
+      if (!raw) return {} as Record<string, number>
+      try {
+        return (typeof raw === 'string' ? JSON.parse(raw) : raw) as Record<string, number>
+      } catch {
+        return {} as Record<string, number>
+      }
+    })()
+    if (typeof viability?.liability === 'number' && viability.liability > 0) return Math.min(1, viability.liability)
+    return 0.5 // neutral when we truly have no liability signal
+  })()
+
+  const largestGapDays = treatmentGaps.reduce((max, gap) => Math.max(max, gap.gapDays), 0)
+  const treatmentPoints =
+    treatmentGaps.length === 0 ? 8 : largestGapDays >= 90 ? 0 : largestGapDays >= 45 ? 3 : 5
+  const liabilityPoints = Math.max(0, Math.min(12, Math.round(liabilityConfidence01 * 12)))
+
+  const readinessFactors: ReadinessFactor[] = [
+    { key: 'base', label: 'Base (retained case)', points: 40, max: 40 },
+    {
+      key: 'medical_records',
+      label: 'Medical records on file',
+      points: evidenceCategories.has('medical_records') ? 12 : 0,
+      max: 12,
+      hint: evidenceCategories.has('medical_records') ? undefined : 'Upload medical records to Evidence',
+    },
+    {
+      key: 'bills',
+      label: 'Medical bills on file',
+      points: evidenceCategories.has('bills') ? 12 : 0,
+      max: 12,
+      hint: evidenceCategories.has('bills') ? undefined : 'Add itemized medical bills',
+    },
+    {
+      key: 'hipaa',
+      label: 'HIPAA authorization',
+      points: hasHipaa ? 8 : 0,
+      max: 8,
+      hint: hasHipaa ? undefined : 'Get the signed HIPAA authorization',
+    },
+    {
+      key: 'liability',
+      label: 'Liability strength',
+      points: liabilityPoints,
+      max: 12,
+      hint: liabilityPoints >= 12 ? undefined : 'Strengthen fault evidence (statements, reports)',
+    },
+    {
+      key: 'treatment',
+      label: 'Treatment continuity',
+      points: treatmentPoints,
+      max: 8,
+      hint:
+        treatmentPoints >= 8
+          ? undefined
+          : largestGapDays >= 90
+            ? `${largestGapDays}-day treatment gap weakens causation`
+            : `Treatment gap of ${largestGapDays} days`,
+    },
+    {
+      key: 'checklist',
+      label: 'Document checklist complete',
+      points: missingDocs.length === 0 ? 8 : 0,
+      max: 8,
+      hint: missingDocs.length === 0 ? undefined : `${missingDocs.length} item(s) still missing`,
+    },
+  ]
+
+  const readinessScore = Math.min(100, readinessFactors.reduce((sum, f) => sum + f.points, 0))
 
   return {
     missingDocs,
     treatmentGaps,
     strengths,
     weaknesses,
-    readinessScore
+    readinessScore,
+    readinessFactors,
   }
 }
 

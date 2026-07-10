@@ -55,6 +55,7 @@ describe('buildCaseCommandCenter', () => {
       strengths: ['Strong liability evidence'],
       weaknesses: ['2 missing document(s)'],
       readinessScore: 54,
+      readinessFactors: [],
     })
     vi.mocked(buildMedicalChronology).mockResolvedValue([
       { id: 'evt-1', date: '2026-03-01', label: 'ER visit', source: 'treatment' },
@@ -115,6 +116,7 @@ describe('buildCaseCommandCenter', () => {
       strengths: ['Documented medical expenses'],
       weaknesses: [],
       readinessScore: 82,
+      readinessFactors: [],
     })
     vi.mocked(buildMedicalChronology).mockResolvedValue([
       { id: 'evt-1', date: '2026-01-01', label: 'Urgent care', source: 'treatment' },

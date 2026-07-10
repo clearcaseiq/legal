@@ -1,5 +1,5 @@
 import { prisma } from './prisma'
-import { buildMedicalChronology, computeCasePreparation } from './case-insights'
+import { buildMedicalChronology, computeCasePreparation, type ReadinessFactor } from './case-insights'
 import { buildMedicalCostBenchmarkSummary, type MedicalCostBenchmarkSummary } from './medical-cost-benchmarks'
 import { getHeuristics, getReadinessLabel, DEFAULT_HEURISTICS, type HeuristicsConfig } from './heuristics-config'
 
@@ -37,6 +37,7 @@ export type CaseCommandCenter = {
     score: number
     label: string
     detail: string
+    factors: ReadinessFactor[]
   }
   valueStory: {
     median: number
@@ -739,6 +740,7 @@ export async function buildCaseCommandCenter(params: {
       detail: readinessScore >= 75
         ? 'The file is organized enough for deeper attorney work and fewer basic blockers remain.'
         : 'The file still needs a few substantive items before it will present cleanly for demand or negotiation work.',
+      factors: casePreparation.readinessFactors || [],
     },
     valueStory: {
       median: bands.median ?? 0,
