@@ -267,13 +267,11 @@ function WorkspaceChrome() {
           <span className="text-slate-300">/</span>
           <span className="truncate">{domain}</span>
         </div>
-        <div className="ml-auto">
-          <GlobalSearch />
-        </div>
       </div>
       <div className="flex gap-6">
         <Sidebar />
         <div className="min-w-0 flex-1 space-y-4">
+          <GlobalSearch />
           <MobileNav />
           <Outlet />
         </div>

@@ -112,12 +112,16 @@ export default function GlobalSearch() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="group inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-400 shadow-sm transition hover:border-slate-300 hover:text-slate-600"
+        className="group flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm text-slate-400 shadow-sm transition hover:border-brand-300 hover:text-slate-600 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-brand-200"
         aria-label="Search cases, contacts, and documents"
       >
-        <Search className="h-4 w-4" />
-        <span className="hidden sm:inline">Search…</span>
-        <kbd className="ml-1 hidden items-center gap-0.5 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400 sm:inline-flex">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500 transition group-hover:bg-brand-100 group-hover:text-brand-600">
+          <Search className="h-4 w-4" />
+        </span>
+        <span className="truncate font-medium text-slate-500 group-hover:text-slate-700">
+          Search cases, contacts &amp; documents…
+        </span>
+        <kbd className="ml-auto hidden items-center gap-0.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-400 sm:inline-flex">
           {isMac ? '⌘' : 'Ctrl'} K
         </kbd>
       </button>
@@ -134,7 +138,7 @@ export default function GlobalSearch() {
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={onInputKey}
                 placeholder="Search cases, contacts, documents…"
-                className="w-full bg-transparent py-3.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
+                className="w-full bg-transparent py-3.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
               />
               {loading ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-slate-300" /> : null}
               <button
@@ -148,13 +152,39 @@ export default function GlobalSearch() {
 
             <div className="max-h-[55vh] overflow-y-auto py-2">
               {!hasQuery ? (
-                <p className="px-4 py-8 text-center text-sm text-slate-400">
-                  Type at least 2 characters to search across your cases, contacts, and documents.
-                </p>
+                <div className="px-6 py-10 text-center">
+                  <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-brand-50 text-brand-500 ring-1 ring-inset ring-brand-100">
+                    <Search className="h-5 w-5" />
+                  </div>
+                  <p className="text-sm font-semibold text-slate-700">Search your workspace</p>
+                  <p className="mx-auto mt-1 max-w-xs text-xs text-slate-400">
+                    Find cases, people, and documents in one place. Type at least 2 characters to begin.
+                  </p>
+                  <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                    {GROUPS.map((g) => {
+                      const Icon = g.Icon
+                      return (
+                        <span
+                          key={g.key}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-500"
+                        >
+                          <Icon className="h-3.5 w-3.5 text-slate-400" />
+                          {g.label}
+                        </span>
+                      )
+                    })}
+                  </div>
+                </div>
               ) : totalShown === 0 && !loading ? (
-                <p className="px-4 py-8 text-center text-sm text-slate-400">
-                  No matches for “{query.trim()}”.
-                </p>
+                <div className="px-6 py-10 text-center">
+                  <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400">
+                    <Search className="h-5 w-5" />
+                  </div>
+                  <p className="text-sm font-semibold text-slate-700">No results found</p>
+                  <p className="mx-auto mt-1 max-w-xs text-xs text-slate-400">
+                    Nothing matched “{query.trim()}”. Try a client name, claim type, or document title.
+                  </p>
+                </div>
               ) : (
                 GROUPS.map((g) => {
                   const hits = result?.[g.key] ?? []
@@ -220,7 +250,7 @@ export default function GlobalSearch() {
                   close
                 </span>
               </span>
-              <span>Universal search</span>
+              <span className="font-semibold uppercase tracking-wider text-slate-300">Universal search</span>
             </div>
           </div>
         </div>
