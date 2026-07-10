@@ -230,13 +230,32 @@ export async function applyEsignWebhook(
     return null
   }
 
+  return finalizeStatusTransition(envelope, event.status, event.signedAt)
+}
+
+type EnvelopeRow = Awaited<ReturnType<typeof prisma.documentEnvelope.findFirstOrThrow>>
+
+/**
+ * Move an envelope to a new status: on completion pull the executed PDF (best
+ * effort), stamp lifecycle timestamps, and file the signed agreement into the
+ * case's Documents list. Shared by the webhook path and the polling refresh so
+ * both apply identical side effects. Returns the updated row, or the unchanged
+ * row when the status hasn't actually moved.
+ */
+async function finalizeStatusTransition(
+  envelope: EnvelopeRow,
+  status: EnvelopeStatus,
+  signedAt?: string | null
+) {
+  const provider = getESignatureProvider(envelope.provider)
+
   // On completion, pull the fully-executed PDF (with audit trail) and store it
   // so downstream consumers (e.g. the custodian portal) can serve it. Best
   // effort: a download failure must not block the status transition.
   let signedFilePath = envelope.signedFilePath
-  if (event.status === 'signed' && !signedFilePath) {
+  if (status === 'signed' && !signedFilePath && envelope.externalEnvelopeId) {
     try {
-      const buf = await provider.downloadSigned(event.externalEnvelopeId)
+      const buf = await provider.downloadSigned(envelope.externalEnvelopeId)
       if (!fs.existsSync(SIGNED_DIR)) fs.mkdirSync(SIGNED_DIR, { recursive: true })
       const dest = path.join(SIGNED_DIR, `${envelope.id}.pdf`)
       fs.writeFileSync(dest, buf)
@@ -252,14 +271,14 @@ export async function applyEsignWebhook(
   const updated = await prisma.documentEnvelope.update({
     where: { id: envelope.id },
     data: {
-      status: event.status,
+      status,
       signedFilePath,
-      ...timestampsFor(event.status, event.signedAt),
+      ...timestampsFor(status, signedAt),
     },
   })
 
   // Once signed, file the executed agreement into the case's Documents list.
-  if (event.status === 'signed') {
+  if (status === 'signed') {
     try {
       await fileSignedAgreementIntoCase(updated.id)
     } catch (err) {
@@ -271,6 +290,150 @@ export async function applyEsignWebhook(
   }
 
   return updated
+}
+
+/** Statuses that are still "open" (worth polling / can be reminded or voided). */
+const OPEN_STATUSES = new Set<EnvelopeStatus>(['draft', 'sent', 'viewed'])
+
+/**
+ * Poll the provider for every open envelope on a lead and apply any status
+ * changes. This is the webhook-less fallback that keeps the panel live in local
+ * dev / behind-NAT deployments. Best-effort per envelope: one failure doesn't
+ * block the rest. Returns the freshly-listed envelopes.
+ */
+export async function refreshLeadEnvelopes(leadId: string) {
+  const open = await prisma.documentEnvelope.findMany({
+    where: { leadId, status: { in: Array.from(OPEN_STATUSES) }, externalEnvelopeId: { not: null } },
+  })
+
+  for (const env of open) {
+    try {
+      const provider = getESignatureProvider(env.provider)
+      const result = await provider.getStatus(env.externalEnvelopeId as string)
+      if (result.status !== (env.status as EnvelopeStatus)) {
+        await finalizeStatusTransition(env, result.status, result.signedAt)
+      }
+    } catch (err) {
+      logger.warn('Envelope status poll failed', {
+        envelopeId: env.id,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  return listEnvelopesForLead(leadId)
+}
+
+/** Load an envelope and assert it belongs to the given lead + attorney. */
+async function ownedEnvelope(envelopeId: string, leadId: string, attorneyId: string) {
+  const env = await prisma.documentEnvelope.findUnique({ where: { id: envelopeId } })
+  if (!env || env.leadId !== leadId) throw new Error('Envelope not found for this case')
+  if (env.attorneyId !== attorneyId) throw new Error('Envelope belongs to another attorney')
+  return env
+}
+
+/** Void/cancel an outstanding envelope so it can no longer be signed. */
+export async function voidEnvelope(envelopeId: string, leadId: string, attorneyId: string) {
+  const env = await ownedEnvelope(envelopeId, leadId, attorneyId)
+  if (!OPEN_STATUSES.has(env.status as EnvelopeStatus)) {
+    throw new Error(`Cannot void an envelope that is already "${env.status}"`)
+  }
+  const provider = getESignatureProvider(env.provider)
+  if (!provider.voidEnvelope) throw new Error(`Provider "${provider.id}" does not support voiding envelopes`)
+  if (env.externalEnvelopeId) await provider.voidEnvelope(env.externalEnvelopeId)
+  return prisma.documentEnvelope.update({ where: { id: env.id }, data: { status: 'voided' } })
+}
+
+/** Re-send the signing email to nudge a signer who hasn't completed. */
+export async function remindEnvelope(envelopeId: string, leadId: string, attorneyId: string) {
+  const env = await ownedEnvelope(envelopeId, leadId, attorneyId)
+  if (!OPEN_STATUSES.has(env.status as EnvelopeStatus)) {
+    throw new Error(`Cannot remind on an envelope that is "${env.status}"`)
+  }
+  const provider = getESignatureProvider(env.provider)
+  if (!provider.sendReminder) throw new Error(`Provider "${provider.id}" does not support reminders`)
+  if (!env.externalEnvelopeId) throw new Error('Envelope has not been sent yet')
+  await provider.sendReminder(env.externalEnvelopeId)
+  return env
+}
+
+/** Correct the signer's email on an in-flight envelope and re-send. */
+export async function correctSignerEmail(
+  envelopeId: string,
+  leadId: string,
+  attorneyId: string,
+  email: string,
+  name?: string
+) {
+  const env = await ownedEnvelope(envelopeId, leadId, attorneyId)
+  if (!OPEN_STATUSES.has(env.status as EnvelopeStatus)) {
+    throw new Error(`Cannot change the recipient on an envelope that is "${env.status}"`)
+  }
+  const provider = getESignatureProvider(env.provider)
+  if (!provider.updateSignerEmail) {
+    throw new Error(`Provider "${provider.id}" does not support correcting the recipient email`)
+  }
+  if (!env.externalEnvelopeId) throw new Error('Envelope has not been sent yet')
+  await provider.updateSignerEmail(env.externalEnvelopeId, email, name)
+  return prisma.documentEnvelope.update({
+    where: { id: env.id },
+    data: { signerEmail: email, ...(name ? { signerName: name } : {}) },
+  })
+}
+
+export interface OnboardingPacketParams {
+  leadId: string
+  attorneyId: string
+  signerName: string
+  signerEmail: string
+  providerId?: string
+  caseRef?: string
+  // Retainer terms
+  firmName?: string
+  attorneyName?: string
+  contingencyPercent?: number
+  costsResponsibility?: string
+  scope?: string
+  // HIPAA terms
+  clientDob?: string
+  recordsCustodian?: string
+  recordsDateRange?: string
+}
+
+/**
+ * Send the full onboarding packet in one action: the retainer agreement plus a
+ * HIPAA authorization. Both go to the same signer (the client). The HIPAA piece
+ * is only attempted with a HIPAA-capable provider; createEnvelopeForLead
+ * enforces that and surfaces a clear error otherwise.
+ */
+export async function createOnboardingPacket(params: OnboardingPacketParams) {
+  const retainer = await createRetainerAgreementEnvelope({
+    leadId: params.leadId,
+    attorneyId: params.attorneyId,
+    signerName: params.signerName,
+    signerEmail: params.signerEmail,
+    firmName: params.firmName,
+    attorneyName: params.attorneyName,
+    contingencyPercent: params.contingencyPercent,
+    costsResponsibility: params.costsResponsibility,
+    scope: params.scope,
+    caseRef: params.caseRef,
+    providerId: params.providerId,
+  })
+
+  const hipaa = await createHipaaAuthorizationEnvelope({
+    leadId: params.leadId,
+    attorneyId: params.attorneyId,
+    signerName: params.signerName,
+    signerEmail: params.signerEmail,
+    clientDob: params.clientDob,
+    recordsCustodian: params.recordsCustodian,
+    recordsDateRange: params.recordsDateRange,
+    caseRef: params.caseRef,
+    providerId: params.providerId,
+  })
+
+  return { retainer, hipaa }
 }
 
 /** Document types that should be filed into the case's Documents list when signed. */

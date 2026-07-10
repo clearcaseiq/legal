@@ -169,6 +169,36 @@ export const documensoProvider: ESignatureProvider = {
     return Buffer.from(await res.arrayBuffer())
   },
 
+  async voidEnvelope(externalEnvelopeId: string): Promise<void> {
+    if (!configured()) throw new ESignNotConfiguredError('documenso')
+    const base = baseUrl() as string
+    // Exact path can vary by Documenso version; DELETE on the envelope is the
+    // documented way to cancel an in-flight document.
+    const res = await fetch(`${base}/envelope/${externalEnvelopeId}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`Documenso void failed (${res.status}): ${text.slice(0, 300)}`)
+    }
+  },
+
+  async sendReminder(externalEnvelopeId: string): Promise<void> {
+    if (!configured()) throw new ESignNotConfiguredError('documenso')
+    const base = baseUrl() as string
+    // Re-run distribution to re-email pending recipients.
+    const res = await fetch(`${base}/envelope/distribute`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ envelopeId: externalEnvelopeId }),
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`Documenso reminder failed (${res.status}): ${text.slice(0, 300)}`)
+    }
+  },
+
   parseWebhook(rawBody: string, headers: Record<string, string>): ESignWebhookEvent | null {
     // Documenso posts JSON. If a webhook secret is configured, require it to
     // match the header Documenso sends before trusting the event.

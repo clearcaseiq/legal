@@ -47,6 +47,32 @@ function isTestMode(): boolean {
   return process.env.NODE_ENV !== 'production'
 }
 
+/** Fetch the raw signature_request object (used by remind/update helpers). */
+async function fetchSignatureRequest(externalEnvelopeId: string): Promise<{
+  signatures?: { signature_id?: string; signer_email_address?: string; status_code?: string }[]
+} | null> {
+  const res = await fetch(`${API_BASE}/signature_request/${externalEnvelopeId}`, {
+    headers: { Authorization: authHeader() },
+  })
+  if (!res.ok) return null
+  const data = (await res.json()) as { signature_request?: { signatures?: { signature_id?: string; signer_email_address?: string; status_code?: string }[] } }
+  return data.signature_request ?? null
+}
+
+/** The email of the (first, still-pending) signer on a request. */
+async function firstSignerEmail(externalEnvelopeId: string): Promise<string | null> {
+  const sr = await fetchSignatureRequest(externalEnvelopeId)
+  const sigs = sr?.signatures ?? []
+  const pending = sigs.find((s) => s.status_code !== 'signed') ?? sigs[0]
+  return pending?.signer_email_address ?? null
+}
+
+/** The signature_id of the first signer (required to correct their email). */
+async function firstSignatureId(externalEnvelopeId: string): Promise<string | null> {
+  const sr = await fetchSignatureRequest(externalEnvelopeId)
+  return sr?.signatures?.[0]?.signature_id ?? null
+}
+
 /** Map a Dropbox Sign per-signature status_code to our neutral status. */
 function statusFromSignatureCode(code: string | undefined): EnvelopeStatus {
   switch (code) {
@@ -208,6 +234,61 @@ export const dropboxSignProvider: ESignatureProvider = {
       throw new Error(`Dropbox Sign file download failed (${res.status}): ${text.slice(0, 300)}`)
     }
     return Buffer.from(await res.arrayBuffer())
+  },
+
+  async voidEnvelope(externalEnvelopeId: string): Promise<void> {
+    if (!configured()) throw new ESignNotConfiguredError('dropbox_sign')
+
+    // Cancel returns 200 with an empty body; there's no JSON to parse.
+    const res = await fetch(`${API_BASE}/signature_request/cancel/${externalEnvelopeId}`, {
+      method: 'POST',
+      headers: { Authorization: authHeader() },
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`Dropbox Sign cancel failed (${res.status}): ${text.slice(0, 300)}`)
+    }
+  },
+
+  async sendReminder(externalEnvelopeId: string): Promise<void> {
+    if (!configured()) throw new ESignNotConfiguredError('dropbox_sign')
+
+    // A reminder is scoped to a signer email, so look up the current signer.
+    const email = await firstSignerEmail(externalEnvelopeId)
+    if (!email) throw new Error('Dropbox Sign reminder failed: no signer email on record')
+
+    const form = new FormData()
+    form.append('email_address', email)
+    const res = await fetch(`${API_BASE}/signature_request/remind/${externalEnvelopeId}`, {
+      method: 'POST',
+      headers: { Authorization: authHeader() },
+      body: form,
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`Dropbox Sign reminder failed (${res.status}): ${text.slice(0, 300)}`)
+    }
+  },
+
+  async updateSignerEmail(externalEnvelopeId: string, email: string, name?: string): Promise<void> {
+    if (!configured()) throw new ESignNotConfiguredError('dropbox_sign')
+
+    const signatureId = await firstSignatureId(externalEnvelopeId)
+    if (!signatureId) throw new Error('Dropbox Sign update failed: no signature id on record')
+
+    const form = new FormData()
+    form.append('signature_id', signatureId)
+    form.append('email_address', email)
+    if (name) form.append('name', name)
+    const res = await fetch(`${API_BASE}/signature_request/update/${externalEnvelopeId}`, {
+      method: 'POST',
+      headers: { Authorization: authHeader() },
+      body: form,
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`Dropbox Sign update failed (${res.status}): ${text.slice(0, 300)}`)
+    }
   },
 
   parseWebhook(rawBody: string, headers: Record<string, string>): ESignWebhookEvent | null {

@@ -95,6 +95,22 @@ export interface ESignatureProvider {
   downloadSigned(externalEnvelopeId: string): Promise<Buffer>
 
   /**
+   * Cancel/void an in-flight envelope so it can no longer be signed. Optional:
+   * providers that don't support cancellation omit it (routes surface a clear
+   * "not supported" error).
+   */
+  voidEnvelope?(externalEnvelopeId: string): Promise<void>
+
+  /** Re-send the signing email to nudge a signer who hasn't completed. Optional. */
+  sendReminder?(externalEnvelopeId: string): Promise<void>
+
+  /**
+   * Correct the signer's email (and optionally name) on an in-flight envelope
+   * and re-send. Optional. Used when a request went to the wrong address.
+   */
+  updateSignerEmail?(externalEnvelopeId: string, email: string, name?: string): Promise<void>
+
+  /**
    * Verify + normalize an inbound webhook. Returns null when the payload is
    * not a recognized/relevant event. Implementations MUST verify the provider
    * signature before trusting the body.
