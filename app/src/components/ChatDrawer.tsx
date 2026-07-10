@@ -61,7 +61,7 @@ export default function ChatDrawer({
 }: ChatDrawerProps) {
   const [chatRoomId, setChatRoomId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState('')
+  const [input, setInput] = useState(initialDraft || '')
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const [templates, setTemplates] = useState<Template[]>([])

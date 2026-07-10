@@ -1,6 +1,7 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
-import { Clock, Lock, LockOpen, MessageSquare, Phone, Star, Users } from 'lucide-react'
+import { Clock, Lock, LockOpen, MessageSquare, Phone, Sparkles, Star, Users } from 'lucide-react'
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
+import { getSeenMatchIds, markMatchSeen } from '../lib/seenMatches'
 import { FilterStat, FilterBar, type FilterField } from '../features/shared/ui'
 
 type CaseLeadsFilter = {
@@ -68,11 +69,28 @@ export default function AttorneyDashboardLeadsTab({
   starredLeadIds,
 }: AttorneyDashboardLeadsTabProps) {
   const [now, setNow] = useState(() => Date.now())
+  const [showAllStarred, setShowAllStarred] = useState(false)
+  // Which matches the attorney has already opened. Drives the New (unread) vs
+  // Awaiting decision (opened, undecided) split in the routing inbox.
+  const [seenMatchIds, setSeenMatchIds] = useState<Set<string>>(() => getSeenMatchIds())
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(intervalId)
   }, [])
+
+  // A submitted match the attorney hasn't opened yet = a brand-new/unread match.
+  const isNewMatch = (lead: any) =>
+    (lead?.status || '') === 'submitted' && !isExpiredMatch(lead) && !seenMatchIds.has(lead?.id)
+
+  // Opening a match marks it read, so it moves from "New matches" to "Awaiting
+  // decision" until the attorney accepts/declines.
+  const handleOpenLead = (lead: any) => {
+    if ((lead?.status || '') === 'submitted' && lead?.id) {
+      setSeenMatchIds(markMatchSeen(lead.id))
+    }
+    onOpenLead(lead)
+  }
 
   const claimLabel = (value: string) =>
     (value || '').replace(/_/g, ' ').replace(/\b\w/g, (char: string) => char.toUpperCase())
@@ -246,13 +264,10 @@ export default function AttorneyDashboardLeadsTab({
   }
 
   const getFilteredAndSortedLeads = () => {
-    // "New matches" is the curated set the backend surfaces as newCaseMatches
-    // (newly routed / unreviewed), which is a strict subset of "awaiting
-    // decision" (all submitted). Filtering by these ids keeps the two views
-    // distinct instead of both showing every submitted case (A3-25).
-    const newMatchIds = new Set(
-      ((dashboardData?.newCaseMatches as any[]) || []).map((m: any) => m?.id).filter(Boolean),
-    )
+    // "New matches" = submitted matches the attorney hasn't opened yet (unread);
+    // "Awaiting decision" = submitted matches they've opened but not decided on.
+    // The read/unread split (seenMatchIds) keeps the two views strictly distinct
+    // instead of both showing every submitted case (A3-25 / A3-56).
     const filtered = (dashboardData?.recentLeads || []).filter((lead: any) => {
       // Active Cases (Case Management) is the accepted caseload only. A case that
       // hasn't been accepted (still 'submitted', or 'rejected') never belongs here,
@@ -272,16 +287,12 @@ export default function AttorneyDashboardLeadsTab({
         return false
       }
       if (caseLeadsFilter.routingInboxView === 'newMatches') {
-        // Prefer the curated set; if it isn't provided, fall back to submitted
-        // cases so the view is never accidentally empty.
-        if (newMatchIds.size > 0) {
-          if (!newMatchIds.has(lead?.id)) return false
-        } else if ((lead?.status || '') !== 'submitted') {
-          return false
-        }
+        // New matches = submitted matches the attorney hasn't opened yet (unread).
+        if ((lead?.status || '') !== 'submitted' || seenMatchIds.has(lead?.id)) return false
       }
-      if (caseLeadsFilter.routingInboxView === 'awaitingDecision' && (lead?.status || '') !== 'submitted') {
-        return false
+      if (caseLeadsFilter.routingInboxView === 'awaitingDecision') {
+        // Awaiting decision = opened but not yet accepted/declined.
+        if ((lead?.status || '') !== 'submitted' || !seenMatchIds.has(lead?.id)) return false
       }
       // "Hot Matches" filters by the canonical hotnessLevel === 'hot' (the same
       // signal the overview tile counts), not getPriorityLabel — which flags any
@@ -378,7 +389,7 @@ export default function AttorneyDashboardLeadsTab({
     // Expired/missed matches are counted only under their own tile, never under the
     // active tiles, so the tile numbers match the lists they open (an expired case is
     // no longer "awaiting decision", "hot", or "aging").
-    awaitingDecision: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.status || '') === 'submitted' && !isExpiredMatch(lead)).length,
+    awaitingDecision: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.status || '') === 'submitted' && !isExpiredMatch(lead) && seenMatchIds.has(lead?.id)).length,
     hotMatches: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.hotnessLevel || '') === 'hot' && (lead?.status || '') === 'submitted' && !isExpiredMatch(lead)).length,
     staleMatches: (dashboardData?.recentLeads || []).filter((lead: any) => {
       if (isExpiredMatch(lead)) return false
@@ -407,10 +418,7 @@ export default function AttorneyDashboardLeadsTab({
     : responseMinutes < 60
       ? `${responseMinutes}m`
       : `${Math.floor(responseMinutes / 60)}h ${responseMinutes % 60}m`
-  const newMatchIdSet = new Set(((dashboardData?.newCaseMatches as any[]) || []).map((m: any) => m?.id).filter(Boolean))
-  const newMatchesCount = (dashboardData?.recentLeads || []).filter(
-    (l: any) => newMatchIdSet.has(l?.id) && !isExpiredMatch(l),
-  ).length
+  const newMatchesCount = (dashboardData?.recentLeads || []).filter((l: any) => isNewMatch(l)).length
   const applyRoutingInboxView = (
     view: NonNullable<CaseLeadsFilter['routingInboxView']>,
     filterPatch: Partial<CaseLeadsFilter>,
@@ -673,23 +681,26 @@ export default function AttorneyDashboardLeadsTab({
               <h4 className="text-sm font-semibold text-gray-900">Starred Cases</h4>
               <p className="mt-1 text-xs text-gray-500">Quick access to cases you marked for follow-up.</p>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setCaseLeadsFilter((prev) => ({ ...prev, routingInboxView: '' }))
-                setActivePipelineTile(null)
-              }}
-              className="text-xs font-medium text-amber-700 hover:underline"
-            >
-              Showing {starredLeads.length}
-            </button>
+            {starredLeads.length > 3 ? (
+              <button
+                type="button"
+                onClick={() => setShowAllStarred((v) => !v)}
+                className="text-xs font-semibold text-amber-700 hover:underline"
+              >
+                {showAllStarred ? 'Show fewer' : `View all ${starredLeads.length} starred cases`}
+              </button>
+            ) : (
+              <span className="text-xs font-medium text-amber-700">
+                Showing {starredLeads.length} starred {starredLeads.length === 1 ? 'case' : 'cases'}
+              </span>
+            )}
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-3">
-            {starredLeads.slice(0, 3).map((lead: any) => (
+            {(showAllStarred ? starredLeads : starredLeads.slice(0, 3)).map((lead: any) => (
               <button
                 type="button"
                 key={lead.id}
-                onClick={() => onOpenLead(lead)}
+                onClick={() => handleOpenLead(lead)}
                 className="rounded-lg border border-amber-100 bg-white px-3 py-2 text-left text-sm hover:border-amber-200"
               >
                 <span className="block font-medium text-gray-900">
@@ -857,7 +868,7 @@ export default function AttorneyDashboardLeadsTab({
                             </button>
                           ) : (
                             <button
-                              onClick={() => onOpenLead(lead)}
+                              onClick={() => handleOpenLead(lead)}
                               className="inline-flex min-h-7 items-center justify-center whitespace-nowrap rounded bg-green-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-green-700"
                             >
                               Review
@@ -890,9 +901,17 @@ export default function AttorneyDashboardLeadsTab({
                         {evidenceCount > 0 ? `${evidenceCount} docs` : 'No docs'}
                       </td>
                       <td className="px-4 py-3 align-top">
-                        <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded ${getFlowStatus(lead).color}`}>
-                          {getCaseStatusLabel(lead)}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded ${getFlowStatus(lead).color}`}>
+                            {getCaseStatusLabel(lead)}
+                          </span>
+                          {isNewMatch(lead) && (
+                            <span className="inline-flex items-center gap-1 rounded bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700">
+                              <Sparkles className="h-3 w-3" />
+                              New
+                            </span>
+                          )}
+                        </div>
                         {offerCountdown && (
                           <div className={`mt-1 inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ${
                             offerCountdown.isExpired

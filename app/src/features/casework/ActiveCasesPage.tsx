@@ -49,9 +49,18 @@ interface CaseRow {
   valueHigh: number
   valueLabel: string
   nextAction: string
+  actionType: string
+  actionHref: string
+  actionHint: string
+  actionTone: ActionTone
   dueKey: DueKey
   dueLabel: string
   consultToday: boolean
+  overdueTaskCount: number
+  dueTodayTaskCount: number
+  isDemandReady: boolean
+  readinessLabel: string
+  readinessScore: number
   evidenceCount: number
   evidenceCategories: string[]
 }
@@ -119,6 +128,84 @@ function classifyDue(due: Date): { key: DueKey; label: string } {
   return { key: 'upcoming', label: due.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }
 }
 
+// ---- Smart next action (server-derived) ------------------------------------
+// The API attaches a context-aware `demandReadiness.nextAction` to every lead
+// (see api/src/lib/attorney-work-queue.ts): it looks at overdue tasks, whether a
+// consult is booked, missing evidence, awaiting plaintiff replies, demand
+// readiness, and negotiation aging. We surface that here and fall back to the
+// stage heuristic only when readiness is absent.
+type ActionType =
+  | 'review_task'
+  | 'schedule_consult'
+  | 'request_documents'
+  | 'send_message'
+  | 'open_demand'
+  | 'open_negotiation'
+  | 'open_lead'
+
+type ActionTone = 'rose' | 'amber' | 'brand' | 'slate'
+
+const ACTION_META: Record<ActionType, { label: string; tone: ActionTone }> = {
+  review_task: { label: 'Clear tasks', tone: 'rose' },
+  schedule_consult: { label: 'Schedule consult', tone: 'amber' },
+  request_documents: { label: 'Request documents', tone: 'amber' },
+  send_message: { label: 'Message plaintiff', tone: 'amber' },
+  open_demand: { label: 'Prepare demand', tone: 'brand' },
+  open_negotiation: { label: 'Review negotiation', tone: 'brand' },
+  open_lead: { label: 'Review case', tone: 'slate' },
+}
+
+const ACTION_DOT: Record<ActionTone, string> = {
+  rose: 'bg-rose-500',
+  amber: 'bg-amber-500',
+  brand: 'bg-brand-500',
+  slate: 'bg-slate-300',
+}
+
+// Legend for the "Next action" urgency dot, grouped by what the color means.
+const ACTION_LEGEND: { tone: ActionTone; label: string }[] = [
+  { tone: 'rose', label: 'Overdue / blocked' },
+  { tone: 'amber', label: 'Needs outreach' },
+  { tone: 'brand', label: 'Ready to advance' },
+  { tone: 'slate', label: 'Routine review' },
+]
+
+function ActionLegend() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1" aria-label="Next action color key">
+      {ACTION_LEGEND.map((item) => (
+        <span key={item.tone} className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+          <span className={`h-1.5 w-1.5 rounded-full ${ACTION_DOT[item.tone]}`} aria-hidden />
+          {item.label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+const DOC_SHORT: Record<string, string> = {
+  medical_records: 'medical records',
+  bills: 'bills',
+  police_report: 'police report',
+  injury_photos: 'injury photos',
+}
+
+function docShortLabel(keys: string[]): string {
+  const labels = keys.map((k) => DOC_SHORT[k] || k.replace(/_/g, ' '))
+  if (labels.length <= 1) return labels[0] || 'documents'
+  return `${labels[0]} +${labels.length - 1}`
+}
+
+// Deep-link the action to where the work happens. "Schedule consult" opens the
+// dedicated scheduling flow; everything else opens the relevant workspace tab
+// named by the readiness engine's `targetSection`.
+function actionHrefFor(leadId: string, actionType: string, targetSection?: string, consultToday?: boolean): string {
+  if (consultToday) return `/attorney-dashboard/lead/${leadId}/timeline`
+  if (actionType === 'schedule_consult')
+    return `/attorney-dashboard/schedule-consult/${leadId}?returnTo=${encodeURIComponent('/attorney-dashboard/cases/active')}`
+  return `/attorney-dashboard/lead/${leadId}/${targetSection || 'overview'}`
+}
+
 export default function ActiveCasesPage() {
   const [searchParams] = useSearchParams()
   const [leads, setLeads] = useState<any[]>([])
@@ -175,7 +262,6 @@ export default function ActiveCasesPage() {
         const reference = new Date(lead?.lastContactAt || lead?.updatedAt || lead?.submittedAt || Date.now())
         const due = new Date(reference)
         due.setDate(due.getDate() + stage.slaDays)
-        const dueInfo = consultToday ? { key: 'today' as DueKey, label: 'Today' } : classifyDue(due)
         const { low, high } = readBands(lead)
         const user = lead?.assessment?.user
         const client = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'Client'
@@ -183,6 +269,57 @@ export default function ActiveCasesPage() {
         const evidenceCategories = Array.from(
           new Set(evidenceFiles.map((f: any) => String(f?.category || '')).filter(Boolean)),
         ) as string[]
+
+        // Prefer the server-derived readiness action; fall back to the stage heuristic.
+        const readiness = lead?.demandReadiness
+        const ra = readiness?.nextAction
+        const overdueTaskCount = Number(readiness?.overdueTaskCount ?? 0) || 0
+        const dueTodayTaskCount = Number(readiness?.dueTodayTaskCount ?? 0) || 0
+
+        let actionType: string
+        let nextAction: string
+        let actionHref: string
+        let actionHint: string
+        let actionTone: ActionTone
+        if (consultToday) {
+          actionType = 'schedule_consult'
+          nextAction = 'Consultation today'
+          actionHref = `/attorney-dashboard/lead/${lead.id}/timeline`
+          actionHint = 'A consultation is booked for today — open the case to prep or review.'
+          actionTone = 'amber'
+        } else if (ra) {
+          actionType = String(ra.actionType || 'open_lead')
+          const meta = ACTION_META[actionType as ActionType]
+          nextAction = meta?.label ?? 'Review case'
+          if (actionType === 'request_documents' && Array.isArray(ra.requestedDocs) && ra.requestedDocs.length) {
+            nextAction = `Request ${docShortLabel(ra.requestedDocs)}`
+          }
+          actionHref = actionHrefFor(lead.id, actionType, ra.targetSection, false)
+          actionHint = [ra.title, ra.detail].filter(Boolean).join(' — ') || 'Suggested next step for this file.'
+          actionTone = overdueTaskCount > 0 ? 'rose' : meta?.tone ?? 'slate'
+        } else {
+          // No readiness payload (older API) → stage heuristic.
+          const label = stage.nextAction
+          actionType = label.toLowerCase().includes('consult')
+            ? 'schedule_consult'
+            : label.toLowerCase().includes('demand')
+              ? 'open_demand'
+              : 'open_lead'
+          nextAction = label
+          actionHref = nextActionHref(lead.id, label)
+          actionHint = 'Suggested next step based on case stage.'
+          actionTone = 'slate'
+        }
+
+        // Due date is task-driven when the readiness engine is tracking work,
+        // otherwise it falls back to the stage SLA projection.
+        let dueInfo: { key: DueKey; label: string }
+        if (consultToday) dueInfo = { key: 'today', label: 'Today' }
+        else if (overdueTaskCount > 0)
+          dueInfo = { key: 'overdue', label: overdueTaskCount === 1 ? '1 task overdue' : `${overdueTaskCount} overdue` }
+        else if (dueTodayTaskCount > 0) dueInfo = { key: 'today', label: 'Task due today' }
+        else dueInfo = classifyDue(due)
+
         return {
           id: lead.id,
           leadId: lead.id,
@@ -196,20 +333,33 @@ export default function ActiveCasesPage() {
           valueLow: low,
           valueHigh: high,
           valueLabel: low && high ? `${compactMoney(low)}–${compactMoney(high)}` : compactMoney(high || low),
-          nextAction: consultToday ? 'Consultation today' : stage.nextAction,
+          nextAction,
+          actionType,
+          actionHref,
+          actionHint,
+          actionTone,
           dueKey: dueInfo.key,
           dueLabel: dueInfo.label,
           consultToday,
+          overdueTaskCount,
+          dueTodayTaskCount,
+          isDemandReady: Boolean(readiness?.isDemandReady),
+          readinessLabel: String(readiness?.label || ''),
+          readinessScore: Number(readiness?.score ?? 0) || 0,
           evidenceCount: evidenceFiles.length,
           evidenceCategories,
         }
       })
   }, [leads, consultTodayLeadIds])
 
+  const isTaskDue = (r: CaseRow) =>
+    r.overdueTaskCount > 0 || r.dueTodayTaskCount > 0 || r.dueKey === 'today' || r.dueKey === 'tomorrow' || r.dueKey === 'overdue'
+  const isDemandFocus = (r: CaseRow) => r.actionType === 'open_demand' || r.isDemandReady
+
   const passesView = (r: CaseRow) => {
-    if (view === 'consults') return r.consultToday || r.stageKey === 'consulted'
-    if (view === 'tasks') return r.dueKey === 'today' || r.dueKey === 'tomorrow' || r.dueKey === 'overdue'
-    if (view === 'demands') return r.nextAction.toLowerCase().includes('demand')
+    if (view === 'consults') return r.consultToday || r.actionType === 'schedule_consult' || r.stageKey === 'consulted'
+    if (view === 'tasks') return isTaskDue(r)
+    if (view === 'demands') return isDemandFocus(r)
     return true
   }
 
@@ -232,9 +382,9 @@ export default function ActiveCasesPage() {
   const counts = useMemo(
     () => ({
       all: rows.length,
-      consults: rows.filter((r) => r.consultToday || r.stageKey === 'consulted').length,
-      tasks: rows.filter((r) => r.dueKey === 'today' || r.dueKey === 'tomorrow' || r.dueKey === 'overdue').length,
-      demands: rows.filter((r) => r.nextAction.toLowerCase().includes('demand')).length,
+      consults: rows.filter((r) => r.consultToday || r.actionType === 'schedule_consult' || r.stageKey === 'consulted').length,
+      tasks: rows.filter((r) => isTaskDue(r)).length,
+      demands: rows.filter((r) => isDemandFocus(r)).length,
     }),
     [rows],
   )
@@ -334,8 +484,18 @@ export default function ActiveCasesPage() {
 
       <SectionCard
         title={VIEW_LABELS[view]}
-        trailing={<Badge tone="brand">{visible.length} shown</Badge>}
+        trailing={
+          <div className="flex items-center gap-4">
+            <div className="hidden lg:block">
+              <ActionLegend />
+            </div>
+            <Badge tone="brand">{visible.length} shown</Badge>
+          </div>
+        }
       >
+        <div className="mb-3 border-b border-slate-100 pb-3 lg:hidden">
+          <ActionLegend />
+        </div>
         <DataTable
           columns={caseColumns}
           rows={visible}
@@ -388,10 +548,11 @@ const caseColumns: DataTableColumn<CaseRow>[] = [
     header: 'Next action',
     cell: (r) => (
       <Link
-        to={nextActionHref(r.leadId, r.nextAction)}
-        title="Go to where this action happens"
-        className="group/action inline-flex items-center gap-1 font-medium text-brand-700 underline decoration-brand-300 decoration-dashed underline-offset-4 transition hover:text-brand-800 hover:decoration-brand-500 hover:decoration-solid"
+        to={r.actionHref}
+        title={r.actionHint}
+        className="group/action inline-flex items-center gap-1.5 font-medium text-brand-700 underline decoration-brand-300 decoration-dashed underline-offset-4 transition hover:text-brand-800 hover:decoration-brand-500 hover:decoration-solid"
       >
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${ACTION_DOT[r.actionTone]}`} aria-hidden />
         {r.nextAction}
         <ArrowRight className="h-3.5 w-3.5 shrink-0 transition-transform group-hover/action:translate-x-0.5" />
       </Link>

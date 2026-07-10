@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, ChevronDown, SlidersHorizontal, X } from 'lucide-react'
 
@@ -386,11 +386,75 @@ export function Badge({
   )
 }
 
-/** Horizontal-scroll wrapper + base <table> with the shared spacing model. */
+/**
+ * Horizontal-scroll wrapper + base <table> with the shared spacing model.
+ *
+ * When the table is wider than its container we render a *proxy* horizontal
+ * scrollbar that is `position: sticky` to the bottom of the viewport, and keep
+ * its scroll position in sync with the real (scrollbar-hidden) table container.
+ * On a long list the attorney can drag the columns left/right at any point
+ * without first scrolling to the very bottom of the page. Falls back to no bar
+ * when the table fits.
+ */
 export function TableScroll({ children, className = '' }: { children: ReactNode; className?: string }) {
+  const contentRef = useRef<HTMLDivElement>(null)
+  const tableRef = useRef<HTMLTableElement>(null)
+  const barRef = useRef<HTMLDivElement>(null)
+  const syncing = useRef(false)
+  const [metrics, setMetrics] = useState({ scrollWidth: 0, clientWidth: 0 })
+
+  useEffect(() => {
+    const el = contentRef.current
+    if (!el) return
+    const measure = () => setMetrics({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth })
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    if (tableRef.current) ro.observe(tableRef.current)
+    return () => ro.disconnect()
+  }, [children])
+
+  // Keep the real container and the proxy bar in lockstep. The guard swallows the
+  // scroll event that our own programmatic update triggers on the other element,
+  // so the two never fight each other.
+  const sync = (from: 'content' | 'bar') => {
+    const content = contentRef.current
+    const bar = barRef.current
+    if (!content || !bar) return
+    if (syncing.current) {
+      syncing.current = false
+      return
+    }
+    const [target, source] = from === 'content' ? [bar, content] : [content, bar]
+    if (target.scrollLeft !== source.scrollLeft) {
+      syncing.current = true
+      target.scrollLeft = source.scrollLeft
+    }
+  }
+
+  const overflowing = metrics.scrollWidth - metrics.clientWidth > 1
+
   return (
-    <div className="overflow-x-auto">
-      <table className={`w-full border-separate border-spacing-0 text-sm ${className}`}>{children}</table>
+    <div className="relative">
+      <div
+        ref={contentRef}
+        onScroll={() => sync('content')}
+        className="overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        <table ref={tableRef} className={`w-full border-separate border-spacing-0 text-sm ${className}`}>
+          {children}
+        </table>
+      </div>
+      {overflowing && (
+        <div
+          ref={barRef}
+          onScroll={() => sync('bar')}
+          aria-hidden="true"
+          className="sticky bottom-0 z-20 h-4 overflow-x-auto overflow-y-hidden border-t border-slate-200 bg-white/90 backdrop-blur-sm [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:h-2.5"
+        >
+          <div className="h-px" style={{ width: metrics.scrollWidth }} />
+        </div>
+      )}
     </div>
   )
 }
