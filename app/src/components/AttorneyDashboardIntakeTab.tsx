@@ -101,8 +101,8 @@ async function parsePreviewFile(file: File): Promise<ParsedPreview> {
     try {
       const parsed = JSON.parse(content)
       const arr = Array.isArray(parsed) ? parsed : parsed.cases || parsed.matters || parsed.projects || [parsed]
-      const rows = arr.map((r: unknown) => flattenObj(r))
-      const headers = Array.from(new Set(rows.flatMap((r: Record<string, string>) => Object.keys(r))))
+      const rows: Record<string, string>[] = (arr as unknown[]).map((r) => flattenObj(r))
+      const headers: string[] = Array.from(new Set(rows.flatMap((r) => Object.keys(r))))
       return { fileName: name, headers, rows }
     } catch {
       return { fileName: name, headers: [], rows: [], unsupported: 'Could not parse this JSON file.' }

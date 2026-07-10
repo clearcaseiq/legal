@@ -4,11 +4,12 @@ import { ArrowLeft, ChevronDown, SlidersHorizontal, X } from 'lucide-react'
 
 // `info` maps to the muted `brand` navy; `blue` is a true sky-blue matching the
 // prototype's accent tiles (e.g. "Consults today").
-type Tone = 'neutral' | 'info' | 'blue' | 'success' | 'warning' | 'danger'
+type Tone = 'neutral' | 'info' | 'brand' | 'blue' | 'success' | 'warning' | 'danger'
 
 const TONE_TEXT: Record<Tone, string> = {
   neutral: 'text-slate-900',
   info: 'text-brand-700',
+  brand: 'text-brand-600',
   blue: 'text-blue-600',
   success: 'text-emerald-600',
   warning: 'text-amber-600',
@@ -18,6 +19,7 @@ const TONE_TEXT: Record<Tone, string> = {
 const TONE_ACTIVE_RING: Record<Tone, string> = {
   neutral: 'border-slate-400 ring-2 ring-slate-200',
   info: 'border-brand-400 ring-2 ring-brand-100',
+  brand: 'border-brand-400 ring-2 ring-brand-100',
   blue: 'border-blue-400 ring-2 ring-blue-100',
   success: 'border-emerald-400 ring-2 ring-emerald-100',
   warning: 'border-amber-400 ring-2 ring-amber-100',
@@ -29,6 +31,7 @@ const TONE_ACTIVE_RING: Record<Tone, string> = {
 const TONE_FILL_BG: Record<Tone, string> = {
   neutral: 'bg-slate-50',
   info: 'bg-brand-50',
+  brand: 'bg-brand-50',
   blue: 'bg-blue-50',
   success: 'bg-emerald-50',
   warning: 'bg-amber-50',
@@ -38,6 +41,7 @@ const TONE_FILL_BG: Record<Tone, string> = {
 const TONE_FILL_BORDER: Record<Tone, string> = {
   neutral: 'border-slate-200',
   info: 'border-brand-200',
+  brand: 'border-brand-200',
   blue: 'border-blue-200',
   success: 'border-emerald-200',
   warning: 'border-amber-200',
@@ -47,6 +51,7 @@ const TONE_FILL_BORDER: Record<Tone, string> = {
 const TONE_LABEL: Record<Tone, string> = {
   neutral: 'text-slate-500',
   info: 'text-brand-700',
+  brand: 'text-brand-700',
   blue: 'text-blue-700',
   success: 'text-emerald-700',
   warning: 'text-amber-700',

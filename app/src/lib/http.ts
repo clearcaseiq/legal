@@ -20,6 +20,7 @@ type RequestConfig = {
   timeout?: number
   url?: string
   method?: string
+  signal?: AbortSignal
 }
 
 type ResponseData<T = any> = {
@@ -209,6 +210,13 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
   const attempt = async (): Promise<ResponseData<T>> => {
     const controller = new AbortController()
     const timeoutId = window.setTimeout(() => controller.abort(), requestConfig.timeout)
+    // Forward a caller-supplied signal (e.g. debounced search cancellation) so it
+    // aborts the underlying fetch alongside the per-attempt timeout.
+    const externalSignal = config.signal
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort()
+      else externalSignal.addEventListener('abort', () => controller.abort(), { once: true })
+    }
     try {
       const response = await fetch(requestUrl, {
         method: method.toUpperCase(),
