@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { AttorneyWorkspaceProvider, useAttorneyWorkspace } from './AttorneyWorkspaceContext'
 import { initials } from './ui'
+import GlobalSearch from './GlobalSearch'
 
 interface NavEntry {
   to: string
@@ -260,10 +261,15 @@ function WorkspaceChrome() {
   const domain = domainForPath(location.pathname)
   return (
     <div className="mx-auto w-full max-w-7xl">
-      <div className="mb-4 flex items-center gap-2 text-xs font-medium text-slate-500">
-        <span className="font-semibold text-slate-700">ClearCaseIQ</span>
-        <span className="text-slate-300">/</span>
-        <span>{domain}</span>
+      <div className="mb-4 flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-slate-500">
+          <span className="font-semibold text-slate-700">ClearCaseIQ</span>
+          <span className="text-slate-300">/</span>
+          <span className="truncate">{domain}</span>
+        </div>
+        <div className="ml-auto">
+          <GlobalSearch />
+        </div>
       </div>
       <div className="flex gap-6">
         <Sidebar />

@@ -594,6 +594,7 @@ export default function ActiveCasesPage() {
           error={error}
           loadingMessage="Loading cases…"
           emptyMessage="No cases match these filters."
+          maxHeight="max(320px, calc(100vh - 20rem))"
         />
       </SectionCard>
     </div>

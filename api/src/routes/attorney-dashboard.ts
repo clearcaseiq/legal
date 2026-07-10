@@ -3653,6 +3653,219 @@ router.get('/deadlines', authMiddleware, async (req: any, res) => {
   }
 })
 
+// Universal search across the attorney's cases, contacts, and documents. Powers
+// the workspace-wide command palette (⌘K) so the attorney can jump to anything
+// without knowing which screen it lives on.
+router.get('/search', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { attorney } = auth
+
+    const q = String(req.query.q || '').trim().toLowerCase()
+    if (q.length < 2) {
+      return res.json({ query: q, cases: [], contacts: [], documents: [] })
+    }
+    const PER_GROUP = 8
+    const humanize = (s?: string | null) =>
+      (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+    const fullName = (first?: string | null, last?: string | null) =>
+      [first, last].filter(Boolean).join(' ').trim()
+    const matches = (...fields: (string | null | undefined)[]) =>
+      fields.some((f) => (f || '').toLowerCase().includes(q))
+
+    // Leads power both the case results and the derived contacts (client +
+    // adjusters), so we fetch them once.
+    const REVEALED = new Set(['contacted', 'consulted', 'retained'])
+    const leads = await prisma.leadSubmission.findMany({
+      where: { assignedAttorneyId: attorney.id },
+      select: {
+        id: true,
+        status: true,
+        assessment: {
+          select: {
+            claimType: true,
+            venueCounty: true,
+            venueState: true,
+            user: { select: { firstName: true, lastName: true, email: true, phone: true } },
+            insuranceDetails: {
+              select: {
+                id: true,
+                carrierName: true,
+                adjusterName: true,
+                adjusterEmail: true,
+                adjusterPhone: true,
+              },
+            },
+          },
+        },
+      },
+      take: 500,
+    })
+
+    type Hit = { id: string; leadId: string; title: string; subtitle: string; href: string }
+
+    // --- Cases ---
+    const cases: Hit[] = []
+    for (const lead of leads) {
+      const a = lead.assessment
+      if (!a) continue
+      const client = fullName(a.user?.firstName, a.user?.lastName) || 'Client'
+      const claim = humanize(a.claimType)
+      const venue = [a.venueCounty, a.venueState].filter(Boolean).join(', ')
+      if (matches(client, claim, a.claimType, venue, lead.status)) {
+        cases.push({
+          id: lead.id,
+          leadId: lead.id,
+          title: client,
+          subtitle: [claim, venue, humanize(lead.status)].filter(Boolean).join(' · '),
+          href: `/attorney-dashboard/cases/${lead.id}/overview`,
+        })
+      }
+    }
+
+    // --- Contacts (manual + derived client/adjuster) ---
+    const contacts: Hit[] = []
+    const manualContacts = await prisma.caseContact.findMany({
+      where: { attorneyId: attorney.id },
+      select: {
+        id: true,
+        leadId: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        companyName: true,
+        title: true,
+        contactType: true,
+      },
+      take: 500,
+    })
+    const seenContactKeys = new Set<string>()
+    for (const c of manualContacts) {
+      const name = fullName(c.firstName, c.lastName) || c.companyName || 'Contact'
+      if (matches(name, c.email, c.phone, c.companyName, c.title, c.contactType)) {
+        seenContactKeys.add(`${c.leadId}:${(c.email || '').toLowerCase()}`)
+        contacts.push({
+          id: c.id,
+          leadId: c.leadId,
+          title: name,
+          subtitle: [humanize(c.title || c.contactType), c.companyName, c.email].filter(Boolean).join(' · '),
+          href: `/attorney-dashboard/cases/${c.leadId}/overview`,
+        })
+      }
+    }
+    for (const lead of leads) {
+      const a = lead.assessment
+      if (!a) continue
+      const u = a.user
+      if (u && REVEALED.has((lead.status || '').toLowerCase())) {
+        const name = fullName(u.firstName, u.lastName) || 'Client'
+        const key = `${lead.id}:${(u.email || '').toLowerCase()}`
+        if (!seenContactKeys.has(key) && matches(name, u.email, u.phone)) {
+          seenContactKeys.add(key)
+          contacts.push({
+            id: `client_${lead.id}`,
+            leadId: lead.id,
+            title: name,
+            subtitle: ['Client', u.email].filter(Boolean).join(' · '),
+            href: `/attorney-dashboard/cases/${lead.id}/overview`,
+          })
+        }
+      }
+      for (const ins of a.insuranceDetails || []) {
+        if (!ins.adjusterName && !ins.adjusterEmail) continue
+        const key = `${lead.id}:${(ins.adjusterEmail || '').toLowerCase()}`
+        if (!seenContactKeys.has(key) && matches(ins.adjusterName, ins.adjusterEmail, ins.adjusterPhone, ins.carrierName)) {
+          seenContactKeys.add(key)
+          contacts.push({
+            id: `adjuster_${ins.id}`,
+            leadId: lead.id,
+            title: ins.adjusterName || 'Adjuster',
+            subtitle: ['Adjuster', ins.carrierName, ins.adjusterEmail].filter(Boolean).join(' · '),
+            href: `/attorney-dashboard/cases/${lead.id}/overview`,
+          })
+        }
+      }
+    }
+
+    // --- Documents (requests + e-sign envelopes) ---
+    const documents: Hit[] = []
+    const [docRequests, envelopes] = await Promise.all([
+      prisma.documentRequest.findMany({
+        where: { attorneyId: attorney.id },
+        select: {
+          id: true,
+          leadId: true,
+          status: true,
+          requestedDocs: true,
+          recipientName: true,
+          lead: { select: { assessment: { select: { user: { select: { firstName: true, lastName: true } } } } } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      }),
+      prisma.documentEnvelope.findMany({
+        where: { attorneyId: attorney.id },
+        select: {
+          id: true,
+          leadId: true,
+          title: true,
+          documentType: true,
+          status: true,
+          signerName: true,
+          lead: { select: { assessment: { select: { user: { select: { firstName: true, lastName: true } } } } } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      }),
+    ])
+    for (const r of docRequests) {
+      let docs: string[] = []
+      try {
+        docs = JSON.parse(r.requestedDocs || '[]')
+      } catch {
+        docs = []
+      }
+      const client = fullName(r.lead?.assessment?.user?.firstName, r.lead?.assessment?.user?.lastName)
+      const label = docs.map(humanize).join(', ') || 'Document request'
+      if (matches(label, client, r.recipientName, r.status, ...docs)) {
+        documents.push({
+          id: r.id,
+          leadId: r.leadId,
+          title: label,
+          subtitle: ['Request', client, humanize(r.status)].filter(Boolean).join(' · '),
+          href: `/attorney-dashboard/cases/${r.leadId}/evidence`,
+        })
+      }
+    }
+    for (const e of envelopes) {
+      const client = fullName(e.lead?.assessment?.user?.firstName, e.lead?.assessment?.user?.lastName)
+      const label = e.title || humanize(e.documentType) || 'E-signature'
+      if (matches(label, client, e.signerName, e.documentType, e.status)) {
+        documents.push({
+          id: e.id,
+          leadId: e.leadId,
+          title: label,
+          subtitle: ['E-sign', client, humanize(e.status)].filter(Boolean).join(' · '),
+          href: `/attorney-dashboard/cases/${e.leadId}/signatures`,
+        })
+      }
+    }
+
+    res.json({
+      query: q,
+      cases: cases.slice(0, PER_GROUP),
+      contacts: contacts.slice(0, PER_GROUP),
+      documents: documents.slice(0, PER_GROUP),
+      totals: { cases: cases.length, contacts: contacts.length, documents: documents.length },
+    })
+  } catch (error: any) {
+    logger.error('Failed to run global search', { error: error.message })
+    res.status(500).json({ error: 'Failed to run search' })
+  }
+})
+
 // Pending document requests for this attorney (mobile status screen).
 router.get('/document-requests', authMiddleware, async (req: any, res) => {
   try {

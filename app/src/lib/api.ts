@@ -1570,6 +1570,28 @@ export async function getAttorneyDeadlines(): Promise<{ items: AttorneyDeadlineI
   return data
 }
 
+export interface GlobalSearchHit {
+  id: string
+  leadId: string
+  title: string
+  subtitle: string
+  href: string
+}
+
+export interface GlobalSearchResult {
+  query: string
+  cases: GlobalSearchHit[]
+  contacts: GlobalSearchHit[]
+  documents: GlobalSearchHit[]
+  totals?: { cases: number; contacts: number; documents: number }
+}
+
+// Universal search across the attorney's cases, contacts, and documents.
+export async function globalSearch(query: string, signal?: AbortSignal): Promise<GlobalSearchResult> {
+  const { data } = await api.get(`/v1/attorney-dashboard/search`, { params: { q: query }, signal })
+  return data
+}
+
 // Fees collected year-to-date, with a per-case breakdown.
 export async function getAttorneyFeesYtd() {
   const { data } = await api.get(`/v1/attorney-dashboard/fees/ytd`)

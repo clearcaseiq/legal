@@ -396,12 +396,38 @@ export function Badge({
  * without first scrolling to the very bottom of the page. Falls back to no bar
  * when the table fits.
  */
-export function TableScroll({ children, className = '' }: { children: ReactNode; className?: string }) {
+export function TableScroll({
+  children,
+  className = '',
+  maxHeight,
+}: {
+  children: ReactNode
+  className?: string
+  /**
+   * When set, the body scrolls vertically within this height (px or CSS length)
+   * and the header sticks, so long lists don't push the page down. In this mode
+   * the native scrollbars are shown inside the bounded box (no proxy bar needed).
+   */
+  maxHeight?: number | string
+}) {
   const contentRef = useRef<HTMLDivElement>(null)
   const tableRef = useRef<HTMLTableElement>(null)
   const barRef = useRef<HTMLDivElement>(null)
   const syncing = useRef(false)
   const [metrics, setMetrics] = useState({ scrollWidth: 0, clientWidth: 0 })
+
+  // Bounded-height mode: vertical scroll box with a sticky header and visible
+  // thin scrollbars. No sticky proxy bar — both bars live inside the box.
+  if (maxHeight != null) {
+    return (
+      <div
+        style={{ maxHeight }}
+        className="overflow-auto rounded-lg [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar]:w-2.5"
+      >
+        <table className={`w-full border-separate border-spacing-0 text-sm ${className}`}>{children}</table>
+      </div>
+    )
+  }
 
   useEffect(() => {
     const el = contentRef.current
@@ -515,6 +541,7 @@ export function DataTable<T>({
   error = null,
   emptyMessage = 'No results.',
   loadingMessage = 'Loading…',
+  maxHeight,
 }: {
   columns: DataTableColumn<T>[]
   rows: T[]
@@ -524,15 +551,19 @@ export function DataTable<T>({
   error?: string | null
   emptyMessage?: string
   loadingMessage?: string
+  /** When set, the table body scrolls vertically within this height with a sticky header. */
+  maxHeight?: number | string
 }) {
   if (loading) return <EmptyState message={loadingMessage} />
   if (error) return <EmptyState message={error} />
   if (!rows.length) return <EmptyState message={emptyMessage} />
+  // In bounded-height mode the header must stay pinned while the body scrolls.
+  const stickyHeader = maxHeight != null ? 'sticky top-0 z-10 bg-white' : ''
   return (
-    <TableScroll>
+    <TableScroll maxHeight={maxHeight}>
       <THeadRow>
         {columns.map((c) => (
-          <Th key={c.key} align={c.align} className={c.headerClassName}>
+          <Th key={c.key} align={c.align} className={`${stickyHeader} ${c.headerClassName ?? ''}`.trim()}>
             {c.header}
           </Th>
         ))}
