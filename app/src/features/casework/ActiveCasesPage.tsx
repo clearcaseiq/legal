@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Pin } from 'lucide-react'
 import { getAttorneyDashboard } from '../../lib/api'
 import { Avatar, Badge, ClientLink, DataTable, FilterBar, FilterStat, PageHeader, SectionCard, StatGrid, type BadgeTone, type DataTableColumn, type FilterField } from '../shared/ui'
+import { getPinnedCaseIds, getRecentCases, togglePinnedCase } from './recentCases'
 
 const CLAIM_LABELS: Record<string, string> = {
   auto: 'Auto',
@@ -204,6 +205,93 @@ function actionHrefFor(leadId: string, actionType: string, targetSection?: strin
   if (actionType === 'schedule_consult')
     return `/attorney-dashboard/schedule-consult/${leadId}?returnTo=${encodeURIComponent('/attorney-dashboard/cases/active')}`
   return `/attorney-dashboard/lead/${leadId}/${targetSection || 'overview'}`
+}
+
+const STAGE_DOT: Record<string, string> = {
+  contacted: 'bg-brand-400',
+  consulted: 'bg-amber-400',
+  retained: 'bg-emerald-400',
+}
+
+/**
+ * Compact "jump back in" strip — the recents + pinned re-entry surface, folded
+ * up from the retired Case Workspace launcher so there's one door into a case.
+ * Only renders when the attorney has actually pinned or opened a case; new users
+ * just see the grid below.
+ */
+function JumpBackIn({ rows }: { rows: CaseRow[] }) {
+  const [pinnedIds, setPinnedIds] = useState<string[]>(() => getPinnedCaseIds())
+  const [recents] = useState(() => getRecentCases())
+
+  const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows])
+  const handleTogglePin = (id: string) => setPinnedIds(togglePinnedCase(id))
+
+  const continueCase = useMemo(() => {
+    const firstRecent = recents.find((r) => byId.has(r.id))
+    return firstRecent ? byId.get(firstRecent.id)! : null
+  }, [recents, byId])
+
+  const pinnedTiles = useMemo(
+    () => pinnedIds.filter((id) => byId.has(id) && id !== continueCase?.id).map((id) => byId.get(id)!),
+    [pinnedIds, byId, continueCase],
+  )
+
+  const recentTiles = useMemo(
+    () =>
+      recents
+        .filter((r) => byId.has(r.id) && !pinnedIds.includes(r.id) && r.id !== continueCase?.id)
+        .map((r) => byId.get(r.id)!),
+    [recents, byId, pinnedIds, continueCase],
+  )
+
+  if (!continueCase && pinnedTiles.length === 0 && recentTiles.length === 0) return null
+
+  const chip = (c: CaseRow, opts: { primary?: boolean } = {}) => {
+    const pinned = pinnedIds.includes(c.id)
+    return (
+      <div
+        key={c.id}
+        className={`group relative inline-flex items-center gap-2 rounded-full border py-1.5 pl-2 pr-2.5 transition hover:shadow-sm ${
+          opts.primary
+            ? 'border-brand-200 bg-brand-50/60 hover:border-brand-300'
+            : 'border-slate-200 bg-white hover:border-slate-300'
+        }`}
+      >
+        <Link
+          to={`/attorney-dashboard/lead/${c.id}/overview`}
+          aria-label={`Open ${c.client}'s case`}
+          className="absolute inset-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-200"
+        />
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STAGE_DOT[c.stageKey] ?? 'bg-slate-300'}`} aria-hidden />
+        <span className="max-w-[10rem] truncate text-sm font-semibold text-slate-800">{c.client}</span>
+        <span className="hidden text-xs text-slate-400 sm:inline">{c.typeLabel}</span>
+        <button
+          type="button"
+          onClick={() => handleTogglePin(c.id)}
+          aria-label={pinned ? `Unpin ${c.client}` : `Pin ${c.client}`}
+          title={pinned ? 'Unpin' : 'Pin to top'}
+          className={`relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition ${
+            pinned
+              ? 'text-brand-600 hover:bg-brand-100'
+              : 'text-slate-300 opacity-0 hover:bg-slate-100 hover:text-slate-500 focus-visible:opacity-100 group-hover:opacity-100'
+          }`}
+        >
+          <Pin className={`h-3.5 w-3.5 ${pinned ? 'fill-brand-500' : ''}`} />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white/70 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Jump back in</span>
+        {continueCase ? chip(continueCase, { primary: true }) : null}
+        {pinnedTiles.map((c) => chip(c))}
+        {recentTiles.map((c) => chip(c))}
+      </div>
+    </div>
+  )
 }
 
 export default function ActiveCasesPage() {
@@ -438,6 +526,8 @@ export default function ActiveCasesPage() {
   return (
     <div className="space-y-4">
       <PageHeader title="Active Cases" />
+
+      {!loading && !error ? <JumpBackIn rows={rows} /> : null}
 
       <StatGrid columns={5}>
         <FilterStat

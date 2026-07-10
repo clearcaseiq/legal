@@ -138,7 +138,7 @@ function ScopeBar({
   )
 }
 
-export default function LeadQualityPage() {
+export default function MatchQualityPage() {
   const navigate = useNavigate()
   const { isFirmAdmin } = useAttorneyWorkspace()
   const { data: firmSummary } = useFirmDashboardSummary()
@@ -162,7 +162,7 @@ export default function LeadQualityPage() {
         ? getFirmDashboard().then((d: any) => !cancelled && setFirm(d))
         : getAttorneyDashboard().then((d: any) => !cancelled && setMine(d))
     request
-      .catch((err: any) => !cancelled && setError(err?.response?.data?.error || err?.message || 'Failed to load lead quality'))
+      .catch((err: any) => !cancelled && setError(err?.response?.data?.error || err?.message || 'Failed to load match quality'))
       .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true
@@ -370,14 +370,14 @@ export default function LeadQualityPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Lead Quality" />
+      <PageHeader title="Match Quality" />
 
       <ScopeBar scope={scope} setScope={setScope} firmAttorneyCount={firmAttorneyCount} />
 
       {scope === 'firm' && !isFirmAdmin ? (
-        <EmptyState message="Firm-wide lead quality is available to firm admins and managing partners." />
+        <EmptyState message="Firm-wide match quality is available to firm admins and managing partners." />
       ) : loading ? (
-        <EmptyState message="Loading lead quality…" />
+        <EmptyState message="Loading match quality…" />
       ) : error ? (
         <EmptyState message={error} />
       ) : effectiveScope === 'firm' ? (

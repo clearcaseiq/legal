@@ -15,7 +15,7 @@ import { z } from 'zod'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
 import PDFDocument from 'pdfkit'
 import crypto from 'crypto'
-import { calculateSOL, getSOLStatus } from '../lib/solRules'
+import { calculateSOL, getSOLStatus, deriveSOLStatus } from '../lib/solRules'
 import { buildMedicalChronology, buildMedicalChronologySummary, computeCasePreparation, getSettlementBenchmarks } from '../lib/case-insights'
 import { recordCaseOutcome } from '../lib/case-outcomes'
 import { computeMarketplacePerformance } from '../lib/marketplace-performance'
@@ -1446,7 +1446,10 @@ const intakeImportSchema = z.object({
   includeTasks: z.coerce.boolean().optional(),
   includeMedical: z.coerce.boolean().optional(),
   notes: z.string().optional(),
-  files: z.array(z.object({ name: z.string(), size: z.number().optional() })).optional()
+  files: z.array(z.object({ name: z.string(), size: z.number().optional() })).optional(),
+  // Optional attorney-supplied column mapping (canonical field -> source header).
+  // Overrides auto-detection so a preview/mapping UI can correct mismatches.
+  mapping: z.record(z.string()).optional(),
 })
 
 const smartIntakeSchema = z.object({
@@ -1677,7 +1680,17 @@ function normalizeIncidentDate(value: string) {
   return date.toISOString().split('T')[0]
 }
 
-function normalizeImportedCase(source: IntakeImportSource, row: Record<string, string>): NormalizedImportedCase {
+function normalizeImportedCase(
+  source: IntakeImportSource,
+  row: Record<string, string>,
+  mapping?: Record<string, string>,
+): NormalizedImportedCase {
+  // A user-supplied mapping (canonical field -> source header) takes priority
+  // over the source's auto-detect candidates.
+  const mapped = (field: string): string[] => {
+    const header = mapping?.[field]
+    return header ? [header] : []
+  }
   const sourceSpecific: Record<IntakeImportSource, Record<string, string[]>> = {
     clio: {
       externalId: ['matter id', 'matter number', 'id', 'display number'],
@@ -1710,24 +1723,24 @@ function normalizeImportedCase(source: IntakeImportSource, row: Record<string, s
       narrative: ['narrative', 'description', 'facts', 'notes'],
     },
   }
-  const mapping = sourceSpecific[source]
-  const clientName = getImportField(row, mapping.clientName)
+  const candidates = sourceSpecific[source]
+  const clientName = getImportField(row, candidates.clientName)
   const splitName = splitClientName(clientName)
-  const firstName = getImportField(row, ['plaintiff first name', 'first name', 'client first name', 'firstName']) || splitName.firstName
-  const lastName = getImportField(row, ['plaintiff last name', 'last name', 'client last name', 'lastName']) || splitName.lastName
-  const claimType = getImportField(row, ['claim type', 'case type', 'matter type', ...mapping.claimType])
+  const firstName = getImportField(row, [...mapped('firstName'), 'plaintiff first name', 'first name', 'client first name', 'firstName']) || splitName.firstName
+  const lastName = getImportField(row, [...mapped('lastName'), 'plaintiff last name', 'last name', 'client last name', 'lastName']) || splitName.lastName
+  const claimType = getImportField(row, [...mapped('caseType'), 'claim type', 'case type', 'matter type', ...candidates.claimType])
 
   return {
-    externalId: getImportField(row, ['external id', 'case id', 'matter id', ...mapping.externalId]) || null,
+    externalId: getImportField(row, [...mapped('externalId'), 'external id', 'case id', 'matter id', ...candidates.externalId]) || null,
     claimType: normalizeClaimType(claimType),
-    venueState: (getImportField(row, ['venue state', 'state', 'jurisdiction state']) || 'CA').toUpperCase(),
-    venueCounty: getImportField(row, ['venue county', 'county', 'jurisdiction county']) || null,
+    venueState: (getImportField(row, [...mapped('state'), 'venue state', 'state', 'jurisdiction state']) || 'CA').toUpperCase(),
+    venueCounty: getImportField(row, [...mapped('county'), 'venue county', 'county', 'jurisdiction county']) || null,
     plaintiffFirstName: firstName,
     plaintiffLastName: lastName,
-    plaintiffEmail: getImportField(row, ['plaintiff email', 'client email', 'email']),
-    plaintiffPhone: getImportField(row, ['plaintiff phone', 'client phone', 'phone', 'mobile']),
-    incidentDate: normalizeIncidentDate(getImportField(row, ['incident date', 'date of loss', 'dol', 'doi', 'accident date'])),
-    narrative: getImportField(row, ['narrative', 'description', 'facts', 'summary', ...mapping.narrative]),
+    plaintiffEmail: getImportField(row, [...mapped('email'), 'plaintiff email', 'client email', 'email']),
+    plaintiffPhone: getImportField(row, [...mapped('phone'), 'plaintiff phone', 'client phone', 'phone', 'mobile']),
+    incidentDate: normalizeIncidentDate(getImportField(row, [...mapped('incidentDate'), 'incident date', 'date of loss', 'dol', 'doi', 'accident date'])),
+    narrative: getImportField(row, [...mapped('description'), 'narrative', 'description', 'facts', 'summary', ...candidates.narrative]),
     taskTitle: getImportField(row, ['next task', 'task title', 'deadline name']),
     taskDueDate: normalizeTaskDueDate(getImportField(row, ['task due date', 'deadline', 'due date'])),
     raw: row,
@@ -2458,6 +2471,11 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
         duration: a.duration,
         status: a.status,
         assessmentId: a.assessmentId,
+        notes: a.notes || null,
+        meetingUrl: a.meetingUrl || null,
+        hostMeetingUrl: a.hostMeetingUrl || null,
+        location: a.location || null,
+        phoneNumber: a.phoneNumber || null,
         plaintiffName: a.assessment?.user ? `${a.assessment.user.firstName || ''} ${a.assessment.user.lastName || ''}`.trim() || '—' : '—',
         claimType: a.assessment?.claimType || '—'
       }))
@@ -3395,7 +3413,7 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
 
     const assessmentIds = [...byAssessment.keys()]
     if (assessmentIds.length === 0) {
-      return res.json({ overdue: [], today: [], upcoming: [], noDueDate: [] })
+      return res.json({ overdue: [], today: [], upcoming: [], noDueDate: [], recentlyCompleted: [] })
     }
 
     const tasks = await prisma.caseTask.findMany({
@@ -3408,6 +3426,18 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
       take: 300,
     })
 
+    // Recently completed tasks across the caseload — powers the "Recently
+    // completed" toggle on the cross-case Tasks queue.
+    const completedTasks = await prisma.caseTask.findMany({
+      where: {
+        assessmentId: { in: assessmentIds },
+        taskType: { not: 'time_entry' },
+        status: { in: ['completed', 'done'] },
+      },
+      orderBy: [{ completedAt: 'desc' }, { updatedAt: 'desc' }],
+      take: 30,
+    })
+
     const now = new Date()
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)
@@ -3416,6 +3446,7 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
       id: string
       title: string
       dueDate: string | null
+      completedAt: string | null
       status: string
       priority: string
       taskType: string
@@ -3431,6 +3462,7 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
         id: t.id,
         title: t.title,
         dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+        completedAt: t.completedAt ? t.completedAt.toISOString() : null,
         status: t.status,
         priority: t.priority,
         taskType: t.taskType,
@@ -3458,10 +3490,166 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
       else upcoming.push(row)
     }
 
-    res.json({ overdue, today, upcoming, noDueDate })
+    const recentlyCompleted = completedTasks
+      .map(mapTask)
+      .filter((r): r is TaskRow => r !== null)
+
+    res.json({ overdue, today, upcoming, noDueDate, recentlyCompleted })
   } catch (error: any) {
     logger.error('Failed to load task summary', { error: error.message })
     res.status(500).json({ error: 'Failed to load tasks' })
+  }
+})
+
+// Cross-case deadlines radar: live-computed statute-of-limitations per case plus
+// open, dated deadline tasks across the whole caseload. Powers the "Deadlines"
+// left-nav page so an attorney can see filing-clock risk across their portfolio
+// without opening each case.
+router.get('/deadlines', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { attorney } = auth
+
+    const assignedLeads = await prisma.leadSubmission.findMany({
+      where: { assignedAttorneyId: attorney.id },
+      select: { id: true, assessmentId: true },
+    })
+    const introAssessments = await prisma.introduction.findMany({
+      where: { attorneyId: attorney.id },
+      select: { assessmentId: true },
+    })
+    const introAssessIds = [...new Set(introAssessments.map((i) => i.assessmentId))]
+    const introLeads =
+      introAssessIds.length > 0
+        ? await prisma.leadSubmission.findMany({
+            where: { assessmentId: { in: introAssessIds } },
+            select: { id: true, assessmentId: true },
+          })
+        : []
+
+    const leadByAssessment = new Map<string, string>()
+    for (const l of assignedLeads) leadByAssessment.set(l.assessmentId, l.id)
+    for (const l of introLeads) if (!leadByAssessment.has(l.assessmentId)) leadByAssessment.set(l.assessmentId, l.id)
+
+    const assessmentIds = [...leadByAssessment.keys()]
+    if (assessmentIds.length === 0) {
+      return res.json({ items: [], caseCount: 0 })
+    }
+
+    const assessments = await prisma.assessment.findMany({
+      where: { id: { in: assessmentIds } },
+      select: {
+        id: true,
+        claimType: true,
+        venueState: true,
+        facts: true,
+        user: { select: { firstName: true, lastName: true } },
+      },
+    })
+
+    // Open, dated deadline tasks (excludes time entries + already-covered SOL
+    // rows, since we compute the statute clock live below).
+    const deadlineTasks = await prisma.caseTask.findMany({
+      where: {
+        assessmentId: { in: assessmentIds },
+        dueDate: { not: null },
+        taskType: { notIn: ['time_entry', 'statute'] },
+        NOT: { status: { in: ['completed', 'done'] } },
+      },
+      orderBy: { dueDate: 'asc' },
+      take: 500,
+    })
+
+    const now = Date.now()
+    const dayMs = 1000 * 60 * 60 * 24
+    type DeadlineItem = {
+      id: string
+      kind: 'sol' | 'task'
+      leadId: string
+      clientName: string
+      claimType: string | null
+      title: string
+      dueDate: string
+      daysRemaining: number
+      severity: 'expired' | 'critical' | 'warning' | 'safe'
+      note?: string | null
+    }
+    const items: DeadlineItem[] = []
+
+    const clientNameOf = (u?: { firstName: string; lastName: string } | null) =>
+      u ? `${u.firstName} ${u.lastName}`.trim() : 'Unknown client'
+
+    const severityFor = (days: number): DeadlineItem['severity'] => {
+      if (days < 0) return 'expired'
+      const s = getSOLStatus(days)
+      return s === 'critical' ? 'critical' : s === 'warning' ? 'warning' : 'safe'
+    }
+
+    for (const a of assessments) {
+      const leadId = leadByAssessment.get(a.id)
+      if (!leadId) continue
+      const clientName = clientNameOf(a.user)
+      let facts: any = {}
+      try {
+        facts = a.facts ? JSON.parse(a.facts) : {}
+      } catch {
+        facts = {}
+      }
+      const incidentDate = facts?.incident?.date || null
+      const birthDate = facts?.claimant?.dateOfBirth || facts?.claimant?.dob || null
+      const discoveryDate = facts?.incident?.discoveryDate || null
+
+      if (incidentDate && a.venueState && a.claimType) {
+        const sol = deriveSOLStatus({
+          incidentDate,
+          discoveryDate,
+          birthDate,
+          venue: { state: a.venueState },
+          claimType: a.claimType,
+        })
+        if (sol.status !== 'unknown' && sol.expiresAt && typeof sol.daysRemaining === 'number') {
+          items.push({
+            id: `sol-${a.id}`,
+            kind: 'sol',
+            leadId,
+            clientName,
+            claimType: a.claimType,
+            title: 'Statute of limitations',
+            dueDate: sol.expiresAt.toISOString(),
+            daysRemaining: sol.daysRemaining,
+            severity: severityFor(sol.daysRemaining),
+            note: sol.rule?.notes || null,
+          })
+        }
+      }
+    }
+
+    for (const t of deadlineTasks) {
+      const leadId = leadByAssessment.get(t.assessmentId)
+      if (!leadId || !t.dueDate) continue
+      const assessment = assessments.find((a) => a.id === t.assessmentId)
+      const days = Math.ceil((t.dueDate.getTime() - now) / dayMs)
+      items.push({
+        id: t.id,
+        kind: 'task',
+        leadId,
+        clientName: clientNameOf(assessment?.user),
+        claimType: assessment?.claimType ?? null,
+        title: t.title,
+        dueDate: t.dueDate.toISOString(),
+        daysRemaining: days,
+        severity: severityFor(days),
+        note: t.notes || null,
+      })
+    }
+
+    items.sort((x, y) => x.daysRemaining - y.daysRemaining)
+
+    res.json({ items, caseCount: assessmentIds.length })
+  } catch (error: any) {
+    logger.error('Failed to load deadlines', { error: error.message })
+    res.status(500).json({ error: 'Failed to load deadlines' })
   }
 })
 
@@ -3491,7 +3679,12 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
         lead: {
           select: {
             id: true,
-            assessment: { select: { claimType: true } },
+            assessment: {
+              select: {
+                claimType: true,
+                user: { select: { firstName: true, lastName: true } },
+              },
+            },
           },
         },
         _count: { select: { externalUploads: true } },
@@ -3507,6 +3700,8 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
       } catch {
         requested = []
       }
+      const u = r.lead?.assessment?.user
+      const clientName = [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || null
       return {
         id: r.id,
         leadId: r.leadId,
@@ -3523,6 +3718,7 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
         lastNudgeAt: r.lastNudgeAt,
         createdAt: r.createdAt,
         claimType: r.lead?.assessment?.claimType || null,
+        clientName,
       }
     })
 
@@ -3530,6 +3726,81 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
   } catch (error: any) {
     logger.error('Failed to list document requests', { error: error.message })
     res.status(500).json({ error: 'Failed to load document requests' })
+  }
+})
+
+router.get('/document-envelopes', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { attorney } = auth
+
+    const rows = await prisma.documentEnvelope.findMany({
+      where: { attorneyId: attorney.id },
+      select: {
+        id: true,
+        leadId: true,
+        documentType: true,
+        title: true,
+        status: true,
+        signerName: true,
+        signerEmail: true,
+        provider: true,
+        signingUrl: true,
+        auditTrailUrl: true,
+        signedFilePath: true,
+        sentAt: true,
+        viewedAt: true,
+        signedAt: true,
+        declinedAt: true,
+        expiresAt: true,
+        createdAt: true,
+        lead: {
+          select: {
+            id: true,
+            assessment: {
+              select: {
+                claimType: true,
+                user: { select: { firstName: true, lastName: true } },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    })
+
+    const parsed = rows.map((r) => {
+      const u = r.lead?.assessment?.user
+      const clientName = [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || null
+      return {
+        id: r.id,
+        leadId: r.leadId,
+        documentType: r.documentType,
+        title: r.title,
+        status: r.status,
+        signerName: r.signerName,
+        signerEmail: r.signerEmail,
+        provider: r.provider,
+        signingUrl: r.signingUrl,
+        auditTrailUrl: r.auditTrailUrl,
+        hasSignedFile: Boolean(r.signedFilePath),
+        sentAt: r.sentAt,
+        viewedAt: r.viewedAt,
+        signedAt: r.signedAt,
+        declinedAt: r.declinedAt,
+        expiresAt: r.expiresAt,
+        createdAt: r.createdAt,
+        claimType: r.lead?.assessment?.claimType || null,
+        clientName,
+      }
+    })
+
+    res.json(parsed)
+  } catch (error: any) {
+    logger.error('Failed to list document envelopes', { error: error.message })
+    res.status(500).json({ error: 'Failed to load document envelopes' })
   }
 })
 
@@ -4849,7 +5120,7 @@ router.get('/case-contacts', authMiddleware, async (req: any, res) => {
     }
     const { attorney } = auth
 
-    const contacts = await prisma.caseContact.findMany({
+    const manual = await prisma.caseContact.findMany({
       where: { attorneyId: attorney.id },
       select: {
         id: true,
@@ -4877,6 +5148,100 @@ router.get('/case-contacts', authMiddleware, async (req: any, res) => {
       },
       orderBy: { createdAt: 'desc' }
     })
+
+    const contacts: any[] = manual.map((c) => ({ ...c, source: 'manual' }))
+
+    // Auto-derive contacts already present elsewhere in the case file so the
+    // directory isn't empty before anything is added by hand: the client comes
+    // from the case's user, and adjusters come from recorded insurance details.
+    const REVEALED = new Set(['contacted', 'consulted', 'retained'])
+    const leads = await prisma.leadSubmission.findMany({
+      where: { assignedAttorneyId: attorney.id },
+      select: {
+        id: true,
+        status: true,
+        assessment: {
+          select: {
+            claimType: true,
+            venueCounty: true,
+            venueState: true,
+            user: { select: { firstName: true, lastName: true, email: true, phone: true } },
+            insuranceDetails: {
+              select: {
+                id: true,
+                carrierName: true,
+                adjusterName: true,
+                adjusterEmail: true,
+                adjusterPhone: true,
+                insuredParty: true,
+              },
+            },
+          },
+        },
+      },
+    })
+
+    // Manual rows win over derived ones for the same lead + category.
+    const manualKeys = new Set(
+      manual.map((c) => `${c.leadId}:${(c.contactType || '').toLowerCase()}:${(c.email || '').toLowerCase()}`)
+    )
+
+    for (const lead of leads) {
+      const a = lead.assessment
+      if (!a) continue
+      const leadMeta = { id: lead.id, assessment: { claimType: a.claimType, venueCounty: a.venueCounty, venueState: a.venueState } }
+
+      const u = a.user
+      if (u && REVEALED.has((lead.status || '').toLowerCase())) {
+        const key = `${lead.id}:client:${(u.email || '').toLowerCase()}`
+        if (!manualKeys.has(key)) {
+          contacts.push({
+            id: `client_${lead.id}`,
+            leadId: lead.id,
+            attorneyId: attorney.id,
+            firstName: u.firstName || null,
+            lastName: u.lastName || null,
+            email: u.email || null,
+            phone: u.phone || null,
+            companyName: null,
+            companyUrl: null,
+            title: 'Client',
+            contactType: 'client',
+            notes: null,
+            createdAt: null,
+            updatedAt: null,
+            lead: leadMeta,
+            source: 'derived',
+          })
+        }
+      }
+
+      for (const ins of a.insuranceDetails || []) {
+        if (!ins.adjusterName && !ins.adjusterEmail) continue
+        const key = `${lead.id}:adjuster:${(ins.adjusterEmail || '').toLowerCase()}`
+        if (manualKeys.has(key)) continue
+        const [first, ...rest] = (ins.adjusterName || 'Adjuster').split(' ')
+        contacts.push({
+          id: `adjuster_${ins.id}`,
+          leadId: lead.id,
+          attorneyId: attorney.id,
+          firstName: first || null,
+          lastName: rest.join(' ') || null,
+          email: ins.adjusterEmail || null,
+          phone: ins.adjusterPhone || null,
+          companyName: ins.carrierName || null,
+          companyUrl: null,
+          title: ins.insuredParty === 'client' ? 'Adjuster (client policy)' : 'Adjuster',
+          contactType: 'adjuster',
+          notes: null,
+          createdAt: null,
+          updatedAt: null,
+          lead: leadMeta,
+          source: 'derived',
+        })
+      }
+    }
+
     res.json(contacts)
   } catch (error: any) {
     logger.error('Failed to get case contacts', { error: error.message })
@@ -5588,6 +5953,20 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
   try {
     const uploadedFiles = (req.files || []) as Express.Multer.File[]
     const bodyFiles = Array.isArray(req.body?.files) ? req.body.files : undefined
+    // Mapping arrives as a JSON string over multipart, or as an object on the
+    // JSON path. Parse defensively so a malformed value can't 500 the import.
+    let mapping: Record<string, string> | undefined
+    const rawMapping = req.body?.mapping
+    if (typeof rawMapping === 'string' && rawMapping.trim()) {
+      try {
+        const parsed = JSON.parse(rawMapping)
+        if (parsed && typeof parsed === 'object') mapping = parsed
+      } catch {
+        mapping = undefined
+      }
+    } else if (rawMapping && typeof rawMapping === 'object') {
+      mapping = rawMapping
+    }
     const payload = intakeImportSchema.parse({
       ...(req.body || {}),
       includeDocuments: parseBoolean(req.body?.includeDocuments, true),
@@ -5595,6 +5974,7 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
       includeTasks: parseBoolean(req.body?.includeTasks, true),
       includeMedical: parseBoolean(req.body?.includeMedical, true),
       files: bodyFiles,
+      mapping,
     })
     const auth = await getAttorneyFromReq(req)
     if (auth.error) {
@@ -5617,7 +5997,7 @@ router.post('/intake/import', authMiddleware, intakeImportUpload.array('files', 
 
     if (fileRows.length > 0) {
       for (const item of fileRows) {
-        const importedCase = normalizeImportedCase(payload.source, item.row)
+        const importedCase = normalizeImportedCase(payload.source, item.row, payload.mapping)
         const assessment = await createDraftAssessment({
           claimType: importedCase.claimType,
           venueState: importedCase.venueState,

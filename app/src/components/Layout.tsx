@@ -96,6 +96,8 @@ export default function Layout({ children }: LayoutProps) {
   const storedUser = getStoredUser<{ firstName?: string }>('user')
   const userName = storedUser?.firstName || 'User'
   const headerLabel = isAdmin ? 'Admin' : (userName || 'User')
+  const avatarInitial = (headerLabel || 'U').trim().charAt(0).toUpperCase()
+  const roleLabel = isAdmin ? 'Administrator' : isAttorney ? 'Attorney' : 'Client'
   const pendingAssessmentId =
     typeof window !== 'undefined' && !isAuthenticated
       ? localStorage.getItem('pending_assessment_id')
@@ -179,6 +181,8 @@ export default function Layout({ children }: LayoutProps) {
 
   const shellIconFallback = <div className="h-9 w-9 rounded-lg bg-slate-100 dark:bg-slate-800" aria-hidden />
   const languageFallback = <div className="h-5 w-16 rounded bg-slate-100 dark:bg-slate-800" aria-hidden />
+  const menuItemCls =
+    'flex items-center gap-2 px-4 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800'
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.12),_transparent_32%),linear-gradient(135deg,_#f8fafc_0%,_#ffffff_45%,_rgba(224,242,254,0.6)_100%)] dark:bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.14),_transparent_26%),linear-gradient(135deg,_#020617_0%,_#020617_48%,_#0f172a_100%)] transition-colors duration-300">
@@ -238,7 +242,7 @@ export default function Layout({ children }: LayoutProps) {
             )}
 
             {/* Right: Language + Primary CTA + User menu */}
-            <div className="flex min-w-0 items-center gap-2 lg:gap-6">
+            <div className="flex min-w-0 items-center gap-2 lg:gap-3">
               {showWorkspaceThemeToggle && (
                 <button
                   type="button"
@@ -280,24 +284,39 @@ export default function Layout({ children }: LayoutProps) {
                   <div className="relative hidden lg:block" ref={userMenuRef}>
                     <button
                       onClick={() => setUserMenuOpen(!userMenuOpen)}
-                      className="flex items-center gap-1 rounded-full border border-slate-200 bg-white/78 px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900/78 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                      aria-haspopup="menu"
+                      aria-expanded={userMenuOpen}
+                      className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 py-1 pl-1 pr-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-100 dark:focus-visible:ring-offset-slate-900"
                     >
-                      {headerLabel}
-                      <ChevronDownIcon className={`h-4 w-4 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
+                      <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-xs font-bold text-white shadow-inner">
+                        {avatarInitial}
+                      </span>
+                      <span className="hidden max-w-[9rem] truncate xl:inline">{headerLabel}</span>
+                      <ChevronDownIcon className={`h-4 w-4 text-slate-400 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
                     </button>
                     {userMenuOpen && (
-                      <div className="absolute right-0 mt-1 w-48 py-1 bg-white rounded-lg shadow-lg border border-slate-200">
+                      <div className="absolute right-0 mt-2 w-64 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl shadow-slate-900/10 ring-1 ring-black/5 dark:border-slate-800 dark:bg-slate-900 dark:ring-white/5">
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <span className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-sm font-bold text-white">
+                            {avatarInitial}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{headerLabel}</p>
+                            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{roleLabel}</p>
+                          </div>
+                        </div>
+                        <div className="mx-2 my-1 h-px bg-slate-100 dark:bg-slate-800" />
                         <Link
                           to={isAdminArea ? '/admin' : isAttorney ? '/attorney-dashboard' : '/dashboard'}
                           onClick={() => setUserMenuOpen(false)}
-                          className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                          className={menuItemCls}
                         >
                           {isAdminArea ? t('common.adminDashboard') : t('common.dashboard')}
                         </Link>
                         <Link
                           to={isAdminArea ? '/admin/cases' : isAttorney ? '/attorney-dashboard/leadgen/matches' : '/assessments'}
                           onClick={() => setUserMenuOpen(false)}
-                          className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                          className={menuItemCls}
                         >
                           {isAdminArea ? 'Cases' : t('common.myCases')}
                         </Link>
@@ -306,47 +325,32 @@ export default function Layout({ children }: LayoutProps) {
                             <Link
                               to={isAttorney ? '/attorney-profile' : '/profile'}
                               onClick={() => setUserMenuOpen(false)}
-                              className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                              className={menuItemCls}
                             >
                               My Profile
                             </Link>
                             {isAttorney && (
                               <>
-                                <Link
-                                  to="/attorney-dashboard?tab=profile"
-                                  onClick={() => setUserMenuOpen(false)}
-                                  className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                                >
+                                <Link to="/attorney-dashboard?tab=profile" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
                                   Profile Settings
                                 </Link>
-                                <Link
-                                  to="/firm-dashboard"
-                                  onClick={() => setUserMenuOpen(false)}
-                                  className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                                >
+                                <Link to="/firm-dashboard" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
                                   Firm Dashboard
                                 </Link>
-                                <Link
-                                  to="/firm-settings"
-                                  onClick={() => setUserMenuOpen(false)}
-                                  className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                                >
+                                <Link to="/firm-settings" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
                                   Firm Settings
                                 </Link>
-                                <Link
-                                  to="/attorney-billing"
-                                  onClick={() => setUserMenuOpen(false)}
-                                  className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                                >
+                                <Link to="/attorney-billing" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
                                   Billing
                                 </Link>
                               </>
                             )}
                           </>
                         )}
+                        <div className="mx-2 my-1 h-px bg-slate-100 dark:bg-slate-800" />
                         <button
                           onClick={() => { setUserMenuOpen(false); handleLogout(); }}
-                          className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                          className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-medium text-rose-600 transition-colors hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
                         >
                           {t('common.logout')}
                         </button>
@@ -366,26 +370,14 @@ export default function Layout({ children }: LayoutProps) {
                       <ChevronDownIcon className={`h-4 w-4 transition-transform ${signInOpen ? 'rotate-180' : ''}`} />
                     </button>
                     {signInOpen && (
-                      <div className="absolute right-0 mt-1 w-48 py-1 bg-white rounded-lg shadow-lg border border-slate-200">
-                        <Link
-                          to={navLinks.plaintiffLogin}
-                          onClick={() => setSignInOpen(false)}
-                          className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                        >
+                      <div className="absolute right-0 mt-2 w-52 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl shadow-slate-900/10 ring-1 ring-black/5 dark:border-slate-800 dark:bg-slate-900 dark:ring-white/5">
+                        <Link to={navLinks.plaintiffLogin} onClick={() => setSignInOpen(false)} className={menuItemCls}>
                           {t('common.plaintiffLogin')}
                         </Link>
-                        <Link
-                          to={navLinks.attorneyLogin}
-                          onClick={() => setSignInOpen(false)}
-                          className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                        >
+                        <Link to={navLinks.attorneyLogin} onClick={() => setSignInOpen(false)} className={menuItemCls}>
                           {t('common.attorneyLogin')}
                         </Link>
-                        <Link
-                          to={navLinks.adminLogin}
-                          onClick={() => setSignInOpen(false)}
-                          className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                        >
+                        <Link to={navLinks.adminLogin} onClick={() => setSignInOpen(false)} className={menuItemCls}>
                           {t('common.adminLogin')}
                         </Link>
                       </div>

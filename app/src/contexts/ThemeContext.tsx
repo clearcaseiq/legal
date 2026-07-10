@@ -11,7 +11,6 @@ function isWorkspacePath(pathname: string) {
     pathname.startsWith('/attorney-profile') ||
     pathname.startsWith('/attorney-preferences') ||
     pathname.startsWith('/firm-dashboard') ||
-    pathname.startsWith('/lead-quality') ||
     pathname.startsWith('/medical-providers') ||
     pathname.startsWith('/admin')
   )

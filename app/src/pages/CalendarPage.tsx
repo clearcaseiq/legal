@@ -2,12 +2,62 @@
  * Calendar page - month view of consultations and events.
  * Click on a date to add an event or to-do task.
  */
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Calendar, ClipboardList, X, Plus, Clock } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Calendar,
+  ClipboardList,
+  X,
+  Plus,
+  Clock,
+  ChevronRight as ArrowRight,
+  Video,
+  Phone,
+  MapPin,
+  FileText,
+  ExternalLink,
+  CalendarClock,
+  ArrowUpRight,
+} from 'lucide-react'
 import LeadPickerModal from '../components/LeadPickerModal'
 import { useAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
+import { getAttorneyTaskSummary } from '../lib/api'
 import { BackButton } from '../features/shared/ui'
+
+const dateKeyOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+type ConsultInfo = {
+  type?: string | null
+  duration?: number | null
+  status?: string | null
+  claimType?: string | null
+  notes?: string | null
+  meetingUrl?: string | null
+  hostMeetingUrl?: string | null
+  location?: string | null
+  phoneNumber?: string | null
+}
+
+type CalItem = {
+  kind: 'consult' | 'task'
+  id: string
+  leadId?: string | null
+  date: Date
+  title: string
+  hasTime: boolean
+  consult?: ConsultInfo
+}
+
+const claimLabel = (s?: string | null) =>
+  (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || '—'
+
+const MEETING_META: Record<string, { label: string; icon: typeof Video }> = {
+  video: { label: 'Zoom / video call', icon: Video },
+  phone: { label: 'Phone call', icon: Phone },
+  in_person: { label: 'In person', icon: MapPin },
+}
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
@@ -22,6 +72,22 @@ export default function CalendarPage() {
   const [addType, setAddType] = useState<'event' | 'task' | null>(null)
   const [addChoiceOpen, setAddChoiceOpen] = useState(false)
   const [leadPickerOpen, setLeadPickerOpen] = useState(false)
+  const [taskList, setTaskList] = useState<any[]>([])
+  const [selectedConsult, setSelectedConsult] = useState<CalItem | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    getAttorneyTaskSummary()
+      .then((s: any) => {
+        if (cancelled) return
+        const all = [...(s?.overdue || []), ...(s?.today || []), ...(s?.upcoming || [])].filter((t: any) => t?.dueDate)
+        setTaskList(all)
+      })
+      .catch(() => setTaskList([]))
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleDateClick = (dateKey: string) => {
     setAddEventDate(dateKey)
@@ -41,7 +107,9 @@ export default function CalendarPage() {
           `/attorney-dashboard/schedule-consult/${lead.id}?date=${addEventDate}&returnTo=${encodeURIComponent('/attorney-dashboard/cases/calendar')}`,
         )
       } else if (addType === 'task') {
-        navigate(`/attorney-dashboard/add-task/${lead.id}?date=${addEventDate}`)
+        navigate(
+          `/attorney-dashboard/add-task/${lead.id}?date=${addEventDate}&returnTo=${encodeURIComponent('/attorney-dashboard/cases/calendar')}`,
+        )
       }
     }
     setAddEventDate(null)
@@ -64,25 +132,81 @@ export default function CalendarPage() {
   const daysInMonth = lastDay.getDate()
   const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7
 
-  const eventsByDate: Record<string, any[]> = {}
-  events.forEach((e: any) => {
-    const d = new Date(e.scheduledAt)
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    if (!eventsByDate[key]) eventsByDate[key] = []
-    eventsByDate[key].push(e)
-  })
+  const itemsByDate = useMemo(() => {
+    const map: Record<string, CalItem[]> = {}
+    const add = (item: CalItem) => {
+      const key = dateKeyOf(item.date)
+      if (!map[key]) map[key] = []
+      map[key].push(item)
+    }
+    events.forEach((e: any) => {
+      const d = new Date(e.scheduledAt)
+      if (Number.isNaN(d.getTime())) return
+      add({
+        kind: 'consult',
+        id: `c-${e.id}`,
+        leadId: e.leadId,
+        date: d,
+        title: e.plaintiffName || 'Consult',
+        hasTime: true,
+        consult: {
+          type: e.type,
+          duration: e.duration,
+          status: e.status,
+          claimType: e.claimType,
+          notes: e.notes,
+          meetingUrl: e.meetingUrl,
+          hostMeetingUrl: e.hostMeetingUrl,
+          location: e.location,
+          phoneNumber: e.phoneNumber,
+        },
+      })
+    })
+    taskList.forEach((t: any) => {
+      const d = new Date(t.dueDate)
+      if (Number.isNaN(d.getTime())) return
+      add({ kind: 'task', id: `t-${t.id}`, leadId: t.leadId, date: d, title: t.title || 'Task', hasTime: false })
+    })
+    Object.values(map).forEach((list) => list.sort((a, b) => a.date.getTime() - b.date.getTime()))
+    return map
+  }, [events, taskList])
 
   const prevMonth = () => setViewDate(new Date(year, month - 1))
   const nextMonth = () => setViewDate(new Date(year, month + 1))
   const goToday = () => setViewDate(new Date())
 
   const today = new Date()
-  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  const todayKey = dateKeyOf(today)
 
-  const monthEventCount = Object.entries(eventsByDate).filter(([key]) => {
-    const [y, m] = key.split('-').map(Number)
-    return y === year && m === month + 1
-  }).reduce((sum, [, list]) => sum + list.length, 0)
+  const monthConsultCount = events.filter((e: any) => {
+    const d = new Date(e.scheduledAt)
+    return d.getFullYear() === year && d.getMonth() === month
+  }).length
+
+  // Chronological list of the next consults + tasks, for a quick-scan agenda.
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+  const agenda = useMemo(() => {
+    const all: CalItem[] = []
+    Object.values(itemsByDate).forEach((list) => all.push(...list))
+    return all
+      .filter((i) => i.date.getTime() >= startOfToday.getTime())
+      .sort((a, b) => a.date.getTime() - b.date.getTime())
+      .slice(0, 6)
+  }, [itemsByDate])
+
+  // Consults open a detail panel (stay on the calendar); tasks jump to the
+  // case's Tasks tab. (Previously everything navigated to Documents.)
+  const openItem = (item: CalItem) => {
+    if (item.kind === 'consult') {
+      setSelectedConsult(item)
+      return
+    }
+    if (!item.leadId) return
+    navigate(`/attorney-dashboard/cases/${item.leadId}/tasks?from=calendar`)
+  }
+
+  const timeLabel = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 
   if (loading) {
     return (
@@ -95,7 +219,7 @@ export default function CalendarPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-5xl px-4 py-8">
-        <BackButton onClick={() => navigate('/attorney-dashboard')} label="Back to dashboard" className="mb-5" />
+        <BackButton onClick={() => navigate('/attorney-dashboard/cases/active')} label="Active cases" className="mb-5" />
 
         <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
@@ -104,7 +228,6 @@ export default function CalendarPage() {
             </span>
             <div>
               <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Calendar</h1>
-              <p className="mt-0.5 text-sm text-slate-500">Consultations and tasks across your cases — click any day to schedule.</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -161,9 +284,17 @@ export default function CalendarPage() {
               </h2>
             </div>
             <div className="flex items-center gap-3">
+              <div className="hidden items-center gap-3 sm:flex">
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                  <span className="h-2 w-2 rounded-full bg-sky-500" /> Consult
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                  <span className="h-2 w-2 rounded-full bg-amber-500" /> Task
+                </span>
+              </div>
               <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500 ring-1 ring-inset ring-slate-200">
                 <Clock className="h-3.5 w-3.5 text-slate-400" />
-                {monthEventCount} {monthEventCount === 1 ? 'consult' : 'consults'}
+                {monthConsultCount} {monthConsultCount === 1 ? 'consult' : 'consults'}
               </span>
               <button
                 onClick={goToday}
@@ -198,7 +329,7 @@ export default function CalendarPage() {
               const dateKey = isInMonth
                 ? `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
                 : ''
-              const dayEvents = dateKey ? (eventsByDate[dateKey] ?? []) : []
+              const dayItems = dateKey ? (itemsByDate[dateKey] ?? []) : []
               const isToday = dateKey === todayKey
 
               return (
@@ -232,29 +363,74 @@ export default function CalendarPage() {
                     )}
                   </div>
                   <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
-                    {dayEvents.slice(0, 3).map((e: any) => (
-                      <button
-                        key={e.id}
-                        onClick={() => e.leadId && navigate(`/attorney-dashboard/documents/${e.leadId}`)}
-                        className="flex w-full items-center gap-1.5 truncate rounded-md bg-sky-50 px-1.5 py-1 text-left text-[11px] font-medium text-sky-700 ring-1 ring-inset ring-sky-100 transition hover:bg-sky-100"
-                        title={`${e.plaintiffName || '—'} · ${new Date(e.scheduledAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
-                      >
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-500" />
-                        <span className="truncate">
-                          <span className="tabular-nums">{new Date(e.scheduledAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
-                          {' '}
-                          {e.plaintiffName || 'Consult'}
-                        </span>
-                      </button>
-                    ))}
-                    {dayEvents.length > 3 && (
-                      <span className="block px-1.5 text-[11px] font-medium text-slate-400">+{dayEvents.length - 3} more</span>
+                    {dayItems.slice(0, 3).map((item) => {
+                      const isConsult = item.kind === 'consult'
+                      const style = isConsult
+                        ? 'bg-sky-50 text-sky-700 ring-sky-100 hover:bg-sky-100'
+                        : 'bg-amber-50 text-amber-700 ring-amber-100 hover:bg-amber-100'
+                      const dot = isConsult ? 'bg-sky-500' : 'bg-amber-500'
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => openItem(item)}
+                          className={`flex w-full items-center gap-1.5 truncate rounded-md px-1.5 py-1 text-left text-[11px] font-medium ring-1 ring-inset transition ${style}`}
+                          title={`${isConsult ? 'Consult' : 'Task'}: ${item.title}${item.hasTime ? ` · ${timeLabel(item.date)}` : ''}`}
+                        >
+                          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+                          <span className="truncate">
+                            {item.hasTime ? <span className="tabular-nums">{timeLabel(item.date)} </span> : null}
+                            {item.title}
+                          </span>
+                        </button>
+                      )
+                    })}
+                    {dayItems.length > 3 && (
+                      <span className="block px-1.5 text-[11px] font-medium text-slate-400">+{dayItems.length - 3} more</span>
                     )}
                   </div>
                 </div>
               )
             })}
           </div>
+        </div>
+
+        {/* Upcoming agenda — quick chronological scan of the next items */}
+        <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 px-4 py-3">
+            <h3 className="text-sm font-semibold text-slate-900">Upcoming</h3>
+          </div>
+          {agenda.length ? (
+            <ul className="divide-y divide-slate-100">
+              {agenda.map((item) => {
+                const isConsult = item.kind === 'consult'
+                return (
+                  <li key={item.id}>
+                    <button
+                      onClick={() => openItem(item)}
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-50"
+                    >
+                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset ${isConsult ? 'bg-sky-50 text-sky-600 ring-sky-100' : 'bg-amber-50 text-amber-600 ring-amber-100'}`}>
+                        {isConsult ? <Calendar className="h-4 w-4" /> : <ClipboardList className="h-4 w-4" />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-slate-800">{item.title}</p>
+                        <p className="text-xs text-slate-400">
+                          {isConsult ? 'Consultation' : 'Task due'} ·{' '}
+                          {item.date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                          {item.hasTime ? ` · ${timeLabel(item.date)}` : ''}
+                        </p>
+                      </div>
+                      <ArrowRight className="h-4 w-4 shrink-0 text-slate-300" />
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <p className="px-4 py-6 text-center text-sm text-slate-400">
+              No upcoming consultations or tasks. Click any day to schedule one.
+            </p>
+          )}
         </div>
       </div>
 
@@ -320,6 +496,178 @@ export default function CalendarPage() {
         onSelect={handleLeadSelect}
         emptyMessage="No cases available. Add a case first from the dashboard."
       />
+
+      {selectedConsult && (
+        <ConsultDetailPanel
+          item={selectedConsult}
+          onClose={() => setSelectedConsult(null)}
+          navigate={navigate}
+        />
+      )}
+    </div>
+  )
+}
+
+const STATUS_BADGE: Record<string, string> = {
+  SCHEDULED: 'bg-sky-50 text-sky-700 ring-sky-200',
+  CONFIRMED: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  COMPLETED: 'bg-slate-100 text-slate-600 ring-slate-200',
+  CANCELLED: 'bg-rose-50 text-rose-700 ring-rose-200',
+  NO_SHOW: 'bg-amber-50 text-amber-700 ring-amber-200',
+}
+
+function DetailRow({ icon: Icon, label, children }: { icon: typeof Video; label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 px-5 py-3.5">
+      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-400 ring-1 ring-inset ring-slate-200">
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+        <div className="mt-0.5 text-sm text-slate-800">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+function ConsultDetailPanel({
+  item,
+  onClose,
+  navigate,
+}: {
+  item: CalItem
+  onClose: () => void
+  navigate: (to: string) => void
+}) {
+  const c = item.consult || {}
+  const meeting = MEETING_META[String(c.type || '')] || { label: claimLabel(c.type) || 'Consultation', icon: CalendarClock }
+  const MeetingIcon = meeting.icon
+  const joinUrl = c.hostMeetingUrl || c.meetingUrl || null
+  const status = String(c.status || 'SCHEDULED')
+  const dateStr = item.date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+  const timeStr = item.date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const dateKey = dateKeyOf(item.date)
+
+  const go = (path: string) => {
+    onClose()
+    navigate(path)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative flex h-full w-full max-w-md flex-col overflow-y-auto bg-white shadow-2xl">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-gradient-to-br from-sky-50 to-white px-5 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-100 text-sky-600 ring-1 ring-inset ring-sky-200">
+                <Calendar className="h-5 w-5" />
+              </span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-sky-600">Consultation</span>
+            </div>
+            <h2 className="mt-2 truncate text-lg font-semibold text-slate-900">{item.title}</h2>
+            <p className="text-sm text-slate-500">{claimLabel(c.claimType)}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white hover:text-slate-600"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* When + status */}
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+          <div>
+            <p className="text-base font-semibold text-slate-900">{dateStr}</p>
+            <p className="text-sm text-slate-500">
+              {timeStr}
+              {c.duration ? ` · ${c.duration} min` : ''}
+            </p>
+          </div>
+          <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ring-1 ring-inset ${STATUS_BADGE[status] || STATUS_BADGE.SCHEDULED}`}>
+            {status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (x) => x.toUpperCase())}
+          </span>
+        </div>
+
+        {/* Details */}
+        <div className="divide-y divide-slate-100">
+          <DetailRow icon={MeetingIcon} label="Meeting type">
+            {meeting.label}
+          </DetailRow>
+          {c.type === 'in_person' && c.location ? (
+            <DetailRow icon={MapPin} label="Location">{c.location}</DetailRow>
+          ) : null}
+          {c.type === 'phone' && c.phoneNumber ? (
+            <DetailRow icon={Phone} label="Phone">
+              <a href={`tel:${c.phoneNumber}`} className="text-brand-600 hover:underline">{c.phoneNumber}</a>
+            </DetailRow>
+          ) : null}
+          {joinUrl ? (
+            <DetailRow icon={Video} label="Meeting link">
+              <a
+                href={joinUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 break-all text-brand-600 hover:underline"
+              >
+                {joinUrl}
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </a>
+            </DetailRow>
+          ) : null}
+          {c.notes ? (
+            <DetailRow icon={FileText} label="Notes">
+              <p className="whitespace-pre-wrap leading-relaxed text-slate-600">{c.notes}</p>
+            </DetailRow>
+          ) : null}
+        </div>
+
+        {/* Actions */}
+        <div className="mt-auto space-y-2.5 border-t border-slate-200 bg-slate-50 px-5 py-4">
+          {joinUrl ? (
+            <a
+              href={joinUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
+            >
+              <Video className="h-4 w-4" />
+              Join meeting
+            </a>
+          ) : null}
+          <div className="flex gap-2.5">
+            {item.leadId ? (
+              <button
+                onClick={() => go(`/attorney-dashboard/cases/${item.leadId}/overview?from=calendar`)}
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
+              >
+                <ArrowUpRight className="h-4 w-4 text-slate-400" />
+                Open case
+              </button>
+            ) : null}
+            {item.leadId ? (
+              <button
+                onClick={() => {
+                  const params = new URLSearchParams({
+                    date: dateKey,
+                    time: item.date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+                    returnTo: '/attorney-dashboard/cases/calendar',
+                  })
+                  if (c.type) params.set('type', String(c.type))
+                  go(`/attorney-dashboard/schedule-consult/${item.leadId}?${params.toString()}`)
+                }}
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
+              >
+                <CalendarClock className="h-4 w-4 text-slate-400" />
+                Reschedule
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

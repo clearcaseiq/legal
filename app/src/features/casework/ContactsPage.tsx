@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Search, Mail, Phone } from 'lucide-react'
 import { getAllCaseContacts, getFirmCaseContacts } from '../../lib/api'
 import { useAttorneyWorkspace } from '../shared/AttorneyWorkspaceContext'
-import { Avatar, Badge, ClientLink, DataTable, FilterStat, PageHeader, SectionCard, StatGrid, type DataTableColumn } from '../shared/ui'
+import { Avatar, Badge, ClientLink, DataTable, FilterStat, PageHeader, SectionCard, StatGrid, type BadgeTone, type DataTableColumn } from '../shared/ui'
 
 interface CaseContactRow {
   id: string
@@ -12,6 +13,7 @@ interface CaseContactRow {
   companyName?: string | null
   title?: string | null
   contactType?: string | null
+  source?: string | null
   lead?: { id?: string | null; assessment?: { claimType?: string | null } | null } | null
 }
 
@@ -24,6 +26,14 @@ const FILTER_LABEL: Record<ContactFilter, string> = {
   adjuster: 'Adjusters',
   provider: 'Providers',
   expert: 'Experts',
+}
+
+const CATEGORY_TONE: Record<ContactCategory | 'other', BadgeTone> = {
+  client: 'blue',
+  adjuster: 'warning',
+  provider: 'brand',
+  expert: 'success',
+  other: 'neutral',
 }
 
 function categoryOf(type?: string | null): ContactCategory | 'other' {
@@ -39,6 +49,8 @@ function contactName(c: CaseContactRow) {
   return `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim() || '—'
 }
 
+const titleCase = (s?: string | null) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
+
 const contactColumns: DataTableColumn<CaseContactRow>[] = [
   {
     key: 'name',
@@ -46,21 +58,67 @@ const contactColumns: DataTableColumn<CaseContactRow>[] = [
     cell: (c) => (
       <div className="flex items-center gap-3">
         <Avatar name={contactName(c)} />
-        <span className="font-medium text-slate-800">{contactName(c)}</span>
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium text-slate-800">{contactName(c)}</span>
+            {c.source === 'derived' && (
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                auto
+              </span>
+            )}
+          </div>
+          {c.title && <div className="truncate text-xs text-slate-400">{c.title}</div>}
+        </div>
       </div>
     ),
   },
   {
     key: 'type',
     header: 'Type',
-    cell: (c) => <span className="capitalize text-slate-500">{(c.contactType || '—').replace(/_/g, ' ')}</span>,
+    cell: (c) => {
+      const cat = categoryOf(c.contactType)
+      return <Badge tone={CATEGORY_TONE[cat]}>{titleCase(c.contactType) || '—'}</Badge>
+    },
   },
   { key: 'company', header: 'Company', cell: (c) => <span className="text-slate-500">{c.companyName || '—'}</span> },
-  { key: 'email', header: 'Email', cell: (c) => <span className="text-slate-500">{c.email || '—'}</span> },
+  {
+    key: 'email',
+    header: 'Email',
+    cell: (c) =>
+      c.email ? (
+        <a
+          href={`mailto:${c.email}`}
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex items-center gap-1.5 text-brand-600 hover:text-brand-700 hover:underline"
+        >
+          <Mail className="h-3.5 w-3.5 text-slate-400" />
+          {c.email}
+        </a>
+      ) : (
+        <span className="text-slate-400">—</span>
+      ),
+  },
+  {
+    key: 'phone',
+    header: 'Phone',
+    cell: (c) =>
+      c.phone ? (
+        <a
+          href={`tel:${c.phone}`}
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex items-center gap-1.5 text-slate-600 hover:text-brand-700 hover:underline"
+        >
+          <Phone className="h-3.5 w-3.5 text-slate-400" />
+          {c.phone}
+        </a>
+      ) : (
+        <span className="text-slate-400">—</span>
+      ),
+  },
   {
     key: 'case',
     header: 'Case',
-    cell: (c) => <ClientLink name={c.lead?.assessment?.claimType || 'Case'} leadId={c.lead?.id} section="contacts" />,
+    cell: (c) => <ClientLink name={titleCase(c.lead?.assessment?.claimType) || 'Case'} leadId={c.lead?.id} section="contacts" />,
   },
 ]
 
@@ -71,6 +129,7 @@ export default function ContactsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<ContactFilter>('all')
+  const [query, setQuery] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -96,9 +155,20 @@ export default function ContactsPage() {
   }, [contacts])
 
   const visible = useMemo(() => {
-    if (filter === 'all') return contacts
-    return contacts.filter((c) => categoryOf(c.contactType) === filter)
-  }, [contacts, filter])
+    let list = contacts
+    if (filter !== 'all') list = list.filter((c) => categoryOf(c.contactType) === filter)
+    const q = query.trim().toLowerCase()
+    if (q) {
+      list = list.filter((c) =>
+        [contactName(c), c.companyName, c.email, c.phone, c.contactType, c.lead?.assessment?.claimType]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .includes(q),
+      )
+    }
+    return list
+  }, [contacts, filter, query])
 
   const toggle = (key: ContactFilter) => setFilter((prev) => (prev === key ? 'all' : key))
 
@@ -108,24 +178,35 @@ export default function ContactsPage() {
         title="Contacts"
         description="Everyone attached to your cases — clients, adjusters, providers, and experts."
         actions={
-          isFirmAdmin ? (
-            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => setScope('mine')}
-                className={`rounded-md px-3 py-1.5 ${scope === 'mine' ? 'bg-brand-600 text-white' : 'text-slate-600'}`}
-              >
-                My contacts
-              </button>
-              <button
-                type="button"
-                onClick={() => setScope('firm')}
-                className={`rounded-md px-3 py-1.5 ${scope === 'firm' ? 'bg-brand-600 text-white' : 'text-slate-600'}`}
-              >
-                Firm
-              </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search contacts…"
+                className="w-52 rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 shadow-sm transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+              />
             </div>
-          ) : undefined
+            {isFirmAdmin && (
+              <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setScope('mine')}
+                  className={`rounded-md px-3 py-1.5 ${scope === 'mine' ? 'bg-brand-600 text-white' : 'text-slate-600'}`}
+                >
+                  My contacts
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScope('firm')}
+                  className={`rounded-md px-3 py-1.5 ${scope === 'firm' ? 'bg-brand-600 text-white' : 'text-slate-600'}`}
+                >
+                  Firm
+                </button>
+              </div>
+            )}
+          </div>
         }
       />
 
@@ -144,7 +225,7 @@ export default function ContactsPage() {
           loading={loading}
           error={error}
           loadingMessage="Loading contacts…"
-          emptyMessage="No contacts match this filter."
+          emptyMessage={query.trim() ? 'No contacts match your search.' : 'No contacts yet. Clients and adjusters appear here automatically as cases progress.'}
         />
       </SectionCard>
     </div>

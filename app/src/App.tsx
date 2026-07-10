@@ -39,12 +39,13 @@ const AttorneyWorkspaceLayout = lazy(() => import('./features/shared/AttorneyWor
 const NewMatchesPage = lazy(() => import('./features/leadgen/NewMatchesPage'))
 const IntakePage = lazy(() => import('./features/leadgen/IntakePage'))
 const MarketplacePerformancePage = lazy(() => import('./features/leadgen/MarketplacePerformancePage'))
+const MatchQualityPage = lazy(() => import('./features/leadgen/MatchQualityPage'))
 const ActiveCasesPage = lazy(() => import('./features/casework/ActiveCasesPage'))
-const CaseWorkspaceLanding = lazy(() => import('./features/casework/CaseWorkspaceLanding'))
 const CaseWorkspacePage = lazy(() => import('./features/casework/CaseWorkspacePage'))
 const CaseMessagesPage = lazy(() => import('./features/casework/MessagesPage'))
 const CaseDocumentsHubPage = lazy(() => import('./features/casework/DocumentsPage'))
 const CaseTasksPage = lazy(() => import('./features/casework/TasksPage'))
+const CaseDeadlinesPage = lazy(() => import('./features/casework/DeadlinesPage'))
 const CaseContactsPage = lazy(() => import('./features/casework/ContactsPage'))
 const CaseBillingPage = lazy(() => import('./features/casework/BillingPage'))
 const CaseCopilotPage = lazy(() => import('./features/casework/CopilotPage'))
@@ -64,8 +65,6 @@ const CalendarPage = lazy(() => import('./pages/CalendarPage'))
 const FirmDashboard = lazy(() => import('./pages/FirmDashboard'))
 const FirmSettings = lazy(() => import('./pages/FirmSettings'))
 const AttorneyBilling = lazy(() => import('./pages/AttorneyBilling'))
-const LeadQuality = lazy(() => import('./pages/LeadQuality'))
-const LeadQualityPage = lazy(() => import('./features/leadgen/LeadQualityPage'))
 const AttorneyProfile = lazy(() => import('./pages/AttorneyProfile'))
 const AttorneyPreferences = lazy(() => import('./pages/AttorneyPreferences'))
 const Integrations = lazy(() => import('./pages/Integrations'))
@@ -228,7 +227,6 @@ const ATTORNEY_ROUTE_PREFIXES = [
   '/integrations',
   '/attorney-billing',
   '/firm-dashboard',
-  '/lead-quality',
   '/medical-providers',
 ]
 
@@ -417,18 +415,20 @@ function App() {
                 {/* Pre-acceptance / expired review stays inside Lead Generation (read-only
                     snapshot) — it must never open the Case Management case file. */}
                 <Route path="/attorney-dashboard/leadgen/matches/:leadId/:section" element={<NewMatchesPage />} />
-                <Route path="/attorney-dashboard/leadgen/quality" element={<LeadQualityPage />} />
+                <Route path="/attorney-dashboard/leadgen/quality" element={<MatchQualityPage />} />
                 <Route path="/attorney-dashboard/leadgen/marketplace" element={<MarketplacePerformancePage />} />
                 {/* Intake now lives under Case Management; keep the old leadgen path as a redirect. */}
                 <Route path="/attorney-dashboard/leadgen/intake" element={<Navigate to="/attorney-dashboard/cases/intake" replace />} />
                 {/* Case Management */}
                 <Route path="/attorney-dashboard/cases/intake" element={<IntakePage />} />
                 <Route path="/attorney-dashboard/cases/active" element={<ActiveCasesPage />} />
-                <Route path="/attorney-dashboard/cases/workspace" element={<CaseWorkspaceLanding />} />
+                {/* Case Workspace launcher folded into Active Cases ("Jump back in" strip). */}
+                <Route path="/attorney-dashboard/cases/workspace" element={<Navigate to="/attorney-dashboard/cases/active" replace />} />
                 <Route path="/attorney-dashboard/cases/calendar" element={<CalendarPage />} />
                 <Route path="/attorney-dashboard/cases/messages" element={<CaseMessagesPage />} />
                 <Route path="/attorney-dashboard/cases/documents" element={<CaseDocumentsHubPage />} />
                 <Route path="/attorney-dashboard/cases/tasks" element={<CaseTasksPage />} />
+                <Route path="/attorney-dashboard/cases/deadlines" element={<CaseDeadlinesPage />} />
                 <Route path="/attorney-dashboard/cases/contacts" element={<CaseContactsPage />} />
                 <Route path="/attorney-dashboard/cases/billing" element={<CaseBillingPage />} />
                 <Route path="/attorney-dashboard/cases/copilot" element={<CaseCopilotPage />} />
@@ -456,7 +456,6 @@ function App() {
               <Route path="/firm-dashboard" element={<FirmDashboard />} />
               <Route path="/firm-settings" element={<FirmSettings />} />
               <Route path="/attorney-billing" element={<AttorneyBilling />} />
-              <Route path="/lead-quality" element={<LeadQuality />} />
               <Route path="/attorney-profile" element={<AttorneyProfile />} />
               <Route path="/attorney-preferences" element={<AttorneyPreferences />} />
               <Route path="/integrations" element={<Integrations />} />

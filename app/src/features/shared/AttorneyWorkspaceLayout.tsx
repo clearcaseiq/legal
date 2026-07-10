@@ -6,11 +6,11 @@ import {
   Store,
   Upload,
   Briefcase,
-  FolderOpen,
   CalendarDays,
   MessagesSquare,
   FileSignature,
   ListChecks,
+  AlarmClock,
   Contact,
   Wallet,
   Sparkles,
@@ -40,7 +40,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Lead Generation',
     entries: [
       { to: '/attorney-dashboard/leadgen/matches', label: 'New Matches', description: 'Cases awaiting review', icon: Inbox },
-      { to: '/attorney-dashboard/leadgen/quality', label: 'Lead Quality', description: 'Conversion by practice area', icon: Gauge },
+      { to: '/attorney-dashboard/leadgen/quality', label: 'Match Quality', description: 'Conversion by practice area', icon: Gauge },
       { to: '/attorney-dashboard/leadgen/marketplace', label: 'Marketplace Performance', description: 'Acquisition ROI', icon: Store },
     ],
   },
@@ -48,12 +48,12 @@ const NAV_SECTIONS: NavSection[] = [
     id: 'casework',
     label: 'Case Management',
     entries: [
-      { to: '/attorney-dashboard/cases/active', label: 'Active Cases', description: 'Retained caseload', icon: Briefcase },
-      { to: '/attorney-dashboard/cases/workspace', label: 'Case Workspace', description: 'Full case file', icon: FolderOpen },
+      { to: '/attorney-dashboard/cases/active', label: 'Active Cases', description: 'Caseload & quick re-entry', icon: Briefcase },
       { to: '/attorney-dashboard/cases/calendar', label: 'Calendar & Consults', description: 'Upcoming meetings', icon: CalendarDays },
       { to: '/attorney-dashboard/cases/messages', label: 'Messages', description: 'Client & adjuster threads', icon: MessagesSquare },
       { to: '/attorney-dashboard/cases/documents', label: 'Documents & E-sign', description: 'Requests & signatures', icon: FileSignature },
       { to: '/attorney-dashboard/cases/tasks', label: 'Tasks', description: 'Cross-case queue', icon: ListChecks },
+      { to: '/attorney-dashboard/cases/deadlines', label: 'Deadlines', description: 'Statute-of-limitations radar', icon: AlarmClock },
       { to: '/attorney-dashboard/cases/contacts', label: 'Contacts', description: 'Parties directory', icon: Contact },
       { to: '/attorney-dashboard/cases/billing', label: 'Billing', description: 'Fees, invoices, costs', icon: Wallet },
       { to: '/attorney-dashboard/cases/copilot', label: 'AI Copilot', description: 'Analysis & next actions', icon: Sparkles },
@@ -112,8 +112,9 @@ function isCaseFilePath(pathname: string): boolean {
 
 function navEntryActive(to: string, pathname: string): boolean {
   if (pathname === to || pathname.startsWith(`${to}/`)) return true
-  // The Case Workspace launcher owns the single-case file routes too.
-  if (to === '/attorney-dashboard/cases/workspace' && isCaseFilePath(pathname)) return true
+  // Active Cases is the single door into a case, so it owns the single-case
+  // workspace file routes (/lead/:id/... and /cases/:id/...) for highlighting.
+  if (to === '/attorney-dashboard/cases/active' && isCaseFilePath(pathname)) return true
   return false
 }
 

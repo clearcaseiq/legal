@@ -27,6 +27,11 @@ export default function ScheduleConsultPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const dateFromUrl = searchParams.get('date')
+  // When rescheduling an existing consult, the caller passes the current time /
+  // meeting type so we prefill them instead of silently resetting to defaults.
+  const timeFromUrl = searchParams.get('time')
+  const typeFromUrl = searchParams.get('type')
+  const isReschedule = !!(timeFromUrl || typeFromUrl)
   // Where "Back"/"Cancel"/success returns to — the caller passes ?returnTo=
   // (e.g. Active Cases). Must be an internal path; falls back to the dashboard.
   const returnToRaw = searchParams.get('returnTo')
@@ -41,8 +46,10 @@ export default function ScheduleConsultPage() {
   const defaultDate = dateFromUrl || tomorrow.toISOString().slice(0, 10)
 
   const [date, setDate] = useState(defaultDate)
-  const [time, setTime] = useState('2:00 PM')
-  const [meetingType, setMeetingType] = useState('phone')
+  const [time, setTime] = useState(timeFromUrl && TIME_SLOTS.includes(timeFromUrl) ? timeFromUrl : '2:00 PM')
+  const [meetingType, setMeetingType] = useState(
+    typeFromUrl && MEETING_TYPES.some((t) => t.id === typeFromUrl) ? typeFromUrl : 'phone',
+  )
   const [notes, setNotes] = useState('')
   const [zoomStatus, setZoomStatus] = useState<AttorneyZoomStatus | null>(null)
   const [zoomConnecting, setZoomConnecting] = useState(false)
@@ -189,7 +196,7 @@ export default function ScheduleConsultPage() {
         <BackButton onClick={() => navigate(returnTo)} label="Back" className="mb-6" />
 
         <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-gray-900">Schedule consultation</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">{isReschedule ? 'Reschedule consultation' : 'Schedule consultation'}</h1>
           <p className="text-sm text-gray-500 mt-1">{caseLabel}</p>
         </div>
 
@@ -306,7 +313,7 @@ export default function ScheduleConsultPage() {
               title={zoomNeedsConnect ? 'Connect your Zoom account first' : undefined}
               className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {saving ? 'Scheduling…' : 'Schedule consultation'}
+              {saving ? 'Saving…' : isReschedule ? 'Save new time' : 'Schedule consultation'}
             </button>
           </div>
         </div>

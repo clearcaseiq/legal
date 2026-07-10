@@ -1,12 +1,15 @@
-import { type ComponentType, type ReactNode, Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { type ComponentType, type ReactNode, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Activity,
   AlertTriangle,
   CalendarClock,
+  CalendarPlus,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Circle,
   Clock,
   Download,
   ExternalLink,
@@ -19,9 +22,11 @@ import {
   Info,
   LayoutDashboard,
   ListChecks,
+  Loader2,
   MapPin,
   MessageSquare,
   PenLine,
+  Pencil,
   Pill,
   Plus,
   Receipt,
@@ -40,16 +45,21 @@ import {
 import {
   createDocumentRequest,
   createLeadInsurance,
+  createLeadTask,
+  createLeadTasksFromReadiness,
+  createLeadSolTask,
   deleteLeadEvidence,
+  deleteLeadTask,
   downloadEvidenceByUrl,
   getEvidenceObjectUrl,
   getAttorneyDashboard,
   getAttorneyDocumentRequests,
-  getAttorneyTaskSummary,
   getLeadCommandCenter,
   getLeadEvidenceFiles,
   getLeadMedicalChronologySummary,
+  getLeadTasks,
   nudgeDocumentRequest,
+  updateLeadTask,
   uploadLeadEvidenceOnBehalf,
   type AttorneyDocumentRequest,
   type CaseCommandCenter,
@@ -58,6 +68,7 @@ import {
 import { getApiOrigin } from '../../lib/runtimeEnv'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
 import ChatDrawer from '../../components/ChatDrawer'
+import InsurancePanel from './InsurancePanel'
 import { BackButton, EmptyState } from '../shared/ui'
 import { recordRecentCase } from './recentCases'
 
@@ -95,7 +106,7 @@ const ROW_TONE: Record<Tone, string> = {
   danger: 'text-rose-700',
 }
 
-const TABS = ['Overview', 'Evidence', 'Signatures', 'Medical', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Billing', 'Tasks'] as const
+const TABS = ['Overview', 'Evidence', 'Signatures', 'Medical', 'Insurance', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Billing', 'Tasks'] as const
 type Tab = (typeof TABS)[number]
 
 const SECTION_TO_TAB: Record<string, Tab> = {
@@ -106,6 +117,8 @@ const SECTION_TO_TAB: Record<string, Tab> = {
   // "Send retainer" and other e-sign deep-links land on the Signatures tab.
   documents: 'Signatures',
   medical: 'Medical',
+  coverage: 'Insurance',
+  insurance: 'Insurance',
   negotiation: 'Negotiation',
   demand: 'Demand',
   timeline: 'Timeline',
@@ -120,6 +133,7 @@ const TAB_TO_SECTION: Record<Tab, string> = {
   Evidence: 'evidence',
   Signatures: 'signatures',
   Medical: 'medical',
+  Insurance: 'insurance',
   Negotiation: 'negotiation',
   Demand: 'demand',
   Timeline: 'timeline',
@@ -135,6 +149,7 @@ const TAB_META: Record<Tab, TabMeta> = {
   Evidence: { icon: FolderOpen, blurb: 'Upload documents, request records, and track the case file.' },
   Signatures: { icon: PenLine, blurb: 'Send retainers and authorizations for e-signature.' },
   Medical: { icon: Stethoscope, blurb: 'Providers, treatment chronology, and cost benchmarks.' },
+  Insurance: { icon: Shield, blurb: 'Insurance carriers, policy limits, adjusters, and claims.' },
   Negotiation: { icon: Handshake, blurb: 'Demands, offers, and settlement posture.' },
   Demand: { icon: Gavel, blurb: 'Demand package, case value, and policy limits.' },
   Timeline: { icon: Clock, blurb: 'A chronological record of everything on this matter.' },
@@ -163,6 +178,85 @@ function formatDate(value?: string | null) {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
+function relativeTime(value?: string | null) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  const diff = Date.now() - d.getTime()
+  const abs = Math.abs(diff)
+  const day = 86_400_000
+  if (abs < day) return 'today'
+  const days = Math.round(abs / day)
+  const fmt = (n: number, unit: string) => (diff >= 0 ? `${n}${unit} ago` : `in ${n}${unit}`)
+  if (days < 30) return fmt(days, 'd')
+  const months = Math.round(days / 30)
+  if (months < 12) return fmt(months, 'mo')
+  return fmt(Math.round(months / 12), 'y')
+}
+
+type TimelineEvent = {
+  date: string
+  title: string
+  detail?: string
+  by: string
+  category: 'intake' | 'retainer' | 'contact' | 'treatment' | 'evidence' | 'negotiation' | 'demand'
+}
+
+// Informational statute-of-limitations guidance by claim type. Intentionally a
+// period description (not a computed date) — we don't have a verified incident
+// date, and showing a wrong filing deadline in a legal product is dangerous.
+const SOL_GUIDANCE: Record<string, string> = {
+  _default: 'Typically 2 years from the date of injury for most California personal-injury claims (CCP §335.1).',
+  auto: '2 years from the date of injury (CA CCP §335.1).',
+  slip_and_fall: '2 years from the date of injury (CA CCP §335.1).',
+  dog_bite: '2 years from the date of injury (CA CCP §335.1).',
+  product: '2 years from the date of injury (CA CCP §335.1).',
+  medmal: '1 year from discovery or 3 years from injury, whichever is first (CA CCP §340.5, MICRA).',
+  nursing_home_abuse: '2 years for elder abuse / personal injury (CA CCP §335.1); a shorter claim window may apply against public entities.',
+  wrongful_death: '2 years from the date of death (CA CCP §335.1).',
+}
+
+type TimelineCat = {
+  Icon: ComponentType<{ className?: string }>
+  label: string
+  wrap: string
+  accent: string
+  chip: string
+}
+
+function TimelineStat({
+  icon: Icon,
+  label,
+  value,
+  sub,
+}: {
+  icon: ComponentType<{ className?: string }>
+  label: string
+  value: string
+  sub?: string
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        <Icon className="h-3.5 w-3.5" />
+        {label}
+      </div>
+      <p className="mt-1 truncate text-sm font-bold text-slate-900">{value}</p>
+      {sub ? <p className="truncate text-[11px] text-slate-400">{sub}</p> : null}
+    </div>
+  )
+}
+
+const TIMELINE_CATEGORY: Record<TimelineEvent['category'], TimelineCat> = {
+  intake: { Icon: FileText, label: 'Intake', wrap: 'bg-brand-50 text-brand-600', accent: 'border-l-brand-400', chip: 'bg-brand-50 text-brand-700' },
+  retainer: { Icon: PenLine, label: 'Retainer', wrap: 'bg-violet-50 text-violet-600', accent: 'border-l-violet-400', chip: 'bg-violet-50 text-violet-700' },
+  contact: { Icon: MessageSquare, label: 'Contact', wrap: 'bg-sky-50 text-sky-600', accent: 'border-l-sky-400', chip: 'bg-sky-50 text-sky-700' },
+  treatment: { Icon: Stethoscope, label: 'Treatment', wrap: 'bg-emerald-50 text-emerald-600', accent: 'border-l-emerald-400', chip: 'bg-emerald-50 text-emerald-700' },
+  evidence: { Icon: FolderOpen, label: 'Evidence', wrap: 'bg-slate-100 text-slate-500', accent: 'border-l-slate-300', chip: 'bg-slate-100 text-slate-600' },
+  negotiation: { Icon: Handshake, label: 'Negotiation', wrap: 'bg-amber-50 text-amber-600', accent: 'border-l-amber-400', chip: 'bg-amber-50 text-amber-700' },
+  demand: { Icon: Gavel, label: 'Demand', wrap: 'bg-brand-50 text-brand-600', accent: 'border-l-brand-400', chip: 'bg-brand-50 text-brand-700' },
+}
+
 function daysOpen(value?: string | null) {
   if (!value) return '—'
   const t = Date.parse(value)
@@ -174,17 +268,14 @@ interface TaskRow {
   id: string
   title: string
   dueDate?: string | null
+  reminderAt?: string | null
   status?: string | null
   priority?: string | null
   taskType?: string | null
+  notes?: string | null
+  completedAt?: string | null
+  createdAt?: string | null
   leadId?: string | null
-}
-
-interface TaskSummary {
-  overdue: TaskRow[]
-  today: TaskRow[]
-  upcoming: TaskRow[]
-  noDueDate: TaskRow[]
 }
 
 interface CaseDetailVM {
@@ -207,6 +298,14 @@ interface CaseDetailVM {
 export default function CaseWorkspacePage() {
   const { leadId, section } = useParams<{ leadId?: string; section?: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  // Where the user came from, so the back button + tab navigation return there.
+  const fromParam = searchParams.get('from')
+  const fromSuffix = fromParam ? `?from=${fromParam}` : ''
+  const backTarget =
+    fromParam === 'calendar'
+      ? { to: '/attorney-dashboard/cases/calendar', label: 'Calendar' }
+      : { to: '/attorney-dashboard/cases/active', label: 'Active cases' }
 
   const [lead, setLead] = useState<any | null>(null)
   const [cc, setCc] = useState<CaseCommandCenter | null>(null)
@@ -229,6 +328,18 @@ export default function CaseWorkspacePage() {
 
   const tab = SECTION_TO_TAB[(section || 'overview').toLowerCase()] ?? 'Overview'
 
+  // Single source of truth for this case's tasks — shared by the Tasks tab
+  // (full CRUD) and the Deadlines tab, so a change in one updates the other.
+  const reloadTasks = useCallback(async () => {
+    if (!leadId) return
+    try {
+      const data = await getLeadTasks(leadId)
+      setTasks((Array.isArray(data) ? data : []) as TaskRow[])
+    } catch {
+      /* tasks are best-effort; keep whatever we already have */
+    }
+  }, [leadId])
+
   useEffect(() => {
     if (!leadId) return
     let cancelled = false
@@ -237,9 +348,9 @@ export default function CaseWorkspacePage() {
     setError(null)
     ;(async () => {
       try {
-        const [dash, taskSummary] = await Promise.all([
+        const [dash, leadTasks] = await Promise.all([
           getAttorneyDashboard(),
-          getAttorneyTaskSummary().catch(() => null),
+          getLeadTasks(leadId).catch(() => [] as any[]),
         ])
         if (cancelled) return
         const found = ((dash?.recentLeads as any[]) || []).find((l: any) => l.id === leadId) || null
@@ -248,14 +359,7 @@ export default function CaseWorkspacePage() {
           setNotFound(true)
           return
         }
-        const summary = (taskSummary || {}) as Partial<TaskSummary>
-        const allTasks = [
-          ...(summary.overdue || []),
-          ...(summary.today || []),
-          ...(summary.upcoming || []),
-          ...(summary.noDueDate || []),
-        ].filter((t) => t.leadId === leadId)
-        setTasks(allTasks)
+        setTasks((Array.isArray(leadTasks) ? leadTasks : []) as TaskRow[])
         // Command center is best-effort — the header/tabs degrade gracefully without it.
         try {
           const center = await getLeadCommandCenter(leadId)
@@ -321,7 +425,7 @@ export default function CaseWorkspacePage() {
 
   return (
     <div className="space-y-4">
-      <BackButton to="/attorney-dashboard/cases/active" label="Active cases" />
+      <BackButton to={backTarget.to} label={backTarget.label} />
 
       {loading ? (
         <EmptyState message="Loading case workspace…" />
@@ -373,8 +477,8 @@ export default function CaseWorkspacePage() {
             </div>
           </section>
 
-          {/* Tab strip — single row; distributes evenly, scrolls horizontally if the column is too narrow */}
-          <div className="flex items-center gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {/* Tab strip — wraps onto multiple rows so every tab (icon + full label) stays fully visible */}
+          <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 p-1.5 shadow-sm">
             {TABS.map((t) => {
               const active = t === tab
               const TabIcon = TAB_META[t].icon
@@ -382,17 +486,18 @@ export default function CaseWorkspacePage() {
                 <button
                   key={t}
                   type="button"
-                  onClick={() => navigate(`/attorney-dashboard/cases/${leadId}/${TAB_TO_SECTION[t]}`)}
+                  onClick={() => navigate(`/attorney-dashboard/cases/${leadId}/${TAB_TO_SECTION[t]}${fromSuffix}`)}
                   title={t}
                   aria-label={t}
-                  className={`inline-flex flex-1 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 py-1.5 text-[13px] font-medium transition ${
+                  aria-current={active ? 'page' : undefined}
+                  className={`group relative inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-1.5 text-[13px] font-medium transition-all duration-200 ${
                     active
-                      ? 'bg-brand-600 text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      ? 'scale-[1.03] bg-gradient-to-b from-brand-500 to-brand-700 font-semibold text-white shadow-md shadow-brand-700/30 ring-1 ring-inset ring-white/15'
+                      : 'text-slate-500 hover:bg-brand-100 hover:text-brand-700 hover:shadow-sm hover:ring-1 hover:ring-inset hover:ring-brand-200'
                   }`}
                 >
-                  <TabIcon className={`h-4 w-4 shrink-0 ${active ? 'text-white' : 'text-slate-400'}`} />
-                  <span className="hidden xl:inline">{t}</span>
+                  <TabIcon className={`h-4 w-4 shrink-0 transition-colors ${active ? 'text-white' : 'text-slate-400 group-hover:text-brand-600'}`} />
+                  <span>{t}</span>
                 </button>
               )
             })}
@@ -413,7 +518,7 @@ export default function CaseWorkspacePage() {
               </div>
             </header>
             <div className="p-5 sm:p-6">
-              <WorkstreamPanel tab={tab} section={section} lead={lead} detail={detail} cc={cc} tasks={tasks} onOpenChat={openChat} />
+              <WorkstreamPanel tab={tab} section={section} lead={lead} detail={detail} cc={cc} tasks={tasks} reloadTasks={reloadTasks} onOpenChat={openChat} />
             </div>
           </section>
 
@@ -449,6 +554,7 @@ function WorkstreamPanel({
   detail,
   cc,
   tasks,
+  reloadTasks,
   onOpenChat,
 }: {
   tab: Tab
@@ -457,14 +563,18 @@ function WorkstreamPanel({
   detail: CaseDetailVM
   cc: CaseCommandCenter | null
   tasks: TaskRow[]
+  reloadTasks: () => Promise<void> | void
   onOpenChat: (draft?: string) => void
 }) {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const fromSuffix = searchParams.get('from') ? `?from=${searchParams.get('from')}` : ''
   const [actionBusy, setActionBusy] = useState<string | null>(null)
   const [actionMsg, setActionMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [requestedDocKeys, setRequestedDocKeys] = useState<Set<string>>(new Set())
+  const [timelineNewestFirst, setTimelineNewestFirst] = useState(true)
 
-  const goToSection = (s: string) => navigate(`/attorney-dashboard/cases/${lead.id}/${s}`)
+  const goToSection = (s: string) => navigate(`/attorney-dashboard/cases/${lead.id}/${s}${fromSuffix}`)
 
   // Fire a plaintiff-facing document request for the given labels (best-effort,
   // with inline success/error feedback). `keys` marks which missing-item rows to
@@ -541,33 +651,120 @@ function WorkstreamPanel({
     return <MedicalPanel leadId={lead.id} cc={cc} onOpenSection={goToSection} />
   }
 
+  if (tab === 'Insurance') {
+    return <InsurancePanel leadId={lead.id} claimType={detail.claimType} />
+  }
+
   if (tab === 'Negotiation') {
     const n = cc?.negotiationSummary
+    const median = cc?.valueStory?.median || detail.caseValue || 0
+    const high = cc?.valueStory?.high || 0
+    const policy = detail.policyLimit || 0
+
+    // Empty state — negotiation hasn't opened until a demand is on file.
     if (!n || n.eventCount === 0) {
-      return <Note>No demand or offers yet. Negotiation opens once the demand package is sent to the carrier.</Note>
+      return (
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-brand-50 text-brand-600">
+              <Handshake className="h-6 w-6" />
+            </div>
+            <h3 className="mt-4 text-base font-semibold text-slate-900">Negotiation hasn’t opened yet</h3>
+            <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-slate-500">
+              Offers and counters will track here once the demand package is sent to the carrier. Prepare and send the
+              demand to start the negotiation clock.
+            </p>
+            <button
+              type="button"
+              onClick={() => goToSection('demand')}
+              className="mt-5 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700"
+            >
+              <Send className="h-4 w-4" /> Prepare demand
+            </button>
+            {median > 0 || policy > 0 ? (
+              <div className="mt-7 border-t border-slate-100 pt-5">
+                <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Negotiation targets</p>
+                <div className="grid grid-cols-2 gap-3 text-left sm:grid-cols-3">
+                  <Metric label="Case value (median)" value={money(median)} />
+                  {high > 0 ? <Metric label="Upside (high)" value={money(high)} /> : null}
+                  <Metric label="Policy limit" value={money(policy)} accent />
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )
     }
+
+    const demand = n.latestDemand ?? 0
+    const offer = n.latestOffer ?? 0
+    const gapClosedPct = demand > 0 && offer > 0 ? Math.round((offer / demand) * 100) : null
+    const scaleMax = Math.max(demand, offer, policy, median) || 1
+    const asPct = (v: number) => Math.max(0, Math.min(100, (v / scaleMax) * 100))
+
     const rows: string[][] = []
     const tone: Tone[] = []
     if (n.latestDemand != null) {
-      rows.push([formatDate(n.latestEventDate), 'Demand (us)', 'Latest demand', money(n.latestDemand)])
-      tone.push('neutral')
-    }
-    if (n.latestOffer != null) {
-      rows.push([formatDate(n.latestEventDate), 'Insurer', n.latestStatus || 'Latest offer', money(n.latestOffer)])
+      rows.push([formatDate(n.latestEventDate), 'Us', 'Demand', money(n.latestDemand)])
       tone.push('info')
     }
+    if (n.latestOffer != null) {
+      rows.push([formatDate(n.latestEventDate), 'Carrier', n.latestStatus || 'Offer', money(n.latestOffer)])
+      tone.push('warning')
+    }
+
     return (
       <div className="space-y-4">
+        <div className="rounded-2xl border border-brand-100 bg-brand-50/50 p-5">
+          <div className="flex items-start gap-3">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-brand-600 shadow-sm">
+              <Handshake className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-600">Settlement posture</p>
+              <p className="mt-0.5 text-sm font-medium text-slate-800">{n.posture || '—'}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Metric label="Latest offer" value={money(offer)} />
+          <Metric label="Latest demand" value={money(demand)} />
+          <Metric label="Gap to demand" value={money(n.gapToDemand)} />
+          <Metric label="Policy limit" value={money(policy)} accent />
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900">Negotiation ladder</h3>
+            {gapClosedPct != null ? (
+              <span className="text-xs font-medium text-slate-500">Offer is {gapClosedPct}% of demand</span>
+            ) : null}
+          </div>
+          <div className="relative mx-1 mb-8 mt-9 h-3 rounded-full bg-slate-100">
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-amber-400 to-amber-500"
+              style={{ width: `${asPct(offer)}%` }}
+            />
+            {offer > 0 ? <LadderMarker pct={asPct(offer)} label="Offer" value={money(offer)} color="amber" align="bottom" /> : null}
+            {demand > 0 ? <LadderMarker pct={asPct(demand)} label="Demand" value={money(demand)} color="brand" align="top" /> : null}
+            {policy > 0 ? <LadderMarker pct={asPct(policy)} label="Policy" value={money(policy)} color="emerald" align="top" /> : null}
+          </div>
+        </div>
+
         {rows.length ? (
           <DataTable headers={['Date', 'Party', 'Position', 'Amount']} align={['left', 'left', 'left', 'right']} rows={rows} tone={tone} />
-        ) : (
-          <Note>{`${n.eventCount} negotiation event(s) recorded.`}</Note>
-        )}
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          <Metric label="Posture" value={n.posture || '—'} />
-          {n.gapToDemand != null ? <Metric label="Gap to demand" value={money(n.gapToDemand)} /> : null}
-        </div>
-        {n.recommendedMove ? <Note>{n.recommendedMove}</Note> : null}
+        ) : null}
+
+        {n.recommendedMove ? (
+          <div className="flex items-start gap-2.5 rounded-xl border border-brand-100 bg-brand-50/60 px-4 py-3 text-sm leading-relaxed text-slate-700">
+            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
+            <div>
+              <span className="font-semibold text-slate-900">Recommended move · </span>
+              {n.recommendedMove}
+            </div>
+          </div>
+        ) : null}
       </div>
     )
   }
@@ -575,17 +772,151 @@ function WorkstreamPanel({
   if (tab === 'Demand') {
     const n = cc?.negotiationSummary
     const v = cc?.valueStory
-    if (!v && (!n || n.latestDemand == null)) {
+    const bm = cc?.medicalCostBenchmark
+    const policy = detail.policyLimit || 0
+    const median = v?.median || detail.caseValue || 0
+    const low = v?.low || 0
+    const high = v?.high || 0
+    const readinessScore = Number(cc?.readiness?.score ?? 0)
+    const blockers = cc?.missingItems || []
+    const latestDemand = n?.latestDemand ?? 0
+    const medSpecials = bm?.medCharges ?? bm?.benchmarkTypicalTotal ?? 0
+
+    if (!v && latestDemand === 0 && median === 0) {
       return <Note>Demand not started. A demand package is prepared once treatment stabilizes and evidence is complete.</Note>
     }
+
+    // Suggested opening demand: anchor above the modeled high to leave negotiating
+    // room, rounded to a clean figure the attorney can defend.
+    const anchor = Math.max(high, median * 1.4)
+    const roundTo = anchor >= 100_000 ? 25_000 : anchor >= 25_000 ? 5_000 : 1_000
+    const suggestedDemand = anchor > 0 ? Math.ceil(anchor / roundTo) * roundTo : 0
+    const demandReady = readinessScore >= 70
+
+    const rangeMax = Math.max(high, policy, median, latestDemand) || 1
+    const rPct = (x: number) => Math.max(0, Math.min(100, (x / rangeMax) * 100))
+
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          <Metric label="Latest demand" value={money(n?.latestDemand)} />
-          <Metric label="Case value (median)" value={money(v?.median || detail.caseValue)} />
-          <Metric label="Policy limit" value={money(detail.policyLimit)} accent />
+        <div className={`flex items-start gap-3 rounded-2xl border p-4 ${demandReady ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
+          <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white shadow-sm ${demandReady ? 'text-emerald-600' : 'text-amber-600'}`}>
+            {demandReady ? <Check className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
+          </div>
+          <div className="min-w-0">
+            <p className={`text-sm font-semibold ${demandReady ? 'text-emerald-800' : 'text-amber-800'}`}>
+              {demandReady ? 'Case is demand-ready' : 'Not demand-ready yet'}
+            </p>
+            <p className="mt-0.5 text-sm text-slate-600">
+              {demandReady
+                ? 'Readiness clears the bar — assemble specials, liability, and the damages narrative into the package.'
+                : `Readiness is ${readinessScore}%. Close the ${blockers.length} item${blockers.length === 1 ? '' : 's'} below to strengthen the file before sending.`}
+            </p>
+          </div>
         </div>
-        {v?.detail ? <Note>{v.detail}</Note> : null}
+
+        {cc?.readiness ? (
+          <MeterCard
+            label="Demand readiness"
+            percent={readinessScore}
+            caption={cc.readiness.label}
+            barClass={readinessBar(readinessScore)}
+            breakdown={cc.readiness.factors}
+          />
+        ) : null}
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-slate-900">Valuation &amp; demand anchor</h3>
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Metric label="Medical specials" value={money(medSpecials)} />
+            <Metric label="Case value (median)" value={money(median)} />
+            <Metric label="Suggested opening demand" value={money(suggestedDemand)} accent />
+            <Metric label="Policy limit" value={money(policy)} />
+          </div>
+
+          {high > 0 ? (
+            <div className="relative mx-1 mb-9 mt-10 h-3 rounded-full bg-slate-100">
+              <div
+                className="absolute inset-y-0 rounded-full bg-brand-200"
+                style={{ left: `${rPct(low)}%`, width: `${Math.max(2, rPct(high) - rPct(low))}%` }}
+              />
+              {low > 0 ? <LadderMarker pct={rPct(low)} label="Low" value={money(low)} color="brand" align="bottom" /> : null}
+              {median > 0 ? <LadderMarker pct={rPct(median)} label="Median" value={money(median)} color="brand" align="top" /> : null}
+              {high > 0 ? <LadderMarker pct={rPct(high)} label="High" value={money(high)} color="brand" align="bottom" /> : null}
+              {policy > 0 ? <LadderMarker pct={rPct(policy)} label="Policy" value={money(policy)} color="emerald" align="top" /> : null}
+              {latestDemand > 0 ? <LadderMarker pct={rPct(latestDemand)} label="Demanded" value={money(latestDemand)} color="amber" align="top" /> : null}
+            </div>
+          ) : null}
+
+          {policy > 0 && high > policy ? (
+            <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-800">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>Modeled value runs above the known policy limit — build the demand with a policy-limits strategy and document the excess exposure.</span>
+            </div>
+          ) : null}
+          {v?.detail ? <p className="mt-3 text-sm leading-relaxed text-slate-500">{v.detail}</p> : null}
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <StoryCard title="Liability" label={cc?.liabilityStory?.label} detail={cc?.liabilityStory?.detail} />
+          <StoryCard title="Coverage" label={cc?.coverageStory?.label} detail={cc?.coverageStory?.detail} />
+        </div>
+
+        {actionMsg ? (
+          <div className={`rounded-lg px-3 py-2 text-sm ${actionMsg.tone === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+            {actionMsg.text}
+          </div>
+        ) : null}
+
+        {blockers.length ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Close before sending demand</h4>
+              <button
+                type="button"
+                onClick={() => requestDocs(blockers.map((b) => b.label), cc?.suggestedDocumentRequest?.customMessage, 'all', blockers.map((b) => b.key))}
+                disabled={actionBusy != null || blockers.every((b) => requestedDocKeys.has(b.key))}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-100 disabled:opacity-50"
+              >
+                <Send className="h-3.5 w-3.5" />
+                {actionBusy === 'all' ? 'Requesting…' : 'Request all'}
+              </button>
+            </div>
+            <ul className="mt-2.5 space-y-1.5">
+              {blockers.map((m) => {
+                const done = requestedDocKeys.has(m.key)
+                const busy = actionBusy === `doc-${m.key}`
+                return (
+                  <li key={m.key} className="flex items-center gap-2.5 text-sm">
+                    <span
+                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                        done ? 'border-emerald-400 bg-emerald-50 text-emerald-600' : 'border-slate-300 bg-slate-50'
+                      }`}
+                      aria-hidden
+                    >
+                      {done ? '✓' : ''}
+                    </span>
+                    <span className={`flex-1 truncate ${done ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{m.label}</span>
+                    <PriorityBadge priority={m.priority} />
+                    <button
+                      type="button"
+                      onClick={() => requestDocs([m.label], cc?.suggestedDocumentRequest?.customMessage, `doc-${m.key}`, [m.key])}
+                      disabled={done || actionBusy != null}
+                      className="inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold text-brand-700 transition hover:bg-brand-50 disabled:cursor-default disabled:text-slate-400 disabled:hover:bg-transparent"
+                    >
+                      {done ? 'Requested' : busy ? 'Requesting…' : 'Request'}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-800">
+            <Check className="h-4 w-4 shrink-0" />
+            All key records are in — no outstanding items blocking the demand.
+          </div>
+        )}
+
         {cc?.nextBestAction ? (
           <Note>
             <span className="font-medium text-slate-700">Next: </span>
@@ -599,67 +930,298 @@ function WorkstreamPanel({
 
   if (tab === 'Timeline') {
     const a = lead?.assessment || {}
-    const events: Array<{ date: string; event: string; by: string }> = []
-    if (lead?.submittedAt) events.push({ date: lead.submittedAt, event: 'Case submitted', by: 'Client' })
-    if (lead?.lastContactAt) events.push({ date: lead.lastContactAt, event: 'Client contact made', by: 'Attorney' })
-    if (cc?.treatmentMonitor?.latestTreatmentDate)
-      events.push({ date: cc.treatmentMonitor.latestTreatmentDate, event: 'Latest treatment recorded', by: 'Provider' })
-    if (cc?.negotiationSummary?.latestEventDate)
+    const events: TimelineEvent[] = []
+    const openedAt = lead?.submittedAt || a?.createdAt || null
+    if (openedAt) events.push({ date: openedAt, title: 'Case submitted', detail: 'Intake completed and matter opened.', by: 'Client', category: 'intake' })
+    if (lead?.status === 'retained' && lead?.retainedAt)
+      events.push({ date: lead.retainedAt, title: 'Representation active', detail: 'Retainer executed — matter retained.', by: 'Attorney', category: 'retainer' })
+    if (lead?.lastContactAt) events.push({ date: lead.lastContactAt, title: 'Client contact made', by: 'Attorney', category: 'contact' })
+    const treatedAt = cc?.treatmentMonitor?.latestTreatmentDate
+    if (treatedAt) {
+      const tm = cc!.treatmentMonitor
+      const bits = [tm.providerCount ? `${tm.providerCount} provider${tm.providerCount === 1 ? '' : 's'}` : '', tm.chronologyCount ? `${tm.chronologyCount} visit${tm.chronologyCount === 1 ? '' : 's'}` : ''].filter(Boolean)
+      events.push({ date: treatedAt, title: 'Latest treatment recorded', detail: bits.join(' · ') || undefined, by: 'Provider', category: 'treatment' })
+    }
+    const negotiatedAt = cc?.negotiationSummary?.latestEventDate
+    if (negotiatedAt) {
+      const ns = cc!.negotiationSummary
+      const isDemand = ns.latestEventType === 'demand'
       events.push({
-        date: cc.negotiationSummary.latestEventDate,
-        event: `Negotiation: ${cc.negotiationSummary.latestStatus || cc.negotiationSummary.latestEventType || 'update'}`,
+        date: negotiatedAt,
+        title: isDemand ? `Demand sent · ${money(ns.latestDemand)}` : `Negotiation · ${ns.latestStatus || ns.latestEventType || 'update'}`,
+        detail: !isDemand && ns.latestOffer != null ? `Carrier offer ${money(ns.latestOffer)}` : undefined,
         by: 'Carrier',
+        category: isDemand ? 'demand' : 'negotiation',
       })
+    }
     ;(a.evidenceFiles || []).forEach((f: any) => {
-      if (f.createdAt) events.push({ date: f.createdAt, event: `Uploaded: ${f.filename || 'document'}`, by: 'Case team' })
+      if (f.createdAt) events.push({ date: f.createdAt, title: `Uploaded ${f.filename || 'document'}`, detail: f.category ? claimLabel(f.category) : undefined, by: 'Case team', category: 'evidence' })
     })
-    if (!events.length) return <Note>No timeline events yet.</Note>
-    events.sort((x, y) => new Date(y.date).getTime() - new Date(x.date).getTime())
+    if (!events.length) return <Note>No timeline events yet. Activity appears here as the case progresses.</Note>
+
+    const times = events.map((e) => new Date(e.date).getTime()).filter((t) => !Number.isNaN(t))
+    const firstAt = times.length ? new Date(Math.min(...times)) : null
+    const lastAt = times.length ? new Date(Math.max(...times)) : null
+    const sorted = [...events].sort((x, y) => {
+      const dx = new Date(x.date).getTime()
+      const dy = new Date(y.date).getTime()
+      return timelineNewestFirst ? dy - dx : dx - dy
+    })
+    const usedCategories = Array.from(new Set(sorted.map((e) => e.category)))
+    const monthKey = (d: string) => {
+      const dt = new Date(d)
+      return Number.isNaN(dt.getTime()) ? '' : `${dt.getFullYear()}-${dt.getMonth()}`
+    }
+    const monthLabel = (d: string) => {
+      const dt = new Date(d)
+      return Number.isNaN(dt.getTime()) ? '' : dt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    }
+
     return (
-      <DataTable
-        headers={['Date', 'Event', 'By']}
-        align={['left', 'left', 'left']}
-        rows={events.map((e) => [formatDate(e.date), e.event, e.by])}
-      />
+      <div className="space-y-4">
+        {/* Stat header + legend */}
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 shadow-sm">
+          <div className="flex flex-wrap items-stretch justify-between gap-4 p-4">
+            <div className="grid flex-1 grid-cols-3 gap-3">
+              <TimelineStat icon={FileText} label="Opened" value={formatDate(firstAt?.toISOString())} sub={relativeTime(firstAt?.toISOString())} />
+              <TimelineStat icon={Activity} label="Events" value={String(events.length)} sub={`${usedCategories.length} categories`} />
+              <TimelineStat icon={Clock} label="Last activity" value={formatDate(lastAt?.toISOString())} sub={relativeTime(lastAt?.toISOString())} />
+            </div>
+            <button
+              type="button"
+              onClick={() => setTimelineNewestFirst((prev) => !prev)}
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 self-start rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50"
+            >
+              {timelineNewestFirst ? 'Newest first' : 'Oldest first'}
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${timelineNewestFirst ? '' : 'rotate-180'}`} />
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-slate-100 bg-white/60 px-4 py-2.5">
+            {usedCategories.map((c) => {
+              const cat = TIMELINE_CATEGORY[c]
+              const CIcon = cat.Icon
+              return (
+                <span key={c} className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+                  <span className={`grid h-4 w-4 place-items-center rounded-full ${cat.wrap}`}>
+                    <CIcon className="h-2.5 w-2.5" />
+                  </span>
+                  {cat.label}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Rail */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="relative">
+            <span className="absolute bottom-2 left-4 top-2 w-px bg-gradient-to-b from-slate-200 via-slate-200 to-transparent" aria-hidden />
+            <ul className="space-y-3">
+              {sorted.map((e, i) => {
+                const cat = TIMELINE_CATEGORY[e.category] || TIMELINE_CATEGORY.evidence
+                const CatIcon = cat.Icon
+                const showMonth = i === 0 || monthKey(sorted[i - 1].date) !== monthKey(e.date)
+                return (
+                  <Fragment key={`${e.category}-${e.date}-${i}`}>
+                    {showMonth ? (
+                      <li className="relative flex items-center gap-3 pt-1">
+                        <span className="z-10 ml-[10px] h-3 w-3 rounded-full bg-slate-300 ring-4 ring-white" aria-hidden />
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{monthLabel(e.date)}</span>
+                      </li>
+                    ) : null}
+                    <li className="relative flex items-stretch gap-3">
+                      <span className={`z-10 grid h-8 w-8 shrink-0 place-items-center rounded-full ring-4 ring-white ${cat.wrap} shadow-sm`}>
+                        <CatIcon className="h-4 w-4" />
+                      </span>
+                      <div className={`group flex-1 rounded-xl border border-l-4 border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:shadow-md ${cat.accent}`}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${cat.chip}`}>{cat.label}</span>
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">{relativeTime(e.date)}</span>
+                        </div>
+                        <p className="mt-1.5 text-sm font-semibold text-slate-900">{e.title}</p>
+                        {e.detail ? <p className="mt-0.5 text-sm text-slate-500">{e.detail}</p> : null}
+                        <p className="mt-1.5 text-xs text-slate-400">
+                          {formatDate(e.date)} · {e.by}
+                        </p>
+                      </div>
+                    </li>
+                  </Fragment>
+                )
+              })}
+            </ul>
+          </div>
+        </div>
+      </div>
     )
   }
 
   if (tab === 'Deadlines') {
-    const rows: string[][] = []
-    const tone: Tone[] = []
-    if (cc?.nextBestAction) {
-      rows.push([cc.nextBestAction.title, '—', '—', 'Open'])
-      tone.push('warning')
+    const startToday = new Date()
+    startToday.setHours(0, 0, 0, 0)
+    const dayMs = 86_400_000
+    const diffDays = (ts: number) => Math.round((new Date(ts).setHours(0, 0, 0, 0) - startToday.getTime()) / dayMs)
+
+    const openTasks = tasks.filter((t) => String(t.status || '').toLowerCase() !== 'done')
+    const dated = openTasks
+      .filter((t) => t.dueDate)
+      .map((t) => ({ t, ts: Date.parse(t.dueDate as string) }))
+      .filter((x) => !Number.isNaN(x.ts))
+      .sort((a, b) => a.ts - b.ts)
+    const undated = openTasks.filter((t) => !t.dueDate)
+    const overdue = dated.filter((x) => diffDays(x.ts) < 0)
+    const soon = dated.filter((x) => diffDays(x.ts) >= 0 && diffDays(x.ts) <= 7)
+    const later = dated.filter((x) => diffDays(x.ts) > 7)
+    const solText = SOL_GUIDANCE[detail.claimType] || SOL_GUIDANCE._default
+
+    const countdown = (ts: number) => {
+      const d = diffDays(ts)
+      if (d < 0) return { label: `${Math.abs(d)}d overdue`, cls: 'bg-rose-50 text-rose-700 ring-rose-200' }
+      if (d === 0) return { label: 'Due today', cls: 'bg-amber-50 text-amber-700 ring-amber-200' }
+      if (d <= 7) return { label: `in ${d}d`, cls: 'bg-amber-50 text-amber-700 ring-amber-200' }
+      return { label: `in ${d}d`, cls: 'bg-slate-100 text-slate-600 ring-slate-200' }
     }
-    if (!rows.length) {
-      return <Note>No tracked deadlines yet. Statute of limitations and case milestones appear here once set.</Note>
+
+    const renderItem = (x: { t: TaskRow; ts: number }) => {
+      const c = countdown(x.ts)
+      return (
+        <li key={x.t.id} className="flex items-center gap-3 px-4 py-3">
+          <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${c.cls}`}>{c.label}</span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-slate-800">{x.t.title}</p>
+            <p className="text-xs text-slate-400">
+              {formatDate(x.t.dueDate)} · {x.t.status || 'Open'}
+            </p>
+          </div>
+          {x.t.priority ? <PriorityBadge priority={String(x.t.priority).toLowerCase()} /> : null}
+        </li>
+      )
     }
-    return <DataTable headers={['Deadline', 'Date', 'Time left', 'Status']} align={['left', 'left', 'right', 'left']} rows={rows} tone={tone} />
+
+    const group = (title: string, items: Array<{ t: TaskRow; ts: number }>, accent: string) =>
+      items.length ? (
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
+            <h4 className={`text-xs font-semibold uppercase tracking-wide ${accent}`}>{title}</h4>
+            <span className="text-xs text-slate-400">{items.length}</span>
+          </div>
+          <ul className="divide-y divide-slate-100">{items.map(renderItem)}</ul>
+        </div>
+      ) : null
+
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-3 gap-3">
+          <Metric label="Overdue" value={overdue.length} />
+          <Metric label="Due this week" value={soon.length} />
+          <Metric label="Scheduled" value={dated.length} />
+        </div>
+
+        <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600">
+            <Gavel className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-900">Statute of limitations — {detail.type}</p>
+            <p className="mt-0.5 text-sm text-slate-600">{solText}</p>
+            <p className="mt-1 text-xs text-slate-400">Estimate only — confirm the exact filing deadline against the incident date and venue ({detail.venue}).</p>
+          </div>
+        </div>
+
+        {group('Overdue', overdue, 'text-rose-700')}
+        {group('Due this week', soon, 'text-amber-700')}
+        {group('Upcoming', later, 'text-slate-500')}
+
+        {!dated.length ? <Note>No scheduled task deadlines yet — the statute guidance above still applies. Add case tasks with due dates and they’ll appear here, sorted by urgency.</Note> : null}
+
+        {cc?.nextBestAction ? (
+          <div className="flex items-start gap-2.5 rounded-xl border border-brand-100 bg-brand-50/60 px-4 py-3 text-sm text-slate-700">
+            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
+            <div>
+              <span className="font-semibold text-slate-900">Recommended next step · </span>
+              {cc.nextBestAction.title}
+              {cc.nextBestAction.detail ? ` — ${cc.nextBestAction.detail}` : ''}
+            </div>
+          </div>
+        ) : null}
+
+        {undated.length ? (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Unscheduled tasks</h4>
+            <ul className="mt-2 space-y-1.5">
+              {undated.map((t) => (
+                <li key={t.id} className="flex items-center gap-2 text-sm text-slate-600">
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300" />
+                  <span className="flex-1 truncate">{t.title}</span>
+                  {t.priority ? <PriorityBadge priority={String(t.priority).toLowerCase()} /> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    )
   }
 
   if (tab === 'Billing') {
-    const gross = cc?.valueStory?.median || detail.caseValue
+    const gross = cc?.valueStory?.median || detail.caseValue || 0
     if (!gross) return <Note>Billing estimates appear once the case has a value estimate.</Note>
     const rate = detail.claimType === 'medmal' ? 0.4 : 1 / 3
-    const fee = gross * rate
+    const fee = Math.round(gross * rate)
+    const bm = cc?.medicalCostBenchmark
+    const liens = Math.round(bm?.medCharges ?? bm?.benchmarkTypicalTotal ?? 0)
+    const costs = Math.round(gross * 0.04)
+    const net = Math.max(0, gross - fee - liens - costs)
+
+    const parts = [
+      { label: 'Client net', amount: net, bar: 'bg-emerald-500' },
+      { label: 'Attorney fee', amount: fee, bar: 'bg-brand-500' },
+      { label: 'Medical liens', amount: liens, bar: 'bg-amber-500' },
+      { label: 'Case costs', amount: costs, bar: 'bg-slate-400' },
+    ].filter((p) => p.amount > 0)
+    const total = parts.reduce((s, p) => s + p.amount, 0) || 1
+
     return (
-      <DataTable
-        headers={['Item', 'Basis', 'Amount']}
-        align={['left', 'left', 'right']}
-        rows={[
-          ['Contingency fee', `${Math.round(rate * 100)}% of gross`, money(fee)],
-          ['Case value (est.)', 'Gross recovery', money(gross)],
-          ['Client net (est.)', 'After fees', money(gross - fee)],
-        ]}
-      />
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <Metric label="Gross recovery (est.)" value={money(gross)} />
+          <Metric label="Contingency rate" value={`${Math.round(rate * 100)}%`} />
+          <Metric label="Client net (est.)" value={money(net)} accent />
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900">Estimated disbursement</h3>
+            <span className="text-xs text-slate-400">of {money(gross)} gross</span>
+          </div>
+          <div className="flex h-4 w-full overflow-hidden rounded-full bg-slate-100">
+            {parts.map((p) => (
+              <div key={p.label} className={p.bar} style={{ width: `${(p.amount / total) * 100}%` }} title={`${p.label}: ${money(p.amount)}`} />
+            ))}
+          </div>
+          <ul className="mt-4 space-y-2">
+            {parts.map((p) => (
+              <li key={p.label} className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${p.bar}`} />
+                  <span className="text-slate-600">{p.label}</span>
+                  <span className="text-xs text-slate-400">{Math.round((p.amount / total) * 100)}%</span>
+                </span>
+                <span className="font-semibold text-slate-900">{money(p.amount)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <Note>
+          Estimates only. Contingency modeled at {Math.round(rate * 100)}% per claim type; medical liens approximated from documented
+          specials; case costs modeled at ~4%. Final disbursement depends on the actual settlement and negotiated liens.
+        </Note>
+      </div>
     )
   }
 
   if (tab === 'Tasks') {
-    if (!tasks.length) return <Note>No open tasks for this case.</Note>
-    const rows = tasks.map((t) => [t.title, t.priority || 'Normal', formatDate(t.dueDate), t.status || 'Open'])
-    const tone: Tone[] = tasks.map((t) => taskTone(t.dueDate))
-    return <DataTable headers={['Task', 'Priority', 'Due', 'Status']} align={['left', 'left', 'left', 'left']} rows={rows} tone={tone} />
+    return <TasksPanel leadId={lead.id} tasks={tasks} reload={reloadTasks} />
   }
 
   // Overview — a case-at-a-glance summary built from the command center (cc).
@@ -2412,18 +2974,6 @@ function evidenceStatusTone(status?: string): Tone {
   return 'neutral'
 }
 
-function taskTone(dueDate?: string | null): Tone {
-  if (!dueDate) return 'neutral'
-  const t = Date.parse(dueDate)
-  if (Number.isNaN(t)) return 'neutral'
-  const startOfToday = new Date()
-  startOfToday.setHours(0, 0, 0, 0)
-  const diff = Math.floor((new Date(t).setHours(0, 0, 0, 0) - startOfToday.getTime()) / 86_400_000)
-  if (diff < 0) return 'danger'
-  if (diff === 0) return 'warning'
-  return 'neutral'
-}
-
 function Metric({ label, value, accent = false }: { label: string; value: ReactNode; accent?: boolean }) {
   return (
     <div
@@ -2442,6 +2992,477 @@ function Note({ children }: { children: ReactNode }) {
     <div className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-600">
       <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
       <div className="min-w-0">{children}</div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Tasks tab — full CRUD work list for a case.
+// ---------------------------------------------------------------------------
+
+const TASK_PRIORITIES = [
+  { id: 'high', label: 'High', badge: 'bg-rose-50 text-rose-700 ring-rose-200', dot: 'bg-rose-500' },
+  { id: 'medium', label: 'Medium', badge: 'bg-amber-50 text-amber-700 ring-amber-200', dot: 'bg-amber-500' },
+  { id: 'low', label: 'Low', badge: 'bg-slate-100 text-slate-600 ring-slate-200', dot: 'bg-slate-400' },
+] as const
+
+const PRIORITY_META: Record<string, (typeof TASK_PRIORITIES)[number]> = {
+  high: TASK_PRIORITIES[0],
+  medium: TASK_PRIORITIES[1],
+  low: TASK_PRIORITIES[2],
+}
+
+const TASK_TYPES = [
+  { id: 'general', label: 'General' },
+  { id: 'evidence', label: 'Evidence' },
+  { id: 'medical', label: 'Medical records' },
+  { id: 'client', label: 'Client follow-up' },
+  { id: 'demand', label: 'Demand prep' },
+  { id: 'negotiation', label: 'Negotiation' },
+  { id: 'filing', label: 'Filing / court' },
+  { id: 'deadline', label: 'Deadline' },
+]
+
+const TASK_TYPE_LABEL: Record<string, string> = Object.fromEntries(TASK_TYPES.map((t) => [t.id, t.label]))
+
+interface TaskFormState {
+  title: string
+  dueDate: string
+  priority: string
+  taskType: string
+  notes: string
+}
+
+const EMPTY_TASK_FORM: TaskFormState = { title: '', dueDate: '', priority: 'medium', taskType: 'general', notes: '' }
+
+const isDone = (t: TaskRow) => String(t.status || '').toLowerCase() === 'done'
+
+/** Due-date countdown chip (overdue / today / soon / later). */
+function dueChip(dueDate?: string | null): { label: string; cls: string } | null {
+  if (!dueDate) return null
+  const t = Date.parse(dueDate)
+  if (Number.isNaN(t)) return null
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+  const d = Math.floor((new Date(t).setHours(0, 0, 0, 0) - startOfToday.getTime()) / 86_400_000)
+  if (d < 0) return { label: `${Math.abs(d)}d overdue`, cls: 'bg-rose-50 text-rose-700 ring-rose-200' }
+  if (d === 0) return { label: 'Due today', cls: 'bg-amber-50 text-amber-700 ring-amber-200' }
+  if (d <= 7) return { label: `in ${d}d`, cls: 'bg-amber-50 text-amber-700 ring-amber-200' }
+  return { label: `in ${d}d`, cls: 'bg-slate-100 text-slate-600 ring-slate-200' }
+}
+
+function TaskStat({ label, value, tone }: { label: string; value: number; tone: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+      <p className={`text-lg font-bold tabular-nums ${tone}`}>{value}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+    </div>
+  )
+}
+
+function TasksPanel({ leadId, tasks, reload }: { leadId: string; tasks: TaskRow[]; reload: () => Promise<void> | void }) {
+  const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [form, setForm] = useState<TaskFormState>(EMPTY_TASK_FORM)
+  const [showDone, setShowDone] = useState(false)
+
+  const load = async () => {
+    await reload()
+  }
+
+  const flash = (tone: 'ok' | 'err', text: string) => {
+    setMsg({ tone, text })
+    window.setTimeout(() => setMsg(null), 3500)
+  }
+
+  const openCreate = () => {
+    setEditingId(null)
+    setForm(EMPTY_TASK_FORM)
+    setFormOpen(true)
+  }
+
+  const openEdit = (t: TaskRow) => {
+    setEditingId(t.id)
+    setForm({
+      title: t.title || '',
+      dueDate: t.dueDate ? new Date(t.dueDate).toISOString().slice(0, 10) : '',
+      priority: (t.priority || 'medium').toLowerCase(),
+      taskType: t.taskType || 'general',
+      notes: t.notes || '',
+    })
+    setFormOpen(true)
+  }
+
+  const closeForm = () => {
+    setFormOpen(false)
+    setEditingId(null)
+    setForm(EMPTY_TASK_FORM)
+  }
+
+  const submit = async () => {
+    if (!form.title.trim()) {
+      flash('err', 'Task title is required.')
+      return
+    }
+    setBusy('save')
+    const payload = {
+      title: form.title.trim(),
+      dueDate: form.dueDate || null,
+      priority: form.priority,
+      taskType: form.taskType,
+      notes: form.notes.trim() || null,
+    }
+    try {
+      if (editingId) {
+        await updateLeadTask(leadId, editingId, payload)
+        flash('ok', 'Task updated.')
+      } else {
+        await createLeadTask(leadId, payload)
+        flash('ok', 'Task added.')
+      }
+      closeForm()
+      await load()
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Failed to save task.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const toggleDone = async (t: TaskRow) => {
+    setBusy(t.id)
+    try {
+      await updateLeadTask(leadId, t.id, { status: isDone(t) ? 'open' : 'done' })
+      await load()
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Failed to update task.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const remove = async (t: TaskRow) => {
+    if (!window.confirm(`Delete task "${t.title}"? This can't be undone.`)) return
+    setBusy(t.id)
+    try {
+      await deleteLeadTask(leadId, t.id)
+      flash('ok', 'Task deleted.')
+      await load()
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Failed to delete task.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const generate = async () => {
+    setBusy('generate')
+    try {
+      const res = await createLeadTasksFromReadiness(leadId)
+      flash('ok', res?.createdCount ? `Added ${res.createdCount} task${res.createdCount === 1 ? '' : 's'} from case readiness.` : 'No new tasks needed — the case is on track.')
+      await load()
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Failed to generate tasks.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const addSol = async () => {
+    setBusy('sol')
+    try {
+      await createLeadSolTask(leadId)
+      flash('ok', 'Statute-of-limitations deadline added.')
+      await load()
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Failed to add SOL deadline.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const active = tasks.filter((t) => !isDone(t))
+  const done = tasks.filter(isDone)
+
+  const sortActive = (list: TaskRow[]) =>
+    [...list].sort((a, b) => {
+      const at = a.dueDate ? Date.parse(a.dueDate) : Infinity
+      const bt = b.dueDate ? Date.parse(b.dueDate) : Infinity
+      return at - bt
+    })
+
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  const overdueCount = active.filter((t) => t.dueDate && Date.parse(t.dueDate) < now.getTime()).length
+  const dueSoonCount = active.filter((t) => {
+    if (!t.dueDate) return false
+    const diff = Math.floor((new Date(Date.parse(t.dueDate)).setHours(0, 0, 0, 0) - now.getTime()) / 86_400_000)
+    return diff >= 0 && diff <= 7
+  }).length
+
+  const renderTask = (t: TaskRow) => {
+    const p = PRIORITY_META[String(t.priority || 'medium').toLowerCase()] || PRIORITY_META.medium
+    const chip = dueChip(t.dueDate)
+    const taskDone = isDone(t)
+    const rowBusy = busy === t.id
+    return (
+      <li key={t.id} className="group flex items-start gap-3 px-4 py-3">
+        <button
+          onClick={() => toggleDone(t)}
+          disabled={rowBusy}
+          className="mt-0.5 shrink-0 text-slate-300 transition hover:text-emerald-500 disabled:opacity-50"
+          aria-label={taskDone ? 'Mark task open' : 'Mark task done'}
+          title={taskDone ? 'Mark as open' : 'Mark as done'}
+        >
+          {rowBusy ? (
+            <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+          ) : taskDone ? (
+            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+          ) : (
+            <Circle className="h-5 w-5" />
+          )}
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <p className={`text-sm font-medium ${taskDone ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{t.title}</p>
+            {!taskDone && chip ? (
+              <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${chip.cls}`}>
+                {chip.label}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+            {!taskDone ? (
+              <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-semibold ring-1 ring-inset ${p.badge}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${p.dot}`} /> {p.label}
+              </span>
+            ) : null}
+            {t.taskType && t.taskType !== 'general' ? <span>{TASK_TYPE_LABEL[t.taskType] || t.taskType}</span> : null}
+            {t.dueDate ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" />{formatDate(t.dueDate)}</span> : null}
+            {taskDone && t.completedAt ? <span className="text-emerald-600">Done {formatDate(t.completedAt)}</span> : null}
+          </div>
+          {t.notes ? <p className="mt-1 text-xs leading-relaxed text-slate-500">{t.notes}</p> : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100">
+          <button
+            onClick={() => openEdit(t)}
+            className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Edit task"
+            title="Edit"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => remove(t)}
+            disabled={rowBusy}
+            className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+            aria-label="Delete task"
+            title="Delete"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </li>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="grid flex-1 grid-cols-3 gap-2 sm:max-w-md">
+          <TaskStat label="Open" value={active.length} tone="text-slate-900" />
+          <TaskStat label="Overdue" value={overdueCount} tone={overdueCount ? 'text-rose-600' : 'text-slate-900'} />
+          <TaskStat label="Due ≤7d" value={dueSoonCount} tone={dueSoonCount ? 'text-amber-600' : 'text-slate-900'} />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={generate}
+            disabled={busy === 'generate'}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 disabled:opacity-60"
+            title="Auto-create tasks from the case's readiness blockers"
+          >
+            {busy === 'generate' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4 text-brand-500" />}
+            Auto-generate
+          </button>
+          {!formOpen && (
+            <button
+              onClick={openCreate}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
+            >
+              <Plus className="h-4 w-4" /> Add task
+            </button>
+          )}
+        </div>
+      </div>
+
+      {msg ? (
+        <div
+          className={`rounded-xl px-4 py-2.5 text-sm ${
+            msg.tone === 'ok' ? 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200' : 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200'
+          }`}
+        >
+          {msg.text}
+        </div>
+      ) : null}
+
+      {/* Add / edit form */}
+      {formOpen ? (
+        <div className="rounded-xl border border-brand-200 bg-brand-50/40 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-slate-900">{editingId ? 'Edit task' : 'New task'}</h4>
+            <button onClick={closeForm} className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 transition hover:bg-white hover:text-slate-600" aria-label="Cancel">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Title *</label>
+              <input
+                value={form.title}
+                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                placeholder="e.g. Request updated medical records from Dr. Lin"
+                autoFocus
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">Due date</label>
+                <input
+                  type="date"
+                  value={form.dueDate}
+                  onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">Priority</label>
+                <select
+                  value={form.priority}
+                  onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+                >
+                  {TASK_PRIORITIES.map((p) => (
+                    <option key={p.id} value={p.id}>{p.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">Type</label>
+                <select
+                  value={form.taskType}
+                  onChange={(e) => setForm((f) => ({ ...f, taskType: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+                >
+                  {TASK_TYPES.map((t) => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Notes</label>
+              <textarea
+                value={form.notes}
+                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                rows={2}
+                placeholder="Optional details or context"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={closeForm} className="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+                Cancel
+              </button>
+              <button
+                onClick={submit}
+                disabled={busy === 'save'}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-60"
+              >
+                {busy === 'save' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                {editingId ? 'Save changes' : 'Add task'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Active tasks */}
+      {active.length ? (
+        <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
+          {sortActive(active).map(renderTask)}
+        </ul>
+      ) : !formOpen ? (
+        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center">
+          <ListChecks className="mx-auto h-8 w-8 text-slate-300" />
+          <p className="mt-2 text-sm font-medium text-slate-600">No open tasks for this case</p>
+          <p className="mt-0.5 text-xs text-slate-400">Add one manually, auto-generate from readiness, or drop in the filing deadline.</p>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <button onClick={openCreate} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700">
+              <Plus className="h-4 w-4" /> Add task
+            </button>
+            <button
+              onClick={addSol}
+              disabled={busy === 'sol'}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-60"
+            >
+              {busy === 'sol' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4 text-slate-400" />}
+              Add filing deadline
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Completed (collapsible) */}
+      {done.length ? (
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <button
+            onClick={() => setShowDone((s) => !s)}
+            className="flex w-full items-center justify-between px-4 py-2.5 text-left transition hover:bg-slate-50"
+          >
+            <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600">
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" /> Completed
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">{done.length}</span>
+            </span>
+            {showDone ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
+          </button>
+          {showDone ? <ul className="divide-y divide-slate-100 border-t border-slate-100">{done.map(renderTask)}</ul> : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** Vertical tick + label plotted on the negotiation ladder track. */
+function LadderMarker({
+  pct,
+  label,
+  value,
+  color,
+  align,
+}: {
+  pct: number
+  label: string
+  value: string
+  color: 'amber' | 'brand' | 'emerald'
+  align: 'top' | 'bottom'
+}) {
+  const line = { amber: 'bg-amber-500', brand: 'bg-brand-600', emerald: 'bg-emerald-600' }[color]
+  const text = { amber: 'text-amber-600', brand: 'text-brand-700', emerald: 'text-emerald-700' }[color]
+  return (
+    <div className="absolute z-10" style={{ left: `${pct}%`, top: '50%', transform: 'translate(-50%, -50%)' }}>
+      <div className={`h-6 w-0.5 rounded ${line}`} />
+      <div
+        className={`absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-center ${
+          align === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'
+        }`}
+      >
+        <span className={`block text-[10px] font-semibold uppercase tracking-wide ${text}`}>{label}</span>
+        <span className="block text-xs font-bold text-slate-800">{value}</span>
+      </div>
     </div>
   )
 }
@@ -2645,6 +3666,17 @@ function PostureCard({
       ) : (
         <p className="mt-2 text-sm text-slate-400">{empty}</p>
       )}
+    </div>
+  )
+}
+
+/** Compact narrative card for liability / coverage posture on the Demand tab. */
+function StoryCard({ title, label, detail }: { title: string; label?: string | null; detail?: string | null }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h4>
+      <p className="mt-1.5 text-sm font-semibold text-slate-900">{label || '—'}</p>
+      {detail ? <p className="mt-1 text-sm leading-relaxed text-slate-500">{detail}</p> : null}
     </div>
   )
 }

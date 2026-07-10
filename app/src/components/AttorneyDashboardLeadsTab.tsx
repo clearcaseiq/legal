@@ -388,8 +388,7 @@ export default function AttorneyDashboardLeadsTab({
   const routingInboxSummary = {
     // Expired/missed matches are counted only under their own tile, never under the
     // active tiles, so the tile numbers match the lists they open (an expired case is
-    // no longer "awaiting decision", "hot", or "aging").
-    awaitingDecision: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.status || '') === 'submitted' && !isExpiredMatch(lead) && seenMatchIds.has(lead?.id)).length,
+    // no longer "hot" or "aging").
     hotMatches: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.hotnessLevel || '') === 'hot' && (lead?.status || '') === 'submitted' && !isExpiredMatch(lead)).length,
     staleMatches: (dashboardData?.recentLeads || []).filter((lead: any) => {
       if (isExpiredMatch(lead)) return false
@@ -401,24 +400,19 @@ export default function AttorneyDashboardLeadsTab({
     expired: (dashboardData?.recentLeads || []).filter((lead: any) => isExpiredMatch(lead)).length,
   }
 
-  // Header performance metrics (mirrors the prototype): how fast the attorney responds
-  // to routed offers and how often they accept — both computed server-side from real
-  // introduction records (respondedAt − requestedAt, and ACCEPTED / total).
-  const perf = dashboardData?.performanceMetrics
-  const totalReceived = Number(dashboardData?.dashboard?.totalLeadsReceived ?? 0)
-  const totalAccepted = Number(dashboardData?.dashboard?.totalLeadsAccepted ?? 0)
-  const acceptanceRatePct = typeof perf?.acceptanceRate === 'number'
-    ? perf.acceptanceRate
-    : totalReceived > 0 ? Math.round((totalAccepted / totalReceived) * 100) : 0
-  const responseMinutes = typeof perf?.avgResponseMinutes === 'number'
-    ? perf.avgResponseMinutes
-    : Math.round(Number(dashboardData?.dashboard?.attorney?.responseTimeHours ?? 0) * 60)
-  const responseTimeLabel = !responseMinutes || responseMinutes <= 0
-    ? '—'
-    : responseMinutes < 60
-      ? `${responseMinutes}m`
-      : `${Math.floor(responseMinutes / 60)}h ${responseMinutes % 60}m`
   const newMatchesCount = (dashboardData?.recentLeads || []).filter((l: any) => isNewMatch(l)).length
+  // Inbox value = combined upper-band estimate of the cases currently sitting in
+  // "New matches", so the attorney can see how much potential value is waiting
+  // for a decision at a glance.
+  const inboxValue = (dashboardData?.recentLeads || [])
+    .filter((l: any) => isNewMatch(l))
+    .reduce((sum: number, l: any) => sum + (Number(getLeadBands(l).high) || 0), 0)
+  const compactCurrency = (n: number) => {
+    if (!n || n <= 0) return '$0'
+    if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
+    if (n >= 1_000) return `$${Math.round(n / 1_000)}K`
+    return formatCurrency(n)
+  }
   const applyRoutingInboxView = (
     view: NonNullable<CaseLeadsFilter['routingInboxView']>,
     filterPatch: Partial<CaseLeadsFilter>,
@@ -551,7 +545,7 @@ export default function AttorneyDashboardLeadsTab({
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">New matches</p>
           <h3 className="text-lg font-semibold text-slate-900">Cases ready for review</h3>
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <FilterStat
             value={newMatchesCount}
             label="New matches"
@@ -559,14 +553,6 @@ export default function AttorneyDashboardLeadsTab({
             filled
             active={caseLeadsFilter.routingInboxView === 'newMatches'}
             onClick={() => applyRoutingInboxView('newMatches', {}, null)}
-          />
-          <FilterStat
-            value={routingInboxSummary.awaitingDecision}
-            label="Awaiting decision"
-            tone="warning"
-            filled
-            active={caseLeadsFilter.routingInboxView === 'awaitingDecision'}
-            onClick={() => applyRoutingInboxView('awaitingDecision', { status: 'submitted', pipelineStage: 'matched' }, 'matched')}
           />
           <FilterStat
             value={routingInboxSummary.hotMatches}
@@ -584,8 +570,7 @@ export default function AttorneyDashboardLeadsTab({
             active={caseLeadsFilter.routingInboxView === 'expired'}
             onClick={() => applyRoutingInboxView('expired', {}, null)}
           />
-          <FilterStat value={responseTimeLabel} label="Avg. response time" tone="neutral" filled />
-          <FilterStat value={`${acceptanceRatePct}%`} label="Acceptance rate" tone="success" filled />
+          <FilterStat value={compactCurrency(inboxValue)} label="Inbox value" tone="success" filled />
         </div>
       </div>
       )}

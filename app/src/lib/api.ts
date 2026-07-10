@@ -1550,6 +1550,26 @@ export async function getAttorneyTaskSummary() {
   return data
 }
 
+export interface AttorneyDeadlineItem {
+  id: string
+  kind: 'sol' | 'task'
+  leadId: string
+  clientName: string
+  claimType: string | null
+  title: string
+  dueDate: string
+  daysRemaining: number
+  severity: 'expired' | 'critical' | 'warning' | 'safe'
+  note?: string | null
+}
+
+// Cross-case deadlines radar: live statute-of-limitations per case + dated
+// deadline tasks across the whole caseload.
+export async function getAttorneyDeadlines(): Promise<{ items: AttorneyDeadlineItem[]; caseCount: number }> {
+  const { data } = await api.get(`/v1/attorney-dashboard/deadlines`)
+  return data
+}
+
 // Fees collected year-to-date, with a per-case breakdown.
 export async function getAttorneyFeesYtd() {
   const { data } = await api.get(`/v1/attorney-dashboard/fees/ytd`)
@@ -1650,10 +1670,38 @@ export type AttorneyDocumentRequest = {
   lastNudgeAt?: string | null
   createdAt: string
   claimType?: string | null
+  clientName?: string | null
 }
 
 export async function getAttorneyDocumentRequests(): Promise<AttorneyDocumentRequest[]> {
   const { data } = await api.get('/v1/attorney-dashboard/document-requests')
+  return data
+}
+
+export type AttorneyDocumentEnvelope = {
+  id: string
+  leadId: string
+  documentType: string
+  title: string
+  status: string
+  signerName: string
+  signerEmail: string
+  provider: string
+  signingUrl?: string | null
+  auditTrailUrl?: string | null
+  hasSignedFile?: boolean
+  sentAt?: string | null
+  viewedAt?: string | null
+  signedAt?: string | null
+  declinedAt?: string | null
+  expiresAt?: string | null
+  createdAt: string
+  claimType?: string | null
+  clientName?: string | null
+}
+
+export async function getAttorneyDocumentEnvelopes(): Promise<AttorneyDocumentEnvelope[]> {
+  const { data } = await api.get('/v1/attorney-dashboard/document-envelopes')
   return data
 }
 
@@ -2514,8 +2562,10 @@ export async function importCase(payload: {
   includeTasks?: boolean
   includeMedical?: boolean
   notes?: string
+  mapping?: Record<string, string>
   files?: File[] | { name: string; size?: number }[]
 }) {
+  const hasMapping = payload.mapping && Object.keys(payload.mapping).length > 0
   const hasBrowserFiles =
     typeof File !== 'undefined' &&
     Array.isArray(payload.files) &&
@@ -2528,6 +2578,7 @@ export async function importCase(payload: {
     formData.append('includeTasks', String(payload.includeTasks ?? true))
     formData.append('includeMedical', String(payload.includeMedical ?? true))
     if (payload.notes) formData.append('notes', payload.notes)
+    if (hasMapping) formData.append('mapping', JSON.stringify(payload.mapping))
     ;(payload.files as File[]).forEach((file) => formData.append('files', file))
     const { data } = await api.post('/v1/attorney-dashboard/intake/import', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

@@ -624,7 +624,7 @@ router.get('/case-contacts', authMiddleware as any, async (req: any, res: Respon
       return res.json([])
     }
 
-    const contacts = await prisma.caseContact.findMany({
+    const manual = await prisma.caseContact.findMany({
       where: { attorneyId: { in: attorneyIds } },
       select: {
         id: true,
@@ -651,6 +651,104 @@ router.get('/case-contacts', authMiddleware as any, async (req: any, res: Respon
       },
       orderBy: { createdAt: 'desc' }
     })
+
+    const contacts: any[] = manual.map((c) => ({ ...c, source: 'manual' }))
+
+    // Auto-derive clients (from the case's user) and adjusters (from recorded
+    // insurance details) across every attorney in the firm, mirroring the
+    // single-attorney directory so the firm view isn't empty by default.
+    const REVEALED = new Set(['contacted', 'consulted', 'retained'])
+    const leads = await prisma.leadSubmission.findMany({
+      where: { assignedAttorneyId: { in: attorneyIds } },
+      select: {
+        id: true,
+        status: true,
+        assignedAttorneyId: true,
+        assignedAttorney: { select: { id: true, name: true } },
+        assessment: {
+          select: {
+            claimType: true,
+            venueCounty: true,
+            venueState: true,
+            user: { select: { firstName: true, lastName: true, email: true, phone: true } },
+            insuranceDetails: {
+              select: {
+                id: true,
+                carrierName: true,
+                adjusterName: true,
+                adjusterEmail: true,
+                adjusterPhone: true,
+                insuredParty: true,
+              },
+            },
+          },
+        },
+      },
+    })
+
+    const manualKeys = new Set(
+      manual.map((c) => `${c.leadId}:${(c.contactType || '').toLowerCase()}:${(c.email || '').toLowerCase()}`)
+    )
+
+    for (const lead of leads) {
+      const a = lead.assessment
+      if (!a) continue
+      const leadMeta = { id: lead.id, assessment: { claimType: a.claimType, venueCounty: a.venueCounty, venueState: a.venueState } }
+      const attorney = lead.assignedAttorney ? { id: lead.assignedAttorney.id, name: lead.assignedAttorney.name } : null
+
+      const u = a.user
+      if (u && REVEALED.has((lead.status || '').toLowerCase())) {
+        const key = `${lead.id}:client:${(u.email || '').toLowerCase()}`
+        if (!manualKeys.has(key)) {
+          contacts.push({
+            id: `client_${lead.id}`,
+            leadId: lead.id,
+            attorneyId: lead.assignedAttorneyId,
+            firstName: u.firstName || null,
+            lastName: u.lastName || null,
+            email: u.email || null,
+            phone: u.phone || null,
+            companyName: null,
+            companyUrl: null,
+            title: 'Client',
+            contactType: 'client',
+            notes: null,
+            createdAt: null,
+            updatedAt: null,
+            attorney,
+            lead: leadMeta,
+            source: 'derived',
+          })
+        }
+      }
+
+      for (const ins of a.insuranceDetails || []) {
+        if (!ins.adjusterName && !ins.adjusterEmail) continue
+        const key = `${lead.id}:adjuster:${(ins.adjusterEmail || '').toLowerCase()}`
+        if (manualKeys.has(key)) continue
+        const [first, ...rest] = (ins.adjusterName || 'Adjuster').split(' ')
+        contacts.push({
+          id: `adjuster_${ins.id}`,
+          leadId: lead.id,
+          attorneyId: lead.assignedAttorneyId,
+          firstName: first || null,
+          lastName: rest.join(' ') || null,
+          email: ins.adjusterEmail || null,
+          phone: ins.adjusterPhone || null,
+          companyName: ins.carrierName || null,
+          companyUrl: null,
+          title: ins.insuredParty === 'client' ? 'Adjuster (client policy)' : 'Adjuster',
+          contactType: 'adjuster',
+          notes: null,
+          createdAt: null,
+          updatedAt: null,
+          attorney,
+          lead: leadMeta,
+          source: 'derived',
+        })
+      }
+    }
+
     res.json(contacts)
   } catch (error: any) {
     logger.error('Failed to get firm case contacts', { error: error?.message || String(error) })
@@ -1147,6 +1245,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         },
         include: {
           leadSubmission: true,
+          user: { select: { firstName: true, lastName: true } },
           caseTasks: {
             where: {
               status: { not: 'done' }
@@ -1325,6 +1424,42 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
       }))
     ).slice(0, 20)
 
+    // Case-level roster so the firm can see ownership at a glance and assign
+    // work. Primary owner comes from the routed lead's attorney; additional
+    // firm-role owners come from active FirmCaseAssignment rows.
+    const attorneyNameById = new Map<string, string>(
+      attorneys.map((a: any) => [a.id, a.name])
+    )
+    const firmCasesList = firmCases.map((assessment: any) => {
+      const lead = assessment.leadSubmission
+      const primaryAttorneyId: string | null = lead?.assignedAttorneyId || null
+      const assignments = (assessment.firmCaseAssignments || []).map((x: any) => ({
+        role: x.role,
+        name:
+          x.assignedAttorney?.name ||
+          `${x.assignedUser?.firstName || ''} ${x.assignedUser?.lastName || ''}`.trim() ||
+          null,
+      }))
+      const clientName =
+        `${assessment.user?.firstName || ''} ${assessment.user?.lastName || ''}`.trim() || null
+      return {
+        assessmentId: assessment.id,
+        leadId: lead?.id || null,
+        clientName,
+        claimType: assessment.claimType,
+        venueCounty: assessment.venueCounty,
+        venueState: assessment.venueState,
+        leadStatus: lead?.status || assessment.status,
+        updatedAt: assessment.updatedAt,
+        primaryAttorney: primaryAttorneyId
+          ? { id: primaryAttorneyId, name: attorneyNameById.get(primaryAttorneyId) || 'Attorney' }
+          : null,
+        assignments,
+        openTaskCount: (assessment.caseTasks || []).length,
+        unassigned: !primaryAttorneyId && assignments.length === 0,
+      }
+    })
+
     // Marketplace Performance (firm scope): KPI tiles, acquisition funnel, and
     // spend-vs-return monthly series across every attorney in the firm.
     let marketplace: any = null
@@ -1448,6 +1583,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         } : null
       })),
       operationsQueue,
+      cases: firmCasesList,
       attorneys: attorneys.map(a => ({
         id: a.id,
         name: a.name,
