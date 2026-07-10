@@ -835,6 +835,7 @@ export type CaseCommandCenter = {
     score: number
     label: string
     detail: string
+    factors: Array<{ key: string; label: string; points: number; max: number; hint?: string }>
   }
   valueStory: {
     median: number
@@ -1780,6 +1781,15 @@ export async function getLeadEvidenceFiles(leadId: string) {
   return data
 }
 
+// Fetch an evidence/case document by its stored fileUrl as a blob and return a
+// same-origin object URL. Used for inline preview (image/PDF) so the file can be
+// embedded without hitting the API's cross-origin frame restrictions. Callers
+// must URL.revokeObjectURL() the returned value when done.
+export async function getEvidenceObjectUrl(fileUrl: string): Promise<string> {
+  const { data } = await api.get<Blob>(fileUrl, { responseType: 'blob' })
+  return URL.createObjectURL(data)
+}
+
 // Download an evidence/case document by its stored fileUrl (e.g. /uploads/evidence/..)
 // as a blob so the browser saves it with the original filename in every environment
 // (same-origin in prod, via the API instance cross-origin in dev).
@@ -1811,6 +1821,13 @@ export async function uploadLeadEvidenceOnBehalf(
     formData,
     { headers: { 'Content-Type': 'multipart/form-data' } }
   )
+  return data
+}
+
+// Attorney deletes a document from an assigned case (authorized by case
+// assignment, unlike the plaintiff-owned /v1/evidence/:id route).
+export async function deleteLeadEvidence(leadId: string, fileId: string) {
+  const { data } = await api.delete(`/v1/attorney-dashboard/leads/${leadId}/evidence/${fileId}`)
   return data
 }
 

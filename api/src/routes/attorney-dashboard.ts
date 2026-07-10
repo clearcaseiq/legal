@@ -8,6 +8,7 @@ import { prisma } from '../lib/prisma'
 import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { runAnalysisForAssessment } from './evidence'
+import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
 import { runCaseRecalculation } from '../lib/case-recalculation'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { z } from 'zod'
@@ -2776,6 +2777,21 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
         if (!Number.isFinite(n) || n <= 0) return 0
         return n <= 1 ? n : n / 100
       }
+      // `predictions[].viability` is stored as a JSON blob ({ overall, liability,
+      // ... }) or a JSON string — NOT a bare number. Coercing the object straight
+      // to Number() yields NaN → 0, which made Avg Match read 0% for every
+      // practice area (A3-54) and forced every match-quality dot red (A3-55).
+      // Read `.overall` (already a 0–1 fraction); fall back to a numeric coercion
+      // for any legacy rows that stored a plain score.
+      const viabilityFraction = (raw: any) => {
+        if (raw == null) return 0
+        let obj: any = raw
+        if (typeof raw === 'string') {
+          try { obj = JSON.parse(raw) } catch { return toFraction(raw) }
+        }
+        if (obj && typeof obj === 'object') return toFraction(obj.overall)
+        return toFraction(obj)
+      }
       const groups: Record<string, { matches: number; accepted: number; retained: number; vsum: number }> = {}
       let total = 0
       let accepted = 0
@@ -2784,7 +2800,7 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       for (const l of (allLeadsForPipeline || [])) {
         const status = String(l?.status || '')
         const key = l?.assessment?.claimType || 'other'
-        const viability = toFraction(l?.assessment?.predictions?.[0]?.viability)
+        const viability = viabilityFraction(l?.assessment?.predictions?.[0]?.viability)
         const g = groups[key] || (groups[key] = { matches: 0, accepted: 0, retained: 0, vsum: 0 })
         g.matches += 1
         g.vsum += viability
@@ -5115,6 +5131,14 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
         isVerified: true,
         createdAt: true,
         updatedAt: true,
+        // Extraction + provenance so the attorney workspace can surface an AI
+        // summary/highlights preview and an audit "source" tag without a second call.
+        uploadMethod: true,
+        aiSummary: true,
+        aiHighlights: true,
+        isHIPAA: true,
+        provenanceSource: true,
+        provenanceActor: true,
       },
       orderBy: { createdAt: 'desc' }
     })
@@ -5299,6 +5323,18 @@ router.post(
         },
       })
 
+      // Actually run OCR/extraction so the document flips from "Processing" to a
+      // completed status (mirrors the plaintiff upload route). Without this the
+      // queued job is never picked up and the file stays "pending" forever.
+      if (shouldAutoProcessEvidence(evidenceFile.category, evidenceFile.mimetype)) {
+        void processEvidenceFileForExtraction(evidenceFile.id).catch((processingError: any) => {
+          logger.error('Attorney evidence auto-processing failed', {
+            error: processingError?.message || String(processingError),
+            evidenceFileId: evidenceFile.id,
+          })
+        })
+      }
+
       await prisma.evidenceAccessLog.create({
         data: {
           evidenceFileId: evidenceFile.id,
@@ -5326,6 +5362,53 @@ router.post(
     }
   }
 )
+
+// Delete a document from an accepted / assigned case. The plaintiff owns the
+// EvidenceFile record, so the generic /v1/evidence/:id route (which checks
+// ownership) 404s for the attorney; this attorney-scoped route authorizes by
+// case assignment instead.
+router.delete('/leads/:leadId/evidence/:fileId', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, fileId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead, attorney } = auth
+
+    if (lead.assignedAttorneyId !== attorney.id) {
+      return res.status(403).json({ error: 'Only the assigned attorney can delete documents for this case.' })
+    }
+
+    const evidenceFile = await prisma.evidenceFile.findUnique({
+      where: { id: fileId },
+      select: { id: true, assessmentId: true, filePath: true },
+    })
+    if (!evidenceFile || evidenceFile.assessmentId !== lead.assessmentId) {
+      return res.status(404).json({ error: 'Evidence file not found on this case.' })
+    }
+
+    if (evidenceFile.filePath) {
+      try {
+        const fs = await import('fs')
+        if (fs.existsSync(evidenceFile.filePath)) fs.unlinkSync(evidenceFile.filePath)
+      } catch (fsErr: any) {
+        logger.warn('Could not remove physical evidence file', { fileId, error: fsErr?.message })
+      }
+    }
+
+    await prisma.evidenceFile.delete({ where: { id: fileId } })
+
+    if (evidenceFile.assessmentId) {
+      void runCaseRecalculation(evidenceFile.assessmentId, 'document_deleted')
+    }
+
+    res.json({ message: 'Evidence file deleted successfully' })
+  } catch (error: any) {
+    logger.error('Attorney lead evidence delete failed', { error: error.message })
+    res.status(500).json({ error: 'Failed to delete document' })
+  }
+})
 
 // Case Insights - Medical Chronology, Case Preparation, Settlement Benchmarks (for accepted leads)
 router.get('/leads/:leadId/medical-chronology', authMiddleware, async (req: any, res) => {
