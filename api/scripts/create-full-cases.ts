@@ -52,10 +52,13 @@ try { sharp = require('sharp') } catch { /* fallback to text */ }
 try { PDFDocument = require('pdfkit') } catch { /* fallback to text */ }
 
 const ATTORNEY_EMAIL = process.env.ATTORNEY_EMAIL || 'sreddy20871@gmail.com'
+// Resolve an existing attorney by (partial, case-insensitive) name instead of
+// email. When set, the script will NOT create a firm/attorney — it errors if no
+// match — so you can safely target a real login like ATTORNEY_NAME=Tucker.
+const ATTORNEY_NAME = (process.env.ATTORNEY_NAME || '').trim()
 const NUM_ACTIVE = Number(process.env.NUM_ACTIVE || 6)
 const NUM_NEW = Number(process.env.NUM_NEW || 4)
 const FORCE = process.env.FORCE === '1'
-const EMAIL_NS = (process.env.EMAIL_NS || ATTORNEY_EMAIL.split('@')[0] || 'full-cases').replace(/[^a-z0-9]+/gi, '-').toLowerCase()
 
 // Used only when the attorney/firm must be created (ATTORNEY_EMAIL not found).
 const FIRM_NAME = process.env.FIRM_NAME || 'Reddy Law Firm'
@@ -694,30 +697,53 @@ async function routeCase(params: {
 
 // -------------------- Ensure attorney (resolve or create) --------------------
 interface ResolvedAttorney {
-  attorneyId: string; attorneyName: string; firmId: string | null; officeId: string | null; firmName: string; adminUserId: string | null; created: boolean
+  attorneyId: string; attorneyName: string; attorneyEmail: string | null; firmId: string | null; officeId: string | null; firmName: string; adminUserId: string | null; created: boolean
+}
+
+// Resolve firm/office/admin context for an already-found attorney row.
+async function contextFor(att: { id: string; name: string; email: string | null; lawFirmId: string | null }): Promise<ResolvedAttorney> {
+  let firmId: string | null = att.lawFirmId ?? null
+  let officeId: string | null = null
+  let firmName = 'the firm'
+  if (firmId) {
+    const firm = await prisma.lawFirm.findUnique({ where: { id: firmId }, select: { name: true } })
+    firmName = firm?.name ?? firmName
+    const office = await prisma.firmOffice.findFirst({ where: { lawFirmId: firmId }, select: { id: true } })
+    officeId = office?.id ?? null
+  }
+  const adminUser = att.email
+    ? await prisma.user.findFirst({ where: { email: { equals: att.email, mode: 'insensitive' } }, select: { id: true } })
+    : null
+  return { attorneyId: att.id, attorneyName: att.name, attorneyEmail: att.email, firmId, officeId, firmName, adminUserId: adminUser?.id ?? null, created: false }
+}
+
+// Resolve an EXISTING attorney by name (partial, case-insensitive). Errors if
+// there's no match — never creates a firm — so it's safe for real logins.
+async function resolveByName(name: string): Promise<ResolvedAttorney> {
+  const matches = await prisma.attorney.findMany({
+    where: { name: { contains: name, mode: 'insensitive' } },
+    select: { id: true, name: true, email: true, lawFirmId: true },
+    orderBy: { createdAt: 'asc' },
+  })
+  if (matches.length === 0) {
+    throw new Error(`No attorney found matching name "${name}". Pass ATTORNEY_EMAIL to create one, or check the spelling.`)
+  }
+  if (matches.length > 1) {
+    console.log(`Multiple attorneys match "${name}":`)
+    matches.forEach((m) => console.log(`  - ${m.name} <${m.email || 'no-email'}> (${m.id})`))
+    console.log(`Using the first: ${matches[0].name}. Narrow ATTORNEY_NAME or use ATTORNEY_EMAIL to target a specific one.`)
+  }
+  return contextFor(matches[0])
 }
 
 async function ensureAttorney(email: string): Promise<ResolvedAttorney> {
   const existing = await prisma.attorney.findFirst({
     where: { OR: [{ email }, { email: email.toLowerCase() }, { email: email.toUpperCase() }] },
-    select: { id: true, name: true, lawFirmId: true },
+    select: { id: true, name: true, email: true, lawFirmId: true },
   })
 
   if (existing) {
-    let firmId: string | null = existing.lawFirmId ?? null
-    let officeId: string | null = null
-    let firmName = 'the firm'
-    if (firmId) {
-      const firm = await prisma.lawFirm.findUnique({ where: { id: firmId }, select: { name: true } })
-      firmName = firm?.name ?? firmName
-      const office = await prisma.firmOffice.findFirst({ where: { lawFirmId: firmId }, select: { id: true } })
-      officeId = office?.id ?? null
-    }
-    const adminUser = await prisma.user.findFirst({
-      where: { OR: [{ email }, { email: email.toLowerCase() }, { email: email.toUpperCase() }] },
-      select: { id: true },
-    })
-    return { attorneyId: existing.id, attorneyName: existing.name, firmId, officeId, firmName, adminUserId: adminUser?.id ?? null, created: false }
+    return contextFor(existing)
   }
 
   console.log(`No attorney found for ${email} — creating firm "${FIRM_NAME}", login user, and attorney...`)
@@ -796,18 +822,26 @@ async function ensureAttorney(email: string): Promise<ResolvedAttorney> {
   })
 
   console.log(`Created attorney "${attorney.name}" (${attorney.id}) — login: ${email} / ${ADMIN_PASSWORD}`)
-  return { attorneyId: attorney.id, attorneyName: attorney.name, firmId: firm.id, officeId: office.id, firmName: FIRM_NAME, adminUserId: adminUser.id, created: true }
+  return { attorneyId: attorney.id, attorneyName: attorney.name, attorneyEmail: email, firmId: firm.id, officeId: office.id, firmName: FIRM_NAME, adminUserId: adminUser.id, created: true }
 }
 
 // -------------------- Main --------------------
 async function main() {
-  const email = ATTORNEY_EMAIL
-  console.log(`\n=== Creating FULL cases for attorney "${email}" (${NUM_ACTIVE} active + ${NUM_NEW} new matches) ===`)
+  const target = ATTORNEY_NAME ? `name "${ATTORNEY_NAME}"` : `"${ATTORNEY_EMAIL}"`
+  console.log(`\n=== Creating FULL cases for attorney ${target} (${NUM_ACTIVE} active + ${NUM_NEW} new matches) ===`)
   console.log(`Image generation: ${sharp ? 'sharp (JPEG)' : 'TEXT fallback'} | PDF generation: ${PDFDocument ? 'pdfkit (PDF)' : 'TEXT fallback'}`)
 
-  const resolved = await ensureAttorney(email)
+  // Prefer name resolution (never creates); fall back to email (create-or-resolve).
+  const resolved = ATTORNEY_NAME ? await resolveByName(ATTORNEY_NAME) : await ensureAttorney(ATTORNEY_EMAIL)
+  const email = resolved.attorneyEmail || ATTORNEY_EMAIL
   const attorney = { id: resolved.attorneyId, name: resolved.attorneyName }
   const { firmId, officeId, firmName } = resolved
+
+  // Namespace plaintiff emails per-attorney so books never collide across logins.
+  const emailNs = (process.env.EMAIL_NS
+    || resolved.attorneyEmail?.split('@')[0]
+    || resolved.attorneyName
+    || 'full-cases').replace(/[^a-z0-9]+/gi, '-').toLowerCase()
   const adminUser = resolved.adminUserId ? { id: resolved.adminUserId } : null
 
   console.log(`Attorney: ${attorney.name} (${attorney.id})${resolved.created ? ' [newly created]' : ''}`)
@@ -841,7 +875,7 @@ async function main() {
     const slot = n + 1
     const caseLabel = `${TEMPLATES[claimType].label} #${slot}`
 
-    const plaintiffEmail = `plaintiff.${EMAIL_NS}.${slot}@${EMAIL_NS}-demo.clearcaseiq.test`
+    const plaintiffEmail = `plaintiff.${emailNs}.${slot}@${emailNs}-demo.clearcaseiq.test`
     const user = await prisma.user.upsert({
       where: { email: plaintiffEmail },
       update: {},
