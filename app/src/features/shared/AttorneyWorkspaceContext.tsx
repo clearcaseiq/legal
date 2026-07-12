@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { getStoredUser } from '../../lib/auth'
-import { getAttorneyUnreadCount } from '../../lib/api'
+import { getAttorneyUnreadCount, getFirmDirectMessageUnread } from '../../lib/api'
 import { useFirmDashboardSummary } from '../../hooks/useFirmDashboardSummary'
 
 /** How often (ms) to refresh the unread-message badge in the nav. */
@@ -24,6 +24,8 @@ export interface AttorneyWorkspaceValue {
   loading: boolean
   /** Unread in-app client messages across all of this attorney's threads (polled). */
   unreadMessages: number
+  /** Unread direct messages from firm colleagues (Team Chat), polled. */
+  unreadTeamMessages: number
 }
 
 const AttorneyWorkspaceContext = createContext<AttorneyWorkspaceValue | null>(null)
@@ -54,15 +56,22 @@ function readStoredAttorney(): AttorneyIdentity {
 export function AttorneyWorkspaceProvider({ children }: { children: ReactNode }) {
   const { data, loading } = useFirmDashboardSummary()
   const [unreadMessages, setUnreadMessages] = useState(0)
+  const [unreadTeamMessages, setUnreadTeamMessages] = useState(0)
 
-  // Poll the unread-message count so the "Messages" nav badge stays fresh while
-  // the attorney works elsewhere in the workspace. Best-effort; errors are ignored.
+  // Poll the unread-message counts so the "Messages" / "Team Chat" nav badges stay
+  // fresh while the attorney works elsewhere. Best-effort; errors are ignored.
   useEffect(() => {
     let cancelled = false
     const refresh = async () => {
       try {
         const res = await getAttorneyUnreadCount()
         if (!cancelled) setUnreadMessages(Number(res?.unreadCount) || 0)
+      } catch {
+        /* ignore transient failures */
+      }
+      try {
+        const dm = await getFirmDirectMessageUnread()
+        if (!cancelled) setUnreadTeamMessages(Number(dm?.count) || 0)
       } catch {
         /* ignore transient failures */
       }
@@ -88,8 +97,8 @@ export function AttorneyWorkspaceProvider({ children }: { children: ReactNode })
       permissions.includes('view_all_cases') ||
       permissions.includes('manage_users')
 
-    return { attorney, firmRole, permissions, isFirmAdmin, loading, unreadMessages }
-  }, [data, loading, unreadMessages])
+    return { attorney, firmRole, permissions, isFirmAdmin, loading, unreadMessages, unreadTeamMessages }
+  }, [data, loading, unreadMessages, unreadTeamMessages])
 
   return <AttorneyWorkspaceContext.Provider value={value}>{children}</AttorneyWorkspaceContext.Provider>
 }

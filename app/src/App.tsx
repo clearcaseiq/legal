@@ -43,6 +43,8 @@ const MatchQualityPage = lazy(() => import('./features/leadgen/MatchQualityPage'
 const ActiveCasesPage = lazy(() => import('./features/casework/ActiveCasesPage'))
 const CaseWorkspacePage = lazy(() => import('./features/casework/CaseWorkspacePage'))
 const CaseMessagesPage = lazy(() => import('./features/casework/MessagesPage'))
+const TeamMessagesPage = lazy(() => import('./features/casework/TeamMessagesPage'))
+const ActivityPage = lazy(() => import('./features/casework/ActivityPage'))
 const CaseDocumentsHubPage = lazy(() => import('./features/casework/DocumentsPage'))
 const CaseTasksPage = lazy(() => import('./features/casework/TasksPage'))
 const CaseDeadlinesPage = lazy(() => import('./features/casework/DeadlinesPage'))
@@ -426,6 +428,8 @@ function App() {
                 <Route path="/attorney-dashboard/cases/workspace" element={<Navigate to="/attorney-dashboard/cases/active" replace />} />
                 <Route path="/attorney-dashboard/cases/calendar" element={<CalendarPage />} />
                 <Route path="/attorney-dashboard/cases/messages" element={<CaseMessagesPage />} />
+                <Route path="/attorney-dashboard/cases/team" element={<TeamMessagesPage />} />
+                <Route path="/attorney-dashboard/cases/activity" element={<ActivityPage />} />
                 <Route path="/attorney-dashboard/cases/documents" element={<CaseDocumentsHubPage />} />
                 <Route path="/attorney-dashboard/cases/tasks" element={<CaseTasksPage />} />
                 <Route path="/attorney-dashboard/cases/deadlines" element={<CaseDeadlinesPage />} />

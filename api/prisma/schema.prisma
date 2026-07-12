@@ -896,6 +896,24 @@ model FirmMember {
   @@map("firm_members")
 }
 
+// Lightweight direct message between two members of the same firm (not tied to a
+// case). Threaded by the (sender, recipient) User pair; scalar user ids keep this
+// decoupled from the User model (no back-relations required).
+model FirmDirectMessage {
+  id          String    @id @default(cuid())
+  lawFirmId   String // LawFirm.id (scalar; no relation to avoid User/LawFirm back-refs)
+  senderId    String // User.id of the sender
+  recipientId String // User.id of the recipient
+  body        String    @db.Text
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([lawFirmId])
+  @@index([recipientId, readAt])
+  @@index([senderId, recipientId])
+  @@map("firm_direct_messages")
+}
+
 model FirmTeam {
   id          String      @id @default(cuid())
   lawFirmId   String

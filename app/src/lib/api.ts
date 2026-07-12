@@ -3578,6 +3578,64 @@ export async function removeFirmTeamMember(teamId: string, firmMemberId: string)
   return data
 }
 
+// --- Firm direct messages (attorney↔colleague DMs, not case-scoped) ---
+export interface FirmColleague {
+  userId: string
+  name: string
+  email: string | null
+  role: string
+  title: string | null
+  isAttorney: boolean
+  lastMessage: { body: string; at: string; fromMe: boolean } | null
+  lastMessageAt: string | null
+  unreadCount: number
+}
+
+export interface FirmDirectMessage {
+  id: string
+  body: string
+  at: string
+  fromMe: boolean
+}
+
+export async function getFirmColleagues(): Promise<{ colleagues: FirmColleague[]; unreadTotal: number }> {
+  const { data } = await api.get('/v1/firm-dashboard/colleagues')
+  return data
+}
+
+export async function getFirmDirectMessageUnread(): Promise<{ count: number }> {
+  const { data } = await api.get('/v1/firm-dashboard/direct-messages/unread-count')
+  return data
+}
+
+export async function getFirmDirectMessages(userId: string): Promise<{ colleague: { userId: string; name: string; email: string | null; role: string }; messages: FirmDirectMessage[] }> {
+  const { data } = await api.get(`/v1/firm-dashboard/direct-messages/${userId}`)
+  return data
+}
+
+export async function sendFirmDirectMessage(userId: string, body: string): Promise<{ message: FirmDirectMessage }> {
+  const { data } = await api.post(`/v1/firm-dashboard/direct-messages/${userId}`, { body })
+  return data
+}
+
+// --- Firm activity inbox (@mentions + recent case discussion) ---
+export interface ActivityItem {
+  id: string
+  author: string
+  snippet: string
+  threadTitle: string
+  caseName: string
+  claimType: string | null
+  leadId: string | null
+  link: string | null
+  at: string
+}
+
+export async function getFirmActivity(): Promise<{ mentions: ActivityItem[]; discussion: ActivityItem[] }> {
+  const { data } = await api.get('/v1/attorney-dashboard/activity')
+  return data
+}
+
 export async function assignFirmCase(assessmentId: string, payload: {
   role: string
   assignedUserId?: string

@@ -4,6 +4,7 @@ import { logger } from '../lib/logger'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { sendTransactionalEmail } from '../lib/claims'
 import { computeMarketplacePerformance, computeMarketplacePerformanceByAttorney } from '../lib/marketplace-performance'
+import { createNotificationEvent } from '../lib/platform-notifications'
 
 const router: Router = Router()
 
@@ -1807,6 +1808,212 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
   } catch (error: any) {
     logger.error('Failed to get firm dashboard')
     res.status(500).json({ error: 'Failed to load firm dashboard' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Firm direct messages — lightweight attorney↔colleague DMs (not case-scoped).
+// Threaded by the (me, colleague) User pair within a firm.
+// ---------------------------------------------------------------------------
+
+function memberDisplayName(m: any): string {
+  const composed = `${m.user?.firstName || ''} ${m.user?.lastName || ''}`.trim()
+  return composed || m.attorney?.name || m.user?.email || m.attorney?.email || 'Teammate'
+}
+
+// List the current user's firm colleagues as DM targets, enriched with the last
+// message + unread count for each conversation.
+router.get('/colleagues', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    const meId = context.user?.id
+    if (!meId) return res.status(401).json({ error: 'Authentication required' })
+
+    const members = await (prisma as any).firmMember.findMany({
+      where: { lawFirmId: context.lawFirmId, status: 'active' },
+      select: {
+        id: true,
+        role: true,
+        title: true,
+        userId: true,
+        attorney: { select: { name: true, email: true } },
+        user: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
+    })
+
+    const colleagues = members.filter((m: any) => m.userId && m.userId !== meId)
+    const colleagueIds = colleagues.map((m: any) => m.userId)
+
+    // Pull every DM between me and any colleague in one query, then fold into
+    // per-conversation last message + unread count.
+    const dms = colleagueIds.length
+      ? await (prisma as any).firmDirectMessage.findMany({
+          where: {
+            lawFirmId: context.lawFirmId,
+            OR: [
+              { senderId: meId, recipientId: { in: colleagueIds } },
+              { recipientId: meId, senderId: { in: colleagueIds } },
+            ],
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { senderId: true, recipientId: true, body: true, readAt: true, createdAt: true },
+        })
+      : []
+
+    const lastByOther: Record<string, any> = {}
+    const unreadByOther: Record<string, number> = {}
+    for (const dm of dms) {
+      const other = dm.senderId === meId ? dm.recipientId : dm.senderId
+      if (!lastByOther[other]) lastByOther[other] = dm // dms are desc, first seen is latest
+      if (dm.recipientId === meId && !dm.readAt) unreadByOther[other] = (unreadByOther[other] || 0) + 1
+    }
+
+    const result = colleagues
+      .map((m: any) => {
+        const last = lastByOther[m.userId]
+        return {
+          userId: m.userId,
+          name: memberDisplayName(m),
+          email: m.user?.email || m.attorney?.email || null,
+          role: m.role,
+          title: m.title || null,
+          isAttorney: Boolean(m.attorney),
+          lastMessage: last ? { body: last.body, at: last.createdAt, fromMe: last.senderId === meId } : null,
+          lastMessageAt: last ? last.createdAt : null,
+          unreadCount: unreadByOther[m.userId] || 0,
+        }
+      })
+      .sort((a: any, b: any) => {
+        // Conversations with activity first (newest), then the rest alphabetically.
+        if (a.lastMessageAt && b.lastMessageAt) return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
+        if (a.lastMessageAt) return -1
+        if (b.lastMessageAt) return 1
+        return a.name.localeCompare(b.name)
+      })
+
+    const unreadTotal = Object.values(unreadByOther).reduce((s, n) => s + n, 0)
+    res.json({ colleagues: result, unreadTotal })
+  } catch (error: any) {
+    logger.error('Failed to list firm colleagues', { error: error?.message })
+    res.status(500).json({ error: 'Failed to load colleagues' })
+  }
+})
+
+// Total unread direct messages for the current user (powers the nav badge).
+router.get('/direct-messages/unread-count', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.json({ count: 0 })
+    const meId = context.user?.id
+    if (!meId) return res.json({ count: 0 })
+    const count = await (prisma as any).firmDirectMessage.count({
+      where: { lawFirmId: context.lawFirmId, recipientId: meId, readAt: null },
+    })
+    res.json({ count })
+  } catch (error: any) {
+    logger.error('Failed to load DM unread count', { error: error?.message })
+    res.json({ count: 0 })
+  }
+})
+
+// Fetch the conversation with one colleague (oldest→newest) and mark inbound read.
+router.get('/direct-messages/:userId', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    const meId = context.user?.id
+    if (!meId) return res.status(401).json({ error: 'Authentication required' })
+    const otherId = String(req.params.userId)
+
+    // Confirm the other party is a colleague in the same firm.
+    const colleague = await (prisma as any).firmMember.findFirst({
+      where: { lawFirmId: context.lawFirmId, userId: otherId, status: 'active' },
+      select: { role: true, attorney: { select: { name: true, email: true } }, user: { select: { firstName: true, lastName: true, email: true } } },
+    })
+    if (!colleague) return res.status(404).json({ error: 'Colleague not found in this firm' })
+
+    const messages = await (prisma as any).firmDirectMessage.findMany({
+      where: {
+        lawFirmId: context.lawFirmId,
+        OR: [
+          { senderId: meId, recipientId: otherId },
+          { senderId: otherId, recipientId: meId },
+        ],
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, senderId: true, body: true, createdAt: true, readAt: true },
+    })
+
+    // Mark inbound messages as read.
+    await (prisma as any).firmDirectMessage.updateMany({
+      where: { lawFirmId: context.lawFirmId, senderId: otherId, recipientId: meId, readAt: null },
+      data: { readAt: new Date() },
+    })
+
+    res.json({
+      colleague: {
+        userId: otherId,
+        name: memberDisplayName(colleague),
+        email: colleague.user?.email || colleague.attorney?.email || null,
+        role: colleague.role,
+      },
+      messages: messages.map((m: any) => ({
+        id: m.id,
+        body: m.body,
+        at: m.createdAt,
+        fromMe: m.senderId === meId,
+      })),
+    })
+  } catch (error: any) {
+    logger.error('Failed to load DM thread', { error: error?.message })
+    res.status(500).json({ error: 'Failed to load conversation' })
+  }
+})
+
+// Send a direct message to a colleague and fire an in-app notification.
+router.post('/direct-messages/:userId', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    const meId = context.user?.id
+    if (!meId) return res.status(401).json({ error: 'Authentication required' })
+    const otherId = String(req.params.userId)
+    const body = typeof req.body?.body === 'string' ? req.body.body.trim() : ''
+    if (!body) return res.status(400).json({ error: 'Message body is required' })
+    if (otherId === meId) return res.status(400).json({ error: 'You cannot message yourself' })
+
+    const colleague = await (prisma as any).firmMember.findFirst({
+      where: { lawFirmId: context.lawFirmId, userId: otherId, status: 'active' },
+      select: { attorneyId: true, user: { select: { email: true } }, attorney: { select: { email: true } } },
+    })
+    if (!colleague) return res.status(404).json({ error: 'Colleague not found in this firm' })
+
+    const created = await (prisma as any).firmDirectMessage.create({
+      data: { lawFirmId: context.lawFirmId, senderId: meId, recipientId: otherId, body: body.slice(0, 5000) },
+      select: { id: true, body: true, createdAt: true },
+    })
+
+    // Notify the recipient in-app (shows in the attorney notification bell).
+    const senderName = `${context.user?.firstName || ''} ${context.user?.lastName || ''}`.trim()
+      || context.attorney?.name || 'A colleague'
+    const recipientEmail = colleague.user?.email || colleague.attorney?.email || undefined
+    void createNotificationEvent({
+      userId: otherId,
+      attorneyId: colleague.attorneyId || undefined,
+      role: 'attorney',
+      channel: 'in_app',
+      eventType: 'attorney.direct_message',
+      subject: `New message from ${senderName}`,
+      body: body.slice(0, 140),
+      recipient: recipientEmail,
+      payload: { link: `/attorney-dashboard/cases/team?dm=${meId}`, fromUserId: meId, fromName: senderName },
+    }).catch(() => {})
+
+    res.status(201).json({ message: { id: created.id, body: created.body, at: created.createdAt, fromMe: true } })
+  } catch (error: any) {
+    logger.error('Failed to send DM', { error: error?.message })
+    res.status(500).json({ error: 'Failed to send message' })
   }
 })
 

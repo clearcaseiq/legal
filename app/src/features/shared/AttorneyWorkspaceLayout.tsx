@@ -8,6 +8,8 @@ import {
   Briefcase,
   CalendarDays,
   MessagesSquare,
+  Users2,
+  AtSign,
   FileSignature,
   ListChecks,
   AlarmClock,
@@ -52,6 +54,8 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/attorney-dashboard/cases/active', label: 'Active Cases', description: 'Caseload & quick re-entry', icon: Briefcase },
       { to: '/attorney-dashboard/cases/calendar', label: 'Calendar & Consults', description: 'Upcoming meetings', icon: CalendarDays },
       { to: '/attorney-dashboard/cases/messages', label: 'Messages', description: 'Client & adjuster threads', icon: MessagesSquare },
+      { to: '/attorney-dashboard/cases/team', label: 'Team Chat', description: 'Message firm colleagues', icon: Users2 },
+      { to: '/attorney-dashboard/cases/activity', label: 'Activity', description: 'Mentions & case discussion', icon: AtSign },
       { to: '/attorney-dashboard/cases/documents', label: 'Documents & E-sign', description: 'Requests & signatures', icon: FileSignature },
       { to: '/attorney-dashboard/cases/tasks', label: 'Tasks', description: 'Cross-case queue', icon: ListChecks },
       { to: '/attorney-dashboard/cases/deadlines', label: 'Deadlines', description: 'Statute-of-limitations radar', icon: AlarmClock },
@@ -101,7 +105,7 @@ function domainStyle(id: string) {
 // Static case-management pages that live directly under /cases/*. Anything else in
 // that slot (or under /lead/*) is a single-case workspace file.
 const STATIC_CASE_PAGES = new Set([
-  'active', 'workspace', 'calendar', 'messages', 'documents', 'tasks', 'contacts', 'billing', 'copilot', 'firm', 'intake',
+  'active', 'workspace', 'calendar', 'messages', 'team', 'activity', 'documents', 'tasks', 'contacts', 'billing', 'copilot', 'firm', 'intake',
 ])
 
 /** True when the path is a single-case workspace file (/lead/:id/... or /cases/:id/...). */
@@ -127,6 +131,7 @@ function domainForPath(pathname: string): 'Lead Generation' | 'Case Management' 
 }
 
 const MESSAGES_ROUTE = '/attorney-dashboard/cases/messages'
+const TEAM_ROUTE = '/attorney-dashboard/cases/team'
 
 function NavBadge({ count }: { count: number }) {
   if (count <= 0) return null
@@ -139,9 +144,11 @@ function NavBadge({ count }: { count: number }) {
 
 function Sidebar() {
   const location = useLocation()
-  const { attorney, isFirmAdmin, unreadMessages } = useAttorneyWorkspace()
+  const { attorney, isFirmAdmin, unreadMessages, unreadTeamMessages } = useAttorneyWorkspace()
 
   const isActive = (to: string) => navEntryActive(to, location.pathname)
+  const badgeFor = (to: string) =>
+    to === MESSAGES_ROUTE ? unreadMessages : to === TEAM_ROUTE ? unreadTeamMessages : 0
 
   return (
     <aside className="hidden w-64 shrink-0 lg:block">
@@ -200,7 +207,7 @@ function Sidebar() {
                           </span>
                         )}
                       </span>
-                      {entry.to === MESSAGES_ROUTE && <NavBadge count={unreadMessages} />}
+                      <NavBadge count={badgeFor(entry.to)} />
                     </Link>
                   )
                 })}
@@ -215,8 +222,10 @@ function Sidebar() {
 
 function MobileNav() {
   const location = useLocation()
-  const { isFirmAdmin, unreadMessages } = useAttorneyWorkspace()
+  const { isFirmAdmin, unreadMessages, unreadTeamMessages } = useAttorneyWorkspace()
   const isActive = (to: string) => navEntryActive(to, location.pathname)
+  const badgeFor = (to: string) =>
+    to === MESSAGES_ROUTE ? unreadMessages : to === TEAM_ROUTE ? unreadTeamMessages : 0
   const entries = NAV_SECTIONS.flatMap((s) => s.entries.map((e) => ({ ...e, domain: s.id }))).filter(
     (e) => !e.firmAdminOnly || isFirmAdmin,
   )
@@ -241,9 +250,9 @@ function MobileNav() {
                 }`}
               >
                 <Icon className="h-3 w-3" />
-                {entry.to === MESSAGES_ROUTE && unreadMessages > 0 && (
+                {badgeFor(entry.to) > 0 && (
                   <span className="absolute -right-1 -top-1 flex h-3.5 min-w-[0.875rem] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-none text-white">
-                    {unreadMessages > 9 ? '9+' : unreadMessages}
+                    {badgeFor(entry.to) > 9 ? '9+' : badgeFor(entry.to)}
                   </span>
                 )}
               </span>

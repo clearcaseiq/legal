@@ -28,7 +28,7 @@ import {
 import { sendPlaintiffAttorneyAccepted } from '../lib/case-notifications'
 import { createExternalCalendarEvent } from '../lib/calendar-sync'
 import { createZoomMeeting } from '../lib/zoom'
-import { deliverDirectNotification } from '../lib/platform-notifications'
+import { deliverDirectNotification, createNotificationEvent } from '../lib/platform-notifications'
 import { translateToEnglish, looksNonEnglish } from '../lib/translate'
 import { isValidPhone, normalizePhone, PHONE_ERROR_MESSAGE } from '../lib/phone'
 import { answerCommandCenterCopilot, buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
@@ -8767,6 +8767,46 @@ router.post('/leads/:leadId/comments/threads/:threadId/comments', authMiddleware
       }
     })
 
+    // Notify @mentioned firm members in-app (shows in their notification bell).
+    // Only email-form mentions (@name@firm.com) are resolvable to a user.
+    if (mentions.length) {
+      const authorId = req.user?.id
+      const authorName = req.user ? `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() : 'A colleague'
+      const snippet = (message || '').slice(0, 140)
+      void (async () => {
+        try {
+          const emails = Array.from(
+            new Set(
+              mentions
+                .map((t) => t.replace(/^@/, '').toLowerCase())
+                .filter((t) => t.includes('@')),
+            ),
+          )
+          if (!emails.length) return
+          const users = await prisma.user.findMany({
+            where: { email: { in: emails } },
+            select: { id: true, email: true },
+          })
+          const link = `/attorney-dashboard/lead/${leadId}/overview`
+          for (const u of users) {
+            if (u.id === authorId) continue
+            await createNotificationEvent({
+              userId: u.id,
+              role: 'attorney',
+              channel: 'in_app',
+              eventType: 'attorney.mention',
+              subject: `${authorName || 'A colleague'} mentioned you in a case discussion`,
+              body: snippet,
+              recipient: u.email || undefined,
+              payload: { link, leadId },
+            })
+          }
+        } catch (err) {
+          logger.warn('Failed to notify mentioned members', { error: (err as Error).message })
+        }
+      })()
+    }
+
     res.json(comment)
   } catch (error: any) {
     logger.error('Failed to create comment', { error: error.message })
@@ -11698,6 +11738,114 @@ router.post('/notifications/read-all', authMiddleware, async (req: any, res) => 
   } catch (error: any) {
     logger.error('Failed to mark all notifications read', { error: error.message, userId: req.user?.id })
     res.status(500).json({ error: 'Failed to mark all read' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Firm activity inbox — @mentions of the current user + recent case discussion
+// on their assigned matters. Read-only rollup of CaseComment activity.
+// ---------------------------------------------------------------------------
+router.get('/activity', authMiddleware, async (req: any, res) => {
+  try {
+    const email = req.user?.email
+    const userId = req.user?.id
+    if (!email) return res.status(401).json({ error: 'Authentication required' })
+
+    const attorney = await prisma.attorney.findFirst({ where: { email }, select: { id: true } })
+
+    const commentSelect = {
+      id: true,
+      message: true,
+      authorName: true,
+      authorEmail: true,
+      authorId: true,
+      createdAt: true,
+      thread: { select: { id: true, title: true, assessmentId: true } },
+    } as const
+
+    // 1) Comments that @mention me (any case I've been tagged on).
+    const mentionComments = await prisma.caseComment.findMany({
+      where: { mentions: { contains: email, mode: 'insensitive' } },
+      orderBy: { createdAt: 'desc' },
+      take: 40,
+      select: commentSelect,
+    })
+
+    // 2) Recent discussion on my assigned cases (excluding my own comments).
+    let assignedAssessmentIds: string[] = []
+    if (attorney) {
+      const myLeads = await prisma.leadSubmission.findMany({
+        where: { assignedAttorneyId: attorney.id },
+        select: { assessmentId: true },
+      })
+      assignedAssessmentIds = Array.from(new Set(myLeads.map((l) => l.assessmentId).filter(Boolean))) as string[]
+    }
+    const discussionComments = assignedAssessmentIds.length
+      ? await prisma.caseComment.findMany({
+          where: {
+            thread: { assessmentId: { in: assignedAssessmentIds } },
+            ...(userId ? { NOT: { authorId: userId } } : {}),
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 40,
+          select: commentSelect,
+        })
+      : []
+
+    // Resolve leadId + case display name for every referenced assessment.
+    const allAssessmentIds = Array.from(
+      new Set(
+        [...mentionComments, ...discussionComments]
+          .map((c) => c.thread?.assessmentId)
+          .filter(Boolean) as string[],
+      ),
+    )
+    const [leads, assessments] = await Promise.all([
+      allAssessmentIds.length
+        ? prisma.leadSubmission.findMany({
+            where: { assessmentId: { in: allAssessmentIds } },
+            select: { id: true, assessmentId: true },
+          })
+        : Promise.resolve([] as Array<{ id: string; assessmentId: string | null }>),
+      allAssessmentIds.length
+        ? prisma.assessment.findMany({
+            where: { id: { in: allAssessmentIds } },
+            select: { id: true, claimType: true, user: { select: { firstName: true, lastName: true } } },
+          })
+        : Promise.resolve([] as any[]),
+    ])
+    const leadIdByAssessment = new Map<string, string>()
+    for (const l of leads) if (l.assessmentId) leadIdByAssessment.set(l.assessmentId, l.id)
+    const caseInfoByAssessment = new Map<string, { name: string; claimType: string | null }>()
+    for (const a of assessments) {
+      const name = `${a.user?.firstName || ''} ${a.user?.lastName || ''}`.trim() || 'Case'
+      caseInfoByAssessment.set(a.id, { name, claimType: a.claimType || null })
+    }
+
+    const serialize = (c: (typeof mentionComments)[number]) => {
+      const aid = c.thread?.assessmentId || null
+      const leadId = aid ? leadIdByAssessment.get(aid) || null : null
+      const info = aid ? caseInfoByAssessment.get(aid) || null : null
+      return {
+        id: c.id,
+        author: c.authorName || c.authorEmail || 'Someone',
+        snippet: (c.message || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+        threadTitle: c.thread?.title || 'Case discussion',
+        caseName: info?.name || 'Case',
+        claimType: info?.claimType || null,
+        leadId,
+        link: leadId ? `/attorney-dashboard/lead/${leadId}/overview` : null,
+        at: c.createdAt,
+      }
+    }
+
+    res.json({
+      mentions: mentionComments.map(serialize).filter((m) => m.leadId),
+      discussion: discussionComments.map(serialize).filter((m) => m.leadId),
+    })
+  } catch (error: any) {
+    logger.error('Failed to load activity inbox', { error: error.message, userId: req.user?.id })
+    res.status(500).json({ error: 'Failed to load activity' })
   }
 })
 
