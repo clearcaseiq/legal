@@ -1664,6 +1664,10 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
         })
         invalidateAttorneyDashboardSummary()
         setDecisionRationale('')
+        // Re-fetch so the Accepted/Declined tiles (which read dashboardData.acceptStats
+        // / declineStats) reflect this decision immediately instead of staying stale
+        // until a manual reload.
+        void loadDashboardData(0)
         // Accepting moves the case out of Lead Generation and into the attorney's
         // Case Management caseload. Route to the accepted case's workspace so the
         // attorney isn't left on the (now stale) pre-acceptance snapshot in New Matches.
@@ -1679,7 +1683,7 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
         setLeadDecisionLoading(false)
       }
     },
-    [updateLeadInState, decisionRationale, navigate]
+    [updateLeadInState, decisionRationale, navigate, loadDashboardData]
   )
 
   const handleTransferLead = useCallback(async () => {
