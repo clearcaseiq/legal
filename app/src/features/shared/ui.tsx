@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, SlidersHorizontal, X } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Info, SlidersHorizontal, X } from 'lucide-react'
 
 // `info` maps to the muted `brand` navy; `blue` is a true sky-blue matching the
 // prototype's accent tiles (e.g. "Consults today").
@@ -62,6 +62,52 @@ const TONE_LABEL: Record<Tone, string> = {
  * Clickable stat tile used across the case-management surfaces. Wraps the entire
  * box in a button (not just the number) so the whole tile is the filter toggle.
  */
+// Shared "stat tooltips on/off" preference, persisted so the choice carries across
+// New Matches, Match Quality, and Marketplace Performance. `hint(text)` returns the
+// text when tips are on and `undefined` when off, for passing to FilterStat's `hint`.
+const STAT_HINTS_KEY = 'clearcaseiq_show_stat_hints'
+
+export function useStatHints() {
+  const [showHints, setShowHints] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(STAT_HINTS_KEY) !== 'false'
+    } catch {
+      return true
+    }
+  })
+  const toggleHints = () =>
+    setShowHints((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem(STAT_HINTS_KEY, String(next))
+      } catch {
+        /* storage unavailable */
+      }
+      return next
+    })
+  const hint = (text: string): string | undefined => (showHints ? text : undefined)
+  return { showHints, toggleHints, hint }
+}
+
+export function StatHintsToggle({ showHints, onToggle }: { showHints: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={showHints}
+      title={showHints ? 'Hide tile tooltips' : 'Show tile tooltips'}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
+        showHints
+          ? 'border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100'
+          : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+      }`}
+    >
+      <Info className="h-4 w-4" aria-hidden />
+      <span className="hidden sm:inline">{showHints ? 'Tips on' : 'Tips off'}</span>
+    </button>
+  )
+}
+
 export function FilterStat({
   value,
   label,
@@ -69,6 +115,7 @@ export function FilterStat({
   active = false,
   filled = false,
   onClick,
+  hint,
 }: {
   value: ReactNode
   label: string
@@ -77,15 +124,17 @@ export function FilterStat({
   /** Tint the entire tile with the tone color (not just the number). */
   filled?: boolean
   onClick?: () => void
+  /** Optional explanatory text shown as a hover/focus tooltip (with an info glyph). */
+  hint?: string
 }) {
   const clickable = typeof onClick === 'function'
-  return (
+  const tile = (
     <button
       type="button"
       onClick={onClick}
       disabled={!clickable}
       aria-pressed={clickable ? active : undefined}
-      className={`flex flex-col items-center rounded-xl border px-4 py-3 text-center transition duration-150 ${
+      className={`flex h-full w-full flex-col items-center rounded-xl border px-4 py-3 text-center transition duration-150 ${
         filled ? TONE_FILL_BG[tone] : 'bg-white'
       } ${
         active ? TONE_ACTIVE_RING[tone] : filled ? TONE_FILL_BORDER[tone] : 'border-slate-200'
@@ -96,8 +145,29 @@ export function FilterStat({
       }`}
     >
       <span className={`text-2xl font-bold leading-none ${TONE_TEXT[tone]}`}>{value}</span>
-      <span className={`mt-1 text-xs font-medium ${filled ? TONE_LABEL[tone] : 'text-slate-500'}`}>{label}</span>
+      <span className={`mt-1 flex items-center gap-1 text-xs font-medium ${filled ? TONE_LABEL[tone] : 'text-slate-500'}`}>
+        {label}
+        {hint && <Info className="h-3 w-3 opacity-60" aria-hidden />}
+      </span>
     </button>
+  )
+
+  if (!hint) return tile
+
+  return (
+    <div className="group relative">
+      {tile}
+      <div
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-60 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-medium leading-5 text-white opacity-0 shadow-lg shadow-slate-900/20 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        {hint}
+        <span
+          className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 bg-slate-900"
+          aria-hidden
+        />
+      </div>
+    </div>
   )
 }
 

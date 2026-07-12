@@ -8,6 +8,7 @@ import { prisma } from '../lib/prisma'
 import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { runAnalysisForAssessment } from './evidence'
+import { generateSceneImageForAssessment } from '../services/incident-scene'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
 import { runCaseRecalculation } from '../lib/case-recalculation'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
@@ -31,6 +32,7 @@ import { deliverDirectNotification } from '../lib/platform-notifications'
 import { translateToEnglish, looksNonEnglish } from '../lib/translate'
 import { isValidPhone, normalizePhone, PHONE_ERROR_MESSAGE } from '../lib/phone'
 import { answerCommandCenterCopilot, buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
+import { computeSettlement } from '../lib/settlement'
 import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
 import { exportCaseToConnectionSafe } from '../lib/cms'
@@ -778,6 +780,7 @@ const lienHolderSelect = {
   name: true,
   type: true,
   amount: true,
+  finalAmount: true,
   status: true,
   notes: true,
   createdAt: true,
@@ -2535,7 +2538,22 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
     const recentLeadsWithMessaging = (recentLeads || []).map((l: any) => {
       const msg = messagingByLead[l.assessmentId] || { unreadCount: 0, totalCount: 0, awaitingReply: false }
       const intro = l.assessment?.introductions?.[0]
-      const requestedAt = intro?.requestedAt ? new Date(intro.requestedAt) : null
+      // Every routed match should show a response-window countdown. When there's a
+      // formal Introduction we use its requestedAt; otherwise (e.g. leads reaching the
+      // attorney via assignedAttorneyId with no Introduction row) we fall back to the
+      // lead's own submitted/created time so the timer is never blank.
+      const introRequestedAt = intro?.requestedAt ? new Date(intro.requestedAt) : null
+      const fallbackBase = l.submittedAt
+        ? new Date(l.submittedAt)
+        : l.createdAt
+          ? new Date(l.createdAt)
+          : null
+      const requestedAt =
+        introRequestedAt && !Number.isNaN(introRequestedAt.getTime())
+          ? introRequestedAt
+          : fallbackBase && !Number.isNaN(fallbackBase.getTime())
+            ? fallbackBase
+            : null
       const expiresAt = requestedAt
         ? new Date(requestedAt.getTime() + responseDeadlineMinutes * 60 * 1000)
         : null
@@ -2763,6 +2781,11 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
     let introAcceptanceRate = 0
     let respondedIntroCount = 0
     let totalIntroCount = 0
+    // Accepted / declined matches bucketed by response window (7 / 30 / 90 days).
+    // Anchored on Introduction.respondedAt (set the moment a decision is recorded).
+    // Powers the Accepted + Declined tiles on New Matches and the Match Quality view.
+    const declineStats = { last7: 0, last30: 0, last90: 0, total: 0 }
+    const acceptStats = { last7: 0, last30: 0, last90: 0, total: 0 }
     try {
       const performanceIntros = await prisma.introduction.findMany({
         where: { attorneyId },
@@ -2779,6 +2802,18 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
           0,
         )
         avgResponseMinutes = Math.max(0, Math.round(totalMs / responded.length / 60000))
+      }
+      const nowMs = Date.now()
+      const DAY_MS = 24 * 60 * 60 * 1000
+      for (const intro of performanceIntros) {
+        if (!intro.respondedAt) continue
+        const bucket = intro.status === 'DECLINED' ? declineStats : intro.status === 'ACCEPTED' ? acceptStats : null
+        if (!bucket) continue
+        bucket.total += 1
+        const ageMs = nowMs - intro.respondedAt.getTime()
+        if (ageMs <= 7 * DAY_MS) bucket.last7 += 1
+        if (ageMs <= 30 * DAY_MS) bucket.last30 += 1
+        if (ageMs <= 90 * DAY_MS) bucket.last90 += 1
       }
     } catch (metricsErr: any) {
       logger.warn('Performance metrics computation failed', { error: metricsErr?.message })
@@ -2887,6 +2922,8 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
         respondedIntroductions: respondedIntroCount,
         totalIntroductions: totalIntroCount,
       },
+      declineStats,
+      acceptStats,
       recentLeads: workQueueData.leadsWithReadiness,
       messagingSummary,
       pipelineMessageCounts,
@@ -7744,7 +7781,7 @@ router.post('/leads/:leadId/liens', authMiddleware, async (req: any, res) => {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const { lead } = auth
-    const { name, type, amount, status, notes } = req.body
+    const { name, type, amount, finalAmount, status, notes } = req.body
 
     if (!name) {
       return res.status(400).json({ error: 'name is required' })
@@ -7755,7 +7792,8 @@ router.post('/leads/:leadId/liens', authMiddleware, async (req: any, res) => {
         assessmentId: lead.assessmentId,
         name,
         type: type || null,
-        amount: amount ? Number(amount) : null,
+        amount: amount != null && amount !== '' ? Number(amount) : null,
+        finalAmount: finalAmount != null && finalAmount !== '' ? Number(finalAmount) : null,
         status: status || 'open',
         notes: notes || null
       },
@@ -7775,14 +7813,17 @@ router.patch('/leads/:leadId/liens/:id', authMiddleware, async (req: any, res) =
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    const { name, type, amount, status, notes } = req.body
+    const { name, type, amount, finalAmount, status, notes } = req.body
 
     const record = await prisma.lienHolder.update({
       where: { id },
       data: {
         ...(name !== undefined ? { name } : {}),
         ...(type !== undefined ? { type } : {}),
-        ...(amount !== undefined ? { amount: amount ? Number(amount) : null } : {}),
+        ...(amount !== undefined ? { amount: amount != null && amount !== '' ? Number(amount) : null } : {}),
+        ...(finalAmount !== undefined
+          ? { finalAmount: finalAmount != null && finalAmount !== '' ? Number(finalAmount) : null }
+          : {}),
         ...(status !== undefined ? { status } : {}),
         ...(notes !== undefined ? { notes } : {})
       },
@@ -7807,6 +7848,169 @@ router.delete('/leads/:leadId/liens/:id', authMiddleware, async (req: any, res) 
   } catch (error: any) {
     logger.error('Failed to delete lien holder', { error: error.message })
     res.status(500).json({ error: 'Failed to delete lien holder' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Settlement / net-to-client engine
+// ---------------------------------------------------------------------------
+
+const caseExpenseSelect = {
+  id: true,
+  assessmentId: true,
+  category: true,
+  description: true,
+  amount: true,
+  incurredAt: true,
+  createdAt: true,
+  updatedAt: true,
+} as const
+
+// Full settlement waterfall (gross → fee → costs → liens → net) plus warnings.
+router.get('/leads/:leadId/settlement', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const result = await computeSettlement(auth.lead.assessmentId)
+    res.json(result)
+  } catch (error: any) {
+    logger.error('Failed to compute settlement', { error: error.message })
+    res.status(500).json({ error: 'Failed to compute settlement' })
+  }
+})
+
+// Upsert the persisted scenario inputs, then return the recomputed waterfall.
+router.patch('/leads/:leadId/settlement', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead } = auth
+    const { grossAmount, contingencyPct, feeBasis, notes } = req.body
+
+    const grossValue =
+      grossAmount === null || grossAmount === '' ? null : grossAmount != null ? Number(grossAmount) : undefined
+    const pctValue = contingencyPct != null && contingencyPct !== '' ? Number(contingencyPct) : undefined
+    const basisValue = feeBasis === 'net_of_costs' || feeBasis === 'gross' ? feeBasis : undefined
+
+    await prisma.settlementScenario.upsert({
+      where: { assessmentId: lead.assessmentId },
+      create: {
+        assessmentId: lead.assessmentId,
+        grossAmount: grossValue === undefined ? null : grossValue,
+        contingencyPct: pctValue ?? 33.33,
+        feeBasis: basisValue ?? 'gross',
+        notes: notes ?? null,
+      },
+      update: {
+        ...(grossValue !== undefined ? { grossAmount: grossValue } : {}),
+        ...(pctValue !== undefined ? { contingencyPct: pctValue } : {}),
+        ...(basisValue !== undefined ? { feeBasis: basisValue } : {}),
+        ...(notes !== undefined ? { notes: notes ?? null } : {}),
+      },
+    })
+
+    const result = await computeSettlement(lead.assessmentId)
+    res.json(result)
+  } catch (error: any) {
+    logger.error('Failed to update settlement scenario', { error: error.message })
+    res.status(500).json({ error: 'Failed to update settlement scenario' })
+  }
+})
+
+// Case expenses (costs advanced)
+router.get('/leads/:leadId/expenses', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const records = await prisma.caseExpense.findMany({
+      where: { assessmentId: auth.lead.assessmentId },
+      orderBy: { createdAt: 'desc' },
+      select: caseExpenseSelect,
+    })
+    res.json(records)
+  } catch (error: any) {
+    logger.error('Failed to load case expenses', { error: error.message })
+    res.status(500).json({ error: 'Failed to load case expenses' })
+  }
+})
+
+router.post('/leads/:leadId/expenses', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { category, description, amount, incurredAt } = req.body
+    if (!description) {
+      return res.status(400).json({ error: 'description is required' })
+    }
+    if (amount == null || amount === '' || Number.isNaN(Number(amount))) {
+      return res.status(400).json({ error: 'amount is required' })
+    }
+    const record = await prisma.caseExpense.create({
+      data: {
+        assessmentId: auth.lead.assessmentId,
+        category: category || 'other',
+        description,
+        amount: Number(amount),
+        incurredAt: incurredAt ? new Date(incurredAt) : null,
+      },
+      select: caseExpenseSelect,
+    })
+    res.json(record)
+  } catch (error: any) {
+    logger.error('Failed to create case expense', { error: error.message })
+    res.status(500).json({ error: 'Failed to create case expense' })
+  }
+})
+
+router.patch('/leads/:leadId/expenses/:id', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, id } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { category, description, amount, incurredAt } = req.body
+    const record = await prisma.caseExpense.update({
+      where: { id },
+      data: {
+        ...(category !== undefined ? { category: category || 'other' } : {}),
+        ...(description !== undefined ? { description } : {}),
+        ...(amount !== undefined && amount !== '' ? { amount: Number(amount) } : {}),
+        ...(incurredAt !== undefined ? { incurredAt: incurredAt ? new Date(incurredAt) : null } : {}),
+      },
+      select: caseExpenseSelect,
+    })
+    res.json(record)
+  } catch (error: any) {
+    logger.error('Failed to update case expense', { error: error.message })
+    res.status(500).json({ error: 'Failed to update case expense' })
+  }
+})
+
+router.delete('/leads/:leadId/expenses/:id', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, id } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    await prisma.caseExpense.delete({ where: { id } })
+    res.json({ ok: true })
+  } catch (error: any) {
+    logger.error('Failed to delete case expense', { error: error.message })
+    res.status(500).json({ error: 'Failed to delete case expense' })
   }
 })
 
@@ -10247,6 +10451,15 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
     const matchingRules = await getMatchingRules()
     const pricingClaimType = getPricingClaimType(assessment)
     const pricingTier = getCaseRoutingPricingForClaimType(matchingRules, pricingClaimType)
+
+    // Backfill: older leads created before the scene feature (or with no image yet)
+    // get one generated on first open (non-blocking). Reflect that as "pending".
+    let sceneImageStatus = (assessment as any)?.sceneImageStatus ?? null
+    if (assessment && !assessment.sceneImageUrl && sceneImageStatus !== 'pending' && sceneImageStatus !== 'failed') {
+      sceneImageStatus = 'pending'
+      void generateSceneImageForAssessment(assessment.id).catch(() => {})
+    }
+
     res.json({
       ...lead,
       routingPricing: pricingTier
@@ -10266,6 +10479,8 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
             venueCounty: assessment.venueCounty,
             status: assessment.status,
             facts: assessment.facts,
+            sceneImageUrl: assessment.sceneImageUrl,
+            sceneImageStatus,
             latestPrediction: assessment.predictions?.[0]
               ? {
                   viability: safeJsonParse<any>(assessment.predictions[0].viability, {}),
@@ -10281,6 +10496,23 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
   } catch (error: any) {
     logger.error('Failed to get lead', { error: error.message })
     res.status(500).json({ error: 'Failed to get lead' })
+  }
+})
+
+// Regenerate the AI incident-scene schematic for a lead's assessment (attorney action).
+router.post('/leads/:leadId/scene/regenerate', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead } = auth
+    // Kick off regeneration (force) but don't block the request on the image call.
+    void generateSceneImageForAssessment(lead.assessmentId, { force: true }).catch(() => {})
+    res.json({ status: 'pending' })
+  } catch (error: any) {
+    logger.error('Failed to regenerate scene image', { error: error.message })
+    res.status(500).json({ error: 'Failed to regenerate scene image' })
   }
 })
 
@@ -11359,6 +11591,113 @@ router.get('/messaging/templates', authMiddleware, async (req: any, res) => {
   } catch (error: any) {
     logger.error('Failed to load message templates', { error: error.message })
     res.status(500).json({ error: 'Failed to load templates' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Attorney notifications feed (powers the in-app notifications bell).
+// Reads standardized in-app Notification rows whose `type` starts with `attorney.`.
+// ---------------------------------------------------------------------------
+const attorneyNotificationWhere = (userId: string) => ({
+  userId,
+  type: { startsWith: 'attorney.' },
+})
+
+function serializeAttorneyNotification(n: {
+  id: string
+  type: string
+  subject: string | null
+  message: string | null
+  metadata: string | null
+  readAt: Date | null
+  createdAt: Date
+}) {
+  let link: string | null = null
+  let leadId: string | null = null
+  if (n.metadata) {
+    try {
+      const meta = JSON.parse(n.metadata)
+      if (typeof meta?.link === 'string') link = meta.link
+      if (typeof meta?.leadId === 'string') leadId = meta.leadId
+    } catch {}
+  }
+  return {
+    id: n.id,
+    type: n.type,
+    title: n.subject || 'Notification',
+    body: n.message || '',
+    link,
+    leadId,
+    read: !!n.readAt,
+    createdAt: n.createdAt,
+  }
+}
+
+router.get('/notifications', authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user?.id
+    if (!userId) return res.status(401).json({ error: 'Authentication required' })
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit || '30'), 10) || 30, 1), 100)
+    const [rows, unreadCount] = await Promise.all([
+      prisma.notification.findMany({
+        where: attorneyNotificationWhere(userId),
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: { id: true, type: true, subject: true, message: true, metadata: true, readAt: true, createdAt: true },
+      }),
+      prisma.notification.count({ where: { ...attorneyNotificationWhere(userId), readAt: null } }),
+    ])
+    res.json({ notifications: rows.map(serializeAttorneyNotification), unreadCount })
+  } catch (error: any) {
+    logger.error('Failed to load attorney notifications', { error: error.message, userId: req.user?.id })
+    res.status(500).json({ error: 'Failed to load notifications' })
+  }
+})
+
+router.get('/notifications/unread-count', authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user?.id
+    if (!userId) return res.status(401).json({ error: 'Authentication required' })
+    const count = await prisma.notification.count({
+      where: { ...attorneyNotificationWhere(userId), readAt: null },
+    })
+    res.json({ count })
+  } catch (error: any) {
+    logger.error('Failed to load unread notification count', { error: error.message, userId: req.user?.id })
+    res.status(500).json({ error: 'Failed to load unread count' })
+  }
+})
+
+router.post('/notifications/:id/read', authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user?.id
+    if (!userId) return res.status(401).json({ error: 'Authentication required' })
+    const result = await prisma.notification.updateMany({
+      where: { id: req.params.id, userId, readAt: null },
+      data: { readAt: new Date(), status: 'READ' },
+    })
+    const unreadCount = await prisma.notification.count({
+      where: { ...attorneyNotificationWhere(userId), readAt: null },
+    })
+    res.json({ updated: result.count, unreadCount })
+  } catch (error: any) {
+    logger.error('Failed to mark notification read', { error: error.message, userId: req.user?.id })
+    res.status(500).json({ error: 'Failed to mark read' })
+  }
+})
+
+router.post('/notifications/read-all', authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user?.id
+    if (!userId) return res.status(401).json({ error: 'Authentication required' })
+    const result = await prisma.notification.updateMany({
+      where: { ...attorneyNotificationWhere(userId), readAt: null },
+      data: { readAt: new Date(), status: 'READ' },
+    })
+    res.json({ updated: result.count, unreadCount: 0 })
+  } catch (error: any) {
+    logger.error('Failed to mark all notifications read', { error: error.message, userId: req.user?.id })
+    res.status(500).json({ error: 'Failed to mark all read' })
   }
 })
 

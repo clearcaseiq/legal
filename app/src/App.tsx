@@ -105,7 +105,6 @@ const TermsOfService = lazy(() => import('./pages/TermsOfService'))
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))
 const Help = lazy(() => import('./pages/Help'))
 const HowItWorks = lazy(() => import('./pages/HowItWorks'))
-const ForAttorneys = lazy(() => import('./pages/ForAttorneys'))
 const AiMlConsent = lazy(() => import('./pages/AiMlConsent'))
 const RoseIntake = lazy(() => import('./pages/RoseIntake'))
 const HipaaAuthorization = lazy(() => import('./pages/HipaaAuthorization'))
@@ -287,7 +286,6 @@ function App() {
             <Route element={<GuestRoute role="attorney" />}>
               <Route path="/attorney-login" element={<AttorneyLogin />} />
               <Route path="/login/attorney" element={<AttorneyLogin />} />
-              <Route path="/attorney-network" element={<AttorneyNetwork />} />
               <Route path="/attorney-register" element={<AttorneyRegister />} />
               <Route path="/attorney-license-upload" element={<AttorneyLicenseUpload />} />
               <Route path="/attorney-onboarding/payment" element={<AttorneyOnboardingPayment />} />
@@ -342,7 +340,9 @@ function App() {
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/help" element={<Help />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
-            <Route path="/for-attorneys" element={<ForAttorneys />} />
+            <Route path="/attorney-network" element={<AttorneyNetwork />} />
+            {/* Consolidated: the old marketing page now points at the single attorney landing page. */}
+            <Route path="/for-attorneys" element={<Navigate to="/attorney-network" replace />} />
             <Route path="/claim/:token" element={<ClaimProfile />} />
             <Route path="/assessment/start" element={<Navigate to="/assess?fresh=1" replace />} />
             <Route path="/ai-ml-consent" element={<AiMlConsent />} />

@@ -17,6 +17,8 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import { getMatchingRules, getAttorneyResponseDeadlineMinutes } from './matching-rules-config'
 import { runEscalationWave, recordRoutingEvent } from './routing-lifecycle'
+import { notifyAttorneyInApp } from './case-notifications'
+import { ATTORNEY_EVENTS } from './notification-events'
 
 export interface OfferExpirySweepResult {
   expired: number
@@ -32,8 +34,54 @@ export async function runOfferExpirySweep(): Promise<OfferExpirySweepResult> {
   }
 
   const deadlineMinutes = getAttorneyResponseDeadlineMinutes(config)
-  const cutoff = new Date(Date.now() - deadlineMinutes * 60 * 1000)
+  const now = Date.now()
+  const cutoff = new Date(now - deadlineMinutes * 60 * 1000)
 
+  // --- Pass 1: "expiring soon" warnings -------------------------------------
+  // Warn the attorney once when the response window is nearly up (still PENDING),
+  // so a good match is not lost purely for lack of a heads-up. Deduped per offer.
+  try {
+    const warnMinutes = Math.max(15, Math.round(deadlineMinutes * 0.2))
+    const warnStart = new Date(now - (deadlineMinutes - warnMinutes) * 60 * 1000)
+    const soon = await prisma.introduction.findMany({
+      where: { status: 'PENDING', requestedAt: { lte: warnStart, gt: cutoff } },
+      select: { id: true, assessmentId: true, attorneyId: true },
+    })
+    if (soon.length > 0) {
+      const soonLeads = await prisma.leadSubmission.findMany({
+        where: { assessmentId: { in: [...new Set(soon.map((i) => i.assessmentId))] } },
+        select: { id: true, assessmentId: true, status: true, routingLocked: true },
+      })
+      const openLeadByAssessment = new Map(
+        soonLeads
+          .filter((l) => !l.routingLocked && l.status === 'submitted')
+          .map((l) => [l.assessmentId, l.id]),
+      )
+      for (const intro of soon) {
+        const leadId = openLeadByAssessment.get(intro.assessmentId)
+        if (!leadId) continue
+        const already = await prisma.notification.findFirst({
+          where: { type: ATTORNEY_EVENTS.case_expiring, metadata: { contains: intro.id } },
+          select: { id: true },
+        })
+        if (already) continue
+        await notifyAttorneyInApp({
+          attorneyId: intro.attorneyId,
+          assessmentId: intro.assessmentId,
+          eventType: ATTORNEY_EVENTS.case_expiring,
+          subject: 'Match expiring soon',
+          body: 'Your response window on a matched case is almost up. Review and accept it before it is released to another attorney.',
+          leadId,
+          link: `/attorney-dashboard/lead/${leadId}/overview`,
+          payload: { introductionId: intro.id },
+        }).catch(() => {})
+      }
+    }
+  } catch (err) {
+    logger.warn('Expiring-soon notification pass failed', { error: (err as Error).message })
+  }
+
+  // --- Pass 2: expire lapsed offers -----------------------------------------
   // Candidate offers: still awaiting the attorney's response and past the window.
   const stale = await prisma.introduction.findMany({
     where: {
@@ -48,8 +96,9 @@ export async function runOfferExpirySweep(): Promise<OfferExpirySweepResult> {
   const assessmentIds = [...new Set(stale.map((i) => i.assessmentId))]
   const leads = await prisma.leadSubmission.findMany({
     where: { assessmentId: { in: assessmentIds } },
-    select: { assessmentId: true, status: true, routingLocked: true },
+    select: { id: true, assessmentId: true, status: true, routingLocked: true },
   })
+  const leadIdByAssessment = new Map(leads.map((l) => [l.assessmentId, l.id]))
   const openAssessments = new Set(
     leads
       .filter((l) => !l.routingLocked && l.status === 'submitted')
@@ -71,6 +120,16 @@ export async function runOfferExpirySweep(): Promise<OfferExpirySweepResult> {
         reason: 'offer_response_window_elapsed',
         deadlineMinutes,
       })
+      // Notify the attorney their offer lapsed and was released to the next attorney.
+      await notifyAttorneyInApp({
+        attorneyId: intro.attorneyId,
+        assessmentId: intro.assessmentId,
+        eventType: ATTORNEY_EVENTS.case_expired,
+        subject: 'Match expired',
+        body: 'A matched case you were reviewing expired and has been released to another attorney.',
+        leadId: leadIdByAssessment.get(intro.assessmentId) || null,
+        link: '/attorney-dashboard/leadgen/matches',
+      }).catch(() => {})
     } catch (err) {
       logger.error('Failed to expire introduction', { introId: intro.id, error: (err as Error).message })
     }

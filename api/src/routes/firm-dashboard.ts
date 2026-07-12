@@ -337,6 +337,81 @@ router.post('/teams', authMiddleware as any, async (req: any, res: Response) => 
   }
 })
 
+// Add (or update the role of) a firm member on a team. Pass role 'lead' | 'member'.
+router.post('/teams/:teamId/members', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) {
+      return res.status(404).json({ error: 'No law firm associated with this user' })
+    }
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage firm teams' })
+    }
+
+    const { teamId } = req.params
+    const { firmMemberId, role = 'member' } = req.body || {}
+    if (!firmMemberId || typeof firmMemberId !== 'string') {
+      return res.status(400).json({ error: 'firmMemberId is required' })
+    }
+    const teamRole = role === 'lead' ? 'lead' : 'member'
+
+    const team = await (prisma as any).firmTeam.findFirst({
+      where: { id: teamId, lawFirmId: context.lawFirmId },
+      select: { id: true }
+    })
+    if (!team) {
+      return res.status(404).json({ error: 'Team not found in this firm' })
+    }
+
+    const firmMember = await (prisma as any).firmMember.findFirst({
+      where: { id: firmMemberId, lawFirmId: context.lawFirmId },
+      select: { id: true, userId: true }
+    })
+    if (!firmMember) {
+      return res.status(400).json({ error: 'Member not found in this firm' })
+    }
+
+    const link = await (prisma as any).firmTeamMember.upsert({
+      where: { teamId_firmMemberId: { teamId, firmMemberId } },
+      update: { role: teamRole },
+      create: { teamId, firmMemberId, userId: firmMember.userId, role: teamRole }
+    })
+
+    res.status(201).json({ member: link })
+  } catch (error: any) {
+    logger.error('Failed to add team member', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to add team member' })
+  }
+})
+
+// Remove a firm member from a team.
+router.delete('/teams/:teamId/members/:firmMemberId', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) {
+      return res.status(404).json({ error: 'No law firm associated with this user' })
+    }
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage firm teams' })
+    }
+
+    const { teamId, firmMemberId } = req.params
+    const team = await (prisma as any).firmTeam.findFirst({
+      where: { id: teamId, lawFirmId: context.lawFirmId },
+      select: { id: true }
+    })
+    if (!team) {
+      return res.status(404).json({ error: 'Team not found in this firm' })
+    }
+
+    await (prisma as any).firmTeamMember.deleteMany({ where: { teamId, firmMemberId } })
+    res.json({ ok: true })
+  } catch (error: any) {
+    logger.error('Failed to remove team member', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to remove team member' })
+  }
+})
+
 router.post('/members', authMiddleware as any, async (req: any, res: Response) => {
   try {
     const context = await getFirmContext(req)
@@ -479,6 +554,62 @@ router.post('/members', authMiddleware as any, async (req: any, res: Response) =
         ? { detail: error?.message || String(error) }
         : {}),
     })
+  }
+})
+
+// Update an existing firm member — currently used to move an attorney or staff
+// member to a particular office (officeId). Pass officeId: null to unassign.
+router.patch('/members/:memberId', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) {
+      return res.status(404).json({ error: 'No law firm associated with this user' })
+    }
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage firm users' })
+    }
+
+    const { memberId } = req.params
+    const member = await (prisma as any).firmMember.findFirst({
+      where: { id: memberId, lawFirmId: context.lawFirmId },
+      select: { id: true }
+    })
+    if (!member) {
+      return res.status(404).json({ error: 'Member not found in this firm' })
+    }
+
+    const data: Record<string, any> = {}
+    if ('officeId' in (req.body || {})) {
+      const { officeId } = req.body
+      if (officeId === null || officeId === '') {
+        data.officeId = null
+      } else if (typeof officeId === 'string') {
+        // Only allow offices that belong to this firm.
+        const office = await (prisma as any).firmOffice.findFirst({
+          where: { id: officeId, lawFirmId: context.lawFirmId },
+          select: { id: true }
+        })
+        if (!office) {
+          return res.status(400).json({ error: 'Office not found in this firm' })
+        }
+        data.officeId = office.id
+      }
+    }
+
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ error: 'No supported fields to update' })
+    }
+
+    const updated = await (prisma as any).firmMember.update({
+      where: { id: memberId },
+      data,
+      select: { id: true, officeId: true, office: { select: { id: true, name: true } } }
+    })
+
+    res.json({ member: updated })
+  } catch (error: any) {
+    logger.error('Failed to update firm member', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to update firm member' })
   }
 })
 
@@ -781,7 +912,12 @@ router.get('/teams/caseload', authMiddleware as any, async (req: any, res: Respo
       }),
       (prisma as any).firmOffice.findMany({
         where: { lawFirmId: context.lawFirmId },
-        select: { id: true, name: true, capacity: true, cases: { select: { id: true } } }
+        select: {
+          id: true,
+          name: true,
+          capacity: true,
+          cases: { select: { id: true, leadSubmission: { select: { status: true } } } }
+        }
       })
     ])
 
@@ -810,8 +946,14 @@ router.get('/teams/caseload', authMiddleware as any, async (req: any, res: Respo
       }
     })
 
+    // Only count active cases (an attorney has taken them on) toward office
+    // utilization — marketplace leads merely routed to the firm ('submitted')
+    // or declined/expired ('rejected') are not real caseload.
+    const OFFICE_ACTIVE_STATUSES = ['contacted', 'consulted', 'retained']
     const officeUtilization = (offices as any[]).map((office) => {
-      const assigned = (office.cases || []).length
+      const assigned = (office.cases || []).filter((c: any) =>
+        OFFICE_ACTIVE_STATUSES.includes(c.leadSubmission?.status)
+      ).length
       const capacity = office.capacity ?? null
       return {
         officeId: office.id,
@@ -844,7 +986,8 @@ router.post('/attorneys', authMiddleware as any, async (req: any, res: Response)
       lastName,
       specialties,
       venues,
-      jurisdictions
+      jurisdictions,
+      officeId
     } = req.body || {}
     if (!email || typeof email !== 'string') {
       return res.status(400).json({ error: 'Attorney email is required' })
@@ -950,6 +1093,16 @@ router.post('/attorneys', authMiddleware as any, async (req: any, res: Response)
       }
     })
 
+    // Only accept an office that actually belongs to this firm; otherwise ignore.
+    let resolvedOfficeId: string | null = null
+    if (typeof officeId === 'string' && officeId) {
+      const office = await (prisma as any).firmOffice.findFirst({
+        where: { id: officeId, lawFirmId: currentAttorney.lawFirmId },
+        select: { id: true }
+      })
+      resolvedOfficeId = office?.id || null
+    }
+
     const memberUser = await prisma.user.upsert({
       where: { email: normalizedEmail },
       update: { role: 'attorney' },
@@ -971,6 +1124,7 @@ router.post('/attorneys', authMiddleware as any, async (req: any, res: Response)
       update: {
         attorneyId: attorney.id,
         role: 'attorney',
+        officeId: resolvedOfficeId,
         status: 'active',
         joinedAt: new Date()
       },
@@ -979,6 +1133,7 @@ router.post('/attorneys', authMiddleware as any, async (req: any, res: Response)
         userId: memberUser.id,
         attorneyId: attorney.id,
         role: 'attorney',
+        officeId: resolvedOfficeId,
         status: 'active',
         invitedAt: new Date(),
         joinedAt: new Date()
@@ -1400,9 +1555,13 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
     })
 
     const avgAttorneyRating = attorneyCount > 0 ? totalRating / attorneyCount : 0
-    const acceptedCases = firmCases.filter((assessment: any) =>
-      ['retained', 'consulted', 'contacted'].includes(assessment.leadSubmission?.status)
-    ).length
+    // A firm "case" is one an attorney has actually taken on. Marketplace leads
+    // merely routed to the firm (status 'submitted') and declined/expired ones
+    // ('rejected') are NOT the firm's cases — they must not count toward active
+    // caseload or the "no owner assigned yet" queue.
+    const ACTIVE_CASE_STATUSES = ['contacted', 'consulted', 'retained']
+    const isActiveCase = (assessment: any) => ACTIVE_CASE_STATUSES.includes(assessment.leadSubmission?.status)
+    const acceptedCases = firmCases.filter(isActiveCase).length
     const retainedCases = firmCases.filter((assessment: any) => assessment.leadSubmission?.status === 'retained').length
     // Accepted = live accepted caseload (contacted/consulted/retained), not the
     // stale stored dashboard counter.
@@ -1430,7 +1589,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
     const attorneyNameById = new Map<string, string>(
       attorneys.map((a: any) => [a.id, a.name])
     )
-    const firmCasesList = firmCases.map((assessment: any) => {
+    const firmCasesList = firmCases.filter(isActiveCase).map((assessment: any) => {
       const lead = assessment.leadSubmission
       const primaryAttorneyId: string | null = lead?.assignedAttorneyId || null
       const assignments = (assessment.firmCaseAssignments || []).map((x: any) => ({
@@ -1478,6 +1637,41 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
       logger.warn('Failed to compute firm marketplace performance', { error: mpError?.message, lawFirmId: firm.id })
     }
 
+    // Live per-attorney lead stats for the Match Quality firm view. The stored
+    // AttorneyDashboard counters (totalLeadsReceived/Accepted/PlatformSpend) are
+    // not kept up to date by the accept flow, so we recompute them from the same
+    // universe each attorney sees on their own dashboard (assigned OR introduced).
+    const ACCEPTED_LEAD_STATUSES = ['contacted', 'consulted', 'retained']
+    const attorneyLeadStats = new Map<string, { routed: number; accepted: number }>()
+    try {
+      await Promise.all(
+        attorneys.map(async (a: any) => {
+          const universe = {
+            OR: [
+              { assignedAttorneyId: a.id },
+              { assessment: { introductions: { some: { attorneyId: a.id } } } },
+            ],
+          }
+          const [routed, accepted] = await Promise.all([
+            prisma.leadSubmission.count({ where: universe }),
+            prisma.leadSubmission.count({
+              where: { AND: [universe, { status: { in: ACCEPTED_LEAD_STATUSES } }] },
+            }),
+          ])
+          attorneyLeadStats.set(a.id, { routed, accepted })
+        }),
+      )
+    } catch (statsErr: any) {
+      logger.warn('Failed to compute per-attorney lead stats', { error: statsErr?.message, lawFirmId: firm.id })
+    }
+    // Live routing spend per attorney (billable platform payments), from the
+    // marketplace breakdown we just computed.
+    const attorneySpend = new Map<string, number>(
+      Array.isArray(marketplace?.byAttorney)
+        ? marketplace.byAttorney.map((r: any) => [r.attorneyId, Number(r.routingSpend || 0)])
+        : [],
+    )
+
     // Build response
     const response = {
       firm: {
@@ -1502,7 +1696,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         avgAttorneyRating,
         totalReviews,
         verifiedReviewCount,
-        activeCases: firmCases.length,
+        activeCases: firmCasesList.length,
         acceptedCases,
         retainedCases,
         operationsQueueCount: operationsQueue.length,
@@ -1555,7 +1749,9 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         } : null,
         members: (team.members || []).map((member: any) => ({
           id: member.firmMember.id,
-          role: member.firmMember.role,
+          firmMemberId: member.firmMember.id,
+          teamRole: member.role, // FirmTeamMember role: 'lead' | 'member'
+          role: member.firmMember.role, // firm-wide role (attorney, case_manager, …)
           name: `${member.firmMember.user?.firstName || ''} ${member.firmMember.user?.lastName || ''}`.trim() || member.firmMember.attorney?.name,
           email: member.firmMember.user?.email || member.firmMember.attorney?.email
         }))
@@ -1596,12 +1792,14 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         subscriptionTier: a.attorneyProfile?.subscriptionTier || null,
         specialties: a.attorneyProfile?.specialties ? JSON.parse(a.attorneyProfile.specialties) : [],
         jurisdictions: a.attorneyProfile?.jurisdictions ? JSON.parse(a.attorneyProfile.jurisdictions) : [],
-        dashboard: a.dashboard ? {
-          totalLeadsReceived: a.dashboard.totalLeadsReceived,
-          totalLeadsAccepted: a.dashboard.totalLeadsAccepted,
+        // Live-computed so the Match Quality firm view reflects real activity
+        // rather than stale stored AttorneyDashboard counters.
+        dashboard: {
+          totalLeadsReceived: attorneyLeadStats.get(a.id)?.routed ?? a.dashboard?.totalLeadsReceived ?? 0,
+          totalLeadsAccepted: attorneyLeadStats.get(a.id)?.accepted ?? a.dashboard?.totalLeadsAccepted ?? 0,
           feesCollectedFromPayments: totalFeesByAttorneyId.get(a.id) || 0,
-          totalPlatformSpend: a.dashboard.totalPlatformSpend
-        } : null
+          totalPlatformSpend: attorneySpend.get(a.id) ?? a.dashboard?.totalPlatformSpend ?? 0,
+        }
       }))
     }
 

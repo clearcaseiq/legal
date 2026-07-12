@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   Users,
@@ -22,7 +22,10 @@ import {
   addFirmMember,
   addFirmOffice,
   addFirmTeam,
+  addFirmTeamMember,
+  removeFirmTeamMember,
   updateFirmAttorney,
+  updateFirmMember,
   assignFirmCase,
   getFirmTeamCaseload,
 } from '../lib/api'
@@ -150,7 +153,7 @@ interface FirmDashboardData {
     subscription: { planName: string; includedSeats: number; seatMix: Record<string, number> }
   }
   offices?: Array<{ id: string; name: string; city?: string | null; state?: string | null; capacity?: number | null }>
-  teams?: Array<{ id: string; name: string; teamType: string; office?: { id: string; name: string } | null; members: Array<{ id: string; role: string; name?: string; email?: string }> }>
+  teams?: Array<{ id: string; name: string; teamType: string; office?: { id: string; name: string } | null; members: Array<{ id: string; firmMemberId?: string; teamRole?: string; role: string; name?: string; email?: string }> }>
   members?: Array<{
     id: string
     role: string
@@ -204,6 +207,14 @@ const TABS: Array<{ key: TabKey; label: string; icon: typeof LayoutDashboard }> 
 
 export default function FirmDashboard() {
   const navigate = useNavigate()
+  const location = useLocation()
+  // Go back to wherever the user came from. location.key is 'default' only when
+  // this is the first entry in the session (e.g. opened/refreshed directly here),
+  // in which case fall back to the Attorney Dashboard.
+  const goBack = () => {
+    if (location.key && location.key !== 'default') navigate(-1)
+    else navigate('/attorney-dashboard')
+  }
   const { data, loading, error } = useFirmDashboardSummary()
 
   const [tab, setTab] = useState<TabKey>('overview')
@@ -226,8 +237,9 @@ export default function FirmDashboard() {
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
   const [addSuccess, setAddSuccess] = useState<string | null>(null)
-  const [newAttorney, setNewAttorney] = useState({ firstName: '', middleName: '', lastName: '', email: '', specialties: [] as string[], jurisdictions: [] as string[] })
-  const [newMember, setNewMember] = useState({ firstName: '', lastName: '', email: '', role: 'case_manager', title: '' })
+  const [newAttorney, setNewAttorney] = useState({ firstName: '', middleName: '', lastName: '', email: '', specialties: [] as string[], jurisdictions: [] as string[], officeId: '' })
+  const [newMember, setNewMember] = useState({ firstName: '', lastName: '', email: '', role: 'case_manager', title: '', officeId: '' })
+  const [memberOfficeSavingId, setMemberOfficeSavingId] = useState<string | null>(null)
   const [memberSaving, setMemberSaving] = useState(false)
   const [memberError, setMemberError] = useState<string | null>(null)
   const [memberSuccess, setMemberSuccess] = useState<string | null>(null)
@@ -236,6 +248,13 @@ export default function FirmDashboard() {
   const [officeError, setOfficeError] = useState<string | null>(null)
   const [officeSuccess, setOfficeSuccess] = useState<string | null>(null)
   const [newTeam, setNewTeam] = useState({ name: '', teamType: 'case_team', officeId: '' })
+  const [manageTeamId, setManageTeamId] = useState<string | null>(null)
+  const [teamMemberPick, setTeamMemberPick] = useState<{ firmMemberId: string; role: 'lead' | 'member' }>({ firmMemberId: '', role: 'member' })
+  const [teamMemberSaving, setTeamMemberSaving] = useState(false)
+  const [teamMemberError, setTeamMemberError] = useState<string | null>(null)
+  const [peopleFilter, setPeopleFilter] = useState<'all' | 'attorneys' | 'staff'>('all')
+  const [addPersonType, setAddPersonType] = useState<'attorney' | 'staff'>('attorney')
+  const [showRolePermissions, setShowRolePermissions] = useState(false)
   const [teamSaving, setTeamSaving] = useState(false)
   const [teamError, setTeamError] = useState<string | null>(null)
   const [teamSuccess, setTeamSuccess] = useState<string | null>(null)
@@ -325,9 +344,10 @@ export default function FirmDashboard() {
         specialties: newAttorney.specialties,
         venues: newAttorney.jurisdictions,
         jurisdictions: newAttorney.jurisdictions.map((state) => ({ state })),
+        officeId: newAttorney.officeId || undefined,
       })
       setAddSuccess('Attorney added to firm.')
-      setNewAttorney({ firstName: '', middleName: '', lastName: '', email: '', specialties: [], jurisdictions: [] })
+      setNewAttorney({ firstName: '', middleName: '', lastName: '', email: '', specialties: [], jurisdictions: [], officeId: '' })
       setStateSearchQuery('')
       invalidateFirmDashboardSummary()
     } catch (err: any) {
@@ -351,14 +371,27 @@ export default function FirmDashboard() {
         lastName: newMember.lastName.trim() || undefined,
         role: newMember.role,
         title: newMember.title.trim() || undefined,
+        officeId: newMember.officeId || undefined,
       })
       setMemberSuccess('Firm team member added.')
-      setNewMember({ firstName: '', lastName: '', email: '', role: 'case_manager', title: '' })
+      setNewMember({ firstName: '', lastName: '', email: '', role: 'case_manager', title: '', officeId: '' })
       invalidateFirmDashboardSummary()
     } catch (err: any) {
       setMemberError(err.response?.data?.error || 'Failed to add firm team member.')
     } finally {
       setMemberSaving(false)
+    }
+  }
+
+  const handleMemberOfficeChange = async (memberId: string, officeId: string) => {
+    setMemberOfficeSavingId(memberId)
+    try {
+      await updateFirmMember(memberId, { officeId: officeId || null })
+      invalidateFirmDashboardSummary()
+    } catch (err: any) {
+      setMemberError(err.response?.data?.error || 'Failed to move member to office.')
+    } finally {
+      setMemberOfficeSavingId(null)
     }
   }
 
@@ -400,6 +433,34 @@ export default function FirmDashboard() {
     }
   }
 
+  const handleAddTeamMember = async (teamId: string) => {
+    setTeamMemberError(null)
+    if (!teamMemberPick.firmMemberId) return setTeamMemberError('Pick a team member to add.')
+    try {
+      setTeamMemberSaving(true)
+      await addFirmTeamMember(teamId, { firmMemberId: teamMemberPick.firmMemberId, role: teamMemberPick.role })
+      setTeamMemberPick({ firmMemberId: '', role: 'member' })
+      invalidateFirmDashboardSummary()
+    } catch (err: any) {
+      setTeamMemberError(err.response?.data?.error || 'Failed to add member to team.')
+    } finally {
+      setTeamMemberSaving(false)
+    }
+  }
+
+  const handleRemoveTeamMember = async (teamId: string, firmMemberId: string) => {
+    setTeamMemberError(null)
+    try {
+      setTeamMemberSaving(true)
+      await removeFirmTeamMember(teamId, firmMemberId)
+      invalidateFirmDashboardSummary()
+    } catch (err: any) {
+      setTeamMemberError(err.response?.data?.error || 'Failed to remove member.')
+    } finally {
+      setTeamMemberSaving(false)
+    }
+  }
+
   const openAssign = (row: FirmCaseRow) => {
     setAssignTarget(row)
     setAssignRole('lead_attorney')
@@ -437,6 +498,20 @@ export default function FirmDashboard() {
   const members = dashboardData?.members || []
   const offices = dashboardData?.offices || []
   const teams = dashboardData?.teams || []
+
+  // Join the lightweight member rows to the richer attorney records so the
+  // unified People roster can show specialties/rating and open the edit modal.
+  const attorneyById = useMemo(() => {
+    const m = new Map<string, any>()
+    for (const a of attorneys) m.set(a.id, a)
+    return m
+  }, [attorneys])
+  const isAttorneyMember = (m: any) => Boolean(m.attorney || m.role === 'attorney')
+  const filteredPeople = useMemo(() => {
+    if (peopleFilter === 'attorneys') return members.filter(isAttorneyMember)
+    if (peopleFilter === 'staff') return members.filter((m: any) => !isAttorneyMember(m))
+    return members
+  }, [members, peopleFilter])
   const operationsQueue = dashboardData?.operationsQueue || []
   const cases = dashboardData?.cases || []
   const workspace = dashboardData?.workspace
@@ -539,7 +614,7 @@ export default function FirmDashboard() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
-      <BackButton onClick={() => navigate('/attorney-dashboard')} label="Back to Attorney Dashboard" />
+      <BackButton onClick={goBack} label="Back" />
 
       {/* Firm header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -718,6 +793,7 @@ export default function FirmDashboard() {
                 ] as DataTableColumn<any>[]}
                 rows={leaderboard}
                 rowKey={(r: any) => r.id}
+                onRowClick={(r: any) => { setCaseQuery(r.name); setCaseFilter('all'); setTab('cases') }}
               />
             )}
           </SectionCard>
@@ -867,8 +943,27 @@ export default function FirmDashboard() {
       {/* ---------------------------------------------------------------- */}
       {tab === 'team' && (
         <div className="space-y-6">
-          {/* Firm Team roster */}
-          <SectionCard title="Firm team" trailing={<Badge tone="brand">{members.length} {members.length === 1 ? 'person' : 'people'}</Badge>}>
+          {/* ── ① PEOPLE ──────────────────────────────────────────── */}
+          <SectionCard
+            title="People"
+            trailing={
+              <div className="flex items-center gap-2">
+                <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                  {(['all', 'attorneys', 'staff'] as const).map((f) => (
+                    <button
+                      key={f}
+                      type="button"
+                      onClick={() => setPeopleFilter(f)}
+                      className={`rounded-md px-2.5 py-1 text-xs font-semibold capitalize transition ${peopleFilter === f ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+                <Badge tone="brand">{filteredPeople.length}</Badge>
+              </div>
+            }
+          >
             <DataTable
               columns={[
                 {
@@ -877,41 +972,115 @@ export default function FirmDashboard() {
                   cell: (m: any) => {
                     const userName = [m.user?.firstName, m.user?.lastName].filter(Boolean).join(' ').trim()
                     const displayName = m.attorney?.name || userName || m.user?.email || m.attorney?.email || '—'
+                    const att = m.attorney?.id ? attorneyById.get(m.attorney.id) : null
                     return (
                       <div className="flex items-center gap-3">
                         <Avatar name={displayName} />
                         <div>
                           <div className="font-medium text-slate-800">{displayName}</div>
-                          {m.title && <div className="text-xs text-slate-400">{m.title}</div>}
+                          {att ? (
+                            <div className="flex items-center gap-1 text-xs text-slate-400">
+                              <Star className="h-3 w-3 text-yellow-400" /> {Number(att.averageRating || 0).toFixed(1)} · {att.isVerified ? 'Verified' : 'Unverified'}
+                            </div>
+                          ) : m.title ? (
+                            <div className="text-xs text-slate-400">{m.title}</div>
+                          ) : null}
                         </div>
                       </div>
                     )
                   },
                 },
                 { key: 'role', header: 'Role', cell: (m: any) => <Badge tone={m.role === 'attorney' || m.attorney ? 'brand' : 'neutral'}>{formatRole(m.role)}</Badge> },
+                {
+                  key: 'specialties',
+                  header: 'Specialties',
+                  cell: (m: any) => {
+                    const att = m.attorney?.id ? attorneyById.get(m.attorney.id) : null
+                    const specs = Array.isArray(att?.specialties) ? att.specialties : []
+                    if (!att || specs.length === 0) return <span className="text-slate-300">—</span>
+                    return (
+                      <div className="flex flex-wrap gap-1">
+                        {specs.slice(0, 3).map((s: string) => (
+                          <span key={s} className="rounded-full bg-brand-50 px-2 py-0.5 text-xs text-brand-700">{String(s).replace(/_/g, ' ')}</span>
+                        ))}
+                        {specs.length > 3 && <span className="text-xs text-slate-400">+{specs.length - 3}</span>}
+                      </div>
+                    )
+                  },
+                },
                 { key: 'email', header: 'Email', cell: (m: any) => <span className="text-slate-500">{m.user?.email || m.attorney?.email || '—'}</span> },
-                { key: 'office', header: 'Office', cell: (m: any) => <span className="text-slate-500">{m.office?.name || '—'}</span> },
+                {
+                  key: 'office',
+                  header: 'Office',
+                  cell: (m: any) => (
+                    <select
+                      value={m.office?.id || ''}
+                      disabled={memberOfficeSavingId === m.id || offices.length === 0}
+                      onChange={(e) => handleMemberOfficeChange(m.id, e.target.value)}
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm transition focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                      title={offices.length === 0 ? 'Add an office first (Team & Roles → Offices)' : 'Move to office'}
+                    >
+                      <option value="">{offices.length === 0 ? 'No offices' : 'Unassigned'}</option>
+                      {offices.map((o) => (
+                        <option key={o.id} value={o.id}>{o.name}</option>
+                      ))}
+                    </select>
+                  ),
+                },
+                {
+                  key: 'action',
+                  header: '',
+                  align: 'right',
+                  cell: (m: any) => {
+                    const att = m.attorney?.id ? attorneyById.get(m.attorney.id) : null
+                    if (!att) return null
+                    return (
+                      <button onClick={() => startEditAttorney(att)} className={btnGhost + ' !px-2.5 !py-1 !text-xs'}>Edit</button>
+                    )
+                  },
+                },
               ] as DataTableColumn<any>[]}
-              rows={members}
+              rows={filteredPeople}
               rowKey={(m: any) => m.id}
-              emptyMessage="No team members yet. Add attorneys or support staff below."
+              emptyMessage={peopleFilter === 'attorneys' ? 'No attorneys yet — add one below.' : peopleFilter === 'staff' ? 'No staff yet — add someone below.' : 'No team members yet. Add attorneys or support staff below.'}
             />
           </SectionCard>
 
-          {/* Add staff + operating model */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <SectionCard title="Add legal staff">
+          {/* Add a person (attorney or staff) */}
+          <SectionCard title="Add a person">
+            <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+              {(['attorney', 'staff'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setAddPersonType(t)}
+                  className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${addPersonType === t ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  {t === 'attorney' ? 'Attorney' : 'Staff'}
+                </button>
+              ))}
+            </div>
+
+            {addPersonType === 'staff' ? (
               <form onSubmit={handleAddStaffMember} className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <input type="text" value={newMember.firstName} onChange={(e) => setNewMember({ ...newMember, firstName: e.target.value })} placeholder="First name" maxLength={NAME_MAX} className={inputCls} />
                   <input type="text" value={newMember.lastName} onChange={(e) => setNewMember({ ...newMember, lastName: e.target.value })} placeholder="Last name" maxLength={NAME_MAX} className={inputCls} />
                 </div>
                 <input type="email" value={newMember.email} onChange={(e) => setNewMember({ ...newMember, email: e.target.value })} placeholder="Email" maxLength={EMAIL_MAX} className={inputCls} required />
-                <select value={newMember.role} onChange={(e) => setNewMember({ ...newMember, role: e.target.value })} className={inputCls}>
-                  {FIRM_ROLES.filter((role) => role.value !== 'attorney').map((role) => (
-                    <option key={role.value} value={role.value}>{role.label}</option>
-                  ))}
-                </select>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <select value={newMember.role} onChange={(e) => setNewMember({ ...newMember, role: e.target.value })} className={inputCls}>
+                    {FIRM_ROLES.filter((role) => role.value !== 'attorney').map((role) => (
+                      <option key={role.value} value={role.value}>{role.label}</option>
+                    ))}
+                  </select>
+                  <select value={newMember.officeId} onChange={(e) => setNewMember({ ...newMember, officeId: e.target.value })} className={inputCls}>
+                    <option value="">No office (unassigned)</option>
+                    {offices.map((office) => (
+                      <option key={office.id} value={office.id}>{office.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <input type="text" value={newMember.title} onChange={(e) => setNewMember({ ...newMember, title: e.target.value })} placeholder="Title, e.g. Senior Case Manager" maxLength={NAME_MAX} className={inputCls} />
                 {memberError && <p className="text-sm text-red-600">{memberError}</p>}
                 {memberSuccess && <p className="text-sm text-green-600">{memberSuccess}</p>}
@@ -920,19 +1089,74 @@ export default function FirmDashboard() {
                   {memberSaving ? 'Adding…' : 'Add staff member'}
                 </button>
               </form>
-            </SectionCard>
-
-            <SectionCard title="Role permissions" trailing={<ShieldCheck className="h-4 w-4 text-slate-400" />}>
-              <div className="max-h-72 space-y-2 overflow-y-auto">
-                {Object.entries(workspace?.roleCapabilities || {}).slice(0, 8).map(([role, permissions]) => (
-                  <div key={role} className="rounded-lg border border-slate-100 p-3">
-                    <p className="text-sm font-semibold text-slate-800">{formatRole(role)}</p>
-                    <p className="mt-1 text-xs text-slate-500">{(permissions as string[]).slice(0, 4).map((p) => p.replace(/_/g, ' ')).join(', ')}</p>
+            ) : (
+              <form onSubmit={handleAddAttorney} className="space-y-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <input type="text" value={newAttorney.firstName} onChange={(e) => setNewAttorney({ ...newAttorney, firstName: e.target.value })} placeholder="First name" maxLength={NAME_MAX} className={inputCls} />
+                  <input type="text" value={newAttorney.middleName} onChange={(e) => setNewAttorney({ ...newAttorney, middleName: e.target.value })} placeholder="Middle name" maxLength={NAME_MAX} className={inputCls} />
+                  <input type="text" value={newAttorney.lastName} onChange={(e) => setNewAttorney({ ...newAttorney, lastName: e.target.value })} placeholder="Last name" maxLength={NAME_MAX} className={inputCls} />
+                </div>
+                <input type="email" value={newAttorney.email} onChange={(e) => setNewAttorney({ ...newAttorney, email: e.target.value })} placeholder="Attorney email" maxLength={EMAIL_MAX} className={inputCls} required />
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="block text-sm font-medium text-slate-700">Specialties *</label>
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={newAttorney.specialties.length === CASE_TYPES.length}
+                        ref={(el) => { if (el) el.indeterminate = newAttorney.specialties.length > 0 && newAttorney.specialties.length < CASE_TYPES.length }}
+                        onChange={() => setNewAttorney((prev) => ({ ...prev, specialties: prev.specialties.length === CASE_TYPES.length ? [] : CASE_TYPES.map((t) => t.value) }))}
+                        className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                      />
+                      <span className="text-xs font-semibold text-slate-600">Select all</span>
+                    </label>
                   </div>
-                ))}
-              </div>
-            </SectionCard>
-          </div>
+                  <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                    {CASE_TYPES.map((type) => (
+                      <label key={type.value} className="flex cursor-pointer items-center gap-2">
+                        <input type="checkbox" checked={newAttorney.specialties.includes(type.value)} onChange={() => toggleAttorneyArrayValue('specialties', type.value)} className="rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
+                        <span className="text-sm text-slate-700">{type.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Jurisdictions (States) * <span className="ml-2 text-xs font-normal text-slate-500">({newAttorney.jurisdictions.length} selected)</span>
+                  </label>
+                  <input type="text" placeholder="Search states…" value={stateSearchQuery} onChange={(e) => setStateSearchQuery(e.target.value)} className={inputCls + ' mb-3'} />
+                  <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
+                      {US_STATES.filter((state) => {
+                        const q = stateSearchQuery.toLowerCase()
+                        return state.code.toLowerCase().includes(q) || state.name.toLowerCase().includes(q)
+                      }).map((state) => (
+                        <label key={state.code} className={`flex cursor-pointer items-center gap-2 rounded-md p-2 transition ${newAttorney.jurisdictions.includes(state.code) ? 'border-2 border-brand-300 bg-brand-50' : 'border border-transparent hover:bg-slate-100'}`}>
+                          <input type="checkbox" checked={newAttorney.jurisdictions.includes(state.code)} onChange={() => toggleAttorneyArrayValue('jurisdictions', state.code)} className="rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
+                          <span className="text-sm font-medium text-slate-700">{state.code}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">Office</label>
+                  <select value={newAttorney.officeId} onChange={(e) => setNewAttorney({ ...newAttorney, officeId: e.target.value })} className={inputCls}>
+                    <option value="">No office (unassigned)</option>
+                    {offices.map((office) => (
+                      <option key={office.id} value={office.id}>{office.name}</option>
+                    ))}
+                  </select>
+                </div>
+                {addError && <p className="text-sm text-red-600">{addError}</p>}
+                {addSuccess && <p className="text-sm text-green-600">{addSuccess}</p>}
+                <button type="submit" disabled={adding} className={btnPrimary}>
+                  <Plus className="h-4 w-4" />
+                  {adding ? 'Adding…' : 'Add attorney'}
+                </button>
+              </form>
+            )}
+          </SectionCard>
 
           {/* Offices & Teams */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -970,13 +1194,75 @@ export default function FirmDashboard() {
 
             <SectionCard title="Teams" trailing={<Badge tone="neutral">{teams.length}</Badge>}>
               {teams.length > 0 && (
-                <ul className="mb-3 space-y-1.5">
-                  {teams.map((t) => (
-                    <li key={t.id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm">
-                      <span className="font-medium text-slate-700">{t.name}</span>
-                      <span className="text-slate-400">{formatRole(t.teamType)}{t.office ? ` · ${t.office.name}` : ''} · {t.members.length} members</span>
-                    </li>
-                  ))}
+                <ul className="mb-3 space-y-2">
+                  {teams.map((t) => {
+                    const memberIdsInTeam = new Set((t.members || []).map((m) => m.firmMemberId || m.id))
+                    const available = members.filter((m: any) => !memberIdsInTeam.has(m.id))
+                    const isOpen = manageTeamId === t.id
+                    return (
+                      <li key={t.id} className="rounded-lg border border-slate-100">
+                        <div className="flex items-center justify-between px-3 py-2 text-sm">
+                          <div className="min-w-0">
+                            <span className="font-medium text-slate-700">{t.name}</span>
+                            <span className="ml-2 text-slate-400">{formatRole(t.teamType)}{t.office ? ` · ${t.office.name}` : ''} · {t.members.length} {t.members.length === 1 ? 'member' : 'members'}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { setManageTeamId(isOpen ? null : t.id); setTeamMemberPick({ firmMemberId: '', role: 'member' }); setTeamMemberError(null) }}
+                            className="shrink-0 rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                          >
+                            {isOpen ? 'Done' : 'Manage members'}
+                          </button>
+                        </div>
+                        {isOpen && (
+                          <div className="space-y-3 border-t border-slate-100 px-3 py-3">
+                            {(t.members || []).length > 0 ? (
+                              <ul className="space-y-1.5">
+                                {t.members.map((m) => (
+                                  <li key={m.firmMemberId || m.id} className="flex items-center justify-between gap-2 text-sm">
+                                    <span className="flex min-w-0 items-center gap-2">
+                                      <Avatar name={m.name || m.email || '—'} />
+                                      <span className="truncate text-slate-700">{m.name || m.email || '—'}</span>
+                                      <Badge tone={m.teamRole === 'lead' ? 'brand' : 'neutral'}>{m.teamRole === 'lead' ? 'Lead' : 'Member'}</Badge>
+                                    </span>
+                                    <button type="button" disabled={teamMemberSaving} onClick={() => handleRemoveTeamMember(t.id, m.firmMemberId || m.id)} className="shrink-0 text-xs font-semibold text-red-600 transition hover:text-red-700 disabled:opacity-50">Remove</button>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="text-xs text-slate-400">No members yet — add staff or attorneys below.</p>
+                            )}
+                            <div className="flex flex-wrap items-center gap-2">
+                              <select
+                                value={teamMemberPick.firmMemberId}
+                                onChange={(e) => setTeamMemberPick({ ...teamMemberPick, firmMemberId: e.target.value })}
+                                disabled={available.length === 0}
+                                className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 disabled:opacity-60"
+                              >
+                                <option value="">{available.length === 0 ? 'Everyone is already on this team' : 'Add a team member…'}</option>
+                                {available.map((m: any) => {
+                                  const nm = [m.user?.firstName, m.user?.lastName].filter(Boolean).join(' ').trim() || m.attorney?.name || m.user?.email || m.attorney?.email || '—'
+                                  return <option key={m.id} value={m.id}>{nm}{m.role ? ` · ${formatRole(m.role)}` : ''}</option>
+                                })}
+                              </select>
+                              <select
+                                value={teamMemberPick.role}
+                                onChange={(e) => setTeamMemberPick({ ...teamMemberPick, role: e.target.value as 'lead' | 'member' })}
+                                className="w-28 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900 shadow-sm transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                              >
+                                <option value="member">Member</option>
+                                <option value="lead">Lead</option>
+                              </select>
+                              <button type="button" disabled={teamMemberSaving || !teamMemberPick.firmMemberId} onClick={() => handleAddTeamMember(t.id)} className={btnPrimary + ' whitespace-nowrap'}>
+                                <Plus className="h-4 w-4" /> Add
+                              </button>
+                            </div>
+                            {teamMemberError && <p className="text-xs text-red-600">{teamMemberError}</p>}
+                          </div>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
               <form onSubmit={handleAddTeam} className="space-y-3">
@@ -1002,110 +1288,32 @@ export default function FirmDashboard() {
             </SectionCard>
           </div>
 
-          {/* Attorneys */}
-          <SectionCard title="Firm attorneys" trailing={<Badge tone="brand">{attorneys.length}</Badge>}>
-            <DataTable
-              columns={[
-                {
-                  key: 'name',
-                  header: 'Attorney',
-                  cell: (a: any) => (
-                    <div className="flex items-center gap-3">
-                      <Avatar name={a.name} />
-                      <div>
-                        <div className="font-medium text-slate-800">{a.name}</div>
-                        <div className="text-xs text-slate-400">{a.isVerified ? 'Verified' : 'Unverified'} · {a.subscriptionTier || 'pay-per-case'}</div>
-                      </div>
-                    </div>
-                  ),
-                },
-                { key: 'email', header: 'Email', cell: (a: any) => <span className="text-slate-500">{a.email || '—'}</span> },
-                {
-                  key: 'specialties',
-                  header: 'Specialties',
-                  cell: (a: any) => (
-                    <div className="flex flex-wrap gap-1">
-                      {(Array.isArray(a.specialties) ? a.specialties : []).slice(0, 3).map((s: string) => (
-                        <span key={s} className="rounded-full bg-brand-50 px-2 py-0.5 text-xs text-brand-700">{String(s).replace(/_/g, ' ')}</span>
-                      ))}
-                      {(a.specialties?.length || 0) > 3 && <span className="text-xs text-slate-400">+{a.specialties.length - 3}</span>}
-                    </div>
-                  ),
-                },
-                {
-                  key: 'rating',
-                  header: 'Rating',
-                  cell: (a: any) => (
-                    <span className="inline-flex items-center gap-1">
-                      <Star className="h-4 w-4 text-yellow-400" />
-                      {Number(a.averageRating || 0).toFixed(1)}
-                    </span>
-                  ),
-                },
-                {
-                  key: 'action',
-                  header: '',
-                  align: 'right',
-                  cell: (a: any) => (
-                    <button onClick={() => startEditAttorney(a)} className={btnGhost + ' !px-2.5 !py-1 !text-xs'}>
-                      Edit
-                    </button>
-                  ),
-                },
-              ] as DataTableColumn<any>[]}
-              rows={attorneys}
-              rowKey={(a: any) => a.id}
-              emptyMessage="No attorneys yet. Add one below."
-            />
-
-            {/* Add attorney */}
-            <div className="mt-5 rounded-xl border border-slate-200 p-4">
-              <p className="mb-3 text-sm font-semibold text-slate-800">Add attorney</p>
-              <form onSubmit={handleAddAttorney} className="space-y-3">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <input type="text" value={newAttorney.firstName} onChange={(e) => setNewAttorney({ ...newAttorney, firstName: e.target.value })} placeholder="First name" maxLength={NAME_MAX} className={inputCls} />
-                  <input type="text" value={newAttorney.middleName} onChange={(e) => setNewAttorney({ ...newAttorney, middleName: e.target.value })} placeholder="Middle name" maxLength={NAME_MAX} className={inputCls} />
-                  <input type="text" value={newAttorney.lastName} onChange={(e) => setNewAttorney({ ...newAttorney, lastName: e.target.value })} placeholder="Last name" maxLength={NAME_MAX} className={inputCls} />
-                </div>
-                <input type="email" value={newAttorney.email} onChange={(e) => setNewAttorney({ ...newAttorney, email: e.target.value })} placeholder="Attorney email" maxLength={EMAIL_MAX} className={inputCls} required />
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">Specialties *</label>
-                  <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                    {CASE_TYPES.map((type) => (
-                      <label key={type.value} className="flex cursor-pointer items-center gap-2">
-                        <input type="checkbox" checked={newAttorney.specialties.includes(type.value)} onChange={() => toggleAttorneyArrayValue('specialties', type.value)} className="rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
-                        <span className="text-sm text-slate-700">{type.label}</span>
-                      </label>
-                    ))}
+          {/* ── ③ REFERENCE ──────────────────────────────────────── */}
+          <SectionCard
+            title="Role permissions"
+            trailing={
+              <button
+                type="button"
+                onClick={() => setShowRolePermissions((v) => !v)}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 transition hover:text-slate-700"
+              >
+                <ShieldCheck className="h-4 w-4 text-slate-400" />
+                {showRolePermissions ? 'Hide' : 'Show'}
+              </button>
+            }
+          >
+            {showRolePermissions ? (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {Object.entries(workspace?.roleCapabilities || {}).slice(0, 8).map(([role, permissions]) => (
+                  <div key={role} className="rounded-lg border border-slate-100 p-3">
+                    <p className="text-sm font-semibold text-slate-800">{formatRole(role)}</p>
+                    <p className="mt-1 text-xs text-slate-500">{(permissions as string[]).slice(0, 4).map((p) => p.replace(/_/g, ' ')).join(', ')}</p>
                   </div>
-                </div>
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Jurisdictions (States) * <span className="ml-2 text-xs font-normal text-slate-500">({newAttorney.jurisdictions.length} selected)</span>
-                  </label>
-                  <input type="text" placeholder="Search states…" value={stateSearchQuery} onChange={(e) => setStateSearchQuery(e.target.value)} className={inputCls + ' mb-3'} />
-                  <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
-                      {US_STATES.filter((state) => {
-                        const q = stateSearchQuery.toLowerCase()
-                        return state.code.toLowerCase().includes(q) || state.name.toLowerCase().includes(q)
-                      }).map((state) => (
-                        <label key={state.code} className={`flex cursor-pointer items-center gap-2 rounded-md p-2 transition ${newAttorney.jurisdictions.includes(state.code) ? 'border-2 border-brand-300 bg-brand-50' : 'border border-transparent hover:bg-slate-100'}`}>
-                          <input type="checkbox" checked={newAttorney.jurisdictions.includes(state.code)} onChange={() => toggleAttorneyArrayValue('jurisdictions', state.code)} className="rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
-                          <span className="text-sm font-medium text-slate-700">{state.code}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                {addError && <p className="text-sm text-red-600">{addError}</p>}
-                {addSuccess && <p className="text-sm text-green-600">{addSuccess}</p>}
-                <button type="submit" disabled={adding} className={btnPrimary}>
-                  <Plus className="h-4 w-4" />
-                  {adding ? 'Adding…' : 'Add attorney'}
-                </button>
-              </form>
-            </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">What each firm role can do. Click "Show" to review the permission matrix.</p>
+            )}
           </SectionCard>
         </div>
       )}
@@ -1187,7 +1395,19 @@ export default function FirmDashboard() {
                 <input type="text" value={editAttorney.lastName} onChange={(e) => setEditAttorney({ ...editAttorney, lastName: e.target.value })} placeholder="Last name" maxLength={NAME_MAX} className={inputCls} />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Specialties *</label>
+                <div className="mb-2 flex items-center justify-between">
+                  <label className="block text-sm font-medium text-slate-700">Specialties *</label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={editAttorney.specialties.length === CASE_TYPES.length}
+                      ref={(el) => { if (el) el.indeterminate = editAttorney.specialties.length > 0 && editAttorney.specialties.length < CASE_TYPES.length }}
+                      onChange={() => setEditAttorney((prev) => ({ ...prev, specialties: prev.specialties.length === CASE_TYPES.length ? [] : CASE_TYPES.map((t) => t.value) }))}
+                      className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                    />
+                    <span className="text-xs font-semibold text-slate-600">Select all</span>
+                  </label>
+                </div>
                 <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                   {CASE_TYPES.map((type) => (
                     <label key={type.value} className="flex cursor-pointer items-center gap-2">

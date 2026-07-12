@@ -166,31 +166,6 @@ export default function AttorneyDashboardLeadDetail({
 }: AttorneyDashboardLeadDetailProps) {
   const heuristics = useHeuristics()
 
-  // Component-scope viability breakdown for the non-post-acceptance summary
-  // below. Mirrors the inner header logic: use the first positive of the
-  // component score, the prediction's viability sub-score, then the overall
-  // viability — so we never show a contradictory 0% next to a real case value.
-  const viabilityBreakdown = (() => {
-    const prediction = (selectedLeadPrediction || {}) as any
-    const viabilityObj = (prediction?.viability || {}) as any
-    const overallViability = Number(selectedLead?.viabilityScore ?? viabilityObj.overall ?? 0) || 0
-    const firstPositiveScore = (...vals: any[]) => {
-      for (const v of vals) {
-        const n = Number(v)
-        if (Number.isFinite(n) && n > 0) return n
-      }
-      return 0
-    }
-    return {
-      liability: firstPositiveScore(selectedLead?.liabilityScore, viabilityObj.liability, overallViability),
-      causation: firstPositiveScore(selectedLead?.causationScore, viabilityObj.causation, overallViability),
-      damages: firstPositiveScore(selectedLead?.damagesScore, viabilityObj.damages, overallViability),
-    }
-  })()
-  const liabilityForDisplay = viabilityBreakdown.liability
-  const causationForDisplay = viabilityBreakdown.causation
-  const damagesForDisplay = viabilityBreakdown.damages
-
   return (
     <div className={leadWrapperClass}>
       <div className={leadContainerClass}>
@@ -878,35 +853,6 @@ export default function AttorneyDashboardLeadDetail({
 
           {!isPostAcceptance ? (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Case Type</label>
-                  <p className="text-sm text-gray-900">{selectedLead.assessment?.claimType?.replace(/_/g, ' ') || '—'}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Venue</label>
-                  <p className="text-sm text-gray-900">
-                    {selectedLead.assessment?.venueCounty}, {selectedLead.assessment?.venueState}
-                  </p>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Viability Breakdown</label>
-                <div className="grid grid-cols-3 gap-2 mt-2">
-                  <div className="text-center p-2 bg-blue-50 rounded">
-                    <div className="text-sm font-medium">Liability</div>
-                    <div className="text-lg font-bold text-blue-600">{liabilityForDisplay > 0 ? formatPercentage(liabilityForDisplay) : '—'}</div>
-                  </div>
-                  <div className="text-center p-2 bg-green-50 rounded">
-                    <div className="text-sm font-medium">Causation</div>
-                    <div className="text-lg font-bold text-green-600">{causationForDisplay > 0 ? formatPercentage(causationForDisplay) : '—'}</div>
-                  </div>
-                  <div className="text-center p-2 bg-purple-50 rounded">
-                    <div className="text-sm font-medium">Damages</div>
-                    <div className="text-lg font-bold text-purple-600">{damagesForDisplay > 0 ? formatPercentage(damagesForDisplay) : '—'}</div>
-                  </div>
-                </div>
-              </div>
               {['contacted', 'consulted', 'retained'].includes(selectedLead.status || '') ? (
                 <div className="flex space-x-4 pt-4">
                   <button onClick={handleQuickCall} className="btn-primary">
@@ -919,9 +865,7 @@ export default function AttorneyDashboardLeadDetail({
                     <Calendar className="h-4 w-4 mr-2" /> Schedule Consult
                   </button>
                 </div>
-              ) : (
-                <div className="pt-4 text-sm text-gray-500">Accept the lead to unlock contact actions.</div>
-              )}
+              ) : null}
             </div>
           ) : null}
         </div>

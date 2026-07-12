@@ -772,6 +772,38 @@ export async function getAttorneyUnreadSummary() {
   return data
 }
 
+// Attorney notifications feed (new matches, expiring/expired, evidence, messages, consults).
+export interface AttorneyNotification {
+  id: string
+  type: string
+  title: string
+  body: string
+  link: string | null
+  leadId: string | null
+  read: boolean
+  createdAt: string
+}
+
+export async function getAttorneyNotifications(limit = 30): Promise<{ notifications: AttorneyNotification[]; unreadCount: number }> {
+  const { data } = await api.get(`/v1/attorney-dashboard/notifications?limit=${limit}`)
+  return data
+}
+
+export async function getAttorneyNotificationUnreadCount(): Promise<{ count: number }> {
+  const { data } = await api.get('/v1/attorney-dashboard/notifications/unread-count')
+  return data
+}
+
+export async function markAttorneyNotificationRead(id: string): Promise<{ updated: number; unreadCount: number }> {
+  const { data } = await api.post(`/v1/attorney-dashboard/notifications/${id}/read`, {})
+  return data
+}
+
+export async function markAllAttorneyNotificationsRead(): Promise<{ updated: number; unreadCount: number }> {
+  const { data } = await api.post('/v1/attorney-dashboard/notifications/read-all', {})
+  return data
+}
+
 export async function getOrCreateAttorneyChatRoom(userId: string | null | undefined, assessmentId?: string) {
   const { data } = await api.post('/v1/attorney-dashboard/messaging/chat-room', { userId: userId || undefined, assessmentId })
   return data
@@ -1860,6 +1892,13 @@ export async function getEvidenceObjectUrl(fileUrl: string): Promise<string> {
   return URL.createObjectURL(data)
 }
 
+// Regenerate the AI incident-scene schematic for a lead. Returns { status: 'pending' };
+// the new image URL becomes available on the next lead fetch once generation finishes.
+export async function regenerateLeadSceneImage(leadId: string): Promise<{ status: string }> {
+  const { data } = await api.post<{ status: string }>(`/v1/attorney-dashboard/leads/${leadId}/scene/regenerate`)
+  return data
+}
+
 // Download an evidence/case document by its stored fileUrl (e.g. /uploads/evidence/..)
 // as a blob so the browser saves it with the original filename in every environment
 // (same-origin in prod, via the API instance cross-origin in dev).
@@ -1989,6 +2028,37 @@ export async function updateLeadLien(leadId: string, lienId: string, payload: an
 
 export async function deleteLeadLien(leadId: string, lienId: string) {
   const { data } = await api.delete(`/v1/attorney-dashboard/leads/${leadId}/liens/${lienId}`)
+  return data
+}
+
+// Settlement / net-to-client engine
+export async function getLeadSettlement(leadId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/settlement`)
+  return data
+}
+
+export async function updateLeadSettlement(leadId: string, payload: any) {
+  const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/settlement`, payload)
+  return data
+}
+
+export async function getLeadExpenses(leadId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/expenses`)
+  return data
+}
+
+export async function createLeadExpense(leadId: string, payload: any) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/expenses`, payload)
+  return data
+}
+
+export async function updateLeadExpense(leadId: string, expenseId: string, payload: any) {
+  const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/expenses/${expenseId}`, payload)
+  return data
+}
+
+export async function deleteLeadExpense(leadId: string, expenseId: string) {
+  const { data } = await api.delete(`/v1/attorney-dashboard/leads/${leadId}/expenses/${expenseId}`)
   return data
 }
 
@@ -3447,8 +3517,14 @@ export async function addFirmAttorney(payload: {
   specialties?: string[]
   venues?: string[]
   jurisdictions?: Array<{ state: string; counties?: string[] }>
+  officeId?: string
 }) {
   const { data } = await api.post('/v1/firm-dashboard/attorneys', payload)
+  return data
+}
+
+export async function updateFirmMember(memberId: string, payload: { officeId?: string | null }) {
+  const { data } = await api.patch(`/v1/firm-dashboard/members/${memberId}`, payload)
   return data
 }
 
@@ -3489,6 +3565,16 @@ export async function addFirmTeam(payload: {
   officeId?: string
 }) {
   const { data } = await api.post('/v1/firm-dashboard/teams', payload)
+  return data
+}
+
+export async function addFirmTeamMember(teamId: string, payload: { firmMemberId: string; role?: 'lead' | 'member' }) {
+  const { data } = await api.post(`/v1/firm-dashboard/teams/${teamId}/members`, payload)
+  return data
+}
+
+export async function removeFirmTeamMember(teamId: string, firmMemberId: string) {
+  const { data } = await api.delete(`/v1/firm-dashboard/teams/${teamId}/members/${firmMemberId}`)
   return data
 }
 

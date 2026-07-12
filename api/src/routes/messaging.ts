@@ -9,6 +9,8 @@ import {
   requireVerifiedEmailMiddleware,
 } from '../lib/client-consent-guard'
 import { translateForPlaintiff, getPlaintiffLanguage, translateToEnglish, looksNonEnglish } from '../lib/translate'
+import { notifyAttorneyInApp } from '../lib/case-notifications'
+import { ATTORNEY_EVENTS } from '../lib/notification-events'
 
 const router = Router()
 
@@ -422,6 +424,33 @@ router.post(
           chatRoomId: String(roomId),
         },
       })
+
+      // In-app notification for the attorney's notifications bell.
+      if (roomForPush?.attorneyId) {
+        const [leadRow, senderUser] = await Promise.all([
+          roomForPush.assessmentId
+            ? prisma.leadSubmission.findFirst({
+                where: { assessmentId: roomForPush.assessmentId },
+                select: { id: true },
+              })
+            : Promise.resolve(null),
+          prisma.user.findUnique({
+            where: { id: req.user!.id },
+            select: { firstName: true, lastName: true },
+          }),
+        ])
+        const senderName =
+          [senderUser?.firstName, senderUser?.lastName].filter(Boolean).join(' ') || 'Your client'
+        await notifyAttorneyInApp({
+          attorneyId: roomForPush.attorneyId,
+          assessmentId: roomForPush.assessmentId || null,
+          eventType: ATTORNEY_EVENTS.new_message,
+          subject: `New message from ${senderName}`,
+          body: preview,
+          leadId: leadRow?.id || null,
+          link: leadRow?.id ? `/attorney-dashboard/lead/${leadRow.id}/overview` : undefined,
+        }).catch(() => {})
+      }
     } catch (pushErr: unknown) {
       logger.warn('Attorney push after plaintiff message failed', {
         error: pushErr instanceof Error ? pushErr.message : String(pushErr),

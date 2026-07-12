@@ -1,8 +1,11 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
-import { Clock, Lock, LockOpen, MessageSquare, Phone, Sparkles, Star, Users } from 'lucide-react'
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { Clock, Info, Lock, LockOpen, MessageSquare, Phone, Sparkles, Star, Users } from 'lucide-react'
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
-import { getSeenMatchIds, markMatchSeen } from '../lib/seenMatches'
 import { FilterStat, FilterBar, type FilterField } from '../features/shared/ui'
+
+// A match counts as "hot" when its estimated case value (high band) exceeds this
+// threshold. Surfaced as the Hot matches tile/filter on the New Matches inbox.
+const HOT_MATCH_MIN_VALUE = 30000
 
 type CaseLeadsFilter = {
   caseType: string
@@ -70,25 +73,48 @@ export default function AttorneyDashboardLeadsTab({
 }: AttorneyDashboardLeadsTabProps) {
   const [now, setNow] = useState(() => Date.now())
   const [showAllStarred, setShowAllStarred] = useState(false)
-  // Which matches the attorney has already opened. Drives the New (unread) vs
-  // Awaiting decision (opened, undecided) split in the routing inbox.
-  const [seenMatchIds, setSeenMatchIds] = useState<Set<string>>(() => getSeenMatchIds())
+
+  // Mirrored top horizontal scrollbar for the leads table, so wide columns can be
+  // scrolled from the top of the table without reaching the bottom scrollbar first.
+  const topScrollRef = useRef<HTMLDivElement>(null)
+  const bodyScrollRef = useRef<HTMLDivElement>(null)
+  const [tableScrollWidth, setTableScrollWidth] = useState(0)
+  const syncingScroll = useRef<'top' | 'body' | null>(null)
+
+  const syncScroll = (from: 'top' | 'body') => {
+    if (syncingScroll.current && syncingScroll.current !== from) return
+    const top = topScrollRef.current
+    const body = bodyScrollRef.current
+    if (!top || !body) return
+    syncingScroll.current = from
+    if (from === 'top') body.scrollLeft = top.scrollLeft
+    else top.scrollLeft = body.scrollLeft
+    window.requestAnimationFrame(() => {
+      syncingScroll.current = null
+    })
+  }
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(intervalId)
   }, [])
 
-  // A submitted match the attorney hasn't opened yet = a brand-new/unread match.
-  const isNewMatch = (lead: any) =>
-    (lead?.status || '') === 'submitted' && !isExpiredMatch(lead) && !seenMatchIds.has(lead?.id)
+  // Keep the top scrollbar's spacer width in sync with the actual table content
+  // width (measured on mount and on viewport resize).
+  useEffect(() => {
+    const measure = () => setTableScrollWidth(bodyScrollRef.current?.scrollWidth ?? 0)
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
 
-  // Opening a match marks it read, so it moves from "New matches" to "Awaiting
-  // decision" until the attorney accepts/declines.
+  // A new match = an open (submitted), unexpired match awaiting the attorney's
+  // decision. The count is intentionally NOT changed by merely opening a case —
+  // it only moves once the attorney accepts/declines or the offer expires.
+  const isNewMatch = (lead: any) =>
+    (lead?.status || '') === 'submitted' && !isExpiredMatch(lead)
+
   const handleOpenLead = (lead: any) => {
-    if ((lead?.status || '') === 'submitted' && lead?.id) {
-      setSeenMatchIds(markMatchSeen(lead.id))
-    }
     onOpenLead(lead)
   }
 
@@ -104,10 +130,29 @@ export default function AttorneyDashboardLeadsTab({
     return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`
   }
 
+  // Default response window (minutes) used only when the lead carries no explicit
+  // deadline — keeps a countdown on every open match regardless of how it was routed.
+  const DEFAULT_RESPONSE_WINDOW_MIN = 1440
+
+  // Effective offer-expiry timestamp (ms). Prefer the server-computed offerExpiresAt;
+  // otherwise derive it from the offer/submission time + the response window so a lead
+  // that reached the attorney without a formal Introduction still shows a timer.
+  const getOfferExpiryMs = (lead: any): number | null => {
+    const direct = lead?.offerExpiresAt ? Date.parse(lead.offerExpiresAt) : NaN
+    if (!Number.isNaN(direct)) return direct
+    const baseRaw = lead?.offerRequestedAt || lead?.submittedAt || lead?.createdAt
+    const base = baseRaw ? Date.parse(baseRaw) : NaN
+    if (Number.isNaN(base)) return null
+    const windowMin = Number(lead?.responseDeadlineMinutes) > 0
+      ? Number(lead.responseDeadlineMinutes)
+      : DEFAULT_RESPONSE_WINDOW_MIN
+    return base + windowMin * 60 * 1000
+  }
+
   const getOfferCountdown = (lead: any) => {
-    if ((lead?.status || '') !== 'submitted' || !lead?.offerExpiresAt) return null
-    const expiresAt = new Date(lead.offerExpiresAt).getTime()
-    if (Number.isNaN(expiresAt)) return null
+    if ((lead?.status || '') !== 'submitted') return null
+    const expiresAt = getOfferExpiryMs(lead)
+    if (expiresAt == null) return null
     const remainingMs = expiresAt - now
     return {
       isExpired: remainingMs <= 0,
@@ -116,13 +161,13 @@ export default function AttorneyDashboardLeadsTab({
   }
 
   // A match is "expired/missed" once its response window lapses. The backend marks the
-  // introduction EXPIRED (offerStatus), but we also derive it from offerExpiresAt so the
-  // list updates the moment the clock runs out, before the next sweep runs.
+  // introduction EXPIRED (offerStatus), but we also derive it from the (effective)
+  // expiry so the list updates the moment the clock runs out, before the next sweep runs.
   const isExpiredMatch = (lead: any) => {
     if ((lead?.offerStatus || '') === 'EXPIRED') return true
-    if ((lead?.status || '') === 'submitted' && lead?.offerExpiresAt) {
-      const t = Date.parse(lead.offerExpiresAt)
-      return !Number.isNaN(t) && t <= now
+    if ((lead?.status || '') === 'submitted') {
+      const expiresAt = getOfferExpiryMs(lead)
+      return expiresAt != null && expiresAt <= now
     }
     return false
   }
@@ -264,10 +309,9 @@ export default function AttorneyDashboardLeadsTab({
   }
 
   const getFilteredAndSortedLeads = () => {
-    // "New matches" = submitted matches the attorney hasn't opened yet (unread);
-    // "Awaiting decision" = submitted matches they've opened but not decided on.
-    // The read/unread split (seenMatchIds) keeps the two views strictly distinct
-    // instead of both showing every submitted case (A3-25 / A3-56).
+    // "New matches" = every open (submitted), unexpired match awaiting a decision.
+    // Opening a case no longer removes it from this list — matches only leave once
+    // the attorney accepts/declines or the offer expires.
     const filtered = (dashboardData?.recentLeads || []).filter((lead: any) => {
       // Active Cases (Case Management) is the accepted caseload only. A case that
       // hasn't been accepted (still 'submitted', or 'rejected') never belongs here,
@@ -287,23 +331,17 @@ export default function AttorneyDashboardLeadsTab({
         return false
       }
       if (caseLeadsFilter.routingInboxView === 'newMatches') {
-        // New matches = submitted matches the attorney hasn't opened yet (unread).
-        if ((lead?.status || '') !== 'submitted' || seenMatchIds.has(lead?.id)) return false
+        // New matches = every open (submitted) match awaiting a decision.
+        if ((lead?.status || '') !== 'submitted') return false
       }
-      if (caseLeadsFilter.routingInboxView === 'awaitingDecision') {
-        // Awaiting decision = opened but not yet accepted/declined.
-        if ((lead?.status || '') !== 'submitted' || !seenMatchIds.has(lead?.id)) return false
-      }
-      // "Hot Matches" filters by the canonical hotnessLevel === 'hot' (the same
-      // signal the overview tile counts), not getPriorityLabel — which flags any
-      // lead with >=4 evidence files or >=$50k as "Hot" and therefore matched
-      // essentially every case, so the filter showed everything (A3-18).
+      // "Hot Matches" = open matches whose estimated value (high band) exceeds
+      // HOT_MATCH_MIN_VALUE. Expired matches are already excluded above.
       if (
         caseLeadsFilter.routingInboxView === 'hotMatches' &&
-        ((lead?.hotnessLevel || '') !== 'hot' || (lead?.status || '') !== 'submitted')
+        ((Number(getLeadBands(lead).high) || 0) <= HOT_MATCH_MIN_VALUE || (lead?.status || '') !== 'submitted')
       ) {
-        // Hot matches are open, unaccepted matches only; an accepted case that happens
-        // to be hot belongs to Active Cases, not the New Matches inbox.
+        // Hot matches are open, unaccepted matches only; an accepted high-value case
+        // belongs to Active Cases, not the New Matches inbox.
         return false
       }
       if (caseLeadsFilter.routingInboxView === 'staleMatches') {
@@ -385,11 +423,16 @@ export default function AttorneyDashboardLeadsTab({
   const hasAcceptedSelection = selectedLeadsList.some((lead: any) =>
     ['contacted', 'consulted', 'retained'].includes(lead?.status || ''),
   )
+  // A still-open match the attorney could accept. Expired/missed matches can no
+  // longer be accepted, so the "Accept a match to unlock…" hint doesn't apply.
+  const hasActionableSelection = selectedLeadsList.some(
+    (lead: any) => (lead?.status || '') === 'submitted' && !isExpiredMatch(lead),
+  )
   const routingInboxSummary = {
     // Expired/missed matches are counted only under their own tile, never under the
     // active tiles, so the tile numbers match the lists they open (an expired case is
     // no longer "hot" or "aging").
-    hotMatches: (dashboardData?.recentLeads || []).filter((lead: any) => (lead?.hotnessLevel || '') === 'hot' && (lead?.status || '') === 'submitted' && !isExpiredMatch(lead)).length,
+    hotMatches: (dashboardData?.recentLeads || []).filter((lead: any) => (Number(getLeadBands(lead).high) || 0) > HOT_MATCH_MIN_VALUE && (lead?.status || '') === 'submitted' && !isExpiredMatch(lead)).length,
     staleMatches: (dashboardData?.recentLeads || []).filter((lead: any) => {
       if (isExpiredMatch(lead)) return false
       const submittedAt = Date.parse(lead?.submittedAt || '')
@@ -525,6 +568,68 @@ export default function AttorneyDashboardLeadsTab({
     setSelectedLeadIds(new Set(filteredLeads.map((lead: any) => lead.id)))
   }
 
+  // Tile tooltips can be toggled on/off from the card header; preference persists.
+  const [showHints, setShowHints] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('clearcaseiq_show_stat_hints') !== 'false'
+    } catch {
+      return true
+    }
+  })
+  const toggleHints = () =>
+    setShowHints((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem('clearcaseiq_show_stat_hints', String(next))
+      } catch {}
+      return next
+    })
+  const hintText = (text: string): string | undefined => (showHints ? text : undefined)
+
+  // Declined-matches window (7 / 30 / 90 days). Retrospective glance at how many
+  // routed matches this attorney passed on recently; anchored on server-computed
+  // Introduction.respondedAt buckets. Preference persists across sessions.
+  const [declineWindow, setDeclineWindow] = useState<'7' | '30' | '90'>(() => {
+    try {
+      const stored = localStorage.getItem('clearcaseiq_decline_window')
+      if (stored === '7' || stored === '30' || stored === '90') return stored
+    } catch {}
+    return '30'
+  })
+  const chooseDeclineWindow = (w: '7' | '30' | '90') => {
+    setDeclineWindow(w)
+    try {
+      localStorage.setItem('clearcaseiq_decline_window', w)
+    } catch {}
+  }
+  const [acceptWindow, setAcceptWindow] = useState<'7' | '30' | '90'>(() => {
+    try {
+      const stored = localStorage.getItem('clearcaseiq_accept_window')
+      if (stored === '7' || stored === '30' || stored === '90') return stored
+    } catch {}
+    return '30'
+  })
+  const chooseAcceptWindow = (w: '7' | '30' | '90') => {
+    setAcceptWindow(w)
+    try {
+      localStorage.setItem('clearcaseiq_accept_window', w)
+    } catch {}
+  }
+  const [declineTipOpen, setDeclineTipOpen] = useState(false)
+  const [acceptTipOpen, setAcceptTipOpen] = useState(false)
+  type WindowStats = { last7: number; last30: number; last90: number; total: number }
+  const pickWindow = (s: WindowStats | undefined, win: '7' | '30' | '90') =>
+    win === '7' ? s?.last7 ?? 0 : win === '90' ? s?.last90 ?? 0 : s?.last30 ?? 0
+  const declineStats = (dashboardData as any)?.declineStats as WindowStats | undefined
+  const acceptStats = (dashboardData as any)?.acceptStats as WindowStats | undefined
+  const declinedInWindow = pickWindow(declineStats, declineWindow)
+  const acceptedInWindow = pickWindow(acceptStats, acceptWindow)
+  // Accept rate is computed within the Accepted tile's own window (independent of
+  // the Declined tile's window), so both numbers share the same denominator.
+  const decidedInAcceptWindow = acceptedInWindow + pickWindow(declineStats, acceptWindow)
+  const acceptRateWindow =
+    decidedInAcceptWindow > 0 ? Math.round((acceptedInWindow / decidedInAcceptWindow) * 100) : null
+
   return (
     <div className="space-y-6">
       {pendingQuickAction && (
@@ -541,11 +646,27 @@ export default function AttorneyDashboardLeadsTab({
 
       {hideRoutingInbox ? null : (
       <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="mb-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">New matches</p>
-          <h3 className="text-lg font-semibold text-slate-900">Cases ready for review</h3>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">New matches</p>
+            <h3 className="text-lg font-semibold text-slate-900">Cases ready for review</h3>
+          </div>
+          <button
+            type="button"
+            onClick={toggleHints}
+            aria-pressed={showHints}
+            title={showHints ? 'Hide tile tooltips' : 'Show tile tooltips'}
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
+              showHints
+                ? 'border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100'
+                : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+            }`}
+          >
+            <Info className="h-4 w-4" aria-hidden />
+            <span className="hidden sm:inline">{showHints ? 'Tips on' : 'Tips off'}</span>
+          </button>
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <FilterStat
             value={newMatchesCount}
             label="New matches"
@@ -553,6 +674,7 @@ export default function AttorneyDashboardLeadsTab({
             filled
             active={caseLeadsFilter.routingInboxView === 'newMatches'}
             onClick={() => applyRoutingInboxView('newMatches', {}, null)}
+            hint={hintText("Cases routed to you that you haven't opened yet.")}
           />
           <FilterStat
             value={routingInboxSummary.hotMatches}
@@ -561,7 +683,93 @@ export default function AttorneyDashboardLeadsTab({
             filled
             active={caseLeadsFilter.routingInboxView === 'hotMatches'}
             onClick={() => applyRoutingInboxView('hotMatches', {}, null)}
+            hint={hintText('Open matches with an estimated value over $30K — your highest-value cases to review first.')}
           />
+          <div
+            className="relative"
+            onMouseEnter={() => setAcceptTipOpen(true)}
+            onMouseLeave={() => setAcceptTipOpen(false)}
+          >
+            <div className="flex h-full cursor-default flex-col items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center transition duration-150 hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md">
+              <span className="text-2xl font-bold leading-none tabular-nums text-emerald-700">{acceptedInWindow}</span>
+              <span className="mt-1 flex items-center gap-1 text-xs font-medium text-emerald-700">
+                Accepted
+                {showHints && <Info className="h-3 w-3 opacity-60" aria-hidden />}
+              </span>
+              <div className="mt-2 inline-flex overflow-hidden rounded-lg border border-emerald-200 bg-white">
+                {(['7', '30', '90'] as const).map((w) => (
+                  <button
+                    key={w}
+                    type="button"
+                    onClick={() => chooseAcceptWindow(w)}
+                    aria-pressed={acceptWindow === w}
+                    className={`px-2 py-0.5 text-[11px] font-semibold transition ${
+                      acceptWindow === w
+                        ? 'bg-emerald-600 text-white'
+                        : 'text-emerald-600 hover:bg-emerald-50 hover:text-emerald-800'
+                    }`}
+                  >
+                    {w}d
+                  </button>
+                ))}
+              </div>
+            </div>
+            {showHints && acceptTipOpen && (
+              <div
+                role="tooltip"
+                className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-60 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-medium leading-5 text-white shadow-lg shadow-slate-900/20"
+              >
+                Matches you accepted in the last {acceptWindow} days
+                {acceptRateWindow != null ? ` — ${acceptRateWindow}% of the ${decidedInAcceptWindow} you decided.` : '.'}
+                <span
+                  className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 bg-slate-900"
+                  aria-hidden
+                />
+              </div>
+            )}
+          </div>
+          <div
+            className="relative"
+            onMouseEnter={() => setDeclineTipOpen(true)}
+            onMouseLeave={() => setDeclineTipOpen(false)}
+          >
+            <div className="flex h-full cursor-default flex-col items-center justify-center rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-center transition duration-150 hover:-translate-y-0.5 hover:border-violet-300 hover:shadow-md">
+              <span className="text-2xl font-bold leading-none tabular-nums text-violet-700">{declinedInWindow}</span>
+              <span className="mt-1 flex items-center gap-1 text-xs font-medium text-violet-700">
+                Declined
+                {showHints && <Info className="h-3 w-3 opacity-60" aria-hidden />}
+              </span>
+              <div className="mt-2 inline-flex overflow-hidden rounded-lg border border-violet-200 bg-white">
+                {(['7', '30', '90'] as const).map((w) => (
+                  <button
+                    key={w}
+                    type="button"
+                    onClick={() => chooseDeclineWindow(w)}
+                    aria-pressed={declineWindow === w}
+                    className={`px-2 py-0.5 text-[11px] font-semibold transition ${
+                      declineWindow === w
+                        ? 'bg-violet-600 text-white'
+                        : 'text-violet-600 hover:bg-violet-50 hover:text-violet-800'
+                    }`}
+                  >
+                    {w}d
+                  </button>
+                ))}
+              </div>
+            </div>
+            {showHints && declineTipOpen && (
+              <div
+                role="tooltip"
+                className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-60 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-medium leading-5 text-white shadow-lg shadow-slate-900/20"
+              >
+                Matches you passed on in the last {declineWindow} days — a retrospective glance that doesn't change your open inbox.
+                <span
+                  className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 bg-slate-900"
+                  aria-hidden
+                />
+              </div>
+            )}
+          </div>
           <FilterStat
             value={routingInboxSummary.expired}
             label="Missed / expired"
@@ -569,8 +777,15 @@ export default function AttorneyDashboardLeadsTab({
             filled
             active={caseLeadsFilter.routingInboxView === 'expired'}
             onClick={() => applyRoutingInboxView('expired', {}, null)}
+            hint={hintText('Response window elapsed — no longer available to accept.')}
           />
-          <FilterStat value={compactCurrency(inboxValue)} label="Inbox value" tone="success" filled />
+          <FilterStat
+            value={compactCurrency(inboxValue)}
+            label="Inbox value"
+            tone="success"
+            filled
+            hint={hintText('Total estimated value of your open matches.')}
+          />
         </div>
       </div>
       )}
@@ -643,11 +858,11 @@ export default function AttorneyDashboardLeadsTab({
                 <span className="text-xs text-gray-500">(Schedule consult: select 1 case)</span>
               )}
             </>
-          ) : (
+          ) : hasActionableSelection ? (
             <span className="text-xs text-gray-500">
               Accept a match to unlock document requests and consult scheduling.
             </span>
-          )}
+          ) : null}
           <button
             onClick={clearSelectedLeads}
             disabled={bulkActionLoading}
@@ -720,10 +935,22 @@ export default function AttorneyDashboardLeadsTab({
             </button>
           </div>
         </div>
-        <div className="w-full min-w-0 overflow-x-auto">
+        <div
+          ref={topScrollRef}
+          onScroll={() => syncScroll('top')}
+          className="w-full min-w-0 overflow-x-auto overflow-y-hidden"
+          aria-hidden
+        >
+          <div style={{ width: tableScrollWidth || undefined, height: 1 }} className="min-w-[1280px]" />
+        </div>
+        <div
+          ref={bodyScrollRef}
+          onScroll={() => syncScroll('body')}
+          className="w-full min-w-0 max-h-[70vh] overflow-auto rounded-lg border border-slate-200"
+        >
           <table className="w-full min-w-[1280px] table-fixed divide-y divide-slate-100">
             <colgroup>
-              <col className="w-16" />
+              <col className="w-[104px]" />
               <col className="w-10" />
               <col className="w-[220px]" />
               <col className="w-[90px]" />
@@ -735,9 +962,9 @@ export default function AttorneyDashboardLeadsTab({
               <col className="w-[140px]" />
               <col className="w-[230px]" />
             </colgroup>
-            <thead className="bg-slate-50/60">
+            <thead className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_rgba(0,0,0,0.06)]">
               <tr>
-                <th className="w-16 px-3 py-3 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider">Lead</th>
+                <th className="w-[104px] px-3 py-3 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider">Lead</th>
                 <th className="w-10 px-3 py-3 text-left text-[11px] font-bold text-slate-700 uppercase"></th>
                 <th className="w-[230px] px-4 py-3 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider">Description</th>
                 <th className="w-[90px] px-4 py-3 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wider">Actions</th>
@@ -792,6 +1019,12 @@ export default function AttorneyDashboardLeadsTab({
                             className="rounded border-gray-300"
                           />
                         </div>
+                        {offerCountdown && (
+                          <div className="mt-1.5 inline-flex items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-xs font-semibold tabular-nums text-red-600">
+                            <Clock className="h-3 w-3" />
+                            {offerCountdown.isExpired ? 'Expired' : offerCountdown.label}
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-3 align-top">
                         <button onClick={() => toggleStarred(lead.id)} className="text-gray-400 hover:text-amber-500">
@@ -897,16 +1130,6 @@ export default function AttorneyDashboardLeadsTab({
                             </span>
                           )}
                         </div>
-                        {offerCountdown && (
-                          <div className={`mt-1 inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ${
-                            offerCountdown.isExpired
-                              ? 'bg-red-50 text-red-700'
-                              : 'bg-amber-50 text-amber-700'
-                          }`}>
-                            <Clock className="h-3 w-3" />
-                            {offerCountdown.isExpired ? 'Expired' : offerCountdown.label}
-                          </div>
-                        )}
                       </td>
                       <td className="px-4 py-3 align-top">
                         {lead.demandReadiness ? (

@@ -11,6 +11,7 @@ import {
 } from '../lib/client-consent-guard'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { startAssessmentRouting } from '../lib/assessment-routing'
+import { generateSceneImageForAssessment } from '../services/incident-scene'
 import { buildCaseCommandCenter } from '../lib/case-command-center'
 import { runEscalationWave } from '../lib/routing-lifecycle'
 import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
@@ -842,6 +843,10 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       }
     })
     logger.info('Case submitted for review', { assessmentId: id, userId: req.user?.id })
+
+    // Generate the AI incident-scene schematic once, up front, for every routed lead
+    // (non-blocking — never delays submission/routing).
+    void generateSceneImageForAssessment(id).catch(() => {})
 
     // Trigger unified routing orchestration: tier-first when available, classic engine as fallback.
     void startAssessmentRouting(id, {

@@ -15,6 +15,8 @@ import {
   seedAppointmentPrepItems,
   updateAppointmentPreparation,
 } from '../lib/appointment-engagement'
+import { notifyAttorneyInApp } from '../lib/case-notifications'
+import { ATTORNEY_EVENTS } from '../lib/notification-events'
 
 const router = Router()
 
@@ -191,6 +193,27 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
     }).catch((notificationError) => {
       logger.warn('Appointment scheduled notification failed', { notificationError, appointmentId: appointment.id })
     })
+
+    // In-app notification for the attorney's notifications bell.
+    try {
+      const consultLead = assessmentId
+        ? await prisma.leadSubmission.findFirst({ where: { assessmentId }, select: { id: true } })
+        : null
+      const whenLabel = appointment.scheduledAt.toLocaleString('en-US', {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      })
+      await notifyAttorneyInApp({
+        attorneyId,
+        assessmentId: assessmentId || null,
+        eventType: ATTORNEY_EVENTS.consult_scheduled,
+        subject: 'Consult scheduled',
+        body: `A ${type.replace(/_/g, ' ')} consultation was booked for ${whenLabel}.`,
+        leadId: consultLead?.id || null,
+        link: consultLead?.id ? `/attorney-dashboard/cases/${consultLead.id}/overview` : undefined,
+      })
+    } catch (notifyErr) {
+      logger.warn('Attorney in-app consult notification failed', { appointmentId: appointment.id, error: (notifyErr as Error).message })
+    }
 
     // For video consults, prefer a real Zoom meeting on the attorney's connected
     // account (Option B). Falls back to a Meet/Teams link below when Zoom isn't

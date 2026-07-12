@@ -139,7 +139,7 @@ export default function AttorneyLogin() {
 
             <div className="mt-8 border-t border-slate-200 pt-6 text-center">
               <p className="text-sm text-slate-500">New to ClearCaseIQ?</p>
-              <Link to="/attorney-network" className="mt-2 block font-semibold text-brand-700 hover:text-brand-800">
+              <Link to="/attorney-register" className="mt-2 block font-semibold text-brand-700 hover:text-brand-800">
                 Join the Attorney Network -&gt;
               </Link>
               <p className="mt-3 text-xs text-slate-500">
@@ -165,7 +165,7 @@ export default function AttorneyLogin() {
               ))}
             </div>
             <Link
-              to="/attorney-network"
+              to="/attorney-register"
               className="mt-8 inline-flex w-full items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-100"
             >
               Join Attorney Network

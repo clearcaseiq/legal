@@ -12,11 +12,13 @@ import {
   PageHeader,
   SectionCard,
   StatGrid,
+  StatHintsToggle,
   TableScroll,
   Th,
   THeadRow,
   Td,
   Tr,
+  useStatHints,
   type BadgeTone,
   type DataTableColumn,
 } from '../shared/ui'
@@ -248,9 +250,14 @@ export default function MarketplacePerformancePage() {
 
   const mp = useMemo(() => (data?.marketplace ?? null), [data])
 
+  const { showHints, toggleHints, hint } = useStatHints()
+
   return (
     <div className="space-y-4">
-      <PageHeader title="Marketplace Performance" />
+      <PageHeader
+        title="Marketplace Performance"
+        actions={<StatHintsToggle showHints={showHints} onToggle={toggleHints} />}
+      />
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
@@ -275,15 +282,16 @@ export default function MarketplacePerformancePage() {
       ) : (
         <>
           <StatGrid columns={5}>
-            <FilterStat value={money(mp.routingSpend)} label="Routing spend" tone="neutral" filled />
-            <FilterStat value={compactMoney(mp.retainedValue)} label="Retained value" tone="success" filled />
-            <FilterStat value={multiple(mp.returnOnSpend)} label="Return on spend" tone="success" filled />
-            <FilterStat value={money(mp.costPerRetained)} label="Cost / retained case" tone="neutral" filled />
+            <FilterStat value={money(mp.routingSpend)} label="Routing spend" tone="neutral" filled hint={hint('Total platform routing fees paid over the last 30 days.')} />
+            <FilterStat value={compactMoney(mp.retainedValue)} label="Retained value" tone="success" filled hint={hint('Estimated combined value of cases you retained from routed matches.')} />
+            <FilterStat value={multiple(mp.returnOnSpend)} label="Return on spend" tone="success" filled hint={hint('Fees collected on retained cases ÷ routing spend — real dollars returned per $1 of routing fees.')} />
+            <FilterStat value={money(mp.costPerRetained)} label="Cost / retained case" tone="neutral" filled hint={hint('Routing spend ÷ cases retained — what each signed client cost in routing fees.')} />
             <FilterStat
               value={String(mp.casesRetained ?? 0)}
               label="Cases retained"
               tone="neutral"
               filled
+              hint={hint('Matches that became signed/retained clients. Click to view them.')}
               onClick={() =>
                 navigate(
                   effectiveScope === 'firm'
@@ -315,12 +323,6 @@ export default function MarketplacePerformancePage() {
               />
             </SectionCard>
           )}
-
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            Marketplace Performance is the P&amp;L of the acquisition channel — what you spend on routing fees versus the
-            value of cases it produces. Spend comes from Lead Generation; the case outcomes it&apos;s measured against
-            come from Case Management, which is the one place the two domains reconcile.
-          </div>
         </>
       )}
     </div>

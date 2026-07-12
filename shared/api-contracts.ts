@@ -17,11 +17,20 @@ export type AttorneyDashboardLead = {
   [key: string]: unknown
 }
 
+export type DeclineStats = {
+  last7: number
+  last30: number
+  last90: number
+  total: number
+}
+
 export type AttorneyDashboardResponse = {
   leads?: AttorneyDashboardLead[]
   queue?: AttorneyDashboardLead[]
   messagingSummary?: AttorneyDashboardSummary
   taskSummary?: AttorneyDashboardSummary
+  declineStats?: DeclineStats
+  acceptStats?: DeclineStats
   [key: string]: unknown
 }
 

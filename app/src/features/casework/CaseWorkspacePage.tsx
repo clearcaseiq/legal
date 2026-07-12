@@ -31,6 +31,7 @@ import {
   Plus,
   Receipt,
   RefreshCw,
+  Scale,
   Scissors,
   ScanLine,
   Search,
@@ -69,6 +70,7 @@ import { getApiOrigin } from '../../lib/runtimeEnv'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
 import ChatDrawer from '../../components/ChatDrawer'
 import InsurancePanel from './InsurancePanel'
+import SettlementPanel from './SettlementPanel'
 import { BackButton, EmptyState } from '../shared/ui'
 import { recordRecentCase } from './recentCases'
 
@@ -106,7 +108,7 @@ const ROW_TONE: Record<Tone, string> = {
   danger: 'text-rose-700',
 }
 
-const TABS = ['Overview', 'Evidence', 'Signatures', 'Medical', 'Insurance', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Billing', 'Tasks'] as const
+const TABS = ['Overview', 'Evidence', 'Signatures', 'Medical', 'Insurance', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Tasks'] as const
 type Tab = (typeof TABS)[number]
 
 const SECTION_TO_TAB: Record<string, Tab> = {
@@ -124,7 +126,8 @@ const SECTION_TO_TAB: Record<string, Tab> = {
   timeline: 'Timeline',
   chronology: 'Timeline',
   deadlines: 'Deadlines',
-  billing: 'Billing',
+  settlement: 'Settlement',
+  billing: 'Settlement',
   tasks: 'Tasks',
 }
 
@@ -138,7 +141,7 @@ const TAB_TO_SECTION: Record<Tab, string> = {
   Demand: 'demand',
   Timeline: 'timeline',
   Deadlines: 'deadlines',
-  Billing: 'billing',
+  Settlement: 'settlement',
   Tasks: 'tasks',
 }
 
@@ -154,7 +157,7 @@ const TAB_META: Record<Tab, TabMeta> = {
   Demand: { icon: Gavel, blurb: 'Demand package, case value, and policy limits.' },
   Timeline: { icon: Clock, blurb: 'A chronological record of everything on this matter.' },
   Deadlines: { icon: CalendarClock, blurb: 'Statute of limitations and key case milestones.' },
-  Billing: { icon: Receipt, blurb: 'Contingency fee and estimated client net.' },
+  Settlement: { icon: Scale, blurb: 'Net-to-client waterfall: fees, case costs, and lien reductions.' },
   Tasks: { icon: ListChecks, blurb: 'Open work items for this case.' },
 }
 
@@ -1162,62 +1165,8 @@ function WorkstreamPanel({
     )
   }
 
-  if (tab === 'Billing') {
-    const gross = cc?.valueStory?.median || detail.caseValue || 0
-    if (!gross) return <Note>Billing estimates appear once the case has a value estimate.</Note>
-    const rate = detail.claimType === 'medmal' ? 0.4 : 1 / 3
-    const fee = Math.round(gross * rate)
-    const bm = cc?.medicalCostBenchmark
-    const liens = Math.round(bm?.medCharges ?? bm?.benchmarkTypicalTotal ?? 0)
-    const costs = Math.round(gross * 0.04)
-    const net = Math.max(0, gross - fee - liens - costs)
-
-    const parts = [
-      { label: 'Client net', amount: net, bar: 'bg-emerald-500' },
-      { label: 'Attorney fee', amount: fee, bar: 'bg-brand-500' },
-      { label: 'Medical liens', amount: liens, bar: 'bg-amber-500' },
-      { label: 'Case costs', amount: costs, bar: 'bg-slate-400' },
-    ].filter((p) => p.amount > 0)
-    const total = parts.reduce((s, p) => s + p.amount, 0) || 1
-
-    return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Metric label="Gross recovery (est.)" value={money(gross)} />
-          <Metric label="Contingency rate" value={`${Math.round(rate * 100)}%`} />
-          <Metric label="Client net (est.)" value={money(net)} accent />
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-900">Estimated disbursement</h3>
-            <span className="text-xs text-slate-400">of {money(gross)} gross</span>
-          </div>
-          <div className="flex h-4 w-full overflow-hidden rounded-full bg-slate-100">
-            {parts.map((p) => (
-              <div key={p.label} className={p.bar} style={{ width: `${(p.amount / total) * 100}%` }} title={`${p.label}: ${money(p.amount)}`} />
-            ))}
-          </div>
-          <ul className="mt-4 space-y-2">
-            {parts.map((p) => (
-              <li key={p.label} className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-2">
-                  <span className={`h-2.5 w-2.5 rounded-full ${p.bar}`} />
-                  <span className="text-slate-600">{p.label}</span>
-                  <span className="text-xs text-slate-400">{Math.round((p.amount / total) * 100)}%</span>
-                </span>
-                <span className="font-semibold text-slate-900">{money(p.amount)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <Note>
-          Estimates only. Contingency modeled at {Math.round(rate * 100)}% per claim type; medical liens approximated from documented
-          specials; case costs modeled at ~4%. Final disbursement depends on the actual settlement and negotiated liens.
-        </Note>
-      </div>
-    )
+  if (tab === 'Settlement') {
+    return <SettlementPanel leadId={lead.id} />
   }
 
   if (tab === 'Tasks') {

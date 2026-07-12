@@ -259,6 +259,9 @@ function MobileNav() {
 function WorkspaceChrome() {
   const location = useLocation()
   const domain = domainForPath(location.pathname)
+  // Global (case/contact/document) search is a Case Management tool — it's noise on
+  // the Lead Generation screens (New Matches, Match Quality, Marketplace), so hide it there.
+  const isLeadGen = location.pathname.startsWith('/attorney-dashboard/leadgen')
   return (
     <div className="mx-auto w-full max-w-7xl">
       <div className="mb-4 flex items-center gap-3">
@@ -271,7 +274,7 @@ function WorkspaceChrome() {
       <div className="flex gap-6">
         <Sidebar />
         <div className="min-w-0 flex-1 space-y-4">
-          <GlobalSearch />
+          {!isLeadGen && <GlobalSearch />}
           <MobileNav />
           <Outlet />
         </div>

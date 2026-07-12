@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { getAttorneyDashboard, getFirmDashboard } from '../../lib/api'
 import { useFirmDashboardSummary } from '../../hooks/useFirmDashboardSummary'
 import { useAttorneyWorkspace } from '../shared/AttorneyWorkspaceContext'
-import { DataTable, EmptyState, FilterStat, PageHeader, SectionCard, StatGrid, type DataTableColumn } from '../shared/ui'
+import { DataTable, EmptyState, FilterStat, PageHeader, SectionCard, StatGrid, StatHintsToggle, useStatHints, type DataTableColumn } from '../shared/ui'
 
 const CLAIM_LABELS: Record<string, string> = {
   auto: 'Auto',
@@ -33,15 +33,11 @@ function pct(fraction: number) {
   return `${Math.round(fraction * 100)}%`
 }
 
-function money(value: any) {
-  const n = Number(value ?? 0)
-  return `$${Math.round(n).toLocaleString()}`
-}
-
 const ACCEPTED_STATUSES = ['contacted', 'consulted', 'retained']
 
 // Match-quality signal → colored status dot (green strong, amber fair, red weak).
-type DotTone = 'success' | 'warning' | 'danger'
+// `brand` is a neutral blue identifier dot (used to label a row, not to signal quality).
+type DotTone = 'success' | 'warning' | 'danger' | 'brand'
 function toneForScore(fraction: number): DotTone {
   if (fraction >= 0.75) return 'success'
   if (fraction >= 0.6) return 'warning'
@@ -51,6 +47,7 @@ const DOT_CLASS: Record<DotTone, string> = {
   success: 'bg-emerald-500',
   warning: 'bg-amber-500',
   danger: 'bg-rose-500',
+  brand: 'bg-brand-500',
 }
 
 function StatusDot({ tone }: { tone: DotTone }) {
@@ -147,6 +144,19 @@ export default function MatchQualityPage() {
   const [firm, setFirm] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [declineWindow, setDeclineWindow] = useState<'7' | '30' | '90'>(() => {
+    try {
+      const stored = localStorage.getItem('clearcaseiq_decline_window')
+      if (stored === '7' || stored === '30' || stored === '90') return stored
+    } catch {}
+    return '30'
+  })
+  const chooseDeclineWindow = (w: '7' | '30' | '90') => {
+    setDeclineWindow(w)
+    try {
+      localStorage.setItem('clearcaseiq_decline_window', w)
+    } catch {}
+  }
 
   const effectiveScope = scope === 'firm' && isFirmAdmin ? 'firm' : 'mine'
   const firmAttorneyCount =
@@ -196,7 +206,7 @@ export default function MatchQualityPage() {
         acceptRate: lq.acceptRate,
         retainRate: lq.retainRate,
         avgMatch: lq.avgMatch,
-        costPerRetained: Number(lq.costPerRetained || 0),
+        costPerLead: lq.total > 0 ? Number(mine.dashboard?.totalPlatformSpend || 0) / lq.total : 0,
         refundRate: Number(lq.refundRate || 0),
         rows,
       }
@@ -238,7 +248,7 @@ export default function MatchQualityPage() {
       acceptRate: total ? accepted / total : 0,
       retainRate: total ? retained / total : 0,
       avgMatch,
-      costPerRetained: retained > 0 ? spend / retained : 0,
+      costPerLead: total > 0 ? spend / total : 0,
       refundRate: 0,
       rows,
     }
@@ -281,10 +291,16 @@ export default function MatchQualityPage() {
       key: 'name',
       header: 'Attorney',
       cell: (r) => (
-        <span className="inline-flex items-center gap-2 font-semibold text-slate-900">
-          <StatusDot tone={r.tone} />
+        <button
+          type="button"
+          onClick={() => navigate('/attorney-dashboard/cases/firm')}
+          title={`View ${r.name}'s caseload`}
+          aria-label={`View ${r.name}'s caseload`}
+          className="inline-flex items-center gap-2 rounded font-semibold text-slate-900 underline-offset-2 hover:text-brand-700 hover:underline focus:outline-none focus:ring-2 focus:ring-brand-200"
+        >
+          <StatusDot tone="brand" />
           {r.name}
-        </span>
+        </button>
       ),
     },
     {
@@ -304,8 +320,6 @@ export default function MatchQualityPage() {
       ),
     },
     { key: 'acceptRate', header: 'Accept rate', align: 'right', cell: (r) => pct(r.acceptRate) },
-    { key: 'spend', header: 'Spend', align: 'right', cell: (r) => money(r.spend) },
-    { key: 'fees', header: 'Fees collected', align: 'right', cell: (r) => money(r.fees) },
   ]
 
   const mineColumns: DataTableColumn<any>[] = [
@@ -368,9 +382,49 @@ export default function MatchQualityPage() {
     { key: 'avgMatch', header: 'Avg. match', align: 'right', cell: (r) => pct(r.avgMatch) },
   ]
 
+  const { showHints, toggleHints, hint } = useStatHints()
+
+  // Declined matches — retrospective view of matches this attorney passed on,
+  // bucketed server-side by Introduction.respondedAt (7 / 30 / 90 days).
+  const declineStats = mine?.declineStats as
+    | { last7: number; last30: number; last90: number; total: number }
+    | undefined
+  const declinedInWindow =
+    declineWindow === '7'
+      ? declineStats?.last7 ?? 0
+      : declineWindow === '90'
+        ? declineStats?.last90 ?? 0
+        : declineStats?.last30 ?? 0
+  const declinedTotal = declineStats?.total ?? 0
+  const routedTotal = mineView?.total ?? 0
+  const declineRate = routedTotal > 0 ? declinedTotal / routedTotal : 0
+
+  const DeclineWindowToggle = (
+    <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 bg-white">
+      {(['7', '30', '90'] as const).map((w) => (
+        <button
+          key={w}
+          type="button"
+          onClick={() => chooseDeclineWindow(w)}
+          aria-pressed={declineWindow === w}
+          className={`px-2.5 py-1 text-xs font-semibold transition ${
+            declineWindow === w
+              ? 'bg-brand-600 text-white'
+              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+          }`}
+        >
+          {w}d
+        </button>
+      ))}
+    </div>
+  )
+
   return (
     <div className="space-y-4">
-      <PageHeader title="Match Quality" />
+      <PageHeader
+        title="Match Quality"
+        actions={<StatHintsToggle showHints={showHints} onToggle={toggleHints} />}
+      />
 
       <ScopeBar scope={scope} setScope={setScope} firmAttorneyCount={firmAttorneyCount} />
 
@@ -385,34 +439,50 @@ export default function MatchQualityPage() {
           <EmptyState message="No firm attorney data available yet." />
         ) : (
           <>
-            <StatGrid columns={4}>
-              <FilterStat value={String(firmView.attorneys)} label="Attorneys" />
-              <FilterStat value={String(firmView.totalRouted)} label="Matches routed" />
-              <FilterStat value={pct(firmView.acceptRate)} label="Firm accept rate" tone="success" />
-              <FilterStat value={money(firmView.totalSpend)} label="Routing spend" />
+            <StatGrid columns={3}>
+              <FilterStat value={String(firmView.attorneys)} label="Attorneys" hint={hint('Attorneys at your firm currently receiving routed matches. Click to open the firm dashboard.')} onClick={() => navigate('/attorney-dashboard/cases/firm')} />
+              <FilterStat value={String(firmView.totalRouted)} label="Matches routed" hint={hint('Total matches ClearCaseIQ has routed to your firm. Click to view the firm caseload.')} onClick={() => navigate('/attorney-dashboard/cases/firm')} />
+              <FilterStat value={pct(firmView.acceptRate)} label="Firm accept rate" tone="success" hint={hint('Share of routed matches your firm accepted (accepted ÷ routed). Click to view the firm caseload.')} onClick={() => navigate('/attorney-dashboard/cases/firm')} />
             </StatGrid>
 
             <SectionCard title="Match quality by attorney">
               <DataTable columns={firmColumns} rows={firmView.rows} rowKey={(r) => r.id} />
             </SectionCard>
-
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              With multiple attorneys, the firm view surfaces distribution problems an individual can&apos;t see —
-              low accept rates paired with routing spend, or attorneys whose conversion trails the firm. This is where a
-              managing partner rebalances routing, caps, or coaching.
-            </div>
           </>
         )
       ) : !mineView || mineView.total === 0 ? (
         <EmptyState message="No routed leads yet. Quality metrics appear as matches arrive." />
       ) : (
         <>
-          <StatGrid columns={4}>
-            <FilterStat value={pct(mineView.acceptRate)} label="Accept rate" tone="success" filled />
-            <FilterStat value={pct(mineView.retainRate)} label="Retain rate" tone="neutral" filled />
-            <FilterStat value={money(mineView.costPerRetained)} label="Cost per retained" tone="neutral" filled />
-            <FilterStat value={pct(mineView.refundRate)} label="Refund rate" tone="warning" filled />
+          <StatGrid columns={3}>
+            <FilterStat value={pct(mineView.acceptRate)} label="Accept rate" tone="success" filled hint={hint('Share of matches routed to you that you accepted (accepted ÷ routed).')} />
+            <FilterStat value={pct(mineView.retainRate)} label="Retain rate" tone="neutral" filled hint={hint('Share of your matches that became signed/retained clients.')} />
+            <FilterStat value={pct(mineView.avgMatch)} label="Avg match fit" tone="neutral" filled hint={hint('Average predicted fit across your routed matches. Cost metrics live on Marketplace Performance.')} />
           </StatGrid>
+
+          <SectionCard title="Declined matches" trailing={DeclineWindowToggle}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Declined · last {declineWindow}d
+                </p>
+                <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{declinedInWindow}</p>
+                <p className="mt-1 text-xs text-slate-500">Matches you passed on in this window.</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Declined · all time</p>
+                <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{declinedTotal}</p>
+                <p className="mt-1 text-xs text-slate-500">Every match you've declined to date.</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Decline rate</p>
+                <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{pct(declineRate)}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {declinedTotal} declined ÷ {routedTotal} routed (all time).
+                </p>
+              </div>
+            </div>
+          </SectionCard>
 
           <SectionCard title="My match quality by practice area" trailing={<MatchLegend />}>
             <DataTable columns={mineColumns} rows={mineView.rows} rowKey={(r) => r.label} />

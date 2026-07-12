@@ -46,6 +46,68 @@ async function findUserByEmail(email?: string | null) {
 }
 
 /**
+ * Standardized attorney IN-APP notification for the notifications bell.
+ *
+ * Writes a `Notification` row (channel `in_app`) keyed to the attorney's User, with a
+ * deep `link` + `leadId` carried in the payload so the bell can render and navigate.
+ * `eventType` MUST be an `attorney.*` type — the bell lists Notification rows whose
+ * `type` starts with `attorney.` (so we intentionally omit `templateKey`, which would
+ * otherwise become the stored `type`).
+ */
+export async function notifyAttorneyInApp(input: {
+  attorneyId: string
+  userId?: string | null
+  recipientEmail?: string | null
+  assessmentId?: string | null
+  eventType: string
+  subject: string
+  body: string
+  leadId?: string | null
+  link?: string | null
+  payload?: Record<string, unknown>
+}): Promise<boolean> {
+  try {
+    let userId = input.userId || null
+    let email = input.recipientEmail || null
+    if (!userId || !email) {
+      const attorney = await prisma.attorney.findUnique({
+        where: { id: input.attorneyId },
+        select: { email: true },
+      })
+      const user = await findUserByEmail(attorney?.email)
+      if (!user) return false
+      userId = user.id
+      email = user.email
+    }
+    await createNotificationEvent({
+      userId,
+      attorneyId: input.attorneyId,
+      assessmentId: input.assessmentId || undefined,
+      role: 'attorney',
+      channel: 'in_app',
+      eventType: input.eventType,
+      subject: input.subject,
+      body: input.body,
+      recipient: email || undefined,
+      payload: {
+        ...(input.payload || {}),
+        eventType: input.eventType,
+        ...(input.leadId ? { leadId: input.leadId } : {}),
+        ...(input.link ? { link: input.link } : {}),
+      },
+    })
+    return true
+  } catch (err) {
+    logger.warn('notifyAttorneyInApp failed', {
+      attorneyId: input.attorneyId,
+      eventType: input.eventType,
+      error: (err as Error).message,
+    })
+    return false
+  }
+}
+
+/**
  * Send case offer to attorney via all channels: Email, SMS, in-platform
  */
 export async function sendCaseOfferToAttorney(
@@ -150,14 +212,14 @@ export async function sendCaseOfferToAttorney(
         role: 'attorney',
         channel: 'in_app',
         eventType: ATTORNEY_EVENTS.case_routed,
-        templateKey: 'attorney_case_routed_in_app',
-        subject: 'New Case Match',
+        subject: 'New case match',
         body: fullMessage,
         recipient: user.email,
         payload: {
           introductionId,
           assessmentId: summary.assessmentId,
-          claimType: summary.claimType
+          claimType: summary.claimType,
+          ...(lead?.id ? { leadId: lead.id, link: `/attorney-dashboard/lead/${lead.id}/overview` } : {}),
         }
       })
       inPlatformSent = true
@@ -435,6 +497,14 @@ export async function sendAttorneyCaseMaterialUpdate(
         ? 'Plaintiff uploaded documents including liability evidence (e.g. police report).'
         : `${reason.replace(/_/g, ' ')}.`
 
+  const materialLead = await prisma.leadSubmission.findFirst({
+    where: { assessmentId },
+    select: { id: true },
+  })
+  const materialLink = materialLead?.id
+    ? `/attorney-dashboard/cases/${materialLead.id}/evidence`
+    : undefined
+
   const message = [
     'Case Update',
     '',
@@ -459,15 +529,15 @@ export async function sendAttorneyCaseMaterialUpdate(
           role: 'attorney',
           channel: 'in_app',
           eventType: ATTORNEY_EVENTS.doc_uploaded,
-          templateKey: 'attorney_case_material_update_in_app',
-          subject: 'Case Update – New Evidence',
+          subject: 'Case update – new evidence',
           body: message,
           recipient: user.email,
           payload: {
             assessmentId,
             introductionId: intro.id,
             newValue,
-            reason
+            reason,
+            ...(materialLead?.id ? { leadId: materialLead.id, link: materialLink } : {}),
           }
         })
         count++

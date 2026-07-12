@@ -12,6 +12,10 @@ export type AttorneyDashboardAssessment = {
   createdAt?: string
   venueCounty?: string
   venueState?: string
+  /** AI incident-scene schematic (relative /uploads/scenes/... URL) */
+  sceneImageUrl?: string | null
+  /** null | pending | ready | failed */
+  sceneImageStatus?: string | null
   files?: AttorneyDashboardFile[]
   user?: {
     id?: string

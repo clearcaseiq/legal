@@ -3,15 +3,65 @@
  * Answers: Is this case worth my time? What's the likely value? What evidence exists?
  */
 
-import { useEffect, useState } from 'react'
-import { formatCurrency } from '../lib/formatters'
-import { ChevronDown, ChevronRight, Clock } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { formatCurrency, formatPercentage } from '../lib/formatters'
+import { ChevronDown, ChevronRight, Clock, Check, Info, RefreshCw, Sparkles, ImageOff, Gauge, Image as ImageIcon, Stethoscope, ShieldCheck, FolderOpen } from 'lucide-react'
 import { useHeuristics } from '../contexts/HeuristicsContext'
-import { caseStrengthLabel, scoreTone } from '../lib/heuristics'
+import { caseStrengthLabel } from '../lib/heuristics'
+import { useStatHints, StatHintsToggle } from '../features/shared/ui'
+import { getEvidenceObjectUrl, regenerateLeadSceneImage, getLead } from '../lib/api'
 
 function formatClaimType(s: string) {
   if (!s) return 'Personal injury'
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * De-identify a free-text narrative for the pre-acceptance (anonymous) view by
+ * replacing the known plaintiff name(s) with "the plaintiff". Full names are matched
+ * before lone first/last tokens (longest-first) so "Mary Lopez" collapses cleanly.
+ */
+function deidentifyText(text: string, names: string[]): string {
+  if (!text) return text
+  const unique = Array.from(new Set(names.map((n) => (n || '').trim()).filter((n) => n.length >= 2))).sort(
+    (a, b) => b.length - a.length,
+  )
+  let out = text
+  for (const name of unique) {
+    const re = new RegExp(`\\b${escapeRegExp(name)}\\b`, 'gi')
+    out = out.replace(re, 'the plaintiff')
+  }
+  // Collapse accidental repeats ("the plaintiff the plaintiff" / possessive slips).
+  out = out.replace(/\b(the plaintiff)(?:'s)?(\s+the plaintiff\b)+/gi, 'the plaintiff')
+  return out
+}
+
+/**
+ * Parse a deterministic-chronology line into structured parts for the care timeline.
+ * Expected shape (best-effort): "<date> — <provider> • Dx: <diagnosis> • Tx: <treatment>".
+ * Falls back to putting the whole string in `provider` when the format doesn't match.
+ */
+function parseChronologyEntry(entry: string): { date: string | null; provider: string | null; dx: string | null; tx: string | null } {
+  const raw = (entry || '').trim()
+  if (!raw) return { date: null, provider: null, dx: null, tx: null }
+  const [head, ...restParts] = raw.split(/\s+[—-]\s+/)
+  const hasDate = /\d/.test(head) && restParts.length > 0
+  const date = hasDate ? head.trim() : null
+  const remainder = hasDate ? restParts.join(' — ') : raw
+  const segments = remainder.split(/\s*•\s*/).map((s) => s.trim()).filter(Boolean)
+  let provider: string | null = null
+  let dx: string | null = null
+  let tx: string | null = null
+  for (const seg of segments) {
+    if (/^dx:/i.test(seg)) dx = seg.replace(/^dx:\s*/i, '').trim()
+    else if (/^tx:/i.test(seg)) tx = seg.replace(/^tx:\s*/i, '').trim()
+    else if (!provider) provider = seg
+  }
+  return { date, provider, dx, tx }
 }
 
 function formatCountdown(ms: number) {
@@ -78,8 +128,9 @@ export default function PreAcceptanceView({
   accepted = false
 }: PreAcceptanceViewProps) {
   const heuristics = useHeuristics()
+  const { showHints, toggleHints } = useStatHints()
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'snapshot' | 'value' | 'risks' | 'documents' | 'decision'>('snapshot')
+  const [activeTab, setActiveTab] = useState<'snapshot' | 'scene' | 'medical' | 'insurance' | 'evidence'>('snapshot')
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -105,6 +156,38 @@ export default function PreAcceptanceView({
       return 'Not provided yet'
     }
   })()
+  // Parse the raw intake facts once so the summary card can describe the actual
+  // incident (when / where / how), the injury/treatment picture, and coverage —
+  // not just headline scores.
+  const parsedFacts = (() => {
+    try {
+      const raw = selectedLead?.assessment?.facts
+      return typeof raw === 'string' ? JSON.parse(raw) : raw
+    } catch {
+      return null
+    }
+  })()
+  const incidentFacts = parsedFacts?.incident || {}
+  const incidentWhen = [incidentFacts.date, incidentFacts.time].filter(Boolean).join(' · ') || 'Not provided'
+  const incidentWhere = incidentFacts.location || location
+  // Names to scrub from any displayed free text (pre-acceptance view is de-identified).
+  const plaintiffNameTokens = [
+    selectedLead?.assessment?.user?.firstName,
+    selectedLead?.assessment?.user?.lastName,
+    [selectedLead?.assessment?.user?.firstName, selectedLead?.assessment?.user?.lastName].filter(Boolean).join(' '),
+    parsedFacts?.plaintiffContext?.firstName,
+    parsedFacts?.plaintiffContext?.lastName,
+    [parsedFacts?.plaintiffContext?.firstName, parsedFacts?.plaintiffContext?.lastName].filter(Boolean).join(' '),
+  ].filter(Boolean) as string[]
+  const rawIncidentDescription = incidentFacts.narrative || parsedFacts?.damages?.pain_suffering_narrative || ''
+  const incidentDescription =
+    deidentifyText(rawIncidentDescription, plaintiffNameTokens) || 'No incident description provided yet.'
+  const faultLabel = parsedFacts?.liability?.fault
+    ? String(parsedFacts.liability.fault).replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+    : null
+  const policyLimit = Number(parsedFacts?.insurance?.policy_limit) || null
+  const medSpecials = Number(parsedFacts?.damages?.med_charges) || null
+  const treatmentProviders = Array.isArray(parsedFacts?.treatment) ? parsedFacts.treatment.length : treatments.length
   const valueLow = bands?.p25 ?? bands?.low ?? 0
   const valueHigh = bands?.p75 ?? bands?.high ?? bands?.median ?? 0
   const routingPricing = selectedLead?.routingPricing
@@ -154,13 +237,12 @@ export default function PreAcceptanceView({
       liabilityScore >= 0.5 ? 1 : 0,
     ].reduce((sum, score) => sum + score, 0) / 4 * 100,
   )
-  const readinessScore = Math.round((caseScore + evidenceScore + confidenceScore + Math.round(liabilityScore * 100)) / 4)
   const tabs = [
-    { id: 'snapshot', label: 'Snapshot' },
-    { id: 'value', label: 'Value' },
-    { id: 'risks', label: 'Risks' },
-    { id: 'documents', label: 'Documents' },
-    { id: 'decision', label: 'Decision' },
+    { id: 'snapshot', label: 'Snapshot', icon: Gauge },
+    { id: 'scene', label: 'Scene', icon: ImageIcon },
+    { id: 'medical', label: 'Medical', icon: Stethoscope },
+    { id: 'insurance', label: 'Insurance', icon: ShieldCheck },
+    { id: 'evidence', label: 'Evidence', icon: FolderOpen },
   ] as const
 
   // Timeline: Accident → First Visit → Last Visit
@@ -170,12 +252,7 @@ export default function PreAcceptanceView({
       ? treatments[treatments.length - 1]?.date || deterministicChronology.timeline[deterministicChronology.timeline.length - 1]
       : '—'
 
-  // Strengths & Risks
-  const strengths: string[] = []
-  if (hasMedical) strengths.push('Injury documented')
-  if (liabilityScore >= 0.5) strengths.push('Liability indicators present')
-  if (venueSignal && !venueSignal.includes('No venue')) strengths.push('Venue favorable')
-
+  // Risks (drives the Risks tab and the decision recommendation)
   const risks: string[] = []
   if (!hasPolice) risks.push('No police report yet')
   if (treatmentContinuity === 'Fragmented' || treatments.length <= 1) risks.push('Treatment gaps')
@@ -202,21 +279,32 @@ export default function PreAcceptanceView({
   // Once the response window lapses (or the case is taken) the attorney can no longer
   // act on the match: Accept/Decline are disabled and grayed out.
   const decisionLocked = !accepted && (caseTaken || isExpired)
-  const deadlineUrgency = expiresIn
-    ? isExpired ? 'Response window expired' : `Response window: ${expiresIn}`
-    : 'No response deadline shown'
   const decisionRecommendation =
     caseScore >= 70 && risks.length <= 1
       ? 'Strong accept candidate'
       : caseScore >= 45
         ? 'Accept if capacity and missing documents are manageable'
         : 'Review risks before accepting'
-  const riskRows = [
-    { label: 'Treatment Continuity', value: treatmentContinuity || 'Not assessed yet', level: treatmentContinuity === 'Fragmented' || treatments.length <= 1 ? 'high' : 'low' },
-    { label: 'Documentation Completeness', value: `${evidenceScore}%`, level: evidenceScore < 50 ? 'high' : evidenceScore < 75 ? 'medium' : 'low' },
-    { label: 'Comparative Fault', value: comparativeRisk, level: comparativeRisk === 'Yes' || comparativeRisk === 'Possible' ? 'medium' : 'low' },
-    { label: 'Value Estimate Confidence', value: `${confidenceScore}%`, level: confidenceScore < 50 ? 'medium' : 'low' },
-  ]
+
+  // Viability breakdown (Liability / Causation / Damages). Mirrors the parent logic:
+  // use the first positive of the component score, the prediction's sub-score, then the
+  // overall viability — so we never show a contradictory 0% next to a real case value.
+  const viabilityBreakdown = (() => {
+    const v = (viability || {}) as Record<string, any>
+    const overall = Number(selectedLead?.viabilityScore ?? v.overall ?? 0) || 0
+    const firstPositive = (...vals: any[]) => {
+      for (const val of vals) {
+        const n = Number(val)
+        if (Number.isFinite(n) && n > 0) return n
+      }
+      return 0
+    }
+    return {
+      liability: firstPositive(selectedLead?.liabilityScore, v.liability, overall),
+      causation: firstPositive(selectedLead?.causationScore, v.causation, overall),
+      damages: firstPositive(selectedLead?.damagesScore, v.damages, overall),
+    }
+  })()
 
   return (
     <div className="space-y-6">
@@ -227,7 +315,16 @@ export default function PreAcceptanceView({
             {claimType} – {location}
           </h2>
           {!accepted && (
-            <div className="flex gap-3">
+            <div className="flex flex-wrap items-stretch gap-3">
+              {!caseTaken && !isExpired && expiresIn && (
+                <span className="inline-flex flex-col items-center justify-center rounded-lg border border-red-300 bg-red-50 px-6 py-3 text-red-700">
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold">
+                    <Clock className="h-3.5 w-3.5" />
+                    Time left to accept:
+                  </span>
+                  <span className="text-base font-bold tabular-nums leading-tight">{expiresIn}</span>
+                </span>
+              )}
               <button
                 onClick={onAccept}
                 disabled={loading || decisionLocked}
@@ -244,13 +341,18 @@ export default function PreAcceptanceView({
                     : 'bg-green-600 hover:bg-green-700 disabled:opacity-50'
                 }`}
               >
-                {caseTaken
-                  ? 'No longer available'
-                  : isExpired
-                    ? 'Response window expired'
-                    : routingFee
-                      ? `Accept Case - ${routingFee}`
-                      : 'Accept Case'}
+                {caseTaken ? (
+                  'No longer available'
+                ) : isExpired ? (
+                  'Response window expired'
+                ) : routingFee ? (
+                  <span className="inline-flex flex-col items-center leading-tight">
+                    <span>Accept Case</span>
+                    <span className="text-sm font-bold">{routingFee}</span>
+                  </span>
+                ) : (
+                  'Accept Case'
+                )}
               </button>
               <button
                 onClick={onDecline}
@@ -267,7 +369,43 @@ export default function PreAcceptanceView({
             </div>
           )}
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+        {/* Case-taken / expired notices (the live countdown sits next to Accept) */}
+        {!accepted && caseTaken && (
+          <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+            <Clock className="h-4 w-4" />
+            <span>This case has been assigned to another attorney. It is no longer available to accept.</span>
+          </div>
+        )}
+        {!accepted && !caseTaken && isExpired && (
+          <div className="mb-4 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+            <Clock className="h-4 w-4" />
+            <span>Response window expired — this match has been released to another attorney and can no longer be accepted.</span>
+          </div>
+        )}
+        {/* The incident: when / where / how */}
+        <div className="grid grid-cols-1 gap-3 rounded-lg border border-brand-100 bg-white/60 p-3 text-sm sm:grid-cols-3">
+          <div>
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">When</span>
+            <p className="font-semibold text-gray-900">{incidentWhen}</p>
+          </div>
+          <div>
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Where</span>
+            <p className="font-semibold text-gray-900">{incidentWhere}</p>
+          </div>
+          <div>
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">How</span>
+            <p className="font-semibold text-gray-900">{faultLabel ? `${faultLabel} at fault` : claimType}</p>
+          </div>
+        </div>
+
+        {/* Description of what happened */}
+        <div className="mt-3">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Description</span>
+          <p className="mt-1 text-sm leading-relaxed text-gray-700">{incidentDescription}</p>
+        </div>
+
+        {/* Key facts: estimate, treatment, insurance, evidence */}
+        <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
           <div>
             <span className="text-gray-500">Estimated Case Value:</span>
             <p className="font-semibold text-gray-900">
@@ -281,63 +419,35 @@ export default function PreAcceptanceView({
             </p>
           </div>
           <div>
-            <span className="text-gray-500">Medical Treatment:</span>
-            <p className="font-semibold text-gray-900">{hasMedical ? 'Yes' : 'No'}</p>
+            <span className="text-gray-500">Treatment:</span>
+            <p className="font-semibold text-gray-900">
+              {hasMedical ? 'Yes' : medicalSharingPending ? 'Pending auth.' : 'No'}
+            </p>
+            {(medSpecials || treatmentProviders > 0) && (
+              <p className="text-xs text-gray-500">
+                {[
+                  treatmentProviders > 0 ? `${treatmentProviders} provider${treatmentProviders === 1 ? '' : 's'}` : null,
+                  medSpecials ? `${formatCurrency(medSpecials)} billed` : null,
+                ].filter(Boolean).join(' · ')}
+              </p>
+            )}
+          </div>
+          <div>
+            <span className="text-gray-500">Insurance:</span>
+            <p className="font-semibold text-gray-900">{insuranceSummary}</p>
+            {policyLimit && (
+              <p className="text-xs text-gray-500">{formatCurrency(policyLimit)} policy limit</p>
+            )}
           </div>
           <div>
             <span className="text-gray-500">Evidence:</span>
-            <p className="font-semibold text-gray-900">
-              {evidenceStatus}
-            </p>
+            <p className="font-semibold text-gray-900">{evidenceStatus}</p>
           </div>
           <div>
             <span className="text-gray-500">Timeline:</span>
-            <p className="font-semibold text-gray-900">
-              {expectedTimeline}
-            </p>
-          </div>
-          <div>
-            <span className="text-gray-500">Routing Fee:</span>
-            <p className="font-semibold text-gray-900">
-              {routingFee || 'Not assigned'}
-            </p>
+            <p className="font-semibold text-gray-900">{expectedTimeline}</p>
           </div>
         </div>
-        {!accepted && (
-          <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-semibold">Cost to accept: {routingFee || 'pricing not assigned'}</p>
-                <p className="mt-1 text-blue-800">
-                  {routingTierLabel}
-                  {routingPricing?.description ? ` - ${routingPricing.description}` : ''}
-                </p>
-              </div>
-              <span className="rounded-full bg-white px-3 py-1 text-center text-xs font-semibold text-blue-700">
-                Due on acceptance
-              </span>
-            </div>
-          </div>
-        )}
-        {!accepted && caseTaken && (
-          <div className="mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
-            <Clock className="h-4 w-4" />
-            <span>This case has been assigned to another attorney. It is no longer available to accept.</span>
-          </div>
-        )}
-        {!accepted && !caseTaken && expiresIn && (
-          isExpired ? (
-            <div className="mt-4 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
-              <Clock className="h-4 w-4" />
-              <span>Response window expired — this match has been released to another attorney and can no longer be accepted.</span>
-            </div>
-          ) : (
-            <div className="mt-4 inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
-              <Clock className="h-4 w-4" />
-              <span>Time left to accept: {expiresIn}</span>
-            </div>
-          )
-        )}
         {medicalSharingPending && (
           <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <p className="font-semibold">Medical records pending authorization</p>
@@ -354,37 +464,43 @@ export default function PreAcceptanceView({
         </div>
       )}
 
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-4 pt-4">
-          <div className="flex flex-wrap gap-2 text-sm">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`rounded-t-lg border px-3 py-2 font-medium ${
-                  activeTab === tab.id
-                    ? 'border-slate-200 border-b-white bg-white text-brand-700'
-                    : 'border-transparent bg-slate-50 text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 bg-gradient-to-b from-slate-50 to-white p-2">
+          <div className="flex flex-wrap gap-1.5" role="tablist">
+            {tabs.map((tab) => {
+              const active = activeTab === tab.id
+              const Icon = tab.icon
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`group inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition-all ${
+                    active
+                      ? 'bg-white text-brand-700 shadow-sm ring-1 ring-slate-200'
+                      : 'text-slate-500 hover:bg-white/70 hover:text-slate-800'
+                  }`}
+                >
+                  <Icon
+                    className={`h-4 w-4 transition-colors ${
+                      active ? 'text-brand-600' : 'text-slate-400 group-hover:text-slate-600'
+                    }`}
+                    aria-hidden
+                  />
+                  {tab.label}
+                </button>
+              )
+            })}
           </div>
         </div>
         <div className="p-5">
           {activeTab === 'snapshot' && (
             <div className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-4">
-                <DecisionMetric label="Acceptability" value={`${readinessScore}%`} helper={decisionRecommendation} tone={scoreTone(heuristics, readinessScore)} />
-                <DecisionMetric label="Attorney Fit" value={`${attorneyFitScore}%`} helper={matchReasons[0] || 'Fit based on case and venue signals'} tone="blue" />
-                <DecisionMetric label="File Completeness" value={`${evidenceScore}%`} helper={`${evidenceUploaded}/${evidenceTotal} key items uploaded`} tone={evidenceScore >= heuristics.evidenceCompleteness.highMin ? 'green' : 'amber'} />
-                <DecisionMetric label="Urgency" value={expiresIn || 'Normal'} helper={deadlineUrgency} tone={expiresIn ? 'amber' : 'slate'} />
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <h3 className="text-sm font-semibold text-slate-900">60-Second Case Story</h3>
-                <p className="mt-2 text-sm text-slate-700">
+              <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-5">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-brand-600">60-Second Case Story</p>
+                <p className="mt-2 text-sm leading-relaxed text-slate-700">
                   {claimType} in {location}.{' '}
                   {valueLow || valueHigh
                     ? `Estimated value is ${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}${confidenceScore > 0 ? ` with ${confidenceScore}% confidence` : ''}.`
@@ -401,48 +517,220 @@ export default function PreAcceptanceView({
                   </p>
                 )}
               </div>
-            </div>
-          )}
 
-          {activeTab === 'value' && (
-            <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-              <div className="rounded-lg border border-slate-200 p-4">
-                <h3 className="text-sm font-semibold text-slate-900">Value Confidence</h3>
-                <p className="mt-2 text-2xl font-bold text-slate-900">
-                  {valueLow || valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : 'Not available'}
-                </p>
-                <p className="mt-2 text-sm text-slate-600">
-                  Confidence is {confidenceScore}%. Add medical bills, complete treatment records, and insurance details to tighten the range.
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-4">
-                <h3 className="text-sm font-semibold text-slate-900">Comparable Case Signal</h3>
-                <dl className="mt-3 space-y-2 text-sm">
-                  <InfoRow label="Typical Range" value={valueLow && valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : '—'} />
-                  <InfoRow label="Venue Signal" value={venueSignal || 'No Venue Data'} />
-                  <InfoRow label="Average Settlement" value={comparableAvgSettlement ? formatCurrency(comparableAvgSettlement) : '—'} />
-                </dl>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'risks' && (
-            <div className="space-y-3">
-              {riskRows.map((row) => (
-                <div key={row.label} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 px-4 py-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">{row.label}</p>
-                    <p className="text-sm text-slate-600">{row.value}</p>
-                  </div>
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${riskTone(row.level)}`}>
-                    {row.level === 'high' ? 'High Risk' : row.level === 'medium' ? 'Watch' : 'Low Risk'}
-                  </span>
+              {/* Viability Breakdown */}
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block text-sm font-medium text-slate-700">Viability Breakdown</label>
+                  <StatHintsToggle showHints={showHints} onToggle={toggleHints} />
                 </div>
-              ))}
+                <div className="mt-3 grid grid-cols-3 gap-3">
+                  <div className="group relative rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-center" tabIndex={showHints ? 0 : -1}>
+                    <div className="flex items-center justify-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Liability
+                      {showHints && <Info className="h-3 w-3 opacity-60" aria-hidden />}
+                    </div>
+                    <div className="mt-1 text-xl font-bold text-blue-600">{viabilityBreakdown.liability > 0 ? formatPercentage(viabilityBreakdown.liability) : '—'}</div>
+                    {showHints && (
+                      <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-72 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-medium leading-5 text-white opacity-0 shadow-lg shadow-slate-900/20 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                        How clearly the defendant is at fault. Scored 0–100% by the case model from the reported fault, incident facts (traffic/product/premises details), and supporting evidence like police reports or witness statements.
+                        <span className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 bg-slate-900" aria-hidden />
+                      </span>
+                    )}
+                  </div>
+                  <div className="group relative rounded-lg border border-emerald-100 bg-emerald-50/60 p-3 text-center" tabIndex={showHints ? 0 : -1}>
+                    <div className="flex items-center justify-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Causation
+                      {showHints && <Info className="h-3 w-3 opacity-60" aria-hidden />}
+                    </div>
+                    <div className="mt-1 text-xl font-bold text-emerald-600">{viabilityBreakdown.causation > 0 ? formatPercentage(viabilityBreakdown.causation) : '—'}</div>
+                    {showHints && (
+                      <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-72 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-medium leading-5 text-white opacity-0 shadow-lg shadow-slate-900/20 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                        How strongly the incident — not a pre-existing condition — caused the injuries. Scored 0–100% from the treatment timeline (time-to-first-visit, continuity of care) and medical records; long gaps or prior conditions lower it.
+                        <span className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 bg-slate-900" aria-hidden />
+                      </span>
+                    )}
+                  </div>
+                  <div className="group relative rounded-lg border border-purple-100 bg-purple-50/60 p-3 text-center" tabIndex={showHints ? 0 : -1}>
+                    <div className="flex items-center justify-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Damages
+                      {showHints && <Info className="h-3 w-3 opacity-60" aria-hidden />}
+                    </div>
+                    <div className="mt-1 text-xl font-bold text-purple-600">{viabilityBreakdown.damages > 0 ? formatPercentage(viabilityBreakdown.damages) : '—'}</div>
+                    {showHints && (
+                      <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-72 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-medium leading-5 text-white opacity-0 shadow-lg shadow-slate-900/20 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                        The severity and monetary value of the harm. Scored 0–100% from injury severity, documented medical specials/bills, and treatment intensity. Each sub-score is clamped to ≥5%, and if a component is missing it falls back to the overall viability score.
+                        <span className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 bg-slate-900" aria-hidden />
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Why This Case Matched You */}
+              {matchReasons.length > 0 && (
+                <div className="rounded-xl border border-brand-200 bg-brand-50/40 p-5 shadow-sm">
+                  <h3 className="text-sm font-semibold text-slate-900">Why This Case Matched Your Profile</h3>
+                  <ul className="mt-3 space-y-2 text-sm text-slate-700">
+                    {matchReasons.map((r, i) => (
+                      <li key={i} className="flex items-center gap-2.5">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700">
+                          <Check className="h-3 w-3" strokeWidth={3} />
+                        </span>
+                        {r}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Advanced AI Analysis (Collapsed) */}
+              <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+                <button
+                  onClick={() => setAdvancedOpen(!advancedOpen)}
+                  className="w-full flex items-center justify-between px-5 py-3.5 text-sm font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 transition-colors"
+                >
+                  <span>Advanced AI Analysis</span>
+                  {advancedOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </button>
+                {advancedOpen && (
+                  <div className="p-4 border-t border-gray-200 text-sm text-gray-600 space-y-2">
+                    <p>View full analysis including: venue signals, adjuster posture, missing treatment analysis, severity scoring, comparable case data.</p>
+                    <p className="text-xs text-gray-500">Accept the case to unlock full analysis.</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
-          {activeTab === 'documents' && (
+          {activeTab === 'scene' && (
+            <SceneTab
+              leadId={selectedLead?.id}
+              sceneImageUrl={selectedLead?.assessment?.sceneImageUrl || null}
+              sceneImageStatus={selectedLead?.assessment?.sceneImageStatus || null}
+            />
+          )}
+
+          {activeTab === 'medical' && (
+            <div className="space-y-4">
+              {medicalSharingPending ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  <p className="font-semibold">Medical records pending authorization</p>
+                  <p className="mt-1">{medicalPendingMessage}</p>
+                </div>
+              ) : treatments.length > 0 || deterministicChronology.timeline.length > 0 || hasMedical ? (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-lg border border-slate-200 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Treatment continuity</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-900">
+                        {treatmentContinuity ? treatmentContinuity.charAt(0).toUpperCase() + treatmentContinuity.slice(1) : 'Not assessed yet'}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Providers</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-900">{treatmentProviders || '—'}</p>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Medical specials</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-900">{medSpecials ? formatCurrency(medSpecials) : '—'}</p>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Treatment window</p>
+                      <span className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-3 py-1 text-sm font-medium text-slate-800">
+                        {firstVisit}
+                        <span className="text-slate-400">→</span>
+                        {lastVisit}
+                      </span>
+                    </div>
+
+                    <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Care timeline</p>
+                    <ol className="mt-3 space-y-5 border-l-2 border-slate-200 pl-5">
+                      <li className="relative">
+                        <span className="absolute -left-[27px] top-1 h-3 w-3 rounded-full border-2 border-white bg-slate-400 ring-1 ring-slate-300" aria-hidden />
+                        <p className="text-sm font-semibold text-slate-900">Accident</p>
+                        <p className="text-xs text-slate-500">Alleged injury event</p>
+                      </li>
+                      {deterministicChronology.timeline.map((entry, i) => {
+                        const { date, provider, dx, tx } = parseChronologyEntry(entry)
+                        return (
+                          <li key={i} className="relative">
+                            <span className="absolute -left-[27px] top-1 h-3 w-3 rounded-full border-2 border-white bg-brand-500 ring-1 ring-brand-200" aria-hidden />
+                            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                              {date && <span className="text-xs font-semibold text-brand-700">{date}</span>}
+                              <span className="text-sm font-semibold text-slate-900">{provider || 'Treatment visit'}</span>
+                            </div>
+                            {(dx || tx) && (
+                              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                {dx && (
+                                  <span className="inline-flex items-center gap-1 rounded-md border border-rose-100 bg-rose-50 px-2 py-0.5 text-xs text-rose-700">
+                                    <span className="font-semibold">Dx</span>
+                                    {dx}
+                                  </span>
+                                )}
+                                {tx && (
+                                  <span className="inline-flex items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+                                    <span className="font-semibold">Tx</span>
+                                    {tx}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ol>
+                  </div>
+                </>
+              ) : (
+                <p className="rounded-lg border border-slate-200 p-4 text-sm text-slate-500">No medical treatment data yet.</p>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'insurance' && (() => {
+            const ins = (parsedFacts?.insurance || {}) as Record<string, any>
+            const coverageType = ins.coverage_type || ins.policyType || ins.type || null
+            const noCoverage = ins.hasInsurance === false || ins.otherPartyInsured === 'no'
+            const overSpecials = policyLimit && medSpecials ? medSpecials > policyLimit : false
+            return (
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-slate-200 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Carrier</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{insuranceSummary}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Policy limit</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{policyLimit ? formatCurrency(policyLimit) : '—'}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Coverage</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">
+                      {noCoverage ? 'No coverage reported' : coverageType ? String(coverageType).replace(/_/g, ' ') : 'On file'}
+                    </p>
+                  </div>
+                </div>
+                {overSpecials ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                    Medical specials ({formatCurrency(medSpecials!)}) already exceed the reported policy limit ({formatCurrency(policyLimit!)}). Check for excess/UM coverage or additional defendants.
+                  </div>
+                ) : policyLimit && medSpecials ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                    Medical specials to date are {formatCurrency(medSpecials)} against a {formatCurrency(policyLimit)} policy limit.
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                    Confirm coverage limits and layers (UM/UIM, umbrella) during intake to validate the value range.
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
+          {activeTab === 'evidence' && (
             <div className="space-y-4">
               {medicalSharingPending && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
@@ -466,278 +754,171 @@ export default function PreAcceptanceView({
             </div>
           )}
 
-          {activeTab === 'decision' && (
-            <div className="grid gap-4 lg:grid-cols-[1fr_0.9fr]">
-              <div className="rounded-lg border border-slate-200 p-4">
-                <h3 className="text-sm font-semibold text-slate-900">Decision Recommendation</h3>
-                <p className="mt-2 text-lg font-bold text-slate-900">{decisionRecommendation}</p>
-                <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                  <li>Case score: {hasCaseScore ? `${caseScore}/100` : 'Not scored yet'}</li>
-                  <li>Liability: {liabilityScore > 0 ? `${Math.round(liabilityScore * 100)}%` : 'Not scored yet'}</li>
-                  <li>File completeness: {evidenceScore}%</li>
-                  <li>Attorney fit: {attorneyFitScore}%</li>
-                </ul>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-4">
-                <h3 className="text-sm font-semibold text-slate-900">Decision Capture</h3>
-                <p className="mt-2 text-sm text-slate-600">
-                  Use Accept when the case fits your venue, value, and capacity. Use Decline with a reason when there is a conflict, jurisdiction issue, capacity issue, or low-value concern.
-                </p>
-                {!accepted && (
-                  <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
-                    <p className="font-semibold">Routing fee before acceptance: {routingFee || 'Not assigned'}</p>
-                    <p className="mt-1 text-xs text-blue-800">{routingTierLabel}</p>
-                  </div>
-                )}
-                {!accepted && (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button
-                      onClick={onAccept}
-                      disabled={loading || decisionLocked}
-                      title={
-                        caseTaken
-                          ? 'This case has been assigned to another attorney'
-                          : isExpired
-                            ? 'The response window for this match has expired'
-                            : undefined
-                      }
-                      className={`rounded-lg px-4 py-2 text-sm font-semibold text-white ${
-                        decisionLocked ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 disabled:opacity-50'
-                      }`}
-                    >
-                      {caseTaken ? 'No longer available' : isExpired ? 'Response window expired' : routingFee ? `Accept - ${routingFee}` : 'Accept'}
-                    </button>
-                    <button
-                      onClick={onDecline}
-                      disabled={loading || decisionLocked}
-                      className={`rounded-lg border px-4 py-2 text-sm font-semibold ${
-                        decisionLocked
-                          ? 'border-gray-200 text-gray-400 cursor-not-allowed'
-                          : 'border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50'
-                      }`}
-                    >
-                      Decline with reason
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </div>
-      </div>
-
-      {/* 3. Key Metrics - Simplified */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="rounded-lg border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Case Value</h3>
-          <p className="text-lg font-bold text-gray-900">
-            {valueLow || valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : 'Not available'}
-          </p>
-          <p className="text-xs text-gray-500 mt-1">Confidence: {confidenceScore}%</p>
-        </div>
-        <div className="rounded-lg border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Liability</h3>
-          <p className="text-lg font-bold text-gray-900">{liabilityScore > 0 ? `${Math.round(liabilityScore * 100)}% likelihood` : 'Not scored yet'}</p>
-          <p className="text-xs text-gray-500 mt-1">Comparative negligence risk: {comparativeRisk}</p>
-        </div>
-        <div className="rounded-lg border border-gray-200 p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Evidence</h3>
-          <p className="text-lg font-bold text-gray-900">Medical treatment: {hasMedical ? 'Yes' : 'No'}</p>
-          <p className="text-xs text-gray-500 mt-1">Police report: {hasPolice ? 'Uploaded' : 'Not uploaded'}</p>
-          <p className="text-xs text-gray-500">Photos: {hasPhotos ? 'Uploaded' : 'Not uploaded'}</p>
-        </div>
-      </div>
-
-      {/* 4. Key Strengths & Risks */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="rounded-lg border border-green-200 bg-green-50/50 p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Case Strengths</h3>
-          <ul className="space-y-1 text-sm text-gray-700">
-            {strengths.length > 0 ? (
-              strengths.map((s, i) => (
-                <li key={i} className="flex items-center gap-2">
-                  <span className="text-green-600">✔</span> {s}
-                </li>
-              ))
-            ) : (
-              <li className="text-gray-500">No strengths identified</li>
-            )}
-          </ul>
-        </div>
-        <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Potential Risks</h3>
-          <ul className="space-y-1 text-sm text-gray-700">
-            {risks.length > 0 ? (
-              risks.map((r, i) => (
-                <li key={i} className="flex items-center gap-2">
-                  <span className="text-amber-600">•</span> {r}
-                </li>
-              ))
-            ) : (
-              <li className="text-gray-500">No significant risks identified</li>
-            )}
-          </ul>
-        </div>
-      </div>
-
-      {/* 5. Evidence Status */}
-      <div className="rounded-lg border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">Evidence Status</h3>
-        <p className="text-sm text-gray-500 mb-3">Evidence Score: {evidenceScore}%</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-          {evidenceList.map((item, i) => (
-            <div key={i} className="flex items-center justify-between">
-              <span className="text-gray-600">{item.label}:</span>
-              <span className={item.status === 'Uploaded' ? 'text-green-600 font-medium' : 'text-gray-500'}>
-                {item.status}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 6. Medical Chronology */}
-      <div className="rounded-lg border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">Medical Treatment Summary</h3>
-        {treatments.length > 0 || deterministicChronology.timeline.length > 0 ? (
-          <div className="space-y-2 text-sm">
-            <p className="text-gray-600">
-              Treatment continuity: {treatmentContinuity ? treatmentContinuity.charAt(0).toUpperCase() + treatmentContinuity.slice(1) : 'Not assessed yet'}
-            </p>
-            <p className="text-gray-600">
-              First Visit: {firstVisit} • Last Visit: {lastVisit}
-            </p>
-            <p className="text-gray-600 font-medium mt-2">Timeline</p>
-            <p className="text-gray-700">
-              Accident → {deterministicChronology.timeline[0] || 'First visit'} → {deterministicChronology.timeline[deterministicChronology.timeline.length - 1] || lastVisit}
-            </p>
-          </div>
-        ) : medicalSharingPending ? (
-          <p className="text-gray-500 text-sm">{medicalPendingMessage}</p>
-        ) : hasMedical ? (
-          // Don't contradict the Evidence Status ("Medical Records: Uploaded"). When
-          // records exist but no structured treatment timeline has been extracted yet,
-          // say so instead of claiming there is no medical data (A3-31).
-          <p className="text-gray-500 text-sm">Medical records uploaded — structured treatment details will appear once extracted from the documents.</p>
-        ) : (
-          <p className="text-gray-500 text-sm">No medical treatment data yet</p>
-        )}
-      </div>
-
-      {/* 7. Plaintiff Summary (De-identified) */}
-      <div className="rounded-lg border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">Plaintiff Summary (De-identified)</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-          <div>
-            <span className="text-gray-500">Location:</span>
-            <p className="font-medium">{location}</p>
-          </div>
-          <div>
-            <span className="text-gray-500">Incident Type:</span>
-            <p className="font-medium">{claimType}</p>
-          </div>
-          <div>
-            <span className="text-gray-500">Treatment:</span>
-            <p className="font-medium">{hasMedical ? 'Yes' : 'No'}</p>
-          </div>
-          <div>
-            <span className="text-gray-500">Insurance:</span>
-            <p className="font-medium">{insuranceSummary}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* 8. Comparable Cases */}
-      <div className="rounded-lg border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-900 mb-2">
-          Comparable Cases {venueState ? `(${venueState})` : ''}
-        </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-          <div>
-            <span className="text-gray-500">Average Settlement:</span>
-            <p className="font-medium">
-              {comparableAvgSettlement ? formatCurrency(comparableAvgSettlement) : valueLow && valueHigh ? formatCurrency((valueLow + valueHigh) / 2) : '—'}
-            </p>
-          </div>
-          <div>
-            <span className="text-gray-500">Typical Range:</span>
-            <p className="font-medium">{valueLow && valueHigh ? `${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}` : '—'}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* 9. Why This Case Matched You */}
-      {matchReasons.length > 0 && (
-        <div className="rounded-lg border border-brand-200 bg-brand-50/30 p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Why This Case Matched Your Profile</h3>
-          <ul className="space-y-1 text-sm text-gray-700">
-            {matchReasons.map((r, i) => (
-              <li key={i} className="flex items-center gap-2">
-                <span className="text-brand-600">✔</span> {r}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* 10. Advanced AI Analysis (Collapsed) */}
-      <div className="rounded-lg border border-gray-200 overflow-hidden">
-        <button
-          onClick={() => setAdvancedOpen(!advancedOpen)}
-          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100"
-        >
-          <span>Advanced AI Analysis</span>
-          {advancedOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-        </button>
-        {advancedOpen && (
-          <div className="p-4 border-t border-gray-200 text-sm text-gray-600 space-y-2">
-            <p>View full analysis including: venue signals, adjuster posture, missing treatment analysis, severity scoring, comparable case data.</p>
-            <p className="text-xs text-gray-500">Accept the case to unlock full analysis.</p>
-          </div>
-        )}
       </div>
     </div>
   )
 }
 
-function DecisionMetric({
-  label,
-  value,
-  helper,
-  tone,
+/**
+ * Scene tab — shows the AI-generated incident-scene schematic for the lead.
+ * Loads the stored PNG as a same-origin blob (so it renders inline without the
+ * API's cross-origin frame restrictions), polls while generation is pending, and
+ * lets the attorney regenerate it. Purely illustrative — not evidence.
+ */
+function SceneTab({
+  leadId,
+  sceneImageUrl,
+  sceneImageStatus,
 }: {
-  label: string
-  value: string
-  helper: string
-  tone: 'green' | 'amber' | 'red' | 'blue' | 'slate'
+  leadId?: string
+  sceneImageUrl: string | null
+  sceneImageStatus: string | null
 }) {
-  const tones = {
-    green: 'border-green-200 bg-green-50 text-green-700',
-    amber: 'border-amber-200 bg-amber-50 text-amber-700',
-    red: 'border-red-200 bg-red-50 text-red-700',
-    blue: 'border-blue-200 bg-blue-50 text-blue-700',
-    slate: 'border-slate-200 bg-slate-50 text-slate-700',
+  const [status, setStatus] = useState<string>(sceneImageStatus || (sceneImageUrl ? 'ready' : 'pending'))
+  const [fileUrl, setFileUrl] = useState<string | null>(sceneImageUrl)
+  const [objectUrl, setObjectUrl] = useState<string | null>(null)
+  const [imgLoading, setImgLoading] = useState(false)
+  const objectUrlRef = useRef<string | null>(null)
+
+  // Load the stored PNG as a same-origin blob URL for inline display.
+  useEffect(() => {
+    let cancelled = false
+    if (!fileUrl) {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current)
+        objectUrlRef.current = null
+      }
+      setObjectUrl(null)
+      return
+    }
+    setImgLoading(true)
+    getEvidenceObjectUrl(fileUrl)
+      .then((url) => {
+        if (cancelled) {
+          URL.revokeObjectURL(url)
+          return
+        }
+        if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+        objectUrlRef.current = url
+        setObjectUrl(url)
+      })
+      .catch(() => {
+        if (!cancelled) setObjectUrl(null)
+      })
+      .finally(() => {
+        if (!cancelled) setImgLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [fileUrl])
+
+  // Revoke the blob URL on unmount.
+  useEffect(() => {
+    return () => {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+    }
+  }, [])
+
+  // Poll the lead while the image is still being generated.
+  useEffect(() => {
+    if (status !== 'pending' || fileUrl || !leadId) return
+    let stopped = false
+    let attempts = 0
+    const intervalId = window.setInterval(async () => {
+      attempts += 1
+      if (stopped) return
+      try {
+        const lead = await getLead(leadId)
+        const url = lead?.assessment?.sceneImageUrl || null
+        const st = lead?.assessment?.sceneImageStatus || null
+        if (url) {
+          setFileUrl(url)
+          setStatus('ready')
+          window.clearInterval(intervalId)
+        } else if (st === 'failed') {
+          setStatus('failed')
+          window.clearInterval(intervalId)
+        }
+      } catch {
+        /* keep polling */
+      }
+      // Give up after ~2 minutes of polling.
+      if (attempts >= 30) {
+        window.clearInterval(intervalId)
+      }
+    }, 4000)
+    return () => {
+      stopped = true
+      window.clearInterval(intervalId)
+    }
+  }, [status, fileUrl, leadId])
+
+  const handleRegenerate = async () => {
+    if (!leadId) return
+    setStatus('pending')
+    setFileUrl(null)
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = null
+    }
+    setObjectUrl(null)
+    try {
+      await regenerateLeadSceneImage(leadId)
+    } catch {
+      setStatus('failed')
+    }
   }
+
   return (
-    <div className={`rounded-lg border p-4 ${tones[tone]}`}>
-      <p className="text-xs font-semibold uppercase tracking-wide opacity-80">{label}</p>
-      <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
-      <p className="mt-1 text-xs">{helper}</p>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-brand-600" aria-hidden />
+          <h3 className="text-sm font-semibold text-slate-900">Incident reconstruction (AI schematic)</h3>
+        </div>
+        <button
+          type="button"
+          onClick={handleRegenerate}
+          disabled={status === 'pending' || !leadId}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${status === 'pending' ? 'animate-spin' : ''}`} />
+          {status === 'pending' ? 'Generating…' : 'Regenerate'}
+        </button>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+        {objectUrl && status !== 'pending' ? (
+          <img
+            src={objectUrl}
+            alt="AI-generated schematic reconstruction of the incident"
+            className="mx-auto max-h-[520px] w-full object-contain bg-white"
+          />
+        ) : status === 'failed' ? (
+          <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
+            <ImageOff className="h-8 w-8 text-slate-400" aria-hidden />
+            <p className="text-sm font-medium text-slate-600">Couldn&apos;t generate a scene diagram for this case.</p>
+            <p className="text-xs text-slate-500">This can happen when the incident description is sparse or the image service is unavailable. Try regenerating.</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+            <RefreshCw className="h-7 w-7 animate-spin text-brand-500" aria-hidden />
+            <p className="text-sm font-medium text-slate-600">Generating a schematic diagram of the incident…</p>
+            <p className="text-xs text-slate-500">This usually takes a few seconds. It will appear here automatically.</p>
+          </div>
+        )}
+        {imgLoading && objectUrl && (
+          <div className="px-4 py-2 text-center text-xs text-slate-400">Loading image…</div>
+        )}
+      </div>
+
+      <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        <strong>For context only — not evidence.</strong> This is an AI-generated schematic reconstruction based on the
+        intake description. It may omit or misstate details and should not be relied on as an accurate depiction of the incident.
+      </p>
     </div>
   )
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-4">
-      <dt className="text-slate-500">{label}</dt>
-      <dd className="text-right font-medium text-slate-900">{value}</dd>
-    </div>
-  )
-}
-
-function riskTone(level: string) {
-  if (level === 'high') return 'bg-red-100 text-red-700'
-  if (level === 'medium') return 'bg-amber-100 text-amber-700'
-  return 'bg-green-100 text-green-700'
-}

@@ -18,6 +18,7 @@ import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken } from
 import { loadPlaintiffHasCase, resetPlaintiffCaseHintCache } from '../lib/plaintiffCaseHint'
 
 const NotificationBell = lazy(() => import('./NotificationBell'))
+const NotificationsBell = lazy(() => import('./NotificationsBell'))
 const PlaintiffNotificationBell = lazy(() => import('./PlaintiffNotificationBell'))
 const PlaintiffNotificationsBell = lazy(() => import('./PlaintiffNotificationsBell'))
 const LanguageSwitcher = lazy(() => import('./LanguageSwitcher'))
@@ -30,7 +31,7 @@ const navLinks = {
   home: '/',
   howItWorks: '/how-it-works',
   myCase: '/dashboard',
-  forAttorneys: '/for-attorneys',
+  forAttorneys: '/attorney-network',
   help: '/help',
   startAssessment: '/assessment/start',
   plaintiffLogin: '/login/plaintiff',
@@ -174,9 +175,14 @@ export default function Layout({ children }: LayoutProps) {
     // Marketing links are only relevant pre-login; hide them once a user is
     // signed in so the nav focuses on their workspace (#138).
     isAuthenticated ? null : { name: t('common.howItWorks'), href: navLinks.howItWorks, icon: null },
-    caseNavItem,
+    // Attorneys navigate via the workspace sidebar + logo + account menu, so the
+    // center pill ("My Cases") is redundant for them — hide it. Plaintiffs and
+    // logged-out visitors still get their case link.
+    isAttorney ? null : caseNavItem,
     isAuthenticated ? null : { name: t('common.forAttorneys'), href: navLinks.forAttorneys, icon: ScaleIcon },
-    { name: t('common.help'), href: navLinks.help, icon: HelpCircleIcon },
+    // Help lives in the account dropdown for attorneys (see user menu), so drop it
+    // from the center pill for them.
+    isAttorney ? null : { name: t('common.help'), href: navLinks.help, icon: HelpCircleIcon },
   ] as (NavItem | null)[]).filter((item): item is NavItem => item !== null)
 
   const shellIconFallback = <div className="h-9 w-9 rounded-lg bg-slate-100 dark:bg-slate-800" aria-hidden />
@@ -218,26 +224,22 @@ export default function Layout({ children }: LayoutProps) {
             </div>
 
             {/* Center nav - hidden during intake for focus mode */}
-              {!isFocusRoute && (
+              {!isFocusRoute && navItems.length > 0 && (
             <nav className="hidden lg:flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/72 px-2 py-1 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
-              {navItems.map((item) => {
-                const Icon = item.icon
-                return (
-                  <Link
-                    key={item.name}
-                    to={item.href}
-                    state={item.state}
-                    className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                      isNavItemActive(item.href)
-                        ? 'bg-brand-50 text-brand-700 shadow-sm dark:bg-brand-950/40 dark:text-brand-300'
-                        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
-                    }`}
-                  >
-                    {Icon && <Icon className="h-4 w-4 shrink-0" />}
-                    {item.name}
-                  </Link>
-                )
-              })}
+              {navItems.map((item) => (
+                <Link
+                  key={item.name}
+                  to={item.href}
+                  state={item.state}
+                  className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                    isNavItemActive(item.href)
+                      ? 'bg-brand-50 text-brand-700 shadow-sm dark:bg-brand-950/40 dark:text-brand-300'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
+                  }`}
+                >
+                  {item.name}
+                </Link>
+              ))}
             </nav>
             )}
 
@@ -258,11 +260,15 @@ export default function Layout({ children }: LayoutProps) {
                   <LanguageSwitcher />
                 </Suspense>
               </div>
+              <span className="hidden h-6 w-px bg-slate-200 dark:bg-slate-800 lg:block" aria-hidden />
               {isAuthenticated ? (
                 <>
                   {/* Notification bell for attorneys */}
                   {isAttorney && (
-                    <div className="hidden lg:block">
+                    <div className="hidden items-center gap-1 lg:flex">
+                      <Suspense fallback={shellIconFallback}>
+                        <NotificationsBell />
+                      </Suspense>
                       <Suspense fallback={shellIconFallback}>
                         <NotificationBell />
                       </Suspense>
@@ -343,6 +349,9 @@ export default function Layout({ children }: LayoutProps) {
                                 <Link to="/attorney-billing" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
                                   Billing
                                 </Link>
+                                <Link to={navLinks.help} onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
+                                  {t('common.help')}
+                                </Link>
                               </>
                             )}
                           </>
@@ -364,10 +373,12 @@ export default function Layout({ children }: LayoutProps) {
                   <div className="relative hidden lg:block" ref={signInRef}>
                     <button
                       onClick={() => setSignInOpen(!signInOpen)}
-                      className="flex items-center gap-1 text-sm font-medium text-slate-600 hover:text-slate-900"
+                      aria-haspopup="menu"
+                      aria-expanded={signInOpen}
+                      className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-100 dark:focus-visible:ring-offset-slate-900"
                     >
                       {t('common.signIn')}
-                      <ChevronDownIcon className={`h-4 w-4 transition-transform ${signInOpen ? 'rotate-180' : ''}`} />
+                      <ChevronDownIcon className={`h-4 w-4 text-slate-400 transition-transform ${signInOpen ? 'rotate-180' : ''}`} />
                     </button>
                     {signInOpen && (
                       <div className="absolute right-0 mt-2 w-52 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl shadow-slate-900/10 ring-1 ring-black/5 dark:border-slate-800 dark:bg-slate-900 dark:ring-white/5">
@@ -391,7 +402,7 @@ export default function Layout({ children }: LayoutProps) {
                     !location.pathname.startsWith('/attorney-license-upload') && (
                     <Link
                       to={navLinks.startAssessment}
-                      className="hidden items-center justify-center gap-1.5 rounded-full bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-accent-500/25 ring-1 ring-white/20 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-accent-500/30 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 sm:inline-flex"
+                      className="hidden items-center justify-center gap-1.5 rounded-full bg-gradient-to-b from-accent-500 to-accent-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-accent-600/20 ring-1 ring-inset ring-white/15 transition-all hover:from-accent-600 hover:to-accent-700 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 sm:inline-flex"
                     >
                       <FileTextIcon className="h-4 w-4" aria-hidden />
                       {t('common.startAssessment')}
@@ -566,7 +577,7 @@ export default function Layout({ children }: LayoutProps) {
             <div>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.forAttorneys')}</h3>
               <ul className="space-y-1.5 text-sm">
-                <li><Link to="/attorney-network" className="text-slate-400 transition-colors hover:text-white">{t('footer.joinAttorneyNetwork')}</Link></li>
+                <li><Link to="/attorney-register" className="text-slate-400 transition-colors hover:text-white">{t('footer.joinAttorneyNetwork')}</Link></li>
                 <li><Link to="/attorney-login" className="text-slate-400 transition-colors hover:text-white">{t('footer.attorneyLogin')}</Link></li>
               </ul>
             </div>

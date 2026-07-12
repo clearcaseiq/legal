@@ -152,6 +152,12 @@ model Assessment {
   similarCases          String? // JSON string of similar case outcomes
   similarCasesUpdatedAt DateTime?
 
+  // AI incident scene schematic (generated at intake)
+  sceneImageUrl    String? // relative /uploads/scenes/<file>.png
+  sceneImagePrompt String?   @db.Text
+  sceneImageStatus String? // null | pending | ready | failed
+  sceneImageDate   DateTime?
+
   // Case Tier Classification
   caseTierId String?
   caseTier   CaseTier? @relation(fields: [caseTierId], references: [id], onDelete: SetNull)
@@ -185,6 +191,8 @@ model Assessment {
   // Attorney workflow
   insuranceDetails    InsuranceDetail[]
   lienHolders         LienHolder[]
+  settlementScenario  SettlementScenario?
+  caseExpenses        CaseExpense[]
   caseTasks           CaseTask[]
   negotiationEvents   NegotiationEvent[]
   decisionMemories    DecisionMemory[]
@@ -258,14 +266,48 @@ model LienHolder {
   assessmentId String
   assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
   name         String
-  type         String?
-  amount       Float?
-  status       String     @default("open")
+  type         String? // medical_provider | health_insurer | medicare | medicaid | medpay | erisa | workers_comp | govt | other
+  amount       Float? // asserted / billed lien amount
+  finalAmount  Float? // negotiated / reduced amount actually payable (null = not yet negotiated)
+  status       String     @default("open") // open | negotiating | reduced | resolved | waived
   notes        String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
   @@map("lien_holders")
+}
+
+// Persisted settlement waterfall inputs (one per case). Net to client =
+// gross − attorney fee − case costs − (negotiated) liens.
+model SettlementScenario {
+  id             String     @id @default(cuid())
+  assessmentId   String     @unique
+  assessment     Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  grossAmount    Float? // attorney override of the gross recovery; null = use predicted median
+  contingencyPct Float      @default(33.33)
+  feeBasis       String     @default("gross") // gross | net_of_costs (fee computed after costs)
+  notes          String?    @db.Text
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@map("settlement_scenarios")
+}
+
+// Case costs / expenses advanced by the firm (filing fees, experts, records).
+// These come off the top of a recovery before the client's net.
+model CaseExpense {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  category     String     @default("other") // filing | expert | records | investigation | deposition | service | other
+  description  String
+  amount       Float
+  incurredAt   DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([assessmentId])
+  @@map("case_expenses")
 }
 
 model CaseTask {
