@@ -59,6 +59,33 @@ async function main() {
     console.log(`  introductions (attorneyId): ${introTotal}`)
     introsByStatus.forEach((r) => console.log(`     status="${r.status}": ${r._count._all}`))
 
+    // Reproduce exactly what powers the Accepted / Declined tiles so we can see
+    // why they might read 0 (old responses fall outside the 7/30/90-day window).
+    const respondedIntros = await prisma.introduction.findMany({
+      where: { attorneyId: a.id, respondedAt: { not: null } },
+      select: { status: true, respondedAt: true },
+    })
+    const nowMs = Date.now()
+    const DAY = 24 * 60 * 60 * 1000
+    const acc = { last7: 0, last30: 0, last90: 0, total: 0 }
+    const dec = { last7: 0, last30: 0, last90: 0, total: 0 }
+    for (const i of respondedIntros) {
+      const bucket = i.status === 'ACCEPTED' ? acc : i.status === 'DECLINED' ? dec : null
+      if (!bucket || !i.respondedAt) continue
+      bucket.total += 1
+      const age = nowMs - new Date(i.respondedAt).getTime()
+      if (age <= 7 * DAY) bucket.last7 += 1
+      if (age <= 30 * DAY) bucket.last30 += 1
+      if (age <= 90 * DAY) bucket.last90 += 1
+    }
+    console.log(`  Accepted tile would show → 7d:${acc.last7} 30d:${acc.last30} 90d:${acc.last90} (total ${acc.total})`)
+    console.log(`  Declined tile would show → 7d:${dec.last7} 30d:${dec.last30} 90d:${dec.last90} (total ${dec.total})`)
+    for (const i of respondedIntros) {
+      if (i.status !== 'ACCEPTED' && i.status !== 'DECLINED') continue
+      const days = i.respondedAt ? Math.round((nowMs - new Date(i.respondedAt).getTime()) / DAY) : null
+      console.log(`     ${i.status} • responded ${days != null ? days + ' day(s) ago' : 'unknown'} (${i.respondedAt?.toISOString?.() || '—'})`)
+    }
+
     // What the dashboard "New Matches" view actually sees: PENDING intros, newest first.
     const pending = await prisma.introduction.findMany({
       where: { attorneyId: a.id, status: 'PENDING' },
