@@ -30,15 +30,19 @@ RUN adduser --system --uid 1001 nodejs
 COPY --from=builder /repo/api/dist ./dist
 COPY --from=builder /repo/api/prisma ./prisma
 COPY --from=builder /repo/api/package.json ./package.json
+COPY --from=builder /repo/api/docker-entrypoint.sh ./docker-entrypoint.sh
 COPY --from=builder /repo/node_modules ../node_modules
 COPY --from=builder /repo/api/node_modules ./node_modules
 
 RUN mkdir -p uploads && chown nodejs:nodejs uploads
+RUN chmod +x ./docker-entrypoint.sh
 
 USER nodejs
 
 EXPOSE 4000
 
-# Run Node directly (not `pnpm start`) so the runtime never invokes corepack/pnpm,
-# which would pull a pnpm version requiring a newer Node than this image provides.
-CMD ["node", "dist/index.js"]
+# The entrypoint runs a non-destructive `prisma db push` to keep the DB in sync
+# with schema.prisma, then execs `node dist/index.js`. We invoke via `sh` so the
+# script works regardless of file mode / line endings. Node is run directly (not
+# `pnpm start`) so the runtime never invokes corepack/pnpm.
+CMD ["sh", "./docker-entrypoint.sh"]
