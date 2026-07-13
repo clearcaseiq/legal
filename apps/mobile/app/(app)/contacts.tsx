@@ -24,6 +24,7 @@ import {
 } from '../../src/lib/api'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
+import { DomainBreadcrumb } from '../../src/components/DomainBreadcrumb'
 import { colors, radii, space, shadows } from '../../src/theme/tokens'
 import { formatClaimType, leadLabel, leadMeta } from '../../src/lib/formatLead'
 
@@ -177,6 +178,8 @@ export default function ContactsScreen() {
           <InlineErrorBanner message={loadError} onAction={() => { setLoading(true); void load() }} />
         </View>
       ) : null}
+
+      <DomainBreadcrumb domain="casework" title="Contacts" style={styles.header} />
 
       <View style={styles.searchCard}>
         <Ionicons name="search-outline" size={18} color={colors.muted} />
@@ -366,6 +369,7 @@ export default function ContactsScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   bannerWrap: { paddingHorizontal: space.lg, paddingTop: space.md },
+  header: { paddingHorizontal: space.lg, paddingTop: space.lg },
   searchCard: {
     margin: space.lg,
     marginBottom: space.md,

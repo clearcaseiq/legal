@@ -11,6 +11,7 @@ import {
 } from '../../src/lib/api'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
+import { DomainBreadcrumb } from '../../src/components/DomainBreadcrumb'
 import { colors, radii, space, shadows } from '../../src/theme/tokens'
 
 function formatCurrency(amount?: number | null) {
@@ -89,6 +90,8 @@ export default function BillingScreen() {
           <InlineErrorBanner message={loadError} onAction={() => { setLoading(true); void load() }} />
         </View>
       ) : null}
+
+      <DomainBreadcrumb domain="casework" title="Billing" style={styles.header} />
 
       <View style={styles.summaryRow}>
         <SummaryTile label="Invoiced" value={formatCurrency(totals.invoiceTotal)} icon="receipt-outline" />
@@ -169,6 +172,7 @@ function SummaryTile({
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   bannerWrap: { paddingHorizontal: space.lg, paddingTop: space.md },
+  header: { paddingHorizontal: space.lg, paddingTop: space.lg },
   summaryRow: { flexDirection: 'row', gap: space.md, paddingHorizontal: space.lg, marginTop: space.lg, marginBottom: space.md },
   summaryTile: {
     flex: 1,

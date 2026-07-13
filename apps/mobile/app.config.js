@@ -42,7 +42,7 @@ module.exports = {
       icon: './assets/icon.png',
       supportsTablet: false,
       bundleIdentifier: 'com.caseiq.attorney',
-      buildNumber: '17',
+      buildNumber: '18',
       infoPlist: {
         NSFaceIDUsageDescription: 'Use Face ID to sign in to ClearCaseIQ',
         UIBackgroundModes: ['remote-notification'],

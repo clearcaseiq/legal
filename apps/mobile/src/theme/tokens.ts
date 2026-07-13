@@ -97,6 +97,25 @@ export const darkColors: ColorTokens = {
   loginFieldBorder: 'rgba(255,255,255,0.14)',
 }
 
+/**
+ * Workspace domains — mirrors the attorney web redesign, where the workspace is
+ * split into two colour-coded areas: Lead Generation (blue = acquisition) and
+ * Case Management (emerald = delivery). Screens tint chips / section headers /
+ * active states from these accents (compose alpha with `accent + '14'` etc.).
+ */
+export type DomainId = 'leadgen' | 'casework'
+
+export type DomainStyle = {
+  label: string
+  accent: string
+  accentDark: string
+}
+
+export const domains: Record<DomainId, DomainStyle> = {
+  leadgen: { label: 'Lead Generation', accent: '#2563eb', accentDark: '#1d4ed8' },
+  casework: { label: 'Case Management', accent: '#059669', accentDark: '#047857' },
+} as const
+
 export const initialColorScheme: 'light' | 'dark' = Appearance.getColorScheme() === 'dark' ? 'dark' : 'light'
 
 export function getColorsForScheme(scheme: 'light' | 'dark' | null | undefined): ColorTokens {

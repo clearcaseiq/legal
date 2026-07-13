@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   View,
   Text,
@@ -7,13 +7,14 @@ import {
   StyleSheet,
   RefreshControl,
 } from 'react-native'
-import { router, useFocusEffect } from 'expo-router'
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../../../src/contexts/AuthContext'
 import { useAttorneyDashboardData } from '../../../src/contexts/AttorneyDashboardContext'
 import { InlineErrorBanner } from '../../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../../src/components/ScreenState'
-import { colors, radii, space, shadows } from '../../../src/theme/tokens'
+import { DomainBreadcrumb } from '../../../src/components/DomainBreadcrumb'
+import { colors, radii, space, shadows, domains } from '../../../src/theme/tokens'
 import { formatClaimType, formatStatus } from '../../../src/lib/formatLead'
 import { buildPlaintiffCaseStageSummary } from '../../../src/lib/plaintiffCaseStage'
 import {
@@ -46,10 +47,18 @@ export default function InboxScreen() {
 }
 
 function AttorneyInboxScreen() {
+  const params = useLocalSearchParams<{ filter?: string }>()
   const [refreshing, setRefreshing] = useState(false)
-  const [filter, setFilter] = useState<FilterKey>('action')
+  const [filter, setFilter] = useState<FilterKey>(params.filter === 'action' ? 'action' : 'all')
   const { data, loading, error: loadError, refresh } = useAttorneyDashboardData()
   const leads: Lead[] = data?.recentLeads || []
+
+  // Honour deep-links from the workspace hub (New Matches → action, Active Cases → all).
+  useEffect(() => {
+    if (params.filter === 'all' || params.filter === 'action') {
+      setFilter(params.filter)
+    }
+  }, [params.filter])
 
   useFocusEffect(
     useCallback(() => {
@@ -118,6 +127,12 @@ function AttorneyInboxScreen() {
       {loadError ? (
         <InlineErrorBanner message={loadError} onAction={() => { void refresh({ force: true }) }} />
       ) : null}
+      <DomainBreadcrumb
+        domain="casework"
+        title="Cases"
+        subtitle="Review new matches and manage your caseload"
+        style={styles.header}
+      />
       <View style={styles.chips}>
         <TouchableOpacity
           style={[styles.chip, filter === 'action' && styles.chipOn]}
@@ -347,6 +362,7 @@ const styles = StyleSheet.create({
   },
   errorBannerText: { fontSize: 14, color: colors.text, lineHeight: 20 },
   errorBannerRetry: { fontSize: 15, fontWeight: '700', color: colors.primary },
+  header: { paddingHorizontal: space.lg, paddingTop: space.lg },
   chips: { flexDirection: 'row', gap: space.sm, paddingHorizontal: space.lg, paddingVertical: space.md },
   chip: {
     paddingHorizontal: space.lg,
@@ -356,7 +372,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  chipOn: { backgroundColor: colors.nav, borderColor: colors.nav },
+  chipOn: { backgroundColor: domains.casework.accent, borderColor: domains.casework.accent },
   chipText: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },
   chipTextOn: { color: '#fff' },
   list: { paddingHorizontal: space.lg, paddingBottom: space.xxl },

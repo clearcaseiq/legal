@@ -15,8 +15,8 @@ import { AttorneyHomeSkeleton } from '../../../src/components/AttorneyHomeSkelet
 import { InlineErrorBanner } from '../../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../../src/components/ScreenState'
 import { isSameCalendarDay, navigateAttorneyQueueItem, type QueueActionType } from '../../../src/lib/attorneyQueueNav'
-import { colors, radii, space, shadows } from '../../../src/theme/tokens'
-import { currencyFromMedian, formatClaimType, formatLifecycleState, formatStatus } from '../../../src/lib/formatLead'
+import { colors, radii, space, shadows, domains, type DomainId } from '../../../src/theme/tokens'
+import { currencyFromMedian, formatClaimType } from '../../../src/lib/formatLead'
 import { formatMeetingType, formatTime } from '../../../src/lib/calendar'
 import { buildPlaintiffCaseStageSummary } from '../../../src/lib/plaintiffCaseStage'
 import {
@@ -27,7 +27,6 @@ import {
   getPlaintiffDocumentRequests,
   getPlaintiffSettlementBenchmarks,
   predictAssessment,
-  updateLeadReminder,
   type PlaintiffDocumentRequestRow,
 } from '../../../src/lib/api'
 
@@ -118,22 +117,12 @@ function buildPlaintiffTimeline(params: {
   return `${baseMin + docPenalty + treatmentPenalty}-${baseMax + docPenalty + treatmentPenalty + severePenalty} months`
 }
 
-function queueStatusMeta(lead: Lead) {
-  const lifecycle = formatLifecycleState(lead.lifecycleState)
-  const state = (lead.lifecycleState || '').toLowerCase()
-  const tone =
-    state === 'manual_review_needed'
-      ? colors.warning
-      : state === 'plaintiff_info_requested' || state === 'needs_more_info'
-        ? colors.primary
-        : state === 'attorney_matched' || state === 'engaged'
-          ? colors.success
-          : colors.textSecondary
-  return {
-    statusLabel: formatStatus(lead.status),
-    lifecycleLabel: lifecycle,
-    tone,
-  }
+type HubEntry = {
+  icon: keyof typeof Ionicons.glyphMap
+  label: string
+  description: string
+  badge?: number
+  onPress: () => void
 }
 
 export default function HomeScreen() {
@@ -164,8 +153,6 @@ function AttorneyHomeDashboardScreen() {
     unreadCount: Number(messagingSummaryRaw.unreadCount ?? 0),
     awaitingResponseCount: Number(messagingSummaryRaw.awaitingResponseCount ?? 0),
   }
-  const activeCases = payload?.activeCases || {}
-  const quality = payload?.qualityMetrics || {}
   const automationFeed = Array.isArray(payload?.automationFeed) ? payload.automationFeed.slice(0, 4) : []
   const needsActionToday: TodayQueueItem[] = Array.isArray(payload?.needsActionToday)
     ? payload.needsActionToday
@@ -180,13 +167,6 @@ function AttorneyHomeDashboardScreen() {
   }> = payload?.upcomingConsults || []
   const meetingsToday = upcomingConsults.filter((c) => c.scheduledAt && isSameCalendarDay(c.scheduledAt))
   const qa = payload?.quickActionCounts || {}
-  const acceptedCount = Number(
-    activeCases.acceptedTotal ??
-      Number(activeCases.accepted ?? 0) +
-        Number(activeCases.contacted ?? 0) +
-        Number(activeCases.consultScheduled ?? 0) +
-        Number(activeCases.retained ?? 0)
-  )
 
   const todayCount =
     needsActionToday.length +
@@ -252,6 +232,100 @@ function AttorneyHomeDashboardScreen() {
     }
   })()
 
+  const alertsCount = (automationFeed?.length || 0) + (needsActionToday?.length || 0)
+
+  // Two colour-coded domains, mirroring the attorney web workspace sidebar.
+  const leadgenNav: HubEntry[] = [
+    {
+      icon: 'mail-unread-outline',
+      label: 'New Matches',
+      description: 'Cases awaiting your review',
+      badge: needsReview.length,
+      onPress: () => router.push('/(app)/new-matches'),
+    },
+    {
+      icon: 'stats-chart-outline',
+      label: 'Match Quality',
+      description: 'Accept & conversion metrics',
+      onPress: () => router.push('/(app)/match-quality'),
+    },
+    {
+      icon: 'trending-up-outline',
+      label: 'Marketplace Performance',
+      description: 'Routing spend & return',
+      onPress: () => router.push('/(app)/marketplace'),
+    },
+  ]
+
+  const caseworkNav: HubEntry[] = [
+    {
+      icon: 'folder-open-outline',
+      label: 'Active Cases',
+      description: 'Your full caseload',
+      onPress: () => router.push({ pathname: '/(app)/(tabs)/inbox', params: { filter: 'all' } }),
+    },
+    {
+      icon: 'add-circle-outline',
+      label: 'Add Case',
+      description: 'Log a new matter manually',
+      onPress: () => router.push('/(app)/manual-case'),
+    },
+    {
+      icon: 'calendar-outline',
+      label: 'Calendar & Consults',
+      description: 'Upcoming meetings',
+      badge: upcomingConsults.length,
+      onPress: () => router.push('/(app)/(tabs)/calendar'),
+    },
+    {
+      icon: 'chatbubbles-outline',
+      label: 'Messages',
+      description: 'Client & adjuster threads',
+      badge: messagingSummary.unreadCount,
+      onPress: () => router.push('/(app)/(tabs)/messages'),
+    },
+    {
+      icon: 'document-attach-outline',
+      label: 'Documents',
+      description: 'Requests & uploads',
+      badge: Number(qa.documentRequests ?? 0),
+      onPress: () => router.push('/(app)/document-requests'),
+    },
+    {
+      icon: 'checkbox-outline',
+      label: 'Tasks',
+      description: 'Cross-case queue',
+      badge: Number(qa.tasks ?? 0),
+      onPress: () => router.push('/(app)/tasks'),
+    },
+    {
+      icon: 'people-outline',
+      label: 'Contacts',
+      description: 'Parties directory',
+      badge: Number(qa.caseContacts ?? 0),
+      onPress: () => router.push('/(app)/contacts'),
+    },
+    {
+      icon: 'search-outline',
+      label: 'Search',
+      description: 'Find cases across your book',
+      onPress: () => router.push('/(app)/search'),
+    },
+    {
+      icon: 'wallet-outline',
+      label: 'Billing',
+      description: 'Fees, invoices & costs',
+      onPress: () => router.push('/(app)/billing'),
+    },
+    {
+      icon: 'notifications-outline',
+      label: 'Alerts',
+      description: 'Automation & reminders',
+      badge: alertsCount,
+      onPress: () => router.push('/(app)/notifications'),
+    },
+  ]
+
   if (loading && !payload) {
     return (
       <View style={styles.screen}>
@@ -261,6 +335,16 @@ function AttorneyHomeDashboardScreen() {
   }
 
   const greeting = user?.firstName ? `Hi, ${user.firstName}` : 'Welcome'
+  const profileName = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'Attorney'
+  const profileFirm = (user as { firmName?: string } | null)?.firmName || 'Attorney workspace'
+  const hubInitials =
+    profileName
+      .split(/\s+/)
+      .map((part) => part[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join('')
+      .toUpperCase() || 'A'
 
   return (
     <ScrollView
@@ -276,19 +360,29 @@ function AttorneyHomeDashboardScreen() {
         />
       }
     >
+      <TouchableOpacity
+        style={styles.profileCard}
+        onPress={() => router.push('/(app)/(tabs)/account')}
+        activeOpacity={0.9}
+      >
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{hubInitials}</Text>
+        </View>
+        <View style={styles.profileCopy}>
+          <Text style={styles.profileName} numberOfLines={1}>{profileName}</Text>
+          <Text style={styles.profileSub} numberOfLines={1}>{profileFirm}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+      </TouchableOpacity>
+
+      <View style={styles.breadcrumb}>
+        <Text style={styles.breadcrumbBrand}>ClearCaseIQ</Text>
+        <Text style={styles.breadcrumbSep}>/</Text>
+        <Text style={styles.breadcrumbLeaf}>Workspace</Text>
+      </View>
+
       <Text style={styles.greeting}>{greeting}</Text>
       <Text style={styles.subGreeting}>Your pipeline at a glance</Text>
-
-      <View style={styles.quickActionRow}>
-        <TouchableOpacity style={styles.quickActionButton} onPress={() => router.push('/(app)/manual-case')} activeOpacity={0.9}>
-          <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
-          <Text style={styles.quickActionText}>Add case</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.quickActionButton} onPress={() => router.push('/(app)/schedule-consult')} activeOpacity={0.9}>
-          <Ionicons name="calendar-outline" size={20} color={colors.primary} />
-          <Text style={styles.quickActionText}>New event</Text>
-        </TouchableOpacity>
-      </View>
 
       {loadError ? (
         <InlineErrorBanner
@@ -401,234 +495,8 @@ function AttorneyHomeDashboardScreen() {
         </View>
       )}
 
-      <View style={styles.statRow}>
-        <StatTile
-          icon="mail-unread-outline"
-          label="Needs review"
-          value={String(needsReview.length)}
-          accent={needsReview.length ? colors.warning : colors.textSecondary}
-          onPress={() => router.push('/(app)/(tabs)/inbox')}
-        />
-        <StatTile
-          icon="chatbubbles-outline"
-          label="Unread msgs"
-          value={String(messagingSummary.unreadCount || 0)}
-          accent={messagingSummary.unreadCount ? colors.primary : colors.textSecondary}
-          onPress={() => router.push('/(app)/(tabs)/messages')}
-        />
-      </View>
-
-      <View style={styles.statRow}>
-        <StatTile
-          icon="checkbox-outline"
-          label="Open tasks"
-          value={String(qa.tasks ?? 0)}
-          accent={(qa.tasks ?? 0) > 0 ? colors.warning : colors.textSecondary}
-          onPress={() => router.push('/(app)/tasks')}
-        />
-        <StatTile
-          icon="document-attach-outline"
-          label="Doc requests"
-          value={String(qa.documentRequests ?? 0)}
-          accent={(qa.documentRequests ?? 0) > 0 ? colors.primary : colors.textSecondary}
-          onPress={() => router.push('/(app)/document-requests')}
-        />
-      </View>
-
-      <View style={styles.statRow}>
-        <StatTile
-          icon="git-merge-outline"
-          label="Matched"
-          value={String(activeCases.matched ?? 0)}
-          onPress={() => router.push('/(app)/(tabs)/inbox')}
-        />
-        <StatTile
-          icon="checkmark-circle-outline"
-          label="Accepted"
-          value={String(acceptedCount)}
-          onPress={() => router.push('/(app)/(tabs)/inbox')}
-        />
-      </View>
-
-      <View style={styles.statRow}>
-        <StatTile
-          icon="people-outline"
-          label="Contacts"
-          value={String(qa.caseContacts ?? 0)}
-          accent={(qa.caseContacts ?? 0) > 0 ? colors.primary : colors.textSecondary}
-          onPress={() => router.push('/(app)/contacts')}
-        />
-        <StatTile
-          icon="notifications-outline"
-          label="Alerts"
-          value={String((automationFeed?.length || 0) + (needsActionToday?.length || 0))}
-          accent={((automationFeed?.length || 0) + (needsActionToday?.length || 0)) > 0 ? colors.warning : colors.textSecondary}
-          onPress={() => router.push('/(app)/notifications')}
-        />
-      </View>
-
-      <View style={styles.statRow}>
-        <StatTile
-          icon="search-outline"
-          label="Search"
-          value={String(recentLeads.length)}
-          accent={recentLeads.length > 0 ? colors.primary : colors.textSecondary}
-          onPress={() => router.push('/(app)/search')}
-        />
-        <StatTile
-          icon="calendar-outline"
-          label="Calendar"
-          value={String(upcomingConsults.length)}
-          accent={upcomingConsults.length > 0 ? colors.success : colors.textSecondary}
-          onPress={() => router.push('/(app)/(tabs)/calendar')}
-        />
-      </View>
-
-      {quality.averageViability != null && quality.totalLeads > 0 && (
-        <View style={styles.highlight}>
-          <Text style={styles.highlightLabel}>Avg. viability (in queue)</Text>
-          <Text style={styles.highlightValue}>{Math.round(Number(quality.averageViability))}%</Text>
-        </View>
-      )}
-
-      {automationFeed.length > 0 && (
-        <View style={styles.automationBlock}>
-          <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitle}>Automation feed</Text>
-            <TouchableOpacity onPress={() => router.push('/(app)/tasks')}>
-              <Text style={styles.sectionLink}>Tasks</Text>
-            </TouchableOpacity>
-          </View>
-          {automationFeed.map((item: any) => {
-            const severityColor =
-              item.severity === 'high'
-                ? colors.danger
-                : item.severity === 'medium'
-                  ? colors.warning
-                  : colors.textSecondary
-            return (
-              <View key={item.id} style={styles.automationCard}>
-                <View style={styles.automationTop}>
-                  <Text style={[styles.automationSeverity, { color: severityColor }]}>
-                    {(item.severity || 'info').toUpperCase()}
-                  </Text>
-                  <Text style={styles.automationDue}>
-                    {new Date(item.dueAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                  </Text>
-                </View>
-                <Text style={styles.automationTitle}>{item.title}</Text>
-                <Text style={styles.automationDetail}>{item.detail}</Text>
-                <Text style={styles.automationMeta}>
-                  {item.plaintiffName || 'Plaintiff'} · {formatClaimType(item.claimType)}
-                </Text>
-                <View style={styles.automationActions}>
-                  <TouchableOpacity
-                    style={styles.automationPrimaryButton}
-                    onPress={() => router.push(`/(app)/lead/${item.leadId}`)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.automationPrimaryButtonText}>Open case</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.automationSecondaryButton}
-                    onPress={() => {
-                      const nextDueAt = new Date(Math.max(new Date(item.dueAt).getTime(), Date.now()))
-                      nextDueAt.setDate(nextDueAt.getDate() + 1)
-                      void updateLeadReminder(item.leadId, item.id, {
-                        dueAt: nextDueAt.toISOString(),
-                        status: 'scheduled',
-                      }).then(() => refresh({ force: true, silent: true }))
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.automationSecondaryButtonText}>Snooze 1d</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )
-          })}
-        </View>
-      )}
-
-      {upcomingConsults.length > 0 && (
-        <View style={styles.meetingsBlock}>
-          <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitle}>Upcoming meetings</Text>
-            <TouchableOpacity onPress={() => router.push('/(app)/(tabs)/calendar')}>
-              <Text style={styles.sectionLink}>Calendar</Text>
-            </TouchableOpacity>
-          </View>
-          {upcomingConsults.slice(0, 5).map((c) => (
-            <TouchableOpacity
-              key={c.id}
-              style={styles.meetingCard}
-              onPress={() =>
-                c.leadId ? router.push(`/(app)/lead/${c.leadId}`) : router.push('/(app)/(tabs)/calendar')
-              }
-              activeOpacity={0.85}
-            >
-              <View style={styles.meetingCardTop}>
-                <Text style={styles.meetingTime}>{formatTime(c.scheduledAt)}</Text>
-                <Text style={styles.meetingType}>{formatMeetingType(c.type)}</Text>
-              </View>
-              <Text style={styles.meetingName}>{c.plaintiffName || 'Plaintiff'}</Text>
-              <Text style={styles.meetingClaim}>{formatClaimType(c.claimType)}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      <View style={styles.sectionHead}>
-        <Text style={styles.sectionTitle}>Review queue</Text>
-        <TouchableOpacity onPress={() => router.push('/(app)/(tabs)/inbox')}>
-          <Text style={styles.sectionLink}>See all</Text>
-        </TouchableOpacity>
-      </View>
-
-      {needsReview.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Ionicons name="checkmark-done-outline" size={40} color={colors.success} />
-          <Text style={styles.emptyTitle}>You're caught up</Text>
-          <Text style={styles.emptySub}>New matches will show here and under Cases.</Text>
-        </View>
-      ) : (
-        needsReview.slice(0, 5).map((lead) => (
-          <TouchableOpacity
-            key={lead.id}
-            style={styles.queueCard}
-            onPress={() => router.push(`/(app)/lead/${lead.id}`)}
-            activeOpacity={0.85}
-          >
-            {(() => {
-              const meta = queueStatusMeta(lead)
-              return (
-                <>
-            <View style={styles.queueTop}>
-              <Text style={styles.queueTitle}>{formatClaimType(lead.assessment?.claimType)}</Text>
-              {lead.viabilityScore != null && (
-                <View style={styles.scorePill}>
-                  <Text style={styles.scoreText}>
-                    {lead.viabilityScore <= 1
-                      ? Math.round(lead.viabilityScore * 100)
-                      : Math.round(lead.viabilityScore)}
-                    % score
-                  </Text>
-                </View>
-              )}
-            </View>
-            <Text style={styles.queueMeta}>
-              {[lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || 'Venue TBD'}
-            </Text>
-            <Text style={[styles.queueStatus, { color: meta.tone }]}>{meta.statusLabel}</Text>
-            {meta.lifecycleLabel ? (
-              <Text style={styles.queueLifecycle}>{meta.lifecycleLabel}</Text>
-            ) : null}
-                </>
-              )
-            })()}
-          </TouchableOpacity>
-        ))
-      )}
+      <DomainSection domain="leadgen" entries={leadgenNav} />
+      <DomainSection domain="casework" entries={caseworkNav} />
     </ScrollView>
   )
 }
@@ -875,24 +743,43 @@ function PlaintiffHomeScreen() {
   )
 }
 
-function StatTile({
-  icon,
-  label,
-  value,
-  accent = colors.text,
-  onPress,
-}: {
-  icon: keyof typeof Ionicons.glyphMap
-  label: string
-  value: string
-  accent?: string
-  onPress: () => void
-}) {
+function DomainSection({ domain, entries }: { domain: DomainId; entries: HubEntry[] }) {
+  const d = domains[domain]
   return (
-    <TouchableOpacity style={styles.statTile} onPress={onPress} activeOpacity={0.9}>
-      <Ionicons name={icon} size={22} color={accent} />
-      <Text style={[styles.statValue, { color: accent }]}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
+    <View style={styles.domainSection}>
+      <View style={styles.domainHeader}>
+        <View style={[styles.domainDot, { backgroundColor: d.accent }]} />
+        <Text style={styles.domainLabel}>{d.label}</Text>
+      </View>
+      <View style={styles.domainCard}>
+        {entries.map((entry, i) => (
+          <HubRow key={entry.label} entry={entry} accent={d.accent} first={i === 0} />
+        ))}
+      </View>
+    </View>
+  )
+}
+
+function HubRow({ entry, accent, first }: { entry: HubEntry; accent: string; first: boolean }) {
+  return (
+    <TouchableOpacity
+      style={[styles.hubRow, !first && styles.hubRowDivider]}
+      onPress={entry.onPress}
+      activeOpacity={0.85}
+    >
+      <View style={[styles.hubChip, { backgroundColor: accent + '14' }]}>
+        <Ionicons name={entry.icon} size={18} color={accent} />
+      </View>
+      <View style={styles.hubCopy}>
+        <Text style={styles.hubLabel}>{entry.label}</Text>
+        <Text style={styles.hubDescription}>{entry.description}</Text>
+      </View>
+      {entry.badge && entry.badge > 0 ? (
+        <View style={[styles.hubBadge, { backgroundColor: accent }]}>
+          <Text style={styles.hubBadgeText}>{entry.badge > 99 ? '99+' : entry.badge}</Text>
+        </View>
+      ) : null}
+      <Ionicons name="chevron-forward" size={18} color={colors.muted} />
     </TouchableOpacity>
   )
 }
@@ -919,6 +806,78 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   content: { padding: space.lg, paddingBottom: space.xxl },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
+  profileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    backgroundColor: colors.card,
+    borderRadius: radii.lg,
+    padding: space.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadows.soft,
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  avatarText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  profileCopy: { flex: 1, minWidth: 0 },
+  profileName: { fontSize: 15, fontWeight: '800', color: colors.text },
+  profileSub: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+  breadcrumb: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: space.md, marginBottom: space.sm },
+  breadcrumbBrand: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
+  breadcrumbSep: { fontSize: 12, color: colors.muted },
+  breadcrumbLeaf: { fontSize: 12, fontWeight: '600', color: colors.muted },
+  domainSection: { marginTop: space.lg },
+  domainHeader: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginBottom: space.sm, paddingHorizontal: space.xs },
+  domainDot: { width: 8, height: 8, borderRadius: 4 },
+  domainLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  domainCard: {
+    backgroundColor: colors.card,
+    borderRadius: radii.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+    ...shadows.soft,
+  },
+  hubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    paddingVertical: space.md,
+    paddingHorizontal: space.lg,
+  },
+  hubRowDivider: { borderTopWidth: 1, borderTopColor: colors.border },
+  hubChip: {
+    width: 34,
+    height: 34,
+    borderRadius: radii.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hubCopy: { flex: 1, minWidth: 0 },
+  hubLabel: { fontSize: 15, fontWeight: '700', color: colors.text },
+  hubDescription: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  hubBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hubBadgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   greeting: { fontSize: 28, fontWeight: '800', color: colors.text },
   subGreeting: { fontSize: 15, color: colors.textSecondary, marginTop: 4, marginBottom: space.lg },
   quickActionRow: { flexDirection: 'row', gap: space.md, marginBottom: space.lg },

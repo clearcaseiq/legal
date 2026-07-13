@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { createCaseTask, getApiErrorMessage, getFilteredAttorneyLeads, getTasksSummary, type TaskSummaryItem } from '../../src/lib/api'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
+import { DomainBreadcrumb } from '../../src/components/DomainBreadcrumb'
 import { colors, radii, space, shadows } from '../../src/theme/tokens'
 import { formatClaimType, leadLabel, leadMeta } from '../../src/lib/formatLead'
 
@@ -136,6 +137,7 @@ export default function TasksScreen() {
         contentContainerStyle={sections.length === 0 ? styles.emptyContainer : styles.list}
         ListHeaderComponent={
           <View>
+            <DomainBreadcrumb domain="casework" title="Tasks" style={styles.header} />
             <TouchableOpacity
               style={styles.createButton}
               onPress={() => { void openCreateTask() }}
@@ -344,6 +346,7 @@ const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.surface },
   list: { paddingHorizontal: space.lg, paddingBottom: space.xxl },
   emptyContainer: { flexGrow: 1, padding: space.lg },
+  header: { marginTop: space.md },
   createButton: {
     minHeight: 52,
     borderRadius: radii.lg,

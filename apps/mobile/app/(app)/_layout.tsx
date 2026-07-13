@@ -84,6 +84,36 @@ export default function AppLayout() {
             }}
           />
           <Stack.Screen
+            name="new-matches"
+            options={{
+              headerShown: true,
+              title: 'New Matches',
+              headerStyle: { backgroundColor: colors.nav },
+              headerTintColor: '#fff',
+              headerBackTitle: 'Back',
+            }}
+          />
+          <Stack.Screen
+            name="match-quality"
+            options={{
+              headerShown: true,
+              title: 'Match Quality',
+              headerStyle: { backgroundColor: colors.nav },
+              headerTintColor: '#fff',
+              headerBackTitle: 'Back',
+            }}
+          />
+          <Stack.Screen
+            name="marketplace"
+            options={{
+              headerShown: true,
+              title: 'Marketplace Performance',
+              headerStyle: { backgroundColor: colors.nav },
+              headerTintColor: '#fff',
+              headerBackTitle: 'Back',
+            }}
+          />
+          <Stack.Screen
             name="notifications"
             options={{
               headerShown: true,

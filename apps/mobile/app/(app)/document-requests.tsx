@@ -18,6 +18,7 @@ import {
 } from '../../src/lib/api'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
+import { DomainBreadcrumb } from '../../src/components/DomainBreadcrumb'
 import { labelRequestedDoc } from '../../src/lib/docRequestLabels'
 import { colors, radii, space, shadows } from '../../src/theme/tokens'
 import { formatClaimType } from '../../src/lib/formatLead'
@@ -104,6 +105,7 @@ export default function DocumentRequestsScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load() }} />
       }
     >
+      <DomainBreadcrumb domain="casework" title="Documents" style={styles.header} />
       <TouchableOpacity style={styles.createButton} onPress={() => router.push('/(app)/request-docs')} activeOpacity={0.85}>
         <Ionicons name="add-circle-outline" size={20} color="#fff" />
         <Text style={styles.createButtonText}>Request documents</Text>
@@ -187,6 +189,7 @@ export default function DocumentRequestsScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.surface },
   content: { padding: space.lg, paddingBottom: space.xxl },
+  header: { marginBottom: space.md },
   createButton: {
     minHeight: 52,
     borderRadius: radii.lg,
