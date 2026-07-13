@@ -3647,6 +3647,12 @@ export async function assignFirmCase(assessmentId: string, payload: {
   return data
 }
 
+// Move a case to a different office (or unassign with officeId: null).
+export async function setCaseOffice(assessmentId: string, officeId: string | null) {
+  const { data } = await api.patch(`/v1/firm-dashboard/cases/${assessmentId}/office`, { officeId })
+  return data
+}
+
 export async function updateFirmAttorney(attorneyId: string, payload: {
   firstName?: string
   middleName?: string

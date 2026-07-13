@@ -25,6 +25,7 @@ import {
   Loader2,
   MapPin,
   MessageSquare,
+  PartyPopper,
   PenLine,
   Pencil,
   Pill,
@@ -301,7 +302,11 @@ interface CaseDetailVM {
 export default function CaseWorkspacePage() {
   const { leadId, section } = useParams<{ leadId?: string; section?: string }>()
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
+  // One-time celebratory banner shown right after an attorney buys/accepts a case
+  // (both the routing-fee payment path and the direct-accept path land here with
+  // ?accepted=1). Local state so it survives the URL cleanup below and can be dismissed.
+  const [showCongrats, setShowCongrats] = useState(searchParams.get('accepted') === '1')
   // Where the user came from, so the back button + tab navigation return there.
   const fromParam = searchParams.get('from')
   const fromSuffix = fromParam ? `?from=${fromParam}` : ''
@@ -424,11 +429,46 @@ export default function CaseWorkspacePage() {
     if (leadId && lead) recordRecentCase(leadId)
   }, [leadId, lead])
 
+  // Drop the one-time ?accepted=1 flag from the URL once we've captured it, so a
+  // page refresh or shared link doesn't resurface the congratulations banner.
+  useEffect(() => {
+    if (searchParams.get('accepted') !== '1') return
+    const next = new URLSearchParams(searchParams)
+    next.delete('accepted')
+    setSearchParams(next, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   if (!leadId) return <EmptyState message="No case selected." />
 
   return (
     <div className="space-y-4">
       <BackButton to={backTarget.to} label={backTarget.label} />
+
+      {showCongrats && (
+        <div className="relative flex items-start gap-3 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 p-4 shadow-sm">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+            <PartyPopper className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 pr-6">
+            <p className="text-sm font-semibold text-emerald-900">
+              Congratulations — this case is now yours!
+            </p>
+            <p className="mt-0.5 text-sm text-emerald-800">
+              You can now manage everything for this matter right here — client details, documents,
+              tasks, deadlines, and messages all live in this workspace.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCongrats(false)}
+            className="absolute right-3 top-3 rounded-full p-1 text-emerald-500 transition hover:bg-emerald-100 hover:text-emerald-700"
+            aria-label="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <EmptyState message="Loading case workspace…" />

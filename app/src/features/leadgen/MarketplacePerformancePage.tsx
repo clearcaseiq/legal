@@ -7,6 +7,7 @@ import {
   Avatar,
   Badge,
   DataTable,
+  DayWindowSlider,
   EmptyState,
   FilterStat,
   PageHeader,
@@ -51,6 +52,24 @@ interface FunnelRow {
   count: number
   stepConversion: number | null
   note: string
+}
+
+// Mirror of the server's status buckets so the client can recompute the funnel
+// for an arbitrary day window (the 1–90 day slider) from the raw funnelLeads.
+const FUNNEL_ACCEPTED_STATUSES = ['contacted', 'consulted', 'retained']
+const FUNNEL_SETTLED_STATUSES = ['closed', 'settled']
+
+function buildFunnel(cohort: Array<{ status: string }>): FunnelRow[] {
+  const matched = cohort.length
+  const accepted = cohort.filter((l) => FUNNEL_ACCEPTED_STATUSES.includes(l.status)).length
+  const retained = cohort.filter((l) => l.status === 'retained').length
+  const settled = cohort.filter((l) => FUNNEL_SETTLED_STATUSES.includes(l.status)).length
+  return [
+    { stage: 'Matches routed', count: matched, stepConversion: null, note: 'Pushed by SMS + app' },
+    { stage: 'Accepted', count: accepted, stepConversion: matched ? accepted / matched : 0, note: 'Fee charged on accept' },
+    { stage: 'Retained', count: retained, stepConversion: accepted ? retained / accepted : 0, note: 'Signed retainer' },
+    { stage: 'Settled / resolved', count: settled, stepConversion: retained ? settled / retained : 0, note: 'Outcome in Case Mgmt' },
+  ]
 }
 
 interface MonthlyRow {
@@ -230,6 +249,21 @@ export default function MarketplacePerformancePage() {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Time window (in days) for the acquisition funnel. Draggable from 1 to 90 days.
+  const [funnelWindowDays, setFunnelWindowDays] = useState<number>(() => {
+    try {
+      const stored = Number(localStorage.getItem('clearcaseiq_funnel_window'))
+      if (Number.isFinite(stored) && stored >= 1 && stored <= 90) return stored
+    } catch {}
+    return 30
+  })
+  const chooseFunnelWindowDays = (d: number) => {
+    const clamped = Math.min(90, Math.max(1, Math.round(d)))
+    setFunnelWindowDays(clamped)
+    try {
+      localStorage.setItem('clearcaseiq_funnel_window', String(clamped))
+    } catch {}
+  }
 
   const effectiveScope = scope === 'firm' && isFirmAdmin ? 'firm' : 'mine'
   const firmAttorneyCount = Array.isArray(firmSummary?.attorneys) ? firmSummary.attorneys.length : null
@@ -249,6 +283,27 @@ export default function MarketplacePerformancePage() {
   }, [effectiveScope])
 
   const mp = useMemo(() => (data?.marketplace ?? null), [data])
+
+  // Recompute the funnel for the exact slider window from the raw funnelLeads.
+  // Falls back to the server's preset windows / all-time funnel for older API
+  // responses that don't include funnelLeads.
+  const funnelRows = useMemo<FunnelRow[]>(() => {
+    const leads = mp?.funnelLeads as Array<{ submittedAt: string; status: string }> | undefined
+    if (Array.isArray(leads)) {
+      const cutoff = Date.now() - funnelWindowDays * 24 * 60 * 60 * 1000
+      const cohort = leads.filter((l) => {
+        const ts = new Date(l.submittedAt).getTime()
+        return Number.isFinite(ts) && ts >= cutoff
+      })
+      return buildFunnel(cohort)
+    }
+    const preset = funnelWindowDays <= 7 ? '7' : funnelWindowDays <= 30 ? '30' : '90'
+    return (mp?.funnelByWindow?.[preset] ?? mp?.funnel ?? []) as FunnelRow[]
+  }, [mp, funnelWindowDays])
+
+  const FunnelWindowSlider = (
+    <DayWindowSlider value={funnelWindowDays} onChange={chooseFunnelWindowDays} />
+  )
 
   const { showHints, toggleHints, hint } = useStatHints()
 
@@ -302,9 +357,66 @@ export default function MarketplacePerformancePage() {
             />
           </StatGrid>
 
-          <SectionCard title="Acquisition funnel · last 30 days">
-            <FunnelChart rows={(mp.funnel ?? []) as FunnelRow[]} />
+          <SectionCard
+            title={`Acquisition funnel · last ${funnelWindowDays} ${funnelWindowDays === 1 ? 'day' : 'days'}`}
+            trailing={FunnelWindowSlider}
+          >
+            <FunnelChart rows={funnelRows} />
           </SectionCard>
+
+          {mp.pipeline && (
+            <SectionCard title="Pipeline value & spend recovery">
+              <StatGrid columns={3}>
+                <FilterStat
+                  value={compactMoney(mp.pipeline.valueAtRisk)}
+                  label="Value in flight"
+                  tone="warning"
+                  filled
+                  hint={hint('Expected fee value of matters you accepted but haven’t retained yet (median case value × contingency).')}
+                />
+                <FilterStat
+                  value={String(mp.pipeline.valueAtRiskCases)}
+                  label="Accepted, not retained"
+                  tone="neutral"
+                  filled
+                  hint={hint('Matters you accepted that have not converted to a signed retainer yet. Click to view.')}
+                  onClick={() =>
+                    navigate(
+                      effectiveScope === 'firm'
+                        ? '/attorney-dashboard/cases/firm'
+                        : '/attorney-dashboard/cases/active?stage=active',
+                    )
+                  }
+                />
+                <FilterStat
+                  value={`${mp.pipeline.netReturn >= 0 ? '+' : '−'}${money(Math.abs(mp.pipeline.netReturn))}`}
+                  label="Net return"
+                  tone={mp.pipeline.netReturn >= 0 ? 'success' : 'danger'}
+                  filled
+                  hint={hint('Fees collected on retained cases minus total routing spend.')}
+                />
+              </StatGrid>
+              <div className="mt-4">
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="font-medium text-slate-600">Routing spend recovery</span>
+                  <span className="tabular-nums text-slate-500">
+                    {money(mp.feesCollected)} / {money(mp.routingSpend)} ({pct(Math.min(1, mp.pipeline.progressPct))})
+                  </span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className={`h-full rounded-full ${mp.pipeline.recovered ? 'bg-emerald-500' : 'bg-brand-500'}`}
+                    style={{ width: `${Math.min(100, Math.round(mp.pipeline.progressPct * 100))}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {mp.pipeline.recovered
+                    ? 'Collected fees have fully covered your routing spend.'
+                    : 'Fees collected so far vs. routing fees paid — how close you are to breaking even.'}
+                </p>
+              </div>
+            </SectionCard>
+          )}
 
           <SectionCard title="Spend vs. return by month">
             <MonthlyReturns rows={(mp.monthly ?? []) as MonthlyRow[]} />

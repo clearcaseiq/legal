@@ -108,6 +108,50 @@ export function StatHintsToggle({ showHints, onToggle }: { showHints: boolean; o
   )
 }
 
+/**
+ * Draggable day-range slider used to scope time-windowed sections (e.g. the
+ * acquisition funnel and match-quality breakdown). Clearly labels the metric,
+ * the min/max endpoints, and the current selection.
+ */
+export function DayWindowSlider({
+  value,
+  onChange,
+  min = 1,
+  max = 90,
+  label = 'Time window',
+}: {
+  value: number
+  onChange: (v: number) => void
+  min?: number
+  max?: number
+  label?: string
+}) {
+  const dayLabel = (n: number) => (n === 1 ? '1 day' : `${n} days`)
+  return (
+    <div className="flex items-center gap-2">
+      <span className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        {label}
+      </span>
+      <span className="text-[11px] tabular-nums text-slate-400">{min}d</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        aria-label={`${label} in days`}
+        aria-valuetext={dayLabel(value)}
+        className="h-1.5 w-32 cursor-pointer appearance-none rounded-full bg-slate-200 accent-brand-600"
+      />
+      <span className="text-[11px] tabular-nums text-slate-400">{max}d</span>
+      <span className="whitespace-nowrap rounded-md bg-brand-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-brand-700">
+        Last {dayLabel(value)}
+      </span>
+    </div>
+  )
+}
+
 export function FilterStat({
   value,
   label,
@@ -128,28 +172,40 @@ export function FilterStat({
   hint?: string
 }) {
   const clickable = typeof onClick === 'function'
-  const tile = (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={!clickable}
-      aria-pressed={clickable ? active : undefined}
-      className={`flex h-full w-full flex-col items-center rounded-xl border px-4 py-3 text-center transition duration-150 ${
-        filled ? TONE_FILL_BG[tone] : 'bg-white'
-      } ${
-        active ? TONE_ACTIVE_RING[tone] : filled ? TONE_FILL_BORDER[tone] : 'border-slate-200'
-      } ${
-        clickable
-          ? 'cursor-pointer hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md active:translate-y-0 active:shadow-sm'
-          : 'cursor-default'
-      }`}
-    >
+  // Non-clickable tiles render as a <div>, not a disabled <button>. Chromium
+  // suppresses pointer/hover events on disabled buttons, which blocks the
+  // wrapping `.group:hover` and stops the hint tooltip below from ever showing.
+  const tileClassName = `flex h-full w-full flex-col items-center rounded-xl border px-4 py-3 text-center transition duration-150 ${
+    filled ? TONE_FILL_BG[tone] : 'bg-white'
+  } ${
+    active ? TONE_ACTIVE_RING[tone] : filled ? TONE_FILL_BORDER[tone] : 'border-slate-200'
+  } ${
+    clickable
+      ? 'cursor-pointer hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md active:translate-y-0 active:shadow-sm'
+      : 'cursor-default'
+  }`
+  const tileInner = (
+    <>
       <span className={`text-2xl font-bold leading-none ${TONE_TEXT[tone]}`}>{value}</span>
       <span className={`mt-1 flex items-center gap-1 text-xs font-medium ${filled ? TONE_LABEL[tone] : 'text-slate-500'}`}>
         {label}
         {hint && <Info className="h-3 w-3 opacity-60" aria-hidden />}
       </span>
+    </>
+  )
+  const tile = clickable ? (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={tileClassName}
+    >
+      {tileInner}
     </button>
+  ) : (
+    <div className={tileClassName} tabIndex={hint ? 0 : undefined}>
+      {tileInner}
+    </div>
   )
 
   if (!hint) return tile
@@ -159,13 +215,13 @@ export function FilterStat({
       {tile}
       <div
         role="tooltip"
-        className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-60 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-medium leading-5 text-white opacity-0 shadow-lg shadow-slate-900/20 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+        className="pointer-events-none absolute top-full left-1/2 z-30 mt-2 w-60 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-medium leading-5 text-white opacity-0 shadow-lg shadow-slate-900/20 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
       >
-        {hint}
         <span
-          className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 bg-slate-900"
+          className="absolute bottom-full left-1/2 h-2 w-2 -translate-x-1/2 translate-y-1 rotate-45 bg-slate-900"
           aria-hidden
         />
+        {hint}
       </div>
     </div>
   )
@@ -379,8 +435,8 @@ export function SectionCard({
   return (
     <section className="rounded-xl border border-slate-200 bg-white">
       {(title || trailing) && (
-        <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-          {title && <h2 className="text-sm font-semibold text-slate-800">{title}</h2>}
+        <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-100 px-4 py-3">
+          {title && <h2 className="whitespace-nowrap text-sm font-semibold text-slate-800">{title}</h2>}
           {trailing}
         </header>
       )}

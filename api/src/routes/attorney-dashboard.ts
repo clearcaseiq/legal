@@ -2786,6 +2786,10 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
     // Powers the Accepted + Declined tiles on New Matches and the Match Quality view.
     const declineStats = { last7: 0, last30: 0, last90: 0, total: 0 }
     const acceptStats = { last7: 0, last30: 0, last90: 0, total: 0 }
+    // Speed-to-lead analytics: how fast the attorney responds to routed matches,
+    // how many are still awaiting a decision (aging), and whether responding
+    // faster correlates with a higher retain rate. Populated in the try below.
+    let leadSpeed: any = null
     try {
       const performanceIntros = await prisma.introduction.findMany({
         where: { attorneyId },
@@ -2814,6 +2818,67 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
         if (ageMs <= 7 * DAY_MS) bucket.last7 += 1
         if (ageMs <= 30 * DAY_MS) bucket.last30 += 1
         if (ageMs <= 90 * DAY_MS) bucket.last90 += 1
+      }
+
+      // --- Speed-to-lead -----------------------------------------------------
+      // Response time = respondedAt − requestedAt for each decided introduction.
+      const respondedMinutes = responded
+        .map((i) => (i.respondedAt!.getTime() - i.requestedAt.getTime()) / 60000)
+        .filter((m) => Number.isFinite(m) && m >= 0)
+        .sort((a, b) => a - b)
+      const median = (arr: number[]): number | null =>
+        arr.length === 0 ? null : arr[Math.floor((arr.length - 1) / 2)]
+      const medianResponseMinutes = median(respondedMinutes)
+      const within1h = respondedMinutes.filter((m) => m <= 60).length
+      const within24h = respondedMinutes.filter((m) => m <= 1440).length
+
+      // Aging: introductions still awaiting a decision (no respondedAt), bucketed
+      // by how long they've been sitting since routed.
+      const openIntros = performanceIntros.filter((i) => !i.respondedAt && i.requestedAt)
+      const openAgeMin = (i: any) => (nowMs - new Date(i.requestedAt).getTime()) / 60000
+      const aging = {
+        open: openIntros.length,
+        over1h: openIntros.filter((i) => openAgeMin(i) > 60).length,
+        over24h: openIntros.filter((i) => openAgeMin(i) > 1440).length,
+        over72h: openIntros.filter((i) => openAgeMin(i) > 4320).length,
+      }
+
+      // Retain-rate by response speed: for leads the attorney actually contacted,
+      // compare fast (<= 1h to first contact) vs slower cohorts' retain rate.
+      const speed = { fast: { n: 0, retained: 0 }, slow: { n: 0, retained: 0 } }
+      for (const l of allLeadsForPipeline || []) {
+        const contactTimes = ((l.contactAttempts || []) as any[])
+          .map((c) => c.completedAt || c.createdAt)
+          .filter(Boolean)
+          .map((d) => new Date(d).getTime())
+        if (!contactTimes.length || !l.submittedAt) continue
+        const firstContactMs = Math.min(...contactTimes)
+        const responseMin = (firstContactMs - new Date(l.submittedAt).getTime()) / 60000
+        if (!Number.isFinite(responseMin) || responseMin < 0) continue
+        const bucket = responseMin <= 60 ? speed.fast : speed.slow
+        bucket.n += 1
+        if (String(l.status) === 'retained') bucket.retained += 1
+      }
+
+      leadSpeed = {
+        medianResponseMinutes,
+        avgResponseMinutes,
+        decidedCount: respondedMinutes.length,
+        within1h,
+        within24h,
+        within1hRate: respondedMinutes.length ? within1h / respondedMinutes.length : 0,
+        within24hRate: respondedMinutes.length ? within24h / respondedMinutes.length : 0,
+        aging,
+        bySpeed: {
+          fast: {
+            n: speed.fast.n,
+            retainRate: speed.fast.n ? speed.fast.retained / speed.fast.n : 0,
+          },
+          slow: {
+            n: speed.slow.n,
+            retainRate: speed.slow.n ? speed.slow.retained / speed.slow.n : 0,
+          },
+        },
       }
     } catch (metricsErr: any) {
       logger.warn('Performance metrics computation failed', { error: metricsErr?.message })
@@ -2893,6 +2958,66 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       }
     })()
 
+    // Decision quality — grades the attorney's accept/decline judgment against
+    // the AI viability score. Surfaces "declined but high-value" regret and a
+    // calibration table (do higher-fit matches actually convert better?).
+    const decisionQuality = (() => {
+      const ACCEPTED = ['contacted', 'consulted', 'retained']
+      const toFraction = (v: any) => {
+        const n = Number(v ?? 0)
+        if (!Number.isFinite(n) || n <= 0) return 0
+        return n <= 1 ? n : n / 100
+      }
+      const viabilityFraction = (raw: any) => {
+        if (raw == null) return 0
+        let obj: any = raw
+        if (typeof raw === 'string') {
+          try { obj = JSON.parse(raw) } catch { return toFraction(raw) }
+        }
+        if (obj && typeof obj === 'object') return toFraction(obj.overall)
+        return toFraction(obj)
+      }
+      const HIGH_VALUE = 0.7
+      const bands = [
+        { key: 'strong', label: 'Strong ≥75%', min: 0.75, matches: 0, accepted: 0, retained: 0 },
+        { key: 'fair', label: 'Fair 60–74%', min: 0.6, matches: 0, accepted: 0, retained: 0 },
+        { key: 'weak', label: 'Weak <60%', min: 0, matches: 0, accepted: 0, retained: 0 },
+      ]
+      const bandFor = (v: number) => (v >= 0.75 ? bands[0] : v >= 0.6 ? bands[1] : bands[2])
+      let declinedTotal = 0
+      let declinedHigh = 0
+      let declinedVsum = 0
+      for (const l of allLeadsForPipeline || []) {
+        const status = String(l?.status || '')
+        const v = viabilityFraction(l?.assessment?.predictions?.[0]?.viability)
+        if (status === 'rejected') {
+          declinedTotal += 1
+          declinedVsum += v
+          if (v >= HIGH_VALUE) declinedHigh += 1
+        }
+        const b = bandFor(v)
+        b.matches += 1
+        if (ACCEPTED.includes(status)) b.accepted += 1
+        if (status === 'retained') b.retained += 1
+      }
+      return {
+        declined: {
+          total: declinedTotal,
+          highViability: declinedHigh,
+          highViabilityRate: declinedTotal ? declinedHigh / declinedTotal : 0,
+          avgViability: declinedTotal ? declinedVsum / declinedTotal : 0,
+        },
+        calibration: bands.map((b) => ({
+          band: b.label,
+          matches: b.matches,
+          accepted: b.accepted,
+          retained: b.retained,
+          acceptRate: b.matches ? b.accepted / b.matches : 0,
+          retainRate: b.matches ? b.retained / b.matches : 0,
+        })),
+      }
+    })()
+
     // Marketplace Performance (mine scope): KPI tiles, acquisition funnel, and
     // the spend-vs-return monthly series. Computed live from the same lead
     // universe + this attorney's platform payments.
@@ -2915,6 +3040,8 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
         totalLeadsReceived
       },
       leadQuality,
+      decisionQuality,
+      leadSpeed,
       marketplace,
       performanceMetrics: {
         avgResponseMinutes,

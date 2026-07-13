@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { getAttorneyDashboard, getFirmDashboard } from '../../lib/api'
 import { useFirmDashboardSummary } from '../../hooks/useFirmDashboardSummary'
 import { useAttorneyWorkspace } from '../shared/AttorneyWorkspaceContext'
-import { DataTable, EmptyState, FilterStat, PageHeader, SectionCard, StatGrid, StatHintsToggle, useStatHints, type DataTableColumn } from '../shared/ui'
+import { Badge, DataTable, DayWindowSlider, EmptyState, FilterStat, PageHeader, SectionCard, StatGrid, StatHintsToggle, useStatHints, type BadgeTone, type DataTableColumn } from '../shared/ui'
 
 const CLAIM_LABELS: Record<string, string> = {
   auto: 'Auto',
@@ -31,6 +31,39 @@ function toFraction(value: any) {
 function pct(fraction: number) {
   if (!Number.isFinite(fraction)) return '—'
   return `${Math.round(fraction * 100)}%`
+}
+
+// Human-friendly duration from a minute count (e.g. 42 → "42m", 150 → "2h 30m").
+function formatMinutes(min: number | null | undefined) {
+  if (min == null || !Number.isFinite(min)) return '—'
+  if (min < 1) return '<1m'
+  if (min < 60) return `${Math.round(min)}m`
+  const hours = min / 60
+  if (hours < 24) {
+    const h = Math.floor(hours)
+    const m = Math.round(min - h * 60)
+    return m ? `${h}h ${m}m` : `${h}h`
+  }
+  const days = hours / 24
+  const d = Math.floor(days)
+  const h = Math.round(hours - d * 24)
+  return h ? `${d}d ${h}h` : `${d}d`
+}
+
+// Percentile rank (0–100) of `value` within `pool`, i.e. share of peers at or
+// below it. Used to badge an attorney against their firm.
+function percentileRank(value: number, pool: number[]): number | null {
+  const xs = pool.filter((n) => Number.isFinite(n))
+  if (xs.length < 2) return null
+  const atOrBelow = xs.filter((n) => n <= value).length
+  return Math.round((atOrBelow / xs.length) * 100)
+}
+
+function median(xs: number[]): number {
+  const arr = xs.filter((n) => Number.isFinite(n)).sort((a, b) => a - b)
+  if (!arr.length) return 0
+  const mid = Math.floor((arr.length - 1) / 2)
+  return arr[mid]
 }
 
 const ACCEPTED_STATUSES = ['contacted', 'consulted', 'retained']
@@ -128,9 +161,45 @@ function ScopeBar({
           {firmAttorneyCount ? `Firm · ${firmAttorneyCount} attorneys` : 'Firm'}
         </ScopePill>
       </div>
-      <span className="ml-auto text-xs text-slate-400">
-        {scope === 'mine' ? 'Visible to every attorney' : 'Firm admin / managing partner only'}
-      </span>
+    </div>
+  )
+}
+
+// Decision-calibration table: accept & retain rates per AI match-fit band.
+const calibrationColumns: DataTableColumn<any>[] = [
+  { key: 'band', header: 'Match fit', cell: (r) => r.band },
+  { key: 'matches', header: 'Matches', align: 'right', cell: (r) => String(r.matches) },
+  { key: 'acceptRate', header: 'Accept rate', align: 'right', cell: (r) => pct(r.acceptRate) },
+  { key: 'retainRate', header: 'Retain rate', align: 'right', cell: (r) => pct(r.retainRate) },
+]
+
+function BenchmarkRow({
+  label,
+  stat,
+}: {
+  label: string
+  stat: { you: number; median: number; percentile: number | null }
+}) {
+  const p = stat.percentile
+  const tone: BadgeTone = p == null ? 'neutral' : p >= 75 ? 'success' : p >= 50 ? 'warning' : 'danger'
+  const badgeLabel = p == null ? '—' : p >= 75 ? 'Top quartile' : p >= 50 ? 'Above median' : 'Below median'
+  const delta = stat.you - stat.median
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2">
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-slate-800">{label}</div>
+        <div className="text-xs text-slate-400">Firm median {pct(stat.median)}</div>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="text-right">
+          <div className="text-lg font-bold tabular-nums text-slate-900">{pct(stat.you)}</div>
+          <div className={`text-[11px] tabular-nums ${delta >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {delta >= 0 ? '+' : '−'}
+            {pct(Math.abs(delta))} vs median
+          </div>
+        </div>
+        <Badge tone={tone}>{badgeLabel}</Badge>
+      </div>
     </div>
   )
 }
@@ -144,17 +213,20 @@ export default function MatchQualityPage() {
   const [firm, setFirm] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [declineWindow, setDeclineWindow] = useState<'7' | '30' | '90'>(() => {
+  // Time window (in days) for the per-practice-area breakdown table. Draggable
+  // from 1 to 90 days via the slider in the section header.
+  const [matchWindowDays, setMatchWindowDays] = useState<number>(() => {
     try {
-      const stored = localStorage.getItem('clearcaseiq_decline_window')
-      if (stored === '7' || stored === '30' || stored === '90') return stored
+      const stored = Number(localStorage.getItem('clearcaseiq_match_window'))
+      if (Number.isFinite(stored) && stored >= 1 && stored <= 90) return stored
     } catch {}
-    return '30'
+    return 90
   })
-  const chooseDeclineWindow = (w: '7' | '30' | '90') => {
-    setDeclineWindow(w)
+  const chooseMatchWindowDays = (d: number) => {
+    const clamped = Math.min(90, Math.max(1, Math.round(d)))
+    setMatchWindowDays(clamped)
     try {
-      localStorage.setItem('clearcaseiq_decline_window', w)
+      localStorage.setItem('clearcaseiq_match_window', String(clamped))
     } catch {}
   }
 
@@ -254,14 +326,91 @@ export default function MatchQualityPage() {
     }
   }, [mine])
 
+  // You-vs-firm benchmark: rank the attorney's accept/retain rates against firm
+  // peers. Only meaningful with 2+ attorneys (firm summary present).
+  const benchmark = useMemo(() => {
+    const peers = Array.isArray(firmSummary?.attorneys) ? firmSummary.attorneys : []
+    if (peers.length < 2 || !mineView) return null
+    const rate = (num: number, den: number) => (den ? num / den : 0)
+    const acceptRates = peers.map((p: any) =>
+      rate(Number(p?.dashboard?.totalLeadsAccepted || 0), Number(p?.dashboard?.totalLeadsReceived || 0)),
+    )
+    const retainRates = peers.map((p: any) =>
+      rate(Number(p?.dashboard?.totalLeadsRetained || 0), Number(p?.dashboard?.totalLeadsReceived || 0)),
+    )
+    return {
+      peers: peers.length,
+      accept: {
+        you: mineView.acceptRate,
+        median: median(acceptRates),
+        percentile: percentileRank(mineView.acceptRate, acceptRates),
+      },
+      retain: {
+        you: mineView.retainRate,
+        median: median(retainRates),
+        percentile: percentileRank(mineView.retainRate, retainRates),
+      },
+    }
+  }, [firmSummary, mineView])
+
+  // Per-practice-area rows recomputed for the selected time window, derived from
+  // recentLeads (which carry timestamps, unlike the all-time leadQuality rollup).
+  const windowedRows = useMemo(() => {
+    const leads: any[] = mine?.recentLeads || []
+    const cutoff = Date.now() - matchWindowDays * 24 * 60 * 60 * 1000
+    const inWindow = leads.filter((l) => {
+      const ts = new Date(l.submittedAt || l.createdAt || l.assessment?.createdAt || 0).getTime()
+      return Number.isFinite(ts) && ts >= cutoff
+    })
+    const groups: Record<string, { matches: number; accepted: number; retained: number; vsum: number }> = {}
+    for (const l of inWindow) {
+      const key = l.assessment?.claimType || 'other'
+      const g = groups[key] || (groups[key] = { matches: 0, accepted: 0, retained: 0, vsum: 0 })
+      g.matches += 1
+      g.vsum += toFraction(l.viabilityScore)
+      if (ACCEPTED_STATUSES.includes(l.status)) g.accepted += 1
+      if (l.status === 'retained') g.retained += 1
+    }
+    return Object.entries(groups)
+      .map(([key, g]) => ({
+        type: key,
+        label: claimLabel(key),
+        matches: g.matches,
+        accepted: g.accepted,
+        retained: g.retained,
+        acceptRate: g.matches ? g.accepted / g.matches : 0,
+        avgMatch: g.matches ? g.vsum / g.matches : 0,
+        tone: toneForScore(g.matches ? g.vsum / g.matches : 0),
+      }))
+      .sort((a, b) => b.matches - a.matches)
+  }, [mine, matchWindowDays])
+
+  const MatchWindowSlider = (
+    <DayWindowSlider value={matchWindowDays} onChange={chooseMatchWindowDays} />
+  )
+
   const firmView = useMemo(() => {
     if (!firm) return null
+    const cutoff = Date.now() - matchWindowDays * 24 * 60 * 60 * 1000
     const attorneys: any[] = firm.attorneys || []
     const rows = attorneys
       .map((a) => {
         const d = a.dashboard || {}
-        const routed = Number(d.totalLeadsReceived || 0)
-        const accepted = Number(d.totalLeadsAccepted || 0)
+        // Prefer windowed lead events; fall back to all-time counts if absent.
+        const events = Array.isArray(a.matchWindowLeads) ? a.matchWindowLeads : null
+        let routed: number
+        let accepted: number
+        if (events) {
+          const inWindow = events.filter((e: any) => {
+            const t = new Date(e.submittedAt).getTime()
+            return Number.isFinite(t) && t >= cutoff
+          })
+          routed = inWindow.length
+          accepted = inWindow.filter((e: any) => ACCEPTED_STATUSES.includes(e.status)).length
+        } else {
+          routed = Number(d.totalLeadsReceived || 0)
+          accepted = Number(d.totalLeadsAccepted || 0)
+        }
         return {
           id: a.id,
           name: a.name || a.email || 'Attorney',
@@ -284,7 +433,7 @@ export default function MatchQualityPage() {
       totalSpend,
       rows,
     }
-  }, [firm])
+  }, [firm, matchWindowDays])
 
   const firmColumns: DataTableColumn<any>[] = [
     {
@@ -384,41 +533,6 @@ export default function MatchQualityPage() {
 
   const { showHints, toggleHints, hint } = useStatHints()
 
-  // Declined matches — retrospective view of matches this attorney passed on,
-  // bucketed server-side by Introduction.respondedAt (7 / 30 / 90 days).
-  const declineStats = mine?.declineStats as
-    | { last7: number; last30: number; last90: number; total: number }
-    | undefined
-  const declinedInWindow =
-    declineWindow === '7'
-      ? declineStats?.last7 ?? 0
-      : declineWindow === '90'
-        ? declineStats?.last90 ?? 0
-        : declineStats?.last30 ?? 0
-  const declinedTotal = declineStats?.total ?? 0
-  const routedTotal = mineView?.total ?? 0
-  const declineRate = routedTotal > 0 ? declinedTotal / routedTotal : 0
-
-  const DeclineWindowToggle = (
-    <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 bg-white">
-      {(['7', '30', '90'] as const).map((w) => (
-        <button
-          key={w}
-          type="button"
-          onClick={() => chooseDeclineWindow(w)}
-          aria-pressed={declineWindow === w}
-          className={`px-2.5 py-1 text-xs font-semibold transition ${
-            declineWindow === w
-              ? 'bg-brand-600 text-white'
-              : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-          }`}
-        >
-          {w}d
-        </button>
-      ))}
-    </div>
-  )
-
   return (
     <div className="space-y-4">
       <PageHeader
@@ -445,7 +559,7 @@ export default function MatchQualityPage() {
               <FilterStat value={pct(firmView.acceptRate)} label="Firm accept rate" tone="success" hint={hint('Share of routed matches your firm accepted (accepted ÷ routed). Click to view the firm caseload.')} onClick={() => navigate('/attorney-dashboard/cases/firm')} />
             </StatGrid>
 
-            <SectionCard title="Match quality by attorney">
+            <SectionCard title="Match quality by attorney" trailing={MatchWindowSlider}>
               <DataTable columns={firmColumns} rows={firmView.rows} rowKey={(r) => r.id} />
             </SectionCard>
           </>
@@ -460,32 +574,117 @@ export default function MatchQualityPage() {
             <FilterStat value={pct(mineView.avgMatch)} label="Avg match fit" tone="neutral" filled hint={hint('Average predicted fit across your routed matches. Cost metrics live on Marketplace Performance.')} />
           </StatGrid>
 
-          <SectionCard title="Declined matches" trailing={DeclineWindowToggle}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Declined · last {declineWindow}d
-                </p>
-                <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{declinedInWindow}</p>
-                <p className="mt-1 text-xs text-slate-500">Matches you passed on in this window.</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Declined · all time</p>
-                <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{declinedTotal}</p>
-                <p className="mt-1 text-xs text-slate-500">Every match you've declined to date.</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Decline rate</p>
-                <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{pct(declineRate)}</p>
-                <p className="mt-1 text-xs text-slate-500">
-                  {declinedTotal} declined ÷ {routedTotal} routed (all time).
-                </p>
-              </div>
-            </div>
-          </SectionCard>
+          {mine?.leadSpeed && (
+            <SectionCard
+              title="Speed to lead"
+              trailing={<span className="text-xs text-slate-400">Faster responses win more cases</span>}
+            >
+              <StatGrid columns={4}>
+                <FilterStat
+                  value={formatMinutes(mine.leadSpeed.medianResponseMinutes)}
+                  label="Median response"
+                  tone="neutral"
+                  filled
+                  hint={hint('Median time from a routed match to your accept/decline decision.')}
+                />
+                <FilterStat
+                  value={pct(mine.leadSpeed.within1hRate)}
+                  label="Responded < 1h"
+                  tone="success"
+                  filled
+                  hint={hint('Share of decided matches you responded to within an hour.')}
+                />
+                <FilterStat
+                  value={String(mine.leadSpeed.aging.open)}
+                  label="Awaiting decision"
+                  tone={mine.leadSpeed.aging.open > 0 ? 'warning' : 'neutral'}
+                  filled
+                  hint={hint('Routed matches still waiting on your accept/decline. Click to review.')}
+                  onClick={() => navigate('/attorney-dashboard/leadgen/matches')}
+                />
+                <FilterStat
+                  value={String(mine.leadSpeed.aging.over24h)}
+                  label="Aging > 24h"
+                  tone={mine.leadSpeed.aging.over24h > 0 ? 'danger' : 'neutral'}
+                  filled
+                  hint={hint('Undecided matches routed more than 24 hours ago — act on these first.')}
+                  onClick={() => navigate('/attorney-dashboard/leadgen/matches')}
+                />
+              </StatGrid>
+              {mine.leadSpeed.bySpeed.fast.n > 0 && mine.leadSpeed.bySpeed.slow.n > 0 && (
+                <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  Matches you contacted within 1 hour retained at{' '}
+                  <span className="font-semibold text-emerald-700">{pct(mine.leadSpeed.bySpeed.fast.retainRate)}</span>{' '}
+                  vs{' '}
+                  <span className="font-semibold text-slate-700">{pct(mine.leadSpeed.bySpeed.slow.retainRate)}</span>{' '}
+                  when you responded slower.
+                </div>
+              )}
+            </SectionCard>
+          )}
 
-          <SectionCard title="My match quality by practice area" trailing={<MatchLegend />}>
-            <DataTable columns={mineColumns} rows={mineView.rows} rowKey={(r) => r.label} />
+          {mine?.decisionQuality && (
+            <SectionCard title="Decision quality">
+              {mine.decisionQuality.declined.total > 0 && (
+                <div
+                  className={`mb-3 rounded-lg border px-3 py-2.5 text-sm ${
+                    mine.decisionQuality.declined.highViability > 0
+                      ? 'border-amber-200 bg-amber-50 text-amber-900'
+                      : 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                  }`}
+                >
+                  {mine.decisionQuality.declined.highViability > 0 ? (
+                    <>
+                      You declined{' '}
+                      <span className="font-semibold">{mine.decisionQuality.declined.highViability}</span>{' '}
+                      high-value {mine.decisionQuality.declined.highViability === 1 ? 'match' : 'matches'} (viability ≥ 70%)
+                      {' '}— {pct(mine.decisionQuality.declined.highViabilityRate)} of your{' '}
+                      {mine.decisionQuality.declined.total} declines. Worth a second look at strong-fit passes.
+                    </>
+                  ) : (
+                    <>Good judgment — none of your {mine.decisionQuality.declined.total} declined matches were high-value.</>
+                  )}
+                </div>
+              )}
+              <p className="mb-2 text-xs text-slate-500">
+                Do higher-fit matches actually convert better? Accept &amp; retain rates by AI match-fit band:
+              </p>
+              <DataTable
+                columns={calibrationColumns}
+                rows={mine.decisionQuality.calibration}
+                rowKey={(r: any) => r.band}
+              />
+            </SectionCard>
+          )}
+
+          {benchmark && (
+            <SectionCard
+              title="You vs. firm"
+              trailing={<span className="text-xs text-slate-400">{benchmark.peers} attorneys</span>}
+            >
+              <div className="space-y-2.5">
+                <BenchmarkRow label="Accept rate" stat={benchmark.accept} />
+                <BenchmarkRow label="Retain rate" stat={benchmark.retain} />
+              </div>
+            </SectionCard>
+          )}
+
+          <SectionCard
+            title="My match quality by practice area"
+            trailing={
+              <div className="flex flex-wrap items-center gap-4">
+                <MatchLegend />
+                {MatchWindowSlider}
+              </div>
+            }
+          >
+            {windowedRows.length === 0 ? (
+              <EmptyState
+                message={`No matches in the last ${matchWindowDays} ${matchWindowDays === 1 ? 'day' : 'days'}.`}
+              />
+            ) : (
+              <DataTable columns={mineColumns} rows={windowedRows} rowKey={(r) => r.label} />
+            )}
           </SectionCard>
         </>
       )}

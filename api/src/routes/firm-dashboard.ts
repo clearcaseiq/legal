@@ -735,6 +735,53 @@ router.post('/cases/:assessmentId/assignments', authMiddleware as any, async (re
   }
 })
 
+// Reassign a case to a different office (or unassign with officeId: null). Only
+// offices that belong to the firm are accepted. Drives office capacity balancing.
+router.patch('/cases/:assessmentId/office', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'assign_cases')) {
+      return res.status(403).json({ error: 'You do not have permission to reassign cases' })
+    }
+
+    const { assessmentId } = req.params
+    const { officeId } = req.body || {}
+
+    const assessment: any = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      include: { leadSubmission: { include: { assignedAttorney: true } }, introductions: { include: { attorney: true } } },
+    })
+    if (!assessment) return res.status(404).json({ error: 'Case not found' })
+
+    const belongsToFirm =
+      assessment.lawFirmId === context.lawFirmId ||
+      assessment.leadSubmission?.assignedAttorney?.lawFirmId === context.lawFirmId ||
+      assessment.introductions?.some((intro: any) => intro.attorney?.lawFirmId === context.lawFirmId)
+    if (!belongsToFirm) return res.status(403).json({ error: 'This case does not belong to your firm' })
+
+    let resolvedOfficeId: string | null = null
+    if (typeof officeId === 'string' && officeId) {
+      const office = await (prisma as any).firmOffice.findFirst({
+        where: { id: officeId, lawFirmId: context.lawFirmId },
+        select: { id: true },
+      })
+      if (!office) return res.status(400).json({ error: 'Office not found in this firm' })
+      resolvedOfficeId = office.id
+    }
+
+    await prisma.assessment.update({
+      where: { id: assessmentId },
+      data: { lawFirmId: context.lawFirmId, officeId: resolvedOfficeId },
+    })
+
+    res.json({ assessmentId, officeId: resolvedOfficeId })
+  } catch (error: any) {
+    logger.error('Failed to reassign case office', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to reassign case office' })
+  }
+})
+
 // Firm-wide contacts directory — every case contact across all attorneys in the
 // firm (the single-attorney version lives at attorney-dashboard/case-contacts).
 router.get('/case-contacts', authMiddleware as any, async (req: any, res: Response) => {
@@ -1617,6 +1664,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         assignments,
         openTaskCount: (assessment.caseTasks || []).length,
         unassigned: !primaryAttorneyId && assignments.length === 0,
+        officeId: assessment.officeId ?? null,
       }
     })
 
@@ -1643,7 +1691,11 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
     // not kept up to date by the accept flow, so we recompute them from the same
     // universe each attorney sees on their own dashboard (assigned OR introduced).
     const ACCEPTED_LEAD_STATUSES = ['contacted', 'consulted', 'retained']
-    const attorneyLeadStats = new Map<string, { routed: number; accepted: number }>()
+    const attorneyLeadStats = new Map<string, { routed: number; accepted: number; retained: number }>()
+    // Per-attorney lead events routed in the last 90 days, so the Match Quality
+    // firm view can recompute routed/accepted for any custom day window (slider).
+    const attorneyLeadEvents = new Map<string, Array<{ submittedAt: string; status: string }>>()
+    const matchWindowCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
     try {
       await Promise.all(
         attorneys.map(async (a: any) => {
@@ -1653,13 +1705,27 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
               { assessment: { introductions: { some: { attorneyId: a.id } } } },
             ],
           }
-          const [routed, accepted] = await Promise.all([
+          const [routed, accepted, retained, events90] = await Promise.all([
             prisma.leadSubmission.count({ where: universe }),
             prisma.leadSubmission.count({
               where: { AND: [universe, { status: { in: ACCEPTED_LEAD_STATUSES } }] },
             }),
+            prisma.leadSubmission.count({
+              where: { AND: [universe, { status: 'retained' }] },
+            }),
+            prisma.leadSubmission.findMany({
+              where: { AND: [universe, { submittedAt: { gte: matchWindowCutoff } }] },
+              select: { submittedAt: true, status: true },
+            }),
           ])
-          attorneyLeadStats.set(a.id, { routed, accepted })
+          attorneyLeadStats.set(a.id, { routed, accepted, retained })
+          attorneyLeadEvents.set(
+            a.id,
+            events90.map((e: any) => ({
+              submittedAt: new Date(e.submittedAt).toISOString(),
+              status: String(e.status || ''),
+            })),
+          )
         }),
       )
     } catch (statsErr: any) {
@@ -1798,9 +1864,12 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         dashboard: {
           totalLeadsReceived: attorneyLeadStats.get(a.id)?.routed ?? a.dashboard?.totalLeadsReceived ?? 0,
           totalLeadsAccepted: attorneyLeadStats.get(a.id)?.accepted ?? a.dashboard?.totalLeadsAccepted ?? 0,
+          totalLeadsRetained: attorneyLeadStats.get(a.id)?.retained ?? 0,
           feesCollectedFromPayments: totalFeesByAttorneyId.get(a.id) || 0,
           totalPlatformSpend: attorneySpend.get(a.id) ?? a.dashboard?.totalPlatformSpend ?? 0,
-        }
+        },
+        // Lead events (last 90d) for client-side windowing on Match Quality.
+        matchWindowLeads: attorneyLeadEvents.get(a.id) || []
       }))
     }
 

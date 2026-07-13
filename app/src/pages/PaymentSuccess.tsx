@@ -10,6 +10,11 @@ export default function PaymentSuccess() {
   const leadId = searchParams.get('leadId')
   const [acceptanceStatus, setAcceptanceStatus] = useState<'idle' | 'accepting' | 'accepted' | 'failed'>('idle')
   const caseWorkspacePath = leadId ? `/attorney-dashboard/lead/${leadId}/overview` : '/attorney-dashboard'
+  // Carry a one-time flag into the workspace so it can greet the attorney with a
+  // "Congratulations, this case is now yours" banner right after the purchase.
+  const caseWorkspacePathAfterAccept = leadId
+    ? `/attorney-dashboard/lead/${leadId}/overview?accepted=1`
+    : '/attorney-dashboard'
 
   useEffect(() => {
     if (type !== 'routing_fee' || !leadId) return
@@ -43,25 +48,36 @@ export default function PaymentSuccess() {
   useEffect(() => {
     if (type !== 'routing_fee' || !leadId || acceptanceStatus !== 'accepted') return
     const timer = setTimeout(() => {
-      navigate(caseWorkspacePath, { replace: true })
-    }, 1200)
+      navigate(caseWorkspacePathAfterAccept, { replace: true })
+    }, 1600)
     return () => clearTimeout(timer)
-  }, [acceptanceStatus, type, leadId, caseWorkspacePath, navigate])
+  }, [acceptanceStatus, type, leadId, caseWorkspacePathAfterAccept, navigate])
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-16">
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-emerald-950 shadow-sm">
-        <p className="text-sm font-semibold uppercase tracking-wide text-emerald-700">Payment received</p>
-        <h1 className="mt-2 text-3xl font-bold">Thanks, your payment is being processed.</h1>
-        <p className="mt-3 text-sm text-emerald-800">
-          Stripe will notify CaseIQ when the payment is finalized. Your payment status will update automatically.
-        </p>
-        {type === 'routing_fee' && (
-          <p className="mt-3 text-sm text-emerald-800">
-            {acceptanceStatus === 'accepting' && 'Finalizing the case acceptance...'}
-            {acceptanceStatus === 'accepted' && 'The case has been accepted — taking you to the Case Workspace...'}
-            {acceptanceStatus === 'failed' && 'Payment succeeded, but the case acceptance could not be finalized automatically. Please open the case from your attorney dashboard and try again.'}
-          </p>
+        {type === 'routing_fee' ? (
+          <>
+            <p className="text-sm font-semibold uppercase tracking-wide text-emerald-700">Payment received</p>
+            <h1 className="mt-2 text-3xl font-bold">Congratulations — this case is now yours! 🎉</h1>
+            <p className="mt-3 text-sm text-emerald-800">
+              You can now manage everything for this matter — client details, documents, tasks,
+              deadlines, and messages all live in your Case Workspace.
+            </p>
+            <p className="mt-3 text-sm text-emerald-800">
+              {acceptanceStatus === 'accepting' && 'Finalizing your case…'}
+              {acceptanceStatus === 'accepted' && 'Taking you to your Case Workspace so you can get started…'}
+              {acceptanceStatus === 'failed' && 'Payment succeeded, but the case acceptance could not be finalized automatically. Please open the case from your attorney dashboard and try again.'}
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-semibold uppercase tracking-wide text-emerald-700">Payment received</p>
+            <h1 className="mt-2 text-3xl font-bold">Thanks, your payment is being processed.</h1>
+            <p className="mt-3 text-sm text-emerald-800">
+              Stripe will notify CaseIQ when the payment is finalized. Your payment status will update automatically.
+            </p>
+          </>
         )}
         {type === 'payment_method' && (
           <p className="mt-3 text-sm text-emerald-800">
@@ -71,7 +87,7 @@ export default function PaymentSuccess() {
         {sessionId && <p className="mt-4 text-xs text-emerald-700">Stripe session: {sessionId}</p>}
         <div className="mt-6 flex flex-wrap gap-3">
           {type === 'routing_fee' ? (
-            <Link to={caseWorkspacePath} className="btn-primary">
+            <Link to={caseWorkspacePathAfterAccept} className="btn-primary">
               Open Case Workspace
             </Link>
           ) : (

@@ -114,7 +114,7 @@ const messageColumns: DataTableColumn<Room>[] = [
   {
     key: 'status',
     header: 'Status',
-    align: 'right',
+    align: 'center',
     cell: (room) =>
       room.awaitingReply ? <Badge tone="warning">Awaiting reply</Badge> : <span className="text-slate-300">—</span>,
   },

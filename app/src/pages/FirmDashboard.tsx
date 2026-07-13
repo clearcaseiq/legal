@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -27,6 +27,7 @@ import {
   updateFirmAttorney,
   updateFirmMember,
   assignFirmCase,
+  setCaseOffice,
   getFirmTeamCaseload,
 } from '../lib/api'
 import {
@@ -44,6 +45,7 @@ import {
 } from '../features/shared/ui'
 import { formatCurrency } from '../lib/formatters'
 import { US_STATES } from '../lib/constants'
+import { StateMultiSelect } from '../components/StateMultiSelect'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
 
 const CASE_TYPES = [
@@ -118,6 +120,7 @@ interface FirmCaseRow {
   assignments: Array<{ role: string; name: string | null }>
   openTaskCount: number
   unassigned: boolean
+  officeId?: string | null
 }
 
 interface FirmDashboardData {
@@ -197,12 +200,10 @@ type CaseloadData = {
   offices: Array<{ officeId: string; name: string; capacity: number | null; assignedCases: number; utilization: number | null }>
 }
 
-type TabKey = 'overview' | 'team' | 'cases' | 'operations'
+type TabKey = 'overview' | 'team'
 const TABS: Array<{ key: TabKey; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
   { key: 'team', label: 'Team & Roles', icon: Users },
-  { key: 'cases', label: 'Cases', icon: Briefcase },
-  { key: 'operations', label: 'Operations', icon: ClipboardList },
 ]
 
 export default function FirmDashboard() {
@@ -215,10 +216,11 @@ export default function FirmDashboard() {
     if (location.key && location.key !== 'default') navigate(-1)
     else navigate('/attorney-dashboard')
   }
-  const { data, loading, error } = useFirmDashboardSummary()
+  const { data, loading, error, refresh } = useFirmDashboardSummary()
 
   const [tab, setTab] = useState<TabKey>('overview')
   const [caseload, setCaseload] = useState<CaseloadData | null>(null)
+  const [caseOfficeSavingId, setCaseOfficeSavingId] = useState<string | null>(null)
 
   // Cases tab
   const [caseFilter, setCaseFilter] = useState<'all' | 'unassigned'>('all')
@@ -258,22 +260,36 @@ export default function FirmDashboard() {
   const [teamSaving, setTeamSaving] = useState(false)
   const [teamError, setTeamError] = useState<string | null>(null)
   const [teamSuccess, setTeamSuccess] = useState<string | null>(null)
-  const [stateSearchQuery, setStateSearchQuery] = useState('')
   const [editingAttorneyId, setEditingAttorneyId] = useState<string | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
   const [editSaving, setEditSaving] = useState(false)
-  const [editStateSearch, setEditStateSearch] = useState('')
   const [editAttorney, setEditAttorney] = useState({ firstName: '', middleName: '', lastName: '', specialties: [] as string[], jurisdictions: [] as string[] })
 
-  useEffect(() => {
-    let cancelled = false
-    getFirmTeamCaseload()
-      .then((d: any) => !cancelled && setCaseload(d))
-      .catch(() => setCaseload(null))
-    return () => {
-      cancelled = true
+  const refreshCaseload = useCallback(async () => {
+    try {
+      const d = await getFirmTeamCaseload()
+      setCaseload(d)
+    } catch {
+      setCaseload(null)
     }
   }, [])
+
+  useEffect(() => {
+    void refreshCaseload()
+  }, [refreshCaseload])
+
+  // Move a case to a different office, then refresh cases + capacity bars.
+  const handleCaseOfficeChange = async (assessmentId: string, officeId: string) => {
+    setCaseOfficeSavingId(assessmentId)
+    try {
+      await setCaseOffice(assessmentId, officeId || null)
+      await Promise.all([refresh(true), refreshCaseload()])
+    } catch {
+      /* surfaced by the summary error banner on next load */
+    } finally {
+      setCaseOfficeSavingId(null)
+    }
+  }
 
   const toggleAttorneyArrayValue = (key: 'specialties' | 'jurisdictions', value: string) => {
     setNewAttorney((prev) => {
@@ -292,7 +308,6 @@ export default function FirmDashboard() {
     const nameParts = (attorney.name || '').trim().split(/\s+/).filter(Boolean)
     setEditingAttorneyId(attorney.id)
     setEditError(null)
-    setEditStateSearch('')
     setEditAttorney({
       firstName: nameParts[0] || '',
       middleName: nameParts.length > 2 ? nameParts.slice(1, -1).join(' ') : '',
@@ -348,7 +363,6 @@ export default function FirmDashboard() {
       })
       setAddSuccess('Attorney added to firm.')
       setNewAttorney({ firstName: '', middleName: '', lastName: '', email: '', specialties: [], jurisdictions: [], officeId: '' })
-      setStateSearchQuery('')
       invalidateFirmDashboardSummary()
     } catch (err: any) {
       setAddError(err.response?.data?.error || 'Failed to add attorney.')
@@ -506,6 +520,20 @@ export default function FirmDashboard() {
     for (const a of attorneys) m.set(a.id, a)
     return m
   }, [attorneys])
+  // Which teams each firm member belongs to (a person can be on many teams).
+  const teamsByMemberId = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const t of teams) {
+      for (const mem of t.members || []) {
+        const id = mem.firmMemberId || mem.id
+        if (!id) continue
+        const arr = map.get(id) || []
+        arr.push(t.name)
+        map.set(id, arr)
+      }
+    }
+    return map
+  }, [teams])
   const isAttorneyMember = (m: any) => Boolean(m.attorney || m.role === 'attorney')
   const filteredPeople = useMemo(() => {
     if (peopleFilter === 'attorneys') return members.filter(isAttorneyMember)
@@ -641,7 +669,6 @@ export default function FirmDashboard() {
         {TABS.map((t) => {
           const Icon = t.icon
           const active = tab === t.key
-          const showDot = t.key === 'cases' && unassignedCount > 0
           return (
             <button
               key={t.key}
@@ -652,11 +679,6 @@ export default function FirmDashboard() {
             >
               <Icon className="h-4 w-4" />
               {t.label}
-              {showDot && (
-                <span className={`ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${active ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-700'}`}>
-                  {unassignedCount}
-                </span>
-              )}
             </button>
           )
         })}
@@ -681,22 +703,13 @@ export default function FirmDashboard() {
           </StatGrid>
 
           {unassignedCount > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
               <div className="flex items-center gap-2 text-sm text-amber-800">
                 <AlertTriangle className="h-4 w-4 text-amber-600" />
                 <span>
                   <strong>{unassignedCount}</strong> {unassignedCount === 1 ? 'case has' : 'cases have'} no owner assigned yet.
                 </span>
               </div>
-              <button
-                onClick={() => {
-                  setCaseFilter('unassigned')
-                  setTab('cases')
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-amber-700"
-              >
-                Assign now
-              </button>
             </div>
           )}
 
@@ -751,6 +764,41 @@ export default function FirmDashboard() {
             </SectionCard>
           </div>
 
+          {(caseload?.offices || []).length >= 2 && cases.length > 0 && (
+            <SectionCard
+              title="Case assignment by office"
+              trailing={<Badge tone="neutral">{cases.length} active</Badge>}
+            >
+              <p className="mb-3 text-xs text-slate-500">
+                Move active cases between offices to balance capacity. Changes update the capacity meters above.
+              </p>
+              <div className="max-h-80 divide-y divide-slate-50 overflow-y-auto rounded-lg border border-slate-100">
+                {cases.map((c) => (
+                  <div key={c.assessmentId} className="flex items-center justify-between gap-3 px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-slate-800">{c.clientName || titleCase(c.claimType) || 'Case'}</div>
+                      <div className="truncate text-xs text-slate-400">
+                        {titleCase(c.claimType)}
+                        {c.venueCounty ? ` · ${c.venueCounty}` : ''}
+                      </div>
+                    </div>
+                    <select
+                      value={c.officeId || ''}
+                      disabled={caseOfficeSavingId === c.assessmentId}
+                      onChange={(e) => handleCaseOfficeChange(c.assessmentId, e.target.value)}
+                      className="w-44 shrink-0 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30 disabled:opacity-50"
+                    >
+                      <option value="">Unassigned</option>
+                      {(caseload?.offices || []).map((o) => (
+                        <option key={o.officeId} value={o.officeId}>{o.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+          )}
+
           <SectionCard title="Attorney performance" trailing={<TrendingUp className="h-4 w-4 text-slate-400" />}>
             {leaderboard.length === 0 ? (
               <EmptyState message="No attorneys yet." />
@@ -793,147 +841,8 @@ export default function FirmDashboard() {
                 ] as DataTableColumn<any>[]}
                 rows={leaderboard}
                 rowKey={(r: any) => r.id}
-                onRowClick={(r: any) => { setCaseQuery(r.name); setCaseFilter('all'); setTab('cases') }}
               />
             )}
-          </SectionCard>
-        </div>
-      )}
-
-      {/* ---------------------------------------------------------------- */}
-      {/* CASES                                                             */}
-      {/* ---------------------------------------------------------------- */}
-      {tab === 'cases' && (
-        <div className="space-y-4">
-          <PageHeader
-            title="Firm cases"
-            description="Every case that belongs to the firm, with its owner and support roles. Assign work to attorneys and staff."
-            actions={
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input value={caseQuery} onChange={(e) => setCaseQuery(e.target.value)} placeholder="Search cases…" className="w-56 rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30" />
-              </div>
-            }
-          />
-          <StatGrid columns={2}>
-            <FilterStat value={cases.length} label="All cases" active={caseFilter === 'all'} onClick={() => setCaseFilter('all')} />
-            <FilterStat value={unassignedCount} label="Unassigned" tone="warning" active={caseFilter === 'unassigned'} onClick={() => setCaseFilter((p) => (p === 'unassigned' ? 'all' : 'unassigned'))} />
-          </StatGrid>
-
-          <SectionCard title={caseFilter === 'unassigned' ? 'Unassigned cases' : 'All cases'} trailing={<Badge tone="brand">{visibleCases.length} shown</Badge>}>
-            <DataTable
-              columns={[
-                {
-                  key: 'client',
-                  header: 'Case',
-                  cell: (c: FirmCaseRow) => (
-                    <div>
-                      <div className="font-medium text-slate-800">{c.clientName || titleCase(c.claimType) || 'Case'}</div>
-                      <div className="text-xs text-slate-400">
-                        {titleCase(c.claimType)}
-                        {c.venueCounty ? ` · ${c.venueCounty}` : ''}
-                        {c.venueState ? `, ${c.venueState}` : ''}
-                      </div>
-                    </div>
-                  ),
-                },
-                { key: 'status', header: 'Status', cell: (c: FirmCaseRow) => <Badge tone={statusTone(c.leadStatus)}>{titleCase(c.leadStatus)}</Badge> },
-                {
-                  key: 'owner',
-                  header: 'Owner',
-                  cell: (c: FirmCaseRow) => (c.primaryAttorney ? <span className="text-slate-700">{c.primaryAttorney.name}</span> : <span className="text-amber-600">Unassigned</span>),
-                },
-                {
-                  key: 'roles',
-                  header: 'Support roles',
-                  cell: (c: FirmCaseRow) =>
-                    c.assignments.length === 0 ? (
-                      <span className="text-slate-300">—</span>
-                    ) : (
-                      <div className="flex flex-wrap gap-1">
-                        {c.assignments.map((a, i) => (
-                          <span key={i} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600" title={a.name || ''}>
-                            {formatRole(a.role)}
-                          </span>
-                        ))}
-                      </div>
-                    ),
-                },
-                { key: 'tasks', header: 'Open tasks', align: 'center', cell: (c: FirmCaseRow) => (c.openTaskCount > 0 ? c.openTaskCount : <span className="text-slate-300">0</span>) },
-                {
-                  key: 'action',
-                  header: '',
-                  align: 'right',
-                  cell: (c: FirmCaseRow) => (
-                    <button onClick={() => openAssign(c)} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700">
-                      <UserPlus className="h-3.5 w-3.5" />
-                      Assign
-                    </button>
-                  ),
-                },
-              ] as DataTableColumn<FirmCaseRow>[]}
-              rows={visibleCases}
-              rowKey={(c) => c.assessmentId}
-              onRowClick={(c) => c.leadId && navigate(`/attorney-dashboard/lead/${c.leadId}/overview`)}
-              emptyMessage={caseQuery.trim() ? 'No cases match your search.' : caseFilter === 'unassigned' ? 'Every case has an owner. Nice work.' : 'No firm cases yet.'}
-            />
-          </SectionCard>
-        </div>
-      )}
-
-      {/* ---------------------------------------------------------------- */}
-      {/* OPERATIONS                                                        */}
-      {/* ---------------------------------------------------------------- */}
-      {tab === 'operations' && (
-        <div className="space-y-4">
-          <PageHeader
-            title="Operations queue"
-            description="Shared work across the firm — medical records, police reports, consultations, demand packages, and readiness tasks."
-            actions={
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input value={opQuery} onChange={(e) => setOpQuery(e.target.value)} placeholder="Search tasks…" className="w-56 rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30" />
-              </div>
-            }
-          />
-          <div className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
-            {(['all', 'high', 'medium', 'low'] as const).map((p) => (
-              <button key={p} onClick={() => setOpPriority(p)} className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition ${opPriority === p ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                {p === 'all' ? 'All priorities' : p}
-              </button>
-            ))}
-          </div>
-
-          <SectionCard title="Tasks" trailing={<Badge tone="brand">{visibleOps.length} shown</Badge>}>
-            <DataTable
-              columns={[
-                { key: 'title', header: 'Task', cell: (t: any) => <span className="font-medium text-slate-800">{t.title}</span> },
-                {
-                  key: 'case',
-                  header: 'Case',
-                  cell: (t: any) => (
-                    <span className="text-slate-500">
-                      {titleCase(t.caseType)}
-                      {t.venueCounty ? ` · ${t.venueCounty}` : ''}
-                    </span>
-                  ),
-                },
-                { key: 'assigned', header: 'Assigned', cell: (t: any) => <span className="text-slate-500">{t.assignedRole ? formatRole(t.assignedRole) : 'Unassigned'}{t.assignedTo ? `: ${t.assignedTo}` : ''}</span> },
-                {
-                  key: 'priority',
-                  header: 'Priority',
-                  cell: (t: any) => <Badge tone={(t.priority || '').toLowerCase() === 'high' ? 'danger' : (t.priority || '').toLowerCase() === 'medium' ? 'warning' : 'neutral'}>{titleCase(t.priority)}</Badge>,
-                },
-                { key: 'due', header: 'Due', align: 'right', cell: (t: any) => <span className="text-slate-500">{t.dueDate ? new Date(t.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</span> },
-              ] as DataTableColumn<any>[]}
-              rows={visibleOps}
-              rowKey={(t: any) => t.id}
-              onRowClick={(t: any) => {
-                const leadId = leadIdByAssessment.get(t.assessmentId)
-                if (leadId) navigate(`/attorney-dashboard/lead/${leadId}/tasks`)
-              }}
-              emptyMessage={opQuery.trim() || opPriority !== 'all' ? 'No tasks match this filter.' : 'No open firm operations tasks yet.'}
-            />
           </SectionCard>
         </div>
       )}
@@ -1004,6 +913,22 @@ export default function FirmDashboard() {
                           <span key={s} className="rounded-full bg-brand-50 px-2 py-0.5 text-xs text-brand-700">{String(s).replace(/_/g, ' ')}</span>
                         ))}
                         {specs.length > 3 && <span className="text-xs text-slate-400">+{specs.length - 3}</span>}
+                      </div>
+                    )
+                  },
+                },
+                {
+                  key: 'teams',
+                  header: 'Teams',
+                  cell: (m: any) => {
+                    const names = teamsByMemberId.get(m.id) || []
+                    if (names.length === 0) return <span className="text-slate-300">—</span>
+                    return (
+                      <div className="flex flex-wrap gap-1">
+                        {names.slice(0, 3).map((n: string) => (
+                          <span key={n} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{n}</span>
+                        ))}
+                        {names.length > 3 && <span className="text-xs text-slate-400">+{names.length - 3}</span>}
                       </div>
                     )
                   },
@@ -1124,20 +1049,10 @@ export default function FirmDashboard() {
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Jurisdictions (States) * <span className="ml-2 text-xs font-normal text-slate-500">({newAttorney.jurisdictions.length} selected)</span>
                   </label>
-                  <input type="text" placeholder="Search states…" value={stateSearchQuery} onChange={(e) => setStateSearchQuery(e.target.value)} className={inputCls + ' mb-3'} />
-                  <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
-                      {US_STATES.filter((state) => {
-                        const q = stateSearchQuery.toLowerCase()
-                        return state.code.toLowerCase().includes(q) || state.name.toLowerCase().includes(q)
-                      }).map((state) => (
-                        <label key={state.code} className={`flex cursor-pointer items-center gap-2 rounded-md p-2 transition ${newAttorney.jurisdictions.includes(state.code) ? 'border-2 border-brand-300 bg-brand-50' : 'border border-transparent hover:bg-slate-100'}`}>
-                          <input type="checkbox" checked={newAttorney.jurisdictions.includes(state.code)} onChange={() => toggleAttorneyArrayValue('jurisdictions', state.code)} className="rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
-                          <span className="text-sm font-medium text-slate-700">{state.code}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
+                  <StateMultiSelect
+                    value={newAttorney.jurisdictions}
+                    onChange={(next) => setNewAttorney((prev) => ({ ...prev, jurisdictions: next }))}
+                  />
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">Office</label>
@@ -1421,20 +1336,10 @@ export default function FirmDashboard() {
                 <label className="mb-2 block text-sm font-medium text-slate-700">
                   Jurisdictions (States) * <span className="ml-2 text-xs font-normal text-slate-500">({editAttorney.jurisdictions.length} selected)</span>
                 </label>
-                <input type="text" placeholder="Search states…" value={editStateSearch} onChange={(e) => setEditStateSearch(e.target.value)} className={inputCls + ' mb-3'} />
-                <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
-                    {US_STATES.filter((state) => {
-                      const q = editStateSearch.toLowerCase()
-                      return state.code.toLowerCase().includes(q) || state.name.toLowerCase().includes(q)
-                    }).map((state) => (
-                      <label key={state.code} className={`flex cursor-pointer items-center gap-2 rounded-md p-2 transition ${editAttorney.jurisdictions.includes(state.code) ? 'border-2 border-brand-300 bg-brand-50' : 'border border-transparent hover:bg-slate-100'}`}>
-                        <input type="checkbox" checked={editAttorney.jurisdictions.includes(state.code)} onChange={() => toggleEditArrayValue('jurisdictions', state.code)} className="rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
-                        <span className="text-sm font-medium text-slate-700">{state.code}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
+                <StateMultiSelect
+                  value={editAttorney.jurisdictions}
+                  onChange={(next) => setEditAttorney((prev) => ({ ...prev, jurisdictions: next }))}
+                />
               </div>
               {editError && <p className="text-sm text-red-600">{editError}</p>}
             </div>

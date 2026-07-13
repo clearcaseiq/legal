@@ -64,6 +64,26 @@ export interface MarketplacePerformance {
   costPerRetained: number
   casesRetained: number
   funnel: MarketplaceFunnelRow[]
+  /** Same funnel, recomputed for the 7 / 30 / 90 day routing windows. */
+  funnelByWindow: Record<'7' | '30' | '90', MarketplaceFunnelRow[]>
+  /**
+   * Lightweight lead list (routed within the last 90 days) so the client can
+   * recompute the funnel for any custom day window (e.g. a 1–90 day slider).
+   */
+  funnelLeads: Array<{ submittedAt: string; status: string }>
+  /** Forward-looking pipeline economics: value in flight + spend recovery. */
+  pipeline: {
+    /** Expected fee value of accepted-but-not-yet-retained matters. */
+    valueAtRisk: number
+    /** Number of accepted-not-retained matters backing valueAtRisk. */
+    valueAtRiskCases: number
+    /** feesCollected − routingSpend (negative = not yet recovered). */
+    netReturn: number
+    /** True once fees collected have covered routing spend. */
+    recovered: boolean
+    /** feesCollected ÷ routingSpend (0–1+ ; 1 = fully paid back). */
+    progressPct: number
+  }
   monthly: MarketplaceMonthlyRow[]
 }
 
@@ -102,6 +122,7 @@ export async function computeMarketplacePerformance(
     where: leadWhere,
     select: {
       status: true,
+      submittedAt: true,
       updatedAt: true,
       assessmentId: true,
       assessment: {
@@ -139,27 +160,58 @@ export async function computeMarketplacePerformance(
   const returnOnSpend = routingSpend > 0 ? feesCollected / routingSpend : 0
   const costPerRetained = casesRetained > 0 ? routingSpend / casesRetained : 0
 
-  const funnel: MarketplaceFunnelRow[] = [
-    { stage: 'Matches routed', count: matchedCount, stepConversion: null, note: 'Pushed by SMS + app' },
-    {
-      stage: 'Accepted',
-      count: acceptedCount,
-      stepConversion: matchedCount ? acceptedCount / matchedCount : 0,
-      note: 'Fee charged on accept',
-    },
-    {
-      stage: 'Retained',
-      count: casesRetained,
-      stepConversion: acceptedCount ? casesRetained / acceptedCount : 0,
-      note: 'Signed retainer',
-    },
-    {
-      stage: 'Settled / resolved',
-      count: settledCount,
-      stepConversion: casesRetained ? settledCount / casesRetained : 0,
-      note: 'Outcome in Case Mgmt',
-    },
-  ]
+  // Builds the routed → accepted → retained → settled funnel for a lead cohort.
+  const buildFunnel = (cohort: any[]): MarketplaceFunnelRow[] => {
+    const matched = cohort.length
+    const accepted = cohort.filter((l: any) => ACCEPTED_STATUSES.includes(String(l.status || ''))).length
+    const retained = cohort.filter((l: any) => String(l.status || '') === 'retained').length
+    const settled = cohort.filter((l: any) => SETTLED_STATUSES.includes(String(l.status || ''))).length
+    return [
+      { stage: 'Matches routed', count: matched, stepConversion: null, note: 'Pushed by SMS + app' },
+      { stage: 'Accepted', count: accepted, stepConversion: matched ? accepted / matched : 0, note: 'Fee charged on accept' },
+      { stage: 'Retained', count: retained, stepConversion: accepted ? retained / accepted : 0, note: 'Signed retainer' },
+      { stage: 'Settled / resolved', count: settled, stepConversion: retained ? settled / retained : 0, note: 'Outcome in Case Mgmt' },
+    ]
+  }
+
+  const funnel = buildFunnel(leads)
+
+  // Windowed funnels keyed by routing recency (lead.submittedAt within N days).
+  const nowMs = Date.now()
+  const leadsWithin = (days: number) => {
+    const cutoff = nowMs - days * 24 * 60 * 60 * 1000
+    return leads.filter((l: any) => {
+      const ts = new Date(l.submittedAt || l.updatedAt || 0).getTime()
+      return Number.isFinite(ts) && ts >= cutoff
+    })
+  }
+  const funnelByWindow: Record<'7' | '30' | '90', MarketplaceFunnelRow[]> = {
+    '7': buildFunnel(leadsWithin(7)),
+    '30': buildFunnel(leadsWithin(30)),
+    '90': buildFunnel(leadsWithin(90)),
+  }
+  const funnelLeads = leadsWithin(90).map((l: any) => ({
+    submittedAt: new Date(l.submittedAt || l.updatedAt || Date.now()).toISOString(),
+    status: String(l.status || ''),
+  }))
+
+  // Pipeline economics — value still in flight (accepted, not yet retained) and
+  // how far collected fees have gone toward recovering routing spend.
+  const acceptedNotRetained = leads.filter((l: any) =>
+    ['contacted', 'consulted'].includes(String(l.status || '')),
+  )
+  const valueAtRisk = acceptedNotRetained.reduce(
+    (s: number, l: any) => s + parseMedian(l.assessment?.predictions?.[0]) * CONTINGENCY_RATE,
+    0,
+  )
+  const netReturn = feesCollected - routingSpend
+  const pipeline = {
+    valueAtRisk,
+    valueAtRiskCases: acceptedNotRetained.length,
+    netReturn,
+    recovered: routingSpend > 0 ? feesCollected >= routingSpend : feesCollected > 0,
+    progressPct: routingSpend > 0 ? feesCollected / routingSpend : feesCollected > 0 ? 1 : 0,
+  }
 
   // Spend vs. return over the last 6 calendar months. Only months with activity
   // are surfaced so demo books don't show a wall of empty rows.
@@ -196,6 +248,9 @@ export async function computeMarketplacePerformance(
     costPerRetained,
     casesRetained,
     funnel,
+    funnelByWindow,
+    funnelLeads,
+    pipeline,
     monthly,
   }
 }

@@ -1292,7 +1292,14 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
         dailyQueueSummary: response.dailyQueueSummary ?? { total: 0, highSeverity: 0, mediumSeverity: 0, demandReady: 0 },
         automationFeed: response.automationFeed ?? [],
       }
-      
+
+      // The explicit object above intentionally reshapes the response, but the
+      // Accepted/Declined tiles read these top-level stats straight off it — carry
+      // them through so a decline/accept refetch actually updates the tiles.
+      const withStats = dashboardData as any
+      withStats.declineStats = response.declineStats ?? null
+      withStats.acceptStats = response.acceptStats ?? null
+
       setDashboardData(dashboardData)
       try {
         const intel = await getAnalyticsIntelligence()
@@ -1673,7 +1680,9 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
         // attorney isn't left on the (now stale) pre-acceptance snapshot in New Matches.
         if (decision === 'accept') {
           setSelectedLead(null)
-          navigate(`/attorney-dashboard/lead/${leadId}/overview`)
+          // ?accepted=1 lets the workspace greet the attorney with a
+          // "Congratulations, this case is now yours" banner.
+          navigate(`/attorney-dashboard/lead/${leadId}/overview?accepted=1`)
         }
       } catch (err: any) {
         console.error('Failed to update lead decision:', err)
