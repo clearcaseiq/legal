@@ -65,6 +65,7 @@ interface SettlementData {
   feeBasis: FeeBasis
   attorneyFee: number
   costs: number
+  staffTime: { hours: number; amount: number; included: boolean }
   costItems: SettlementCost[]
   liens: SettlementLien[]
   liensAsserted: number
@@ -577,8 +578,37 @@ export default function SettlementPanel({ leadId }: { leadId: string }) {
           </div>
         )}
 
-        {data.costItems.length === 0 ? (
+        {/* Recoverable staff (paralegal) time — approved billable non-attorney hours. */}
+        {data.staffTime.amount > 0 && (
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+            <label className="flex items-start gap-2.5 text-sm">
+              <input
+                type="checkbox"
+                checked={data.staffTime.included}
+                onChange={(e) => saveScenario({ includeStaffTime: e.target.checked })}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-medium text-slate-700">Recoverable staff time</span>
+                <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                  {data.staffTime.hours} hrs · approved
+                </span>
+                <span className="mt-0.5 block text-[11px] text-slate-400">
+                  Approved billable paralegal/staff time (attorney time is covered by the fee). Check to add it to
+                  case costs.
+                </span>
+              </span>
+            </label>
+            <span className={`font-semibold tabular-nums ${data.staffTime.included ? 'text-slate-900' : 'text-slate-400'}`}>
+              {money(data.staffTime.amount)}
+            </span>
+          </div>
+        )}
+
+        {data.costItems.length === 0 && data.staffTime.amount === 0 ? (
           <p className="text-sm text-slate-400">No case costs recorded yet.</p>
+        ) : data.costItems.length === 0 ? (
+          <p className="text-sm text-slate-400">No advanced expenses recorded (staff time shown above).</p>
         ) : (
           <ul className="divide-y divide-slate-100">
             {data.costItems.map((c) => (

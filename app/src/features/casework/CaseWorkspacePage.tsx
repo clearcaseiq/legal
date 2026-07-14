@@ -72,6 +72,8 @@ import SignatureRequestPanel from '../../components/SignatureRequestPanel'
 import ChatDrawer from '../../components/ChatDrawer'
 import InsurancePanel from './InsurancePanel'
 import SettlementPanel from './SettlementPanel'
+import CaseWorkflowPanel from './CaseWorkflowPanel'
+import CaseTimePanel from './CaseTimePanel'
 import { BackButton, EmptyState } from '../shared/ui'
 import { recordRecentCase } from './recentCases'
 
@@ -109,11 +111,12 @@ const ROW_TONE: Record<Tone, string> = {
   danger: 'text-rose-700',
 }
 
-const TABS = ['Overview', 'Evidence', 'Signatures', 'Medical', 'Insurance', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Tasks'] as const
+const TABS = ['Overview', 'Workflow', 'Evidence', 'Signatures', 'Medical', 'Insurance', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Tasks', 'Time'] as const
 type Tab = (typeof TABS)[number]
 
 const SECTION_TO_TAB: Record<string, Tab> = {
   overview: 'Overview',
+  workflow: 'Workflow',
   evidence: 'Evidence',
   signatures: 'Signatures',
   esign: 'Signatures',
@@ -130,10 +133,12 @@ const SECTION_TO_TAB: Record<string, Tab> = {
   settlement: 'Settlement',
   billing: 'Settlement',
   tasks: 'Tasks',
+  time: 'Time',
 }
 
 const TAB_TO_SECTION: Record<Tab, string> = {
   Overview: 'overview',
+  Workflow: 'workflow',
   Evidence: 'evidence',
   Signatures: 'signatures',
   Medical: 'medical',
@@ -144,12 +149,14 @@ const TAB_TO_SECTION: Record<Tab, string> = {
   Deadlines: 'deadlines',
   Settlement: 'settlement',
   Tasks: 'tasks',
+  Time: 'time',
 }
 
 type TabMeta = { icon: ComponentType<{ className?: string }>; blurb: string }
 
 const TAB_META: Record<Tab, TabMeta> = {
   Overview: { icon: LayoutDashboard, blurb: 'Case status, next action, and readiness at a glance.' },
+  Workflow: { icon: ListChecks, blurb: 'Your firm’s standard workflow, tracked stage by stage on this case.' },
   Evidence: { icon: FolderOpen, blurb: 'Upload documents, request records, and track the case file.' },
   Signatures: { icon: PenLine, blurb: 'Send retainers and authorizations for e-signature.' },
   Medical: { icon: Stethoscope, blurb: 'Providers, treatment chronology, and cost benchmarks.' },
@@ -160,6 +167,7 @@ const TAB_META: Record<Tab, TabMeta> = {
   Deadlines: { icon: CalendarClock, blurb: 'Statute of limitations and key case milestones.' },
   Settlement: { icon: Scale, blurb: 'Net-to-client waterfall: fees, case costs, and lien reductions.' },
   Tasks: { icon: ListChecks, blurb: 'Open work items for this case.' },
+  Time: { icon: Clock, blurb: 'Log team hours on this case for profitability and fee petitions.' },
 }
 
 // Command-center next-best-action → button label + icon on the Overview card.
@@ -1096,6 +1104,14 @@ function WorkstreamPanel({
         </div>
       </div>
     )
+  }
+
+  if (tab === 'Workflow') {
+    return <CaseWorkflowPanel leadId={lead.id} />
+  }
+
+  if (tab === 'Time') {
+    return <CaseTimePanel leadId={lead.id} />
   }
 
   if (tab === 'Deadlines') {

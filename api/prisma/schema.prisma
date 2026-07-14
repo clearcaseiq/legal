@@ -209,6 +209,8 @@ model Assessment {
   referralAgreements  ReferralAgreement[]
   coCounselWorkflows  CoCounselWorkflow[]
   firmCaseAssignments FirmCaseAssignment[]
+  caseWorkflow        CaseWorkflow?
+  timeEntries         TimeEntry[]
 
   // Phase 2: Communications
   platformNotificationEvents PlatformNotificationEvent[]
@@ -286,6 +288,9 @@ model SettlementScenario {
   grossAmount    Float? // attorney override of the gross recovery; null = use predicted median
   contingencyPct Float      @default(33.33)
   feeBasis       String     @default("gross") // gross | net_of_costs (fee computed after costs)
+  // When true, approved billable non-attorney (staff/paralegal) time is added to
+  // case costs in the waterfall. Attorney time is covered by the contingency fee.
+  includeStaffTime Boolean  @default(false)
   notes          String?    @db.Text
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
@@ -847,6 +852,9 @@ model LawFirm {
   cmsConnections  CmsConnection[]
   bookingLinks    FirmBookingLink[]
   templates       FirmTemplate[]
+  workflows       FirmWorkflow[]
+  billingRates    BillingRate[]
+  timeEntries     TimeEntry[]
 
   @@map("law_firms")
 }
@@ -1631,6 +1639,191 @@ model FirmTemplate {
 
   @@index([lawFirmId])
   @@map("firm_templates")
+}
+
+// A customizable case-lifecycle workflow (pipeline of stages, each with a
+// checklist of steps). Firms can keep several (e.g. one per practice area) and
+// mark one as the default. This pass defines/customizes templates only; applying
+// a workflow to an individual case + progress tracking comes later.
+model FirmWorkflow {
+  id           String  @id @default(cuid())
+  lawFirmId    String
+  lawFirm      LawFirm @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+
+  name         String
+  description  String? @db.Text
+  practiceArea String?
+
+  isDefault    Boolean @default(false)
+  isActive     Boolean @default(true)
+  sortOrder    Int     @default(0)
+
+  stages       FirmWorkflowStage[]
+
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([lawFirmId])
+  @@map("firm_workflows")
+}
+
+model FirmWorkflowStage {
+  id          String       @id @default(cuid())
+  workflowId  String
+  workflow    FirmWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?      @db.Text
+  sortOrder   Int          @default(0)
+
+  steps       FirmWorkflowStep[]
+
+  @@index([workflowId])
+  @@map("firm_workflow_stages")
+}
+
+model FirmWorkflowStep {
+  id            String            @id @default(cuid())
+  stageId       String
+  stage         FirmWorkflowStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+
+  title         String
+  description   String?           @db.Text
+  // Suggested role responsible, e.g. attorney, paralegal, case_manager, intake_specialist.
+  assigneeRole  String?
+  // Due offset in days relative to when the stage starts (null = no target).
+  dueOffsetDays Int?
+  required      Boolean           @default(false)
+  // Optional link to a firm template/document used at this step.
+  templateId    String?
+
+  sortOrder     Int               @default(0)
+
+  @@index([stageId])
+  @@map("firm_workflow_steps")
+}
+
+// A firm workflow applied to a specific case. This is a point-in-time snapshot
+// of the firm's workflow (stage/step structure is copied into CaseWorkflowItem
+// rows) so later edits to the firm template don't disrupt in-flight matters.
+model CaseWorkflow {
+  id           String     @id @default(cuid())
+  assessmentId String     @unique
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  lawFirmId    String?
+
+  // Source firm workflow (may be null if that template is later deleted).
+  sourceWorkflowId String?
+  name             String
+  description      String? @db.Text
+
+  // Basis for computing step due dates (appliedAt + step.dueOffsetDays).
+  startDate    DateTime @default(now())
+  status       String   @default("active") // active, archived
+
+  appliedById  String?
+  appliedAt    DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  items CaseWorkflowItem[]
+
+  @@index([lawFirmId])
+  @@map("case_workflows")
+}
+
+model CaseWorkflowItem {
+  id             String       @id @default(cuid())
+  caseWorkflowId String
+  caseWorkflow   CaseWorkflow @relation(fields: [caseWorkflowId], references: [id], onDelete: Cascade)
+
+  // Stage info is denormalized so a case workflow is a single flat checklist
+  // grouped by stage on the client.
+  stageName  String
+  stageOrder Int    @default(0)
+
+  title         String
+  description   String? @db.Text
+  assigneeRole  String?
+  dueOffsetDays Int?
+  dueDate       DateTime?
+  required      Boolean @default(false)
+  templateId    String?
+
+  status        String    @default("pending") // pending, done, skipped
+  completedAt   DateTime?
+  completedById String?
+
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([caseWorkflowId])
+  @@map("case_workflow_items")
+}
+
+// Firm billing rates for time tracking. A rate is either a role default
+// (role set) or a per-person override (firmMemberId set). Per-person overrides
+// win over role defaults when resolving the rate for a time entry.
+model BillingRate {
+  id        String  @id @default(cuid())
+  lawFirmId String
+  lawFirm   LawFirm @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+
+  role         String? // set for a role-default rate (attorney, paralegal, ...)
+  firmMemberId String? // set for a per-person override
+
+  hourlyRate Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([lawFirmId, role])
+  @@unique([lawFirmId, firmMemberId])
+  @@index([lawFirmId])
+  @@map("billing_rates")
+}
+
+// A logged unit of team time. Case-scoped when assessmentId is set. Even on a
+// contingency practice this feeds profitability, fee petitions, and lien/fee
+// disputes; the resolved rate is snapshotted so later rate changes don't
+// rewrite history.
+model TimeEntry {
+  id        String  @id @default(cuid())
+  lawFirmId String
+  lawFirm   LawFirm @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+
+  assessmentId String?
+  assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  // The person who performed the work (kept as ids to avoid heavy back-relations).
+  userId       String?
+  firmMemberId String?
+  attorneyId   String?
+  role         String? // snapshot of the worker's role at entry time
+
+  workDate     DateTime
+  minutes      Int
+  activityType String  @default("general") // intake, drafting, comms, court, research, travel, admin, general
+  description  String? @db.Text
+  billable     Boolean @default(true)
+
+  hourlyRate Float? // snapshot rate applied
+  amount     Float? // minutes/60 * hourlyRate (when billable + rate known)
+
+  status       String    @default("submitted") // draft, submitted, approved, rejected, invoiced
+  approvedById String?
+  approvedAt   DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([lawFirmId, status])
+  @@index([assessmentId])
+  @@index([userId])
+  @@map("time_entries")
 }
 
 model ChatRoom {

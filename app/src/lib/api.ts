@@ -4020,6 +4020,295 @@ export async function sendFirmTemplateForSignature(
   return data
 }
 
+/** Template body with merge tokens filled from a case (for a pre-send preview). */
+export async function previewFirmTemplate(id: string, leadId: string): Promise<{ body: string }> {
+  const { data } = await api.get(`/v1/firm-dashboard/templates/${id}/preview`, { params: { leadId } })
+  return data
+}
+
+// ---- Firm workflows (customizable case-lifecycle pipelines) ----------------
+
+export interface FirmWorkflowStep {
+  id?: string
+  title: string
+  description: string | null
+  assigneeRole: string | null
+  dueOffsetDays: number | null
+  required: boolean
+  templateId: string | null
+  templateName?: string | null
+}
+
+export interface FirmWorkflowStage {
+  id?: string
+  name: string
+  description: string | null
+  steps: FirmWorkflowStep[]
+}
+
+export interface FirmWorkflow {
+  id: string
+  name: string
+  description: string | null
+  practiceArea: string | null
+  isDefault: boolean
+  isActive: boolean
+  sortOrder: number
+  stageCount: number
+  stepCount: number
+  stages: FirmWorkflowStage[]
+  updatedAt: string
+  createdAt: string
+}
+
+export interface FirmWorkflowRole {
+  value: string
+  label: string
+}
+
+export interface FirmWorkflowsResponse {
+  canManage: boolean
+  roles: FirmWorkflowRole[]
+  templates: Array<{ id: string; name: string; category: string }>
+  workflows: FirmWorkflow[]
+}
+
+export async function getFirmWorkflows(): Promise<FirmWorkflowsResponse> {
+  const { data } = await api.get('/v1/firm-dashboard/workflows')
+  return data
+}
+
+export async function createFirmWorkflow(payload: {
+  name: string
+  description?: string | null
+  practiceArea?: string | null
+}): Promise<FirmWorkflow> {
+  const { data } = await api.post('/v1/firm-dashboard/workflows', payload)
+  return data
+}
+
+export async function seedDefaultFirmWorkflow(): Promise<FirmWorkflow> {
+  const { data } = await api.post('/v1/firm-dashboard/workflows/seed-default', {})
+  return data
+}
+
+export async function updateFirmWorkflow(
+  id: string,
+  payload: Partial<{ name: string; description: string | null; practiceArea: string | null; isActive: boolean; isDefault: boolean }>
+): Promise<FirmWorkflow> {
+  const { data } = await api.patch(`/v1/firm-dashboard/workflows/${id}`, payload)
+  return data
+}
+
+export async function saveFirmWorkflowStructure(
+  id: string,
+  stages: FirmWorkflowStage[]
+): Promise<FirmWorkflow> {
+  const { data } = await api.put(`/v1/firm-dashboard/workflows/${id}/structure`, { stages })
+  return data
+}
+
+export async function deleteFirmWorkflow(id: string): Promise<void> {
+  await api.delete(`/v1/firm-dashboard/workflows/${id}`)
+}
+
+// ---- Case workflow (firm workflow applied to a specific case) --------------
+
+export interface CaseWorkflowStep {
+  id: string
+  title: string
+  description: string | null
+  assigneeRole: string | null
+  dueOffsetDays: number | null
+  dueDate: string | null
+  required: boolean
+  templateId: string | null
+  status: 'pending' | 'done' | 'skipped'
+  completedAt: string | null
+}
+
+export interface CaseWorkflowStage {
+  name: string
+  order: number
+  steps: CaseWorkflowStep[]
+}
+
+export interface CaseWorkflow {
+  id: string
+  name: string
+  description: string | null
+  sourceWorkflowId: string | null
+  startDate: string
+  appliedAt: string
+  status: string
+  totalSteps: number
+  completedSteps: number
+  currentStageOrder: number | null
+  stages: CaseWorkflowStage[]
+}
+
+export interface CaseWorkflowResponse {
+  workflow: CaseWorkflow | null
+  canApply: boolean
+  appliedWorkflow: { id: string; name: string } | null
+}
+
+export async function getCaseWorkflow(leadId: string): Promise<CaseWorkflowResponse> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/workflow`)
+  return data
+}
+
+export async function applyCaseWorkflow(leadId: string, workflowId?: string): Promise<{ workflow: CaseWorkflow | null }> {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/workflow/apply`, workflowId ? { workflowId } : {})
+  return data
+}
+
+export async function updateCaseWorkflowStep(
+  leadId: string,
+  itemId: string,
+  status: 'pending' | 'done' | 'skipped'
+): Promise<{ workflow: CaseWorkflow }> {
+  const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/workflow/items/${itemId}`, { status })
+  return data
+}
+
+export async function removeCaseWorkflow(leadId: string): Promise<void> {
+  await api.delete(`/v1/attorney-dashboard/leads/${leadId}/workflow`)
+}
+
+// ---- Team time tracking & billing rates ------------------------------------
+
+export type TimeEntryStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'invoiced'
+
+export interface TimeEntry {
+  id: string
+  assessmentId: string | null
+  caseLabel: string | null
+  userId: string | null
+  firmMemberId: string | null
+  attorneyId: string | null
+  role: string | null
+  workerName: string | null
+  workDate: string
+  minutes: number
+  hours: number
+  activityType: string
+  description: string | null
+  billable: boolean
+  hourlyRate: number | null
+  amount: number | null
+  status: TimeEntryStatus
+  approvedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TimeActivityType {
+  value: string
+  label: string
+}
+
+export interface CaseTimeResponse {
+  entries: TimeEntry[]
+  canLog: boolean
+  isAdmin: boolean
+  activityTypes: TimeActivityType[]
+  members: Array<{ firmMemberId: string; name: string; role: string }>
+  totals: { totalHours: number; billableAmount: number; entryCount: number }
+}
+
+export interface TimeEntryInput {
+  hours: number
+  activityType?: string
+  description?: string | null
+  billable?: boolean
+  workDate?: string
+  status?: 'draft' | 'submitted'
+  firmMemberId?: string
+}
+
+export async function getCaseTime(leadId: string): Promise<CaseTimeResponse> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/time`)
+  return data
+}
+
+export async function createCaseTime(leadId: string, payload: TimeEntryInput): Promise<TimeEntry> {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/time`, payload)
+  return data
+}
+
+export async function updateCaseTime(leadId: string, id: string, payload: Partial<TimeEntryInput>): Promise<TimeEntry> {
+  const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/time/${id}`, payload)
+  return data
+}
+
+export async function deleteCaseTime(leadId: string, id: string): Promise<void> {
+  await api.delete(`/v1/attorney-dashboard/leads/${leadId}/time/${id}`)
+}
+
+export interface FirmBillingRatesResponse {
+  canManage: boolean
+  roles: Array<{ value: string; label: string }>
+  activityTypes: TimeActivityType[]
+  members: Array<{ firmMemberId: string; userId: string; name: string; role: string; email: string | null }>
+  roleRates: Record<string, number>
+  memberRates: Record<string, number>
+}
+
+export async function getFirmBillingRates(): Promise<FirmBillingRatesResponse> {
+  const { data } = await api.get('/v1/firm-dashboard/billing-rates')
+  return data
+}
+
+export async function saveFirmBillingRates(payload: {
+  roleRates: Array<{ role: string; hourlyRate: number | null }>
+  memberRates: Array<{ firmMemberId: string; hourlyRate: number | null }>
+}): Promise<void> {
+  await api.put('/v1/firm-dashboard/billing-rates', payload)
+}
+
+export interface FirmTimeFilters {
+  from?: string
+  to?: string
+  firmMemberId?: string
+  status?: TimeEntryStatus
+  assessmentId?: string
+}
+
+export interface FirmTimeResponse {
+  canManage: boolean
+  members: Array<{ firmMemberId: string; userId: string; name: string; role: string; email: string | null }>
+  entries: TimeEntry[]
+  totals: {
+    totalHours: number
+    billableHours: number
+    billableAmount: number
+    unbilledAmount: number
+    pendingApproval: number
+    entryCount: number
+  }
+}
+
+export async function getFirmTimeEntries(filters: FirmTimeFilters = {}): Promise<FirmTimeResponse> {
+  const { data } = await api.get('/v1/firm-dashboard/time-entries', {
+    params: filters as Record<string, string | undefined>,
+  })
+  return data
+}
+
+export async function updateFirmTimeEntry(id: string, status: TimeEntryStatus): Promise<TimeEntry> {
+  const { data } = await api.patch(`/v1/firm-dashboard/time-entries/${id}`, { status })
+  return data
+}
+
+export async function exportFirmTimeCsv(filters: FirmTimeFilters = {}): Promise<string> {
+  const { data } = await api.get('/v1/firm-dashboard/time-entries/export.csv', {
+    params: filters as Record<string, string | undefined>,
+    responseType: 'blob',
+  })
+  return URL.createObjectURL(data as Blob)
+}
+
 // --- Public team booking ---
 
 export interface TeamBookingPage {

@@ -36,6 +36,14 @@ import { computeSettlement } from '../lib/settlement'
 import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
 import { exportCaseToConnectionSafe } from '../lib/cms'
+import { applyFirmWorkflowToCase, serializeCaseWorkflow } from '../lib/case-workflow'
+import {
+  resolveHourlyRate,
+  computeAmount,
+  serializeTimeEntry,
+  ACTIVITY_TYPES,
+  ACTIVITY_TYPE_VALUES,
+} from '../lib/time-tracking'
 import {
   formatAttorneyResponseDeadline,
   getAttorneyResponseDeadlineMinutes,
@@ -8047,12 +8055,13 @@ router.patch('/leads/:leadId/settlement', authMiddleware, async (req: any, res) 
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const { lead } = auth
-    const { grossAmount, contingencyPct, feeBasis, notes } = req.body
+    const { grossAmount, contingencyPct, feeBasis, notes, includeStaffTime } = req.body
 
     const grossValue =
       grossAmount === null || grossAmount === '' ? null : grossAmount != null ? Number(grossAmount) : undefined
     const pctValue = contingencyPct != null && contingencyPct !== '' ? Number(contingencyPct) : undefined
     const basisValue = feeBasis === 'net_of_costs' || feeBasis === 'gross' ? feeBasis : undefined
+    const staffValue = typeof includeStaffTime === 'boolean' ? includeStaffTime : undefined
 
     await prisma.settlementScenario.upsert({
       where: { assessmentId: lead.assessmentId },
@@ -8061,12 +8070,14 @@ router.patch('/leads/:leadId/settlement', authMiddleware, async (req: any, res) 
         grossAmount: grossValue === undefined ? null : grossValue,
         contingencyPct: pctValue ?? 33.33,
         feeBasis: basisValue ?? 'gross',
+        includeStaffTime: staffValue ?? false,
         notes: notes ?? null,
       },
       update: {
         ...(grossValue !== undefined ? { grossAmount: grossValue } : {}),
         ...(pctValue !== undefined ? { contingencyPct: pctValue } : {}),
         ...(basisValue !== undefined ? { feeBasis: basisValue } : {}),
+        ...(staffValue !== undefined ? { includeStaffTime: staffValue } : {}),
         ...(notes !== undefined ? { notes: notes ?? null } : {}),
       },
     })
@@ -8189,6 +8200,358 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
   } catch (error: any) {
     logger.error('Failed to load case tasks', { error: error.message })
     res.status(500).json({ error: 'Failed to load case tasks' })
+  }
+})
+
+// ---- Case workflow (the firm's applied workflow, tracked on this case) -----
+
+// GET the case's workflow progress, or (if none) whether one can be applied.
+router.get('/leads/:leadId/workflow', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+
+    const cw = await (prisma as any).caseWorkflow.findUnique({
+      where: { assessmentId: lead.assessmentId },
+      include: { items: true },
+    })
+    if (cw) {
+      return res.json({ workflow: serializeCaseWorkflow(cw), canApply: false, appliedWorkflow: null })
+    }
+
+    let appliedWorkflow: any = null
+    if (attorney.lawFirmId) {
+      appliedWorkflow = await (prisma as any).firmWorkflow.findFirst({
+        where: { lawFirmId: attorney.lawFirmId, isDefault: true },
+        select: { id: true, name: true },
+      })
+    }
+    res.json({ workflow: null, canApply: Boolean(appliedWorkflow), appliedWorkflow })
+  } catch (error: any) {
+    logger.error('Failed to load case workflow', { error: error.message })
+    res.status(500).json({ error: 'Failed to load case workflow' })
+  }
+})
+
+// Manually apply the firm's standard workflow (or a specific one) to this case.
+router.post('/leads/:leadId/workflow/apply', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+    if (!attorney.lawFirmId) {
+      return res.status(400).json({ error: 'You are not part of a firm with a workflow' })
+    }
+
+    const result = await applyFirmWorkflowToCase({
+      assessmentId: lead.assessmentId,
+      lawFirmId: attorney.lawFirmId,
+      appliedById: attorney.id,
+      workflowId: typeof req.body?.workflowId === 'string' ? req.body.workflowId : undefined,
+    })
+    if (!result.created && result.reason === 'no_workflow') {
+      return res.status(400).json({ error: 'Your firm has not applied a workflow yet' })
+    }
+
+    const cw = await (prisma as any).caseWorkflow.findUnique({
+      where: { assessmentId: lead.assessmentId },
+      include: { items: true },
+    })
+    res.json({ workflow: cw ? serializeCaseWorkflow(cw) : null })
+  } catch (error: any) {
+    logger.error('Failed to apply case workflow', { error: error.message })
+    res.status(500).json({ error: 'Failed to apply case workflow' })
+  }
+})
+
+// Toggle a step's status (pending / done / skipped).
+router.patch('/leads/:leadId/workflow/items/:itemId', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, itemId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+
+    const status = String(req.body?.status || '')
+    if (!['pending', 'done', 'skipped'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' })
+    }
+
+    const cw = await (prisma as any).caseWorkflow.findUnique({
+      where: { assessmentId: lead.assessmentId },
+      select: { id: true },
+    })
+    if (!cw) return res.status(404).json({ error: 'No workflow on this case' })
+
+    const item = await (prisma as any).caseWorkflowItem.findFirst({
+      where: { id: itemId, caseWorkflowId: cw.id },
+    })
+    if (!item) return res.status(404).json({ error: 'Step not found' })
+
+    await (prisma as any).caseWorkflowItem.update({
+      where: { id: itemId },
+      data: {
+        status,
+        completedAt: status === 'done' ? new Date() : null,
+        completedById: status === 'done' ? attorney.id : null,
+      },
+    })
+
+    const fresh = await (prisma as any).caseWorkflow.findUnique({
+      where: { id: cw.id },
+      include: { items: true },
+    })
+    res.json({ workflow: serializeCaseWorkflow(fresh) })
+  } catch (error: any) {
+    logger.error('Failed to update workflow step', { error: error.message })
+    res.status(500).json({ error: 'Failed to update workflow step' })
+  }
+})
+
+// Detach the workflow from this case.
+router.delete('/leads/:leadId/workflow', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead } = auth
+    await (prisma as any).caseWorkflow.deleteMany({ where: { assessmentId: lead.assessmentId } })
+    res.json({ ok: true })
+  } catch (error: any) {
+    logger.error('Failed to remove case workflow', { error: error.message })
+    res.status(500).json({ error: 'Failed to remove case workflow' })
+  }
+})
+
+// ---- Case time tracking ----------------------------------------------------
+
+// Resolve the acting user's firm identity for time-logging on a case.
+async function resolveActingTimeIdentity(req: any, attorney: any) {
+  const lawFirmId = attorney?.lawFirmId || null
+  const actingUser = req.user?.email
+    ? await prisma.user.findUnique({ where: { email: req.user.email } })
+    : null
+  let actingMember: any = null
+  if (actingUser && lawFirmId) {
+    actingMember = await (prisma as any).firmMember.findFirst({
+      where: { userId: actingUser.id, lawFirmId, status: 'active' },
+    })
+  }
+  const isAdmin = actingMember?.role === 'firm_admin' || (Boolean(lawFirmId) && !actingMember && Boolean(attorney))
+  return { lawFirmId, actingUser, actingMember, isAdmin }
+}
+
+async function memberNameMap(firmMemberIds: string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(firmMemberIds.filter(Boolean))]
+  if (!ids.length) return new Map()
+  const members = await (prisma as any).firmMember.findMany({
+    where: { id: { in: ids } },
+    include: { user: { select: { firstName: true, lastName: true, email: true } } },
+  })
+  return new Map(
+    members.map((m: any) => [
+      m.id,
+      [m.user?.firstName, m.user?.lastName].filter(Boolean).join(' ').trim() || m.user?.email || 'Member',
+    ])
+  )
+}
+
+// GET time entries for this case.
+router.get('/leads/:leadId/time', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+    const identity = await resolveActingTimeIdentity(req, attorney)
+
+    const entries = await (prisma as any).timeEntry.findMany({
+      where: { assessmentId: lead.assessmentId },
+      orderBy: { workDate: 'desc' },
+    })
+    const names = await memberNameMap(entries.map((e: any) => e.firmMemberId).filter(Boolean))
+    const serialized = entries.map((e: any) =>
+      serializeTimeEntry(e, e.firmMemberId ? names.get(e.firmMemberId) || null : null)
+    )
+
+    const totalMinutes = entries.reduce((n: number, e: any) => n + e.minutes, 0)
+    const billableAmount = entries.reduce((n: number, e: any) => n + (e.amount || 0), 0)
+
+    // On-behalf directory for admins.
+    let members: any[] = []
+    if (identity.isAdmin && identity.lawFirmId) {
+      const dir = await (prisma as any).firmMember.findMany({
+        where: { lawFirmId: identity.lawFirmId, status: { in: ['active', 'invited'] } },
+        include: { user: { select: { firstName: true, lastName: true, email: true } } },
+      })
+      members = dir.map((m: any) => ({
+        firmMemberId: m.id,
+        name: [m.user?.firstName, m.user?.lastName].filter(Boolean).join(' ').trim() || m.user?.email || 'Member',
+        role: m.role,
+      }))
+    }
+
+    res.json({
+      entries: serialized,
+      canLog: Boolean(identity.lawFirmId),
+      isAdmin: identity.isAdmin,
+      activityTypes: ACTIVITY_TYPES,
+      members,
+      totals: {
+        totalHours: Math.round((totalMinutes / 60) * 100) / 100,
+        billableAmount: Math.round(billableAmount * 100) / 100,
+        entryCount: entries.length,
+      },
+    })
+  } catch (error: any) {
+    logger.error('Failed to load case time', { error: error.message })
+    res.status(500).json({ error: 'Failed to load case time' })
+  }
+})
+
+// POST a new time entry on this case.
+router.post('/leads/:leadId/time', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+    const identity = await resolveActingTimeIdentity(req, attorney)
+    if (!identity.lawFirmId) return res.status(400).json({ error: 'You are not part of a firm' })
+
+    const hours = Number(req.body?.hours)
+    if (!Number.isFinite(hours) || hours <= 0) return res.status(400).json({ error: 'Enter hours greater than 0' })
+    const minutes = Math.round(hours * 60)
+
+    const activityType = ACTIVITY_TYPE_VALUES.includes(req.body?.activityType) ? req.body.activityType : 'general'
+    const billable = req.body?.billable !== false
+    const workDate = req.body?.workDate ? new Date(String(req.body.workDate)) : new Date()
+    const description = typeof req.body?.description === 'string' ? req.body.description.trim() || null : null
+    const status = req.body?.status === 'draft' ? 'draft' : 'submitted'
+
+    // Determine the worker (self, or another member when an admin logs on behalf).
+    let workerMemberId: string | null = identity.actingMember?.id || null
+    let workerUserId: string | null = identity.actingUser?.id || null
+    let workerRole: string | null = identity.actingMember?.role || (attorney ? 'attorney' : null)
+    let workerAttorneyId: string | null = attorney?.id || null
+    if (identity.isAdmin && req.body?.firmMemberId && req.body.firmMemberId !== workerMemberId) {
+      const target = await (prisma as any).firmMember.findFirst({
+        where: { id: String(req.body.firmMemberId), lawFirmId: identity.lawFirmId },
+      })
+      if (target) {
+        workerMemberId = target.id
+        workerUserId = target.userId
+        workerRole = target.role
+        workerAttorneyId = target.attorneyId || null
+      }
+    }
+
+    const hourlyRate = await resolveHourlyRate(identity.lawFirmId, {
+      firmMemberId: workerMemberId,
+      role: workerRole,
+    })
+    const amount = computeAmount(minutes, hourlyRate, billable)
+
+    const created = await (prisma as any).timeEntry.create({
+      data: {
+        lawFirmId: identity.lawFirmId,
+        assessmentId: lead.assessmentId,
+        userId: workerUserId,
+        firmMemberId: workerMemberId,
+        attorneyId: workerAttorneyId,
+        role: workerRole,
+        workDate,
+        minutes,
+        activityType,
+        description,
+        billable,
+        hourlyRate,
+        amount,
+        status,
+        createdById: identity.actingUser?.id || null,
+      },
+    })
+    const names = await memberNameMap([workerMemberId || ''])
+    res.status(201).json(serializeTimeEntry(created, workerMemberId ? names.get(workerMemberId) || null : null))
+  } catch (error: any) {
+    logger.error('Failed to create time entry', { error: error.message })
+    res.status(500).json({ error: 'Failed to create time entry' })
+  }
+})
+
+// PATCH a time entry (edit fields / submit). Owner or admin.
+router.patch('/leads/:leadId/time/:id', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, id } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+    const identity = await resolveActingTimeIdentity(req, attorney)
+
+    const entry = await (prisma as any).timeEntry.findFirst({
+      where: { id, assessmentId: lead.assessmentId },
+    })
+    if (!entry) return res.status(404).json({ error: 'Time entry not found' })
+
+    const isOwner = entry.createdById === identity.actingUser?.id || entry.firmMemberId === identity.actingMember?.id
+    if (!isOwner && !identity.isAdmin) return res.status(403).json({ error: 'Not allowed to edit this entry' })
+    if ((entry.status === 'approved' || entry.status === 'invoiced') && !identity.isAdmin) {
+      return res.status(400).json({ error: 'This entry is locked. Ask an admin to reopen it.' })
+    }
+
+    const data: any = {}
+    if (req.body?.hours !== undefined) {
+      const hours = Number(req.body.hours)
+      if (!Number.isFinite(hours) || hours <= 0) return res.status(400).json({ error: 'Enter hours greater than 0' })
+      data.minutes = Math.round(hours * 60)
+    }
+    if (ACTIVITY_TYPE_VALUES.includes(req.body?.activityType)) data.activityType = req.body.activityType
+    if ('description' in req.body)
+      data.description = typeof req.body.description === 'string' ? req.body.description.trim() || null : null
+    if ('billable' in req.body) data.billable = Boolean(req.body.billable)
+    if (req.body?.workDate) data.workDate = new Date(String(req.body.workDate))
+    if (req.body?.status && ['draft', 'submitted'].includes(String(req.body.status))) data.status = String(req.body.status)
+
+    // Recompute amount if minutes/billable changed.
+    const minutes = data.minutes ?? entry.minutes
+    const billable = data.billable ?? entry.billable
+    data.amount = computeAmount(minutes, entry.hourlyRate, billable)
+
+    const updated = await (prisma as any).timeEntry.update({ where: { id: entry.id }, data })
+    const names = await memberNameMap([updated.firmMemberId || ''])
+    res.json(serializeTimeEntry(updated, updated.firmMemberId ? names.get(updated.firmMemberId) || null : null))
+  } catch (error: any) {
+    logger.error('Failed to update time entry', { error: error.message })
+    res.status(500).json({ error: 'Failed to update time entry' })
+  }
+})
+
+// DELETE a time entry. Owner (if not locked) or admin.
+router.delete('/leads/:leadId/time/:id', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, id } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+    const identity = await resolveActingTimeIdentity(req, attorney)
+
+    const entry = await (prisma as any).timeEntry.findFirst({
+      where: { id, assessmentId: lead.assessmentId },
+    })
+    if (!entry) return res.status(404).json({ error: 'Time entry not found' })
+    const isOwner = entry.createdById === identity.actingUser?.id || entry.firmMemberId === identity.actingMember?.id
+    if (!isOwner && !identity.isAdmin) return res.status(403).json({ error: 'Not allowed to delete this entry' })
+    if ((entry.status === 'approved' || entry.status === 'invoiced') && !identity.isAdmin) {
+      return res.status(400).json({ error: 'This entry is locked. Ask an admin to reopen it.' })
+    }
+    await (prisma as any).timeEntry.delete({ where: { id: entry.id } })
+    res.json({ ok: true })
+  } catch (error: any) {
+    logger.error('Failed to delete time entry', { error: error.message })
+    res.status(500).json({ error: 'Failed to delete time entry' })
   }
 })
 
@@ -10902,6 +11265,22 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
         }
       } catch (cmsErr: any) {
         logger.warn('CMS auto-export trigger failed', { error: cmsErr?.message })
+      }
+
+      // Auto-apply the firm's standard (applied) workflow to this new case so
+      // every matter the firm takes on follows the same lifecycle. No-op if the
+      // firm hasn't applied a workflow or the case already has one.
+      try {
+        if (attorney.lawFirmId) {
+          await applyFirmWorkflowToCase({
+            assessmentId: existingLead.assessmentId,
+            lawFirmId: attorney.lawFirmId,
+            appliedById: null,
+            startDate: new Date(),
+          })
+        }
+      } catch (wfErr: any) {
+        logger.warn('Auto-apply firm workflow failed', { error: wfErr?.message })
       }
 
       try {

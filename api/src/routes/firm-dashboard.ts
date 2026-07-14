@@ -12,6 +12,14 @@ import { createNotificationEvent } from '../lib/platform-notifications'
 import { slugify } from '../lib/booking-slots'
 import { createEnvelopeForLead } from '../lib/esign/esign-service'
 import { listESignatureProviders } from '../lib/esign'
+import { resolveTemplateTokens, fillTemplateTokens, renderTemplateBodyPdf } from '../lib/esign/firm-template-doc'
+import { applyFirmWorkflowToCase } from '../lib/case-workflow'
+import {
+  TIME_ROLES,
+  TIME_ROLE_VALUES,
+  ACTIVITY_TYPES,
+  serializeTimeEntry,
+} from '../lib/time-tracking'
 
 const router: Router = Router()
 
@@ -793,6 +801,18 @@ router.post('/cases/:assessmentId/assignments', authMiddleware as any, async (re
       where: { id: assessmentId },
       data: { lawFirmId: context.lawFirmId }
     })
+
+    // Auto-apply the firm's standard workflow when a case first joins the firm.
+    // Idempotent + best-effort (no-op if no applied workflow or already applied).
+    try {
+      await applyFirmWorkflowToCase({
+        assessmentId,
+        lawFirmId: context.lawFirmId,
+        appliedById: context.user?.id || null,
+      })
+    } catch (wfErr: any) {
+      logger.warn('Auto-apply firm workflow on assignment failed', { error: wfErr?.message })
+    }
 
     // A role has a single active owner. Deactivate any prior active assignee for
     // this (case, role) that isn't the person we're assigning now, so downstream
@@ -2896,8 +2916,33 @@ router.get('/templates/:id/file', authMiddleware as any, async (req: any, res: R
   }
 })
 
-// POST /v1/firm-dashboard/templates/:id/send — send a PDF template for
-// signature against a specific case/client via the e-signature service.
+// GET /v1/firm-dashboard/templates/:id/preview?leadId= — the template body with
+// merge tokens filled from a specific case, for a pre-send preview.
+router.get('/templates/:id/preview', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+
+    const template = await (prisma as any).firmTemplate.findFirst({
+      where: { id: req.params.id, lawFirmId: context.lawFirmId },
+      select: { body: true },
+    })
+    if (!template) return res.status(404).json({ error: 'Template not found' })
+
+    const leadId = String(req.query?.leadId || '').trim()
+    const body = typeof template.body === 'string' ? template.body : ''
+    if (!leadId) return res.json({ body })
+
+    const tokens = await resolveTemplateTokens(leadId)
+    res.json({ body: fillTemplateTokens(body, tokens) })
+  } catch (error) {
+    logger.error('Failed to preview template', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// POST /v1/firm-dashboard/templates/:id/send — send a template for signature
+// against a case/client: an attached PDF as-is, or the token-filled body → PDF.
 router.post('/templates/:id/send', authMiddleware as any, async (req: any, res: Response) => {
   try {
     const context = await getFirmContext(req)
@@ -2910,11 +2955,11 @@ router.post('/templates/:id/send', authMiddleware as any, async (req: any, res: 
       where: { id: req.params.id, lawFirmId: context.lawFirmId },
     })
     if (!template) return res.status(404).json({ error: 'Template not found' })
-    if (!template.filePath || !fs.existsSync(template.filePath)) {
-      return res.status(400).json({ error: 'Attach a source file before sending for signature' })
-    }
-    if (template.fileMime !== 'application/pdf') {
-      return res.status(400).json({ error: 'Only PDF templates can be sent for signature' })
+
+    const hasPdf = Boolean(template.filePath) && template.fileMime === 'application/pdf' && fs.existsSync(template.filePath)
+    const hasBody = typeof template.body === 'string' && template.body.trim().length > 0
+    if (!hasPdf && !hasBody) {
+      return res.status(400).json({ error: 'Attach a PDF or add body text before sending for signature' })
     }
 
     const leadId = String(req.body?.leadId || '').trim()
@@ -2940,6 +2985,15 @@ router.post('/templates/:id/send', authMiddleware as any, async (req: any, res: 
       return res.status(400).json({ error: 'No attorney available to own this signature request' })
     }
 
+    // Prefer a firm-uploaded PDF as-is; otherwise render the (token-filled) body.
+    let filePath: string = template.filePath
+    if (!hasPdf && hasBody) {
+      const tokens = await resolveTemplateTokens(leadId)
+      const filled = fillTemplateTokens(template.body, tokens)
+      const rendered = await renderTemplateBodyPdf({ leadId, title, body: filled })
+      filePath = rendered.filePath
+    }
+
     const envelope = await createEnvelopeForLead({
       leadId,
       attorneyId,
@@ -2948,13 +3002,682 @@ router.post('/templates/:id/send', authMiddleware as any, async (req: any, res: 
       title,
       signerName,
       signerEmail,
-      filePath: template.filePath,
+      filePath,
     })
     res.status(201).json({ envelope })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     logger.error('Failed to send template for signature', { message })
     res.status(502).json({ error: 'E-signature provider error', detail: message })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Firm Workflows — customizable case-lifecycle pipelines (stages + steps).
+// This pass defines/customizes workflow templates only.
+// ---------------------------------------------------------------------------
+
+const WORKFLOW_ROLES = [
+  { value: 'attorney', label: 'Attorney' },
+  { value: 'paralegal', label: 'Paralegal' },
+  { value: 'case_manager', label: 'Case manager' },
+  { value: 'intake_specialist', label: 'Intake specialist' },
+  { value: 'legal_assistant', label: 'Legal assistant' },
+  { value: 'demand_writer', label: 'Demand writer' },
+  { value: 'billing_admin', label: 'Billing' },
+  { value: 'firm_admin', label: 'Firm admin' },
+]
+const WORKFLOW_ROLE_VALUES = WORKFLOW_ROLES.map((r) => r.value)
+
+type DefaultStep = {
+  title: string
+  description?: string
+  assigneeRole?: string
+  dueOffsetDays?: number
+  required?: boolean
+}
+type DefaultStage = { name: string; description?: string; steps: DefaultStep[] }
+
+// A recommended personal-injury case lifecycle. Firms can duplicate/edit freely.
+const DEFAULT_WORKFLOW: {
+  name: string
+  description: string
+  practiceArea: string
+  stages: DefaultStage[]
+} = {
+  name: 'Personal Injury — Standard',
+  description:
+    'Recommended end-to-end lifecycle for a personal injury matter, from intake through closeout. Customize the stages and steps to match how your firm works.',
+  practiceArea: 'Personal Injury',
+  stages: [
+    {
+      name: 'Intake & Sign-up',
+      description: 'Qualify the lead, run conflicts, and get the client signed.',
+      steps: [
+        { title: 'Run conflict check', assigneeRole: 'intake_specialist', dueOffsetDays: 0, required: true },
+        { title: 'Send retainer for signature', assigneeRole: 'attorney', dueOffsetDays: 1, required: true },
+        { title: 'Collect signed HIPAA authorization', assigneeRole: 'paralegal', dueOffsetDays: 2, required: true },
+        { title: 'Open matter / create case file', assigneeRole: 'case_manager', dueOffsetDays: 2, required: true },
+      ],
+    },
+    {
+      name: 'Investigation & Treatment',
+      description: 'Gather evidence and monitor the client’s medical treatment.',
+      steps: [
+        { title: 'Request police / incident report', assigneeRole: 'paralegal', dueOffsetDays: 5 },
+        { title: 'Set up medical treatment tracking', assigneeRole: 'case_manager', dueOffsetDays: 7, required: true },
+        { title: 'Collect insurance information', assigneeRole: 'paralegal', dueOffsetDays: 7, required: true },
+        { title: 'Monthly treatment status check', assigneeRole: 'case_manager', dueOffsetDays: 30 },
+      ],
+    },
+    {
+      name: 'Records & Demand Prep',
+      description: 'Collect records and bills, then build the demand.',
+      steps: [
+        { title: 'Request medical records & bills', assigneeRole: 'paralegal', dueOffsetDays: 60, required: true },
+        { title: 'Verify records are complete', assigneeRole: 'case_manager', dueOffsetDays: 90 },
+        { title: 'Draft demand letter', assigneeRole: 'demand_writer', dueOffsetDays: 100, required: true },
+      ],
+    },
+    {
+      name: 'Demand & Negotiation',
+      description: 'Send the demand and negotiate with the adjuster.',
+      steps: [
+        { title: 'Send demand package', assigneeRole: 'attorney', dueOffsetDays: 105, required: true },
+        { title: 'Follow up with adjuster', assigneeRole: 'paralegal', dueOffsetDays: 120 },
+        { title: 'Present offers to client', assigneeRole: 'attorney', dueOffsetDays: 130, required: true },
+      ],
+    },
+    {
+      name: 'Settlement & Resolution',
+      description: 'Finalize the settlement, clear liens, and disburse funds.',
+      steps: [
+        { title: 'Execute settlement release', assigneeRole: 'attorney', dueOffsetDays: 150, required: true },
+        { title: 'Resolve medical liens', assigneeRole: 'paralegal', dueOffsetDays: 160, required: true },
+        { title: 'Disburse settlement funds', assigneeRole: 'billing_admin', dueOffsetDays: 170, required: true },
+      ],
+    },
+    {
+      name: 'Closeout',
+      description: 'Wrap up and archive the matter.',
+      steps: [
+        { title: 'Send closing letter', assigneeRole: 'case_manager', dueOffsetDays: 175, required: true },
+        { title: 'Archive case file', assigneeRole: 'case_manager', dueOffsetDays: 180, required: true },
+      ],
+    },
+  ],
+}
+
+function serializeWorkflow(w: any, templateNames: Map<string, string>) {
+  const stages = [...(w.stages || [])]
+    .sort((a: any, b: any) => a.sortOrder - b.sortOrder)
+    .map((s: any) => ({
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      steps: [...(s.steps || [])]
+        .sort((a: any, b: any) => a.sortOrder - b.sortOrder)
+        .map((st: any) => ({
+          id: st.id,
+          title: st.title,
+          description: st.description,
+          assigneeRole: st.assigneeRole,
+          dueOffsetDays: st.dueOffsetDays,
+          required: st.required,
+          templateId: st.templateId,
+          templateName: st.templateId ? templateNames.get(st.templateId) || null : null,
+        })),
+    }))
+  const stepCount = stages.reduce((n: number, s: any) => n + s.steps.length, 0)
+  return {
+    id: w.id,
+    name: w.name,
+    description: w.description,
+    practiceArea: w.practiceArea,
+    isDefault: w.isDefault,
+    isActive: w.isActive,
+    sortOrder: w.sortOrder,
+    stageCount: stages.length,
+    stepCount,
+    stages,
+    updatedAt: w.updatedAt,
+    createdAt: w.createdAt,
+  }
+}
+
+function parseWorkflowStructure(body: any) {
+  const rawStages = Array.isArray(body?.stages) ? body.stages : []
+  return rawStages
+    .map((s: any) => ({
+      name: typeof s?.name === 'string' ? s.name.trim() : '',
+      description: typeof s?.description === 'string' ? s.description.trim() || null : null,
+      steps: (Array.isArray(s?.steps) ? s.steps : [])
+        .map((st: any) => {
+          const rawDue = st?.dueOffsetDays
+          const dueOffsetDays =
+            rawDue === null || rawDue === undefined || rawDue === '' || !Number.isFinite(Number(rawDue))
+              ? null
+              : Math.max(0, Math.round(Number(rawDue)))
+          return {
+            title: typeof st?.title === 'string' ? st.title.trim() : '',
+            description: typeof st?.description === 'string' ? st.description.trim() || null : null,
+            assigneeRole: WORKFLOW_ROLE_VALUES.includes(st?.assigneeRole) ? st.assigneeRole : null,
+            dueOffsetDays,
+            required: Boolean(st?.required),
+            templateId: typeof st?.templateId === 'string' && st.templateId ? st.templateId : null,
+          }
+        })
+        .filter((st: any) => st.title),
+    }))
+    .filter((s: any) => s.name)
+}
+
+async function firmTemplateNameMap(lawFirmId: string): Promise<Map<string, string>> {
+  const templates = await (prisma as any).firmTemplate.findMany({
+    where: { lawFirmId },
+    select: { id: true, name: true },
+  })
+  return new Map(templates.map((t: any) => [t.id, t.name]))
+}
+
+const WORKFLOW_INCLUDE = { stages: { include: { steps: true } } }
+
+// GET /v1/firm-dashboard/workflows — list workflows + editor metadata.
+router.get('/workflows', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+
+    const canManage = requireFirmPermission(context, 'manage_users')
+
+    const workflows = await (prisma as any).firmWorkflow.findMany({
+      where: { lawFirmId: context.lawFirmId },
+      include: WORKFLOW_INCLUDE,
+      orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+    })
+    const templates = await (prisma as any).firmTemplate.findMany({
+      where: { lawFirmId: context.lawFirmId, isActive: true },
+      select: { id: true, name: true, category: true },
+      orderBy: [{ name: 'asc' }],
+    })
+    const nameMap = new Map<string, string>(templates.map((t: any) => [t.id, t.name] as [string, string]))
+
+    res.json({
+      canManage,
+      roles: WORKFLOW_ROLES,
+      templates: templates.map((t: any) => ({ id: t.id, name: t.name, category: t.category })),
+      workflows: workflows.map((w: any) => serializeWorkflow(w, nameMap)),
+    })
+  } catch (error) {
+    logger.error('Failed to list firm workflows', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// POST /v1/firm-dashboard/workflows — create an (empty) workflow.
+router.post('/workflows', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage workflows' })
+    }
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : ''
+    if (!name) return res.status(400).json({ error: 'A workflow name is required' })
+
+    const count = await (prisma as any).firmWorkflow.count({ where: { lawFirmId: context.lawFirmId } })
+    const created = await (prisma as any).firmWorkflow.create({
+      data: {
+        lawFirmId: context.lawFirmId,
+        name,
+        description: typeof req.body?.description === 'string' ? req.body.description.trim() || null : null,
+        practiceArea: typeof req.body?.practiceArea === 'string' ? req.body.practiceArea.trim() || null : null,
+        isDefault: count === 0,
+        sortOrder: count,
+        createdById: context.user?.id || null,
+      },
+      include: WORKFLOW_INCLUDE,
+    })
+    res.status(201).json(serializeWorkflow(created, new Map()))
+  } catch (error) {
+    logger.error('Failed to create firm workflow', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// POST /v1/firm-dashboard/workflows/seed-default — create the recommended default.
+router.post('/workflows/seed-default', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage workflows' })
+    }
+    const count = await (prisma as any).firmWorkflow.count({ where: { lawFirmId: context.lawFirmId } })
+    const created = await (prisma as any).firmWorkflow.create({
+      data: {
+        lawFirmId: context.lawFirmId,
+        name: DEFAULT_WORKFLOW.name,
+        description: DEFAULT_WORKFLOW.description,
+        practiceArea: DEFAULT_WORKFLOW.practiceArea,
+        isDefault: count === 0,
+        sortOrder: count,
+        createdById: context.user?.id || null,
+        stages: {
+          create: DEFAULT_WORKFLOW.stages.map((s, si) => ({
+            name: s.name,
+            description: s.description || null,
+            sortOrder: si,
+            steps: {
+              create: s.steps.map((st, ti) => ({
+                title: st.title,
+                description: st.description || null,
+                assigneeRole: st.assigneeRole || null,
+                dueOffsetDays: st.dueOffsetDays ?? null,
+                required: Boolean(st.required),
+                sortOrder: ti,
+              })),
+            },
+          })),
+        },
+      },
+      include: WORKFLOW_INCLUDE,
+    })
+    res.status(201).json(serializeWorkflow(created, new Map()))
+  } catch (error) {
+    logger.error('Failed to seed default workflow', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// PATCH /v1/firm-dashboard/workflows/:id — update metadata (name, default, etc.).
+router.patch('/workflows/:id', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage workflows' })
+    }
+    const workflow = await (prisma as any).firmWorkflow.findFirst({
+      where: { id: req.params.id, lawFirmId: context.lawFirmId },
+    })
+    if (!workflow) return res.status(404).json({ error: 'Workflow not found' })
+
+    const data: any = {}
+    if (typeof req.body?.name === 'string') {
+      const n = req.body.name.trim()
+      if (!n) return res.status(400).json({ error: 'A workflow name is required' })
+      data.name = n
+    }
+    if ('description' in req.body)
+      data.description = typeof req.body.description === 'string' ? req.body.description.trim() || null : null
+    if ('practiceArea' in req.body)
+      data.practiceArea = typeof req.body.practiceArea === 'string' ? req.body.practiceArea.trim() || null : null
+    if ('isActive' in req.body) data.isActive = Boolean(req.body.isActive)
+    if (req.body?.isDefault === true) {
+      await (prisma as any).firmWorkflow.updateMany({
+        where: { lawFirmId: context.lawFirmId, id: { not: workflow.id } },
+        data: { isDefault: false },
+      })
+      data.isDefault = true
+    } else if (req.body?.isDefault === false) {
+      data.isDefault = false
+    }
+
+    const updated = await (prisma as any).firmWorkflow.update({
+      where: { id: workflow.id },
+      data,
+      include: WORKFLOW_INCLUDE,
+    })
+    res.json(serializeWorkflow(updated, await firmTemplateNameMap(context.lawFirmId)))
+  } catch (error) {
+    logger.error('Failed to update firm workflow', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// PUT /v1/firm-dashboard/workflows/:id/structure — replace stages + steps.
+router.put('/workflows/:id/structure', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage workflows' })
+    }
+    const workflow = await (prisma as any).firmWorkflow.findFirst({
+      where: { id: req.params.id, lawFirmId: context.lawFirmId },
+    })
+    if (!workflow) return res.status(404).json({ error: 'Workflow not found' })
+
+    const stages = parseWorkflowStructure(req.body)
+
+    // Only allow linking to templates that belong to this firm.
+    const templateIds = stages.flatMap((s: any) => s.steps.map((st: any) => st.templateId).filter(Boolean))
+    let validTemplateIds = new Set<string>()
+    if (templateIds.length) {
+      const found = await (prisma as any).firmTemplate.findMany({
+        where: { lawFirmId: context.lawFirmId, id: { in: templateIds } },
+        select: { id: true },
+      })
+      validTemplateIds = new Set(found.map((f: any) => f.id))
+    }
+
+    await prisma.$transaction(async (tx: any) => {
+      await tx.firmWorkflowStage.deleteMany({ where: { workflowId: workflow.id } })
+      for (let si = 0; si < stages.length; si++) {
+        const s = stages[si]
+        await tx.firmWorkflowStage.create({
+          data: {
+            workflowId: workflow.id,
+            name: s.name,
+            description: s.description,
+            sortOrder: si,
+            steps: {
+              create: s.steps.map((st: any, ti: number) => ({
+                title: st.title,
+                description: st.description,
+                assigneeRole: st.assigneeRole,
+                dueOffsetDays: st.dueOffsetDays,
+                required: st.required,
+                templateId: st.templateId && validTemplateIds.has(st.templateId) ? st.templateId : null,
+                sortOrder: ti,
+              })),
+            },
+          },
+        })
+      }
+      await tx.firmWorkflow.update({ where: { id: workflow.id }, data: { updatedAt: new Date() } })
+    })
+
+    const fresh = await (prisma as any).firmWorkflow.findUnique({
+      where: { id: workflow.id },
+      include: WORKFLOW_INCLUDE,
+    })
+    res.json(serializeWorkflow(fresh, await firmTemplateNameMap(context.lawFirmId)))
+  } catch (error) {
+    logger.error('Failed to save workflow structure', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// DELETE /v1/firm-dashboard/workflows/:id
+router.delete('/workflows/:id', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage workflows' })
+    }
+    const workflow = await (prisma as any).firmWorkflow.findFirst({
+      where: { id: req.params.id, lawFirmId: context.lawFirmId },
+    })
+    if (!workflow) return res.status(404).json({ error: 'Workflow not found' })
+
+    await (prisma as any).firmWorkflow.delete({ where: { id: workflow.id } })
+
+    // If we removed the default, promote the earliest remaining workflow.
+    if (workflow.isDefault) {
+      const next = await (prisma as any).firmWorkflow.findFirst({
+        where: { lawFirmId: context.lawFirmId },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      })
+      if (next) {
+        await (prisma as any).firmWorkflow.update({ where: { id: next.id }, data: { isDefault: true } })
+      }
+    }
+    res.json({ ok: true })
+  } catch (error) {
+    logger.error('Failed to delete firm workflow', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Team time tracking & billing rates.
+// ---------------------------------------------------------------------------
+
+// Firm members with their user identity, for rate config + on-behalf entry.
+async function firmMemberDirectory(lawFirmId: string) {
+  const members = await (prisma as any).firmMember.findMany({
+    where: { lawFirmId, status: { in: ['active', 'invited'] } },
+    include: { user: { select: { firstName: true, lastName: true, email: true } } },
+  })
+  return members.map((m: any) => {
+    const name =
+      [m.user?.firstName, m.user?.lastName].filter(Boolean).join(' ').trim() ||
+      m.user?.email ||
+      'Member'
+    return { firmMemberId: m.id, userId: m.userId, name, role: m.role, email: m.user?.email || null }
+  })
+}
+
+// GET /v1/firm-dashboard/billing-rates — role defaults + per-person overrides.
+router.get('/billing-rates', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    const canManage = requireFirmPermission(context, 'manage_users')
+
+    const rates = await (prisma as any).billingRate.findMany({ where: { lawFirmId: context.lawFirmId } })
+    const roleRates: Record<string, number> = {}
+    const memberRates: Record<string, number> = {}
+    for (const r of rates) {
+      if (r.role) roleRates[r.role] = r.hourlyRate
+      else if (r.firmMemberId) memberRates[r.firmMemberId] = r.hourlyRate
+    }
+
+    res.json({
+      canManage,
+      roles: TIME_ROLES,
+      activityTypes: ACTIVITY_TYPES,
+      members: await firmMemberDirectory(context.lawFirmId),
+      roleRates,
+      memberRates,
+    })
+  } catch (error) {
+    logger.error('Failed to load billing rates', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// PUT /v1/firm-dashboard/billing-rates — upsert/clear role + member rates.
+router.put('/billing-rates', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage billing rates' })
+    }
+
+    const roleRates = Array.isArray(req.body?.roleRates) ? req.body.roleRates : []
+    const memberRates = Array.isArray(req.body?.memberRates) ? req.body.memberRates : []
+
+    for (const rr of roleRates) {
+      const role = String(rr?.role || '')
+      if (!TIME_ROLE_VALUES.includes(role)) continue
+      const raw = rr?.hourlyRate
+      if (raw === null || raw === undefined || raw === '' || Number(raw) <= 0) {
+        await (prisma as any).billingRate.deleteMany({ where: { lawFirmId: context.lawFirmId, role } })
+      } else {
+        const hourlyRate = Math.round(Number(raw) * 100) / 100
+        const existing = await (prisma as any).billingRate.findFirst({
+          where: { lawFirmId: context.lawFirmId, role },
+        })
+        if (existing) await (prisma as any).billingRate.update({ where: { id: existing.id }, data: { hourlyRate } })
+        else await (prisma as any).billingRate.create({ data: { lawFirmId: context.lawFirmId, role, hourlyRate } })
+      }
+    }
+
+    for (const mr of memberRates) {
+      const firmMemberId = String(mr?.firmMemberId || '')
+      if (!firmMemberId) continue
+      const raw = mr?.hourlyRate
+      if (raw === null || raw === undefined || raw === '' || Number(raw) <= 0) {
+        await (prisma as any).billingRate.deleteMany({ where: { lawFirmId: context.lawFirmId, firmMemberId } })
+      } else {
+        const hourlyRate = Math.round(Number(raw) * 100) / 100
+        const existing = await (prisma as any).billingRate.findFirst({
+          where: { lawFirmId: context.lawFirmId, firmMemberId },
+        })
+        if (existing) await (prisma as any).billingRate.update({ where: { id: existing.id }, data: { hourlyRate } })
+        else
+          await (prisma as any).billingRate.create({
+            data: { lawFirmId: context.lawFirmId, firmMemberId, hourlyRate },
+          })
+      }
+    }
+
+    res.json({ ok: true })
+  } catch (error) {
+    logger.error('Failed to save billing rates', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// Build a where-clause + name/case maps shared by list + CSV.
+async function buildTimeEntryQuery(context: any, query: any) {
+  const where: any = { lawFirmId: context.lawFirmId }
+  if (query.status && ['draft', 'submitted', 'approved', 'rejected', 'invoiced'].includes(String(query.status)))
+    where.status = String(query.status)
+  if (query.firmMemberId) where.firmMemberId = String(query.firmMemberId)
+  if (query.assessmentId) where.assessmentId = String(query.assessmentId)
+  if (query.from || query.to) {
+    where.workDate = {}
+    if (query.from) where.workDate.gte = new Date(String(query.from))
+    if (query.to) where.workDate.lte = new Date(String(query.to))
+  }
+  const entries = await (prisma as any).timeEntry.findMany({ where, orderBy: { workDate: 'desc' }, take: 1000 })
+
+  // Worker names via firm member directory.
+  const dir = await firmMemberDirectory(context.lawFirmId)
+  const nameByMember = new Map<string, string>(dir.map((m: any) => [m.firmMemberId, m.name]))
+
+  // Case labels via assessment client names.
+  const assessmentIds = [...new Set(entries.map((e: any) => e.assessmentId).filter(Boolean))] as string[]
+  const caseLabelById = new Map<string, string>()
+  if (assessmentIds.length) {
+    const assessments = await prisma.assessment.findMany({
+      where: { id: { in: assessmentIds } },
+      select: { id: true, claimType: true, user: { select: { firstName: true, lastName: true } } },
+    })
+    for (const a of assessments) {
+      const client = [a.user?.firstName, a.user?.lastName].filter(Boolean).join(' ').trim()
+      caseLabelById.set(a.id, client || a.claimType || 'Case')
+    }
+  }
+  return { entries, nameByMember, caseLabelById }
+}
+
+// GET /v1/firm-dashboard/time-entries — firm-wide review + totals.
+router.get('/time-entries', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    const canManage = requireFirmPermission(context, 'manage_users')
+
+    const { entries, nameByMember, caseLabelById } = await buildTimeEntryQuery(context, req.query)
+    const serialized = entries.map((e: any) =>
+      serializeTimeEntry(
+        e,
+        e.firmMemberId ? nameByMember.get(e.firmMemberId) || null : null,
+        e.assessmentId ? caseLabelById.get(e.assessmentId) || null : null
+      )
+    )
+
+    const totalMinutes = entries.reduce((n: number, e: any) => n + e.minutes, 0)
+    const billableMinutes = entries.filter((e: any) => e.billable).reduce((n: number, e: any) => n + e.minutes, 0)
+    const billableAmount = entries.reduce((n: number, e: any) => n + (e.amount || 0), 0)
+    const unbilledAmount = entries
+      .filter((e: any) => e.status !== 'invoiced')
+      .reduce((n: number, e: any) => n + (e.amount || 0), 0)
+    const pendingApproval = entries.filter((e: any) => e.status === 'submitted').length
+
+    res.json({
+      canManage,
+      members: await firmMemberDirectory(context.lawFirmId),
+      entries: serialized,
+      totals: {
+        totalHours: Math.round((totalMinutes / 60) * 100) / 100,
+        billableHours: Math.round((billableMinutes / 60) * 100) / 100,
+        billableAmount: Math.round(billableAmount * 100) / 100,
+        unbilledAmount: Math.round(unbilledAmount * 100) / 100,
+        pendingApproval,
+        entryCount: entries.length,
+      },
+    })
+  } catch (error) {
+    logger.error('Failed to load time entries', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// PATCH /v1/firm-dashboard/time-entries/:id — approve / reject / mark invoiced.
+router.patch('/time-entries/:id', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to review time' })
+    }
+    const entry = await (prisma as any).timeEntry.findFirst({
+      where: { id: req.params.id, lawFirmId: context.lawFirmId },
+    })
+    if (!entry) return res.status(404).json({ error: 'Time entry not found' })
+
+    const status = String(req.body?.status || '')
+    if (!['submitted', 'approved', 'rejected', 'invoiced'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' })
+    }
+    const updated = await (prisma as any).timeEntry.update({
+      where: { id: entry.id },
+      data: {
+        status,
+        approvedById: status === 'approved' ? context.user?.id || null : entry.approvedById,
+        approvedAt: status === 'approved' ? new Date() : status === 'rejected' ? null : entry.approvedAt,
+      },
+    })
+    res.json(serializeTimeEntry(updated))
+  } catch (error) {
+    logger.error('Failed to update time entry', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// GET /v1/firm-dashboard/time-entries/export.csv — export current filter to CSV.
+router.get('/time-entries/export.csv', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to export time' })
+    }
+    const { entries, nameByMember, caseLabelById } = await buildTimeEntryQuery(context, req.query)
+
+    const esc = (v: any) => {
+      const s = v == null ? '' : String(v)
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const header = ['Date', 'Worker', 'Role', 'Case', 'Activity', 'Hours', 'Billable', 'Rate', 'Amount', 'Status', 'Description']
+    const rows = entries.map((e: any) => [
+      new Date(e.workDate).toISOString().slice(0, 10),
+      e.firmMemberId ? nameByMember.get(e.firmMemberId) || '' : '',
+      e.role || '',
+      e.assessmentId ? caseLabelById.get(e.assessmentId) || '' : '',
+      e.activityType,
+      (e.minutes / 60).toFixed(2),
+      e.billable ? 'yes' : 'no',
+      e.hourlyRate ?? '',
+      e.amount ?? '',
+      e.status,
+      e.description || '',
+    ])
+    const csv = [header, ...rows].map((r) => r.map(esc).join(',')).join('\n')
+    res.setHeader('Content-Type', 'text/csv')
+    res.setHeader('Content-Disposition', 'attachment; filename="time-entries.csv"')
+    res.send(csv)
+  } catch (error) {
+    logger.error('Failed to export time entries', { error })
+    res.status(500).json({ error: 'Internal server error' })
   }
 })
 

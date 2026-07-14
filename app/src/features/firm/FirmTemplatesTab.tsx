@@ -29,6 +29,7 @@ import {
   removeFirmTemplateFile,
   getFirmTemplateFileObjectUrl,
   sendFirmTemplateForSignature,
+  previewFirmTemplate,
   type FirmTemplate,
   type FirmTemplatesResponse,
 } from '../../lib/api'
@@ -330,7 +331,7 @@ function TemplateRow({
               <Eye className="h-3.5 w-3.5" /> View
             </button>
           )}
-          {canManage && template.isPdf && (
+          {canManage && (template.isPdf || Boolean(template.body && template.body.trim())) && (
             <button
               type="button"
               className={btnGhost}
@@ -480,6 +481,13 @@ function TemplateForm({
             onChange={(e) => setBody(e.target.value)}
             placeholder="Template text. Use tokens like {{client_name}}, {{firm_name}}, {{date}}…"
           />
+          <p className="mt-1 text-xs text-slate-400">
+            Available tokens:{' '}
+            <code className="text-slate-500">
+              {'{{client_name}} {{client_email}} {{client_phone}} {{firm_name}} {{attorney_name}} {{date}} {{case_ref}} {{claim_type}} {{matter_description}} {{venue}}'}
+            </code>
+            . On send (text-only templates), these are filled from the case and the body is rendered to a signable PDF.
+          </p>
         </div>
       </div>
 
@@ -548,6 +556,34 @@ function SendModal({
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
 
+  // When there's no attached PDF, the server renders the (token-filled) body to
+  // a PDF. Show a live preview of that filled body once a case is picked.
+  const willRenderFromBody = !template.isPdf && Boolean(template.body && template.body.trim())
+  const [preview, setPreview] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+
+  useEffect(() => {
+    if (!willRenderFromBody || !leadId) {
+      setPreview(null)
+      return
+    }
+    let cancelled = false
+    setPreviewLoading(true)
+    previewFirmTemplate(template.id, leadId)
+      .then((r) => {
+        if (!cancelled) setPreview(r.body)
+      })
+      .catch(() => {
+        if (!cancelled) setPreview(null)
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [willRenderFromBody, leadId, template.id])
+
   const pickRecipient = (id: string) => {
     setLeadId(id)
     const r = recipients.find((x) => x.leadId === id)
@@ -606,8 +642,11 @@ function SendModal({
         ) : (
           <div className="space-y-4">
             <p className="text-sm text-slate-500">
-              Sending <span className="font-medium text-slate-700">{template.name}</span> (PDF) to a client on one of
-              your firm's active cases.
+              Sending <span className="font-medium text-slate-700">{template.name}</span>{' '}
+              {willRenderFromBody
+                ? '(generated from the template body with the client\u2019s details filled in)'
+                : '(attached PDF)'}{' '}
+              to a client on one of your firm's active cases.
             </p>
             {error && <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-200">{error}</div>}
 
@@ -623,6 +662,24 @@ function SendModal({
                 ))}
               </select>
             </div>
+
+            {willRenderFromBody && leadId && (
+              <div>
+                <label className={labelCls}>Filled document preview</label>
+                <div className="max-h-56 overflow-auto rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-700">
+                  {previewLoading ? (
+                    <span className="text-slate-400">Building preview…</span>
+                  ) : preview ? (
+                    <pre className="whitespace-pre-wrap font-sans">{preview}</pre>
+                  ) : (
+                    <span className="text-slate-400">Preview unavailable.</span>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  Blanks (______) mark fields we couldn't fill automatically.
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>

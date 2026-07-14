@@ -17,6 +17,7 @@ import {
   Clock,
   CalendarClock,
   FileText,
+  Workflow,
   X,
 } from 'lucide-react'
 import {
@@ -52,6 +53,8 @@ import { StateMultiSelect } from '../components/StateMultiSelect'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
 import { FirmBookingLinksTab } from '../features/firm/FirmBookingLinksTab'
 import { FirmTemplatesTab } from '../features/firm/FirmTemplatesTab'
+import { FirmWorkflowsTab } from '../features/firm/FirmWorkflowsTab'
+import { FirmTimeBillingTab } from '../features/firm/FirmTimeBillingTab'
 
 const CASE_TYPES = [
   { value: 'auto', label: 'Auto Accident' },
@@ -205,13 +208,15 @@ type CaseloadData = {
   offices: Array<{ officeId: string; name: string; capacity: number | null; assignedCases: number; utilization: number | null }>
 }
 
-type TabKey = 'overview' | 'caseload' | 'team' | 'booking' | 'templates'
+type TabKey = 'overview' | 'caseload' | 'team' | 'booking' | 'templates' | 'workflow' | 'time'
 const TABS: Array<{ key: TabKey; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
   { key: 'caseload', label: 'Caseload', icon: Briefcase },
   { key: 'team', label: 'Team & Roles', icon: Users },
   { key: 'booking', label: 'Booking Links', icon: CalendarClock },
   { key: 'templates', label: 'Firm Templates', icon: FileText },
+  { key: 'workflow', label: 'Workflow', icon: Workflow },
+  { key: 'time', label: 'Time & Billing', icon: Clock },
 ]
 
 export default function FirmDashboard() {
@@ -1076,6 +1081,10 @@ export default function FirmDashboard() {
       {/* FIRM TEMPLATES (document library + e-sign)                        */}
       {/* ---------------------------------------------------------------- */}
       {tab === 'templates' && <FirmTemplatesTab />}
+
+      {tab === 'workflow' && <FirmWorkflowsTab />}
+
+      {tab === 'time' && <FirmTimeBillingTab />}
 
       {/* ---------------------------------------------------------------- */}
       {/* TEAM & ROLES                                                      */}

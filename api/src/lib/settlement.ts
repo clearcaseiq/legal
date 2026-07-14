@@ -43,6 +43,16 @@ export interface SettlementCostLine {
   incurredAt: string | null
 }
 
+/** Recoverable staff (paralegal/non-attorney) time available to add to costs. */
+export interface StaffTimeSummary {
+  /** Total approved billable non-attorney hours logged on the case. */
+  hours: number
+  /** Dollar value of that time at the snapshotted rates. */
+  amount: number
+  /** Whether this amount is currently folded into the waterfall costs. */
+  included: boolean
+}
+
 export interface SettlementResult {
   /** Gross recovery used for the math (attorney override or predicted median). */
   gross: number
@@ -53,6 +63,8 @@ export interface SettlementResult {
   feeBasis: 'gross' | 'net_of_costs'
   attorneyFee: number
   costs: number
+  /** Portion of `costs` that comes from recoverable staff time (0 if excluded). */
+  staffTime: StaffTimeSummary
   costItems: SettlementCostLine[]
   liens: SettlementLienLine[]
   liensAsserted: number
@@ -112,6 +124,7 @@ export async function computeSettlement(assessmentId: string): Promise<Settlemen
       feeBasis: 'gross',
       attorneyFee: 0,
       costs: 0,
+      staffTime: { hours: 0, amount: 0, included: false },
       costItems: [],
       liens: [],
       liensAsserted: 0,
@@ -142,7 +155,30 @@ export async function computeSettlement(assessmentId: string): Promise<Settlemen
     amount: Number(e.amount || 0),
     incurredAt: e.incurredAt ? e.incurredAt.toISOString() : null,
   }))
-  const costs = round(costItems.reduce((s, e) => s + e.amount, 0))
+  const expenseCosts = round(costItems.reduce((s, e) => s + e.amount, 0))
+
+  // Recoverable staff time: approved, billable, non-attorney time logged on the
+  // case. Attorney time is already covered by the contingency fee, so it's
+  // excluded here. Folded into costs only when the scenario opts in.
+  const staffEntries = await (prisma as any).timeEntry.findMany({
+    where: {
+      assessmentId,
+      billable: true,
+      status: 'approved',
+      NOT: { role: 'attorney' },
+    },
+    select: { minutes: true, amount: true },
+  })
+  const staffTimeMinutes = staffEntries.reduce((s: number, e: any) => s + (e.minutes || 0), 0)
+  const staffTimeAmount = round(staffEntries.reduce((s: number, e: any) => s + (e.amount || 0), 0))
+  const includeStaffTime = Boolean((scenario as any)?.includeStaffTime) && staffTimeAmount > 0
+  const staffTime = {
+    hours: Math.round((staffTimeMinutes / 60) * 100) / 100,
+    amount: staffTimeAmount,
+    included: includeStaffTime,
+  }
+
+  const costs = round(expenseCosts + (includeStaffTime ? staffTimeAmount : 0))
 
   const liens: SettlementLienLine[] = assessment.lienHolders.map((l) => {
     const asserted = Number(l.amount || 0)
@@ -213,6 +249,7 @@ export async function computeSettlement(assessmentId: string): Promise<Settlemen
     feeBasis,
     attorneyFee,
     costs,
+    staffTime,
     costItems,
     liens,
     liensAsserted,
