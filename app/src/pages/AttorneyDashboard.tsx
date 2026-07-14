@@ -1542,6 +1542,13 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
   const updateLeadInState = useCallback((leadId: string, updates: Partial<Lead>) => {
     setDashboardData(prev => {
       if (!prev) return prev
+      // Detect a lead leaving the "new match" (submitted) state so the New Matches
+      // tile — which reads the uncapped activeCases.matched count — updates instantly
+      // instead of only after the follow-up refetch.
+      const prevLead = prev.recentLeads.find(l => l.id === leadId)
+      const wasSubmitted = prevLead ? (!prevLead.status || prevLead.status === 'submitted') : false
+      const nowSubmitted = updates.status !== undefined ? updates.status === 'submitted' : wasSubmitted
+      const leftNewMatches = wasSubmitted && !nowSubmitted
       return {
         ...prev,
         recentLeads: prev.recentLeads.map(lead =>
@@ -1554,6 +1561,10 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
               .map(lead => (lead.id === leadId ? { ...lead, ...updates } : lead))
               .filter(lead => !lead.status || lead.status === 'submitted' || lead.status === 'matched')
           : prev.newCaseMatches,
+        activeCases:
+          leftNewMatches && prev.activeCases
+            ? { ...prev.activeCases, matched: Math.max(0, (prev.activeCases.matched ?? 0) - 1) }
+            : prev.activeCases,
       }
     })
     setSelectedLead(prev => (prev && prev.id === leadId ? { ...prev, ...updates } : prev))
@@ -2836,7 +2847,13 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
   const postAcceptanceStatuses = ['contacted', 'consulted', 'retained']
   const newPlaintiffMatches = (dashboardData.newCaseMatches?.length ? dashboardData.newCaseMatches : allLeads.filter((lead) => !lead.status || lead.status === 'submitted'))
     .slice(0, 5)
-  const newMatchesCount = dashboardData.newCaseMatches?.length ?? allLeads.filter((lead) => !lead.status || lead.status === 'submitted').length
+  // Use the true (uncapped) submitted-lead count from the pipeline, not the
+  // length of the New Matches preview — that preview is sliced to 10, so with
+  // >10 matches accepting/declining one never visibly changed the count (#).
+  const newMatchesCount =
+    dashboardData.activeCases?.matched ??
+    dashboardData.newCaseMatches?.length ??
+    allLeads.filter((lead) => !lead.status || lead.status === 'submitted').length
   const awaitingDecisionCount = allLeads.filter((lead) => !lead.status || lead.status === 'submitted').length
   const acceptedCasesCount = allLeads.filter((lead) => postAcceptanceStatuses.includes(lead.status || '')).length
   const activeCasesCount = acceptedCasesCount || (

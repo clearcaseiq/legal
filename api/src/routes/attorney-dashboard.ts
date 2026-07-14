@@ -3188,22 +3188,27 @@ router.get('/appointments', authMiddleware, async (req: any, res) => {
       to = swap
     }
 
+    // Include BOTH case-linked consults and public "Calendly-style" bookings
+    // (which have no assessmentId — they come from the attorney's shareable
+    // event-type link or a firm round-robin link).
     const appointments = await prisma.appointment.findMany({
       where: {
         attorneyId: attorney.id,
-        assessmentId: { not: null },
         scheduledAt: { gte: from, lte: to },
         status: { in: ['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'NO_SHOW'] },
       },
       select: {
         id: true,
         assessmentId: true,
+        eventTypeId: true,
+        manageToken: true,
         scheduledAt: true,
         type: true,
         duration: true,
         status: true,
         notes: true,
         meetingUrl: true,
+        hostMeetingUrl: true,
         location: true,
         phoneNumber: true,
         assessment: {
@@ -3212,6 +3217,7 @@ router.get('/appointments', authMiddleware, async (req: any, res) => {
             user: { select: { firstName: true, lastName: true } },
           },
         },
+        user: { select: { firstName: true, lastName: true, email: true } },
       },
       orderBy: { scheduledAt: 'asc' },
     })
@@ -3226,23 +3232,46 @@ router.get('/appointments', authMiddleware, async (req: any, res) => {
       leadByAssessment = Object.fromEntries(leads.map((l) => [l.assessmentId, l.id]))
     }
 
-    const events = appointments.map((a) => ({
-      id: a.id,
-      leadId: a.assessmentId ? leadByAssessment[a.assessmentId] : undefined,
-      scheduledAt: a.scheduledAt,
-      type: a.type,
-      duration: a.duration,
-      status: a.status,
-      assessmentId: a.assessmentId,
-      notes: a.notes,
-      meetingUrl: a.meetingUrl,
-      location: a.location,
-      phoneNumber: a.phoneNumber,
-      plaintiffName: a.assessment?.user
-        ? `${a.assessment.user.firstName || ''} ${a.assessment.user.lastName || ''}`.trim() || '—'
-        : '—',
-      claimType: a.assessment?.claimType || '—',
-    }))
+    // Resolve event-type names for public bookings (batch).
+    const eventTypeIds = [...new Set(appointments.map((a) => a.eventTypeId).filter(Boolean))] as string[]
+    let eventTypeNameById: Record<string, string> = {}
+    if (eventTypeIds.length > 0) {
+      const types = await prisma.attorneyEventType.findMany({
+        where: { id: { in: eventTypeIds } },
+        select: { id: true, name: true },
+      })
+      eventTypeNameById = Object.fromEntries(types.map((t) => [t.id, t.name]))
+    }
+
+    const events = appointments.map((a) => {
+      const isBooking = !a.assessmentId
+      const bookerName = a.user
+        ? `${a.user.firstName || ''} ${a.user.lastName || ''}`.trim()
+        : ''
+      const eventTypeName = a.eventTypeId ? eventTypeNameById[a.eventTypeId] || null : null
+      return {
+        id: a.id,
+        leadId: a.assessmentId ? leadByAssessment[a.assessmentId] : undefined,
+        scheduledAt: a.scheduledAt,
+        type: a.type,
+        duration: a.duration,
+        status: a.status,
+        assessmentId: a.assessmentId,
+        notes: a.notes,
+        meetingUrl: a.meetingUrl,
+        hostMeetingUrl: a.hostMeetingUrl,
+        location: a.location,
+        phoneNumber: a.phoneNumber,
+        plaintiffName: a.assessment?.user
+          ? `${a.assessment.user.firstName || ''} ${a.assessment.user.lastName || ''}`.trim() || '—'
+          : bookerName || '—',
+        claimType: a.assessment?.claimType || (isBooking ? eventTypeName || 'Online booking' : '—'),
+        source: isBooking ? ('booking' as const) : ('case' as const),
+        eventTypeName,
+        bookerEmail: isBooking ? a.user?.email || null : null,
+        manageToken: a.manageToken || null,
+      }
+    })
 
     res.json({ from: from.toISOString(), to: to.toISOString(), events })
   } catch (error: any) {
@@ -10764,10 +10793,18 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
       }
     })
 
-    // Sync Introduction status so tier routing waitForOfferResponse sees it
+    // Sync Introduction status so tier routing waitForOfferResponse sees it, AND so
+    // the attorney's Accepted/Declined tiles reflect this decision. Those tiles are
+    // derived entirely from the Introduction decision ledger, so a lead that reached
+    // the attorney WITHOUT a formal Introduction row (e.g. shared/pool leads or ones
+    // assigned directly via assignedAttorneyId) would otherwise drop out of New
+    // Matches but never increment Declined/Accepted. Backfill a row in that case so
+    // every explicit decision is logged exactly once.
+    const respondedStatus = decision === 'accept' ? 'ACCEPTED' : 'DECLINED'
+    let decisionIntroId: string | null = intro?.id ?? null
     if (intro) {
       const introUpdate: Record<string, unknown> = {
-        status: decision === 'accept' ? 'ACCEPTED' : 'DECLINED',
+        status: respondedStatus,
         respondedAt: new Date()
       }
       if (decision === 'reject' && declineReason) {
@@ -10777,16 +10814,33 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
         where: { id: intro.id },
         data: introUpdate as any
       })
-      // Record routing event for analytics, admin dashboard, and matching algorithm
+    } else {
+      const backfilled = await prisma.introduction.create({
+        data: {
+          assessmentId: existingLead.assessmentId,
+          attorneyId,
+          status: respondedStatus,
+          // Anchor the "offer time" to when the lead reached the attorney so
+          // speed-to-lead analytics stay meaningful instead of reading ~0.
+          requestedAt: existingLead.submittedAt ?? existingLead.createdAt ?? new Date(),
+          respondedAt: new Date(),
+          ...(decision === 'reject' && declineReason ? { declineReason } : {})
+        } as any
+      })
+      decisionIntroId = backfilled.id
+    }
+
+    // Record routing event for analytics, admin dashboard, and matching algorithm
+    if (decisionIntroId) {
       if (decision === 'reject') {
-        await recordRoutingEvent(existingLead.assessmentId, intro.id, attorneyId, 'declined', {
+        await recordRoutingEvent(existingLead.assessmentId, decisionIntroId, attorneyId, 'declined', {
           declineReason: declineReason || notes || null
         })
       } else if (decision === 'accept') {
-        await recordRoutingEvent(existingLead.assessmentId, intro.id, attorneyId, 'accepted', {})
+        await recordRoutingEvent(existingLead.assessmentId, decisionIntroId, attorneyId, 'accepted', {})
         const revenueProjection = await buildRevenueProjection(existingLead.assessmentId)
         if (revenueProjection) {
-          await recordRoutingEvent(existingLead.assessmentId, intro.id, attorneyId, 'revenue_projected', revenueProjection)
+          await recordRoutingEvent(existingLead.assessmentId, decisionIntroId, attorneyId, 'revenue_projected', revenueProjection)
         }
       }
     }
@@ -11765,9 +11819,19 @@ router.get('/messaging/templates', authMiddleware, async (req: any, res) => {
 // Attorney notifications feed (powers the in-app notifications bell).
 // Reads standardized in-app Notification rows whose `type` starts with `attorney.`.
 // ---------------------------------------------------------------------------
+// Notifications are SYSTEM-generated events only. Human-to-human communication
+// (client/plaintiff messages, colleague @mentions) is NOT a notification — it
+// lives in Messages (its own unread bell/badge) and the Activity page. Excluding
+// these keeps the two surfaces distinct and avoids double-counting unread state.
+const HUMAN_NOTIFICATION_TYPES = [
+  'attorney.new_message',
+  'attorney.plaintiff_replied',
+  'attorney.mention',
+]
+
 const attorneyNotificationWhere = (userId: string) => ({
   userId,
-  type: { startsWith: 'attorney.' },
+  type: { startsWith: 'attorney.', notIn: HUMAN_NOTIFICATION_TYPES },
 })
 
 function serializeAttorneyNotification(n: {

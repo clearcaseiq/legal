@@ -1,3 +1,7 @@
+import crypto from 'crypto'
+import path from 'path'
+import fs from 'fs'
+import multer from 'multer'
 import { Router, Request, Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
@@ -5,34 +9,83 @@ import { authMiddleware, AuthRequest } from '../lib/auth'
 import { sendTransactionalEmail } from '../lib/claims'
 import { computeMarketplacePerformance, computeMarketplacePerformanceByAttorney } from '../lib/marketplace-performance'
 import { createNotificationEvent } from '../lib/platform-notifications'
+import { slugify } from '../lib/booking-slots'
+import { createEnvelopeForLead } from '../lib/esign/esign-service'
+import { listESignatureProviders } from '../lib/esign'
 
 const router: Router = Router()
 
-// Best-effort invite email for a newly added firm member. Never throws so it
-// can't fail the member-creation request (#226).
+// Firm invites are single-use, expiring "set password" links. We reuse the
+// password-reset token model (only a SHA-256 hash is stored) but give invites a
+// longer, 7-day window since a new hire may not act immediately.
+const FIRM_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
+function hashInviteToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex')
+}
+
+// Best-effort invite email for a firm member. Never throws so it can't fail the
+// member-creation request (#226).
+//   - needsPassword (new / passwordless account): mint a set-password token and
+//     email a tokenized link. Clicking it verifies the email AND sets a password
+//     in one step (handled by POST /auth/reset-password), then activates the
+//     pending membership.
+//   - otherwise (existing account with a password): just a notice + sign-in link.
 async function sendFirmMemberInvite(params: {
+  userId: string
   to: string
   firstName?: string | null
   firmName?: string | null
   role: string
+  needsPassword: boolean
 }): Promise<boolean> {
   try {
     if (!params.to) return false
     const base = (process.env.WEB_URL || 'https://www.clearcaseiq.com').replace(/\/$/, '')
     const roleLabel = params.role.replace(/_/g, ' ')
+    const firm = params.firmName || 'your law firm'
+
+    if (params.needsPassword) {
+      // Invalidate any outstanding tokens, then mint a fresh single-use one.
+      await prisma.passwordResetToken.deleteMany({ where: { userId: params.userId, usedAt: null } })
+      const rawToken = crypto.randomBytes(32).toString('hex')
+      await prisma.passwordResetToken.create({
+        data: {
+          userId: params.userId,
+          tokenHash: hashInviteToken(rawToken),
+          expiresAt: new Date(Date.now() + FIRM_INVITE_TTL_MS),
+        },
+      })
+      const link = `${base}/reset-password?token=${encodeURIComponent(rawToken)}`
+      const body = [
+        `Hi ${params.firstName || 'there'},`,
+        '',
+        `You've been invited to join ${firm} on ClearCaseIQ as a ${roleLabel}.`,
+        '',
+        'Click the link below to verify your email and set your password. This link expires in 7 days and can be used once.',
+        '',
+        link,
+        '',
+        'If you were not expecting this, you can safely ignore this email.',
+        '',
+        '— The ClearCaseIQ team',
+      ].join('\n')
+      return await sendTransactionalEmail({ to: params.to, subject: `You're invited to join ${firm} on ClearCaseIQ`, body })
+    }
+
     const body = [
       `Hi ${params.firstName || 'there'},`,
       '',
-      `You've been added to ${params.firmName || 'your law firm'} on ClearCaseIQ as a ${roleLabel}.`,
+      `You've been added to ${firm} on ClearCaseIQ as a ${roleLabel}.`,
       '',
-      `Sign in (or create your password if this is your first time) to get started:`,
+      'Sign in to get started:',
       `${base}/login`,
       '',
       'If you were not expecting this, you can ignore this email.',
       '',
       '— The ClearCaseIQ team',
     ].join('\n')
-    return await sendTransactionalEmail({ to: params.to, subject: `You've been added to ${params.firmName || 'a law firm'} on ClearCaseIQ`, body })
+    return await sendTransactionalEmail({ to: params.to, subject: `You've been added to ${firm} on ClearCaseIQ`, body })
   } catch (error) {
     logger.error('Failed to send firm member invite email', { error: error instanceof Error ? error.message : error })
     return false
@@ -508,6 +561,12 @@ router.post('/members', authMiddleware as any, async (req: any, res: Response) =
       })
     }
 
+    // A member with no password hasn't accepted yet: keep them "invited"
+    // (pending) until they set a password via the emailed link. Members who
+    // already have an account go straight to "active".
+    const needsPassword = !user.passwordHash
+    const memberStatus = needsPassword ? 'invited' : 'active'
+
     const member = await (prisma as any).firmMember.upsert({
       where: {
         lawFirmId_userId: {
@@ -520,8 +579,9 @@ router.post('/members', authMiddleware as any, async (req: any, res: Response) =
         title: typeof title === 'string' ? title.trim() : null,
         officeId: typeof officeId === 'string' && officeId ? officeId : null,
         attorneyId: attorney?.id || null,
-        status: 'active',
-        joinedAt: new Date()
+        status: memberStatus,
+        invitedAt: needsPassword ? new Date() : undefined,
+        joinedAt: needsPassword ? undefined : new Date()
       },
       create: {
         lawFirmId: context.lawFirmId,
@@ -530,9 +590,9 @@ router.post('/members', authMiddleware as any, async (req: any, res: Response) =
         officeId: typeof officeId === 'string' && officeId ? officeId : null,
         role,
         title: typeof title === 'string' ? title.trim() : null,
-        status: 'active',
+        status: memberStatus,
         invitedAt: new Date(),
-        joinedAt: new Date()
+        joinedAt: needsPassword ? null : new Date()
       }
     })
 
@@ -542,7 +602,7 @@ router.post('/members', authMiddleware as any, async (req: any, res: Response) =
       const firm = await prisma.lawFirm.findUnique({ where: { id: context.lawFirmId }, select: { name: true } })
       firmName = firm?.name ?? null
     } catch { /* non-fatal */ }
-    void sendFirmMemberInvite({ to: normalizedEmail, firstName: user.firstName, firmName, role })
+    void sendFirmMemberInvite({ userId: user.id, to: normalizedEmail, firstName: user.firstName, firmName, role, needsPassword })
 
     res.status(201).json({ member, user, attorney })
   } catch (error: any) {
@@ -611,6 +671,61 @@ router.patch('/members/:memberId', authMiddleware as any, async (req: any, res: 
   } catch (error: any) {
     logger.error('Failed to update firm member', { error: error?.message || String(error) })
     res.status(500).json({ error: 'Failed to update firm member' })
+  }
+})
+
+// Resend a pending member's invitation: re-mint a set-password token and email
+// a fresh link. Only valid while the member hasn't set a password yet.
+router.post('/members/:memberId/resend-invite', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) {
+      return res.status(404).json({ error: 'No law firm associated with this user' })
+    }
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage firm users' })
+    }
+
+    const { memberId } = req.params
+    const member = await (prisma as any).firmMember.findFirst({
+      where: { id: memberId, lawFirmId: context.lawFirmId },
+      include: { user: true }
+    })
+    if (!member) {
+      return res.status(404).json({ error: 'Member not found in this firm' })
+    }
+    if (!member.user?.email) {
+      return res.status(400).json({ error: 'This member has no email on file' })
+    }
+    if (member.user.passwordHash) {
+      return res.status(400).json({ error: 'This member has already activated their account.' })
+    }
+
+    let firmName: string | null = null
+    try {
+      const firm = await prisma.lawFirm.findUnique({ where: { id: context.lawFirmId }, select: { name: true } })
+      firmName = firm?.name ?? null
+    } catch { /* non-fatal */ }
+
+    const emailSent = await sendFirmMemberInvite({
+      userId: member.userId,
+      to: member.user.email,
+      firstName: member.user.firstName,
+      firmName,
+      role: member.role,
+      needsPassword: true
+    })
+
+    // Keep the member pending and refresh invitedAt so the UI reflects the resend.
+    await (prisma as any).firmMember.update({
+      where: { id: member.id },
+      data: { status: 'invited', invitedAt: new Date() }
+    })
+
+    res.json({ ok: true, emailSent })
+  } catch (error: any) {
+    logger.error('Failed to resend firm member invite', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to resend invitation' })
   }
 })
 
@@ -1162,6 +1277,11 @@ router.post('/attorneys', authMiddleware as any, async (req: any, res: Response)
       }
     })
 
+    // An attorney with no password hasn't accepted yet: keep them "invited"
+    // (pending) and email a set-password link. Existing accounts go active.
+    const attorneyNeedsPassword = !memberUser.passwordHash
+    const attorneyMemberStatus = attorneyNeedsPassword ? 'invited' : 'active'
+
     await (prisma as any).firmMember.upsert({
       where: {
         lawFirmId_userId: {
@@ -1173,8 +1293,9 @@ router.post('/attorneys', authMiddleware as any, async (req: any, res: Response)
         attorneyId: attorney.id,
         role: 'attorney',
         officeId: resolvedOfficeId,
-        status: 'active',
-        joinedAt: new Date()
+        status: attorneyMemberStatus,
+        invitedAt: attorneyNeedsPassword ? new Date() : undefined,
+        joinedAt: attorneyNeedsPassword ? undefined : new Date()
       },
       create: {
         lawFirmId: currentAttorney.lawFirmId,
@@ -1182,9 +1303,9 @@ router.post('/attorneys', authMiddleware as any, async (req: any, res: Response)
         attorneyId: attorney.id,
         role: 'attorney',
         officeId: resolvedOfficeId,
-        status: 'active',
+        status: attorneyMemberStatus,
         invitedAt: new Date(),
-        joinedAt: new Date()
+        joinedAt: attorneyNeedsPassword ? null : new Date()
       }
     }).catch((memberError: any) => {
       logger.warn('Failed to create firm member for attorney', {
@@ -1192,6 +1313,21 @@ router.post('/attorneys', authMiddleware as any, async (req: any, res: Response)
         attorneyId: attorney.id,
         lawFirmId: currentAttorney.lawFirmId
       })
+    })
+
+    // Best-effort invite email (tokenized set-password link for new accounts).
+    let attorneyFirmName: string | null = null
+    try {
+      const firm = await prisma.lawFirm.findUnique({ where: { id: currentAttorney.lawFirmId }, select: { name: true } })
+      attorneyFirmName = firm?.name ?? null
+    } catch { /* non-fatal */ }
+    void sendFirmMemberInvite({
+      userId: memberUser.id,
+      to: normalizedEmail,
+      firstName: memberUser.firstName,
+      firmName: attorneyFirmName,
+      role: 'attorney',
+      needsPassword: attorneyNeedsPassword
     })
 
     res.json({ attorney })
@@ -1828,6 +1964,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         role: member.role,
         title: member.title,
         status: member.status,
+        invitedAt: member.invitedAt,
         office: member.office ? {
           id: member.office.id,
           name: member.office.name
@@ -2083,6 +2220,741 @@ router.post('/direct-messages/:userId', authMiddleware as any, async (req: any, 
   } catch (error: any) {
     logger.error('Failed to send DM', { error: error?.message })
     res.status(500).json({ error: 'Failed to send message' })
+  }
+})
+
+/* -------------------------------------------------------------------------- */
+/* Team ("round-robin") booking links                                         */
+/* -------------------------------------------------------------------------- */
+
+function bookingWebBaseUrl(): string {
+  return (
+    process.env.APP_URL ||
+    process.env.FRONTEND_URL ||
+    process.env.WEB_URL ||
+    'http://localhost:3000'
+  ).replace(/\/$/, '')
+}
+
+async function uniqueFirmLinkSlug(lawFirmId: string, name: string, ignoreId?: string) {
+  const base = slugify(name) || 'team'
+  let candidate = base
+  let n = 1
+  while (
+    await (prisma as any).firmBookingLink.findFirst({
+      where: { lawFirmId, slug: candidate, ...(ignoreId ? { id: { not: ignoreId } } : {}) },
+      select: { id: true },
+    })
+  ) {
+    n += 1
+    candidate = `${base}-${n}`
+  }
+  return candidate
+}
+
+function serializeBookingLink(link: any, firmSlug: string) {
+  return {
+    id: link.id,
+    slug: link.slug,
+    name: link.name,
+    description: link.description,
+    durationMinutes: link.durationMinutes,
+    locationType: link.locationType,
+    location: link.location,
+    bufferBeforeMinutes: link.bufferBeforeMinutes,
+    bufferAfterMinutes: link.bufferAfterMinutes,
+    minNoticeMinutes: link.minNoticeMinutes,
+    assignmentStrategy: link.assignmentStrategy,
+    isActive: link.isActive,
+    members: (link.members || []).map((m: any) => ({
+      attorneyId: m.attorneyId,
+      name: m.attorney?.name || 'Attorney',
+      sortOrder: m.sortOrder,
+    })),
+    publicUrl: `${bookingWebBaseUrl()}/book/team/${firmSlug}/${link.slug}`,
+  }
+}
+
+// GET /v1/firm-dashboard/booking-links — team links + selectable attorneys.
+router.get('/booking-links', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+
+    const [links, attorneys, firm] = await Promise.all([
+      (prisma as any).firmBookingLink.findMany({
+        where: { lawFirmId: context.lawFirmId },
+        include: { members: { include: { attorney: { select: { name: true } } }, orderBy: { sortOrder: 'asc' } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.attorney.findMany({
+        where: { lawFirmId: context.lawFirmId, isActive: true },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+      prisma.lawFirm.findUnique({ where: { id: context.lawFirmId }, select: { slug: true } }),
+    ])
+
+    const firmSlug = firm?.slug || ''
+    res.json({
+      canManage: requireFirmPermission(context, 'manage_users'),
+      firmAttorneys: attorneys,
+      links: links.map((l: any) => serializeBookingLink(l, firmSlug)),
+    })
+  } catch (error) {
+    logger.error('Failed to list firm booking links', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+const BookingLinkInput = {
+  parse(body: any) {
+    const name = typeof body?.name === 'string' ? body.name.trim() : ''
+    const durationMinutes = Number(body?.durationMinutes)
+    const locationType = ['video', 'phone', 'in_person'].includes(body?.locationType) ? body.locationType : 'video'
+    const assignmentStrategy = ['round_robin', 'first_available'].includes(body?.assignmentStrategy)
+      ? body.assignmentStrategy
+      : 'round_robin'
+    const memberAttorneyIds: string[] = Array.isArray(body?.memberAttorneyIds)
+      ? body.memberAttorneyIds.filter((x: any) => typeof x === 'string')
+      : []
+    return {
+      name,
+      description: typeof body?.description === 'string' ? body.description : null,
+      durationMinutes: Number.isFinite(durationMinutes) ? Math.min(240, Math.max(10, durationMinutes)) : 30,
+      locationType,
+      location: typeof body?.location === 'string' ? body.location : null,
+      bufferBeforeMinutes: Number(body?.bufferBeforeMinutes) || 0,
+      bufferAfterMinutes: Number(body?.bufferAfterMinutes) || 0,
+      minNoticeMinutes: Number.isFinite(Number(body?.minNoticeMinutes)) ? Number(body.minNoticeMinutes) : 120,
+      assignmentStrategy,
+      isActive: body?.isActive !== false,
+      memberAttorneyIds,
+    }
+  },
+}
+
+async function assertFirmAttorneys(lawFirmId: string, attorneyIds: string[]) {
+  if (attorneyIds.length === 0) return []
+  const rows = await prisma.attorney.findMany({
+    where: { id: { in: attorneyIds }, lawFirmId },
+    select: { id: true },
+  })
+  return rows.map((r) => r.id)
+}
+
+// POST /v1/firm-dashboard/booking-links — create a team link.
+router.post('/booking-links', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage booking links' })
+    }
+
+    const data = BookingLinkInput.parse(req.body)
+    if (!data.name) return res.status(400).json({ error: 'A name is required' })
+
+    const validMemberIds = await assertFirmAttorneys(context.lawFirmId, data.memberAttorneyIds)
+    if (validMemberIds.length === 0) {
+      return res.status(400).json({ error: 'Select at least one attorney for the rotation' })
+    }
+
+    const slug = await uniqueFirmLinkSlug(context.lawFirmId, data.name)
+    const created = await (prisma as any).firmBookingLink.create({
+      data: {
+        lawFirmId: context.lawFirmId,
+        slug,
+        name: data.name,
+        description: data.description,
+        durationMinutes: data.durationMinutes,
+        locationType: data.locationType,
+        location: data.location,
+        bufferBeforeMinutes: data.bufferBeforeMinutes,
+        bufferAfterMinutes: data.bufferAfterMinutes,
+        minNoticeMinutes: data.minNoticeMinutes,
+        assignmentStrategy: data.assignmentStrategy,
+        isActive: data.isActive,
+        members: {
+          create: validMemberIds.map((attorneyId, index) => ({ attorneyId, sortOrder: index })),
+        },
+      },
+      include: { members: { include: { attorney: { select: { name: true } } }, orderBy: { sortOrder: 'asc' } } },
+    })
+
+    const firm = await prisma.lawFirm.findUnique({ where: { id: context.lawFirmId }, select: { slug: true } })
+    res.status(201).json(serializeBookingLink(created, firm?.slug || ''))
+  } catch (error) {
+    logger.error('Failed to create firm booking link', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// PATCH /v1/firm-dashboard/booking-links/:id — update a team link (+ members).
+router.patch('/booking-links/:id', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage booking links' })
+    }
+
+    const existing = await (prisma as any).firmBookingLink.findFirst({
+      where: { id: req.params.id, lawFirmId: context.lawFirmId },
+      select: { id: true, name: true },
+    })
+    if (!existing) return res.status(404).json({ error: 'Booking link not found' })
+
+    const data = BookingLinkInput.parse(req.body)
+    const validMemberIds = await assertFirmAttorneys(context.lawFirmId, data.memberAttorneyIds)
+    if (validMemberIds.length === 0) {
+      return res.status(400).json({ error: 'Select at least one attorney for the rotation' })
+    }
+
+    const update: any = {
+      name: data.name || existing.name,
+      description: data.description,
+      durationMinutes: data.durationMinutes,
+      locationType: data.locationType,
+      location: data.location,
+      bufferBeforeMinutes: data.bufferBeforeMinutes,
+      bufferAfterMinutes: data.bufferAfterMinutes,
+      minNoticeMinutes: data.minNoticeMinutes,
+      assignmentStrategy: data.assignmentStrategy,
+      isActive: data.isActive,
+    }
+    if (data.name && data.name !== existing.name) {
+      update.slug = await uniqueFirmLinkSlug(context.lawFirmId, data.name, existing.id)
+    }
+
+    // Replace the membership set to match the submitted list.
+    await (prisma as any).firmBookingLinkMember.deleteMany({ where: { linkId: existing.id } })
+    const updated = await (prisma as any).firmBookingLink.update({
+      where: { id: existing.id },
+      data: {
+        ...update,
+        members: { create: validMemberIds.map((attorneyId, index) => ({ attorneyId, sortOrder: index })) },
+      },
+      include: { members: { include: { attorney: { select: { name: true } } }, orderBy: { sortOrder: 'asc' } } },
+    })
+
+    const firm = await prisma.lawFirm.findUnique({ where: { id: context.lawFirmId }, select: { slug: true } })
+    res.json(serializeBookingLink(updated, firm?.slug || ''))
+  } catch (error) {
+    logger.error('Failed to update firm booking link', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// DELETE /v1/firm-dashboard/booking-links/:id
+router.delete('/booking-links/:id', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage booking links' })
+    }
+    const existing = await (prisma as any).firmBookingLink.findFirst({
+      where: { id: req.params.id, lawFirmId: context.lawFirmId },
+      select: { id: true },
+    })
+    if (!existing) return res.status(404).json({ error: 'Booking link not found' })
+    await (prisma as any).firmBookingLink.delete({ where: { id: existing.id } })
+    res.json({ ok: true })
+  } catch (error) {
+    logger.error('Failed to delete firm booking link', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/* ------------------------------------------------------------------ */
+/* FIRM TEMPLATES — reusable document library (retainer, HIPAA, etc.)  */
+/* ------------------------------------------------------------------ */
+
+export const TEMPLATE_CATEGORIES = [
+  { key: 'onboarding', label: 'Client onboarding' },
+  { key: 'medical', label: 'Medical' },
+  { key: 'insurance', label: 'Insurance & liability' },
+  { key: 'disclosure', label: 'Disclosures & compliance' },
+  { key: 'closing', label: 'Case closing' },
+  { key: 'other', label: 'Other' },
+] as const
+
+const TEMPLATE_CATEGORY_KEYS = TEMPLATE_CATEGORIES.map((c) => c.key)
+
+// Uploaded source documents for firm templates (PDF/DOCX).
+const templateUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      const dir = path.join(process.cwd(), 'uploads', 'firm-templates')
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+      cb(null, dir)
+    },
+    filename: (_req, file, cb) => cb(null, `tpl-${Date.now()}-${file.originalname}`),
+  }),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ].includes(file.mimetype)
+    if (ok) cb(null, true)
+    else cb(new Error('Only PDF or Word (.doc/.docx) files are allowed'))
+  },
+})
+
+// Starter library seeded on demand. Bodies use {{merge_tokens}} the firm can
+// tweak; PDFs can be attached later for anything that must be signed as-is.
+const RECOMMENDED_TEMPLATES: Array<{ name: string; category: string; description: string; body: string }> = [
+  {
+    name: 'Contingency Fee / Retainer Agreement',
+    category: 'onboarding',
+    description: 'Core engagement contract setting the contingency fee and scope of representation.',
+    body: `RETAINER & CONTINGENCY FEE AGREEMENT\n\nThis Agreement is between {{firm_name}} ("the Firm") and {{client_name}} ("the Client"), dated {{date}}.\n\n1. SCOPE. The Firm will represent the Client in connection with: {{matter_description}}.\n2. FEE. The Firm's fee is {{fee_percentage}}% of the gross recovery, contingent on recovery. If there is no recovery, the Client owes no attorney's fee.\n3. COSTS. Case costs and expenses are advanced by the Firm and reimbursed from the recovery.\n4. NO GUARANTEE. No specific outcome has been promised.\n\nClient signature: ____________________   Date: __________\nAttorney: {{attorney_name}}`,
+  },
+  {
+    name: 'New-Client Intake Package / Questionnaire',
+    category: 'onboarding',
+    description: 'Structured questionnaire capturing incident, injury, insurance, and contact details.',
+    body: `NEW CLIENT INTAKE QUESTIONNAIRE\n\nClient: {{client_name}}    DOB: {{client_dob}}\nDate of incident: __________    Location: __________\n\nA. INCIDENT\n- Describe what happened:\n- Police report number (if any):\n\nB. INJURIES & TREATMENT\n- Injuries sustained:\n- Treating providers:\n\nC. INSURANCE\n- Your auto/health carrier:\n- At-fault party's carrier / claim #:\n\nD. EMPLOYMENT & LOST WAGES\n- Employer / missed work:\n\nE. CONTACT\n- Best phone / email:`,
+  },
+  {
+    name: 'Engagement / Welcome Letter',
+    category: 'onboarding',
+    description: 'Friendly confirmation of representation, next steps, and how to reach the team.',
+    body: `Dear {{client_name}},\n\nThank you for trusting {{firm_name}} with your case. This letter confirms we are representing you regarding {{matter_description}}.\n\nWhat happens next:\n1. We gather your records and notify the insurance company.\n2. Please route all calls from insurers/adjusters to us.\n3. Keep receipts and a symptom journal.\n\nYour primary contact is {{attorney_name}}. We're here to help.\n\nSincerely,\n{{firm_name}}`,
+  },
+  {
+    name: "Statement of Client's Rights & Responsibilities",
+    category: 'onboarding',
+    description: 'Plain-language summary of what the client can expect and what we ask of them.',
+    body: `YOUR RIGHTS & RESPONSIBILITIES\n\nYou have the right to:\n- Be treated with courtesy and respect.\n- Receive timely updates on your case.\n- Ask questions about fees and strategy at any time.\n\nWe ask that you:\n- Keep us informed of changes to your contact info, treatment, or address.\n- Attend medical appointments and follow provider advice.\n- Refrain from discussing the case on social media.`,
+  },
+  {
+    name: 'HIPAA Authorization (Medical Records Release)',
+    category: 'medical',
+    description: 'Client authorization allowing providers to release protected health information.',
+    body: `AUTHORIZATION FOR RELEASE OF PROTECTED HEALTH INFORMATION (HIPAA)\n\nPatient: {{client_name}}    DOB: {{client_dob}}\n\nI authorize the release of my medical records, billing records, and related information to {{firm_name}} for the purpose of my legal claim ({{case_ref}}).\n\nThis authorization covers records from all treating providers relating to injuries from the incident dated __________. It expires one year from signing unless revoked in writing.\n\nSignature: ____________________   Date: __________`,
+  },
+  {
+    name: 'Medical Records Request Letter',
+    category: 'medical',
+    description: 'Cover letter to a provider requesting complete records and bills for the client.',
+    body: `RE: Records request for {{client_name}}, DOB {{client_dob}}\n\nTo the Custodian of Records:\n\nOur office represents {{client_name}}. Enclosed is a signed HIPAA authorization. Please provide a complete copy of all medical records and itemized billing for treatment related to the incident of __________.\n\nPlease send records to {{firm_name}}. Invoice reasonable copying costs to our office.\n\nThank you,\n{{attorney_name}}`,
+  },
+  {
+    name: 'Letter of Protection / Medical Lien',
+    category: 'medical',
+    description: 'Assures a provider of payment from settlement so treatment can continue.',
+    body: `LETTER OF PROTECTION\n\nRE: {{client_name}} — {{case_ref}}\n\n{{firm_name}} represents the above patient. We request that you continue treatment and withhold collection activity. We agree to protect your reasonable and necessary charges and to pay them from any settlement or judgment, subject to the client's authorization.\n\nThis is not a personal guarantee by the Firm.\n\n{{attorney_name}}`,
+  },
+  {
+    name: 'Letter of Representation (to at-fault carrier)',
+    category: 'insurance',
+    description: 'Notifies the adverse insurer of representation and directs all contact to the firm.',
+    body: `RE: Claim involving {{client_name}} — date of loss __________\n\nTo the Claims Department:\n\nPlease be advised that {{firm_name}} represents {{client_name}} for injuries and damages arising from the above incident. Direct all communications to our office and do not contact our client directly.\n\nPlease confirm coverage and policy limits, and preserve all evidence.\n\n{{attorney_name}}`,
+  },
+  {
+    name: 'Evidence Preservation / Spoliation Letter',
+    category: 'insurance',
+    description: 'Demands preservation of physical, electronic, and video evidence.',
+    body: `NOTICE TO PRESERVE EVIDENCE\n\nRE: {{matter_description}}\n\nYou are hereby notified to preserve all evidence relating to the incident of __________, including but not limited to: vehicles, physical objects, surveillance/dashcam video, ELD/telematics data, maintenance and inspection records, and all electronically stored information.\n\nFailure to preserve this evidence may result in claims of spoliation.\n\n{{attorney_name}}, {{firm_name}}`,
+  },
+  {
+    name: 'Privacy Notice',
+    category: 'disclosure',
+    description: 'Explains how the firm collects, uses, and safeguards client information.',
+    body: `PRIVACY NOTICE\n\n{{firm_name}} respects your privacy. We collect information you provide and records related to your matter solely to represent you. We do not sell your information. We share information only as needed to advance your claim or as required by law, and we use reasonable safeguards to protect it.`,
+  },
+  {
+    name: 'Communication Consent (SMS / Email)',
+    category: 'disclosure',
+    description: 'Client consent to be contacted by text and email about their case (TCPA).',
+    body: `COMMUNICATION CONSENT\n\nI, {{client_name}}, authorize {{firm_name}} to contact me by phone call, text message (SMS), and email regarding my case at the number and address I provided. Message and data rates may apply. I understand I can revoke this consent at any time by replying STOP or notifying the office in writing.\n\nSignature: ____________________   Date: __________`,
+  },
+  {
+    name: 'Settlement Disbursement / Closing Statement',
+    category: 'closing',
+    description: 'Itemized breakdown of the settlement, fees, liens, costs, and net to client.',
+    body: `SETTLEMENT DISBURSEMENT STATEMENT\n\nClient: {{client_name}}    {{case_ref}}\n\nGross settlement:                 $____________\nLess attorney's fee ({{fee_percentage}}%):  $____________\nLess case costs:                  $____________\nLess medical liens:               $____________\n------------------------------------------------\nNet to client:                    $____________\n\nI have reviewed and approve this disbursement.\nClient signature: ____________________   Date: __________`,
+  },
+  {
+    name: 'Disengagement / Case Closing Letter',
+    category: 'closing',
+    description: 'Confirms the matter is concluded and the file is being closed.',
+    body: `Dear {{client_name}},\n\nThis letter confirms that your matter ({{case_ref}}) has concluded and we are closing our file. Please retain your copy of the settlement documents for your records.\n\nIt has been a privilege to represent you. Should you need anything further, please contact us.\n\nSincerely,\n{{attorney_name}}\n{{firm_name}}`,
+  },
+]
+
+function serializeTemplate(t: any) {
+  return {
+    id: t.id,
+    name: t.name,
+    category: t.category,
+    description: t.description,
+    body: t.body,
+    hasFile: Boolean(t.filePath),
+    fileName: t.fileName || null,
+    fileMime: t.fileMime || null,
+    fileSize: t.fileSize || null,
+    isPdf: t.fileMime === 'application/pdf',
+    isActive: t.isActive,
+    sortOrder: t.sortOrder,
+    updatedAt: t.updatedAt,
+    createdAt: t.createdAt,
+  }
+}
+
+function parseTemplateBody(body: any) {
+  const name = typeof body?.name === 'string' ? body.name.trim() : ''
+  const category = TEMPLATE_CATEGORY_KEYS.includes(body?.category) ? body.category : 'other'
+  return {
+    name,
+    category,
+    description: typeof body?.description === 'string' ? body.description.trim() || null : null,
+    body: typeof body?.body === 'string' ? body.body : null,
+    isActive: body?.isActive !== false,
+  }
+}
+
+// GET /v1/firm-dashboard/templates — the firm's template library + metadata
+// the create/send UI needs (categories, e-sign providers, signable clients).
+router.get('/templates', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+
+    const canManage = requireFirmPermission(context, 'manage_users')
+    const canViewCases = requireFirmPermission(context, 'view_all_cases')
+
+    const templates = await (prisma as any).firmTemplate.findMany({
+      where: { lawFirmId: context.lawFirmId },
+      orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+    })
+
+    // Signable recipients: clients on revealed cases in this firm.
+    let recipients: any[] = []
+    if (canViewCases) {
+      const attorneys = await prisma.attorney.findMany({
+        where: { lawFirmId: context.lawFirmId },
+        select: { id: true },
+      })
+      const attorneyIds = attorneys.map((a) => a.id)
+      if (attorneyIds.length) {
+        const leads = await prisma.leadSubmission.findMany({
+          where: {
+            assignedAttorneyId: { in: attorneyIds },
+            status: { in: ['contacted', 'consulted', 'retained'] },
+          },
+          select: {
+            id: true,
+            assignedAttorneyId: true,
+            assessment: {
+              select: {
+                claimType: true,
+                user: { select: { firstName: true, lastName: true, email: true } },
+              },
+            },
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: 200,
+        })
+        recipients = leads
+          .filter((l) => l.assessment?.user?.email)
+          .map((l) => {
+            const u = l.assessment!.user!
+            const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email!.split('@')[0]
+            return {
+              leadId: l.id,
+              name,
+              email: u.email,
+              claimType: l.assessment?.claimType || null,
+              attorneyId: l.assignedAttorneyId,
+            }
+          })
+      }
+    }
+
+    res.json({
+      canManage,
+      categories: TEMPLATE_CATEGORIES,
+      providers: listESignatureProviders(),
+      recipients,
+      templates: templates.map(serializeTemplate),
+    })
+  } catch (error) {
+    logger.error('Failed to list firm templates', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// POST /v1/firm-dashboard/templates — create a template.
+router.post('/templates', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage templates' })
+    }
+    const data = parseTemplateBody(req.body)
+    if (!data.name) return res.status(400).json({ error: 'A template name is required' })
+
+    const created = await (prisma as any).firmTemplate.create({
+      data: { ...data, lawFirmId: context.lawFirmId, createdById: context.user?.id || null },
+    })
+    res.status(201).json(serializeTemplate(created))
+  } catch (error) {
+    logger.error('Failed to create firm template', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// POST /v1/firm-dashboard/templates/seed-recommended — add the starter set,
+// skipping any whose name already exists so it's safe to run twice.
+router.post('/templates/seed-recommended', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage templates' })
+    }
+
+    const existing = await (prisma as any).firmTemplate.findMany({
+      where: { lawFirmId: context.lawFirmId },
+      select: { name: true },
+    })
+    const existingNames = new Set(existing.map((t: any) => t.name.toLowerCase()))
+    const toCreate = RECOMMENDED_TEMPLATES.filter((t) => !existingNames.has(t.name.toLowerCase()))
+
+    if (toCreate.length) {
+      await (prisma as any).firmTemplate.createMany({
+        data: toCreate.map((t, i) => ({
+          lawFirmId: context.lawFirmId,
+          name: t.name,
+          category: t.category,
+          description: t.description,
+          body: t.body,
+          sortOrder: i,
+          createdById: context.user?.id || null,
+        })),
+      })
+    }
+
+    const templates = await (prisma as any).firmTemplate.findMany({
+      where: { lawFirmId: context.lawFirmId },
+      orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+    })
+    res.json({ added: toCreate.length, templates: templates.map(serializeTemplate) })
+  } catch (error) {
+    logger.error('Failed to seed recommended templates', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// PATCH /v1/firm-dashboard/templates/:id — update fields.
+router.patch('/templates/:id', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage templates' })
+    }
+    const existing = await (prisma as any).firmTemplate.findFirst({
+      where: { id: req.params.id, lawFirmId: context.lawFirmId },
+      select: { id: true },
+    })
+    if (!existing) return res.status(404).json({ error: 'Template not found' })
+
+    const data = parseTemplateBody(req.body)
+    const updated = await (prisma as any).firmTemplate.update({
+      where: { id: existing.id },
+      data: {
+        name: data.name || undefined,
+        category: data.category,
+        description: data.description,
+        body: data.body,
+        isActive: data.isActive,
+      },
+    })
+    res.json(serializeTemplate(updated))
+  } catch (error) {
+    logger.error('Failed to update firm template', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// DELETE /v1/firm-dashboard/templates/:id
+router.delete('/templates/:id', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage templates' })
+    }
+    const existing = await (prisma as any).firmTemplate.findFirst({
+      where: { id: req.params.id, lawFirmId: context.lawFirmId },
+      select: { id: true, filePath: true },
+    })
+    if (!existing) return res.status(404).json({ error: 'Template not found' })
+    if (existing.filePath) {
+      try { fs.unlinkSync(existing.filePath) } catch { /* best effort */ }
+    }
+    await (prisma as any).firmTemplate.delete({ where: { id: existing.id } })
+    res.json({ ok: true })
+  } catch (error) {
+    logger.error('Failed to delete firm template', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// POST /v1/firm-dashboard/templates/:id/file — attach/replace a source file.
+router.post(
+  '/templates/:id/file',
+  authMiddleware as any,
+  templateUpload.single('file'),
+  async (req: any, res: Response) => {
+    try {
+      const context = await getFirmContext(req)
+      if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+      if (!requireFirmPermission(context, 'manage_users')) {
+        return res.status(403).json({ error: 'You do not have permission to manage templates' })
+      }
+      const file = req.file
+      if (!file) return res.status(400).json({ error: 'A file is required' })
+
+      const existing = await (prisma as any).firmTemplate.findFirst({
+        where: { id: req.params.id, lawFirmId: context.lawFirmId },
+        select: { id: true, filePath: true },
+      })
+      if (!existing) return res.status(404).json({ error: 'Template not found' })
+      if (existing.filePath) {
+        try { fs.unlinkSync(existing.filePath) } catch { /* best effort */ }
+      }
+
+      const updated = await (prisma as any).firmTemplate.update({
+        where: { id: existing.id },
+        data: {
+          fileName: file.originalname,
+          filePath: file.path,
+          fileMime: file.mimetype,
+          fileSize: file.size,
+        },
+      })
+      res.json(serializeTemplate(updated))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error('Failed to attach template file', { message })
+      res.status(400).json({ error: message })
+    }
+  }
+)
+
+// DELETE /v1/firm-dashboard/templates/:id/file — remove the attachment.
+router.delete('/templates/:id/file', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage templates' })
+    }
+    const existing = await (prisma as any).firmTemplate.findFirst({
+      where: { id: req.params.id, lawFirmId: context.lawFirmId },
+      select: { id: true, filePath: true },
+    })
+    if (!existing) return res.status(404).json({ error: 'Template not found' })
+    if (existing.filePath) {
+      try { fs.unlinkSync(existing.filePath) } catch { /* best effort */ }
+    }
+    const updated = await (prisma as any).firmTemplate.update({
+      where: { id: existing.id },
+      data: { fileName: null, filePath: null, fileMime: null, fileSize: null },
+    })
+    res.json(serializeTemplate(updated))
+  } catch (error) {
+    logger.error('Failed to remove template file', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// GET /v1/firm-dashboard/templates/:id/file — stream the attachment for view/download.
+router.get('/templates/:id/file', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    const t = await (prisma as any).firmTemplate.findFirst({
+      where: { id: req.params.id, lawFirmId: context.lawFirmId },
+      select: { filePath: true, fileName: true, fileMime: true },
+    })
+    if (!t?.filePath || !fs.existsSync(t.filePath)) return res.status(404).json({ error: 'No file attached' })
+    res.setHeader('Content-Type', t.fileMime || 'application/octet-stream')
+    res.setHeader('Content-Disposition', `inline; filename="${t.fileName || 'template'}"`)
+    fs.createReadStream(t.filePath).pipe(res)
+  } catch (error) {
+    logger.error('Failed to stream template file', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// POST /v1/firm-dashboard/templates/:id/send — send a PDF template for
+// signature against a specific case/client via the e-signature service.
+router.post('/templates/:id/send', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to send templates for signature' })
+    }
+
+    const template = await (prisma as any).firmTemplate.findFirst({
+      where: { id: req.params.id, lawFirmId: context.lawFirmId },
+    })
+    if (!template) return res.status(404).json({ error: 'Template not found' })
+    if (!template.filePath || !fs.existsSync(template.filePath)) {
+      return res.status(400).json({ error: 'Attach a source file before sending for signature' })
+    }
+    if (template.fileMime !== 'application/pdf') {
+      return res.status(400).json({ error: 'Only PDF templates can be sent for signature' })
+    }
+
+    const leadId = String(req.body?.leadId || '').trim()
+    const signerName = String(req.body?.signerName || '').trim()
+    const signerEmail = String(req.body?.signerEmail || '').trim()
+    const provider = req.body?.provider ? String(req.body.provider) : undefined
+    const title = String(req.body?.title || '').trim() || template.name
+    if (!leadId || !signerName || !signerEmail) {
+      return res.status(400).json({ error: 'leadId, signerName and signerEmail are required' })
+    }
+
+    // The lead must belong to this firm; pick an attorney to own the envelope.
+    const lead = await prisma.leadSubmission.findUnique({
+      where: { id: leadId },
+      select: { id: true, assignedAttorneyId: true, assignedAttorney: { select: { lawFirmId: true } } },
+    })
+    if (!lead) return res.status(404).json({ error: 'Case not found' })
+    if (lead.assignedAttorney && lead.assignedAttorney.lawFirmId !== context.lawFirmId) {
+      return res.status(403).json({ error: 'Case belongs to another firm' })
+    }
+    const attorneyId = lead.assignedAttorneyId || context.attorney?.id
+    if (!attorneyId) {
+      return res.status(400).json({ error: 'No attorney available to own this signature request' })
+    }
+
+    const envelope = await createEnvelopeForLead({
+      leadId,
+      attorneyId,
+      providerId: provider,
+      documentType: 'other',
+      title,
+      signerName,
+      signerEmail,
+      filePath: template.filePath,
+    })
+    res.status(201).json({ envelope })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logger.error('Failed to send template for signature', { message })
+    res.status(502).json({ error: 'E-signature provider error', detail: message })
   }
 })
 

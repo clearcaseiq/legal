@@ -15,6 +15,8 @@ import {
   ShieldCheck,
   TrendingUp,
   Clock,
+  CalendarClock,
+  FileText,
   X,
 } from 'lucide-react'
 import {
@@ -26,6 +28,7 @@ import {
   removeFirmTeamMember,
   updateFirmAttorney,
   updateFirmMember,
+  resendFirmMemberInvite,
   assignFirmCase,
   setCaseOffice,
   getFirmTeamCaseload,
@@ -47,6 +50,8 @@ import { formatCurrency } from '../lib/formatters'
 import { US_STATES } from '../lib/constants'
 import { StateMultiSelect } from '../components/StateMultiSelect'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
+import { FirmBookingLinksTab } from '../features/firm/FirmBookingLinksTab'
+import { FirmTemplatesTab } from '../features/firm/FirmTemplatesTab'
 
 const CASE_TYPES = [
   { value: 'auto', label: 'Auto Accident' },
@@ -200,10 +205,13 @@ type CaseloadData = {
   offices: Array<{ officeId: string; name: string; capacity: number | null; assignedCases: number; utilization: number | null }>
 }
 
-type TabKey = 'overview' | 'team'
+type TabKey = 'overview' | 'caseload' | 'team' | 'booking' | 'templates'
 const TABS: Array<{ key: TabKey; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { key: 'caseload', label: 'Caseload', icon: Briefcase },
   { key: 'team', label: 'Team & Roles', icon: Users },
+  { key: 'booking', label: 'Booking Links', icon: CalendarClock },
+  { key: 'templates', label: 'Firm Templates', icon: FileText },
 ]
 
 export default function FirmDashboard() {
@@ -225,6 +233,10 @@ export default function FirmDashboard() {
   // Cases tab
   const [caseFilter, setCaseFilter] = useState<'all' | 'unassigned'>('all')
   const [caseQuery, setCaseQuery] = useState('')
+
+  // Caseload tab (team visibility: who owns / is working on what)
+  const [caseloadMember, setCaseloadMember] = useState<string>('all')
+  const [caseloadQuery, setCaseloadQuery] = useState('')
   const [assignTarget, setAssignTarget] = useState<FirmCaseRow | null>(null)
   const [assignRole, setAssignRole] = useState('lead_attorney')
   const [assignee, setAssignee] = useState('')
@@ -242,6 +254,7 @@ export default function FirmDashboard() {
   const [newAttorney, setNewAttorney] = useState({ firstName: '', middleName: '', lastName: '', email: '', specialties: [] as string[], jurisdictions: [] as string[], officeId: '' })
   const [newMember, setNewMember] = useState({ firstName: '', lastName: '', email: '', role: 'case_manager', title: '', officeId: '' })
   const [memberOfficeSavingId, setMemberOfficeSavingId] = useState<string | null>(null)
+  const [resendingMemberId, setResendingMemberId] = useState<string | null>(null)
   const [memberSaving, setMemberSaving] = useState(false)
   const [memberError, setMemberError] = useState<string | null>(null)
   const [memberSuccess, setMemberSuccess] = useState<string | null>(null)
@@ -387,7 +400,7 @@ export default function FirmDashboard() {
         title: newMember.title.trim() || undefined,
         officeId: newMember.officeId || undefined,
       })
-      setMemberSuccess('Firm team member added.')
+      setMemberSuccess('Invitation sent — they\'ll get an email to verify and set their password.')
       setNewMember({ firstName: '', lastName: '', email: '', role: 'case_manager', title: '', officeId: '' })
       invalidateFirmDashboardSummary()
     } catch (err: any) {
@@ -406,6 +419,20 @@ export default function FirmDashboard() {
       setMemberError(err.response?.data?.error || 'Failed to move member to office.')
     } finally {
       setMemberOfficeSavingId(null)
+    }
+  }
+
+  const handleResendInvite = async (memberId: string) => {
+    setMemberError(null)
+    setMemberSuccess(null)
+    setResendingMemberId(memberId)
+    try {
+      const res = await resendFirmMemberInvite(memberId)
+      setMemberSuccess(res.emailSent ? 'Invitation email resent.' : 'Invitation refreshed (email delivery pending).')
+    } catch (err: any) {
+      setMemberError(err.response?.data?.error || 'Failed to resend invitation.')
+    } finally {
+      setResendingMemberId(null)
     }
   }
 
@@ -553,6 +580,63 @@ export default function FirmDashboard() {
 
   const unassignedCount = useMemo(() => cases.filter((c) => c.unassigned).length, [cases])
 
+  // Office id → name, for showing where each case sits in the caseload view.
+  const officeNameById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const o of dashboardData?.offices || []) m.set(o.id, o.name)
+    return m
+  }, [dashboardData?.offices])
+
+  // Everyone who owns or collaborates on at least one case (by name), so the
+  // admin can filter the caseload down to a single person and see their book.
+  const caseloadPeople = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const c of cases) {
+      const names = new Set<string>()
+      if (c.primaryAttorney?.name) names.add(c.primaryAttorney.name)
+      for (const a of c.assignments || []) if (a.name) names.add(a.name)
+      for (const n of names) counts.set(n, (counts.get(n) || 0) + 1)
+    }
+    return Array.from(counts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+  }, [cases])
+
+  const caseloadFiltered = useMemo(() => {
+    let list = cases
+    if (caseloadMember !== 'all') {
+      list = list.filter(
+        (c) =>
+          c.primaryAttorney?.name === caseloadMember ||
+          (c.assignments || []).some((a) => a.name === caseloadMember),
+      )
+    }
+    const q = caseloadQuery.trim().toLowerCase()
+    if (q) {
+      list = list.filter((c) =>
+        [c.clientName, c.claimType, c.venueCounty, c.venueState, c.leadStatus, c.primaryAttorney?.name, ...(c.assignments || []).map((a) => a.name)]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .includes(q),
+      )
+    }
+    return list
+  }, [cases, caseloadMember, caseloadQuery])
+
+  // Per-owner rollup (active total + how many have open tasks) for the summary strip.
+  const caseloadByOwner = useMemo(() => {
+    const map = new Map<string, { name: string; total: number; withTasks: number }>()
+    for (const c of cases) {
+      const name = c.primaryAttorney?.name || 'Unassigned'
+      const entry = map.get(name) || { name, total: 0, withTasks: 0 }
+      entry.total += 1
+      if ((c.openTaskCount || 0) > 0) entry.withTasks += 1
+      map.set(name, entry)
+    }
+    return Array.from(map.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+  }, [cases])
+
   const visibleCases = useMemo(() => {
     let list = cases
     if (caseFilter === 'unassigned') list = list.filter((c) => c.unassigned)
@@ -641,7 +725,7 @@ export default function FirmDashboard() {
   const maxTeamCaseload = Math.max(1, ...(caseload?.teams || []).map((t) => t.activeCaseCount))
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="space-y-6 px-4 py-8 sm:px-6 lg:px-8">
       <BackButton onClick={goBack} label="Back" />
 
       {/* Firm header */}
@@ -848,6 +932,152 @@ export default function FirmDashboard() {
       )}
 
       {/* ---------------------------------------------------------------- */}
+      {/* CASELOAD — who owns / is working on what                          */}
+      {/* ---------------------------------------------------------------- */}
+      {tab === 'caseload' && (
+        <div className="space-y-6">
+          {caseloadByOwner.length > 0 && (
+            <SectionCard title="Caseload by attorney" trailing={<Badge tone="neutral">{cases.length} active</Badge>}>
+              <div className="flex flex-wrap gap-2">
+                {caseloadByOwner.map((o) => {
+                  const active = caseloadMember === o.name
+                  return (
+                    <button
+                      key={o.name}
+                      onClick={() => setCaseloadMember(active ? 'all' : o.name)}
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition ${
+                        active ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 bg-white text-slate-700 hover:border-brand-300'
+                      }`}
+                    >
+                      <Avatar name={o.name} />
+                      <span>
+                        <span className="block font-medium leading-tight">{o.name}</span>
+                        <span className="block text-xs text-slate-400">
+                          {o.total} {o.total === 1 ? 'case' : 'cases'}
+                          {o.withTasks > 0 ? ` · ${o.withTasks} with open tasks` : ''}
+                        </span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </SectionCard>
+          )}
+
+          <SectionCard
+            title="Team caseload"
+            trailing={<Badge tone="brand">{caseloadFiltered.length}</Badge>}
+          >
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <select
+                value={caseloadMember}
+                onChange={(e) => setCaseloadMember(e.target.value)}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+              >
+                <option value="all">All members</option>
+                {caseloadPeople.map((p) => (
+                  <option key={p.name} value={p.name}>{p.name} ({p.count})</option>
+                ))}
+              </select>
+              <div className="relative flex-1 min-w-[180px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={caseloadQuery}
+                  onChange={(e) => setCaseloadQuery(e.target.value)}
+                  placeholder="Search cases, clients, venues…"
+                  className="w-full rounded-lg border border-slate-300 bg-white py-1.5 pl-9 pr-3 text-sm text-slate-700 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                />
+              </div>
+              {caseloadMember !== 'all' && (
+                <button onClick={() => setCaseloadMember('all')} className={btnGhost + ' !px-2.5 !py-1 !text-xs'}>
+                  Clear filter
+                </button>
+              )}
+            </div>
+
+            {caseloadFiltered.length === 0 ? (
+              <EmptyState message={caseloadMember === 'all' ? 'No active cases yet.' : `No cases for ${caseloadMember}.`} />
+            ) : (
+              <DataTable
+                columns={[
+                  {
+                    key: 'case',
+                    header: 'Case',
+                    cell: (c: any) => (
+                      <div className="min-w-0">
+                        <div className="truncate font-medium text-slate-800">{c.clientName || titleCase(c.claimType) || 'Case'}</div>
+                        <div className="truncate text-xs text-slate-400">
+                          {titleCase(c.claimType)}
+                          {c.venueCounty ? ` · ${c.venueCounty}` : ''}
+                          {c.venueState ? `, ${c.venueState}` : ''}
+                        </div>
+                      </div>
+                    ),
+                  },
+                  {
+                    key: 'owner',
+                    header: 'Owner',
+                    cell: (c: any) =>
+                      c.primaryAttorney?.name ? (
+                        <div className="flex items-center gap-2">
+                          <Avatar name={c.primaryAttorney.name} />
+                          <span className="text-slate-700">{c.primaryAttorney.name}</span>
+                        </div>
+                      ) : (
+                        <Badge tone="warning">Unassigned</Badge>
+                      ),
+                  },
+                  {
+                    key: 'team',
+                    header: 'Working on it',
+                    cell: (c: any) => {
+                      const collaborators = (c.assignments || []).filter((a: any) => a.name && a.name !== c.primaryAttorney?.name)
+                      if (collaborators.length === 0) return <span className="text-slate-300">—</span>
+                      return (
+                        <div className="flex flex-wrap gap-1">
+                          {collaborators.slice(0, 4).map((a: any, i: number) => (
+                            <span key={`${a.name}-${i}`} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                              {a.name}<span className="text-slate-400"> · {formatRole(a.role)}</span>
+                            </span>
+                          ))}
+                          {collaborators.length > 4 && <span className="text-xs text-slate-400">+{collaborators.length - 4}</span>}
+                        </div>
+                      )
+                    },
+                  },
+                  { key: 'stage', header: 'Stage', cell: (c: any) => <Badge tone={statusTone(c.leadStatus)}>{titleCase(c.leadStatus)}</Badge> },
+                  {
+                    key: 'tasks',
+                    header: 'Open tasks',
+                    align: 'center',
+                    cell: (c: any) => (c.openTaskCount > 0 ? <Badge tone="blue">{c.openTaskCount}</Badge> : <span className="text-slate-300">0</span>),
+                  },
+                  { key: 'office', header: 'Office', cell: (c: any) => <span className="text-slate-500">{(c.officeId && officeNameById.get(c.officeId)) || '—'}</span> },
+                  {
+                    key: 'updated',
+                    header: 'Updated',
+                    cell: (c: any) => <span className="text-slate-400">{c.updatedAt ? new Date(c.updatedAt).toLocaleDateString() : '—'}</span>,
+                  },
+                ] as DataTableColumn<any>[]}
+                rows={caseloadFiltered}
+                rowKey={(c: any) => c.assessmentId}
+              />
+            )}
+          </SectionCard>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------------- */}
+      {/* BOOKING LINKS (round-robin / team scheduling)                     */}
+      {/* ---------------------------------------------------------------- */}
+      {tab === 'booking' && <FirmBookingLinksTab />}
+
+      {/* ---------------------------------------------------------------- */}
+      {/* FIRM TEMPLATES (document library + e-sign)                        */}
+      {/* ---------------------------------------------------------------- */}
+      {tab === 'templates' && <FirmTemplatesTab />}
+
+      {/* ---------------------------------------------------------------- */}
       {/* TEAM & ROLES                                                      */}
       {/* ---------------------------------------------------------------- */}
       {tab === 'team' && (
@@ -886,7 +1116,10 @@ export default function FirmDashboard() {
                       <div className="flex items-center gap-3">
                         <Avatar name={displayName} />
                         <div>
-                          <div className="font-medium text-slate-800">{displayName}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-slate-800">{displayName}</span>
+                            {m.status === 'invited' && <Badge tone="warning">Pending</Badge>}
+                          </div>
                           {att ? (
                             <div className="flex items-center gap-1 text-xs text-slate-400">
                               <Star className="h-3 w-3 text-yellow-400" /> {Number(att.averageRating || 0).toFixed(1)} · {att.isVerified ? 'Verified' : 'Unverified'}
@@ -958,9 +1191,21 @@ export default function FirmDashboard() {
                   align: 'right',
                   cell: (m: any) => {
                     const att = m.attorney?.id ? attorneyById.get(m.attorney.id) : null
-                    if (!att) return null
                     return (
-                      <button onClick={() => startEditAttorney(att)} className={btnGhost + ' !px-2.5 !py-1 !text-xs'}>Edit</button>
+                      <div className="flex items-center justify-end gap-2">
+                        {m.status === 'invited' && (
+                          <button
+                            onClick={() => handleResendInvite(m.id)}
+                            disabled={resendingMemberId === m.id}
+                            className={btnGhost + ' !px-2.5 !py-1 !text-xs disabled:opacity-60'}
+                          >
+                            {resendingMemberId === m.id ? 'Sending…' : 'Resend invite'}
+                          </button>
+                        )}
+                        {att && (
+                          <button onClick={() => startEditAttorney(att)} className={btnGhost + ' !px-2.5 !py-1 !text-xs'}>Edit</button>
+                        )}
+                      </div>
                     )
                   },
                 },

@@ -3,10 +3,18 @@ import { logger } from './logger'
 import { deliverDirectNotification } from './platform-notifications'
 
 const DEFAULT_REMINDER_SCHEDULE = [
-  { key: 'upcoming_24h', minutesBefore: 24 * 60 },
-  { key: 'upcoming_2h', minutesBefore: 2 * 60 },
-  { key: 'upcoming_15m', minutesBefore: 15 },
+  { key: 'upcoming_24h', minutesBefore: 24 * 60, lead: 'in about 24 hours' },
+  { key: 'upcoming_1h', minutesBefore: 60, lead: 'in about 1 hour' },
 ] as const
+
+function bookingWebBaseUrl(): string {
+  return (
+    process.env.APP_URL ||
+    process.env.FRONTEND_URL ||
+    process.env.WEB_URL ||
+    'http://localhost:3000'
+  ).replace(/\/$/, '')
+}
 
 type AssessmentFacts = {
   incident?: { narrative?: string; location?: string }
@@ -309,6 +317,7 @@ export async function sweepUpcomingAppointmentReminders() {
     },
     include: {
       user: { select: { email: true } },
+      attorney: { select: { name: true, schedulingTimezone: true } },
     },
   })
 
@@ -316,25 +325,51 @@ export async function sweepUpcomingAppointmentReminders() {
   for (const appointment of upcoming) {
     if (!appointment.user.email) continue
     const minutesUntil = Math.round((appointment.scheduledAt.getTime() - now.getTime()) / 60000)
+
+    // One lookup per appointment: which reminder keys have we already emailed?
+    const priorReminders = await prisma.notification.findMany({
+      where: { subject: 'Consultation reminder', metadata: { contains: appointment.id } },
+      select: { metadata: true },
+    })
+    const sentKeys = new Set<string>()
+    for (const prior of priorReminders) {
+      const meta = parseJson<{ eventType?: string }>(prior.metadata)
+      if (meta?.eventType) sentKeys.add(meta.eventType)
+    }
+
+    const tz = appointment.attorney?.schedulingTimezone || undefined
+    const whenLabel = appointment.scheduledAt.toLocaleString('en-US', {
+      dateStyle: 'full',
+      timeStyle: 'short',
+      ...(tz ? { timeZone: tz } : {}),
+    })
+
     for (const reminder of DEFAULT_REMINDER_SCHEDULE) {
       const inWindow = minutesUntil <= reminder.minutesBefore && minutesUntil > reminder.minutesBefore - 15
-      if (!inWindow) continue
+      if (!inWindow || sentKeys.has(reminder.key)) continue
 
-      const alreadySent = await prisma.notification.findFirst({
-        where: {
-          recipient: appointment.user.email,
-          subject: 'Consultation reminder',
-          metadata: { contains: reminder.key },
-        },
-        select: { id: true },
-      })
-      if (alreadySent) continue
+      const attorneyName = appointment.attorney?.name || 'your attorney'
+      const lines = [
+        `Reminder: your consultation with ${attorneyName} is ${reminder.lead}.`,
+        '',
+        `When: ${whenLabel}${tz ? ` (${tz.replace(/_/g, ' ')})` : ''}`,
+      ]
+      if (appointment.type === 'video' && appointment.meetingUrl) {
+        lines.push(`Join: ${appointment.meetingUrl}`)
+      } else if (appointment.type === 'phone' && appointment.phoneNumber) {
+        lines.push(`Phone: ${appointment.phoneNumber}`)
+      } else if (appointment.type === 'in_person' && appointment.location) {
+        lines.push(`Where: ${appointment.location}`)
+      }
+      if (appointment.manageToken) {
+        lines.push('', `Need to reschedule or cancel? ${bookingWebBaseUrl()}/booking/manage/${appointment.manageToken}`)
+      }
 
       await createNotification({
         recipient: appointment.user.email,
         userId: appointment.userId,
         subject: 'Consultation reminder',
-        message: `${reminder.key}: your consultation starts on ${appointment.scheduledAt.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}.`,
+        message: lines.join('\n'),
         metadata: {
           appointmentId: appointment.id,
           assessmentId: appointment.assessmentId,

@@ -7,6 +7,7 @@ import {
   Upload,
   Briefcase,
   CalendarDays,
+  CalendarClock,
   MessagesSquare,
   Users2,
   AtSign,
@@ -17,11 +18,13 @@ import {
   Wallet,
   Sparkles,
   Building2,
+  Bell,
   ChevronRight,
 } from 'lucide-react'
 import { AttorneyWorkspaceProvider, useAttorneyWorkspace } from './AttorneyWorkspaceContext'
 import { initials } from './ui'
 import GlobalSearch from './GlobalSearch'
+import { isCalendarRoute, isWideAttorneyRoute } from '../../lib/layoutWidth'
 
 interface NavEntry {
   to: string
@@ -53,6 +56,7 @@ const NAV_SECTIONS: NavSection[] = [
     entries: [
       { to: '/attorney-dashboard/cases/active', label: 'Active Cases', description: 'Caseload & quick re-entry', icon: Briefcase },
       { to: '/attorney-dashboard/cases/calendar', label: 'Calendar & Consults', description: 'Upcoming meetings', icon: CalendarDays },
+      { to: '/attorney-dashboard/cases/scheduling', label: 'Scheduling', description: 'Your public booking link', icon: CalendarClock },
       { to: '/attorney-dashboard/cases/messages', label: 'Messages', description: 'Client & adjuster threads', icon: MessagesSquare },
       { to: '/attorney-dashboard/cases/team', label: 'Team Chat', description: 'Message firm colleagues', icon: Users2 },
       { to: '/attorney-dashboard/cases/activity', label: 'Activity', description: 'Mentions & case discussion', icon: AtSign },
@@ -105,7 +109,7 @@ function domainStyle(id: string) {
 // Static case-management pages that live directly under /cases/*. Anything else in
 // that slot (or under /lead/*) is a single-case workspace file.
 const STATIC_CASE_PAGES = new Set([
-  'active', 'workspace', 'calendar', 'messages', 'team', 'activity', 'documents', 'tasks', 'contacts', 'billing', 'copilot', 'firm', 'intake',
+  'active', 'workspace', 'calendar', 'scheduling', 'messages', 'team', 'activity', 'documents', 'tasks', 'deadlines', 'contacts', 'billing', 'copilot', 'firm', 'intake',
 ])
 
 /** True when the path is a single-case workspace file (/lead/:id/... or /cases/:id/...). */
@@ -142,9 +146,11 @@ function NavBadge({ count }: { count: number }) {
   )
 }
 
+const NOTIFICATIONS_ROUTE = '/attorney-dashboard/notifications'
+
 function Sidebar() {
   const location = useLocation()
-  const { attorney, isFirmAdmin, unreadMessages, unreadTeamMessages } = useAttorneyWorkspace()
+  const { attorney, isFirmAdmin, unreadMessages, unreadTeamMessages, unreadNotifications } = useAttorneyWorkspace()
 
   const isActive = (to: string) => navEntryActive(to, location.pathname)
   const badgeFor = (to: string) =>
@@ -167,6 +173,35 @@ function Sidebar() {
           </div>
           <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-brand-500" />
         </Link>
+
+        {(() => {
+          const active = navEntryActive(NOTIFICATIONS_ROUTE, location.pathname)
+          return (
+            <Link
+              to={NOTIFICATIONS_ROUTE}
+              className={`group relative flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm transition ${
+                active ? 'bg-brand-50 text-brand-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              {active && <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-brand-600" />}
+              <span
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition ${
+                  active ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'
+                }`}
+              >
+                <Bell className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block font-medium leading-tight">Notifications</span>
+                <span className={`block text-[11px] leading-tight ${active ? 'text-brand-500' : 'text-slate-400'}`}>
+                  Matches, deadlines &amp; activity
+                </span>
+              </span>
+              <NavBadge count={unreadNotifications} />
+            </Link>
+          )
+        })()}
+
         {NAV_SECTIONS.map((section) => {
           const entries = section.entries.filter((entry) => !entry.firmAdminOnly || isFirmAdmin)
           const style = domainStyle(section.id)
@@ -222,16 +257,37 @@ function Sidebar() {
 
 function MobileNav() {
   const location = useLocation()
-  const { isFirmAdmin, unreadMessages, unreadTeamMessages } = useAttorneyWorkspace()
+  const { isFirmAdmin, unreadMessages, unreadTeamMessages, unreadNotifications } = useAttorneyWorkspace()
   const isActive = (to: string) => navEntryActive(to, location.pathname)
   const badgeFor = (to: string) =>
     to === MESSAGES_ROUTE ? unreadMessages : to === TEAM_ROUTE ? unreadTeamMessages : 0
   const entries = NAV_SECTIONS.flatMap((s) => s.entries.map((e) => ({ ...e, domain: s.id }))).filter(
     (e) => !e.firmAdminOnly || isFirmAdmin,
   )
+  const notificationsActive = navEntryActive(NOTIFICATIONS_ROUTE, location.pathname)
   return (
     <div className="lg:hidden">
       <div className="flex gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
+        <Link
+          to={NOTIFICATIONS_ROUTE}
+          className={`flex shrink-0 items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-3 text-xs font-semibold transition ${
+            notificationsActive ? 'border-brand-300 bg-brand-50 text-brand-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <span
+            className={`relative flex h-5 w-5 items-center justify-center rounded-full ${
+              notificationsActive ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-500'
+            }`}
+          >
+            <Bell className="h-3 w-3" />
+            {unreadNotifications > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-3.5 min-w-[0.875rem] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-none text-white">
+                {unreadNotifications > 9 ? '9+' : unreadNotifications}
+              </span>
+            )}
+          </span>
+          Notifications
+        </Link>
         {entries.map((entry) => {
           const Icon = entry.icon
           const active = isActive(entry.to)
@@ -271,8 +327,12 @@ function WorkspaceChrome() {
   // Global (case/contact/document) search is a Case Management tool — it's noise on
   // the Lead Generation screens (New Matches, Match Quality, Marketplace), so hide it there.
   const isLeadGen = location.pathname.startsWith('/attorney-dashboard/leadgen')
+  // Dense, grid-based screens go full-bleed for more room; text/form pages stay
+  // centered at a comfortable reading width. Calendar also hides global search.
+  const isFullWidth = isWideAttorneyRoute(location.pathname)
+  const isCalendar = isCalendarRoute(location.pathname)
   return (
-    <div className="mx-auto w-full max-w-7xl">
+    <div className={isFullWidth ? 'w-full' : 'mx-auto w-full max-w-7xl'}>
       <div className="mb-4 flex items-center gap-3">
         <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-slate-500">
           <span className="font-semibold text-slate-700">ClearCaseIQ</span>
@@ -283,7 +343,7 @@ function WorkspaceChrome() {
       <div className="flex gap-6">
         <Sidebar />
         <div className="min-w-0 flex-1 space-y-4">
-          {!isLeadGen && <GlobalSearch />}
+          {!isLeadGen && !isCalendar && <GlobalSearch />}
           <MobileNav />
           <Outlet />
         </div>

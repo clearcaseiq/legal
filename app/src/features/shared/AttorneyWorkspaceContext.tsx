@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { getStoredUser } from '../../lib/auth'
-import { getAttorneyUnreadCount, getFirmDirectMessageUnread } from '../../lib/api'
+import { getAttorneyUnreadCount, getFirmDirectMessageUnread, getAttorneyNotificationUnreadCount } from '../../lib/api'
 import { useFirmDashboardSummary } from '../../hooks/useFirmDashboardSummary'
 
 /** How often (ms) to refresh the unread-message badge in the nav. */
@@ -26,6 +26,8 @@ export interface AttorneyWorkspaceValue {
   unreadMessages: number
   /** Unread direct messages from firm colleagues (Team Chat), polled. */
   unreadTeamMessages: number
+  /** Unread in-app notifications (matches, deadlines, activity), polled. */
+  unreadNotifications: number
 }
 
 const AttorneyWorkspaceContext = createContext<AttorneyWorkspaceValue | null>(null)
@@ -57,6 +59,7 @@ export function AttorneyWorkspaceProvider({ children }: { children: ReactNode })
   const { data, loading } = useFirmDashboardSummary()
   const [unreadMessages, setUnreadMessages] = useState(0)
   const [unreadTeamMessages, setUnreadTeamMessages] = useState(0)
+  const [unreadNotifications, setUnreadNotifications] = useState(0)
 
   // Poll the unread-message counts so the "Messages" / "Team Chat" nav badges stay
   // fresh while the attorney works elsewhere. Best-effort; errors are ignored.
@@ -72,6 +75,12 @@ export function AttorneyWorkspaceProvider({ children }: { children: ReactNode })
       try {
         const dm = await getFirmDirectMessageUnread()
         if (!cancelled) setUnreadTeamMessages(Number(dm?.count) || 0)
+      } catch {
+        /* ignore transient failures */
+      }
+      try {
+        const notif = await getAttorneyNotificationUnreadCount()
+        if (!cancelled) setUnreadNotifications(Number(notif?.count) || 0)
       } catch {
         /* ignore transient failures */
       }
@@ -97,8 +106,8 @@ export function AttorneyWorkspaceProvider({ children }: { children: ReactNode })
       permissions.includes('view_all_cases') ||
       permissions.includes('manage_users')
 
-    return { attorney, firmRole, permissions, isFirmAdmin, loading, unreadMessages, unreadTeamMessages }
-  }, [data, loading, unreadMessages, unreadTeamMessages])
+    return { attorney, firmRole, permissions, isFirmAdmin, loading, unreadMessages, unreadTeamMessages, unreadNotifications }
+  }, [data, loading, unreadMessages, unreadTeamMessages, unreadNotifications])
 
   return <AttorneyWorkspaceContext.Provider value={value}>{children}</AttorneyWorkspaceContext.Provider>
 }

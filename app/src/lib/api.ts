@@ -1582,6 +1582,37 @@ export async function getAttorneyTaskSummary() {
   return data
 }
 
+export interface CalendarConsultEvent {
+  id: string
+  leadId?: string | null
+  assessmentId?: string | null
+  scheduledAt: string
+  type?: string | null
+  duration?: number | null
+  status?: string | null
+  notes?: string | null
+  meetingUrl?: string | null
+  hostMeetingUrl?: string | null
+  location?: string | null
+  phoneNumber?: string | null
+  plaintiffName?: string | null
+  claimType?: string | null
+  /** 'case' = tied to a lead/case; 'booking' = public Calendly-style booking. */
+  source?: 'case' | 'booking'
+  eventTypeName?: string | null
+  bookerEmail?: string | null
+  manageToken?: string | null
+}
+
+// Consults/appointments for the signed-in attorney within a date range (calendar).
+export async function getAttorneyCalendarAppointments(
+  from: string,
+  to: string,
+): Promise<{ from: string; to: string; events: CalendarConsultEvent[] }> {
+  const { data } = await api.get('/v1/attorney-dashboard/appointments', { params: { from, to } })
+  return data
+}
+
 export interface AttorneyDeadlineItem {
   id: string
   kind: 'sol' | 'task'
@@ -3528,6 +3559,11 @@ export async function updateFirmMember(memberId: string, payload: { officeId?: s
   return data
 }
 
+export async function resendFirmMemberInvite(memberId: string) {
+  const { data } = await api.post(`/v1/firm-dashboard/members/${memberId}/resend-invite`, {})
+  return data as { ok: boolean; emailSent: boolean }
+}
+
 export async function addFirmMember(payload: {
   email: string
   firstName?: string
@@ -3662,5 +3698,375 @@ export async function updateFirmAttorney(attorneyId: string, payload: {
   jurisdictions?: Array<{ state: string; counties?: string[] }>
 }) {
   const { data } = await api.put(`/v1/firm-dashboard/attorneys/${attorneyId}`, payload)
+  return data
+}
+
+// ===== Scheduling ("Calendly-style" booking) =====
+
+export type BookingLocationType = 'video' | 'phone' | 'in_person'
+
+export interface SchedulingAvailabilityDay {
+  dayOfWeek: number
+  label: string
+  isAvailable: boolean
+  startTime: string
+  endTime: string
+}
+
+export interface SchedulingEventType {
+  id: string
+  slug: string
+  name: string
+  description?: string | null
+  durationMinutes: number
+  locationType: BookingLocationType
+  location?: string | null
+  color?: string | null
+  bufferBeforeMinutes: number
+  bufferAfterMinutes: number
+  minNoticeMinutes: number
+  isActive: boolean
+  sortOrder: number
+}
+
+export interface SchedulingSettings {
+  attorney: { id: string; name: string; bookingSlug: string; timezone: string; publicUrl: string }
+  availability: SchedulingAvailabilityDay[]
+  eventTypes: SchedulingEventType[]
+}
+
+export async function getSchedulingSettings(): Promise<SchedulingSettings> {
+  const { data } = await api.get('/v1/scheduling/settings')
+  return data
+}
+
+export async function updateSchedulingSettings(payload: { timezone?: string; bookingSlug?: string }) {
+  const { data } = await api.patch('/v1/scheduling/settings', payload)
+  return data as { bookingSlug: string; timezone: string; publicUrl: string }
+}
+
+export async function updateSchedulingAvailability(
+  days: Array<{ dayOfWeek: number; isAvailable: boolean; startTime: string; endTime: string }>,
+) {
+  const { data } = await api.put('/v1/scheduling/availability', { days })
+  return data
+}
+
+export async function createEventType(payload: Partial<SchedulingEventType>): Promise<SchedulingEventType> {
+  const { data } = await api.post('/v1/scheduling/event-types', payload)
+  return data
+}
+
+export async function updateEventType(
+  id: string,
+  payload: Partial<SchedulingEventType>,
+): Promise<SchedulingEventType> {
+  const { data } = await api.patch(`/v1/scheduling/event-types/${id}`, payload)
+  return data
+}
+
+export async function deleteEventType(id: string) {
+  const { data } = await api.delete(`/v1/scheduling/event-types/${id}`)
+  return data
+}
+
+// --- Public (unauthenticated) booking ---
+
+export interface PublicBookingEventType {
+  id: string
+  slug: string
+  name: string
+  description: string | null
+  durationMinutes: number
+  locationType: BookingLocationType
+  color: string | null
+}
+
+export interface PublicBookingPage {
+  attorney: { name: string; firmName: string | null; timezone: string }
+  eventTypes: PublicBookingEventType[]
+}
+
+export async function getPublicBookingPage(slug: string): Promise<PublicBookingPage> {
+  const { data } = await api.get(`/v1/public/booking/${encodeURIComponent(slug)}`)
+  return data
+}
+
+export async function getPublicBookingSlots(
+  slug: string,
+  eventSlug: string,
+  from: string,
+  to: string,
+): Promise<{ timezone: string; durationMinutes: number; slots: string[] }> {
+  const { data } = await api.get(
+    `/v1/public/booking/${encodeURIComponent(slug)}/${encodeURIComponent(eventSlug)}/slots`,
+    { params: { from, to } },
+  )
+  return data
+}
+
+export async function createPublicBooking(
+  slug: string,
+  eventSlug: string,
+  payload: { start: string; name: string; email: string; phone?: string; notes?: string },
+): Promise<{
+  ok: boolean
+  appointmentId: string
+  scheduledAt: string
+  durationMinutes: number
+  locationType: BookingLocationType
+  meetingUrl: string | null
+  timezone: string
+  manageToken: string
+  manageUrl: string
+}> {
+  const { data } = await api.post(
+    `/v1/public/booking/${encodeURIComponent(slug)}/${encodeURIComponent(eventSlug)}`,
+    payload,
+  )
+  return data
+}
+
+export interface ManagedBooking {
+  status: string
+  scheduledAt: string
+  durationMinutes: number
+  locationType: BookingLocationType
+  location: string | null
+  meetingUrl: string | null
+  timezone: string
+  attorney: { name: string; firmName: string | null }
+  eventName: string
+  bookingSlug: string | null
+  eventSlug: string | null
+}
+
+export async function getManagedBooking(token: string): Promise<ManagedBooking> {
+  const { data } = await api.get(`/v1/public/booking/manage/${encodeURIComponent(token)}`)
+  return data
+}
+
+export async function cancelManagedBooking(token: string): Promise<{ ok: boolean; status: string }> {
+  const { data } = await api.post(`/v1/public/booking/manage/${encodeURIComponent(token)}/cancel`)
+  return data
+}
+
+export async function rescheduleManagedBooking(
+  token: string,
+  start: string,
+): Promise<{ ok: boolean; status: string; scheduledAt: string }> {
+  const { data } = await api.post(`/v1/public/booking/manage/${encodeURIComponent(token)}/reschedule`, { start })
+  return data
+}
+
+// --- Firm ("team" round-robin) booking links ---
+
+export interface FirmBookingLinkMember {
+  attorneyId: string
+  name: string
+  sortOrder: number
+}
+
+export interface FirmBookingLink {
+  id: string
+  slug: string
+  name: string
+  description: string | null
+  durationMinutes: number
+  locationType: BookingLocationType
+  location: string | null
+  bufferBeforeMinutes: number
+  bufferAfterMinutes: number
+  minNoticeMinutes: number
+  assignmentStrategy: 'round_robin' | 'first_available'
+  isActive: boolean
+  members: FirmBookingLinkMember[]
+  publicUrl: string
+}
+
+export interface FirmBookingLinksResponse {
+  canManage: boolean
+  firmAttorneys: Array<{ id: string; name: string }>
+  links: FirmBookingLink[]
+}
+
+export interface FirmBookingLinkInput {
+  name: string
+  description?: string
+  durationMinutes: number
+  locationType: BookingLocationType
+  location?: string
+  bufferBeforeMinutes?: number
+  bufferAfterMinutes?: number
+  minNoticeMinutes?: number
+  assignmentStrategy?: 'round_robin' | 'first_available'
+  isActive?: boolean
+  memberAttorneyIds: string[]
+}
+
+export async function getFirmBookingLinks(): Promise<FirmBookingLinksResponse> {
+  const { data } = await api.get('/v1/firm-dashboard/booking-links')
+  return data
+}
+
+export async function createFirmBookingLink(payload: FirmBookingLinkInput): Promise<FirmBookingLink> {
+  const { data } = await api.post('/v1/firm-dashboard/booking-links', payload)
+  return data
+}
+
+export async function updateFirmBookingLink(id: string, payload: FirmBookingLinkInput): Promise<FirmBookingLink> {
+  const { data } = await api.patch(`/v1/firm-dashboard/booking-links/${id}`, payload)
+  return data
+}
+
+export async function deleteFirmBookingLink(id: string) {
+  const { data } = await api.delete(`/v1/firm-dashboard/booking-links/${id}`)
+  return data
+}
+
+// --- Firm templates (document library) ---
+
+export interface FirmTemplate {
+  id: string
+  name: string
+  category: string
+  description: string | null
+  body: string | null
+  hasFile: boolean
+  fileName: string | null
+  fileMime: string | null
+  fileSize: number | null
+  isPdf: boolean
+  isActive: boolean
+  sortOrder: number
+  updatedAt: string
+  createdAt: string
+}
+
+export interface FirmTemplateRecipient {
+  leadId: string
+  name: string
+  email: string
+  claimType: string | null
+  attorneyId: string | null
+}
+
+export interface FirmTemplatesResponse {
+  canManage: boolean
+  categories: Array<{ key: string; label: string }>
+  providers: Array<{ id: string; label: string; configured: boolean; hipaaCapable: boolean; notes?: string }>
+  recipients: FirmTemplateRecipient[]
+  templates: FirmTemplate[]
+}
+
+export interface FirmTemplateInput {
+  name: string
+  category: string
+  description?: string | null
+  body?: string | null
+  isActive?: boolean
+}
+
+export async function getFirmTemplates(): Promise<FirmTemplatesResponse> {
+  const { data } = await api.get('/v1/firm-dashboard/templates')
+  return data
+}
+
+export async function createFirmTemplate(payload: FirmTemplateInput): Promise<FirmTemplate> {
+  const { data } = await api.post('/v1/firm-dashboard/templates', payload)
+  return data
+}
+
+export async function updateFirmTemplate(id: string, payload: FirmTemplateInput): Promise<FirmTemplate> {
+  const { data } = await api.patch(`/v1/firm-dashboard/templates/${id}`, payload)
+  return data
+}
+
+export async function deleteFirmTemplate(id: string) {
+  const { data } = await api.delete(`/v1/firm-dashboard/templates/${id}`)
+  return data
+}
+
+export async function seedRecommendedFirmTemplates(): Promise<{ added: number; templates: FirmTemplate[] }> {
+  const { data } = await api.post('/v1/firm-dashboard/templates/seed-recommended')
+  return data
+}
+
+export async function uploadFirmTemplateFile(id: string, file: File): Promise<FirmTemplate> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const { data } = await api.post(`/v1/firm-dashboard/templates/${id}/file`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
+}
+
+export async function removeFirmTemplateFile(id: string): Promise<FirmTemplate> {
+  const { data } = await api.delete(`/v1/firm-dashboard/templates/${id}/file`)
+  return data
+}
+
+/** Fetch a template's attached file (auth-gated) as an object URL for viewing. */
+export async function getFirmTemplateFileObjectUrl(id: string): Promise<string> {
+  const { data } = await api.get(`/v1/firm-dashboard/templates/${id}/file`, { responseType: 'blob' })
+  return URL.createObjectURL(data)
+}
+
+export async function sendFirmTemplateForSignature(
+  id: string,
+  payload: { leadId: string; signerName: string; signerEmail: string; title?: string; provider?: string }
+) {
+  const { data } = await api.post(`/v1/firm-dashboard/templates/${id}/send`, payload)
+  return data
+}
+
+// --- Public team booking ---
+
+export interface TeamBookingPage {
+  firmName: string
+  event: { name: string; description: string | null; durationMinutes: number; locationType: BookingLocationType }
+  memberCount: number
+  timezone: string
+}
+
+export async function getTeamBookingPage(firmSlug: string, linkSlug: string): Promise<TeamBookingPage> {
+  const { data } = await api.get(
+    `/v1/public/booking/team/${encodeURIComponent(firmSlug)}/${encodeURIComponent(linkSlug)}`,
+  )
+  return data
+}
+
+export async function getTeamBookingSlots(
+  firmSlug: string,
+  linkSlug: string,
+  from: string,
+  to: string,
+): Promise<{ timezone: string; durationMinutes: number; slots: string[] }> {
+  const { data } = await api.get(
+    `/v1/public/booking/team/${encodeURIComponent(firmSlug)}/${encodeURIComponent(linkSlug)}/slots`,
+    { params: { from, to } },
+  )
+  return data
+}
+
+export async function createTeamBooking(
+  firmSlug: string,
+  linkSlug: string,
+  payload: { start: string; name: string; email: string; phone?: string; notes?: string },
+): Promise<{
+  ok: boolean
+  appointmentId: string
+  scheduledAt: string
+  durationMinutes: number
+  locationType: BookingLocationType
+  attorneyName: string
+  meetingUrl: string | null
+  manageToken: string
+  manageUrl: string
+}> {
+  const { data } = await api.post(
+    `/v1/public/booking/team/${encodeURIComponent(firmSlug)}/${encodeURIComponent(linkSlug)}`,
+    payload,
+  )
   return data
 }

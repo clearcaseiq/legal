@@ -52,6 +52,8 @@ import integrations from './routes/integrations'
 import documentPortal from './routes/document-portal'
 import documents from './routes/documents'
 import esignWebhook from './routes/esign-webhook'
+import scheduling from './routes/scheduling'
+import publicBooking from './routes/public-booking'
 
 /**
  * Fully configured Express app (no listen). Used by index.ts and integration tests.
@@ -108,6 +110,8 @@ export function buildApp(): Express {
   app.use('/v1/heuristics', heuristics)
   app.use('/v1/integrations', integrations)
   app.use('/v1/public/document-requests', documentPortal)
+  app.use('/v1/public/booking', publicBooking)
+  app.use('/v1/scheduling', scheduling)
   app.use('/v1/documents', documents)
   app.use('/v1/webhooks/esign', esignWebhook)
 

@@ -23,6 +23,7 @@ import {
   markAllAttorneyNotificationsRead,
   type AttorneyNotification,
 } from '../lib/api'
+import { notificationDestination } from '../lib/notifications'
 
 type IconMeta = { Icon: typeof Bell; tone: string }
 
@@ -117,7 +118,7 @@ export default function NotificationsBell() {
       setUnreadCount((c) => Math.max(0, c - 1))
       markAttorneyNotificationRead(n.id).catch(() => {})
     }
-    const dest = n.link || (n.leadId ? `/attorney-dashboard/lead/${n.leadId}/overview` : null)
+    const dest = notificationDestination(n)
     if (dest) navigate(dest)
   }
 
@@ -212,6 +213,18 @@ export default function NotificationsBell() {
                 })}
               </ul>
             )}
+          </div>
+
+          <div className="border-t border-slate-200 dark:border-slate-800">
+            <button
+              onClick={() => {
+                setOpen(false)
+                navigate('/attorney-dashboard/notifications')
+              }}
+              className="block w-full px-4 py-3 text-center text-sm font-semibold text-brand-600 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60"
+            >
+              See all notifications
+            </button>
           </div>
         </div>
       )}

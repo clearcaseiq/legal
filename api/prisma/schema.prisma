@@ -741,6 +741,10 @@ model Attorney {
   responseTimeHours Int      @default(24)
   averageRating     Float    @default(0.0)
   totalReviews      Int      @default(0)
+  // Public "Calendly-style" booking: shareable slug + the timezone the attorney's
+  // weekly availability windows are expressed in.
+  bookingSlug       String?  @unique
+  schedulingTimezone String? // IANA tz, e.g. "America/Los_Angeles"
   lawFirmId         String?
   lawFirm           LawFirm? @relation(fields: [lawFirmId], references: [id], onDelete: SetNull)
   createdAt         DateTime @default(now())
@@ -790,6 +794,8 @@ model Attorney {
   calendarConnections         AttorneyCalendarConnection[]
   zoomConnection              AttorneyZoomConnection?
   calendarBusyBlocks          AttorneyCalendarBusyBlock[]
+  eventTypes                  AttorneyEventType[]
+  firmBookingLinkMemberships  FirmBookingLinkMember[]
   platformPayments            PlatformPayment[]
   firmMemberships             FirmMember[]
   firmCaseAssignments         FirmCaseAssignment[]
@@ -839,6 +845,8 @@ model LawFirm {
   cases           Assessment[]
   caseAssignments FirmCaseAssignment[]
   cmsConnections  CmsConnection[]
+  bookingLinks    FirmBookingLink[]
+  templates       FirmTemplate[]
 
   @@map("law_firms")
 }
@@ -1366,6 +1374,11 @@ model Appointment {
   duration    Int      @default(30) // minutes
   notes       String?
 
+  // Public ("Calendly-style") self-service management: opaque token the booker
+  // uses to reschedule/cancel without an account, plus the source event type.
+  manageToken String?  @unique
+  eventTypeId String?
+
   // Meeting details
   meetingUrl               String? // For video calls (attendee join link)
   hostMeetingUrl           String? // Host/start link for the attorney (e.g. Zoom start_url)
@@ -1511,6 +1524,113 @@ model AttorneyAvailability {
 
   @@unique([attorneyId, dayOfWeek])
   @@map("attorney_availability")
+}
+
+// A bookable "event type" for the attorney's public scheduling page (Calendly's
+// core concept), e.g. "15-min intro call" or "30-min case consultation".
+model AttorneyEventType {
+  id                  String   @id @default(cuid())
+  attorneyId          String
+  attorney            Attorney @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+
+  name                String
+  slug                String
+  description         String?  @db.Text
+  durationMinutes     Int      @default(30)
+  locationType        String   @default("video") // video, phone, in_person
+  location            String? // address / dial-in note for in_person / phone
+  color               String? // hex accent for the public page
+  bufferBeforeMinutes Int      @default(0)
+  bufferAfterMinutes  Int      @default(0)
+  minNoticeMinutes    Int      @default(120) // earliest a slot can be booked from "now"
+  isActive            Boolean  @default(true)
+  sortOrder           Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([attorneyId, slug])
+  @@index([attorneyId])
+  @@map("attorney_event_types")
+}
+
+// A firm-level ("team") public booking link that distributes bookings across a
+// pool of attorneys (round-robin or first-available). Slots are the union of
+// members' availability; the chosen attorney is resolved at booking time.
+model FirmBookingLink {
+  id                  String  @id @default(cuid())
+  lawFirmId           String
+  lawFirm             LawFirm @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+
+  slug                String
+  name                String
+  description         String? @db.Text
+  durationMinutes     Int     @default(30)
+  locationType        String  @default("video") // video, phone, in_person
+  location            String?
+  bufferBeforeMinutes Int     @default(0)
+  bufferAfterMinutes  Int     @default(0)
+  minNoticeMinutes    Int     @default(120)
+  assignmentStrategy  String  @default("round_robin") // round_robin, first_available
+  lastAssignedAttorneyId String? // round-robin cursor
+  isActive            Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members FirmBookingLinkMember[]
+
+  @@unique([lawFirmId, slug])
+  @@index([lawFirmId])
+  @@map("firm_booking_links")
+}
+
+model FirmBookingLinkMember {
+  id         String          @id @default(cuid())
+  linkId     String
+  link       FirmBookingLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  attorneyId String
+  attorney   Attorney        @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  sortOrder  Int             @default(0)
+
+  @@unique([linkId, attorneyId])
+  @@index([attorneyId])
+  @@map("firm_booking_link_members")
+}
+
+// Firm-level reusable document templates (retainer, HIPAA, intake package,
+// etc.). Each template can carry an editable text/markdown body AND/OR an
+// uploaded source file (PDF/DOCX). PDF-backed templates can be sent for
+// signature against a specific case via the e-signature service.
+model FirmTemplate {
+  id          String  @id @default(cuid())
+  lawFirmId   String
+  lawFirm     LawFirm @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+
+  name        String
+  // Category bucket for grouping in the UI, e.g. onboarding, medical,
+  // insurance, disclosure, closing, other.
+  category    String  @default("other")
+  description String? @db.Text
+
+  // Editable text/markdown body with optional merge tokens like {{client_name}}.
+  body        String? @db.Text
+
+  // Optional uploaded source document.
+  fileName    String?
+  filePath    String?
+  fileMime    String?
+  fileSize    Int?
+
+  isActive    Boolean @default(true)
+  sortOrder   Int     @default(0)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([lawFirmId])
+  @@map("firm_templates")
 }
 
 model ChatRoom {

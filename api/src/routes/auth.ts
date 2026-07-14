@@ -376,6 +376,21 @@ router.post('/reset-password', async (req, res) => {
       }),
     ])
 
+    // Setting a password means an invited firm member has accepted: flip any
+    // pending memberships to active so they count toward the firm and can be
+    // assigned work. Best-effort — never blocks the password reset.
+    try {
+      await (prisma as any).firmMember.updateMany({
+        where: { userId: record.userId, status: 'invited' },
+        data: { status: 'active', joinedAt: new Date() },
+      })
+    } catch (activateErr) {
+      logger.warn('Failed to activate firm memberships after password set', {
+        userId: record.userId,
+        error: activateErr instanceof Error ? activateErr.message : activateErr,
+      })
+    }
+
     logger.info('Password reset completed', { userId: record.userId })
     return res.json({ ok: true, message: 'Your password has been updated. You can now sign in.' })
   } catch (error) {

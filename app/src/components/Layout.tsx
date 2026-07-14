@@ -15,6 +15,7 @@ import {
 import { useTheme } from '../contexts/ThemeContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken } from '../lib/auth'
+import { isCalendarRoute, isWideAttorneyRoute } from '../lib/layoutWidth'
 import { loadPlaintiffHasCase, resetPlaintiffCaseHintCache } from '../lib/plaintiffCaseHint'
 
 const NotificationBell = lazy(() => import('./NotificationBell'))
@@ -67,6 +68,11 @@ export default function Layout({ children }: LayoutProps) {
   const isAdminArea = location.pathname.startsWith('/admin')
   const isDashboard = location.pathname.startsWith('/dashboard')
   const isFocusRoute = ['/assess', '/intake', '/intake-v2', '/rose'].includes(location.pathname)
+  // Dense, grid/table/dashboard workspace screens render edge-to-edge instead of
+  // the centered reading-width column used by the rest of the app. The calendar
+  // additionally uses a tighter vertical rhythm (it manages its own height).
+  const isFullWidthWorkspace = isWideAttorneyRoute(location.pathname)
+  const isCalendar = isCalendarRoute(location.pathname)
   const isAttorney = !isAdmin && (!!attorney || location.pathname.startsWith('/attorney-dashboard') || location.pathname.startsWith('/firm-dashboard'))
 
   // Highlight a nav item when the current route matches its href. Some hrefs carry
@@ -245,7 +251,7 @@ export default function Layout({ children }: LayoutProps) {
 
             {/* Right: Language + Primary CTA + User menu */}
             <div className="flex min-w-0 items-center gap-2 lg:gap-3">
-              {showWorkspaceThemeToggle && (
+              {showWorkspaceThemeToggle && !isAttorney && (
                 <button
                   type="button"
                   onClick={toggle}
@@ -255,12 +261,14 @@ export default function Layout({ children }: LayoutProps) {
                   {darkMode ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
                 </button>
               )}
-              <div className="hidden lg:block">
-                <Suspense fallback={languageFallback}>
-                  <LanguageSwitcher />
-                </Suspense>
-              </div>
-              <span className="hidden h-6 w-px bg-slate-200 dark:bg-slate-800 lg:block" aria-hidden />
+              {!isAttorney && (
+                <div className="hidden lg:block">
+                  <Suspense fallback={languageFallback}>
+                    <LanguageSwitcher />
+                  </Suspense>
+                </div>
+              )}
+              {!isAttorney && <span className="hidden h-6 w-px bg-slate-200 dark:bg-slate-800 lg:block" aria-hidden />}
               {isAuthenticated ? (
                 <>
                   {/* Notification bell for attorneys */}
@@ -444,13 +452,15 @@ export default function Layout({ children }: LayoutProps) {
             <div className="mx-auto flex max-w-lg flex-col gap-2">
               <div className="mb-2 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/40">
                 <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Menu</span>
-                <Suspense fallback={languageFallback}>
-                  <LanguageSwitcher />
-                </Suspense>
+                {!isAttorney && (
+                  <Suspense fallback={languageFallback}>
+                    <LanguageSwitcher />
+                  </Suspense>
+                )}
               </div>
               {isAuthenticated ? (
                 <>
-                  {showWorkspaceThemeToggle && (
+                  {showWorkspaceThemeToggle && !isAttorney && (
                     <button
                       type="button"
                       onClick={toggle}
@@ -531,10 +541,16 @@ export default function Layout({ children }: LayoutProps) {
       {/* Main content - reduced padding during assessment for focused flow */}
       <main
         id="main-content"
-        className={`mx-auto w-full max-w-7xl overflow-x-clip sm:px-6 lg:px-8 ${
+        className={`mx-auto w-full overflow-x-clip ${
+          isFullWidthWorkspace
+            ? 'max-w-[1440px] px-4 xl:px-6 2xl:px-8'
+            : 'max-w-7xl sm:px-6 lg:px-8'
+        } ${
           ['/assess', '/intake', '/intake-v2'].includes(location.pathname)
             ? 'h-[calc(100dvh-4.5rem-1px)] overflow-y-auto overscroll-y-contain py-2 md:h-[calc(100dvh-5rem-1px)]'
-            : 'py-8'
+            : isCalendar
+              ? 'py-4'
+              : 'py-8'
         }`}
       >
         <div className={`min-w-0 px-3 sm:px-0 ${['/assess', '/intake', '/intake-v2'].includes(location.pathname) ? 'min-h-full' : ''}`}>

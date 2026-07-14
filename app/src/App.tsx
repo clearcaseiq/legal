@@ -4,6 +4,7 @@ import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import { GuestRoute, ProtectedRoute } from './components/AuthRoute'
 import { useLanguage } from './contexts/LanguageContext'
+import { ATTORNEY_ROUTE_PREFIXES } from './lib/layoutWidth'
 
 const Home = lazy(() => import('./pages/Home'))
 const Login = lazy(() => import('./pages/Login'))
@@ -45,6 +46,11 @@ const CaseWorkspacePage = lazy(() => import('./features/casework/CaseWorkspacePa
 const CaseMessagesPage = lazy(() => import('./features/casework/MessagesPage'))
 const TeamMessagesPage = lazy(() => import('./features/casework/TeamMessagesPage'))
 const ActivityPage = lazy(() => import('./features/casework/ActivityPage'))
+const NotificationsPage = lazy(() => import('./features/casework/NotificationsPage'))
+const SchedulingSettingsPage = lazy(() => import('./features/casework/SchedulingSettingsPage'))
+const PublicBookingPage = lazy(() => import('./features/public/PublicBookingPage'))
+const PublicTeamBookingPage = lazy(() => import('./features/public/PublicTeamBookingPage'))
+const BookingManagePage = lazy(() => import('./features/public/BookingManagePage'))
 const CaseDocumentsHubPage = lazy(() => import('./features/casework/DocumentsPage'))
 const CaseTasksPage = lazy(() => import('./features/casework/TasksPage'))
 const CaseDeadlinesPage = lazy(() => import('./features/casework/DeadlinesPage'))
@@ -220,16 +226,6 @@ function ResultsRouteBoundary() {
     </ErrorBoundary>
   )
 }
-
-const ATTORNEY_ROUTE_PREFIXES = [
-  '/attorney-dashboard',
-  '/attorney-profile',
-  '/attorney-preferences',
-  '/integrations',
-  '/attorney-billing',
-  '/firm-dashboard',
-  '/medical-providers',
-]
 
 // The attorney-facing product is English-only; switch back to English if the
 // shared language picker was left on Spanish/Chinese from the plaintiff flow.
@@ -427,9 +423,11 @@ function App() {
                 {/* Case Workspace launcher folded into Active Cases ("Jump back in" strip). */}
                 <Route path="/attorney-dashboard/cases/workspace" element={<Navigate to="/attorney-dashboard/cases/active" replace />} />
                 <Route path="/attorney-dashboard/cases/calendar" element={<CalendarPage />} />
+                <Route path="/attorney-dashboard/cases/scheduling" element={<SchedulingSettingsPage />} />
                 <Route path="/attorney-dashboard/cases/messages" element={<CaseMessagesPage />} />
                 <Route path="/attorney-dashboard/cases/team" element={<TeamMessagesPage />} />
                 <Route path="/attorney-dashboard/cases/activity" element={<ActivityPage />} />
+                <Route path="/attorney-dashboard/notifications" element={<NotificationsPage />} />
                 <Route path="/attorney-dashboard/cases/documents" element={<CaseDocumentsHubPage />} />
                 <Route path="/attorney-dashboard/cases/tasks" element={<CaseTasksPage />} />
                 <Route path="/attorney-dashboard/cases/deadlines" element={<CaseDeadlinesPage />} />
@@ -481,6 +479,11 @@ function App() {
             <Route path="/attorneys-enhanced" element={<AttorneysEnhanced />} />
             <Route path="/firms" element={<Firms />} />
             <Route path="/firms/:slug" element={<FirmProfile />} />
+            {/* Public "Calendly-style" booking (no auth required). */}
+            <Route path="/book/team/:firmSlug/:linkSlug" element={<PublicTeamBookingPage />} />
+            <Route path="/book/:slug" element={<PublicBookingPage />} />
+            <Route path="/book/:slug/:eventSlug" element={<PublicBookingPage />} />
+            <Route path="/booking/manage/:token" element={<BookingManagePage />} />
           </Routes>
         </Suspense>
         </RouteErrorBoundary>
