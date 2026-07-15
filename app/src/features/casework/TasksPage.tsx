@@ -20,6 +20,7 @@ import {
   type BadgeTone,
   type DataTableColumn,
 } from '../shared/ui'
+import TaskDetailModal from './TaskDetailModal'
 
 interface TaskRow {
   id: string
@@ -77,6 +78,25 @@ const PRIORITIES = [
   { id: 'low', label: 'Low' },
 ]
 
+const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
+const priorityRank = (p?: string | null) => PRIORITY_RANK[(p || 'medium').toLowerCase()] ?? 2
+
+/** Start-of-day epoch for a due date (Infinity when unset) so tasks group by day. */
+function dueDayMs(value?: string | null): number {
+  const t = value ? Date.parse(value) : NaN
+  if (Number.isNaN(t)) return Infinity
+  const d = new Date(t)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+/** Order tasks by day (soonest/overdue first), then by priority within a day. */
+function byDayThenPriority(a: TaskRow, b: TaskRow): number {
+  const dd = dueDayMs(a.dueDate) - dueDayMs(b.dueDate)
+  if (dd !== 0) return dd
+  return priorityRank(a.priority) - priorityRank(b.priority)
+}
+
 const claimLabel = (s?: string | null) =>
   (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || 'Case'
 
@@ -122,6 +142,7 @@ export default function TasksPage() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [workflowTasks, setWorkflowTasks] = useState<MyWorkflowTask[]>([])
+  const [detail, setDetail] = useState<{ leadId: string; taskId: string; caseLabel?: string } | null>(null)
 
   const flash = (tone: 'ok' | 'err', text: string) => {
     setMsg({ tone, text })
@@ -174,9 +195,13 @@ export default function TasksPage() {
 
   const rows = useMemo<TaskRow[]>(() => {
     if (!summary) return []
-    if (bucket === 'all') return [...summary.overdue, ...summary.today, ...summary.upcoming, ...summary.noDueDate]
     if (bucket === 'completed') return summary.recentlyCompleted ?? []
-    return summary[bucket] ?? []
+    const base =
+      bucket === 'all'
+        ? [...summary.overdue, ...summary.today, ...summary.upcoming, ...summary.noDueDate]
+        : summary[bucket] ?? []
+    // Organize by day (soonest/overdue first), then by priority within each day.
+    return [...base].sort(byDayThenPriority)
   }, [summary, bucket])
 
   const viewingCompleted = bucket === 'completed'
@@ -280,9 +305,20 @@ export default function TasksPage() {
     {
       key: 'title',
       header: 'Task',
-      cell: (r) => (
-        <span className={viewingCompleted ? 'font-medium text-slate-500 line-through' : 'font-medium text-slate-800'}>{r.title}</span>
-      ),
+      cell: (r) =>
+        r.leadId ? (
+          <button
+            type="button"
+            onClick={() => setDetail({ leadId: r.leadId as string, taskId: r.id, caseLabel: claimLabel(r.claimType) })}
+            className={`text-left transition hover:text-brand-700 hover:underline ${
+              viewingCompleted ? 'font-medium text-slate-500 line-through' : 'font-medium text-slate-800'
+            }`}
+          >
+            {r.title}
+          </button>
+        ) : (
+          <span className={viewingCompleted ? 'font-medium text-slate-500 line-through' : 'font-medium text-slate-800'}>{r.title}</span>
+        ),
     },
     { key: 'case', header: 'Case', cell: (r) => <ClientLink name={claimLabel(r.claimType)} leadId={r.leadId} section="tasks" /> },
     { key: 'type', header: 'Type', cell: (r) => <span className="text-slate-500">{typeLabel(r.taskType)}</span> },
@@ -359,6 +395,15 @@ export default function TasksPage() {
 
   return (
     <div className="space-y-4">
+      {detail ? (
+        <TaskDetailModal
+          leadId={detail.leadId}
+          taskId={detail.taskId}
+          caseLabel={detail.caseLabel}
+          onClose={() => setDetail(null)}
+          onChanged={() => void loadTasks()}
+        />
+      ) : null}
       <PageHeader
         title="Tasks"
         description="A cross-case queue that rolls up every case's task list so nothing slips. Complete, add, or open any task without leaving the page — changes sync to each case's Tasks tab."
@@ -495,7 +540,9 @@ export default function TasksPage() {
       >
         <DataTable
           columns={workflowColumns}
-          rows={workflowTasks}
+          rows={[...workflowTasks].sort(
+            (a, b) => dueDayMs(a.dueDate) - dueDayMs(b.dueDate) || Number(b.required) - Number(a.required),
+          )}
           rowKey={(r) => r.id}
           emptyMessage="No workflow steps assigned to you yet. When a workflow is applied to a case and a step is assigned to you, it appears here."
         />

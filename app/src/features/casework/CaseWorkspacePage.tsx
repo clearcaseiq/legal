@@ -83,6 +83,7 @@ import SettlementPanel from './SettlementPanel'
 import CaseWorkflowPanel from './CaseWorkflowPanel'
 import CaseTimePanel from './CaseTimePanel'
 import ConsultSchedulerModal from './ConsultSchedulerModal'
+import TaskDetailModal from './TaskDetailModal'
 import { BackButton, EmptyState } from '../shared/ui'
 import { recordRecentCase } from './recentCases'
 
@@ -1249,7 +1250,7 @@ function WorkstreamPanel({
   }
 
   if (tab === 'Tasks') {
-    return <TasksPanel leadId={lead.id} tasks={tasks} reload={reloadTasks} />
+    return <TasksPanel leadId={lead.id} tasks={tasks} reload={reloadTasks} caseLabel={`${detail.client} · ${detail.type}`} />
   }
 
   // Overview — a case-at-a-glance summary built from the command center (cc).
@@ -3037,6 +3038,39 @@ const PRIORITY_META: Record<string, (typeof TASK_PRIORITIES)[number]> = {
   low: TASK_PRIORITIES[2],
 }
 
+const TASK_PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
+const taskPriorityRank = (p?: string | null) => TASK_PRIORITY_RANK[(p || 'medium').toLowerCase()] ?? 2
+
+/** Start-of-day epoch for a due date (Infinity when unset). */
+function dueDayStart(value?: string | null): number {
+  const t = value ? Date.parse(value) : NaN
+  if (Number.isNaN(t)) return Infinity
+  const d = new Date(t)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+type DayGroupKey = 'overdue' | 'today' | 'week' | 'later' | 'none'
+const DAY_GROUPS: { key: DayGroupKey; label: string }[] = [
+  { key: 'overdue', label: 'Overdue' },
+  { key: 'today', label: 'Due today' },
+  { key: 'week', label: 'This week' },
+  { key: 'later', label: 'Later' },
+  { key: 'none', label: 'No due date' },
+]
+/** Which day bucket a due date falls into, relative to today. */
+function dayGroupOf(value?: string | null): DayGroupKey {
+  const ms = dueDayStart(value)
+  if (ms === Infinity) return 'none'
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const diff = Math.round((ms - today.getTime()) / 86_400_000)
+  if (diff < 0) return 'overdue'
+  if (diff === 0) return 'today'
+  if (diff <= 7) return 'week'
+  return 'later'
+}
+
 const TASK_TYPES = [
   { id: 'general', label: 'General' },
   { id: 'evidence', label: 'Evidence' },
@@ -3280,13 +3314,24 @@ function AssignedWorkflowSection({ leadId }: { leadId: string }) {
   )
 }
 
-function TasksPanel({ leadId, tasks, reload }: { leadId: string; tasks: TaskRow[]; reload: () => Promise<void> | void }) {
+function TasksPanel({
+  leadId,
+  tasks,
+  reload,
+  caseLabel,
+}: {
+  leadId: string
+  tasks: TaskRow[]
+  reload: () => Promise<void> | void
+  caseLabel?: string | null
+}) {
   const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<TaskFormState>(EMPTY_TASK_FORM)
   const [showDone, setShowDone] = useState(false)
+  const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
 
   const load = async () => {
     await reload()
@@ -3303,17 +3348,6 @@ function TasksPanel({ leadId, tasks, reload }: { leadId: string; tasks: TaskRow[
     setFormOpen(true)
   }
 
-  const openEdit = (t: TaskRow) => {
-    setEditingId(t.id)
-    setForm({
-      title: t.title || '',
-      dueDate: t.dueDate ? new Date(t.dueDate).toISOString().slice(0, 10) : '',
-      priority: (t.priority || 'medium').toLowerCase(),
-      taskType: t.taskType || 'general',
-      notes: t.notes || '',
-    })
-    setFormOpen(true)
-  }
 
   const closeForm = () => {
     setFormOpen(false)
@@ -3406,12 +3440,16 @@ function TasksPanel({ leadId, tasks, reload }: { leadId: string; tasks: TaskRow[
   const active = tasks.filter((t) => !isDone(t))
   const done = tasks.filter(isDone)
 
+  // Organize by day (soonest/overdue first), then by priority within each day.
   const sortActive = (list: TaskRow[]) =>
-    [...list].sort((a, b) => {
-      const at = a.dueDate ? Date.parse(a.dueDate) : Infinity
-      const bt = b.dueDate ? Date.parse(b.dueDate) : Infinity
-      return at - bt
-    })
+    [...list].sort(
+      (a, b) => dueDayStart(a.dueDate) - dueDayStart(b.dueDate) || taskPriorityRank(a.priority) - taskPriorityRank(b.priority),
+    )
+
+  const activeByDay = DAY_GROUPS.map((g) => ({
+    ...g,
+    items: sortActive(active.filter((t) => dayGroupOf(t.dueDate) === g.key)),
+  })).filter((g) => g.items.length)
 
   const now = new Date()
   now.setHours(0, 0, 0, 0)
@@ -3446,7 +3484,13 @@ function TasksPanel({ leadId, tasks, reload }: { leadId: string; tasks: TaskRow[
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <p className={`text-sm font-medium ${taskDone ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{t.title}</p>
+            <button
+              type="button"
+              onClick={() => setDetailTaskId(t.id)}
+              className={`text-left text-sm font-medium transition hover:text-brand-700 hover:underline ${taskDone ? 'text-slate-400 line-through' : 'text-slate-800'}`}
+            >
+              {t.title}
+            </button>
             {!taskDone && chip ? (
               <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${chip.cls}`}>
                 {chip.label}
@@ -3467,10 +3511,10 @@ function TasksPanel({ leadId, tasks, reload }: { leadId: string; tasks: TaskRow[
         </div>
         <div className="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100">
           <button
-            onClick={() => openEdit(t)}
+            onClick={() => setDetailTaskId(t.id)}
             className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-            aria-label="Edit task"
-            title="Edit"
+            aria-label="Open task details"
+            title="Open details"
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -3490,6 +3534,15 @@ function TasksPanel({ leadId, tasks, reload }: { leadId: string; tasks: TaskRow[
 
   return (
     <div className="space-y-4">
+      {detailTaskId ? (
+        <TaskDetailModal
+          leadId={leadId}
+          taskId={detailTaskId}
+          caseLabel={caseLabel}
+          onClose={() => setDetailTaskId(null)}
+          onChanged={() => void load()}
+        />
+      ) : null}
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="grid flex-1 grid-cols-3 gap-2 sm:max-w-md">
@@ -3613,11 +3666,23 @@ function TasksPanel({ leadId, tasks, reload }: { leadId: string; tasks: TaskRow[
       {/* Workflow steps assigned to me on this case */}
       <AssignedWorkflowSection leadId={leadId} />
 
-      {/* Active tasks */}
+      {/* Active tasks — grouped by day, sorted by priority within each day */}
       {active.length ? (
-        <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
-          {sortActive(active).map(renderTask)}
-        </ul>
+        <div className="space-y-3">
+          {activeByDay.map((g) => (
+            <div key={g.key}>
+              <div className="mb-1 flex items-center gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                {g.label}
+                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+                  {g.items.length}
+                </span>
+              </div>
+              <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                {g.items.map(renderTask)}
+              </ul>
+            </div>
+          ))}
+        </div>
       ) : !formOpen ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center">
           <ListChecks className="mx-auto h-8 w-8 text-slate-300" />

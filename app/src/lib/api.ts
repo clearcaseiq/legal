@@ -2232,6 +2232,87 @@ export async function createLeadSolTask(leadId: string) {
   return data
 }
 
+// ---- Task detail view (MyCase-style modal) ----------------------------------
+
+export interface TaskSubtask {
+  id: string
+  title: string
+  done: boolean
+}
+
+export interface TaskAssigneeOption {
+  userId: string
+  name: string
+  role: string
+  roleLabel: string
+}
+
+export interface TaskDetail {
+  id: string
+  assessmentId: string
+  title: string
+  taskType?: string | null
+  dueDate?: string | null
+  reminderAt?: string | null
+  status?: string | null
+  priority?: string | null
+  notes?: string | null
+  subtasks: TaskSubtask[]
+  estimateMinutes?: number | null
+  loggedMinutes?: number
+  assignedUserId?: string | null
+  assigneeName?: string | null
+  assigneeRole?: string | null
+  assigneeRoleLabel?: string | null
+  createdById?: string | null
+  createdByName?: string | null
+  completedAt?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  members: TaskAssigneeOption[]
+  leadId: string
+}
+
+export interface TaskComment {
+  id: string
+  threadId: string
+  authorId?: string | null
+  authorName?: string | null
+  authorEmail?: string | null
+  message: string
+  mentions?: string | null
+  createdAt: string
+  updatedAt?: string
+}
+
+export interface TaskHistoryEntry {
+  id: string
+  action: string
+  actor: string
+  metadata?: Record<string, any> | null
+  createdAt: string
+}
+
+export async function getTaskDetail(leadId: string, taskId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/tasks/${taskId}`)
+  return data as TaskDetail
+}
+
+export async function getTaskComments(leadId: string, taskId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/tasks/${taskId}/comments`)
+  return data as TaskComment[]
+}
+
+export async function addTaskComment(leadId: string, taskId: string, message: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/tasks/${taskId}/comments`, { message })
+  return data as TaskComment
+}
+
+export async function getTaskHistory(leadId: string, taskId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/tasks/${taskId}/history`)
+  return data as TaskHistoryEntry[]
+}
+
 export async function getLeadNegotiations(leadId: string) {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/negotiations`)
   return data

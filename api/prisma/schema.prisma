@@ -334,6 +334,13 @@ model CaseTask {
   status               String     @default("open") // open, done
   priority             String     @default("medium") // low, medium, high
   notes                String?
+  // JSON array of checklist items: [{ id, title, done }]
+  subtasks             String?
+  // Estimated effort for this task, in minutes.
+  estimateMinutes      Int?
+  // Denormalized creator captured on task creation.
+  createdById          String?
+  createdByName        String?
   sourceTemplateId     String?
   sourceTemplateStepId String?
   completedAt          DateTime?
@@ -432,9 +439,11 @@ model CaseCommentThread {
   assessmentId   String
   assessment     Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
   title          String
-  threadType     String     @default("general") // general, decision
+  threadType     String     @default("general") // general, decision, task
   allowedRoles   String? // JSON array of roles allowed
   summary        String?
+  // When set, this thread is the comment stream for a specific CaseTask.
+  caseTaskId     String?
   createdById    String?
   createdByName  String?
   createdByEmail String?
@@ -445,6 +454,7 @@ model CaseCommentThread {
   comments CaseComment[]
 
   @@index([assessmentId])
+  @@index([caseTaskId])
   @@map("case_comment_threads")
 }
 
@@ -1909,6 +1919,9 @@ model TimeEntry {
   assessmentId String?
   assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 
+  // Optional link to a specific case task this time was logged against.
+  caseTaskId String?
+
   // The person who performed the work (kept as ids to avoid heavy back-relations).
   userId       String?
   firmMemberId String?
@@ -1934,6 +1947,7 @@ model TimeEntry {
 
   @@index([lawFirmId, status])
   @@index([assessmentId])
+  @@index([caseTaskId])
   @@index([userId])
   @@map("time_entries")
 }

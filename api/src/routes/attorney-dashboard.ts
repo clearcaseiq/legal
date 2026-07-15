@@ -808,9 +808,14 @@ const caseTaskSelect = {
   escalationLevel: true,
   assignedRole: true,
   assignedTo: true,
+  assignedUserId: true,
   status: true,
   priority: true,
   notes: true,
+  subtasks: true,
+  estimateMinutes: true,
+  createdById: true,
+  createdByName: true,
   sourceTemplateId: true,
   sourceTemplateStepId: true,
   completedAt: true,
@@ -1125,6 +1130,98 @@ async function writeAutomationAudit(args: {
   } catch (error: any) {
     logger.warn('Automation audit log write failed', { action: args.action, entityId: args.entityId, error: error?.message })
   }
+}
+
+// ---- Task detail helpers (subtasks, assignee directory, comment thread) -----
+
+const TASK_ROLE_LABELS: Record<string, string> = {
+  firm_admin: 'Admin',
+  attorney: 'Attorney',
+  case_manager: 'Case Manager',
+  intake_specialist: 'Intake',
+  paralegal: 'Paralegal',
+  billing_admin: 'Billing',
+  legal_assistant: 'Legal Assistant',
+  demand_writer: 'Demand Writer',
+  medical_records: 'Medical Records',
+}
+const taskRoleLabel = (r?: string | null) => (r ? TASK_ROLE_LABELS[r] || r.replace(/_/g, ' ') : '')
+
+function genSubtaskId(seed: number): string {
+  try {
+    const uuid = (globalThis as any).crypto?.randomUUID?.()
+    if (uuid) return uuid
+  } catch {
+    /* fall through */
+  }
+  return `st_${Date.now().toString(36)}${seed}${Math.random().toString(36).slice(2, 8)}`
+}
+
+interface TaskSubtask {
+  id: string
+  title: string
+  done: boolean
+}
+
+/** Coerce arbitrary client input into a clean subtask array (drops blank titles). */
+function normalizeSubtasks(input: any): TaskSubtask[] {
+  if (!Array.isArray(input)) return []
+  return input
+    .map((s: any, i: number) => ({
+      id: typeof s?.id === 'string' && s.id ? s.id : genSubtaskId(i),
+      title: String(s?.title ?? '').trim(),
+      done: Boolean(s?.done),
+    }))
+    .filter((s) => s.title.length > 0)
+}
+
+/** Parse the JSON-stored subtasks column into a clean array. */
+function parseSubtasks(value: any): TaskSubtask[] {
+  if (!value) return []
+  try {
+    return normalizeSubtasks(typeof value === 'string' ? JSON.parse(value) : value)
+  } catch {
+    return []
+  }
+}
+
+/** Assignable people for a task; returns real User ids (CaseTask.assignedUserId). */
+async function taskAssigneeDirectory(
+  lawFirmId: string | null | undefined,
+): Promise<{ userId: string; name: string; role: string; roleLabel: string }[]> {
+  if (!lawFirmId) return []
+  const dir = await (prisma as any).firmMember.findMany({
+    where: { lawFirmId, status: { in: ['active', 'invited'] } },
+    include: { user: { select: { firstName: true, lastName: true, email: true } } },
+  })
+  return dir
+    .filter((m: any) => m.userId)
+    .map((m: any) => ({
+      userId: m.userId as string,
+      name: [m.user?.firstName, m.user?.lastName].filter(Boolean).join(' ').trim() || m.user?.email || 'Member',
+      role: m.role as string,
+      roleLabel: taskRoleLabel(m.role),
+    }))
+}
+
+/** Find-or-create the comment thread that backs a specific task's discussion. */
+async function getOrCreateTaskThread(assessmentId: string, taskId: string, req: any) {
+  let thread = await prisma.caseCommentThread.findFirst({ where: { caseTaskId: taskId } as any })
+  if (!thread) {
+    const task = await prisma.caseTask.findUnique({ where: { id: taskId }, select: { title: true } })
+    thread = await prisma.caseCommentThread.create({
+      data: {
+        assessmentId,
+        caseTaskId: taskId,
+        threadType: 'task',
+        title: task?.title ? `Task: ${task.title}` : 'Task discussion',
+        createdById: req.user?.id || null,
+        createdByName: req.user ? `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || null : null,
+        createdByEmail: req.user?.email || null,
+      } as any,
+    })
+  }
+  return thread
 }
 
 async function createCaseReminder(assessmentId: string, channel: string, message: string, dueAt: Date) {
@@ -8771,10 +8868,13 @@ router.post('/leads/:leadId/time', authMiddleware, async (req: any, res) => {
     })
     const amount = computeAmount(minutes, hourlyRate, billable)
 
+    const caseTaskId = typeof req.body?.caseTaskId === 'string' && req.body.caseTaskId ? req.body.caseTaskId : null
+
     const created = await (prisma as any).timeEntry.create({
       data: {
         lawFirmId: identity.lawFirmId,
         assessmentId: lead.assessmentId,
+        caseTaskId,
         userId: workerUserId,
         firmMemberId: workerMemberId,
         attorneyId: workerAttorneyId,
@@ -8878,7 +8978,7 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
-    const { lead } = auth
+    const { lead, attorney } = auth
     const {
       title,
       dueDate,
@@ -8891,14 +8991,29 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
       deadlineType,
       assignedRole,
       assignedTo,
+      assignedUserId,
       reminderAt,
       escalationLevel,
+      estimateMinutes,
+      subtasks,
       sourceTemplateId,
       sourceTemplateStepId
     } = req.body
 
     if (!title) {
       return res.status(400).json({ error: 'title is required' })
+    }
+
+    // When a specific person is chosen, denormalize their name/role for display.
+    let assigneeName = assignedTo || null
+    let assigneeRole = assignedRole || null
+    if (assignedUserId) {
+      const dir = await taskAssigneeDirectory(attorney.lawFirmId)
+      const found = dir.find((m) => m.userId === assignedUserId)
+      if (found) {
+        assigneeName = found.name
+        assigneeRole = found.role
+      }
     }
 
     const record = await prisma.caseTask.create({
@@ -8914,13 +9029,29 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
         milestoneType: milestoneType || null,
         checkpointType: checkpointType || null,
         deadlineType: deadlineType || null,
-        assignedRole: assignedRole || null,
-        assignedTo: assignedTo || null,
+        assignedRole: assigneeRole,
+        assignedTo: assigneeName,
+        assignedUserId: assignedUserId || null,
+        estimateMinutes:
+          estimateMinutes === undefined || estimateMinutes === null || estimateMinutes === ''
+            ? null
+            : Number(estimateMinutes),
+        subtasks: subtasks !== undefined ? JSON.stringify(normalizeSubtasks(subtasks)) : null,
+        createdById: req.user?.id || null,
+        createdByName: req.user ? `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || req.user.email : null,
         escalationLevel: escalationLevel || 'none',
         sourceTemplateId: sourceTemplateId || null,
         sourceTemplateStepId: sourceTemplateStepId || null
       },
       select: caseTaskSelect
+    })
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: attorney.id,
+      action: 'task_created',
+      entityType: 'case_task',
+      entityId: record.id,
+      metadata: { title: record.title },
     })
     await scheduleTaskReminder(record.assessmentId, {
       title: record.title,
@@ -9048,9 +9179,36 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
       deadlineType,
       assignedRole,
       assignedTo,
+      assignedUserId,
       reminderAt,
-      escalationLevel
+      escalationLevel,
+      estimateMinutes,
+      subtasks
     } = req.body
+
+    const existing = await prisma.caseTask.findUnique({ where: { id }, select: caseTaskSelect })
+    if (!existing || existing.assessmentId !== auth.lead.assessmentId) {
+      return res.status(404).json({ error: 'Task not found' })
+    }
+
+    // Resolve/denormalize assignee when a person is (re)selected or cleared.
+    let assigneeUpdate: Record<string, any> = {}
+    if (assignedUserId !== undefined) {
+      if (assignedUserId) {
+        const dir = await taskAssigneeDirectory(auth.attorney.lawFirmId)
+        const found = dir.find((m) => m.userId === assignedUserId)
+        assigneeUpdate = {
+          assignedUserId,
+          assignedTo: found?.name ?? assignedTo ?? existing.assignedTo ?? null,
+          assignedRole: found?.role ?? assignedRole ?? existing.assignedRole ?? null,
+        }
+      } else {
+        assigneeUpdate = { assignedUserId: null, assignedTo: null, assignedRole: null }
+      }
+    } else {
+      if (assignedTo !== undefined) assigneeUpdate.assignedTo = assignedTo
+      if (assignedRole !== undefined) assigneeUpdate.assignedRole = assignedRole
+    }
 
     const record = await prisma.caseTask.update({
       where: { id },
@@ -9064,14 +9222,56 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
         ...(milestoneType !== undefined ? { milestoneType } : {}),
         ...(checkpointType !== undefined ? { checkpointType } : {}),
         ...(deadlineType !== undefined ? { deadlineType } : {}),
-        ...(assignedRole !== undefined ? { assignedRole } : {}),
-        ...(assignedTo !== undefined ? { assignedTo } : {}),
+        ...assigneeUpdate,
         ...(reminderAt !== undefined ? { reminderAt: reminderAt ? new Date(reminderAt) : null } : {}),
         ...(escalationLevel !== undefined ? { escalationLevel } : {}),
-        ...(status === 'done' ? { completedAt: new Date() } : {})
+        ...(estimateMinutes !== undefined
+          ? { estimateMinutes: estimateMinutes === null || estimateMinutes === '' ? null : Number(estimateMinutes) }
+          : {}),
+        ...(subtasks !== undefined ? { subtasks: JSON.stringify(normalizeSubtasks(subtasks)) } : {}),
+        ...(status === 'done' ? { completedAt: new Date() } : {}),
+        ...(status !== undefined && status !== 'done' ? { completedAt: null } : {})
       },
       select: caseTaskSelect
     })
+
+    // Record meaningful changes for the task History tab.
+    const audits: { action: string; metadata: Record<string, unknown> }[] = []
+    if (status !== undefined && status !== existing.status) {
+      audits.push({ action: 'task_status_changed', metadata: { from: existing.status, to: status } })
+    }
+    if (assignedUserId !== undefined && (assignedUserId || null) !== (existing.assignedUserId || null)) {
+      audits.push({ action: 'task_assigned', metadata: { assignee: record.assignedTo || 'Unassigned' } })
+    }
+    if (dueDate !== undefined) {
+      const before = existing.dueDate ? new Date(existing.dueDate).getTime() : null
+      const after = dueDate ? new Date(dueDate).getTime() : null
+      if (before !== after) audits.push({ action: 'task_due_changed', metadata: { dueDate: record.dueDate } })
+    }
+    if (subtasks !== undefined) {
+      const n = normalizeSubtasks(subtasks)
+      audits.push({ action: 'task_subtasks_updated', metadata: { completed: n.filter((s) => s.done).length, total: n.length } })
+    }
+    if (title !== undefined && title !== existing.title) {
+      audits.push({ action: 'task_renamed', metadata: { title } })
+    }
+    if (priority !== undefined && priority !== existing.priority) {
+      audits.push({ action: 'task_priority_changed', metadata: { priority } })
+    }
+    if (estimateMinutes !== undefined) {
+      audits.push({ action: 'task_estimate_changed', metadata: { estimateMinutes: record.estimateMinutes } })
+    }
+    for (const a of audits) {
+      await writeAutomationAudit({
+        userId: req.user?.id,
+        attorneyId: auth.attorney.id,
+        action: a.action,
+        entityType: 'case_task',
+        entityId: id,
+        metadata: a.metadata,
+      })
+    }
+
     await scheduleTaskReminder(record.assessmentId, {
       title: record.title,
       dueDate: record.dueDate,
@@ -9101,6 +9301,200 @@ router.delete('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) 
   } catch (error: any) {
     logger.error('Failed to delete case task', { error: error.message })
     res.status(500).json({ error: 'Failed to delete case task' })
+  }
+})
+
+// Full detail for the task-detail modal: fields + subtasks + resolved assignee +
+// logged time + the assignable member directory.
+router.get('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, id } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const task = await prisma.caseTask.findUnique({ where: { id }, select: caseTaskSelect })
+    if (!task || task.assessmentId !== auth.lead.assessmentId) {
+      return res.status(404).json({ error: 'Task not found' })
+    }
+    const members = await taskAssigneeDirectory(auth.attorney.lawFirmId)
+    const logged = await prisma.timeEntry.aggregate({
+      where: { caseTaskId: id } as any,
+      _sum: { minutes: true },
+    })
+    let assigneeName = task.assignedTo || null
+    let assigneeRole = task.assignedRole || null
+    if (task.assignedUserId) {
+      const found = members.find((m) => m.userId === task.assignedUserId)
+      if (found) {
+        assigneeName = found.name
+        assigneeRole = found.role
+      }
+    }
+    res.json({
+      ...task,
+      subtasks: parseSubtasks(task.subtasks),
+      assigneeName,
+      assigneeRole,
+      assigneeRoleLabel: taskRoleLabel(assigneeRole),
+      loggedMinutes: logged._sum.minutes || 0,
+      members,
+      leadId,
+    })
+  } catch (error: any) {
+    logger.error('Failed to load task detail', { error: error.message })
+    res.status(500).json({ error: 'Failed to load task detail' })
+  }
+})
+
+// Task comment stream (backed by a dedicated CaseCommentThread linked via caseTaskId).
+router.get('/leads/:leadId/tasks/:id/comments', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, id } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const task = await prisma.caseTask.findUnique({ where: { id }, select: { id: true, assessmentId: true } })
+    if (!task || task.assessmentId !== auth.lead.assessmentId) {
+      return res.status(404).json({ error: 'Task not found' })
+    }
+    const thread = await prisma.caseCommentThread.findFirst({ where: { caseTaskId: id } as any })
+    if (!thread) return res.json([])
+    const comments = await prisma.caseComment.findMany({
+      where: { threadId: thread.id },
+      orderBy: { createdAt: 'asc' },
+      select: caseCommentSelect,
+    })
+    res.json(comments)
+  } catch (error: any) {
+    logger.error('Failed to load task comments', { error: error.message })
+    res.status(500).json({ error: 'Failed to load task comments' })
+  }
+})
+
+router.post('/leads/:leadId/tasks/:id/comments', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, id } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { message } = req.body
+    if (!message || !String(message).trim()) {
+      return res.status(400).json({ error: 'message is required' })
+    }
+    const task = await prisma.caseTask.findUnique({ where: { id }, select: { id: true, assessmentId: true } })
+    if (!task || task.assessmentId !== auth.lead.assessmentId) {
+      return res.status(404).json({ error: 'Task not found' })
+    }
+
+    const thread = await getOrCreateTaskThread(auth.lead.assessmentId, id, req)
+    const mentions = extractMentions(message || '')
+    const comment = await prisma.caseComment.create({
+      data: {
+        threadId: thread.id,
+        message,
+        mentions: mentions.length ? JSON.stringify(mentions) : null,
+        authorId: req.user?.id,
+        authorName: req.user ? `${req.user.firstName} ${req.user.lastName}` : null,
+        authorEmail: req.user?.email || null,
+      },
+      select: caseCommentSelect,
+    })
+    await prisma.caseCommentThread.update({
+      where: { id: thread.id },
+      data: { lastCommentAt: new Date() },
+    })
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: auth.attorney.id,
+      action: 'task_comment_added',
+      entityType: 'case_task',
+      entityId: id,
+      metadata: { snippet: String(message).slice(0, 140) },
+    })
+
+    // Notify @mentioned firm members in-app (email-form mentions resolve to a user).
+    if (mentions.length) {
+      const authorId = req.user?.id
+      const authorName = req.user ? `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() : 'A colleague'
+      const snippet = (message || '').slice(0, 140)
+      void (async () => {
+        try {
+          const emails = Array.from(
+            new Set(
+              mentions
+                .map((t) => t.replace(/^@/, '').toLowerCase())
+                .filter((t) => t.includes('@')),
+            ),
+          )
+          if (!emails.length) return
+          const users = await prisma.user.findMany({
+            where: { email: { in: emails } },
+            select: { id: true, email: true },
+          })
+          const link = `/attorney-dashboard/lead/${leadId}/tasks`
+          for (const u of users) {
+            if (u.id === authorId) continue
+            await createNotificationEvent({
+              userId: u.id,
+              role: 'attorney',
+              channel: 'in_app',
+              eventType: 'attorney.mention',
+              subject: `${authorName || 'A colleague'} mentioned you on a task`,
+              body: snippet,
+              recipient: u.email || undefined,
+              payload: { link, leadId },
+            })
+          }
+        } catch (err) {
+          logger.warn('Failed to notify mentioned members (task)', { error: (err as Error).message })
+        }
+      })()
+    }
+
+    res.json(comment)
+  } catch (error: any) {
+    logger.error('Failed to add task comment', { error: error.message })
+    res.status(500).json({ error: 'Failed to add task comment' })
+  }
+})
+
+// Task activity history, derived from the audit log (entityId = task id).
+router.get('/leads/:leadId/tasks/:id/history', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, id } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const task = await prisma.caseTask.findUnique({ where: { id }, select: { id: true, assessmentId: true } })
+    if (!task || task.assessmentId !== auth.lead.assessmentId) {
+      return res.status(404).json({ error: 'Task not found' })
+    }
+    const logs = await prisma.auditLog.findMany({
+      where: { entityId: id },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: { user: { select: { firstName: true, lastName: true, email: true } } },
+    })
+    res.json(
+      logs.map((l) => {
+        let metadata: any = null
+        try {
+          metadata = l.metadata ? JSON.parse(l.metadata) : null
+        } catch {
+          metadata = null
+        }
+        const actor =
+          [l.user?.firstName, l.user?.lastName].filter(Boolean).join(' ').trim() || l.user?.email || 'System'
+        return { id: l.id, action: l.action, actor, metadata, createdAt: l.createdAt }
+      }),
+    )
+  } catch (error: any) {
+    logger.error('Failed to load task history', { error: error.message })
+    res.status(500).json({ error: 'Failed to load task history' })
   }
 })
 
