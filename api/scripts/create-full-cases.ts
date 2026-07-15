@@ -59,6 +59,10 @@ const ATTORNEY_NAME = (process.env.ATTORNEY_NAME || '').trim()
 const NUM_ACTIVE = Number(process.env.NUM_ACTIVE || 6)
 const NUM_NEW = Number(process.env.NUM_NEW || 4)
 const FORCE = process.env.FORCE === '1'
+// Shift the deterministic slot numbering so a top-up run creates brand-new cases
+// instead of colliding with (and skipping) already-seeded slots. e.g. an attorney
+// already has slots 1..20 -> pass SLOT_OFFSET=20 to create slots 21..N.
+const SLOT_OFFSET = Number(process.env.SLOT_OFFSET || 0)
 
 // Used only when the attorney/firm must be created (ATTORNEY_EMAIL not found).
 const FIRM_NAME = process.env.FIRM_NAME || 'Reddy Law Firm'
@@ -872,7 +876,7 @@ async function main() {
     const city = rand(CA_CITIES[county])
     const incidentDate = randDate(2023)
     const plaintiff = `${first} ${last}`
-    const slot = n + 1
+    const slot = n + 1 + SLOT_OFFSET
     const caseLabel = `${TEMPLATES[claimType].label} #${slot}`
 
     const plaintiffEmail = `plaintiff.${emailNs}.${slot}@${emailNs}-demo.clearcaseiq.test`

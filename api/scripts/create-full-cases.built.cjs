@@ -22,7 +22,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// api/scripts/create-full-cases.ts
+// scripts/create-full-cases.ts
 var import_client = require("@prisma/client");
 var import_bcryptjs = __toESM(require("bcryptjs"));
 var import_path = __toESM(require("path"));
@@ -44,6 +44,7 @@ var ATTORNEY_NAME = (process.env.ATTORNEY_NAME || "").trim();
 var NUM_ACTIVE = Number(process.env.NUM_ACTIVE || 6);
 var NUM_NEW = Number(process.env.NUM_NEW || 4);
 var FORCE = process.env.FORCE === "1";
+var SLOT_OFFSET = Number(process.env.SLOT_OFFSET || 0);
 var FIRM_NAME = process.env.FIRM_NAME || "Reddy Law Firm";
 var FIRM_SLUG = process.env.FIRM_SLUG || "reddy-law-firm";
 var ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "password123";
@@ -916,7 +917,7 @@ Attorney already has ${existingCount} lead submission(s) and ${existingIntros} i
     const city = rand(CA_CITIES[county]);
     const incidentDate = randDate(2023);
     const plaintiff = `${first} ${last}`;
-    const slot = n + 1;
+    const slot = n + 1 + SLOT_OFFSET;
     const caseLabel = `${TEMPLATES[claimType].label} #${slot}`;
     const plaintiffEmail = `plaintiff.${emailNs}.${slot}@${emailNs}-demo.clearcaseiq.test`;
     const user = await prisma.user.upsert({
