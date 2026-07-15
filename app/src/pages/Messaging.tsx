@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import Tooltip from '../components/Tooltip'
 import { formatClaimTypeShort } from '../lib/constants'
+import { linkify } from '../lib/linkify'
 
 interface ChatRoom {
   id: string
@@ -384,7 +385,7 @@ export default function Messaging() {
                             ? 'bg-primary-600 text-white'
                             : 'bg-gray-100 text-gray-900'
                         }`}>
-                          <p className="text-sm">{message.content}</p>
+                          <p className="text-sm whitespace-pre-wrap break-words">{linkify(message.content, message.senderType === 'user' ? 'underline break-all text-white hover:text-white/80' : 'underline break-all text-primary-600 hover:text-primary-700')}</p>
                           <p className={`text-xs mt-1 ${
                             message.senderType === 'user' ? 'text-primary-100' : 'text-gray-500'
                           }`}>

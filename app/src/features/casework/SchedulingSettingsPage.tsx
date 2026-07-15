@@ -7,9 +7,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   CalendarClock,
+  CalendarDays,
   Check,
   Copy,
   ExternalLink,
+  List,
   Pencil,
   Plus,
   Trash2,
@@ -282,16 +284,73 @@ function ShareLinkCard({ settings, onChange }: { settings: SchedulingSettings; o
 /* Weekly availability                                                        */
 /* -------------------------------------------------------------------------- */
 
+type EditableDay = { dayOfWeek: number; label: string; isAvailable: boolean; slots: { startTime: string; endTime: string }[] }
+
+function normalizeDays(availability: SchedulingAvailabilityDay[]): EditableDay[] {
+  return availability.map((d) => ({
+    dayOfWeek: d.dayOfWeek,
+    label: d.label,
+    isAvailable: d.isAvailable,
+    slots:
+      d.slots && d.slots.length > 0
+        ? d.slots.map((s) => ({ startTime: s.startTime, endTime: s.endTime }))
+        : [{ startTime: '09:00', endTime: '17:00' }],
+  }))
+}
+
 function AvailabilityCard({ settings, onSaved }: { settings: SchedulingSettings; onSaved: () => void }) {
-  const [days, setDays] = useState<SchedulingAvailabilityDay[]>(settings.availability)
+  const [days, setDays] = useState<EditableDay[]>(() => normalizeDays(settings.availability))
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [copyFrom, setCopyFrom] = useState<number | null>(null)
+  const [view, setView] = useState<'list' | 'calendar'>('list')
 
-  useEffect(() => setDays(settings.availability), [settings.availability])
+  useEffect(() => setDays(normalizeDays(settings.availability)), [settings.availability])
 
-  const patch = (dayOfWeek: number, next: Partial<SchedulingAvailabilityDay>) => {
-    setDays((prev) => prev.map((d) => (d.dayOfWeek === dayOfWeek ? { ...d, ...next } : d)))
+  const mutateDay = (dayOfWeek: number, fn: (d: EditableDay) => EditableDay) => {
+    setDays((prev) => prev.map((d) => (d.dayOfWeek === dayOfWeek ? fn(d) : d)))
+    setSaved(false)
+  }
+
+  const toggleDay = (dayOfWeek: number, checked: boolean) =>
+    mutateDay(dayOfWeek, (d) => ({
+      ...d,
+      isAvailable: checked,
+      slots: checked && d.slots.length === 0 ? [{ startTime: '09:00', endTime: '17:00' }] : d.slots,
+    }))
+
+  const patchSlot = (dayOfWeek: number, idx: number, next: Partial<{ startTime: string; endTime: string }>) =>
+    mutateDay(dayOfWeek, (d) => ({
+      ...d,
+      slots: d.slots.map((s, i) => (i === idx ? { ...s, ...next } : s)),
+    }))
+
+  const addSlot = (dayOfWeek: number) =>
+    mutateDay(dayOfWeek, (d) => {
+      const last = d.slots[d.slots.length - 1]
+      // Suggest a slot after the last one (or a default afternoon block).
+      const next = last ? { startTime: last.endTime, endTime: bumpHour(last.endTime, 1) } : { startTime: '13:00', endTime: '17:00' }
+      return { ...d, isAvailable: true, slots: [...d.slots, next] }
+    })
+
+  const removeSlot = (dayOfWeek: number, idx: number) =>
+    mutateDay(dayOfWeek, (d) => {
+      const slots = d.slots.filter((_, i) => i !== idx)
+      return { ...d, slots, isAvailable: slots.length > 0 ? d.isAvailable : false }
+    })
+
+  const copyToDays = (fromDow: number, targetDows: number[]) => {
+    const source = days.find((d) => d.dayOfWeek === fromDow)
+    if (!source) return
+    setDays((prev) =>
+      prev.map((d) =>
+        targetDows.includes(d.dayOfWeek)
+          ? { ...d, isAvailable: source.isAvailable, slots: source.slots.map((s) => ({ ...s })) }
+          : d,
+      ),
+    )
+    setCopyFrom(null)
     setSaved(false)
   }
 
@@ -302,9 +361,8 @@ function AvailabilityCard({ settings, onSaved }: { settings: SchedulingSettings;
       await updateSchedulingAvailability(
         days.map((d) => ({
           dayOfWeek: d.dayOfWeek,
-          isAvailable: d.isAvailable,
-          startTime: d.startTime,
-          endTime: d.endTime,
+          isAvailable: d.isAvailable && d.slots.length > 0,
+          slots: d.isAvailable ? d.slots.map((s) => ({ startTime: s.startTime, endTime: s.endTime })) : [],
         })),
       )
       setSaved(true)
@@ -319,37 +377,116 @@ function AvailabilityCard({ settings, onSaved }: { settings: SchedulingSettings;
 
   return (
     <SectionCard title="Weekly hours">
-      <div className="space-y-2">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <p className="text-xs text-slate-500">
+          Add one or more time windows per day (e.g. a morning and an afternoon block). Use “Copy” to apply a
+          day’s hours to other days.
+        </p>
+        <div className="inline-flex shrink-0 overflow-hidden rounded-lg border border-slate-200 text-xs font-medium">
+          <button
+            type="button"
+            onClick={() => setView('list')}
+            className={`inline-flex items-center gap-1 px-2.5 py-1.5 ${
+              view === 'list' ? 'bg-slate-900 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'
+            }`}
+          >
+            <List className="h-3.5 w-3.5" /> List
+          </button>
+          <button
+            type="button"
+            onClick={() => setView('calendar')}
+            className={`inline-flex items-center gap-1 border-l border-slate-200 px-2.5 py-1.5 ${
+              view === 'calendar' ? 'bg-slate-900 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'
+            }`}
+          >
+            <CalendarDays className="h-3.5 w-3.5" /> Calendar
+          </button>
+        </div>
+      </div>
+      {view === 'calendar' && (
+        <WeekAvailabilityGrid
+          days={days}
+          onAddSlot={addSlot}
+          onRemoveSlot={removeSlot}
+        />
+      )}
+      <div className={`space-y-2 ${view === 'calendar' ? 'hidden' : ''}`}>
         {days.map((d) => (
-          <div key={d.dayOfWeek} className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-100 px-3 py-2">
-            <label className="flex w-28 items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={d.isAvailable}
-                onChange={(e) => patch(d.dayOfWeek, { isAvailable: e.target.checked })}
-                className="h-4 w-4 rounded border-slate-300 text-indigo-600"
-              />
-              <span className={d.isAvailable ? 'font-medium text-slate-800' : 'text-slate-400'}>{d.label.slice(0, 3)}</span>
-            </label>
-            {d.isAvailable ? (
-              <div className="flex items-center gap-2 text-sm">
+          <div key={d.dayOfWeek} className="rounded-lg border border-slate-100 px-3 py-2.5">
+            <div className="flex items-start justify-between gap-3">
+              <label className="flex w-28 shrink-0 items-center gap-2 pt-1.5 text-sm">
                 <input
-                  type="time"
-                  value={d.startTime}
-                  onChange={(e) => patch(d.dayOfWeek, { startTime: e.target.value })}
-                  className="rounded-lg border border-slate-200 px-2 py-1"
+                  type="checkbox"
+                  checked={d.isAvailable}
+                  onChange={(e) => toggleDay(d.dayOfWeek, e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-indigo-600"
                 />
-                <span className="text-slate-400">to</span>
-                <input
-                  type="time"
-                  value={d.endTime}
-                  onChange={(e) => patch(d.dayOfWeek, { endTime: e.target.value })}
-                  className="rounded-lg border border-slate-200 px-2 py-1"
-                />
+                <span className={d.isAvailable ? 'font-medium text-slate-800' : 'text-slate-400'}>
+                  {d.label.slice(0, 3)}
+                </span>
+              </label>
+
+              <div className="min-w-0 flex-1">
+                {!d.isAvailable ? (
+                  <span className="inline-block pt-1.5 text-sm text-slate-400">Unavailable</span>
+                ) : (
+                  <div className="space-y-1.5">
+                    {d.slots.map((s, i) => (
+                      <div key={i} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="time"
+                          value={s.startTime}
+                          onChange={(e) => patchSlot(d.dayOfWeek, i, { startTime: e.target.value })}
+                          className="rounded-lg border border-slate-200 px-2 py-1"
+                        />
+                        <span className="text-slate-400">to</span>
+                        <input
+                          type="time"
+                          value={s.endTime}
+                          onChange={(e) => patchSlot(d.dayOfWeek, i, { endTime: e.target.value })}
+                          className="rounded-lg border border-slate-200 px-2 py-1"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeSlot(d.dayOfWeek, i)}
+                          className="rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                          aria-label="Remove time slot"
+                          title="Remove"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => addSlot(d.dayOfWeek)}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Add time slot
+                    </button>
+                  </div>
+                )}
               </div>
-            ) : (
-              <span className="text-sm text-slate-400">Unavailable</span>
-            )}
+
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setCopyFrom(copyFrom === d.dayOfWeek ? null : d.dayOfWeek)}
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                  title="Copy these hours to other days"
+                >
+                  <Copy className="h-3.5 w-3.5" /> Copy
+                </button>
+                {copyFrom === d.dayOfWeek && (
+                  <CopyToPopover
+                    fromDow={d.dayOfWeek}
+                    days={days}
+                    onApply={(targets) => copyToDays(d.dayOfWeek, targets)}
+                    onClose={() => setCopyFrom(null)}
+                  />
+                )}
+              </div>
+            </div>
           </div>
         ))}
       </div>
@@ -366,6 +503,200 @@ function AvailabilityCard({ settings, onSaved }: { settings: SchedulingSettings;
         </button>
       </div>
     </SectionCard>
+  )
+}
+
+// Add one hour to an "HH:MM" string, clamped to 23:59.
+function bumpHour(hhmm: string, hours: number): string {
+  const [h, m] = hhmm.split(':').map((x) => parseInt(x, 10))
+  const total = Math.min(h * 60 + m + hours * 60, 23 * 60 + 59)
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
+
+function CopyToPopover({
+  fromDow,
+  days,
+  onApply,
+  onClose,
+}: {
+  fromDow: number
+  days: EditableDay[]
+  onApply: (targets: number[]) => void
+  onClose: () => void
+}) {
+  const [selected, setSelected] = useState<number[]>([])
+  const targets = days.filter((d) => d.dayOfWeek !== fromDow)
+  const toggle = (dow: number) =>
+    setSelected((prev) => (prev.includes(dow) ? prev.filter((x) => x !== dow) : [...prev, dow]))
+  return (
+    <div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+      <p className="px-1 pb-1 text-xs font-semibold text-slate-500">Copy to…</p>
+      <div className="max-h-48 overflow-y-auto">
+        {targets.map((d) => (
+          <label key={d.dayOfWeek} className="flex items-center gap-2 rounded px-1 py-1 text-sm hover:bg-slate-50">
+            <input
+              type="checkbox"
+              checked={selected.includes(d.dayOfWeek)}
+              onChange={() => toggle(d.dayOfWeek)}
+              className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600"
+            />
+            {d.label}
+          </label>
+        ))}
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
+        <button type="button" onClick={onClose} className="text-xs text-slate-500 hover:text-slate-700">
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={selected.length === 0}
+          onClick={() => onApply(selected)}
+          className="rounded-md bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
+        >
+          Apply
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Weekly calendar grid visualization of availability. Blocks are positioned by
+// time; each day column has a quick "add" affordance and each block a hover
+// delete. Fine time edits stay in the List view.
+function WeekAvailabilityGrid({
+  days,
+  onAddSlot,
+  onRemoveSlot,
+}: {
+  days: EditableDay[]
+  onAddSlot: (dayOfWeek: number) => void
+  onRemoveSlot: (dayOfWeek: number, idx: number) => void
+}) {
+  const toMin = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map((x) => parseInt(x, 10))
+    return (Number.isNaN(h) ? 0 : h) * 60 + (Number.isNaN(m) ? 0 : m)
+  }
+  const label12 = (min: number) => {
+    const h24 = Math.floor(min / 60)
+    const m = min % 60
+    const isPm = h24 >= 12
+    const h12 = h24 % 12 === 0 ? 12 : h24 % 12
+    return m === 0 ? `${h12} ${isPm ? 'PM' : 'AM'}` : `${h12}:${String(m).padStart(2, '0')} ${isPm ? 'PM' : 'AM'}`
+  }
+
+  // Visible time range: default 8am–6pm, expanded to include every slot.
+  let minStart = 8 * 60
+  let maxEnd = 18 * 60
+  for (const d of days) {
+    if (!d.isAvailable) continue
+    for (const s of d.slots) {
+      minStart = Math.min(minStart, toMin(s.startTime))
+      maxEnd = Math.max(maxEnd, toMin(s.endTime))
+    }
+  }
+  minStart = Math.floor(minStart / 60) * 60
+  maxEnd = Math.ceil(maxEnd / 60) * 60
+  if (maxEnd <= minStart) maxEnd = minStart + 60
+
+  const HOUR_PX = 44
+  const pxPerMin = HOUR_PX / 60
+  const bodyHeight = (maxEnd - minStart) * pxPerMin
+  const hours: number[] = []
+  for (let h = minStart; h <= maxEnd; h += 60) hours.push(h)
+
+  return (
+    <div className="overflow-x-auto pb-1">
+      <div className="min-w-[560px]">
+        {/* Day headers */}
+        <div className="grid" style={{ gridTemplateColumns: '48px repeat(7, minmax(0, 1fr))' }}>
+          <div />
+          {days.map((d) => (
+            <div
+              key={`h-${d.dayOfWeek}`}
+              className={`pb-1 text-center text-xs font-semibold ${
+                d.isAvailable ? 'text-slate-700' : 'text-slate-300'
+              }`}
+            >
+              {d.label.slice(0, 3)}
+            </div>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div className="grid" style={{ gridTemplateColumns: '48px repeat(7, minmax(0, 1fr))' }}>
+          {/* Time gutter */}
+          <div className="relative" style={{ height: bodyHeight }}>
+            {hours.map((h) => (
+              <div
+                key={`t-${h}`}
+                className="absolute right-1 -translate-y-1/2 text-[10px] text-slate-400"
+                style={{ top: (h - minStart) * pxPerMin }}
+              >
+                {h < maxEnd ? label12(h) : ''}
+              </div>
+            ))}
+          </div>
+
+          {/* Day columns */}
+          {days.map((d) => (
+            <div
+              key={`c-${d.dayOfWeek}`}
+              className="group/col relative border-l border-slate-100"
+              style={{ height: bodyHeight }}
+            >
+              {hours.map((h) => (
+                <div
+                  key={`g-${d.dayOfWeek}-${h}`}
+                  className="absolute inset-x-0 border-t border-slate-100"
+                  style={{ top: (h - minStart) * pxPerMin }}
+                />
+              ))}
+
+              {d.isAvailable &&
+                d.slots.map((s, i) => {
+                  const top = (toMin(s.startTime) - minStart) * pxPerMin
+                  const height = Math.max((toMin(s.endTime) - toMin(s.startTime)) * pxPerMin, 16)
+                  return (
+                    <div
+                      key={`b-${d.dayOfWeek}-${i}`}
+                      className="group/blk absolute inset-x-1 overflow-hidden rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] leading-tight text-indigo-700 shadow-sm"
+                      style={{ top, height }}
+                      title={`${label12(toMin(s.startTime))} – ${label12(toMin(s.endTime))}`}
+                    >
+                      <span className="block truncate font-medium">
+                        {label12(toMin(s.startTime))}
+                      </span>
+                      <span className="block truncate text-indigo-500">
+                        {label12(toMin(s.endTime))}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onRemoveSlot(d.dayOfWeek, i)}
+                        className="absolute right-0.5 top-0.5 hidden rounded bg-white/80 p-0.5 text-rose-500 hover:bg-white group-hover/blk:block"
+                        aria-label="Remove time slot"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )
+                })}
+
+              <button
+                type="button"
+                onClick={() => onAddSlot(d.dayOfWeek)}
+                className="absolute inset-x-1 bottom-0.5 hidden items-center justify-center gap-1 rounded-md border border-dashed border-slate-300 bg-white/70 py-0.5 text-[10px] font-medium text-slate-500 hover:border-indigo-300 hover:text-indigo-600 group-hover/col:flex"
+              >
+                <Plus className="h-3 w-3" /> Add
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+      <p className="mt-2 text-[11px] text-slate-400">
+        Hover a day to add a slot, or a block to remove it. Switch to List view to fine-tune exact times.
+      </p>
+    </div>
   )
 }
 

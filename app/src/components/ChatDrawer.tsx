@@ -10,8 +10,11 @@ import {
   getAttorneyChatRoomMessages,
   sendAttorneyMessage,
   markAttorneyMessagesRead,
-  getAttorneyMessageTemplates
+  getAttorneyMessageTemplates,
+  getSchedulingSettings
 } from '../lib/api'
+import { linkify } from '../lib/linkify'
+import { CalendarClock } from 'lucide-react'
 
 interface Message {
   id: string
@@ -70,6 +73,7 @@ export default function ChatDrawer({
   const [draftSaved, setDraftSaved] = useState(false)
   const [copied, setCopied] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [bookingUrl, setBookingUrl] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messageThreadRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -99,6 +103,27 @@ export default function ChatDrawer({
     if (!open) return
     getAttorneyMessageTemplates(leadId || undefined).then(setTemplates).catch(() => setTemplates([]))
   }, [leadId, open])
+
+  // Load the attorney's public booking link so they can insert it with one tap
+  // (the plaintiff then picks a time from the attorney's live availability).
+  useEffect(() => {
+    if (!open || bookingUrl) return
+    getSchedulingSettings()
+      .then((s) => setBookingUrl(s?.attorney?.publicUrl || null))
+      .catch(() => setBookingUrl(null))
+  }, [open, bookingUrl])
+
+  const shareBookingLink = () => {
+    if (!bookingUrl) return
+    const firstName = plaintiffName.split(' ')[0] || 'there'
+    const line = `Hi ${firstName}, you can pick a consultation time that works for you here: ${bookingUrl}`
+    setInput((prev) => {
+      const trimmed = prev.trim()
+      if (!trimmed) return line
+      if (trimmed.includes(bookingUrl)) return prev
+      return `${trimmed}\n\n${line}`
+    })
+  }
 
   useEffect(() => {
     const thread = messageThreadRef.current
@@ -273,7 +298,7 @@ export default function ChatDrawer({
                             <div className="text-xs opacity-80 mb-0.5">
                               {m.senderType === 'attorney' ? 'You' : plaintiffName}
                             </div>
-                            <div className="text-sm whitespace-pre-wrap">{m.content}</div>
+                            <div className="text-sm whitespace-pre-wrap break-words">{linkify(m.content, m.senderType === 'attorney' ? 'underline break-all text-white hover:text-white/80' : 'underline break-all text-brand-600 hover:text-brand-700')}</div>
                             <div className="text-xs opacity-70 mt-1">
                               {new Date(m.createdAt).toLocaleString()}
                             </div>
@@ -328,6 +353,16 @@ export default function ChatDrawer({
                 </div>
                 {channel !== 'in-app' && (
                   <p className="mt-2 text-xs text-amber-700">This sends in-app locally; copy for {channel.toUpperCase()}.</p>
+                )}
+                {bookingUrl && (
+                  <button
+                    type="button"
+                    onClick={shareBookingLink}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 shadow-sm hover:border-brand-300 hover:bg-brand-50"
+                  >
+                    <CalendarClock className="h-3.5 w-3.5" />
+                    Share booking link
+                  </button>
                 )}
               </div>
 

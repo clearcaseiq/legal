@@ -715,17 +715,13 @@ router.get('/attorney/:attorneyId/availability', async (req, res) => {
     const targetDate = new Date(date as string)
     const dayOfWeek = targetDate.getUTCDay()
 
-    // Get attorney's general availability for this day
-    const availability = await prisma.attorneyAvailability.findUnique({
-      where: {
-        attorneyId_dayOfWeek: {
-          attorneyId,
-          dayOfWeek
-        }
-      }
+    // Get attorney's general availability for this day. An attorney can have
+    // MULTIPLE windows per weekday (e.g. 09:00–12:00 and 13:00–17:00).
+    const availabilityRows = await prisma.attorneyAvailability.findMany({
+      where: { attorneyId, dayOfWeek },
     })
 
-    // Resolve the bookable window. When the attorney has explicitly configured
+    // Resolve the bookable window(s). When the attorney has explicitly configured
     // this weekday we honor it (including an explicit "unavailable"). When there
     // is NO configuration at all, fall back to standard weekday business hours so
     // that plaintiffs can still book — otherwise attorneys who never set up a
@@ -733,21 +729,21 @@ router.get('/attorney/:attorneyId/availability', async (req, res) => {
     // never be scheduled.
     const DEFAULT_START_TIME = '09:00'
     const DEFAULT_END_TIME = '17:00'
-    let windowStart: string
-    let windowEnd: string
-    if (availability) {
-      if (!availability.isAvailable) {
+    let windows: { startTime: string; endTime: string }[]
+    if (availabilityRows.length > 0) {
+      windows = availabilityRows
+        .filter((r) => r.isAvailable && r.startTime < r.endTime)
+        .map((r) => ({ startTime: r.startTime, endTime: r.endTime }))
+        .sort((a, b) => a.startTime.localeCompare(b.startTime))
+      if (windows.length === 0) {
         return res.json({ slots: [] })
       }
-      windowStart = availability.startTime
-      windowEnd = availability.endTime
     } else {
       // No explicit schedule: weekdays default to business hours, weekends closed.
       if (dayOfWeek === 0 || dayOfWeek === 6) {
         return res.json({ slots: [] })
       }
-      windowStart = DEFAULT_START_TIME
-      windowEnd = DEFAULT_END_TIME
+      windows = [{ startTime: DEFAULT_START_TIME, endTime: DEFAULT_END_TIME }]
     }
 
     // Get existing appointments for this date
@@ -779,17 +775,18 @@ router.get('/attorney/:attorneyId/availability', async (req, res) => {
       })
     ])
 
-    // Generate available slots
-    const slots = generateAvailableTimeSlots({
-      targetDate,
-      startTime: windowStart,
-      endTime: windowEnd,
-      duration: parseInt(duration as string),
-      existingAppointments: [
-        ...existingAppointments,
-        ...busyBlocksToAppointments(calendarBusyBlocks)
-      ]
-    })
+    // Generate available slots across every window. Windows are pre-sorted and
+    // non-overlapping (enforced on save), so concatenation stays chronological.
+    const busy = [...existingAppointments, ...busyBlocksToAppointments(calendarBusyBlocks)]
+    const slots = windows.flatMap((w) =>
+      generateAvailableTimeSlots({
+        targetDate,
+        startTime: w.startTime,
+        endTime: w.endTime,
+        duration: parseInt(duration as string),
+        existingAppointments: busy,
+      }),
+    )
 
     res.json({ slots })
   } catch (error) {

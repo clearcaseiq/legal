@@ -35,7 +35,10 @@ export interface CalItem {
   consult?: ConsultInfo
 }
 
-export type CalView = 'day' | 'week' | 'month'
+export type CalView = 'day' | 'week' | 'month' | 'list'
+
+/** How many days the agenda (list) view spans from its anchor. */
+export const LIST_SPAN_DAYS = 30
 
 export const HOUR_HEIGHT = 48
 export const DAY_MINUTES = 24 * 60
@@ -97,6 +100,10 @@ export function rangeForView(view: CalView, anchor: Date): { from: Date; to: Dat
   if (view === 'week') {
     const from = startOfWeek(anchor)
     return { from, to: addDays(from, 7) }
+  }
+  if (view === 'list') {
+    const from = startOfDay(anchor)
+    return { from, to: addDays(from, LIST_SPAN_DAYS) }
   }
   // month grid can show up to 6 weeks; pad generously.
   const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1)

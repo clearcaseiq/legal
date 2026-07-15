@@ -31,13 +31,17 @@ import { TimeGridView } from '../features/calendar/TimeGridView'
 import {
   CalItem,
   CalView,
+  LIST_SPAN_DAYS,
   MONTHS,
   addDays,
   addMonths,
   claimLabel,
   dateKeyOf,
   rangeForView,
+  sameDay,
+  startOfDay,
   startOfWeek,
+  timeLabel,
 } from '../features/calendar/calendarUtils'
 
 const MEETING_META: Record<string, { label: string; icon: typeof Video }> = {
@@ -50,6 +54,7 @@ const VIEWS: Array<{ key: CalView; label: string }> = [
   { key: 'day', label: 'Day' },
   { key: 'week', label: 'Week' },
   { key: 'month', label: 'Month' },
+  { key: 'list', label: 'List' },
 ]
 
 export default function CalendarPage() {
@@ -179,12 +184,20 @@ export default function CalendarPage() {
       const right = e.toLocaleDateString('en-US', sameMonth ? { day: 'numeric' } : { month: 'short', day: 'numeric' })
       return `${left} – ${right}, ${e.getFullYear()}`
     }
+    if (view === 'list') {
+      const s = startOfDay(anchor)
+      const e = addDays(s, LIST_SPAN_DAYS - 1)
+      const left = s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      const right = e.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      return `${left} – ${right}, ${e.getFullYear()}`
+    }
     return `${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()}`
   }, [view, anchor])
 
   const step = (dir: 1 | -1) => {
     if (view === 'day') setAnchor((d) => addDays(d, dir))
     else if (view === 'week') setAnchor((d) => addDays(d, dir * 7))
+    else if (view === 'list') setAnchor((d) => addDays(d, dir * LIST_SPAN_DAYS))
     else setAnchor((d) => addMonths(d, dir))
   }
   const goToday = () => setAnchor(new Date())
@@ -341,7 +354,14 @@ export default function CalendarPage() {
         </aside>
 
         <main className="min-w-0 flex-1">
-          {view === 'month' ? (
+          {view === 'list' ? (
+            <AgendaListView
+              anchor={anchor}
+              items={visibleItems}
+              loading={loading}
+              onItemClick={openItem}
+            />
+          ) : view === 'month' ? (
             <MonthView
               anchor={anchor}
               items={visibleItems}
@@ -484,6 +504,100 @@ function FilterToggle({
       </span>
       <span className={checked ? '' : 'text-slate-400'}>{label}</span>
     </button>
+  )
+}
+
+// Agenda / list view — upcoming items grouped by day within the anchor span.
+function AgendaListView({
+  anchor,
+  items,
+  loading,
+  onItemClick,
+}: {
+  anchor: Date
+  items: CalItem[]
+  loading: boolean
+  onItemClick: (item: CalItem) => void
+}) {
+  const from = startOfDay(anchor)
+  const to = addDays(from, LIST_SPAN_DAYS)
+
+  const groups = useMemo(() => {
+    const inRange = items
+      .filter((i) => i.date >= from && i.date < to)
+      .sort((a, b) => a.date.getTime() - b.date.getTime())
+    const map = new Map<string, { date: Date; items: CalItem[] }>()
+    for (const it of inRange) {
+      const key = dateKeyOf(it.date)
+      const g = map.get(key)
+      if (g) g.items.push(it)
+      else map.set(key, { date: startOfDay(it.date), items: [it] })
+    }
+    return Array.from(map.values())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, anchor])
+
+  const dotClass = (i: CalItem) =>
+    i.kind === 'task' ? 'bg-amber-500' : i.source === 'booking' ? 'bg-violet-500' : 'bg-sky-500'
+
+  const today = new Date()
+
+  return (
+    <div className="h-full overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+      {groups.length === 0 ? (
+        <div className="flex h-full flex-col items-center justify-center gap-2 p-10 text-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+            <Calendar className="h-6 w-6" />
+          </span>
+          <p className="text-sm font-medium text-slate-600">
+            {loading ? 'Loading…' : 'Nothing scheduled in this range'}
+          </p>
+          <p className="text-xs text-slate-400">Consultations, bookings and task deadlines will appear here.</p>
+        </div>
+      ) : (
+        <div className="divide-y divide-slate-100">
+          {groups.map((g) => {
+            const isToday = sameDay(g.date, today)
+            return (
+              <div key={dateKeyOf(g.date)} className="flex gap-4 px-4 py-3 sm:px-5">
+                <div className="w-16 shrink-0 pt-1 text-center">
+                  <p className={`text-[11px] font-semibold uppercase tracking-wider ${isToday ? 'text-brand-600' : 'text-slate-400'}`}>
+                    {g.date.toLocaleDateString('en-US', { weekday: 'short' })}
+                  </p>
+                  <p className={`text-2xl font-bold leading-tight ${isToday ? 'text-brand-600' : 'text-slate-800'}`}>
+                    {g.date.getDate()}
+                  </p>
+                  <p className="text-[11px] text-slate-400">{MONTHS[g.date.getMonth()].slice(0, 3)}</p>
+                </div>
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  {g.items.map((it) => (
+                    <button
+                      key={it.id}
+                      onClick={() => onItemClick(it)}
+                      className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50"
+                    >
+                      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${dotClass(it)}`} />
+                      <span className="w-20 shrink-0 text-xs font-medium text-slate-500">
+                        {it.hasTime ? timeLabel(it.date) : 'All day'}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{it.title}</span>
+                      {it.kind === 'consult' && it.consult?.eventTypeName ? (
+                        <span className="hidden shrink-0 truncate text-xs text-slate-400 sm:block">
+                          {it.consult.eventTypeName}
+                        </span>
+                      ) : it.kind === 'task' ? (
+                        <span className="hidden shrink-0 text-xs text-amber-600 sm:block">Task</span>
+                      ) : null}
+                      <ArrowUpRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-slate-500" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 

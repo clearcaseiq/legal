@@ -70,17 +70,28 @@ router.get('/settings', authMiddleware, async (req: AuthRequest, res) => {
       }),
     ])
 
-    const byDow = new Map(availabilityRows.map((a) => [a.dayOfWeek, a]))
+    // Group all windows per weekday (multiple windows per day are supported).
+    const byDow = new Map<number, typeof availabilityRows>()
+    for (const row of availabilityRows) {
+      const list = byDow.get(row.dayOfWeek)
+      if (list) list.push(row)
+      else byDow.set(row.dayOfWeek, [row])
+    }
     const availability = DAY_LABELS.map((label, dayOfWeek) => {
-      const row = byDow.get(dayOfWeek)
+      const rows = byDow.get(dayOfWeek) || []
+      const openRows = rows
+        .filter((r) => r.isAvailable && r.startTime < r.endTime)
+        .sort((a, b) => a.startTime.localeCompare(b.startTime))
+      const hasConfig = rows.length > 0
       const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5
-      return {
-        dayOfWeek,
-        label,
-        isAvailable: row ? row.isAvailable : isWeekday,
-        startTime: row?.startTime || '09:00',
-        endTime: row?.endTime || '17:00',
-      }
+      const isAvailable = hasConfig ? openRows.length > 0 : isWeekday
+      const slots =
+        openRows.length > 0
+          ? openRows.map((r) => ({ startTime: r.startTime, endTime: r.endTime }))
+          : isAvailable
+            ? [{ startTime: '09:00', endTime: '17:00' }]
+            : []
+      return { dayOfWeek, label, isAvailable, slots }
     })
 
     res.json({
@@ -153,21 +164,31 @@ router.patch('/settings', authMiddleware, async (req: AuthRequest, res) => {
   }
 })
 
+const SlotInput = z.object({
+  startTime: z.string().regex(HHMM),
+  endTime: z.string().regex(HHMM),
+})
+
 const AvailabilityUpdate = z.object({
   days: z
     .array(
       z.object({
         dayOfWeek: z.number().int().min(0).max(6),
         isAvailable: z.boolean(),
-        startTime: z.string().regex(HHMM),
-        endTime: z.string().regex(HHMM),
+        // New multi-slot shape. `startTime`/`endTime` still accepted for
+        // backward compatibility (treated as a single slot).
+        slots: z.array(SlotInput).max(12).optional(),
+        startTime: z.string().regex(HHMM).optional(),
+        endTime: z.string().regex(HHMM).optional(),
       }),
     )
     .min(1)
     .max(7),
 })
 
-// PUT /v1/scheduling/availability — replace the weekly availability grid.
+// PUT /v1/scheduling/availability — replace the weekly availability grid. Each
+// day may carry MULTIPLE time windows; closed days store a sentinel row so the
+// slot engine treats them as explicitly closed (not "unset → business hours").
 router.put('/availability', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const attorney = await getAttorneyByUser(req)
@@ -178,33 +199,51 @@ router.put('/availability', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
     }
 
+    // Normalize each day to a list of {startTime,endTime} windows and validate.
+    type Row = { dayOfWeek: number; startTime: string; endTime: string; isAvailable: boolean }
+    const rows: Row[] = []
     for (const day of parsed.data.days) {
-      if (day.isAvailable && day.startTime >= day.endTime) {
-        return res
-          .status(400)
-          .json({ error: `${DAY_LABELS[day.dayOfWeek]}: start time must be before end time` })
+      const label = DAY_LABELS[day.dayOfWeek]
+      const rawSlots =
+        day.slots && day.slots.length > 0
+          ? day.slots
+          : day.startTime && day.endTime
+            ? [{ startTime: day.startTime, endTime: day.endTime }]
+            : []
+
+      if (!day.isAvailable || rawSlots.length === 0) {
+        // Closed day — persist a sentinel so the day reads as explicitly closed.
+        rows.push({ dayOfWeek: day.dayOfWeek, startTime: '00:00', endTime: '00:00', isAvailable: false })
+        continue
+      }
+
+      // Sort + validate windows: each must be well-formed and not overlap.
+      const sorted = [...rawSlots].sort((a, b) => a.startTime.localeCompare(b.startTime))
+      let prevEnd = ''
+      for (const s of sorted) {
+        if (s.startTime >= s.endTime) {
+          return res.status(400).json({ error: `${label}: each slot's start must be before its end` })
+        }
+        if (prevEnd && s.startTime < prevEnd) {
+          return res.status(400).json({ error: `${label}: time slots overlap` })
+        }
+        prevEnd = s.endTime
+        rows.push({
+          dayOfWeek: day.dayOfWeek,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          isAvailable: true,
+        })
       }
     }
 
-    await prisma.$transaction(
-      parsed.data.days.map((day) =>
-        prisma.attorneyAvailability.upsert({
-          where: { attorneyId_dayOfWeek: { attorneyId: attorney.id, dayOfWeek: day.dayOfWeek } },
-          update: {
-            isAvailable: day.isAvailable,
-            startTime: day.startTime,
-            endTime: day.endTime,
-          },
-          create: {
-            attorneyId: attorney.id,
-            dayOfWeek: day.dayOfWeek,
-            isAvailable: day.isAvailable,
-            startTime: day.startTime,
-            endTime: day.endTime,
-          },
-        }),
-      ),
-    )
+    // Replace the whole grid atomically.
+    await prisma.$transaction([
+      prisma.attorneyAvailability.deleteMany({ where: { attorneyId: attorney.id } }),
+      prisma.attorneyAvailability.createMany({
+        data: rows.map((r) => ({ attorneyId: attorney.id, ...r })),
+      }),
+    ])
 
     res.json({ ok: true })
   } catch (error) {

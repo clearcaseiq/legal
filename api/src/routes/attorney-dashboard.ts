@@ -12121,6 +12121,50 @@ router.post('/messaging/send', authMiddleware, async (req: any, res) => {
       data: { lastMessageAt: new Date() }
     })
 
+    // Notify the plaintiff that their attorney sent a message. The in-app message
+    // bell already reflects unread counts, but without an email/notification a
+    // plaintiff who isn't actively on the site never learns a message arrived.
+    try {
+      const room = await prisma.chatRoom.findUnique({
+        where: { id: chatRoomId },
+        select: {
+          userId: true,
+          assessmentId: true,
+          user: { select: { email: true, firstName: true } },
+        },
+      })
+      if (room?.user?.email) {
+        const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000'
+        const attorneyName = auth.attorney.name || 'Your attorney'
+        const plaintiffName = room.user.firstName || 'there'
+        const preview =
+          content.trim().length > 300 ? `${content.trim().slice(0, 297)}…` : content.trim()
+        const messagingLink = `${baseUrl}/messaging`
+        await deliverDirectNotification({
+          type: 'email',
+          recipient: room.user.email,
+          subject: `New message from ${attorneyName}`,
+          message: `Hi ${plaintiffName},\n\n${attorneyName} sent you a new message:\n\n"${preview}"\n\nView and reply here:\n${messagingLink}\n\nBest regards,\nClearCaseIQ`,
+          userId: room.userId || null,
+          assessmentId: room.assessmentId || null,
+          role: 'plaintiff',
+          replyTo: auth.attorney.email || null,
+          fromName: attorneyName,
+          metadata: {
+            eventType: 'attorney_message',
+            chatRoomId,
+            assessmentId: room.assessmentId || null,
+            link: messagingLink,
+          },
+        })
+      }
+    } catch (notifyErr: any) {
+      logger.warn('Failed to notify plaintiff of attorney message', {
+        error: notifyErr?.message,
+        chatRoomId,
+      })
+    }
+
     res.status(201).json({
       messageId: message.id,
       chatRoomId,

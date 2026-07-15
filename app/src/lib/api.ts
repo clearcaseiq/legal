@@ -3705,12 +3705,17 @@ export async function updateFirmAttorney(attorneyId: string, payload: {
 
 export type BookingLocationType = 'video' | 'phone' | 'in_person'
 
+export interface SchedulingTimeSlot {
+  startTime: string
+  endTime: string
+}
+
 export interface SchedulingAvailabilityDay {
   dayOfWeek: number
   label: string
   isAvailable: boolean
-  startTime: string
-  endTime: string
+  // A day can have multiple windows (e.g. 09:00–12:00 and 13:00–17:00).
+  slots: SchedulingTimeSlot[]
 }
 
 export interface SchedulingEventType {
@@ -3746,7 +3751,7 @@ export async function updateSchedulingSettings(payload: { timezone?: string; boo
 }
 
 export async function updateSchedulingAvailability(
-  days: Array<{ dayOfWeek: number; isAvailable: boolean; startTime: string; endTime: string }>,
+  days: Array<{ dayOfWeek: number; isAvailable: boolean; slots: SchedulingTimeSlot[] }>,
 ) {
   const { data } = await api.put('/v1/scheduling/availability', { days })
   return data

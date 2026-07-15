@@ -74,6 +74,7 @@ import InsurancePanel from './InsurancePanel'
 import SettlementPanel from './SettlementPanel'
 import CaseWorkflowPanel from './CaseWorkflowPanel'
 import CaseTimePanel from './CaseTimePanel'
+import ConsultSchedulerModal from './ConsultSchedulerModal'
 import { BackButton, EmptyState } from '../shared/ui'
 import { recordRecentCase } from './recentCases'
 
@@ -315,6 +316,9 @@ export default function CaseWorkspacePage() {
   // (both the routing-fee payment path and the direct-accept path land here with
   // ?accepted=1). Local state so it survives the URL cleanup below and can be dismissed.
   const [showCongrats, setShowCongrats] = useState(searchParams.get('accepted') === '1')
+  // Right after a purchase/accept, prompt the attorney to schedule the first
+  // consultation with the client (invokes the scheduling/Calendly engine).
+  const [showScheduler, setShowScheduler] = useState(searchParams.get('accepted') === '1')
   // Where the user came from, so the back button + tab navigation return there.
   const fromParam = searchParams.get('from')
   const fromSuffix = fromParam ? `?from=${fromParam}` : ''
@@ -476,6 +480,17 @@ export default function CaseWorkspacePage() {
             <X className="h-4 w-4" />
           </button>
         </div>
+      )}
+
+      {showScheduler && detail && (
+        <ConsultSchedulerModal
+          leadId={leadId}
+          clientName={detail.client}
+          clientFirstName={lead?.assessment?.user?.firstName}
+          userId={lead?.assessment?.user?.id ?? null}
+          assessmentId={detail.assessmentId}
+          onClose={() => setShowScheduler(false)}
+        />
       )}
 
       {loading ? (

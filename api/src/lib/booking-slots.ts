@@ -120,30 +120,24 @@ export function computeBookableSlots(params: {
   const earliest = new Date(now.getTime() + minNoticeMinutes * 60000)
   const granularity = params.granularityMinutes ?? (durationMinutes >= 30 ? 30 : 15)
 
-  const byDow = new Map<number, AvailabilityWindow>()
-  for (const a of availability) byDow.set(a.dayOfWeek, a)
+  // Group ALL windows per weekday — an attorney can now have multiple availability
+  // windows on the same day (e.g. 09:00–12:00 and 13:00–17:00).
+  const byDow = new Map<number, AvailabilityWindow[]>()
+  for (const a of availability) {
+    const list = byDow.get(a.dayOfWeek)
+    if (list) list.push(a)
+    else byDow.set(a.dayOfWeek, [a])
+  }
 
   const slots: string[] = []
 
-  for (const { y, m, d } of eachDate(from, to)) {
-    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
-    const win = byDow.get(dow)
-
-    // Honor an explicit schedule (including explicit "closed"). With no schedule
-    // at all, fall back to weekday business hours so a brand-new attorney still
-    // has bookable slots.
-    let startHm: { h: number; m: number }
-    let endHm: { h: number; m: number }
-    if (win) {
-      if (!win.isAvailable) continue
-      startHm = parseHm(win.startTime)
-      endHm = parseHm(win.endTime)
-    } else {
-      if (dow === 0 || dow === 6) continue
-      startHm = { h: 9, m: 0 }
-      endHm = { h: 17, m: 0 }
-    }
-
+  const emitWindow = (
+    y: number,
+    m: number,
+    d: number,
+    startHm: { h: number; m: number },
+    endHm: { h: number; m: number },
+  ) => {
     const windowStart = zonedWallClockToUtc(y, m, d, startHm.h, startHm.m, timezone)
     const windowEnd = zonedWallClockToUtc(y, m, d, endHm.h, endHm.m, timezone)
 
@@ -161,7 +155,8 @@ export function computeBookableSlots(params: {
         const paddedStart = new Date(slotStart.getTime() - bufferBeforeMinutes * 60000)
         const paddedDuration = bufferBeforeMinutes + durationMinutes + bufferAfterMinutes
         if (!hasAppointmentConflict(paddedStart, paddedDuration, busy)) {
-          slots.push(slotStart.toISOString())
+          const iso = slotStart.toISOString()
+          if (!slots.includes(iso)) slots.push(iso)
         }
       }
 
@@ -169,6 +164,29 @@ export function computeBookableSlots(params: {
       guard += 1
     }
   }
+
+  for (const { y, m, d } of eachDate(from, to)) {
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+    const wins = byDow.get(dow)
+
+    if (wins && wins.length) {
+      // Honor an explicit schedule. A day is "open" only for its available
+      // windows; if every window is marked unavailable the day is closed.
+      const open = wins.filter((w) => w.isAvailable && w.startTime < w.endTime)
+      for (const w of open) {
+        emitWindow(y, m, d, parseHm(w.startTime), parseHm(w.endTime))
+      }
+    } else {
+      // No schedule at all → fall back to weekday business hours so a brand-new
+      // attorney still has bookable slots.
+      if (dow === 0 || dow === 6) continue
+      emitWindow(y, m, d, { h: 9, m: 0 }, { h: 17, m: 0 })
+    }
+  }
+
+  // Slots can be produced out of order when multiple windows exist; sort so the
+  // day/time picker renders them chronologically.
+  slots.sort()
 
   return slots
 }
