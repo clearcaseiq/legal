@@ -3,6 +3,8 @@
  * calendar (day / week / month views).
  */
 
+import type { EventReminder } from '../../lib/api'
+
 export type CalKind = 'consult' | 'task' | 'event'
 
 export interface ConsultInfo {
@@ -34,8 +36,9 @@ export interface EventInfo {
   description?: string | null
   location?: string | null
   allDay?: boolean
+  isPrivate?: boolean
   repeatFreq?: string | null
-  reminders?: number[]
+  reminders?: EventReminder[]
   attendees?: EventAttendeeInfo[]
   /** True when this instance is a generated occurrence of a repeating event. */
   recurring?: boolean

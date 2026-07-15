@@ -235,6 +235,7 @@ export async function serializeCaseWorkflow(cw: any) {
       dueDate: it.dueDate,
       required: it.required,
       templateId: it.templateId,
+      custom: Boolean(it.custom),
       status: aiStatusFor(it),
       completedAt: it.completedAt,
     })

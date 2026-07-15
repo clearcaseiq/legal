@@ -1619,6 +1619,15 @@ export async function getAttorneyCalendarAppointments(
 
 export type EventRepeatFreq = 'daily' | 'weekly' | 'monthly'
 
+export type ReminderRecipient = 'attorneys' | 'contacts' | 'all'
+export type ReminderChannel = 'email' | 'popup'
+
+export interface EventReminder {
+  offsetMinutes: number
+  recipient: ReminderRecipient
+  channel: ReminderChannel
+}
+
 export interface CalendarEventAttendeeDto {
   kind: 'staff' | 'client'
   firmMemberId?: string | null
@@ -1639,10 +1648,11 @@ export interface CalendarEventDto {
   assessmentId?: string | null
   leadId?: string | null
   allDay: boolean
+  isPrivate?: boolean
   repeatFreq?: EventRepeatFreq | null
   repeatUntil?: string | null
   recurring: boolean
-  reminders: number[]
+  reminders: EventReminder[]
   startAt: string
   endAt: string
   attendees: CalendarEventAttendeeDto[]
@@ -1656,9 +1666,10 @@ export interface CalendarEventInput {
   startAt: string
   endAt: string
   allDay?: boolean
+  isPrivate?: boolean
   repeatFreq?: EventRepeatFreq | null
   repeatUntil?: string | null
-  reminders?: number[]
+  reminders?: EventReminder[]
   attendees?: CalendarEventAttendeeDto[]
 }
 
@@ -1685,6 +1696,11 @@ export async function getEventInvitees(assessmentId?: string | null): Promise<Ev
   const { data } = await api.get('/v1/calendar-events/invitees', {
     params: assessmentId ? { assessmentId } : {},
   })
+  return data
+}
+
+export async function getCalendarLocations(): Promise<{ locations: string[] }> {
+  const { data } = await api.get('/v1/calendar-events/locations')
   return data
 }
 
@@ -4262,6 +4278,7 @@ export interface CaseWorkflowStep {
   dueDate: string | null
   required: boolean
   templateId: string | null
+  custom: boolean
   status: 'pending' | 'done' | 'skipped'
   completedAt: string | null
 }
@@ -4353,6 +4370,32 @@ export async function assignCaseWorkflowStep(
 
 export async function getMyWorkflowTasks(): Promise<{ tasks: MyWorkflowTask[] }> {
   const { data } = await api.get('/v1/attorney-dashboard/my-workflow-tasks')
+  return data
+}
+
+export async function addCaseWorkflowStep(
+  leadId: string,
+  payload: {
+    title: string
+    description?: string | null
+    phaseName?: string | null
+    phaseOrder?: number
+    stageName?: string | null
+    stageOrder?: number
+    firmMemberId?: string | null
+    dueDate?: string | null
+    required?: boolean
+  }
+): Promise<{ workflow: CaseWorkflow }> {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/workflow/items`, payload)
+  return data
+}
+
+export async function deleteCaseWorkflowStep(
+  leadId: string,
+  itemId: string
+): Promise<{ workflow: CaseWorkflow }> {
+  const { data } = await api.delete(`/v1/attorney-dashboard/leads/${leadId}/workflow/items/${itemId}`)
   return data
 }
 

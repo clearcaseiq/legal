@@ -489,19 +489,17 @@ export default function TasksPage() {
         </div>
       ) : null}
 
-      {workflowTasks.length > 0 && (
-        <SectionCard
-          title="Workflow steps assigned to me"
-          trailing={<Badge tone="brand">{workflowTasks.length}</Badge>}
-        >
-          <DataTable
-            columns={workflowColumns}
-            rows={workflowTasks}
-            rowKey={(r) => r.id}
-            emptyMessage="No workflow steps assigned to you."
-          />
-        </SectionCard>
-      )}
+      <SectionCard
+        title="Workflow steps assigned to me"
+        trailing={<Badge tone="brand">{workflowTasks.length}</Badge>}
+      >
+        <DataTable
+          columns={workflowColumns}
+          rows={workflowTasks}
+          rowKey={(r) => r.id}
+          emptyMessage="No workflow steps assigned to you yet. When a workflow is applied to a case and a step is assigned to you, it appears here."
+        />
+      </SectionCard>
 
       <StatGrid columns={5}>
         <FilterStat

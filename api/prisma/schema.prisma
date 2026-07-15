@@ -1560,8 +1560,12 @@ model CalendarEvent {
   repeatFreq  String?
   repeatUntil DateTime?
 
-  // JSON array of minutes-before-start reminder offsets, e.g. [10, 60, 1440].
+  // JSON reminders. Legacy: number[] of minutes-before. New: array of
+  // { offsetMinutes, recipient: attorneys|contacts|all, channel: email|popup }.
   reminders String?
+
+  // Private events are visible only to the creator and invited attendees.
+  isPrivate Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1858,6 +1862,9 @@ model CaseWorkflowItem {
   status        String    @default("pending") // pending, done, skipped
   completedAt   DateTime?
   completedById String?
+
+  // Ad-hoc task added on the case itself (not part of the firm template snapshot).
+  custom    Boolean  @default(false)
 
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())

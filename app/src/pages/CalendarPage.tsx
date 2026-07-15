@@ -28,6 +28,7 @@ import {
   getAttorneyTaskSummary,
   getAttorneyCalendarAppointments,
   getCalendarEvents,
+  getAttorneyFilteredLeads,
   type CalendarEventDto,
 } from '../lib/api'
 import { MiniMonth } from '../features/calendar/MiniMonth'
@@ -68,6 +69,23 @@ export default function CalendarPage() {
   const navigate = useNavigate()
   const { data } = useAttorneyDashboardSummary()
   const recentLeads = data?.recentLeads ?? []
+
+  // Full, fresh case/lead list for the "link a case" picker (the dashboard
+  // summary only carries a short recent list and can be stale).
+  const [pickerLeads, setPickerLeads] = useState<any[]>([])
+  const loadPickerLeads = useCallback(async () => {
+    try {
+      const res = await getAttorneyFilteredLeads({ limit: 500 })
+      setPickerLeads(res?.leads ?? [])
+    } catch {
+      /* keep whatever we have */
+    }
+  }, [])
+  useEffect(() => {
+    loadPickerLeads()
+  }, [loadPickerLeads])
+
+  const caseLeads = pickerLeads.length ? pickerLeads : recentLeads
 
   const [view, setView] = useState<CalView>('week')
   const [anchor, setAnchor] = useState(() => new Date())
@@ -190,6 +208,7 @@ export default function CalendarPage() {
                 description: dto.description,
                 location: dto.location,
                 allDay: dto.allDay,
+                isPrivate: dto.isPrivate,
                 repeatFreq: dto.repeatFreq,
                 reminders: dto.reminders,
                 recurring: dto.recurring,
@@ -279,6 +298,7 @@ export default function CalendarPage() {
   const openLeadPicker = (type: 'event' | 'task') => {
     setAddType(type)
     setAddChoiceOpen(false)
+    loadPickerLeads()
     setLeadPickerOpen(true)
   }
 
@@ -326,6 +346,7 @@ export default function CalendarPage() {
     setEventInitialDate(date)
     setAddChoiceOpen(false)
     setAddSlot(null)
+    loadPickerLeads()
     setAddEventOpen(true)
   }
 
@@ -561,7 +582,7 @@ export default function CalendarPage() {
           setAddSlot(null)
           setAddType(null)
         }}
-        leads={recentLeads}
+        leads={caseLeads}
         title={
           addSlot
             ? addType === 'task'
@@ -584,7 +605,7 @@ export default function CalendarPage() {
           setEditEventDto(null)
         }}
         onSaved={loadEvents}
-        leads={recentLeads as any}
+        leads={caseLeads as any}
         initialDate={eventInitialDate}
         editEvent={editEventDto}
       />

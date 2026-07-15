@@ -4,6 +4,11 @@ import { authMiddleware, type AuthRequest } from '../lib/auth'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { deliverDirectNotification } from '../lib/platform-notifications'
+import {
+  normalizeEventReminders,
+  parseEventReminders,
+  serializeEventReminders,
+} from '../lib/calendar-reminders'
 
 /**
  * MyCase-style general calendar events for attorneys: optionally linked to a
@@ -53,6 +58,16 @@ const AttendeeInput = z.object({
   share: z.boolean().optional(),
 })
 
+// A reminder is either a legacy minutes-before number or a rich object.
+const ReminderInput = z.union([
+  z.number().int().min(0).max(43200),
+  z.object({
+    offsetMinutes: z.number().int().min(0).max(43200),
+    recipient: z.enum(['attorneys', 'contacts', 'all']).optional(),
+    channel: z.enum(['email', 'popup']).optional(),
+  }),
+])
+
 const EventInput = z.object({
   title: z.string().min(1).max(300),
   description: z.string().max(5000).optional().nullable(),
@@ -61,9 +76,10 @@ const EventInput = z.object({
   startAt: z.string().min(1),
   endAt: z.string().min(1),
   allDay: z.boolean().optional(),
+  isPrivate: z.boolean().optional(),
   repeatFreq: z.enum(['daily', 'weekly', 'monthly']).optional().nullable(),
   repeatUntil: z.string().optional().nullable(),
-  reminders: z.array(z.number().int().min(0).max(43200)).max(6).optional(),
+  reminders: z.array(ReminderInput).max(6).optional(),
   attendees: z.array(AttendeeInput).max(50).optional(),
 })
 
@@ -99,16 +115,6 @@ function expandOccurrences(
     guard += 1
   }
   return out
-}
-
-function parseReminders(raw: string | null): number[] {
-  if (!raw) return []
-  try {
-    const arr = JSON.parse(raw)
-    return Array.isArray(arr) ? arr.filter((n) => typeof n === 'number') : []
-  } catch {
-    return []
-  }
 }
 
 function serializeAttendees(
@@ -178,7 +184,7 @@ router.get('/', authMiddleware, async (req: AuthRequest, res) => {
 
     const out: any[] = []
     for (const ev of events) {
-      const reminders = parseReminders(ev.reminders)
+      const reminders = parseEventReminders(ev.reminders)
       const attendees = serializeAttendees(ev.attendees as any, roleByMember)
       for (const occ of expandOccurrences(ev, from, to)) {
         out.push({
@@ -190,6 +196,7 @@ router.get('/', authMiddleware, async (req: AuthRequest, res) => {
           assessmentId: ev.assessmentId,
           leadId: ev.assessmentId ? leadMap.get(ev.assessmentId) || null : null,
           allDay: ev.allDay,
+          isPrivate: ev.isPrivate,
           repeatFreq: ev.repeatFreq,
           repeatUntil: ev.repeatUntil ? ev.repeatUntil.toISOString() : null,
           recurring: !!ev.repeatFreq,
@@ -261,6 +268,63 @@ router.get('/invitees', authMiddleware, async (req: AuthRequest, res) => {
     res.json({ staff, client })
   } catch (error) {
     logger.error('Failed to load event invitees', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/** Format a saved firm location object into a single display string. */
+function formatLocation(loc: any): string {
+  if (!loc) return ''
+  if (typeof loc === 'string') return loc.trim()
+  const parts = [loc.name, loc.address, loc.city, loc.state, loc.zip]
+    .map((p) => (typeof p === 'string' ? p.trim() : ''))
+    .filter(Boolean)
+  return parts.join(', ')
+}
+
+// GET /v1/calendar-events/locations — the firm's saved locations for the picker.
+router.get('/locations', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const attorney = await getAttorney(req)
+    if (!attorney) return res.status(404).json({ error: 'Attorney profile not found' })
+
+    const seen = new Set<string>()
+    const locations: string[] = []
+    const add = (raw: any) => {
+      const label = formatLocation(raw)
+      const key = label.toLowerCase()
+      if (label && !seen.has(key)) {
+        seen.add(key)
+        locations.push(label)
+      }
+    }
+
+    // Saved locations from the attorney's profile (JSON array).
+    const profile = await prisma.attorneyProfile.findFirst({
+      where: { attorneyId: attorney.id },
+      select: { firmLocations: true },
+    })
+    if (profile?.firmLocations) {
+      try {
+        const arr = JSON.parse(profile.firmLocations)
+        if (Array.isArray(arr)) arr.forEach(add)
+      } catch {
+        /* ignore malformed */
+      }
+    }
+
+    // Fall back to / include the law firm's primary address.
+    if (attorney.lawFirmId) {
+      const firm = await prisma.lawFirm.findUnique({
+        where: { id: attorney.lawFirmId },
+        select: { address: true, city: true, state: true, zip: true },
+      })
+      if (firm) add(firm)
+    }
+
+    res.json({ locations })
+  } catch (error) {
+    logger.error('Failed to load calendar locations', { error })
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -356,9 +420,10 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
         startAt,
         endAt,
         allDay: d.allDay ?? false,
+        isPrivate: d.isPrivate ?? false,
         repeatFreq: d.repeatFreq || null,
         repeatUntil: d.repeatUntil ? new Date(d.repeatUntil) : null,
-        reminders: d.reminders && d.reminders.length ? JSON.stringify(d.reminders) : null,
+        reminders: serializeEventReminders(normalizeEventReminders(d.reminders)),
         attendees: { create: attendeeCreateData(d.attendees) },
       },
       include: { attendees: true },
@@ -398,9 +463,10 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res) => {
     if (d.location !== undefined) data.location = d.location || null
     if (d.assessmentId !== undefined) data.assessmentId = d.assessmentId || null
     if (d.allDay !== undefined) data.allDay = d.allDay
+    if (d.isPrivate !== undefined) data.isPrivate = d.isPrivate
     if (d.repeatFreq !== undefined) data.repeatFreq = d.repeatFreq || null
     if (d.repeatUntil !== undefined) data.repeatUntil = d.repeatUntil ? new Date(d.repeatUntil) : null
-    if (d.reminders !== undefined) data.reminders = d.reminders && d.reminders.length ? JSON.stringify(d.reminders) : null
+    if (d.reminders !== undefined) data.reminders = serializeEventReminders(normalizeEventReminders(d.reminders))
     if (d.startAt !== undefined) data.startAt = new Date(d.startAt)
     if (d.endAt !== undefined) data.endAt = new Date(d.endAt)
 

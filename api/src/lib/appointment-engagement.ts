@@ -1,6 +1,7 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { deliverDirectNotification } from './platform-notifications'
+import { parseEventReminders } from './calendar-reminders'
 
 const DEFAULT_REMINDER_SCHEDULE = [
   { key: 'upcoming_24h', minutesBefore: 24 * 60, lead: 'in about 24 hours' },
@@ -428,7 +429,7 @@ export async function sweepUpcomingCalendarEventReminders() {
       reminders: { not: null },
       startAt: { lte: maxHorizon },
     },
-    include: { attendees: { select: { email: true, userId: true } } },
+    include: { attendees: { select: { email: true, userId: true, kind: true } } },
   })
   if (events.length === 0) return { scanned: 0, sentCount: 0 }
 
@@ -441,25 +442,34 @@ export async function sweepUpcomingCalendarEventReminders() {
 
   let sentCount = 0
   for (const ev of events) {
-    const offsets = parseJson<number[]>(ev.reminders, [])?.filter((n) => typeof n === 'number') || []
-    if (offsets.length === 0) continue
+    const reminders = parseEventReminders(ev.reminders)
+    if (reminders.length === 0) continue
 
     const att = attMap.get(ev.attorneyId)
     const tz = att?.schedulingTimezone || undefined
 
-    const recipients: Array<{ email: string; userId: string | null }> = []
-    const seenEmail = new Set<string>()
+    // Partition potential recipients into attorney/staff vs client contacts so
+    // each reminder can target the right group.
+    const staff: Array<{ email: string; userId: string | null }> = []
+    const contacts: Array<{ email: string; userId: string | null }> = []
     for (const a of ev.attendees) {
-      if (a.email && !seenEmail.has(a.email)) {
-        recipients.push({ email: a.email, userId: a.userId })
-        seenEmail.add(a.email)
-      }
+      if (!a.email) continue
+      if (a.kind === 'client') contacts.push({ email: a.email, userId: a.userId })
+      else staff.push({ email: a.email, userId: a.userId })
     }
-    if (att?.email && !seenEmail.has(att.email)) {
-      recipients.push({ email: att.email, userId: null })
-      seenEmail.add(att.email)
+    // The owning attorney is always part of the attorney/staff group.
+    if (att?.email) staff.push({ email: att.email, userId: null })
+
+    const recipientsFor = (group: 'attorneys' | 'contacts' | 'all') => {
+      const pool = group === 'contacts' ? contacts : group === 'attorneys' ? staff : [...staff, ...contacts]
+      const seen = new Set<string>()
+      return pool.filter((r) => {
+        const key = r.email.toLowerCase()
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
     }
-    if (recipients.length === 0) continue
 
     for (const occ of expandEventOccurrences(ev, now, maxHorizon)) {
       const minutesUntil = Math.round((occ.start.getTime() - now.getTime()) / 60000)
@@ -470,10 +480,15 @@ export async function sweepUpcomingCalendarEventReminders() {
         timeStyle: 'short',
         ...(tz ? { timeZone: tz } : {}),
       })
-      for (const offset of offsets) {
+      for (const rem of reminders) {
+        const offset = rem.offsetMinutes
         const inWindow = minutesUntil <= offset && minutesUntil > offset - 15
         if (!inWindow) continue
-        const reminderKey = `${ev.id}|${occIso}|${offset}`
+
+        const recipients = recipientsFor(rem.recipient)
+        if (recipients.length === 0) continue
+
+        const reminderKey = `${ev.id}|${occIso}|${offset}|${rem.recipient}|${rem.channel}`
         const prior = await prisma.notification.findFirst({
           where: { subject: 'Event reminder', metadata: { contains: reminderKey } },
           select: { id: true },
@@ -493,8 +508,11 @@ export async function sweepUpcomingCalendarEventReminders() {
         ]
         if (ev.location) lines.push(`Where: ${ev.location}`)
 
+        // 'popup' reminders create an in-app notification only; 'email' also emails.
+        const notifType = rem.channel === 'popup' ? 'in_app' : 'email'
         for (const r of recipients) {
           await createNotification({
+            type: notifType,
             recipient: r.email,
             userId: r.userId,
             subject: 'Event reminder',

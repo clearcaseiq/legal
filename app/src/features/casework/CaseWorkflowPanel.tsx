@@ -20,12 +20,17 @@ import {
   MapPin,
   AlarmClock,
   ClipboardList,
+  Plus,
+  Trash2,
+  X,
 } from 'lucide-react'
 import {
   getCaseWorkflow,
   applyCaseWorkflow,
   updateCaseWorkflowStep,
   assignCaseWorkflowStep,
+  addCaseWorkflowStep,
+  deleteCaseWorkflowStep,
   type CaseWorkflow,
   type CaseWorkflowPhase,
   type CaseWorkflowStep,
@@ -139,6 +144,25 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
       setWorkflow(res.workflow)
     } catch (e: any) {
       alert(e?.response?.data?.error || 'Failed to assign step')
+      load()
+    } finally {
+      setPendingId(null)
+    }
+  }
+
+  const addTask = async (payload: Parameters<typeof addCaseWorkflowStep>[1]) => {
+    const res = await addCaseWorkflowStep(leadId, payload)
+    setWorkflow(res.workflow)
+  }
+
+  const removeTask = async (step: CaseWorkflowStep) => {
+    if (!window.confirm(`Delete task "${step.title}"?`)) return
+    setPendingId(step.id)
+    try {
+      const res = await deleteCaseWorkflowStep(leadId, step.id)
+      setWorkflow(res.workflow)
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Failed to delete task')
       load()
     } finally {
       setPendingId(null)
@@ -259,9 +283,23 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
                             canAssign={canAssign}
                             onToggle={() => toggle(step)}
                             onAssign={(firmMemberId) => assign(step, firmMemberId)}
+                            onDelete={() => removeTask(step)}
                           />
                         ))}
                       </ul>
+                      <AddTaskRow
+                        members={members}
+                        canAssign={canAssign}
+                        onAdd={(payload) =>
+                          addTask({
+                            ...payload,
+                            phaseName: phase.name,
+                            phaseOrder: phase.order,
+                            stageName: stage.name,
+                            stageOrder: stage.order,
+                          })
+                        }
+                      />
                     </div>
                   )
                 })}
@@ -330,6 +368,7 @@ function StepItem({
   canAssign,
   onToggle,
   onAssign,
+  onDelete,
 }: {
   step: CaseWorkflowStep
   pending: boolean
@@ -337,6 +376,7 @@ function StepItem({
   canAssign: boolean
   onToggle: () => void
   onAssign: (firmMemberId: string | null) => void
+  onDelete: () => void
 }) {
   const done = step.status === 'done'
   const due = dueMeta(step.dueDate, done)
@@ -384,6 +424,11 @@ function StepItem({
           {step.required && !step.readOnly && (
             <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-600 ring-1 ring-rose-200">
               Required
+            </span>
+          )}
+          {step.custom && (
+            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-600 ring-1 ring-emerald-200">
+              Added
             </span>
           )}
         </div>
@@ -438,6 +483,147 @@ function StepItem({
           )}
         </div>
       </div>
+      {step.custom && (
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={pending}
+          className="mt-0.5 shrink-0 text-slate-300 transition hover:text-rose-600 disabled:opacity-50"
+          title="Delete task"
+          aria-label="Delete task"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      )}
     </li>
+  )
+}
+
+/** Inline "add an ad-hoc task" control shown at the bottom of every stage. */
+function AddTaskRow({
+  members,
+  canAssign,
+  onAdd,
+}: {
+  members: FirmMemberOption[]
+  canAssign: boolean
+  onAdd: (payload: {
+    title: string
+    firmMemberId?: string | null
+    dueDate?: string | null
+    required?: boolean
+  }) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState('')
+  const [firmMemberId, setFirmMemberId] = useState('')
+  const [dueDate, setDueDate] = useState('')
+  const [required, setRequired] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const reset = () => {
+    setTitle('')
+    setFirmMemberId('')
+    setDueDate('')
+    setRequired(false)
+  }
+
+  const submit = async () => {
+    if (!title.trim() || saving) return
+    setSaving(true)
+    try {
+      await onAdd({
+        title: title.trim(),
+        firmMemberId: firmMemberId || null,
+        dueDate: dueDate || null,
+        required,
+      })
+      reset()
+      setOpen(false)
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Failed to add task')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="border-t border-slate-100 px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700 transition hover:text-brand-800"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add task
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="border-t border-slate-100 bg-slate-50/60 px-3 py-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-slate-600">New task</span>
+        <button
+          type="button"
+          onClick={() => {
+            reset()
+            setOpen(false)
+          }}
+          className="grid h-6 w-6 place-items-center rounded text-slate-400 transition hover:bg-white hover:text-slate-600"
+          aria-label="Cancel"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="mt-2 space-y-2">
+        <input
+          autoFocus
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submit()
+          }}
+          placeholder="e.g. Follow up with adjuster"
+          className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          {canAssign && (
+            <select
+              value={firmMemberId}
+              onChange={(e) => setFirmMemberId(e.target.value)}
+              className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs text-slate-700 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+            >
+              <option value="">Unassigned</option>
+              {members.map((m) => (
+                <option key={m.firmMemberId} value={m.firmMemberId}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <input
+            type="date"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
+            className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs text-slate-700 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+          />
+          <label className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+            <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} />
+            Required
+          </label>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!title.trim() || saving}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-700 disabled:opacity-60"
+          >
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

@@ -4614,6 +4614,12 @@ router.get('/leads/filtered', authMiddleware, async (req: any, res) => {
             venueState: true,
             venueCounty: true,
             facts: true,
+            user: {
+              select: {
+                firstName: true,
+                lastName: true,
+              },
+            },
             files: {
               select: {
                 originalName: true,
@@ -8404,6 +8410,135 @@ router.patch('/leads/:leadId/workflow/items/:itemId/assignee', authMiddleware, a
   } catch (error: any) {
     logger.error('Failed to assign workflow step', { error: error.message })
     res.status(500).json({ error: 'Failed to assign workflow step' })
+  }
+})
+
+// Add an ad-hoc task to the case's workflow (within a given phase/stage).
+router.post('/leads/:leadId/workflow/items', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+
+    const b = req.body || {}
+    const title = typeof b.title === 'string' ? b.title.trim() : ''
+    if (!title) return res.status(400).json({ error: 'Task title is required' })
+
+    const cw = await (prisma as any).caseWorkflow.findUnique({
+      where: { assessmentId: lead.assessmentId },
+      select: { id: true },
+    })
+    if (!cw) return res.status(404).json({ error: 'No workflow on this case' })
+
+    const stageName = typeof b.stageName === 'string' && b.stageName.trim() ? b.stageName.trim() : 'Added tasks'
+    const phaseName = typeof b.phaseName === 'string' && b.phaseName.trim() ? b.phaseName.trim() : stageName
+    const phaseOrder = Number.isFinite(b.phaseOrder) ? Number(b.phaseOrder) : 0
+    const stageOrder = Number.isFinite(b.stageOrder) ? Number(b.stageOrder) : 0
+
+    // Validate optional assignee against the firm.
+    let member: any = null
+    const firmMemberId = typeof b.firmMemberId === 'string' && b.firmMemberId ? b.firmMemberId : null
+    if (firmMemberId) {
+      if (!attorney.lawFirmId) return res.status(400).json({ error: 'You are not part of a firm' })
+      member = await (prisma as any).firmMember.findFirst({
+        where: { id: firmMemberId, lawFirmId: attorney.lawFirmId, status: { in: ['active', 'invited'] } },
+        include: { user: { select: { id: true, email: true } } },
+      })
+      if (!member) return res.status(400).json({ error: 'That person is not a member of your firm' })
+    }
+
+    // Place the new item last within its stage.
+    const last = await (prisma as any).caseWorkflowItem.findFirst({
+      where: { caseWorkflowId: cw.id, phaseOrder, stageOrder },
+      orderBy: { sortOrder: 'desc' },
+      select: { sortOrder: true },
+    })
+    const sortOrder = (last?.sortOrder ?? -1) + 1
+
+    const dueDate = b.dueDate ? new Date(b.dueDate) : null
+
+    const created = await (prisma as any).caseWorkflowItem.create({
+      data: {
+        caseWorkflowId: cw.id,
+        phaseName,
+        phaseOrder,
+        stageName,
+        stageOrder,
+        title,
+        description: typeof b.description === 'string' && b.description.trim() ? b.description.trim() : null,
+        stepType: 'task',
+        assignedFirmMemberId: firmMemberId,
+        dueDate: dueDate && !Number.isNaN(dueDate.getTime()) ? dueDate : null,
+        required: Boolean(b.required),
+        custom: true,
+        status: 'pending',
+        sortOrder,
+      },
+    })
+
+    // Notify the assignee (system-generated), unless self-assigned.
+    if (member?.user?.id && member.user.id !== req.user?.id) {
+      try {
+        await createNotificationEvent({
+          userId: member.user.id,
+          role: 'attorney',
+          channel: 'in_app',
+          eventType: 'attorney.workflow_assignment',
+          subject: `You were assigned a workflow step`,
+          body: `“${created.title}” · ${stageName}`,
+          recipient: member.user.email || undefined,
+          payload: { link: `/attorney-dashboard/lead/${leadId}/workflow`, leadId },
+        })
+      } catch (err) {
+        logger.warn('Failed to notify workflow assignee', { error: (err as Error).message })
+      }
+    }
+
+    const fresh = await (prisma as any).caseWorkflow.findUnique({
+      where: { id: cw.id },
+      include: { items: true },
+    })
+    res.json({ workflow: await serializeCaseWorkflow(fresh) })
+  } catch (error: any) {
+    logger.error('Failed to add workflow task', { error: error.message })
+    res.status(500).json({ error: 'Failed to add workflow task' })
+  }
+})
+
+// Delete an ad-hoc (custom) task from the case's workflow. Template steps can't be deleted.
+router.delete('/leads/:leadId/workflow/items/:itemId', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, itemId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead } = auth
+
+    const cw = await (prisma as any).caseWorkflow.findUnique({
+      where: { assessmentId: lead.assessmentId },
+      select: { id: true },
+    })
+    if (!cw) return res.status(404).json({ error: 'No workflow on this case' })
+
+    const item = await (prisma as any).caseWorkflowItem.findFirst({
+      where: { id: itemId, caseWorkflowId: cw.id },
+      select: { id: true, custom: true },
+    })
+    if (!item) return res.status(404).json({ error: 'Step not found' })
+    if (!item.custom) {
+      return res.status(400).json({ error: 'Only tasks you added can be deleted' })
+    }
+
+    await (prisma as any).caseWorkflowItem.delete({ where: { id: itemId } })
+
+    const fresh = await (prisma as any).caseWorkflow.findUnique({
+      where: { id: cw.id },
+      include: { items: true },
+    })
+    res.json({ workflow: await serializeCaseWorkflow(fresh) })
+  } catch (error: any) {
+    logger.error('Failed to delete workflow task', { error: error.message })
+    res.status(500).json({ error: 'Failed to delete workflow task' })
   }
 })
 

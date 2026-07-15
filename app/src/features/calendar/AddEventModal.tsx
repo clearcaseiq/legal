@@ -3,18 +3,22 @@
  * + repeat), location, description, reminders, and staff/client invites.
  * Handles both create and edit (with delete) of a CalendarEvent.
  */
-import { useEffect, useMemo, useState } from 'react'
-import { X, Plus, Trash2, Calendar as CalendarIcon, Loader2, Bell, Users, User } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { X, Plus, Trash2, Calendar as CalendarIcon, Loader2, Bell, Users, User, Lock, MapPin } from 'lucide-react'
 import LeadPickerModal from '../../components/LeadPickerModal'
 import {
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
   getEventInvitees,
+  getCalendarLocations,
   type CalendarEventDto,
   type CalendarEventInput,
   type EventInvitees,
   type EventRepeatFreq,
+  type EventReminder,
+  type ReminderRecipient,
+  type ReminderChannel,
 } from '../../lib/api'
 
 interface LeadOption {
@@ -39,16 +43,56 @@ interface AddEventModalProps {
   editEvent?: CalendarEventDto | null
 }
 
-const REMINDER_OPTS: { v: number; label: string }[] = [
-  { v: 0, label: 'At start time' },
-  { v: 10, label: '10 minutes before' },
-  { v: 30, label: '30 minutes before' },
-  { v: 60, label: '1 hour before' },
-  { v: 120, label: '2 hours before' },
-  { v: 1440, label: '1 day before' },
-  { v: 2880, label: '2 days before' },
-  { v: 10080, label: '1 week before' },
+type ReminderUnit = 'minutes' | 'hours' | 'days' | 'weeks'
+
+interface ReminderRow {
+  recipient: ReminderRecipient
+  channel: ReminderChannel
+  num: number
+  unit: ReminderUnit
+}
+
+const UNIT_MINUTES: Record<ReminderUnit, number> = {
+  minutes: 1,
+  hours: 60,
+  days: 1440,
+  weeks: 10080,
+}
+const UNIT_OPTS: { v: ReminderUnit; label: string }[] = [
+  { v: 'minutes', label: 'minutes' },
+  { v: 'hours', label: 'hours' },
+  { v: 'days', label: 'days' },
+  { v: 'weeks', label: 'weeks' },
 ]
+const RECIPIENT_OPTS: { v: ReminderRecipient; label: string }[] = [
+  { v: 'attorneys', label: 'Attorneys' },
+  { v: 'contacts', label: 'Contacts' },
+  { v: 'all', label: 'Everyone' },
+]
+const CHANNEL_OPTS: { v: ReminderChannel; label: string }[] = [
+  { v: 'email', label: 'email' },
+  { v: 'popup', label: 'pop-up' },
+]
+
+/** Convert an offset in minutes into the largest whole unit for display. */
+function offsetToRow(offsetMinutes: number): { num: number; unit: ReminderUnit } {
+  const units: ReminderUnit[] = ['weeks', 'days', 'hours', 'minutes']
+  for (const unit of units) {
+    const size = UNIT_MINUTES[unit]
+    if (offsetMinutes >= size && offsetMinutes % size === 0) {
+      return { num: offsetMinutes / size, unit }
+    }
+  }
+  return { num: Math.max(offsetMinutes, 0), unit: 'minutes' }
+}
+
+function rowToReminder(r: ReminderRow): EventReminder {
+  return {
+    offsetMinutes: Math.max(0, Math.round(r.num)) * UNIT_MINUTES[r.unit],
+    recipient: r.recipient,
+    channel: r.channel,
+  }
+}
 
 const REPEAT_OPTS: { v: EventRepeatFreq; label: string }[] = [
   { v: 'daily', label: 'Daily' },
@@ -99,8 +143,11 @@ export default function AddEventModal({
   const [repeatUntil, setRepeatUntil] = useState('')
 
   const [location, setLocation] = useState('')
+  const [locations, setLocations] = useState<string[]>([])
+  const [customLocation, setCustomLocation] = useState(false)
   const [description, setDescription] = useState('')
-  const [reminders, setReminders] = useState<number[]>([])
+  const [isPrivate, setIsPrivate] = useState(false)
+  const [reminders, setReminders] = useState<ReminderRow[]>([])
 
   const [invitees, setInvitees] = useState<EventInvitees | null>(null)
   const [clientInvited, setClientInvited] = useState(false)
@@ -137,8 +184,16 @@ export default function AddEventModal({
       setRepeatFreq((editEvent.repeatFreq as EventRepeatFreq) || 'weekly')
       setRepeatUntil(editEvent.repeatUntil ? dateInput(new Date(editEvent.repeatUntil)) : '')
       setLocation(editEvent.location || '')
+      setCustomLocation(false)
       setDescription(editEvent.description || '')
-      setReminders(editEvent.reminders || [])
+      setIsPrivate(!!editEvent.isPrivate)
+      setReminders(
+        (editEvent.reminders || []).map((r) => ({
+          recipient: r.recipient || 'all',
+          channel: r.channel || 'email',
+          ...offsetToRow(r.offsetMinutes),
+        })),
+      )
     } else {
       const base = initialDate ? new Date(initialDate) : new Date()
       if (!initialDate || (base.getHours() === 0 && base.getMinutes() === 0)) base.setHours(18, 0, 0, 0)
@@ -159,8 +214,34 @@ export default function AddEventModal({
       setRepeatFreq('weekly')
       setRepeatUntil('')
       setLocation('')
+      setCustomLocation(false)
       setDescription('')
+      setIsPrivate(false)
       setReminders([])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editEvent])
+
+  // Load the firm's saved locations for the picker.
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    getCalendarLocations()
+      .then((res) => {
+        if (cancelled) return
+        const list = res.locations || []
+        setLocations(list)
+        // If the current location isn't a saved one, switch to custom entry.
+        setLocation((cur) => {
+          if (cur && !list.some((l) => l.toLowerCase() === cur.toLowerCase())) {
+            setCustomLocation(true)
+          }
+          return cur
+        })
+      })
+      .catch(() => !cancelled && setLocations([]))
+    return () => {
+      cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editEvent])
@@ -196,11 +277,6 @@ export default function AddEventModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, assessmentId])
 
-  const availableReminderOpts = useMemo(
-    () => REMINDER_OPTS.filter((o) => !reminders.includes(o.v)),
-    [reminders],
-  )
-
   if (!open) return null
 
   const pickCase = (lead: LeadOption) => {
@@ -211,12 +287,13 @@ export default function AddEventModal({
     setCasePickerOpen(false)
   }
 
-  const addReminder = () => {
-    const opt = availableReminderOpts[0] || REMINDER_OPTS[0]
-    setReminders((prev) => [...prev, opt.v])
-  }
-  const setReminderAt = (idx: number, v: number) =>
-    setReminders((prev) => prev.map((r, i) => (i === idx ? v : r)))
+  const addReminder = () =>
+    setReminders((prev) => [
+      ...prev,
+      { recipient: 'attorneys', channel: 'email', num: 1, unit: 'days' },
+    ])
+  const updateReminder = (idx: number, patch: Partial<ReminderRow>) =>
+    setReminders((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
   const removeReminder = (idx: number) => setReminders((prev) => prev.filter((_, i) => i !== idx))
 
   const toggleStaff = (firmMemberId: string, field: 'share' | 'attend', val: boolean) =>
@@ -281,9 +358,10 @@ export default function AddEventModal({
       startAt: start.toISOString(),
       endAt: end.toISOString(),
       allDay,
+      isPrivate,
       repeatFreq: repeats ? repeatFreq : null,
       repeatUntil: repeats && repeatUntil ? combine(repeatUntil, '23:59').toISOString() : null,
-      reminders,
+      reminders: reminders.map(rowToReminder),
       attendees: buildAttendees(),
     }
 
@@ -474,13 +552,57 @@ export default function AddEventModal({
 
             {/* Location */}
             <div>
-              <label className="block text-xs font-semibold text-slate-600">Location</label>
-              <input
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="Add a location, room, or meeting link"
-                className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
-              />
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                <MapPin className="h-3.5 w-3.5" /> Location
+              </label>
+              {customLocation ? (
+                <div className="mt-1.5 flex items-center gap-2">
+                  <input
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="Enter an address, room, or meeting link"
+                    autoFocus
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
+                  />
+                  {locations.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomLocation(false)
+                        setLocation('')
+                      }}
+                      className="shrink-0 text-xs font-semibold text-slate-500 hover:text-slate-700"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-1.5 flex items-center gap-3">
+                  <select
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="">Select location</option>
+                    {locations.map((l) => (
+                      <option key={l} value={l}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomLocation(true)
+                      setLocation('')
+                    }}
+                    className="shrink-0 whitespace-nowrap text-sm font-semibold text-brand-600 hover:text-brand-700"
+                  >
+                    Add location
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Description */}
@@ -492,6 +614,9 @@ export default function AddEventModal({
                 rows={3}
                 className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
               />
+              <p className="mt-1 text-[11px] text-slate-400">
+                This description will be viewable by anyone invited to this event.
+              </p>
             </div>
 
             {/* Reminders */}
@@ -499,40 +624,90 @@ export default function AddEventModal({
               <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
                 <Bell className="h-3.5 w-3.5" /> Reminders
               </label>
-              <div className="mt-1.5 space-y-1.5">
+              <div className="mt-1.5 space-y-2">
                 {reminders.map((r, i) => (
-                  <div key={i} className="flex items-center gap-2">
+                  <div key={i} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/60 p-2">
                     <select
-                      value={r}
-                      onChange={(e) => setReminderAt(i, Number(e.target.value))}
-                      className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+                      value={r.recipient}
+                      onChange={(e) => updateReminder(i, { recipient: e.target.value as ReminderRecipient })}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                      aria-label="Reminder recipient"
                     >
-                      {REMINDER_OPTS.map((o) => (
-                        <option key={o.v} value={o.v} disabled={o.v !== r && reminders.includes(o.v)}>
+                      {RECIPIENT_OPTS.map((o) => (
+                        <option key={o.v} value={o.v}>
                           {o.label}
                         </option>
                       ))}
                     </select>
+                    <select
+                      value={r.channel}
+                      onChange={(e) => updateReminder(i, { channel: e.target.value as ReminderChannel })}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                      aria-label="Reminder channel"
+                    >
+                      {CHANNEL_OPTS.map((o) => (
+                        <option key={o.v} value={o.v}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      min={0}
+                      value={r.num}
+                      onChange={(e) => updateReminder(i, { num: Math.max(0, Number(e.target.value)) })}
+                      className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                      aria-label="Reminder amount"
+                    />
+                    <select
+                      value={r.unit}
+                      onChange={(e) => updateReminder(i, { unit: e.target.value as ReminderUnit })}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm"
+                      aria-label="Reminder unit"
+                    >
+                      {UNIT_OPTS.map((o) => (
+                        <option key={o.v} value={o.v}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-xs text-slate-400">before</span>
                     <button
                       type="button"
                       onClick={() => removeReminder(i)}
-                      className="rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                      className="ml-auto rounded-md p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                       aria-label="Remove reminder"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <X className="h-4 w-4" />
                     </button>
                   </div>
                 ))}
                 <button
                   type="button"
                   onClick={addReminder}
-                  disabled={reminders.length >= REMINDER_OPTS.length}
+                  disabled={reminders.length >= 6}
                   className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700 disabled:opacity-40"
                 >
                   <Plus className="h-3.5 w-3.5" /> Add a reminder
                 </button>
+                <p className="text-[11px] leading-relaxed text-slate-400">
+                  You can only edit reminders that you created. Reminders assigned to you by another firm
+                  user will need to be edited by the creator.
+                </p>
               </div>
             </div>
+
+            {/* Private */}
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={isPrivate}
+                onChange={(e) => setIsPrivate(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+              />
+              <Lock className="h-3.5 w-3.5 text-slate-400" />
+              Mark this event as private
+            </label>
           </div>
 
           {/* Right: invitees + note */}

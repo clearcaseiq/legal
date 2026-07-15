@@ -1304,16 +1304,13 @@ function WorkstreamPanel({
         ) : null}
 
         {cc ? (
-          <>
-            <CaseProgressTracker cc={cc} lead={lead} onNavigate={goToSection} />
-            <MeterCard
-              label="Demand readiness"
-              percent={readinessScore}
-              caption={cc.readiness?.label}
-              barClass={readinessBar(readinessScore)}
-              breakdown={cc.readiness?.factors}
-            />
-          </>
+          <MeterCard
+            label="Demand readiness"
+            percent={readinessScore}
+            caption={cc.readiness?.label}
+            barClass={readinessBar(readinessScore)}
+            breakdown={cc.readiness?.factors}
+          />
         ) : null}
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -3499,92 +3496,6 @@ function readinessBar(score: number) {
   if (score >= 70) return 'bg-brand-500'
   if (score >= 50) return 'bg-amber-500'
   return 'bg-rose-500'
-}
-
-/**
- * Clickable case-lifecycle tracker. Each milestone is derived from real command
- * center signals (retainer, evidence, treatment, demand, negotiation, resolution)
- * so the attorney can see at a glance what's actually been accomplished — and
- * click any step to jump straight to the tab where that work lives.
- */
-function CaseProgressTracker({
-  cc,
-  lead,
-  onNavigate,
-}: {
-  cc: CaseCommandCenter
-  lead: any
-  onNavigate: (section: string) => void
-}) {
-  const n = cc?.negotiationSummary
-  const missingCount = (cc?.missingItems || []).length
-  const readinessScore = Number(cc?.readiness?.score ?? 0)
-  const treatmentEvents = Number(cc?.treatmentMonitor?.chronologyCount ?? 0)
-  const status = String(lead?.status || '')
-  const latestStatus = String(n?.latestStatus || '')
-
-  const retained = status === 'retained'
-  const evidenceComplete = missingCount === 0
-  const treatmentTracked = treatmentEvents > 0
-  const demandReady = readinessScore >= 70
-  const demandSent = n?.latestDemand != null
-  const inNegotiation = n?.latestOffer != null || Number(n?.eventCount ?? 0) > 0
-  const resolved = /settl|resolv|closed/i.test(latestStatus)
-
-  const steps: { key: string; label: string; section: string; Icon: ComponentType<{ className?: string }>; done: boolean; note: string }[] = [
-    { key: 'retained', label: 'Retained', section: 'signatures', Icon: PenLine, done: retained, note: retained ? 'Representation active' : 'Retainer pending' },
-    { key: 'evidence', label: 'Evidence', section: 'evidence', Icon: FolderOpen, done: evidenceComplete, note: evidenceComplete ? 'Records gathered' : `${missingCount} item${missingCount === 1 ? '' : 's'} needed` },
-    { key: 'medical', label: 'Treatment', section: 'medical', Icon: Stethoscope, done: treatmentTracked, note: treatmentTracked ? `${treatmentEvents} event${treatmentEvents === 1 ? '' : 's'}` : 'Not logged yet' },
-    { key: 'demand', label: 'Demand', section: 'demand', Icon: Gavel, done: demandSent, note: demandSent ? `Sent · ${money(n?.latestDemand)}` : demandReady ? 'Ready to send' : 'Building readiness' },
-    { key: 'negotiation', label: 'Negotiation', section: 'negotiation', Icon: Handshake, done: inNegotiation, note: inNegotiation ? (n?.latestOffer != null ? `Offer · ${money(n.latestOffer)}` : `${n?.eventCount} events`) : 'Not started' },
-    { key: 'resolved', label: 'Resolved', section: 'billing', Icon: Receipt, done: resolved, note: resolved ? 'Settled' : 'Open' },
-  ]
-
-  const currentIndex = steps.findIndex((s) => !s.done)
-  const doneCount = steps.filter((s) => s.done).length
-  const pct = Math.round((doneCount / steps.length) * 100)
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
-      <div className="mb-4 flex items-baseline justify-between">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Case progress</p>
-        <span className="text-xs text-slate-500">
-          {doneCount} of {steps.length} milestones · <span className="font-bold text-slate-900">{pct}%</span>
-        </span>
-      </div>
-      <div className="flex items-start overflow-x-auto pb-1">
-        {steps.map((s, i) => {
-          const state = s.done ? 'done' : i === currentIndex ? 'current' : 'upcoming'
-          const badge =
-            state === 'done'
-              ? 'bg-emerald-500 text-white'
-              : state === 'current'
-                ? 'bg-brand-600 text-white ring-4 ring-brand-100'
-                : 'bg-slate-100 text-slate-400'
-          const StepIcon = s.Icon
-          return (
-            <Fragment key={s.key}>
-              {i > 0 ? (
-                <div className={`mt-4 h-0.5 min-w-[16px] flex-1 ${steps[i - 1].done ? 'bg-emerald-400' : 'bg-slate-200'}`} />
-              ) : null}
-              <button
-                type="button"
-                onClick={() => onNavigate(s.section)}
-                title={`Open ${s.label}`}
-                className="flex w-[104px] shrink-0 flex-col items-center gap-1.5 rounded-lg px-1 py-1 text-center transition hover:bg-slate-50"
-              >
-                <span className={`grid h-9 w-9 place-items-center rounded-full transition ${badge}`}>
-                  {s.done ? <Check className="h-4 w-4" /> : <StepIcon className="h-4 w-4" />}
-                </span>
-                <span className={`text-xs font-semibold ${state === 'upcoming' ? 'text-slate-400' : 'text-slate-800'}`}>{s.label}</span>
-                <span className="text-[11px] leading-tight text-slate-500">{s.note}</span>
-              </button>
-            </Fragment>
-          )
-        })}
-      </div>
-    </div>
-  )
 }
 
 function MeterCard({
