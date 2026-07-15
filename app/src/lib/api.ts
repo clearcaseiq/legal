@@ -1613,6 +1613,99 @@ export async function getAttorneyCalendarAppointments(
   return data
 }
 
+/* ------------------------------------------------------------------ */
+/* General calendar events (MyCase-style "Add event")                 */
+/* ------------------------------------------------------------------ */
+
+export type EventRepeatFreq = 'daily' | 'weekly' | 'monthly'
+
+export interface CalendarEventAttendeeDto {
+  kind: 'staff' | 'client'
+  firmMemberId?: string | null
+  userId?: string | null
+  email?: string | null
+  name?: string | null
+  role?: string | null
+  attend?: boolean
+  share?: boolean
+}
+
+export interface CalendarEventDto {
+  id: string
+  eventId: string
+  title: string
+  description?: string | null
+  location?: string | null
+  assessmentId?: string | null
+  leadId?: string | null
+  allDay: boolean
+  repeatFreq?: EventRepeatFreq | null
+  repeatUntil?: string | null
+  recurring: boolean
+  reminders: number[]
+  startAt: string
+  endAt: string
+  attendees: CalendarEventAttendeeDto[]
+}
+
+export interface CalendarEventInput {
+  title: string
+  description?: string | null
+  location?: string | null
+  assessmentId?: string | null
+  startAt: string
+  endAt: string
+  allDay?: boolean
+  repeatFreq?: EventRepeatFreq | null
+  repeatUntil?: string | null
+  reminders?: number[]
+  attendees?: CalendarEventAttendeeDto[]
+}
+
+export interface EventInviteeStaff {
+  firmMemberId: string
+  userId: string | null
+  name: string
+  email: string | null
+  role: string
+  roleLabel: string
+}
+
+export interface EventInvitees {
+  staff: EventInviteeStaff[]
+  client: { userId: string | null; name: string; email: string | null } | null
+}
+
+export async function getCalendarEvents(from: string, to: string): Promise<{ events: CalendarEventDto[] }> {
+  const { data } = await api.get('/v1/calendar-events', { params: { from, to } })
+  return data
+}
+
+export async function getEventInvitees(assessmentId?: string | null): Promise<EventInvitees> {
+  const { data } = await api.get('/v1/calendar-events/invitees', {
+    params: assessmentId ? { assessmentId } : {},
+  })
+  return data
+}
+
+export async function createCalendarEvent(payload: CalendarEventInput): Promise<{ id: string }> {
+  const { data } = await api.post('/v1/calendar-events', payload)
+  return data
+}
+
+export async function updateCalendarEvent(
+  id: string,
+  payload: Partial<CalendarEventInput>,
+): Promise<{ id: string }> {
+  const { data } = await api.patch(`/v1/calendar-events/${id}`, payload)
+  return data
+}
+
+export async function deleteCalendarEvent(id: string): Promise<{ ok: boolean }> {
+  const { data } = await api.delete(`/v1/calendar-events/${id}`)
+  return data
+}
+
 export interface AttorneyDeadlineItem {
   id: string
   kind: 'sol' | 'task'
@@ -4033,15 +4126,31 @@ export async function previewFirmTemplate(id: string, leadId: string): Promise<{
 
 // ---- Firm workflows (customizable case-lifecycle pipelines) ----------------
 
+export type WorkflowStepType = 'task' | 'milestone' | 'checkpoint' | 'deadline' | 'document' | 'ai_milestone'
+export type WorkflowConditionOp = 'eq' | 'neq' | 'in' | 'notin'
+
+export interface FirmMemberOption {
+  firmMemberId: string
+  name: string
+  role: string
+}
+
 export interface FirmWorkflowStep {
   id?: string
   title: string
   description: string | null
+  stepType: WorkflowStepType
+  aiSignal: string | null
   assigneeRole: string | null
+  assigneeFirmMemberId: string | null
+  assigneeName?: string | null
   dueOffsetDays: number | null
   required: boolean
   templateId: string | null
   templateName?: string | null
+  conditionField: string | null
+  conditionOp: string | null
+  conditionValue: string | null
 }
 
 export interface FirmWorkflowStage {
@@ -4049,6 +4158,14 @@ export interface FirmWorkflowStage {
   name: string
   description: string | null
   steps: FirmWorkflowStep[]
+}
+
+export interface FirmWorkflowPhase {
+  id?: string
+  name: string
+  key: string | null
+  description: string | null
+  stages: FirmWorkflowStage[]
 }
 
 export interface FirmWorkflow {
@@ -4059,9 +4176,10 @@ export interface FirmWorkflow {
   isDefault: boolean
   isActive: boolean
   sortOrder: number
+  phaseCount: number
   stageCount: number
   stepCount: number
-  stages: FirmWorkflowStage[]
+  phases: FirmWorkflowPhase[]
   updatedAt: string
   createdAt: string
 }
@@ -4071,10 +4189,21 @@ export interface FirmWorkflowRole {
   label: string
 }
 
+export interface WorkflowOption {
+  value: string
+  label: string
+  description?: string
+}
+
 export interface FirmWorkflowsResponse {
   canManage: boolean
   roles: FirmWorkflowRole[]
+  stepTypes: WorkflowOption[]
+  aiSignals: WorkflowOption[]
+  conditionFields: WorkflowOption[]
+  conditionOps: WorkflowOption[]
   templates: Array<{ id: string; name: string; category: string }>
+  members: FirmMemberOption[]
   workflows: FirmWorkflow[]
 }
 
@@ -4107,9 +4236,9 @@ export async function updateFirmWorkflow(
 
 export async function saveFirmWorkflowStructure(
   id: string,
-  stages: FirmWorkflowStage[]
+  phases: FirmWorkflowPhase[]
 ): Promise<FirmWorkflow> {
-  const { data } = await api.put(`/v1/firm-dashboard/workflows/${id}/structure`, { stages })
+  const { data } = await api.put(`/v1/firm-dashboard/workflows/${id}/structure`, { phases })
   return data
 }
 
@@ -4123,7 +4252,12 @@ export interface CaseWorkflowStep {
   id: string
   title: string
   description: string | null
+  stepType: WorkflowStepType
+  aiSignal: string | null
+  readOnly: boolean
   assigneeRole: string | null
+  assignedFirmMemberId: string | null
+  assignedName: string | null
   dueOffsetDays: number | null
   dueDate: string | null
   required: boolean
@@ -4138,6 +4272,14 @@ export interface CaseWorkflowStage {
   steps: CaseWorkflowStep[]
 }
 
+export interface CaseWorkflowPhase {
+  name: string
+  order: number
+  totalSteps: number
+  completedSteps: number
+  stages: CaseWorkflowStage[]
+}
+
 export interface CaseWorkflow {
   id: string
   name: string
@@ -4148,14 +4290,30 @@ export interface CaseWorkflow {
   status: string
   totalSteps: number
   completedSteps: number
-  currentStageOrder: number | null
-  stages: CaseWorkflowStage[]
+  currentPhaseOrder: number | null
+  phases: CaseWorkflowPhase[]
 }
 
 export interface CaseWorkflowResponse {
   workflow: CaseWorkflow | null
   canApply: boolean
   appliedWorkflow: { id: string; name: string } | null
+  members: FirmMemberOption[]
+  canAssign: boolean
+}
+
+export interface MyWorkflowTask {
+  id: string
+  title: string
+  stepType: WorkflowStepType
+  phaseName: string | null
+  stageName: string | null
+  dueDate: string | null
+  required: boolean
+  workflowName: string | null
+  claimType: string | null
+  assessmentId: string | null
+  leadId: string
 }
 
 export async function getCaseWorkflow(leadId: string): Promise<CaseWorkflowResponse> {
@@ -4179,6 +4337,23 @@ export async function updateCaseWorkflowStep(
 
 export async function removeCaseWorkflow(leadId: string): Promise<void> {
   await api.delete(`/v1/attorney-dashboard/leads/${leadId}/workflow`)
+}
+
+export async function assignCaseWorkflowStep(
+  leadId: string,
+  itemId: string,
+  firmMemberId: string | null
+): Promise<{ workflow: CaseWorkflow }> {
+  const { data } = await api.patch(
+    `/v1/attorney-dashboard/leads/${leadId}/workflow/items/${itemId}/assignee`,
+    { firmMemberId }
+  )
+  return data
+}
+
+export async function getMyWorkflowTasks(): Promise<{ tasks: MyWorkflowTask[] }> {
+  const { data } = await api.get('/v1/attorney-dashboard/my-workflow-tasks')
+  return data
 }
 
 // ---- Team time tracking & billing rates ------------------------------------

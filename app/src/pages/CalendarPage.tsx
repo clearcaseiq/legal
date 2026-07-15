@@ -24,10 +24,16 @@ import {
 } from 'lucide-react'
 import LeadPickerModal from '../components/LeadPickerModal'
 import { useAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
-import { getAttorneyTaskSummary, getAttorneyCalendarAppointments } from '../lib/api'
+import {
+  getAttorneyTaskSummary,
+  getAttorneyCalendarAppointments,
+  getCalendarEvents,
+  type CalendarEventDto,
+} from '../lib/api'
 import { MiniMonth } from '../features/calendar/MiniMonth'
 import { MonthView } from '../features/calendar/MonthView'
 import { TimeGridView } from '../features/calendar/TimeGridView'
+import AddEventModal from '../features/calendar/AddEventModal'
 import {
   CalItem,
   CalView,
@@ -37,6 +43,7 @@ import {
   addMonths,
   claimLabel,
   dateKeyOf,
+  itemTone,
   rangeForView,
   sameDay,
   startOfDay,
@@ -66,14 +73,21 @@ export default function CalendarPage() {
   const [anchor, setAnchor] = useState(() => new Date())
   const [consults, setConsults] = useState<CalItem[]>([])
   const [tasks, setTasks] = useState<CalItem[]>([])
+  const [events, setEvents] = useState<CalItem[]>([])
+  const [eventDtos, setEventDtos] = useState<Map<string, CalendarEventDto>>(new Map())
   const [loading, setLoading] = useState(true)
-  const [filters, setFilters] = useState({ consult: true, booking: true, task: true })
+  const [filters, setFilters] = useState({ consult: true, booking: true, task: true, event: true })
 
   const [addSlot, setAddSlot] = useState<{ date: Date; withTime: boolean } | null>(null)
   const [addType, setAddType] = useState<'event' | 'task' | null>(null)
   const [addChoiceOpen, setAddChoiceOpen] = useState(false)
   const [leadPickerOpen, setLeadPickerOpen] = useState(false)
   const [selectedConsult, setSelectedConsult] = useState<CalItem | null>(null)
+
+  // General calendar events (MyCase-style "Add event").
+  const [addEventOpen, setAddEventOpen] = useState(false)
+  const [editEventDto, setEditEventDto] = useState<CalendarEventDto | null>(null)
+  const [eventInitialDate, setEventInitialDate] = useState<Date | null>(null)
 
   // Fetch consults for the visible range whenever the view/anchor moves.
   useEffect(() => {
@@ -152,16 +166,71 @@ export default function CalendarPage() {
     }
   }, [])
 
+  // General calendar events for the visible range (expanded occurrences).
+  const loadEvents = useCallback(() => {
+    const { from, to } = rangeForView(view, anchor)
+    getCalendarEvents(from.toISOString(), to.toISOString())
+      .then((res) => {
+        const dtoMap = new Map<string, CalendarEventDto>()
+        const items: CalItem[] = (res.events || [])
+          .map((dto) => {
+            const d = new Date(dto.startAt)
+            if (Number.isNaN(d.getTime())) return null
+            dtoMap.set(dto.id, dto)
+            return {
+              kind: 'event' as const,
+              id: `e-${dto.id}`,
+              leadId: dto.leadId,
+              date: d,
+              end: new Date(dto.endAt),
+              title: dto.title,
+              hasTime: !dto.allDay,
+              event: {
+                eventId: dto.eventId,
+                description: dto.description,
+                location: dto.location,
+                allDay: dto.allDay,
+                repeatFreq: dto.repeatFreq,
+                reminders: dto.reminders,
+                recurring: dto.recurring,
+                attendees: dto.attendees?.map((a) => ({
+                  kind: a.kind,
+                  name: a.name,
+                  email: a.email,
+                  role: a.role,
+                  attend: a.attend,
+                })),
+              },
+            } as CalItem
+          })
+          .filter(Boolean) as CalItem[]
+        setEvents(items)
+        setEventDtos(dtoMap)
+      })
+      .catch(() => {
+        setEvents([])
+        setEventDtos(new Map())
+      })
+  }, [view, anchor])
+
+  useEffect(() => {
+    loadEvents()
+  }, [loadEvents])
+
   const visibleItems = useMemo(() => {
     const out: CalItem[] = []
     for (const c of consults) {
       if (c.source === 'booking' ? filters.booking : filters.consult) out.push(c)
     }
     if (filters.task) out.push(...tasks)
+    if (filters.event) out.push(...events)
     return out
-  }, [consults, tasks, filters])
+  }, [consults, tasks, events, filters])
 
-  const markedKeys = useMemo(() => new Set([...consults, ...tasks].map((i) => dateKeyOf(i.date))), [consults, tasks])
+  const markedKeys = useMemo(
+    () => new Set([...consults, ...tasks, ...events].map((i) => dateKeyOf(i.date))),
+    [consults, tasks, events],
+  )
 
   const days = useMemo(() => {
     if (view === 'day') return [anchor]
@@ -238,10 +307,27 @@ export default function CalendarPage() {
         setSelectedConsult(item)
         return
       }
+      if (item.kind === 'event') {
+        const dto = eventDtos.get(item.id.replace(/^e-/, ''))
+        if (dto) {
+          setEditEventDto(dto)
+          setEventInitialDate(null)
+          setAddEventOpen(true)
+        }
+        return
+      }
       if (item.leadId) navigate(`/attorney-dashboard/cases/${item.leadId}/tasks?from=calendar`)
     },
-    [navigate],
+    [navigate, eventDtos],
   )
+
+  const openAddEvent = (date: Date | null) => {
+    setEditEventDto(null)
+    setEventInitialDate(date)
+    setAddChoiceOpen(false)
+    setAddSlot(null)
+    setAddEventOpen(true)
+  }
 
   const formatDateForTitle = (d: Date) =>
     d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -336,6 +422,12 @@ export default function CalendarPage() {
                 onChange={() => setFilters((f) => ({ ...f, booking: !f.booking }))}
               />
               <FilterToggle
+                label="Events"
+                color="bg-emerald-500"
+                checked={filters.event}
+                onChange={() => setFilters((f) => ({ ...f, event: !f.event }))}
+              />
+              <FilterToggle
                 label="Tasks & deadlines"
                 color="bg-amber-500"
                 checked={filters.task}
@@ -422,11 +514,23 @@ export default function CalendarPage() {
             </div>
             <div className="space-y-2.5">
               <button
+                onClick={() => openAddEvent(addSlot.date)}
+                className="group flex w-full items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-left transition hover:border-emerald-300 hover:bg-emerald-50"
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 ring-1 ring-inset ring-emerald-200">
+                  <Calendar className="h-5 w-5" />
+                </span>
+                <span>
+                  <span className="block text-sm font-semibold text-slate-900">Add event</span>
+                  <span className="block text-xs text-slate-500">Meeting, hearing, deposition — invite staff &amp; clients</span>
+                </span>
+              </button>
+              <button
                 onClick={() => openLeadPicker('event')}
                 className="group flex w-full items-center gap-3 rounded-xl border border-sky-200 bg-sky-50/60 px-4 py-3 text-left transition hover:border-sky-300 hover:bg-sky-50"
               >
                 <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-100 text-sky-600 ring-1 ring-inset ring-sky-200">
-                  <Calendar className="h-5 w-5" />
+                  <Video className="h-5 w-5" />
                 </span>
                 <span>
                   <span className="block text-sm font-semibold text-slate-900">Schedule consultation</span>
@@ -472,6 +576,18 @@ export default function CalendarPage() {
       {selectedConsult && (
         <ConsultDetailPanel item={selectedConsult} onClose={() => setSelectedConsult(null)} navigate={navigate} />
       )}
+
+      <AddEventModal
+        open={addEventOpen}
+        onClose={() => {
+          setAddEventOpen(false)
+          setEditEventDto(null)
+        }}
+        onSaved={loadEvents}
+        leads={recentLeads as any}
+        initialDate={eventInitialDate}
+        editEvent={editEventDto}
+      />
     </div>
   )
 }
@@ -537,9 +653,6 @@ function AgendaListView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, anchor])
 
-  const dotClass = (i: CalItem) =>
-    i.kind === 'task' ? 'bg-amber-500' : i.source === 'booking' ? 'bg-violet-500' : 'bg-sky-500'
-
   const today = new Date()
 
   return (
@@ -570,27 +683,34 @@ function AgendaListView({
                   <p className="text-[11px] text-slate-400">{MONTHS[g.date.getMonth()].slice(0, 3)}</p>
                 </div>
                 <div className="min-w-0 flex-1 space-y-1.5">
-                  {g.items.map((it) => (
-                    <button
-                      key={it.id}
-                      onClick={() => onItemClick(it)}
-                      className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50"
-                    >
-                      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${dotClass(it)}`} />
-                      <span className="w-20 shrink-0 text-xs font-medium text-slate-500">
-                        {it.hasTime ? timeLabel(it.date) : 'All day'}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{it.title}</span>
-                      {it.kind === 'consult' && it.consult?.eventTypeName ? (
-                        <span className="hidden shrink-0 truncate text-xs text-slate-400 sm:block">
-                          {it.consult.eventTypeName}
+                  {g.items.map((it) => {
+                    const tone = itemTone(it)
+                    return (
+                      <button
+                        key={it.id}
+                        onClick={() => onItemClick(it)}
+                        className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition hover:border-slate-200 hover:bg-slate-50"
+                      >
+                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${tone.dot}`} />
+                        <span className="w-20 shrink-0 text-xs font-medium text-slate-500">
+                          {it.hasTime ? timeLabel(it.date) : 'All day'}
                         </span>
-                      ) : it.kind === 'task' ? (
-                        <span className="hidden shrink-0 text-xs text-amber-600 sm:block">Task</span>
-                      ) : null}
-                      <ArrowUpRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-slate-500" />
-                    </button>
-                  ))}
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{it.title}</span>
+                        {it.kind === 'consult' && it.consult?.eventTypeName ? (
+                          <span className="hidden shrink-0 truncate text-xs text-slate-400 sm:block">
+                            {it.consult.eventTypeName}
+                          </span>
+                        ) : it.kind === 'event' && it.event?.location ? (
+                          <span className="hidden shrink-0 truncate text-xs text-slate-400 sm:block">
+                            {it.event.location}
+                          </span>
+                        ) : it.kind === 'task' ? (
+                          <span className="hidden shrink-0 text-xs text-amber-600 sm:block">Task</span>
+                        ) : null}
+                        <ArrowUpRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-slate-500" />
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             )

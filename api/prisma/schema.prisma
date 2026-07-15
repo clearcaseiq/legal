@@ -1536,6 +1536,65 @@ model AttorneyAvailability {
   @@map("attorney_availability")
 }
 
+// A general firm calendar event (MyCase-style "Add event"): may be linked to a
+// case or standalone, can repeat, carries reminder offsets, and invites both
+// firm staff and client contacts. Owner is the creating attorney. IDs for
+// attorney/assessment/lawFirm are stored without FK relations to keep the
+// change surface small; they are resolved manually in the route.
+model CalendarEvent {
+  id           String @id @default(cuid())
+  attorneyId   String // owning/creating attorney
+  lawFirmId    String?
+  assessmentId String? // optional case link (null => not linked to a case)
+  createdById  String? // User id of the creator
+
+  title       String
+  description String? @db.Text
+  location    String?
+
+  startAt DateTime
+  endAt   DateTime
+  allDay  Boolean  @default(false)
+
+  // Recurrence: repeatFreq in (daily, weekly, monthly); null => single event.
+  repeatFreq  String?
+  repeatUntil DateTime?
+
+  // JSON array of minutes-before-start reminder offsets, e.g. [10, 60, 1440].
+  reminders String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attendees CalendarEventAttendee[]
+
+  @@index([attorneyId, startAt])
+  @@index([assessmentId])
+  @@index([lawFirmId])
+  @@map("calendar_events")
+}
+
+model CalendarEventAttendee {
+  id      String        @id @default(cuid())
+  eventId String
+  event   CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  kind         String // 'staff' | 'client'
+  firmMemberId String? // when kind = staff
+  userId       String? // client/staff user id when known
+  email        String?
+  name         String?
+
+  attend Boolean @default(false) // "Attend" flag
+  share  Boolean @default(true) // "Share" flag (staff visibility)
+
+  createdAt DateTime @default(now())
+
+  @@index([eventId])
+  @@index([userId])
+  @@map("calendar_event_attendees")
+}
+
 // A bookable "event type" for the attorney's public scheduling page (Calendly's
 // core concept), e.g. "15-min intro call" or "30-min case consultation".
 model AttorneyEventType {
@@ -1660,6 +1719,7 @@ model FirmWorkflow {
   isActive     Boolean @default(true)
   sortOrder    Int     @default(0)
 
+  phases       FirmWorkflowPhase[]
   stages       FirmWorkflowStage[]
 
   createdById  String?
@@ -1670,10 +1730,33 @@ model FirmWorkflow {
   @@map("firm_workflows")
 }
 
+// A high-level phase of a program's case pipeline (e.g. Intake, Medical,
+// Settlement, Litigation, Closing). Groups one or more stages. `key` is a
+// stable slug used for pipeline rendering/matching.
+model FirmWorkflowPhase {
+  id          String       @id @default(cuid())
+  workflowId  String
+  workflow    FirmWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  name        String
+  key         String?
+  description String?      @db.Text
+  sortOrder   Int          @default(0)
+
+  stages      FirmWorkflowStage[]
+
+  @@index([workflowId])
+  @@map("firm_workflow_phases")
+}
+
 model FirmWorkflowStage {
   id          String       @id @default(cuid())
   workflowId  String
   workflow    FirmWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  // Optional parent phase (null for legacy/flat workflows).
+  phaseId     String?
+  phase       FirmWorkflowPhase? @relation(fields: [phaseId], references: [id], onDelete: Cascade)
 
   name        String
   description String?      @db.Text
@@ -1682,6 +1765,7 @@ model FirmWorkflowStage {
   steps       FirmWorkflowStep[]
 
   @@index([workflowId])
+  @@index([phaseId])
   @@map("firm_workflow_stages")
 }
 
@@ -1692,13 +1776,25 @@ model FirmWorkflowStep {
 
   title         String
   description   String?           @db.Text
+  // Step type: task | milestone | checkpoint | deadline | document | ai_milestone.
+  stepType      String            @default("task")
+  // For ai_milestone steps: a signal key that derives read-only completion.
+  aiSignal      String?
   // Suggested role responsible, e.g. attorney, paralegal, case_manager, intake_specialist.
   assigneeRole  String?
+  // Optional default assignee (FirmMember.id) auto-applied to new cases.
+  assigneeFirmMemberId String?
   // Due offset in days relative to when the stage starts (null = no target).
   dueOffsetDays Int?
   required      Boolean           @default(false)
   // Optional link to a firm template/document used at this step.
   templateId    String?
+
+  // Optional apply-time condition: only snapshot this step onto a case when the
+  // resolved case field matches. op in (eq, neq, in, notin).
+  conditionField String?
+  conditionOp    String?
+  conditionValue String?
 
   sortOrder     Int               @default(0)
 
@@ -1740,14 +1836,20 @@ model CaseWorkflowItem {
   caseWorkflowId String
   caseWorkflow   CaseWorkflow @relation(fields: [caseWorkflowId], references: [id], onDelete: Cascade)
 
-  // Stage info is denormalized so a case workflow is a single flat checklist
-  // grouped by stage on the client.
+  // Phase + stage info is denormalized so a case workflow is a single flat
+  // checklist regrouped into a phase -> stage pipeline on the client.
+  phaseName  String?
+  phaseOrder Int?
   stageName  String
   stageOrder Int    @default(0)
 
   title         String
   description   String? @db.Text
+  stepType      String  @default("task")
+  aiSignal      String?
   assigneeRole  String?
+  // Specific person responsible for this step on this case (FirmMember.id).
+  assignedFirmMemberId String?
   dueOffsetDays Int?
   dueDate       DateTime?
   required      Boolean @default(false)
@@ -1762,6 +1864,7 @@ model CaseWorkflowItem {
   updatedAt DateTime @updatedAt
 
   @@index([caseWorkflowId])
+  @@index([assignedFirmMemberId, status])
   @@map("case_workflow_items")
 }
 

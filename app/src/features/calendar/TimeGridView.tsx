@@ -5,6 +5,7 @@ import {
   HOUR_HEIGHT,
   dateKeyOf,
   hourLabel,
+  itemTone,
   layoutDayEvents,
   minutesOfDay,
   sameDay,
@@ -69,18 +70,21 @@ export function TimeGridView({
                   </span>
                 </button>
                 <div className="min-h-[6px] space-y-1 px-1 pb-1">
-                  {allDay.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => onItemClick(item)}
-                      className="flex w-full items-center gap-1 truncate rounded-md bg-amber-50 px-1.5 py-1 text-left text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-100 hover:bg-amber-100"
-                      title={item.title}
-                    >
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-                      <span className="truncate">{item.title}</span>
-                    </button>
-                  ))}
+                  {allDay.map((item) => {
+                    const tone = itemTone(item)
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => onItemClick(item)}
+                        className={`flex w-full items-center gap-1 truncate rounded-md px-1.5 py-1 text-left text-[11px] font-medium ring-1 ring-inset ${tone.chip}`}
+                        title={item.title}
+                      >
+                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tone.dot}`} />
+                        <span className="truncate">{item.title}</span>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             )
@@ -145,16 +149,13 @@ export function TimeGridView({
                   {/* Timed events */}
                   {positioned.map(({ item, top, height, leftPct, widthPct }) => {
                     const Icon = TYPE_ICON[String(item.consult?.type || '')] || null
-                    const isBooking = item.source === 'booking'
-                    const chip = isBooking
-                      ? 'border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100'
-                      : 'border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100'
+                    const tone = itemTone(item)
                     return (
                       <button
                         key={item.id}
                         type="button"
                         onClick={() => onItemClick(item)}
-                        className={`absolute z-10 overflow-hidden rounded-md border px-1.5 py-1 text-left shadow-sm transition ${chip}`}
+                        className={`absolute z-10 overflow-hidden rounded-md border px-1.5 py-1 text-left shadow-sm transition ${tone.grid}`}
                         style={{
                           top: top + 1,
                           height: height - 2,
@@ -168,9 +169,7 @@ export function TimeGridView({
                           <span className="truncate">{item.title}</span>
                         </div>
                         {height > 30 && (
-                          <div className={`truncate text-[10px] ${isBooking ? 'text-violet-600' : 'text-sky-600'}`}>
-                            {timeLabel(item.date)}
-                          </div>
+                          <div className={`truncate text-[10px] ${tone.subText}`}>{timeLabel(item.date)}</div>
                         )}
                       </button>
                     )

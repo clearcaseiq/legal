@@ -14,6 +14,7 @@ import { createEnvelopeForLead } from '../lib/esign/esign-service'
 import { listESignatureProviders } from '../lib/esign'
 import { resolveTemplateTokens, fillTemplateTokens, renderTemplateBodyPdf } from '../lib/esign/firm-template-doc'
 import { applyFirmWorkflowToCase } from '../lib/case-workflow'
+import { AI_SIGNALS, CONDITION_FIELDS, CONDITION_OPS, isValidAiSignal } from '../lib/workflow-signals'
 import {
   TIME_ROLES,
   TIME_ROLE_VALUES,
@@ -3029,106 +3030,216 @@ const WORKFLOW_ROLES = [
 ]
 const WORKFLOW_ROLE_VALUES = WORKFLOW_ROLES.map((r) => r.value)
 
+const WORKFLOW_STEP_TYPES = [
+  { value: 'task', label: 'Task' },
+  { value: 'milestone', label: 'Milestone' },
+  { value: 'checkpoint', label: 'Checkpoint' },
+  { value: 'deadline', label: 'Deadline' },
+  { value: 'document', label: 'Document' },
+  { value: 'ai_milestone', label: 'AI milestone' },
+]
+const WORKFLOW_STEP_TYPE_VALUES = WORKFLOW_STEP_TYPES.map((t) => t.value)
+const CONDITION_OP_VALUES = CONDITION_OPS.map((o) => o.value)
+const CONDITION_FIELD_VALUES = CONDITION_FIELDS.map((f) => f.value)
+
 type DefaultStep = {
   title: string
   description?: string
+  stepType?: string
+  aiSignal?: string
   assigneeRole?: string
   dueOffsetDays?: number
   required?: boolean
+  conditionField?: string
+  conditionOp?: string
+  conditionValue?: string
 }
 type DefaultStage = { name: string; description?: string; steps: DefaultStep[] }
+type DefaultPhase = { name: string; key?: string; description?: string; stages: DefaultStage[] }
 
-// A recommended personal-injury case lifecycle. Firms can duplicate/edit freely.
+// A recommended personal-injury program: a 5-phase case pipeline. Firms can
+// duplicate/edit freely. Includes typed steps, an apply-time conditional step,
+// and read-only AI milestones.
 const DEFAULT_WORKFLOW: {
   name: string
   description: string
   practiceArea: string
-  stages: DefaultStage[]
+  phases: DefaultPhase[]
 } = {
   name: 'Personal Injury — Standard',
   description:
-    'Recommended end-to-end lifecycle for a personal injury matter, from intake through closeout. Customize the stages and steps to match how your firm works.',
+    'Recommended end-to-end lifecycle for a personal injury matter, from intake through closeout. Customize the phases, stages, and steps to match how your firm works.',
   practiceArea: 'Personal Injury',
-  stages: [
+  phases: [
     {
-      name: 'Intake & Sign-up',
+      name: 'Intake',
+      key: 'intake',
       description: 'Qualify the lead, run conflicts, and get the client signed.',
-      steps: [
-        { title: 'Run conflict check', assigneeRole: 'intake_specialist', dueOffsetDays: 0, required: true },
-        { title: 'Send retainer for signature', assigneeRole: 'attorney', dueOffsetDays: 1, required: true },
-        { title: 'Collect signed HIPAA authorization', assigneeRole: 'paralegal', dueOffsetDays: 2, required: true },
-        { title: 'Open matter / create case file', assigneeRole: 'case_manager', dueOffsetDays: 2, required: true },
+      stages: [
+        {
+          name: 'Sign-up',
+          steps: [
+            { title: 'Run conflict check', stepType: 'checkpoint', assigneeRole: 'intake_specialist', dueOffsetDays: 0, required: true },
+            { title: 'Send retainer for signature', stepType: 'document', assigneeRole: 'attorney', dueOffsetDays: 1, required: true },
+            { title: 'Collect signed HIPAA authorization', stepType: 'document', assigneeRole: 'paralegal', dueOffsetDays: 2, required: true },
+            { title: 'Open matter / create case file', stepType: 'task', assigneeRole: 'case_manager', dueOffsetDays: 2, required: true },
+          ],
+        },
       ],
     },
     {
-      name: 'Investigation & Treatment',
+      name: 'Medical',
+      key: 'medical',
       description: 'Gather evidence and monitor the client’s medical treatment.',
-      steps: [
-        { title: 'Request police / incident report', assigneeRole: 'paralegal', dueOffsetDays: 5 },
-        { title: 'Set up medical treatment tracking', assigneeRole: 'case_manager', dueOffsetDays: 7, required: true },
-        { title: 'Collect insurance information', assigneeRole: 'paralegal', dueOffsetDays: 7, required: true },
-        { title: 'Monthly treatment status check', assigneeRole: 'case_manager', dueOffsetDays: 30 },
+      stages: [
+        {
+          name: 'Investigation',
+          steps: [
+            { title: 'Request police / incident report', stepType: 'task', assigneeRole: 'paralegal', dueOffsetDays: 5 },
+            { title: 'Collect insurance information', stepType: 'task', assigneeRole: 'paralegal', dueOffsetDays: 7, required: true },
+          ],
+        },
+        {
+          name: 'Treatment',
+          steps: [
+            { title: 'Set up medical treatment tracking', stepType: 'checkpoint', assigneeRole: 'case_manager', dueOffsetDays: 7, required: true },
+            { title: 'Monthly treatment status check', stepType: 'checkpoint', assigneeRole: 'case_manager', dueOffsetDays: 30 },
+            { title: 'Treatment complete', stepType: 'ai_milestone', aiSignal: 'treatment_complete' },
+          ],
+        },
       ],
     },
     {
-      name: 'Records & Demand Prep',
-      description: 'Collect records and bills, then build the demand.',
-      steps: [
-        { title: 'Request medical records & bills', assigneeRole: 'paralegal', dueOffsetDays: 60, required: true },
-        { title: 'Verify records are complete', assigneeRole: 'case_manager', dueOffsetDays: 90 },
-        { title: 'Draft demand letter', assigneeRole: 'demand_writer', dueOffsetDays: 100, required: true },
+      name: 'Settlement',
+      key: 'settlement',
+      description: 'Collect records, build the demand, and negotiate.',
+      stages: [
+        {
+          name: 'Demand prep',
+          steps: [
+            { title: 'Request medical records & bills', stepType: 'document', assigneeRole: 'paralegal', dueOffsetDays: 60, required: true },
+            { title: 'Documents received', stepType: 'ai_milestone', aiSignal: 'documents_complete' },
+            { title: 'Draft demand letter', stepType: 'document', assigneeRole: 'demand_writer', dueOffsetDays: 100, required: true },
+          ],
+        },
+        {
+          name: 'Negotiation',
+          steps: [
+            { title: 'Send demand package', stepType: 'deadline', assigneeRole: 'attorney', dueOffsetDays: 105, required: true },
+            { title: 'Demand sent', stepType: 'ai_milestone', aiSignal: 'demand_sent' },
+            { title: 'Offer received', stepType: 'ai_milestone', aiSignal: 'offer_received' },
+            { title: 'Present offers to client', stepType: 'task', assigneeRole: 'attorney', dueOffsetDays: 130, required: true },
+          ],
+        },
       ],
     },
     {
-      name: 'Demand & Negotiation',
-      description: 'Send the demand and negotiate with the adjuster.',
-      steps: [
-        { title: 'Send demand package', assigneeRole: 'attorney', dueOffsetDays: 105, required: true },
-        { title: 'Follow up with adjuster', assigneeRole: 'paralegal', dueOffsetDays: 120 },
-        { title: 'Present offers to client', assigneeRole: 'attorney', dueOffsetDays: 130, required: true },
+      name: 'Litigation',
+      key: 'litigation',
+      description: 'Escalate to suit if the claim cannot be resolved.',
+      stages: [
+        {
+          name: 'Suit prep',
+          steps: [
+            { title: 'Prepare and file complaint', stepType: 'deadline', assigneeRole: 'attorney', dueOffsetDays: 140, required: true },
+            { title: 'Serve defendant', stepType: 'task', assigneeRole: 'paralegal', dueOffsetDays: 150 },
+          ],
+        },
       ],
     },
     {
-      name: 'Settlement & Resolution',
-      description: 'Finalize the settlement, clear liens, and disburse funds.',
-      steps: [
-        { title: 'Execute settlement release', assigneeRole: 'attorney', dueOffsetDays: 150, required: true },
-        { title: 'Resolve medical liens', assigneeRole: 'paralegal', dueOffsetDays: 160, required: true },
-        { title: 'Disburse settlement funds', assigneeRole: 'billing_admin', dueOffsetDays: 170, required: true },
-      ],
-    },
-    {
-      name: 'Closeout',
-      description: 'Wrap up and archive the matter.',
-      steps: [
-        { title: 'Send closing letter', assigneeRole: 'case_manager', dueOffsetDays: 175, required: true },
-        { title: 'Archive case file', assigneeRole: 'case_manager', dueOffsetDays: 180, required: true },
+      name: 'Closing',
+      key: 'closing',
+      description: 'Finalize the settlement, clear liens, disburse, and archive.',
+      stages: [
+        {
+          name: 'Resolution',
+          steps: [
+            { title: 'Execute settlement release', stepType: 'document', assigneeRole: 'attorney', dueOffsetDays: 160, required: true },
+            { title: 'Resolve medical liens', stepType: 'task', assigneeRole: 'paralegal', dueOffsetDays: 165, required: true },
+            { title: 'Case settled', stepType: 'ai_milestone', aiSignal: 'settled' },
+            { title: 'Disburse settlement funds', stepType: 'task', assigneeRole: 'billing_admin', dueOffsetDays: 170, required: true },
+          ],
+        },
+        {
+          name: 'Closeout',
+          steps: [
+            { title: 'Send closing letter', stepType: 'document', assigneeRole: 'case_manager', dueOffsetDays: 175, required: true },
+            { title: 'Archive case file', stepType: 'task', assigneeRole: 'case_manager', dueOffsetDays: 180, required: true },
+          ],
+        },
       ],
     },
   ],
 }
 
-function serializeWorkflow(w: any, templateNames: Map<string, string>) {
-  const stages = [...(w.stages || [])]
-    .sort((a: any, b: any) => a.sortOrder - b.sortOrder)
-    .map((s: any) => ({
-      id: s.id,
+function serializeStage(
+  s: any,
+  templateNames: Map<string, string>,
+  memberNames: Map<string, string>
+) {
+  return {
+    id: s.id,
+    name: s.name,
+    description: s.description,
+    steps: [...(s.steps || [])]
+      .sort((a: any, b: any) => a.sortOrder - b.sortOrder)
+      .map((st: any) => ({
+        id: st.id,
+        title: st.title,
+        description: st.description,
+        stepType: st.stepType || 'task',
+        aiSignal: st.aiSignal || null,
+        assigneeRole: st.assigneeRole,
+        assigneeFirmMemberId: st.assigneeFirmMemberId || null,
+        assigneeName: st.assigneeFirmMemberId ? memberNames.get(st.assigneeFirmMemberId) || null : null,
+        dueOffsetDays: st.dueOffsetDays,
+        required: st.required,
+        templateId: st.templateId,
+        templateName: st.templateId ? templateNames.get(st.templateId) || null : null,
+        conditionField: st.conditionField || null,
+        conditionOp: st.conditionOp || null,
+        conditionValue: st.conditionValue || null,
+      })),
+  }
+}
+
+function serializeWorkflow(
+  w: any,
+  templateNames: Map<string, string>,
+  memberNames: Map<string, string> = new Map()
+) {
+  const allStages = [...(w.stages || [])].sort((a: any, b: any) => a.sortOrder - b.sortOrder)
+  const phasesRaw = [...(w.phases || [])].sort((a: any, b: any) => a.sortOrder - b.sortOrder)
+
+  const phases = phasesRaw.map((p: any) => ({
+    id: p.id,
+    name: p.name,
+    key: p.key || null,
+    description: p.description,
+    stages: allStages
+      .filter((s: any) => s.phaseId === p.id)
+      .map((s: any) => serializeStage(s, templateNames, memberNames)),
+  }))
+
+  // Legacy/flat workflows: wrap each phase-less stage in its own synthetic phase
+  // so the pipeline still renders a phase -> stage -> step hierarchy.
+  const orphanStages = allStages.filter((s: any) => !s.phaseId)
+  for (const s of orphanStages) {
+    phases.push({
+      id: `stage-${s.id}`,
       name: s.name,
+      key: null,
       description: s.description,
-      steps: [...(s.steps || [])]
-        .sort((a: any, b: any) => a.sortOrder - b.sortOrder)
-        .map((st: any) => ({
-          id: st.id,
-          title: st.title,
-          description: st.description,
-          assigneeRole: st.assigneeRole,
-          dueOffsetDays: st.dueOffsetDays,
-          required: st.required,
-          templateId: st.templateId,
-          templateName: st.templateId ? templateNames.get(st.templateId) || null : null,
-        })),
-    }))
-  const stepCount = stages.reduce((n: number, s: any) => n + s.steps.length, 0)
+      stages: [serializeStage(s, templateNames, memberNames)],
+    })
+  }
+
+  const stageCount = phases.reduce((n: number, p: any) => n + p.stages.length, 0)
+  const stepCount = phases.reduce(
+    (n: number, p: any) => n + p.stages.reduce((m: number, s: any) => m + s.steps.length, 0),
+    0
+  )
   return {
     id: w.id,
     name: w.name,
@@ -3137,39 +3248,78 @@ function serializeWorkflow(w: any, templateNames: Map<string, string>) {
     isDefault: w.isDefault,
     isActive: w.isActive,
     sortOrder: w.sortOrder,
-    stageCount: stages.length,
+    phaseCount: phases.length,
+    stageCount,
     stepCount,
-    stages,
+    phases,
     updatedAt: w.updatedAt,
     createdAt: w.createdAt,
   }
 }
 
+function parseWorkflowStep(st: any) {
+  const rawDue = st?.dueOffsetDays
+  const dueOffsetDays =
+    rawDue === null || rawDue === undefined || rawDue === '' || !Number.isFinite(Number(rawDue))
+      ? null
+      : Math.max(0, Math.round(Number(rawDue)))
+  const stepType = WORKFLOW_STEP_TYPE_VALUES.includes(st?.stepType) ? st.stepType : 'task'
+  const aiSignal = stepType === 'ai_milestone' && isValidAiSignal(st?.aiSignal) ? st.aiSignal : null
+
+  const conditionField = CONDITION_FIELD_VALUES.includes(st?.conditionField) ? st.conditionField : null
+  const conditionOp = conditionField && CONDITION_OP_VALUES.includes(st?.conditionOp) ? st.conditionOp : null
+  const conditionValueRaw =
+    conditionField && conditionOp && typeof st?.conditionValue === 'string' ? st.conditionValue.trim() : ''
+  const conditionValue = conditionValueRaw || null
+
+  return {
+    title: typeof st?.title === 'string' ? st.title.trim() : '',
+    description: typeof st?.description === 'string' ? st.description.trim() || null : null,
+    stepType,
+    aiSignal,
+    // AI milestones are read-only and derived; never user-assigned/dated.
+    assigneeRole: stepType === 'ai_milestone' ? null : WORKFLOW_ROLE_VALUES.includes(st?.assigneeRole) ? st.assigneeRole : null,
+    assigneeFirmMemberId:
+      stepType === 'ai_milestone'
+        ? null
+        : typeof st?.assigneeFirmMemberId === 'string' && st.assigneeFirmMemberId
+          ? st.assigneeFirmMemberId
+          : null,
+    dueOffsetDays: stepType === 'ai_milestone' ? null : dueOffsetDays,
+    required: stepType === 'ai_milestone' ? false : Boolean(st?.required),
+    templateId: typeof st?.templateId === 'string' && st.templateId ? st.templateId : null,
+    conditionField: conditionValue ? conditionField : null,
+    conditionOp: conditionValue ? conditionOp : null,
+    conditionValue,
+  }
+}
+
+function parseWorkflowStage(s: any) {
+  return {
+    name: typeof s?.name === 'string' ? s.name.trim() : '',
+    description: typeof s?.description === 'string' ? s.description.trim() || null : null,
+    steps: (Array.isArray(s?.steps) ? s.steps : []).map(parseWorkflowStep).filter((st: any) => st.title),
+  }
+}
+
+// Parse the new phase -> stage -> step payload. Also accepts a legacy top-level
+// `stages` array (wrapped in a single implicit phase) for backward compatibility.
 function parseWorkflowStructure(body: any) {
-  const rawStages = Array.isArray(body?.stages) ? body.stages : []
-  return rawStages
-    .map((s: any) => ({
-      name: typeof s?.name === 'string' ? s.name.trim() : '',
-      description: typeof s?.description === 'string' ? s.description.trim() || null : null,
-      steps: (Array.isArray(s?.steps) ? s.steps : [])
-        .map((st: any) => {
-          const rawDue = st?.dueOffsetDays
-          const dueOffsetDays =
-            rawDue === null || rawDue === undefined || rawDue === '' || !Number.isFinite(Number(rawDue))
-              ? null
-              : Math.max(0, Math.round(Number(rawDue)))
-          return {
-            title: typeof st?.title === 'string' ? st.title.trim() : '',
-            description: typeof st?.description === 'string' ? st.description.trim() || null : null,
-            assigneeRole: WORKFLOW_ROLE_VALUES.includes(st?.assigneeRole) ? st.assigneeRole : null,
-            dueOffsetDays,
-            required: Boolean(st?.required),
-            templateId: typeof st?.templateId === 'string' && st.templateId ? st.templateId : null,
-          }
-        })
-        .filter((st: any) => st.title),
+  let rawPhases = Array.isArray(body?.phases) ? body.phases : null
+  if (!rawPhases) {
+    const legacyStages = Array.isArray(body?.stages) ? body.stages : []
+    rawPhases = legacyStages.length
+      ? [{ name: 'Workflow', key: null, description: null, stages: legacyStages }]
+      : []
+  }
+  return rawPhases
+    .map((p: any) => ({
+      name: typeof p?.name === 'string' ? p.name.trim() : '',
+      key: typeof p?.key === 'string' ? p.key.trim() || null : null,
+      description: typeof p?.description === 'string' ? p.description.trim() || null : null,
+      stages: (Array.isArray(p?.stages) ? p.stages : []).map(parseWorkflowStage).filter((s: any) => s.name),
     }))
-    .filter((s: any) => s.name)
+    .filter((p: any) => p.name && p.stages.length)
 }
 
 async function firmTemplateNameMap(lawFirmId: string): Promise<Map<string, string>> {
@@ -3180,7 +3330,12 @@ async function firmTemplateNameMap(lawFirmId: string): Promise<Map<string, strin
   return new Map(templates.map((t: any) => [t.id, t.name]))
 }
 
-const WORKFLOW_INCLUDE = { stages: { include: { steps: true } } }
+async function firmMemberNameMap(lawFirmId: string): Promise<Map<string, string>> {
+  const dir = await firmMemberDirectory(lawFirmId)
+  return new Map(dir.map((m: any) => [m.firmMemberId, m.name] as [string, string]))
+}
+
+const WORKFLOW_INCLUDE = { phases: true, stages: { include: { steps: true } } }
 
 // GET /v1/firm-dashboard/workflows — list workflows + editor metadata.
 router.get('/workflows', authMiddleware as any, async (req: any, res: Response) => {
@@ -3201,12 +3356,19 @@ router.get('/workflows', authMiddleware as any, async (req: any, res: Response) 
       orderBy: [{ name: 'asc' }],
     })
     const nameMap = new Map<string, string>(templates.map((t: any) => [t.id, t.name] as [string, string]))
+    const members = await firmMemberDirectory(context.lawFirmId)
+    const memberNames = new Map<string, string>(members.map((m: any) => [m.firmMemberId, m.name] as [string, string]))
 
     res.json({
       canManage,
       roles: WORKFLOW_ROLES,
+      stepTypes: WORKFLOW_STEP_TYPES,
+      aiSignals: AI_SIGNALS,
+      conditionFields: CONDITION_FIELDS,
+      conditionOps: CONDITION_OPS,
       templates: templates.map((t: any) => ({ id: t.id, name: t.name, category: t.category })),
-      workflows: workflows.map((w: any) => serializeWorkflow(w, nameMap)),
+      members,
+      workflows: workflows.map((w: any) => serializeWorkflow(w, nameMap, memberNames)),
     })
   } catch (error) {
     logger.error('Failed to list firm workflows', { error })
@@ -3254,6 +3416,9 @@ router.post('/workflows/seed-default', authMiddleware as any, async (req: any, r
       return res.status(403).json({ error: 'You do not have permission to manage workflows' })
     }
     const count = await (prisma as any).firmWorkflow.count({ where: { lawFirmId: context.lawFirmId } })
+
+    // Create the shell workflow first, then phases (each nesting its stages +
+    // steps). Stages carry both workflowId and phaseId.
     const created = await (prisma as any).firmWorkflow.create({
       data: {
         lawFirmId: context.lawFirmId,
@@ -3263,27 +3428,50 @@ router.post('/workflows/seed-default', authMiddleware as any, async (req: any, r
         isDefault: count === 0,
         sortOrder: count,
         createdById: context.user?.id || null,
-        stages: {
-          create: DEFAULT_WORKFLOW.stages.map((s, si) => ({
-            name: s.name,
-            description: s.description || null,
-            sortOrder: si,
-            steps: {
-              create: s.steps.map((st, ti) => ({
-                title: st.title,
-                description: st.description || null,
-                assigneeRole: st.assigneeRole || null,
-                dueOffsetDays: st.dueOffsetDays ?? null,
-                required: Boolean(st.required),
-                sortOrder: ti,
-              })),
-            },
-          })),
-        },
       },
+    })
+
+    for (let pi = 0; pi < DEFAULT_WORKFLOW.phases.length; pi++) {
+      const p = DEFAULT_WORKFLOW.phases[pi]
+      await (prisma as any).firmWorkflowPhase.create({
+        data: {
+          workflowId: created.id,
+          name: p.name,
+          key: p.key || null,
+          description: p.description || null,
+          sortOrder: pi,
+          stages: {
+            create: p.stages.map((s, si) => ({
+              workflowId: created.id,
+              name: s.name,
+              description: s.description || null,
+              sortOrder: si,
+              steps: {
+                create: s.steps.map((st, ti) => ({
+                  title: st.title,
+                  description: st.description || null,
+                  stepType: st.stepType || 'task',
+                  aiSignal: st.aiSignal || null,
+                  assigneeRole: st.assigneeRole || null,
+                  dueOffsetDays: st.dueOffsetDays ?? null,
+                  required: Boolean(st.required),
+                  conditionField: st.conditionField || null,
+                  conditionOp: st.conditionOp || null,
+                  conditionValue: st.conditionValue || null,
+                  sortOrder: ti,
+                })),
+              },
+            })),
+          },
+        },
+      })
+    }
+
+    const fresh = await (prisma as any).firmWorkflow.findUnique({
+      where: { id: created.id },
       include: WORKFLOW_INCLUDE,
     })
-    res.status(201).json(serializeWorkflow(created, new Map()))
+    res.status(201).json(serializeWorkflow(fresh, new Map()))
   } catch (error) {
     logger.error('Failed to seed default workflow', { error })
     res.status(500).json({ error: 'Internal server error' })
@@ -3329,7 +3517,13 @@ router.patch('/workflows/:id', authMiddleware as any, async (req: any, res: Resp
       data,
       include: WORKFLOW_INCLUDE,
     })
-    res.json(serializeWorkflow(updated, await firmTemplateNameMap(context.lawFirmId)))
+    res.json(
+      serializeWorkflow(
+        updated,
+        await firmTemplateNameMap(context.lawFirmId),
+        await firmMemberNameMap(context.lawFirmId)
+      )
+    )
   } catch (error) {
     logger.error('Failed to update firm workflow', { error })
     res.status(500).json({ error: 'Internal server error' })
@@ -3349,10 +3543,12 @@ router.put('/workflows/:id/structure', authMiddleware as any, async (req: any, r
     })
     if (!workflow) return res.status(404).json({ error: 'Workflow not found' })
 
-    const stages = parseWorkflowStructure(req.body)
+    const phases = parseWorkflowStructure(req.body)
 
     // Only allow linking to templates that belong to this firm.
-    const templateIds = stages.flatMap((s: any) => s.steps.map((st: any) => st.templateId).filter(Boolean))
+    const templateIds = phases.flatMap((p: any) =>
+      p.stages.flatMap((s: any) => s.steps.map((st: any) => st.templateId).filter(Boolean))
+    )
     let validTemplateIds = new Set<string>()
     if (templateIds.length) {
       const found = await (prisma as any).firmTemplate.findMany({
@@ -3362,25 +3558,60 @@ router.put('/workflows/:id/structure', authMiddleware as any, async (req: any, r
       validTemplateIds = new Set(found.map((f: any) => f.id))
     }
 
+    // Only allow default assignees who are members of this firm.
+    const memberIds = phases.flatMap((p: any) =>
+      p.stages.flatMap((s: any) => s.steps.map((st: any) => st.assigneeFirmMemberId).filter(Boolean))
+    )
+    let validMemberIds = new Set<string>()
+    if (memberIds.length) {
+      const found = await (prisma as any).firmMember.findMany({
+        where: { lawFirmId: context.lawFirmId, id: { in: memberIds } },
+        select: { id: true },
+      })
+      validMemberIds = new Set(found.map((f: any) => f.id))
+    }
+
     await prisma.$transaction(async (tx: any) => {
+      // Deleting phases cascades their stages + steps; then remove any remaining
+      // phase-less (legacy) stages for this workflow.
+      await tx.firmWorkflowPhase.deleteMany({ where: { workflowId: workflow.id } })
       await tx.firmWorkflowStage.deleteMany({ where: { workflowId: workflow.id } })
-      for (let si = 0; si < stages.length; si++) {
-        const s = stages[si]
-        await tx.firmWorkflowStage.create({
+
+      for (let pi = 0; pi < phases.length; pi++) {
+        const p = phases[pi]
+        await tx.firmWorkflowPhase.create({
           data: {
             workflowId: workflow.id,
-            name: s.name,
-            description: s.description,
-            sortOrder: si,
-            steps: {
-              create: s.steps.map((st: any, ti: number) => ({
-                title: st.title,
-                description: st.description,
-                assigneeRole: st.assigneeRole,
-                dueOffsetDays: st.dueOffsetDays,
-                required: st.required,
-                templateId: st.templateId && validTemplateIds.has(st.templateId) ? st.templateId : null,
-                sortOrder: ti,
+            name: p.name,
+            key: p.key,
+            description: p.description,
+            sortOrder: pi,
+            stages: {
+              create: p.stages.map((s: any, si: number) => ({
+                workflowId: workflow.id,
+                name: s.name,
+                description: s.description,
+                sortOrder: si,
+                steps: {
+                  create: s.steps.map((st: any, ti: number) => ({
+                    title: st.title,
+                    description: st.description,
+                    stepType: st.stepType,
+                    aiSignal: st.aiSignal,
+                    assigneeRole: st.assigneeRole,
+                    assigneeFirmMemberId:
+                      st.assigneeFirmMemberId && validMemberIds.has(st.assigneeFirmMemberId)
+                        ? st.assigneeFirmMemberId
+                        : null,
+                    dueOffsetDays: st.dueOffsetDays,
+                    required: st.required,
+                    templateId: st.templateId && validTemplateIds.has(st.templateId) ? st.templateId : null,
+                    conditionField: st.conditionField,
+                    conditionOp: st.conditionOp,
+                    conditionValue: st.conditionValue,
+                    sortOrder: ti,
+                  })),
+                },
               })),
             },
           },
@@ -3393,7 +3624,13 @@ router.put('/workflows/:id/structure', authMiddleware as any, async (req: any, r
       where: { id: workflow.id },
       include: WORKFLOW_INCLUDE,
     })
-    res.json(serializeWorkflow(fresh, await firmTemplateNameMap(context.lawFirmId)))
+    res.json(
+      serializeWorkflow(
+        fresh,
+        await firmTemplateNameMap(context.lawFirmId),
+        await firmMemberNameMap(context.lawFirmId)
+      )
+    )
   } catch (error) {
     logger.error('Failed to save workflow structure', { error })
     res.status(500).json({ error: 'Internal server error' })

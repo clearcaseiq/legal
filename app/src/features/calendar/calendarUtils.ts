@@ -3,7 +3,7 @@
  * calendar (day / week / month views).
  */
 
-export type CalKind = 'consult' | 'task'
+export type CalKind = 'consult' | 'task' | 'event'
 
 export interface ConsultInfo {
   type?: string | null
@@ -21,6 +21,26 @@ export interface ConsultInfo {
   manageToken?: string | null
 }
 
+export interface EventAttendeeInfo {
+  kind: 'staff' | 'client'
+  name?: string | null
+  email?: string | null
+  role?: string | null
+  attend?: boolean
+}
+
+export interface EventInfo {
+  eventId: string
+  description?: string | null
+  location?: string | null
+  allDay?: boolean
+  repeatFreq?: string | null
+  reminders?: number[]
+  attendees?: EventAttendeeInfo[]
+  /** True when this instance is a generated occurrence of a repeating event. */
+  recurring?: boolean
+}
+
 export interface CalItem {
   kind: CalKind
   id: string
@@ -33,6 +53,60 @@ export interface CalItem {
   /** For consults: 'case' (lead-linked) or 'booking' (public booking). */
   source?: 'case' | 'booking'
   consult?: ConsultInfo
+  event?: EventInfo
+}
+
+/**
+ * Central color/tone mapping for calendar items so every view (time grid,
+ * month, agenda, detail) stays consistent.
+ * booking = violet · consult = sky · event = emerald · task = amber.
+ */
+export function itemTone(item: CalItem): {
+  key: 'booking' | 'consult' | 'event' | 'task'
+  dot: string
+  chip: string
+  grid: string
+  subText: string
+  label: string
+} {
+  if (item.kind === 'task') {
+    return {
+      key: 'task',
+      dot: 'bg-amber-500',
+      chip: 'bg-amber-50 text-amber-700 ring-amber-100 hover:bg-amber-100',
+      grid: 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100',
+      subText: 'text-amber-600',
+      label: 'Task',
+    }
+  }
+  if (item.kind === 'event') {
+    return {
+      key: 'event',
+      dot: 'bg-emerald-500',
+      chip: 'bg-emerald-50 text-emerald-700 ring-emerald-100 hover:bg-emerald-100',
+      grid: 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100',
+      subText: 'text-emerald-600',
+      label: 'Event',
+    }
+  }
+  if (item.source === 'booking') {
+    return {
+      key: 'booking',
+      dot: 'bg-violet-500',
+      chip: 'bg-violet-50 text-violet-700 ring-violet-100 hover:bg-violet-100',
+      grid: 'border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100',
+      subText: 'text-violet-600',
+      label: 'Booking',
+    }
+  }
+  return {
+    key: 'consult',
+    dot: 'bg-sky-500',
+    chip: 'bg-sky-50 text-sky-700 ring-sky-100 hover:bg-sky-100',
+    grid: 'border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100',
+    subText: 'text-sky-600',
+    label: 'Consult',
+  }
 }
 
 export type CalView = 'day' | 'week' | 'month' | 'list'

@@ -1,8 +1,10 @@
 /**
- * Case Workspace → Workflow tab. Shows the firm's applied workflow as a live,
- * stage-grouped checklist for this specific case: progress bar, current stage,
- * per-step owner/due-date/required badges, and check-off. If the case has no
- * workflow yet, offers to apply the firm's standard one.
+ * Case Workspace → Workflow tab. Renders the firm's applied workflow as a live
+ * VISUAL PIPELINE for this case: a horizontal phase strip (with per-phase
+ * progress and current-phase highlight), then each phase's stages and typed
+ * steps. Regular steps can be checked off; AI milestones are read-only and
+ * derived automatically. If the case has no workflow yet, offers to apply the
+ * firm's standard one.
  */
 import { useCallback, useEffect, useState } from 'react'
 import {
@@ -14,13 +16,21 @@ import {
   Loader2,
   Sparkles,
   ListChecks,
+  Flag,
+  MapPin,
+  AlarmClock,
+  ClipboardList,
 } from 'lucide-react'
 import {
   getCaseWorkflow,
   applyCaseWorkflow,
   updateCaseWorkflowStep,
+  assignCaseWorkflowStep,
   type CaseWorkflow,
+  type CaseWorkflowPhase,
   type CaseWorkflowStep,
+  type FirmMemberOption,
+  type WorkflowStepType,
 } from '../../lib/api'
 
 const ROLE_LABELS: Record<string, string> = {
@@ -32,6 +42,23 @@ const ROLE_LABELS: Record<string, string> = {
   demand_writer: 'Demand writer',
   billing_admin: 'Billing',
   firm_admin: 'Firm admin',
+}
+
+const STEP_ICON: Record<WorkflowStepType, React.ComponentType<{ className?: string }>> = {
+  task: ClipboardList,
+  milestone: Flag,
+  checkpoint: MapPin,
+  deadline: AlarmClock,
+  document: FileText,
+  ai_milestone: Sparkles,
+}
+const STEP_TONE: Record<WorkflowStepType, string> = {
+  task: 'text-slate-400',
+  milestone: 'text-amber-500',
+  checkpoint: 'text-sky-500',
+  deadline: 'text-rose-500',
+  document: 'text-indigo-500',
+  ai_milestone: 'text-violet-500',
 }
 
 function dueMeta(dueDate: string | null, done: boolean) {
@@ -56,6 +83,8 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
   const [appliedName, setAppliedName] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [pendingId, setPendingId] = useState<string | null>(null)
+  const [members, setMembers] = useState<FirmMemberOption[]>([])
+  const [canAssign, setCanAssign] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -64,6 +93,8 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
       setWorkflow(res.workflow)
       setCanApply(res.canApply)
       setAppliedName(res.appliedWorkflow?.name ?? null)
+      setMembers(res.members ?? [])
+      setCanAssign(res.canAssign ?? false)
     } finally {
       setLoading(false)
     }
@@ -87,13 +118,27 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
   }
 
   const toggle = async (step: CaseWorkflowStep) => {
+    if (step.readOnly) return
     const next = step.status === 'done' ? 'pending' : 'done'
     setPendingId(step.id)
     try {
       const res = await updateCaseWorkflowStep(leadId, step.id, next)
       setWorkflow(res.workflow)
     } catch {
-      // ignore; reload to resync
+      load()
+    } finally {
+      setPendingId(null)
+    }
+  }
+
+  const assign = async (step: CaseWorkflowStep, firmMemberId: string | null) => {
+    if (step.readOnly) return
+    setPendingId(step.id)
+    try {
+      const res = await assignCaseWorkflowStep(leadId, step.id, firmMemberId)
+      setWorkflow(res.workflow)
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Failed to assign step')
       load()
     } finally {
       setPendingId(null)
@@ -116,7 +161,7 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
           <>
             <p className="mt-3 text-sm text-slate-600">
               This case doesn't have a workflow yet. Apply your firm's standard workflow
-              {appliedName ? ` (“${appliedName}”)` : ''} to track it stage by stage.
+              {appliedName ? ` (“${appliedName}”)` : ''} to track it through the pipeline.
             </p>
             <button
               type="button"
@@ -141,7 +186,7 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
 
   return (
     <div className="space-y-4">
-      {/* Header + progress */}
+      {/* Header + overall progress */}
       <div className="rounded-xl border border-slate-200 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
@@ -153,22 +198,24 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
           </span>
         </div>
         <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-100">
-          <div
-            className="h-full rounded-full bg-emerald-500 transition-all"
-            style={{ width: `${pct}%` }}
-          />
+          <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
         </div>
+
+        {/* Visual pipeline strip */}
+        <PipelineStrip phases={workflow.phases} currentOrder={workflow.currentPhaseOrder} />
       </div>
 
-      {/* Stages */}
-      <div className="space-y-3">
-        {workflow.stages.map((stage) => {
-          const isCurrent = stage.order === workflow.currentStageOrder
-          const stageDone = stage.steps.filter((s) => s.status === 'done').length
+      {/* Phases → stages → steps */}
+      <div className="space-y-4">
+        {workflow.phases.map((phase) => {
+          const isCurrent = phase.order === workflow.currentPhaseOrder
+          const phasePct = phase.totalSteps ? Math.round((phase.completedSteps / phase.totalSteps) * 100) : 0
           return (
             <div
-              key={stage.order}
-              className={`rounded-xl border ${isCurrent ? 'border-indigo-300 ring-1 ring-indigo-200' : 'border-slate-200'}`}
+              key={phase.order}
+              className={`overflow-hidden rounded-xl border ${
+                isCurrent ? 'border-indigo-300 ring-1 ring-indigo-200' : 'border-slate-200'
+              }`}
             >
               <div
                 className={`flex items-center justify-between gap-2 border-b px-4 py-2.5 ${
@@ -176,82 +223,221 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">
-                    {stage.order + 1}
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">
+                    {phase.order + 1}
                   </span>
-                  <span className="font-semibold text-slate-800">{stage.name}</span>
+                  <span className="font-semibold text-slate-900">{phase.name}</span>
                   {isCurrent && (
                     <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
                       Current
                     </span>
                   )}
                 </div>
-                <span className="text-xs text-slate-500">
-                  {stageDone}/{stage.steps.length}
+                <span className="text-xs font-medium text-slate-500">
+                  {phase.completedSteps}/{phase.totalSteps} · {phasePct}%
                 </span>
               </div>
 
-              <ul className="divide-y divide-slate-100">
-                {stage.steps.map((step) => {
-                  const done = step.status === 'done'
-                  const due = dueMeta(step.dueDate, done)
+              <div className="space-y-3 p-3">
+                {phase.stages.map((stage) => {
+                  const stageDone = stage.steps.filter((s) => s.status === 'done' || s.status === 'skipped').length
                   return (
-                    <li key={step.id} className="flex items-start gap-3 px-4 py-2.5">
-                      <button
-                        type="button"
-                        onClick={() => toggle(step)}
-                        disabled={pendingId === step.id}
-                        className="mt-0.5 shrink-0 text-slate-300 hover:text-emerald-500 disabled:opacity-50"
-                        title={done ? 'Mark not done' : 'Mark done'}
-                      >
-                        {pendingId === step.id ? (
-                          <Loader2 className="h-5 w-5 animate-spin text-slate-300" />
-                        ) : done ? (
-                          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                        ) : (
-                          <Circle className="h-5 w-5" />
-                        )}
-                      </button>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className={`text-sm font-medium ${done ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
-                            {step.title}
-                          </span>
-                          {step.required && (
-                            <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-600 ring-1 ring-rose-200">
-                              Required
-                            </span>
-                          )}
-                        </div>
-                        {step.description && <p className="mt-0.5 text-xs text-slate-500">{step.description}</p>}
-                        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs">
-                          {step.assigneeRole && (
-                            <span className="inline-flex items-center gap-1 text-slate-500">
-                              <User className="h-3.5 w-3.5 text-slate-400" />
-                              {ROLE_LABELS[step.assigneeRole] || step.assigneeRole}
-                            </span>
-                          )}
-                          {due && (
-                            <span className={`inline-flex items-center gap-1 ${due.cls}`}>
-                              <Clock className="h-3.5 w-3.5" />
-                              {due.label}
-                            </span>
-                          )}
-                          {step.templateId && (
-                            <span className="inline-flex items-center gap-1 text-slate-400">
-                              <FileText className="h-3.5 w-3.5" /> Linked doc
-                            </span>
-                          )}
-                        </div>
+                    <div key={stage.order} className="rounded-lg border border-slate-200">
+                      <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-white px-3 py-2">
+                        <span className="text-sm font-semibold text-slate-700">{stage.name}</span>
+                        <span className="text-xs text-slate-400">
+                          {stageDone}/{stage.steps.length}
+                        </span>
                       </div>
-                    </li>
+                      <ul className="divide-y divide-slate-100">
+                        {stage.steps.map((step) => (
+                          <StepItem
+                            key={step.id}
+                            step={step}
+                            pending={pendingId === step.id}
+                            members={members}
+                            canAssign={canAssign}
+                            onToggle={() => toggle(step)}
+                            onAssign={(firmMemberId) => assign(step, firmMemberId)}
+                          />
+                        ))}
+                      </ul>
+                    </div>
                   )
                 })}
-              </ul>
+              </div>
             </div>
           )
         })}
       </div>
     </div>
+  )
+}
+
+function PipelineStrip({
+  phases,
+  currentOrder,
+}: {
+  phases: CaseWorkflowPhase[]
+  currentOrder: number | null
+}) {
+  if (phases.length === 0) return null
+  return (
+    <div className="mt-4 flex items-stretch gap-1 overflow-x-auto">
+      {phases.map((phase) => {
+        const pct = phase.totalSteps ? Math.round((phase.completedSteps / phase.totalSteps) * 100) : 0
+        const complete = phase.totalSteps > 0 && phase.completedSteps >= phase.totalSteps
+        const isCurrent = phase.order === currentOrder
+        return (
+          <div
+            key={phase.order}
+            className={`min-w-[120px] flex-1 rounded-lg border px-3 py-2 ${
+              isCurrent
+                ? 'border-indigo-300 bg-indigo-50'
+                : complete
+                  ? 'border-emerald-200 bg-emerald-50'
+                  : 'border-slate-200 bg-slate-50'
+            }`}
+            title={`${phase.name} — ${phase.completedSteps}/${phase.totalSteps}`}
+          >
+            <div className="flex items-center gap-1.5">
+              {complete ? (
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+              ) : (
+                <span
+                  className={`h-3.5 w-3.5 shrink-0 rounded-full ${isCurrent ? 'bg-indigo-500' : 'bg-slate-300'}`}
+                />
+              )}
+              <span className="min-w-0 truncate text-xs font-semibold text-slate-700">{phase.name}</span>
+            </div>
+            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-white/70">
+              <div
+                className={`h-full rounded-full ${complete ? 'bg-emerald-500' : 'bg-indigo-400'}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function StepItem({
+  step,
+  pending,
+  members,
+  canAssign,
+  onToggle,
+  onAssign,
+}: {
+  step: CaseWorkflowStep
+  pending: boolean
+  members: FirmMemberOption[]
+  canAssign: boolean
+  onToggle: () => void
+  onAssign: (firmMemberId: string | null) => void
+}) {
+  const done = step.status === 'done'
+  const due = dueMeta(step.dueDate, done)
+  const TypeIcon = STEP_ICON[step.stepType] || ClipboardList
+
+  return (
+    <li className="flex items-start gap-3 px-4 py-2.5">
+      {step.readOnly ? (
+        /* AI milestone: read-only, derived status. */
+        <span className="mt-0.5 shrink-0" title="Tracked automatically">
+          {done ? (
+            <CheckCircle2 className="h-5 w-5 text-violet-500" />
+          ) : (
+            <Sparkles className="h-5 w-5 text-violet-300" />
+          )}
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={onToggle}
+          disabled={pending}
+          className="mt-0.5 shrink-0 text-slate-300 hover:text-emerald-500 disabled:opacity-50"
+          title={done ? 'Mark not done' : 'Mark done'}
+        >
+          {pending ? (
+            <Loader2 className="h-5 w-5 animate-spin text-slate-300" />
+          ) : done ? (
+            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+          ) : (
+            <Circle className="h-5 w-5" />
+          )}
+        </button>
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <TypeIcon className={`h-3.5 w-3.5 shrink-0 ${STEP_TONE[step.stepType] || 'text-slate-400'}`} />
+          <span className={`text-sm font-medium ${done ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+            {step.title}
+          </span>
+          {step.readOnly && (
+            <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet-600 ring-1 ring-violet-200">
+              {done ? 'Auto · done' : 'Auto'}
+            </span>
+          )}
+          {step.required && !step.readOnly && (
+            <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-600 ring-1 ring-rose-200">
+              Required
+            </span>
+          )}
+        </div>
+        {step.description && <p className="mt-0.5 text-xs text-slate-500">{step.description}</p>}
+        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs">
+          {!step.readOnly && canAssign ? (
+            <span
+              className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 ${
+                step.assignedFirmMemberId
+                  ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
+                  : 'text-slate-500'
+              }`}
+            >
+              <User className="h-3.5 w-3.5" />
+              <select
+                className="max-w-[160px] bg-transparent text-xs focus:outline-none disabled:opacity-60"
+                value={step.assignedFirmMemberId ?? ''}
+                disabled={pending}
+                onChange={(e) => onAssign(e.target.value || null)}
+              >
+                <option value="">Unassigned</option>
+                {members.map((m) => (
+                  <option key={m.firmMemberId} value={m.firmMemberId}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </span>
+          ) : (
+            step.assignedName && (
+              <span className="inline-flex items-center gap-1 text-indigo-700">
+                <User className="h-3.5 w-3.5" />
+                {step.assignedName}
+              </span>
+            )
+          )}
+          {step.assigneeRole && !step.assignedFirmMemberId && (
+            <span className="inline-flex items-center gap-1 text-slate-500">
+              {ROLE_LABELS[step.assigneeRole] || step.assigneeRole}
+            </span>
+          )}
+          {due && (
+            <span className={`inline-flex items-center gap-1 ${due.cls}`}>
+              <Clock className="h-3.5 w-3.5" />
+              {due.label}
+            </span>
+          )}
+          {step.templateId && (
+            <span className="inline-flex items-center gap-1 text-slate-400">
+              <FileText className="h-3.5 w-3.5" /> Linked doc
+            </span>
+          )}
+        </div>
+      </div>
+    </li>
   )
 }

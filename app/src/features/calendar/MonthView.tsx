@@ -1,5 +1,5 @@
 import { Plus } from 'lucide-react'
-import { CalItem, WEEKDAYS_SHORT, addDays, dateKeyOf, sameDay, startOfWeek, timeLabel } from './calendarUtils'
+import { CalItem, WEEKDAYS_SHORT, addDays, dateKeyOf, itemTone, sameDay, startOfWeek, timeLabel } from './calendarUtils'
 
 /** Traditional month grid (Google Calendar style) with up to 3 chips per day. */
 export function MonthView({
@@ -76,23 +76,16 @@ export function MonthView({
 
               <div className="space-y-0.5" onClick={(e) => e.stopPropagation()}>
                 {dayItems.slice(0, 3).map((item) => {
-                  const isConsult = item.kind === 'consult'
-                  const isBooking = isConsult && item.source === 'booking'
-                  const chip = isBooking
-                    ? 'bg-violet-50 text-violet-700 ring-violet-100 hover:bg-violet-100'
-                    : isConsult
-                      ? 'bg-sky-50 text-sky-700 ring-sky-100 hover:bg-sky-100'
-                      : 'bg-amber-50 text-amber-700 ring-amber-100 hover:bg-amber-100'
-                  const dot = isBooking ? 'bg-violet-500' : isConsult ? 'bg-sky-500' : 'bg-amber-500'
+                  const tone = itemTone(item)
                   return (
                     <button
                       key={item.id}
                       type="button"
                       onClick={() => onItemClick(item)}
-                      className={`flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[11px] font-medium ring-1 ring-inset transition ${chip}`}
-                      title={`${isBooking ? 'Booking' : isConsult ? 'Consult' : 'Task'}: ${item.title}`}
+                      className={`flex w-full items-center gap-1 truncate rounded px-1 py-0.5 text-left text-[11px] font-medium ring-1 ring-inset transition ${tone.chip}`}
+                      title={`${tone.label}: ${item.title}`}
                     >
-                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tone.dot}`} />
                       <span className="truncate">
                         {item.hasTime ? <span className="tabular-nums">{timeLabel(item.date)} </span> : null}
                         {item.title}

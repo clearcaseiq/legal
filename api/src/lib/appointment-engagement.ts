@@ -383,6 +383,138 @@ export async function sweepUpcomingAppointmentReminders() {
   return { scanned: upcoming.length, sentCount }
 }
 
+/** Expand a stored calendar event into occurrences overlapping [from, to). */
+function expandEventOccurrences(
+  ev: { startAt: Date; endAt: Date; repeatFreq: string | null; repeatUntil: Date | null },
+  from: Date,
+  to: Date,
+): Array<{ start: Date; end: Date }> {
+  const durationMs = Math.max(ev.endAt.getTime() - ev.startAt.getTime(), 0)
+  const out: Array<{ start: Date; end: Date }> = []
+  if (!ev.repeatFreq) {
+    if (ev.startAt.getTime() < to.getTime() && ev.endAt.getTime() > from.getTime()) {
+      out.push({ start: ev.startAt, end: ev.endAt })
+    }
+    return out
+  }
+  const until = ev.repeatUntil ? new Date(Math.min(ev.repeatUntil.getTime(), to.getTime())) : to
+  const cur = new Date(ev.startAt)
+  let guard = 0
+  while (cur.getTime() <= until.getTime() && guard < 2000) {
+    const start = new Date(cur)
+    const end = new Date(cur.getTime() + durationMs)
+    if (start.getTime() < to.getTime() && end.getTime() > from.getTime()) out.push({ start, end })
+    if (ev.repeatFreq === 'daily') cur.setDate(cur.getDate() + 1)
+    else if (ev.repeatFreq === 'weekly') cur.setDate(cur.getDate() + 7)
+    else if (ev.repeatFreq === 'monthly') cur.setMonth(cur.getMonth() + 1)
+    else break
+    guard += 1
+  }
+  return out
+}
+
+/**
+ * Sends per-event reminders for general CalendarEvents. Each event stores an
+ * array of minutes-before offsets; recipients are the invited attendees plus
+ * the owning attorney. Deduped by a (eventId|occurrence|offset) key.
+ */
+export async function sweepUpcomingCalendarEventReminders() {
+  const now = new Date()
+  // Widest reminder we support is ~30 days out.
+  const maxHorizon = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000)
+
+  const events = await prisma.calendarEvent.findMany({
+    where: {
+      reminders: { not: null },
+      startAt: { lte: maxHorizon },
+    },
+    include: { attendees: { select: { email: true, userId: true } } },
+  })
+  if (events.length === 0) return { scanned: 0, sentCount: 0 }
+
+  const attorneyIds = Array.from(new Set(events.map((e) => e.attorneyId)))
+  const attorneys = await prisma.attorney.findMany({
+    where: { id: { in: attorneyIds } },
+    select: { id: true, name: true, email: true, schedulingTimezone: true },
+  })
+  const attMap = new Map(attorneys.map((a) => [a.id, a]))
+
+  let sentCount = 0
+  for (const ev of events) {
+    const offsets = parseJson<number[]>(ev.reminders, [])?.filter((n) => typeof n === 'number') || []
+    if (offsets.length === 0) continue
+
+    const att = attMap.get(ev.attorneyId)
+    const tz = att?.schedulingTimezone || undefined
+
+    const recipients: Array<{ email: string; userId: string | null }> = []
+    const seenEmail = new Set<string>()
+    for (const a of ev.attendees) {
+      if (a.email && !seenEmail.has(a.email)) {
+        recipients.push({ email: a.email, userId: a.userId })
+        seenEmail.add(a.email)
+      }
+    }
+    if (att?.email && !seenEmail.has(att.email)) {
+      recipients.push({ email: att.email, userId: null })
+      seenEmail.add(att.email)
+    }
+    if (recipients.length === 0) continue
+
+    for (const occ of expandEventOccurrences(ev, now, maxHorizon)) {
+      const minutesUntil = Math.round((occ.start.getTime() - now.getTime()) / 60000)
+      if (minutesUntil < 0) continue
+      const occIso = occ.start.toISOString()
+      const whenLabel = occ.start.toLocaleString('en-US', {
+        dateStyle: 'full',
+        timeStyle: 'short',
+        ...(tz ? { timeZone: tz } : {}),
+      })
+      for (const offset of offsets) {
+        const inWindow = minutesUntil <= offset && minutesUntil > offset - 15
+        if (!inWindow) continue
+        const reminderKey = `${ev.id}|${occIso}|${offset}`
+        const prior = await prisma.notification.findFirst({
+          where: { subject: 'Event reminder', metadata: { contains: reminderKey } },
+          select: { id: true },
+        })
+        if (prior) continue
+
+        const leadStr =
+          offset >= 1440
+            ? `in about ${Math.round(offset / 1440)} day(s)`
+            : offset >= 60
+              ? `in about ${Math.round(offset / 60)} hour(s)`
+              : `in about ${offset} minutes`
+        const lines = [
+          `Reminder: "${ev.title}" is ${leadStr}.`,
+          '',
+          `When: ${whenLabel}${tz ? ` (${tz.replace(/_/g, ' ')})` : ''}`,
+        ]
+        if (ev.location) lines.push(`Where: ${ev.location}`)
+
+        for (const r of recipients) {
+          await createNotification({
+            recipient: r.email,
+            userId: r.userId,
+            subject: 'Event reminder',
+            message: lines.join('\n'),
+            metadata: {
+              calendarEventId: ev.id,
+              reminderKey,
+              assessmentId: ev.assessmentId,
+              eventType: 'calendar_event_reminder',
+            },
+          })
+          sentCount += 1
+        }
+      }
+    }
+  }
+
+  return { scanned: events.length, sentCount }
+}
+
 export async function getAppointmentPreparation(appointmentId: string, userId: string) {
   const appointment = await prisma.appointment.findFirst({
     where: {
@@ -610,7 +742,14 @@ export async function maybeVerifyAttorneyReview(params: { attorneyId: string; us
 
 export async function runAppointmentEngagementSweep() {
   try {
-    return await sweepUpcomingAppointmentReminders()
+    const appointments = await sweepUpcomingAppointmentReminders()
+    let events = { scanned: 0, sentCount: 0 }
+    try {
+      events = await sweepUpcomingCalendarEventReminders()
+    } catch (error) {
+      logger.error('Calendar event reminder sweep failed', { error })
+    }
+    return { ...appointments, calendarEvents: events }
   } catch (error) {
     logger.error('Appointment engagement sweep failed', { error })
     throw error

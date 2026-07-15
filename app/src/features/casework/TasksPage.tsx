@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Circle, Loader2, Plus, Trash2, X } from 'lucide-react'
+import { CheckCircle2, Circle, ListChecks, Loader2, Plus, Trash2, X } from 'lucide-react'
 import {
   getAttorneyTaskSummary,
   getAttorneyDashboard,
   createLeadTask,
   updateLeadTask,
   deleteLeadTask,
+  getMyWorkflowTasks,
+  type MyWorkflowTask,
 } from '../../lib/api'
 import {
   Badge,
@@ -119,6 +121,7 @@ export default function TasksPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
+  const [workflowTasks, setWorkflowTasks] = useState<MyWorkflowTask[]>([])
 
   const flash = (tone: 'ok' | 'err', text: string) => {
     setMsg({ tone, text })
@@ -158,6 +161,12 @@ export default function TasksPage() {
         setCaseOptions(opts)
       })
       .catch(() => setCaseOptions([]))
+    // Workflow steps assigned to me across all cases.
+    getMyWorkflowTasks()
+      .then((res) => {
+        if (!cancelled) setWorkflowTasks(res?.tasks ?? [])
+      })
+      .catch(() => setWorkflowTasks([]))
     return () => {
       cancelled = true
     }
@@ -311,6 +320,43 @@ export default function TasksPage() {
     },
   ]
 
+  const workflowColumns: DataTableColumn<MyWorkflowTask>[] = [
+    {
+      key: 'title',
+      header: 'Workflow step',
+      cell: (r) => (
+        <div className="flex items-center gap-2">
+          <ListChecks className="h-4 w-4 shrink-0 text-indigo-500" />
+          <span className="font-medium text-slate-800">{r.title}</span>
+          {r.required && (
+            <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-600 ring-1 ring-rose-200">
+              Required
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'stage',
+      header: 'Stage',
+      cell: (r) => (
+        <span className="text-slate-500">
+          {[r.phaseName, r.stageName].filter(Boolean).join(' · ') || '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'case',
+      header: 'Case',
+      cell: (r) => <ClientLink name={claimLabel(r.claimType)} leadId={r.leadId} section="workflow" />,
+    },
+    {
+      key: 'due',
+      header: 'Due',
+      cell: (r) => <span className={dueTone(r.dueDate)}>{formatDue(r.dueDate)}</span>,
+    },
+  ]
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -442,6 +488,20 @@ export default function TasksPage() {
           </div>
         </div>
       ) : null}
+
+      {workflowTasks.length > 0 && (
+        <SectionCard
+          title="Workflow steps assigned to me"
+          trailing={<Badge tone="brand">{workflowTasks.length}</Badge>}
+        >
+          <DataTable
+            columns={workflowColumns}
+            rows={workflowTasks}
+            rowKey={(r) => r.id}
+            emptyMessage="No workflow steps assigned to you."
+          />
+        </SectionCard>
+      )}
 
       <StatGrid columns={5}>
         <FilterStat

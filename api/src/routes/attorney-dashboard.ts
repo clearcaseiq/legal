@@ -8205,6 +8205,20 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
 
 // ---- Case workflow (the firm's applied workflow, tracked on this case) -----
 
+// Firm member directory for the workflow-step assignee picker.
+async function workflowMemberDirectory(lawFirmId: string | null | undefined) {
+  if (!lawFirmId) return []
+  const dir = await (prisma as any).firmMember.findMany({
+    where: { lawFirmId, status: { in: ['active', 'invited'] } },
+    include: { user: { select: { firstName: true, lastName: true, email: true } } },
+  })
+  return dir.map((m: any) => ({
+    firmMemberId: m.id,
+    name: [m.user?.firstName, m.user?.lastName].filter(Boolean).join(' ').trim() || m.user?.email || 'Member',
+    role: m.role,
+  }))
+}
+
 // GET the case's workflow progress, or (if none) whether one can be applied.
 router.get('/leads/:leadId/workflow', authMiddleware, async (req: any, res) => {
   try {
@@ -8213,12 +8227,21 @@ router.get('/leads/:leadId/workflow', authMiddleware, async (req: any, res) => {
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { lead, attorney } = auth
 
+    const members = await workflowMemberDirectory(attorney.lawFirmId)
+    const canAssign = Boolean(attorney.lawFirmId)
+
     const cw = await (prisma as any).caseWorkflow.findUnique({
       where: { assessmentId: lead.assessmentId },
       include: { items: true },
     })
     if (cw) {
-      return res.json({ workflow: serializeCaseWorkflow(cw), canApply: false, appliedWorkflow: null })
+      return res.json({
+        workflow: await serializeCaseWorkflow(cw),
+        canApply: false,
+        appliedWorkflow: null,
+        members,
+        canAssign,
+      })
     }
 
     let appliedWorkflow: any = null
@@ -8228,7 +8251,7 @@ router.get('/leads/:leadId/workflow', authMiddleware, async (req: any, res) => {
         select: { id: true, name: true },
       })
     }
-    res.json({ workflow: null, canApply: Boolean(appliedWorkflow), appliedWorkflow })
+    res.json({ workflow: null, canApply: Boolean(appliedWorkflow), appliedWorkflow, members, canAssign })
   } catch (error: any) {
     logger.error('Failed to load case workflow', { error: error.message })
     res.status(500).json({ error: 'Failed to load case workflow' })
@@ -8260,7 +8283,7 @@ router.post('/leads/:leadId/workflow/apply', authMiddleware, async (req: any, re
       where: { assessmentId: lead.assessmentId },
       include: { items: true },
     })
-    res.json({ workflow: cw ? serializeCaseWorkflow(cw) : null })
+    res.json({ workflow: cw ? await serializeCaseWorkflow(cw) : null })
   } catch (error: any) {
     logger.error('Failed to apply case workflow', { error: error.message })
     res.status(500).json({ error: 'Failed to apply case workflow' })
@@ -8290,6 +8313,9 @@ router.patch('/leads/:leadId/workflow/items/:itemId', authMiddleware, async (req
       where: { id: itemId, caseWorkflowId: cw.id },
     })
     if (!item) return res.status(404).json({ error: 'Step not found' })
+    if (item.stepType === 'ai_milestone') {
+      return res.status(400).json({ error: 'AI milestones are tracked automatically and cannot be toggled' })
+    }
 
     await (prisma as any).caseWorkflowItem.update({
       where: { id: itemId },
@@ -8304,10 +8330,80 @@ router.patch('/leads/:leadId/workflow/items/:itemId', authMiddleware, async (req
       where: { id: cw.id },
       include: { items: true },
     })
-    res.json({ workflow: serializeCaseWorkflow(fresh) })
+    res.json({ workflow: await serializeCaseWorkflow(fresh) })
   } catch (error: any) {
     logger.error('Failed to update workflow step', { error: error.message })
     res.status(500).json({ error: 'Failed to update workflow step' })
+  }
+})
+
+// Assign (or clear) the specific person responsible for a workflow step.
+router.patch('/leads/:leadId/workflow/items/:itemId/assignee', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, itemId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+    if (!attorney.lawFirmId) return res.status(400).json({ error: 'You are not part of a firm' })
+
+    const rawId = req.body?.firmMemberId
+    const firmMemberId = typeof rawId === 'string' && rawId ? rawId : null
+
+    const cw = await (prisma as any).caseWorkflow.findUnique({
+      where: { assessmentId: lead.assessmentId },
+      select: { id: true },
+    })
+    if (!cw) return res.status(404).json({ error: 'No workflow on this case' })
+
+    const item = await (prisma as any).caseWorkflowItem.findFirst({
+      where: { id: itemId, caseWorkflowId: cw.id },
+    })
+    if (!item) return res.status(404).json({ error: 'Step not found' })
+    if (item.stepType === 'ai_milestone') {
+      return res.status(400).json({ error: 'AI milestones are tracked automatically and cannot be assigned' })
+    }
+
+    // Validate the target member belongs to this firm.
+    let member: any = null
+    if (firmMemberId) {
+      member = await (prisma as any).firmMember.findFirst({
+        where: { id: firmMemberId, lawFirmId: attorney.lawFirmId, status: { in: ['active', 'invited'] } },
+        include: { user: { select: { id: true, email: true, firstName: true, lastName: true } } },
+      })
+      if (!member) return res.status(400).json({ error: 'That person is not a member of your firm' })
+    }
+
+    await (prisma as any).caseWorkflowItem.update({
+      where: { id: itemId },
+      data: { assignedFirmMemberId: firmMemberId },
+    })
+
+    // Notify the newly assigned member (system-generated), unless self-assigned.
+    if (member?.user?.id && member.user.id !== req.user?.id) {
+      try {
+        await createNotificationEvent({
+          userId: member.user.id,
+          role: 'attorney',
+          channel: 'in_app',
+          eventType: 'attorney.workflow_assignment',
+          subject: `You were assigned a workflow step`,
+          body: item.stageName ? `“${item.title}” · ${item.stageName}` : `“${item.title}”`,
+          recipient: member.user.email || undefined,
+          payload: { link: `/attorney-dashboard/lead/${leadId}/workflow`, leadId },
+        })
+      } catch (err) {
+        logger.warn('Failed to notify workflow assignee', { error: (err as Error).message })
+      }
+    }
+
+    const fresh = await (prisma as any).caseWorkflow.findUnique({
+      where: { id: cw.id },
+      include: { items: true },
+    })
+    res.json({ workflow: await serializeCaseWorkflow(fresh) })
+  } catch (error: any) {
+    logger.error('Failed to assign workflow step', { error: error.message })
+    res.status(500).json({ error: 'Failed to assign workflow step' })
   }
 })
 
@@ -8323,6 +8419,66 @@ router.delete('/leads/:leadId/workflow', authMiddleware, async (req: any, res) =
   } catch (error: any) {
     logger.error('Failed to remove case workflow', { error: error.message })
     res.status(500).json({ error: 'Failed to remove case workflow' })
+  }
+})
+
+// GET workflow steps assigned to the current user, across all their firm's cases.
+router.get('/my-workflow-tasks', authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user?.id
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' })
+
+    // Resolve the caller's firm membership (a user has one member row per firm).
+    const membership = await (prisma as any).firmMember.findFirst({
+      where: { userId, status: { in: ['active', 'invited'] } },
+      select: { id: true, lawFirmId: true },
+    })
+    if (!membership) return res.json({ tasks: [] })
+
+    const items = await (prisma as any).caseWorkflowItem.findMany({
+      where: {
+        assignedFirmMemberId: membership.id,
+        status: 'pending',
+        stepType: { not: 'ai_milestone' },
+      },
+      include: {
+        caseWorkflow: {
+          select: {
+            assessmentId: true,
+            name: true,
+            assessment: {
+              select: { claimType: true, leadSubmission: { select: { id: true } } },
+            },
+          },
+        },
+      },
+      orderBy: [{ dueDate: 'asc' }],
+    })
+
+    const tasks = items
+      .map((it: any) => {
+        const leadId = it.caseWorkflow?.assessment?.leadSubmission?.id || null
+        return {
+          id: it.id,
+          title: it.title,
+          stepType: it.stepType || 'task',
+          phaseName: it.phaseName || null,
+          stageName: it.stageName || null,
+          dueDate: it.dueDate,
+          required: it.required,
+          workflowName: it.caseWorkflow?.name || null,
+          claimType: it.caseWorkflow?.assessment?.claimType || null,
+          assessmentId: it.caseWorkflow?.assessmentId || null,
+          leadId,
+        }
+      })
+      // Only surface tasks we can deep-link to a case workspace.
+      .filter((t: any) => t.leadId)
+
+    res.json({ tasks })
+  } catch (error: any) {
+    logger.error('Failed to load my workflow tasks', { error: error.message })
+    res.status(500).json({ error: 'Failed to load my workflow tasks' })
   }
 })
 
