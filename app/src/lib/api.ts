@@ -4352,6 +4352,15 @@ export async function updateCaseWorkflowStep(
   return data
 }
 
+export async function editCaseWorkflowStep(
+  leadId: string,
+  itemId: string,
+  fields: { title?: string; description?: string | null; dueDate?: string | null }
+): Promise<{ workflow: CaseWorkflow }> {
+  const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/workflow/items/${itemId}`, fields)
+  return data
+}
+
 export async function removeCaseWorkflow(leadId: string): Promise<void> {
   await api.delete(`/v1/attorney-dashboard/leads/${leadId}/workflow`)
 }

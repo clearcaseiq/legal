@@ -62,6 +62,10 @@ import {
   getLeadMedicalChronologySummary,
   getLeadTasks,
   getMyWorkflowTasks,
+  getCaseWorkflow,
+  assignCaseWorkflowStep,
+  updateCaseWorkflowStep,
+  editCaseWorkflowStep,
   nudgeDocumentRequest,
   updateLeadTask,
   uploadLeadEvidenceOnBehalf,
@@ -69,6 +73,7 @@ import {
   type CaseCommandCenter,
   type MedicalChronologySummary,
   type MyWorkflowTask,
+  type FirmMemberOption,
 } from '../../lib/api'
 import { getApiOrigin } from '../../lib/runtimeEnv'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
@@ -3080,28 +3085,208 @@ function TaskStat({ label, value, tone }: { label: string; value: number; tone: 
   )
 }
 
-function TasksPanel({ leadId, tasks, reload }: { leadId: string; tasks: TaskRow[]; reload: () => Promise<void> | void }) {
+/**
+ * Workflow steps assigned to the current user on THIS case, surfaced inside the
+ * case Tasks tab with inline complete / edit / reassign — mirroring the Workflow
+ * tab so work can be actioned where it was assigned.
+ */
+function AssignedWorkflowSection({ leadId }: { leadId: string }) {
   const navigate = useNavigate()
+  const [items, setItems] = useState<MyWorkflowTask[]>([])
+  const [members, setMembers] = useState<FirmMemberOption[]>([])
+  const [canAssign, setCanAssign] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editDue, setEditDue] = useState('')
+
+  const load = useCallback(async () => {
+    try {
+      const [mine, wf] = await Promise.all([
+        getMyWorkflowTasks(),
+        getCaseWorkflow(leadId).catch(() => null),
+      ])
+      setItems((mine?.tasks ?? []).filter((t) => t.leadId === leadId))
+      setMembers((wf?.members ?? []) as FirmMemberOption[])
+      setCanAssign(Boolean(wf?.canAssign))
+    } catch {
+      setItems([])
+    }
+  }, [leadId])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const complete = async (t: MyWorkflowTask) => {
+    setBusyId(t.id)
+    try {
+      await updateCaseWorkflowStep(leadId, t.id, 'done')
+      await load()
+    } catch {
+      /* ignore */
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const assign = async (t: MyWorkflowTask, firmMemberId: string) => {
+    if (!firmMemberId) return
+    setBusyId(t.id)
+    try {
+      await assignCaseWorkflowStep(leadId, t.id, firmMemberId)
+      await load()
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Failed to reassign step')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const openEdit = (t: MyWorkflowTask) => {
+    setEditingId(t.id)
+    setEditTitle(t.title)
+    setEditDue(t.dueDate ? new Date(t.dueDate).toISOString().slice(0, 10) : '')
+  }
+
+  const saveEdit = async (t: MyWorkflowTask) => {
+    if (!editTitle.trim()) return
+    setBusyId(t.id)
+    try {
+      await editCaseWorkflowStep(leadId, t.id, { title: editTitle.trim(), dueDate: editDue || null })
+      setEditingId(null)
+      await load()
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Failed to save changes')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (!items.length) return null
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-brand-200 bg-brand-50/40">
+      <div className="flex items-center justify-between border-b border-brand-100 px-4 py-2.5">
+        <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <Workflow className="h-4 w-4 text-brand-600" /> Workflow steps assigned to you
+          <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
+            {items.length}
+          </span>
+        </span>
+        <button
+          type="button"
+          onClick={() => navigate(`/attorney-dashboard/cases/${leadId}/workflow`)}
+          className="text-xs font-semibold text-brand-600 transition hover:text-brand-700"
+        >
+          Open Workflow →
+        </button>
+      </div>
+      <ul className="divide-y divide-brand-100">
+        {items.map((t) => {
+          const meta = [t.phaseName, t.stageName].filter(Boolean).join(' · ')
+          const rowBusy = busyId === t.id
+          const editing = editingId === t.id
+          return (
+            <li key={t.id} className="px-4 py-2.5">
+              {editing ? (
+                <div className="space-y-2">
+                  <input
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    autoFocus
+                    className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="date"
+                      value={editDue}
+                      onChange={(e) => setEditDue(e.target.value)}
+                      className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => saveEdit(t)}
+                      disabled={rowBusy || !editTitle.trim()}
+                      className="inline-flex items-center gap-1 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+                    >
+                      {rowBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(null)}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => complete(t)}
+                    disabled={rowBusy}
+                    className="shrink-0 text-slate-300 transition hover:text-emerald-500 disabled:opacity-50"
+                    aria-label="Mark step complete"
+                    title="Mark complete"
+                  >
+                    {rowBusy ? <Loader2 className="h-5 w-5 animate-spin text-slate-400" /> : <Circle className="h-5 w-5" />}
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-slate-800">{t.title}</p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+                      {meta ? <span className="truncate">{meta}</span> : null}
+                      {t.dueDate ? (
+                        <span className="inline-flex items-center gap-1">
+                          <CalendarClock className="h-3 w-3" />
+                          {formatDate(t.dueDate)}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  {canAssign && members.length ? (
+                    <select
+                      value=""
+                      disabled={rowBusy}
+                      onChange={(e) => assign(t, e.target.value)}
+                      className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 focus:border-brand-500"
+                      title="Reassign to another team member"
+                      aria-label="Reassign step"
+                    >
+                      <option value="">Reassign…</option>
+                      {members.map((m) => (
+                        <option key={m.firmMemberId} value={m.firmMemberId}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <button
+                    onClick={() => openEdit(t)}
+                    className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-white hover:text-slate-700"
+                    aria-label="Edit step"
+                    title="Edit"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+function TasksPanel({ leadId, tasks, reload }: { leadId: string; tasks: TaskRow[]; reload: () => Promise<void> | void }) {
   const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<TaskFormState>(EMPTY_TASK_FORM)
   const [showDone, setShowDone] = useState(false)
-  // Workflow steps assigned to the current user on THIS case.
-  const [wfTasks, setWfTasks] = useState<MyWorkflowTask[]>([])
-
-  useEffect(() => {
-    let cancelled = false
-    getMyWorkflowTasks()
-      .then((res) => {
-        if (!cancelled) setWfTasks((res?.tasks ?? []).filter((t) => t.leadId === leadId))
-      })
-      .catch(() => !cancelled && setWfTasks([]))
-    return () => {
-      cancelled = true
-    }
-  }, [leadId, tasks])
 
   const load = async () => {
     await reload()
@@ -3426,44 +3611,7 @@ function TasksPanel({ leadId, tasks, reload }: { leadId: string; tasks: TaskRow[
       ) : null}
 
       {/* Workflow steps assigned to me on this case */}
-      {wfTasks.length ? (
-        <div className="overflow-hidden rounded-xl border border-brand-200 bg-brand-50/40">
-          <div className="flex items-center justify-between border-b border-brand-100 px-4 py-2.5">
-            <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <Workflow className="h-4 w-4 text-brand-600" /> Workflow steps assigned to you
-              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
-                {wfTasks.length}
-              </span>
-            </span>
-            <button
-              type="button"
-              onClick={() => navigate(`/attorney-dashboard/cases/${leadId}/workflow`)}
-              className="text-xs font-semibold text-brand-600 transition hover:text-brand-700"
-            >
-              Open Workflow →
-            </button>
-          </div>
-          <ul className="divide-y divide-brand-100">
-            {wfTasks.map((t) => {
-              const meta = [t.phaseName, t.stageName].filter(Boolean).join(' · ')
-              return (
-                <li key={t.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-800">{t.title}</p>
-                    {meta ? <p className="truncate text-[11px] text-slate-400">{meta}</p> : null}
-                  </div>
-                  {t.dueDate ? (
-                    <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-slate-400">
-                      <CalendarClock className="h-3 w-3" />
-                      {formatDate(t.dueDate)}
-                    </span>
-                  ) : null}
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      ) : null}
+      <AssignedWorkflowSection leadId={leadId} />
 
       {/* Active tasks */}
       {active.length ? (

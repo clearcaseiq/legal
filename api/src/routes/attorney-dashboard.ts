@@ -8296,7 +8296,8 @@ router.post('/leads/:leadId/workflow/apply', authMiddleware, async (req: any, re
   }
 })
 
-// Toggle a step's status (pending / done / skipped).
+// Update a step: toggle status (pending/done/skipped) and/or edit its
+// title / description / due date on this case.
 router.patch('/leads/:leadId/workflow/items/:itemId', authMiddleware, async (req: any, res) => {
   try {
     const { leadId, itemId } = req.params
@@ -8304,9 +8305,18 @@ router.patch('/leads/:leadId/workflow/items/:itemId', authMiddleware, async (req
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { lead, attorney } = auth
 
-    const status = String(req.body?.status || '')
-    if (!['pending', 'done', 'skipped'].includes(status)) {
+    const body = req.body || {}
+    const hasStatus = body.status !== undefined
+    const hasTitle = typeof body.title === 'string'
+    const hasDescription = body.description !== undefined
+    const hasDueDate = body.dueDate !== undefined
+
+    const status = hasStatus ? String(body.status) : null
+    if (hasStatus && !['pending', 'done', 'skipped'].includes(status as string)) {
       return res.status(400).json({ error: 'Invalid status' })
+    }
+    if (hasTitle && !body.title.trim()) {
+      return res.status(400).json({ error: 'Title cannot be empty' })
     }
 
     const cw = await (prisma as any).caseWorkflow.findUnique({
@@ -8320,16 +8330,28 @@ router.patch('/leads/:leadId/workflow/items/:itemId', authMiddleware, async (req
     })
     if (!item) return res.status(404).json({ error: 'Step not found' })
     if (item.stepType === 'ai_milestone') {
-      return res.status(400).json({ error: 'AI milestones are tracked automatically and cannot be toggled' })
+      return res.status(400).json({ error: 'AI milestones are tracked automatically and cannot be edited' })
+    }
+
+    const data: Record<string, unknown> = {}
+    if (hasStatus) {
+      data.status = status
+      data.completedAt = status === 'done' ? new Date() : null
+      data.completedById = status === 'done' ? attorney.id : null
+    }
+    if (hasTitle) data.title = body.title.trim()
+    if (hasDescription) data.description = typeof body.description === 'string' && body.description.trim() ? body.description.trim() : null
+    if (hasDueDate) {
+      const d = body.dueDate ? new Date(body.dueDate) : null
+      data.dueDate = d && !Number.isNaN(d.getTime()) ? d : null
+    }
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ error: 'Nothing to update' })
     }
 
     await (prisma as any).caseWorkflowItem.update({
       where: { id: itemId },
-      data: {
-        status,
-        completedAt: status === 'done' ? new Date() : null,
-        completedById: status === 'done' ? attorney.id : null,
-      },
+      data,
     })
 
     const fresh = await (prisma as any).caseWorkflow.findUnique({
