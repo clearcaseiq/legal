@@ -42,6 +42,7 @@ import {
   Stethoscope,
   Trash2,
   Upload,
+  Workflow,
   X,
 } from 'lucide-react'
 import {
@@ -60,12 +61,14 @@ import {
   getLeadEvidenceFiles,
   getLeadMedicalChronologySummary,
   getLeadTasks,
+  getMyWorkflowTasks,
   nudgeDocumentRequest,
   updateLeadTask,
   uploadLeadEvidenceOnBehalf,
   type AttorneyDocumentRequest,
   type CaseCommandCenter,
   type MedicalChronologySummary,
+  type MyWorkflowTask,
 } from '../../lib/api'
 import { getApiOrigin } from '../../lib/runtimeEnv'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
@@ -3078,12 +3081,27 @@ function TaskStat({ label, value, tone }: { label: string; value: number; tone: 
 }
 
 function TasksPanel({ leadId, tasks, reload }: { leadId: string; tasks: TaskRow[]; reload: () => Promise<void> | void }) {
+  const navigate = useNavigate()
   const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<TaskFormState>(EMPTY_TASK_FORM)
   const [showDone, setShowDone] = useState(false)
+  // Workflow steps assigned to the current user on THIS case.
+  const [wfTasks, setWfTasks] = useState<MyWorkflowTask[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    getMyWorkflowTasks()
+      .then((res) => {
+        if (!cancelled) setWfTasks((res?.tasks ?? []).filter((t) => t.leadId === leadId))
+      })
+      .catch(() => !cancelled && setWfTasks([]))
+    return () => {
+      cancelled = true
+    }
+  }, [leadId, tasks])
 
   const load = async () => {
     await reload()
@@ -3404,6 +3422,46 @@ function TasksPanel({ leadId, tasks, reload }: { leadId: string; tasks: TaskRow[
               </button>
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {/* Workflow steps assigned to me on this case */}
+      {wfTasks.length ? (
+        <div className="overflow-hidden rounded-xl border border-brand-200 bg-brand-50/40">
+          <div className="flex items-center justify-between border-b border-brand-100 px-4 py-2.5">
+            <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <Workflow className="h-4 w-4 text-brand-600" /> Workflow steps assigned to you
+              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
+                {wfTasks.length}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => navigate(`/attorney-dashboard/cases/${leadId}/workflow`)}
+              className="text-xs font-semibold text-brand-600 transition hover:text-brand-700"
+            >
+              Open Workflow →
+            </button>
+          </div>
+          <ul className="divide-y divide-brand-100">
+            {wfTasks.map((t) => {
+              const meta = [t.phaseName, t.stageName].filter(Boolean).join(' · ')
+              return (
+                <li key={t.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-slate-800">{t.title}</p>
+                    {meta ? <p className="truncate text-[11px] text-slate-400">{meta}</p> : null}
+                  </div>
+                  {t.dueDate ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-slate-400">
+                      <CalendarClock className="h-3 w-3" />
+                      {formatDate(t.dueDate)}
+                    </span>
+                  ) : null}
+                </li>
+              )
+            })}
+          </ul>
         </div>
       ) : null}
 
