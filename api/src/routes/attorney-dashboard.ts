@@ -8574,7 +8574,6 @@ router.get('/my-workflow-tasks', authMiddleware, async (req: any, res) => {
       where: {
         assignedFirmMemberId: membership.id,
         status: 'pending',
-        stepType: { not: 'ai_milestone' },
       },
       include: {
         caseWorkflow: {
@@ -8591,6 +8590,10 @@ router.get('/my-workflow-tasks', authMiddleware, async (req: any, res) => {
     })
 
     const tasks = items
+      // AI milestones are auto-tracked, not actionable tasks. Filter in JS so
+      // items with a null stepType (legacy applies) are NOT excluded — a SQL
+      // `stepType != 'ai_milestone'` predicate drops NULLs.
+      .filter((it: any) => it.stepType !== 'ai_milestone')
       .map((it: any) => {
         const leadId = it.caseWorkflow?.assessment?.leadSubmission?.id || null
         return {
