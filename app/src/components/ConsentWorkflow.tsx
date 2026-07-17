@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react'
-import { Check, X, FileText, Shield, Mail, AlertTriangle, ExternalLink } from 'lucide-react'
+import { Check, X, FileText, Shield, Mail, AlertTriangle, ExternalLink, ChevronDown, Clock, Lock } from 'lucide-react'
 import ESignatureCapture from './ESignatureCapture'
 import { fetchPublicConsentTemplate, type PublicConsentTemplate } from '../lib/api-consent'
 import { ConsentDocumentBody } from './ConsentDocumentBody'
@@ -57,6 +57,11 @@ export default function ConsentWorkflow({
   const [signatureMethod, setSignatureMethod] = useState<'drawn' | 'typed' | 'clicked'>('drawn')
   /** Combined flow: user affirms they read all shown documents before signature. */
   const [combinedAttested, setCombinedAttested] = useState(false)
+  /** Combined flow read-progress: which document sections the user has scrolled to. */
+  const [viewedSections, setViewedSections] = useState<Record<string, boolean>>({})
+  /** Combined flow: which agreements have the full text expanded (summary is default). */
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({})
+  const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
   const panelRef = useRef<HTMLDivElement>(null)
   const focusKey =
     flow === 'combined'
@@ -98,6 +103,34 @@ export default function ConsentWorkflow({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [loading, error, showSignature, onCancel])
+
+  // Combined flow: mark each agreement "reviewed" once it scrolls into view so the
+  // attestation reflects genuine engagement rather than a single unread checkbox.
+  useEffect(() => {
+    if (loading || error || showSignature || flow !== 'combined') return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        setViewedSections((prev) => {
+          let changed = false
+          const next = { ...prev }
+          for (const entry of entries) {
+            const id = (entry.target as HTMLElement).dataset.consentType
+            if (entry.isIntersecting && id && !next[id]) {
+              next[id] = true
+              changed = true
+            }
+          }
+          return changed ? next : prev
+        })
+      },
+      { threshold: 0.01 },
+    )
+    for (const type of requiredConsents) {
+      const el = sectionRefs.current[type]
+      if (el) observer.observe(el)
+    }
+    return () => observer.disconnect()
+  }, [loading, error, showSignature, flow, requiredConsents])
 
   const getConsentIcon = (type: string) => {
     switch (type) {
@@ -224,6 +257,8 @@ export default function ConsentWorkflow({
 
   // —— Combined attestation: all documents, one checkbox, one signature; API still gets one record per type ——
   if (flow === 'combined') {
+    const reviewedCount = requiredConsents.filter((t) => viewedSections[t]).length
+    const allViewed = reviewedCount === requiredConsents.length
     const combinedInner = (
       <div
         ref={panelRef}
@@ -240,6 +275,11 @@ export default function ConsentWorkflow({
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
               {requiredConsents.length} document{requiredConsents.length !== 1 ? 's' : ''} · one electronic signature
             </p>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+              <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" aria-hidden /> Takes about a minute</span>
+              <span className="inline-flex items-center gap-1"><Lock className="h-3.5 w-3.5" aria-hidden /> Secure &amp; encrypted</span>
+              <span className="inline-flex items-center gap-1"><Mail className="h-3.5 w-3.5" aria-hidden /> We&apos;ll email you a copy of each signed agreement</span>
+            </div>
           </div>
           <button
             type="button"
@@ -257,17 +297,32 @@ export default function ConsentWorkflow({
           flow if you change wording or process.
         </div>
 
-        <div className="px-6 py-3 border-b border-slate-200 dark:border-slate-700 flex flex-wrap gap-2 text-sm">
-          <span className="text-slate-500 dark:text-slate-400 w-full sm:w-auto">Jump to:</span>
-          {requiredConsents.map((type) => (
-            <a
-              key={type}
-              href={`#consent-section-${type}`}
-              className="text-brand-600 hover:text-brand-700 font-medium"
-            >
-              {getConsentTitle(type)}
-            </a>
-          ))}
+        <div className="px-6 py-3 border-b border-slate-200 dark:border-slate-700">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Your progress</span>
+            <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">{reviewedCount} of {requiredConsents.length} reviewed</span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {requiredConsents.map((type) => {
+              const seen = !!viewedSections[type]
+              return (
+                <a
+                  key={type}
+                  href={`#consent-section-${type}`}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
+                    seen
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
+                      : 'border-slate-200 bg-white text-slate-600 hover:text-brand-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                  }`}
+                >
+                  <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] ${seen ? 'bg-emerald-500 text-white' : 'border border-slate-300 dark:border-slate-500'}`}>
+                    {seen ? <Check className="h-3 w-3" aria-hidden /> : null}
+                  </span>
+                  {getConsentTitle(type)}
+                </a>
+              )
+            })}
+          </div>
         </div>
 
         <div className="p-6 space-y-10 flex-1 min-h-0 overflow-y-auto">
@@ -275,7 +330,13 @@ export default function ConsentWorkflow({
             const template = consentTemplates[type]
             const fullPath = fullPagePath[type]
             return (
-              <section key={type} id={`consent-section-${type}`} className="scroll-mt-24">
+              <section
+                key={type}
+                id={`consent-section-${type}`}
+                data-consent-type={type}
+                ref={(el) => { sectionRefs.current[type] = el }}
+                className="scroll-mt-24"
+              >
                 <div className="flex items-center mb-3">
                   {getConsentIcon(type)}
                   <div className="ml-3">
@@ -312,13 +373,37 @@ export default function ConsentWorkflow({
                   </p>
                 )}
 
-                <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-600 rounded-lg p-4 sm:p-6">
-                  {template?.content ? (
-                    <ConsentDocumentBody content={template.content} />
-                  ) : (
-                    <p className="text-slate-500">Consent document not available.</p>
-                  )}
-                </div>
+                {(() => {
+                  const hasSummary = !!template?.plainLanguageSummary
+                  const isExpanded = expandedSections[type] ?? !hasSummary
+                  return (
+                    <>
+                      {hasSummary && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExpandedSections((prev) => ({ ...prev, [type]: !isExpanded }))
+                            setViewedSections((prev) => (prev[type] ? prev : { ...prev, [type]: true }))
+                          }}
+                          aria-expanded={isExpanded}
+                          className="mb-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-700"
+                        >
+                          <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} aria-hidden />
+                          {isExpanded ? 'Hide full agreement' : 'Read full agreement'}
+                        </button>
+                      )}
+                      {isExpanded && (
+                        <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-600 rounded-lg p-4 sm:p-6">
+                          {template?.content ? (
+                            <ConsentDocumentBody content={template.content} />
+                          ) : (
+                            <p className="text-slate-500">Consent document not available.</p>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
 
                 {type === 'hipaa' && (
                   <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg">
@@ -340,10 +425,17 @@ export default function ConsentWorkflow({
         </div>
 
         <div className="p-6 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 space-y-4">
-          <label className="flex gap-3 items-start cursor-pointer">
+          {!allViewed && (
+            <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+              <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+              Scroll through each agreement above to continue ({reviewedCount} of {requiredConsents.length} reviewed).
+            </p>
+          )}
+          <label className={`flex gap-3 items-start ${allViewed ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
             <input
               type="checkbox"
-              className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+              disabled={!allViewed}
+              className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 disabled:cursor-not-allowed"
               checked={combinedAttested}
               onChange={(e) => setCombinedAttested(e.target.checked)}
             />
@@ -357,7 +449,7 @@ export default function ConsentWorkflow({
           <div className="flex justify-end">
             <button
               type="button"
-              disabled={!combinedAttested}
+              disabled={!combinedAttested || !allViewed}
               onClick={() => setShowSignature(true)}
               className="px-4 py-2 text-sm font-medium text-white bg-brand-600 border border-transparent rounded-md hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed pressable"
             >

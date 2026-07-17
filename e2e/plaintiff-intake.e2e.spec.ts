@@ -57,6 +57,8 @@ test.describe('Plaintiff intake flow', () => {
 
     await expect(page).toHaveURL(new RegExp(`/results/${assessmentId}$`), { timeout: 60000 })
     await expect(page.getByRole('heading', { name: /your case snapshot/i })).toBeVisible({ timeout: 60000 })
-    await expect(page.getByRole('button', { name: /continue to attorney review/i }).first()).toBeVisible()
+    // The snapshot header CTA was consolidated into the "Your next step" card; the
+    // primary attorney-review action now lives there.
+    await expect(page.getByText(/your next step/i)).toBeVisible()
   })
 })

@@ -78,7 +78,7 @@ export default function Home() {
               <div className="flex flex-col items-center lg:items-start gap-3">
                 <Link
                   to="/assessment/start"
-                  className="group inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-8 py-4 text-lg font-bold text-white shadow-xl shadow-accent-500/30 ring-1 ring-white/20 transition-all duration-200 hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl hover:shadow-accent-500/40 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 sm:px-11 sm:py-5 sm:text-xl"
+                  className="btn-cta group px-8 py-4 text-lg shadow-xl shadow-accent-500/30 duration-200 hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl hover:shadow-accent-500/40 sm:px-11 sm:py-5 sm:text-xl"
                 >
                   <FileTextIcon className="mr-2 h-6 w-6 transition-transform group-hover:rotate-[-4deg] sm:h-7 sm:w-7" aria-hidden />
                   {t('common.startAssessment')}
@@ -142,7 +142,7 @@ export default function Home() {
             {[1, 2, 3].map((n) => (
               <figure
                 key={n}
-                className="relative rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 p-5 hover:shadow-md transition-shadow duration-200"
+                className="card relative"
               >
                 <div className="mb-2 flex items-center gap-0.5 text-amber-400" role="img" aria-label={t('home.ratingLabel')}>
                   {[0, 1, 2, 3, 4].map((s) => (

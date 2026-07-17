@@ -816,8 +816,9 @@ export default function Results() {
   const [caseSubmittedForReview, setCaseSubmittedForReview] = useState(false)
   const [submitLoading, setSubmitLoading] = useState(false)
   const [sendModalOpen, setSendModalOpen] = useState(false)
-  const [saveReviewPromptOpen, setSaveReviewPromptOpen] = useState(false)
-  const [reviewPromptDismissed, setReviewPromptDismissed] = useState(false)
+  // Soft interstitial shown when a plaintiff sends with no documents: a one-tap
+  // informed choice (add records vs. send limited) rather than a hard block.
+  const [sendInterstitialOpen, setSendInterstitialOpen] = useState(false)
   const [attorneyInterestWhyOpen, setAttorneyInterestWhyOpen] = useState(false)
   const [contactForm, setContactForm] = useState({ firstName: '', email: '', phone: '', preferredContactMethod: 'phone' as 'phone' | 'text' | 'email' })
   const [hipaaAuthorizationComplete, setHipaaAuthorizationComplete] = useState(() =>
@@ -909,10 +910,12 @@ export default function Results() {
       return
     }
 
-    if (isLoggedIn === false) {
-      if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
-      setSaveReviewPromptOpen(true)
-      return
+    // Guests can submit as a "limited" lead using the contact info collected in the
+    // send modal; account creation is offered as a value-add on the confirmation
+    // screen (showSavePrompt) rather than gating the send. We still stash the
+    // assessment id so a later account/sign-in can claim this case.
+    if (isLoggedIn === false && resolvedAssessmentId) {
+      localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
     }
 
     setContactFormError(null)
@@ -1820,6 +1823,25 @@ export default function Results() {
     medium: t('results.snapshotGrades.moderate'),
     low: t('results.snapshotGrades.developing'),
   })
+  // Data-driven description for the Injury Severity driver row: reflect the actual
+  // reported injuries (count of injured areas) plus strong severity signals (ER, MRI)
+  // instead of a static line. Falls back to the generic copy when nothing is known.
+  const reportedInjuryCount = Math.max(
+    Array.isArray(parsedFacts?.injuries) ? parsedFacts.injuries.length : 0,
+    Array.isArray(parsedFacts?.intakeData?.injuryDetails?.bodyParts)
+      ? parsedFacts.intakeData.injuryDetails.bodyParts.length
+      : 0,
+  )
+  const severitySignals = [
+    reportedInjuryCount > 0
+      ? `${reportedInjuryCount} ${reportedInjuryCount === 1 ? t('results.chrome.injuryAreaOne') : t('results.chrome.injuryAreaMany')}`
+      : null,
+    hasErTreatment ? t('results.chrome.erTreatment') : null,
+    hasMriReportedFlag ? t('results.chrome.mriImaging') : null,
+  ].filter(Boolean) as string[]
+  const severitySnapshotDesc = severitySignals.length > 0
+    ? severitySignals.join(' • ')
+    : t('results.chrome.reportedInjuries')
 
   // ---- Potential litigation costs (itemized, informational) ----
   // Pre-suit items are typically incurred even when a case settles without a
@@ -2107,11 +2129,61 @@ export default function Results() {
     const jurisdiction = [venueCounty, venueState === 'CA' ? 'California' : venueState].filter(Boolean).join(', ') || 'Jurisdiction unavailable'
     const caseDetails: { label: string; value: string; tone: 'strong' | 'moderate' | 'weak'; desc: string }[] = [
       { label: 'Fault / Liability', value: liabilitySnapshotLabel, tone: toneFromPct(liabilityPercent), desc: liabilitySummary || 'Based on the reported facts.' },
-      { label: 'Injury Severity', value: severitySnapshotLabel, tone: toneFromPct(severityPercent), desc: 'Reported injuries and treatment so far.' },
+      { label: 'Injury Severity', value: severitySnapshotLabel, tone: toneFromPct(severityPercent), desc: severitySnapshotDesc },
       { label: 'Treatment History', value: treatmentStrengthLevel, tone: treatmentStrengthLevel === 'High' ? 'strong' : treatmentStrengthLevel === 'Medium' ? 'moderate' : 'weak', desc: treatment.length > 0 ? `${treatment.length} treatment record${treatment.length === 1 ? '' : 's'} on file.` : 'No treatment records yet.' },
+      { label: 'Lost Income', value: documentedWageLoss > 0 ? 'Documented' : 'Not added', tone: documentedWageLoss > 0 ? 'moderate' : 'weak', desc: documentedWageLoss > 0 ? `${formatCurrency(documentedWageLoss)} in lost wages reported.` : 'Add wage-loss proof to strengthen this.' },
       { label: 'Insurance Coverage', value: insuranceRecoveryPercent >= 75 ? 'Sufficient' : insuranceRecoveryPercent >= 50 ? 'Developing' : 'Unclear', tone: toneFromPct(insuranceRecoveryPercent), desc: insuranceRecoveryLabel },
       { label: 'Documentation', value: scoreLabel(documentationScore, { high: 'Strong', medium: 'Developing', low: 'Low' }), tone: toneFromPct(documentationScore), desc: `${documentationScore}% of key documents added.` },
       { label: 'Venue (Location)', value: venueFriendlinessScore >= 4 ? 'Favorable' : 'Moderate', tone: venueFriendlinessScore >= 4 ? 'strong' : 'moderate', desc: formatVenueLabel(venueState, venueCounty) || 'Venue unavailable' },
+    ]
+    const netRecovery = displaySettlementExpected > 0
+      ? {
+          settlementText: formatCurrency(displaySettlementExpected),
+          attorneyFeeText: formatCurrency(netAttorneyFee),
+          medicalLiensLabel: `Medical liens${documentedMedicalCharges > 0 ? '' : ' (est.)'}`,
+          medicalLiensText: formatCurrency(netMedicalLiens),
+          caseExpensesText: formatCurrency(netCaseExpenses),
+          totalText: formatCurrency(netEstimatedRecovery),
+          exhausted: netRecoveryExhaustedByCosts,
+        }
+      : null
+    const litigationCosts = hasValuation
+      ? {
+          items: litigationCostItems.map((item) => ({
+            label: item.label,
+            amountText: formatCurrency(item.amount),
+            litigated: item.stage === 'litigation',
+          })),
+          totalText: formatCurrency(litigationCostTotal),
+        }
+      : null
+    const attorneyMatches = (rankedSnapshotAttorneys.length > 0
+      ? rankedSnapshotAttorneys.map((a: any, i: number) => ({
+          name: String(a?.name ?? a?.law_firm?.name ?? `Top match ${i + 1}`),
+          detail: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' - '),
+          meta: [getResponseBadge(a), 'Free consultation'].filter(Boolean).join(' - '),
+          score: formatMatchScore(a?.matchScore ?? a?.match_score ?? a?.score, 94 - i * 3),
+        }))
+      : [
+          { name: 'Top local match', detail: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' - '), meta: 'Responds quickly - Free consultation', score: '94%' },
+          { name: 'Experienced attorney', detail: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' - '), meta: 'Personal injury - Bilingual - Free consultation', score: '91%' },
+          { name: 'Local trial attorney', detail: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' - '), meta: 'Local experts - Free consultation', score: '88%' },
+        ]
+    ).slice(0, 3)
+    // Build the PDF's next-steps list from primitives rather than the render-scope
+    // `nextStepItems` const: in the submitted-case view the component early-returns
+    // before `nextStepItems` is initialized, so referencing it here would throw a TDZ
+    // ReferenceError when a guest downloads the PDF from that screen. Keep the copy in
+    // sync with the on-screen nextStepItems.
+    const pdfDocsDesc = hasMedicalRecords
+      ? 'Add injury photos and wage-loss proof so attorneys see the full picture — stronger files draw more attorney interest.'
+      : 'Attorneys see a limited summary until you add medical records. Cases with records are valued materially higher.'
+    const nextSteps = [
+      ...(medicalChronology.length > 0
+        ? [{ title: 'Review your treatment timeline', desc: 'Confirm or adjust your medical story so attorneys see an accurate timeline.', done: !medicalReviewPending, optional: false }]
+        : []),
+      { title: 'Send your case for attorney review', desc: 'Attorneys who handle cases like yours review it — free, with no obligation.', done: false, optional: false },
+      { title: 'Add records for a stronger review', desc: pdfDocsDesc, done: hasMedicalRecords && hasInjuryPhotos && hasWageLossProof, optional: false },
     ]
     const fmtTimelineDate = (iso: unknown) => {
       if (!iso) return 'Treatment'
@@ -2147,6 +2219,8 @@ export default function Results() {
       incidentDate: snapshotIncidentDate ?? 'Not provided',
       caseStrengthScore,
       successProbability,
+      overallQualityScore: overviewQualityScore,
+      overallQualityLabel: overviewQualityLabel,
       evidenceCompletionPercent,
       solRemaining,
       solDeadline,
@@ -2154,8 +2228,11 @@ export default function Results() {
       settlementRangeText: displaySettlementRangeText,
       settlementExpectedText: formatCurrency(displaySettlementExpected),
       estimateConfidenceLevel,
+      valuationMissingInputs,
       trialValueText,
       trialExpectedText: formatCurrency(Math.round((potentialTrialLow + potentialTrialHigh) / 2)),
+      netRecovery,
+      litigationCosts,
       liabilityLabel: liabilitySnapshotLabel,
       liabilitySummary: liabilitySummary || 'Based on the facts provided, fault may rest with the other party. More evidence will strengthen liability.',
       liabilityChecklist: liabilityChecklist.map((r) => ({ label: r.label, ok: r.ok })),
@@ -2167,10 +2244,13 @@ export default function Results() {
       medicalSummary,
       treatmentTimeline,
       attorneyInterestWord,
+      attorneyInterestPercent: attorneyInterestPct,
       attorneyInterestSummary: attorneyInterestLevel === 'High' ? 'Your case looks attractive to attorneys based on the current facts.' : 'Your case has potential, but additional records will help attract more attorney interest.',
       attorneyInterestMissing,
+      attorneyMatches,
       caseDetails,
       topActions: snapshotTopActions.map((a) => ({ title: a.title, desc: a.desc, boost: a.boost })),
+      nextSteps,
       aiSummaryBullets: aiCaseSummaryBullets,
       valueDrivers: valueDriverRows.map((r) => ({ label: r.label, level: impactWord(r.level) })),
       deadlineWarning: deadlineWarningText || null,
@@ -2464,10 +2544,26 @@ Checklist:
     }, 100)
   }
 
+  // Proceed straight to the send modal (used by the "Send limited file" choice on the
+  // interstitial). Still honors the medical-timeline review gate.
+  const proceedSendForReview = () => {
+    if (medicalReviewPending) {
+      setMedicalReviewError('Review your treatment timeline before submitting. You can confirm it, make changes, or skip it for now.')
+      openAnchoredResultsSection('#medical-story-review')
+      return
+    }
+    void openSendModal()
+  }
   const openAttorneyReviewFlow = () => {
     if (medicalReviewPending) {
       setMedicalReviewError('Review your treatment timeline before submitting. You can confirm it, make changes, or skip it for now.')
       openAnchoredResultsSection('#medical-story-review')
+      return
+    }
+    // Non-blocking: surface an informed choice when the file has no documents so
+    // attorneys aren't reviewing a limited summary. "Send limited" bypasses this.
+    if (evidenceCount === 0 && !isSharedReadOnly && evidenceUploadPath) {
+      setSendInterstitialOpen(true)
       return
     }
     void openSendModal()
@@ -2493,40 +2589,7 @@ Checklist:
     })
   }
 
-  const closeSaveReviewPrompt = () => {
-    if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
-    setSaveReviewPromptOpen(false)
-    setReviewPromptDismissed(true)
-  }
   const contactComplete = Boolean(contactForm.firstName.trim() && contactForm.email.trim() && contactForm.phone.trim())
-
-  // Post-submission layout — transition from assessment to case tracking
-  if (caseSubmittedForReview) {
-    const submissionTimeline = [
-      { label: 'Case submitted', done: true },
-      { label: 'Attorneys reviewing', done: false },
-      { label: 'Attorney responses', done: false },
-      { label: 'Choose an attorney', done: false }
-    ]
-    return (
-      <Suspense fallback={<ResultsPanelSkeleton message="Loading submitted case view..." />}>
-        <ResultsSubmittedView
-          assessmentId={assessment?.id}
-          assessmentClaimType={assessment?.claimType}
-          handleDownloadReportPdf={handleDownloadReportPdf}
-          handleCopyShareLink={handleCopyShareLink}
-          improveCaseValueItems={improveCaseValueItems}
-          isLoggedIn={isLoggedIn}
-          rankedAttorneys={rankedAttorneyCards}
-          shareCopied={shareCopied}
-          showSavePrompt={showSavePrompt}
-          submissionTimeline={submissionTimeline}
-          venueCounty={venueCounty}
-          venueState={venueState}
-        />
-      </Suspense>
-    )
-  }
 
   // ---- Case Snapshot (redesigned) derived values ----
   const snapshotIncidentDate = (() => {
@@ -2604,40 +2667,82 @@ Checklist:
   }
   const trSnap = (value: string) => snapshotLabelMap[value] ?? value
 
+  // Canonical target for evidence uploads: open the intake wizard's Supporting
+  // Documents (Step 6 evidence) screen for this case via a focused deep link.
+  const evidenceUploadTargetId = resolvedAssessmentId || assessment?.id
+  const evidenceUploadPath = evidenceUploadTargetId ? `/intake2?assessment=${evidenceUploadTargetId}&step=evidence` : undefined
+
+  // ---- Documents-as-readiness framing --------------------------------------------------
+  // Product guidance: documents drive a better review, so quantify the upside and use
+  // loss framing instead of a passive "Optional" label. The estimate is data-driven —
+  // weighted by which high-value records are still missing — and capped by the headroom
+  // left in the readiness meter so the number never over-promises.
+  const keyDocsComplete = hasMedicalRecords && hasInjuryPhotos && hasWageLossProof
+  const rawDocReadinessBoost =
+    (!hasMedicalRecords ? 25 : 0) +
+    (!hasWageLossProof ? (documentedWageLoss > 0 ? 8 : 5) : 0) +
+    (!hasInjuryPhotos ? 7 : 0)
+  const docReadinessBoost = Math.min(rawDocReadinessBoost, Math.max(0, 100 - readinessDetails.percent))
+  const docStepDesc = hasMedicalRecords
+    ? 'Add injury photos and wage-loss proof so attorneys see the full picture — stronger files draw more attorney interest.'
+    : 'Attorneys see a limited summary until you add medical records. Cases with records are valued materially higher.'
+
   // ---- "Your next step" guidance: the single linear path the plaintiff should follow ----
   const nextStepItems: Array<{
     title: string
     desc: string
     done: boolean
     optional?: boolean
+    primary?: boolean
+    boost?: string
+    boostPct?: number
+    readiness?: number
     cta: string
     action?: () => void
     href?: string
-  }> = [
-    {
-      title: 'Review your treatment timeline',
-      desc: 'Confirm or adjust your medical story so attorneys see an accurate timeline.',
-      done: !medicalReviewPending,
-      cta: 'Review',
-      action: () => openAnchoredResultsSection('#medical-story-review'),
-    },
-    {
+  }> = (() => {
+    // Only surface the treatment-timeline review when there is an actual medical
+    // story to confirm. In the streamlined intake (no uploads yet) the timeline
+    // is empty, so this step would otherwise render struck-through as if the user
+    // already completed a review they never did.
+    const treatmentReviewStep = medicalChronology.length > 0
+      ? [{
+          title: 'Review your treatment timeline',
+          desc: 'Confirm or adjust your medical story so attorneys see an accurate timeline.',
+          done: !medicalReviewPending,
+          cta: 'Review',
+          action: () => openAnchoredResultsSection('#medical-story-review'),
+        }]
+      : []
+    const docsStep = {
+      title: 'Add records for a stronger review',
+      desc: docStepDesc,
+      done: keyDocsComplete,
+      boost: 'Strengthens your case',
+      boostPct: docReadinessBoost,
+      readiness: readinessDetails.percent,
+      cta: 'Add records',
+      href: evidenceUploadPath,
+    }
+    const sendStep = {
       title: 'Send your case for attorney review',
       desc: 'Attorneys who handle cases like yours review it — free, with no obligation.',
       done: false,
+      primary: true,
       cta: 'Send for review',
       action: openAttorneyReviewFlow,
-    },
-    {
-      title: 'Add supporting documents',
-      desc: 'Medical records, injury photos, and wage-loss proof can raise your case value.',
-      done: hasMedicalRecords && hasInjuryPhotos && hasWageLossProof,
-      optional: true,
-      cta: 'Add documents',
-      href: assessment?.id ? `/evidence-upload/${assessment.id}` : '/evidence-upload',
-    },
-  ]
-  const currentNextStepIndex = nextStepItems.findIndex((s) => !s.done && !s.optional)
+    }
+    // Send leads (Step 1) as the primary action; adding records follows as Step 2.
+    // The soft interstitial (shown when sending with no documents) is the safety net
+    // that still forces an informed "add records vs. send limited" choice, so we don't
+    // need documents to lead the list to nudge uploads.
+    return [
+      ...treatmentReviewStep,
+      sendStep,
+      docsStep,
+    ]
+  })()
+  const currentNextStepIndex = nextStepItems.findIndex((s) => !!s.primary && !s.done)
 
   // ---- Full Case Report: Case Overview tab derived values ----
   const overviewQualityScore = (Math.round(caseStrengthScore / 10 * 10) / 10).toFixed(1)
@@ -2700,9 +2805,6 @@ Checklist:
   const liabMostLikelyAtFault = liabFaultOther >= liabFaultShared && liabFaultOther >= liabFaultYou
     ? 'Other Driver'
     : liabFaultShared >= liabFaultYou ? 'Shared Fault' : 'You'
-  const liabAttorneyCurrent = clampPercent(12 + (isRearEndCase ? 8 : 0) + (hasPoliceReport ? 23 : 0) + (hasInjuryPhotos ? 15 : 0) + (hasWitnessStatements ? 12 : 0))
-  const liabAttorneyWithPolice = clampPercent(hasPoliceReport ? liabAttorneyCurrent : liabAttorneyCurrent + 23)
-  const liabAttorneyWithPolicePhotos = clampPercent(liabAttorneyWithPolice + (hasInjuryPhotos ? 0 : 27))
   const sharedFaultRiskWord = liabilityPercent >= 65 ? 'Low' : liabilityPercent >= 45 ? 'Medium' : 'High'
   const sharedFaultRiskDesc = sharedFaultRiskWord === 'Low' ? 'Estimated 20% or less' : sharedFaultRiskWord === 'Medium' ? 'Estimated 20–40%' : 'Estimated 40% or more'
   const sharedFaultRiskPos = sharedFaultRiskWord === 'Low' ? 18 : sharedFaultRiskWord === 'Medium' ? 50 : 82
@@ -2752,8 +2854,6 @@ Checklist:
     30 + Math.min(medTreatmentEvents.length, 6) * 8 + (hasMriReportedFlag ? 8 : 0) + (hasErTreatment ? 6 : 0),
   )
   const medTreatmentStrengthLabel = scoreLabel(medTreatmentStrengthPct, { high: t('results.snapshotGrades.strong'), medium: t('results.snapshotGrades.moderate'), low: t('results.snapshotGrades.limited') })
-  const medAttorneyReadinessPct = attorneyInterestPct
-  const medAttorneyReadinessLabel = medAttorneyReadinessPct >= 70 ? 'Strong readiness' : 'Needs more records'
   const medSeverityPct = Math.round(severityPercent)
   const medCaseConfidencePct = caseStrengthScore
   const medCaseConfidenceLabel = scoreLabel(caseStrengthScore, { high: t('results.snapshotGrades.strong'), medium: t('results.snapshotGrades.moderate'), low: t('results.snapshotGrades.developing') })
@@ -2840,48 +2940,83 @@ Checklist:
   const medReviewStatusValue = plaintiffMedicalReview?.review.status ?? 'pending'
   const medHasAnyRecords = hasMedicalRecords || hasMedicalBills || medTimelineRows.length > 0
 
-  // Pre-submission layout — full case report
+  // Post-submission layout — transition from assessment to case tracking.
+  // Placed after all snapshot-derived values so handlers passed into the submitted
+  // view (e.g. handleDownloadReportPdf) can safely reference them; an earlier return
+  // would leave those consts in the temporal dead zone and throw when a guest uses
+  // the confirmation screen (e.g. Download PDF).
+  if (caseSubmittedForReview) {
+    const submissionTimeline = [
+      { label: 'Case submitted', done: true },
+      { label: 'Attorneys reviewing', done: false },
+      { label: 'Attorney responses', done: false },
+      { label: 'Choose an attorney', done: false }
+    ]
+    return (
+      <Suspense fallback={<ResultsPanelSkeleton message="Loading submitted case view..." />}>
+        <ResultsSubmittedView
+          assessmentId={assessment?.id}
+          assessmentClaimType={assessment?.claimType}
+          handleDownloadReportPdf={handleDownloadReportPdf}
+          handleCopyShareLink={handleCopyShareLink}
+          improveCaseValueItems={improveCaseValueItems}
+          isLoggedIn={isLoggedIn}
+          rankedAttorneys={rankedAttorneyCards}
+          shareCopied={shareCopied}
+          showSavePrompt={showSavePrompt}
+          submissionTimeline={submissionTimeline}
+          venueCounty={venueCounty}
+          venueState={venueState}
+        />
+      </Suspense>
+    )
+  }
+
+  // Pre-submission layout — full case report.
+  // Uses the wider workspace column (matches the attorney experience) so the
+  // snapshot's dense cards get the same horizontal room.
   return (
-    <div className="page-shell max-w-5xl">
-      {saveReviewPromptOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-4 backdrop-blur-sm" onClick={closeSaveReviewPrompt}>
-          <div className="flex min-h-full items-center justify-center" onClick={e => e.stopPropagation()}>
-            <div className="surface-panel w-full max-w-md p-6 shadow-xl">
-              <h3 className="section-title text-ui-xl">One Final Step</h3>
-              <p className="section-copy mt-2">
-                Create your free account so you can save your report and receive attorney responses.
-              </p>
-              <ul className="mt-5 space-y-2 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-900">
-                <li className="flex gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Save your report</li>
-                <li className="flex gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Track attorney responses</li>
-                <li className="flex gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Upload documents later</li>
-                <li className="flex gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Manage your case</li>
-              </ul>
-              <div className="mt-6 grid gap-3">
-                <Link
-                  to={createAccountForReviewUrl}
-                  onClick={handleGoCreateAccount}
-                  className="btn-primary w-full justify-center py-3"
-                >
-                  Create Free Account
-                </Link>
-                <Link
-                  to={signInForReviewUrl}
-                  onClick={() => {
-                    if (resolvedAssessmentId) localStorage.setItem('pending_assessment_id', resolvedAssessmentId)
-                  }}
-                  className="btn-outline w-full justify-center py-3"
-                >
-                  Sign In
-                </Link>
-                <button
-                  type="button"
-                  onClick={closeSaveReviewPrompt}
-                  className="btn-ghost w-full justify-center"
-                >
-                  Not now
-                </button>
+    <div className="page-shell max-w-[1440px]">
+      {/* Soft interstitial — informed choice when sending with no documents */}
+      {sendInterstitialOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm" onClick={() => setSendInterstitialOpen(false)} role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600"><FileText className="h-5 w-5" aria-hidden /></span>
+              <div className="min-w-0">
+                <h3 className="font-display text-lg font-semibold text-slate-900">Add records so attorneys see your full case?</h3>
+                <p className="mt-1 text-sm leading-relaxed text-slate-600">
+                  You're about to send with no documents. Attorneys may pass on limited files — adding medical records helps them value your case and respond faster.
+                </p>
               </div>
+            </div>
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3">
+              <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <span>Your file is {readinessDetails.percent}% ready</span>
+                {docReadinessBoost > 0 ? <span className="text-amber-600">+{docReadinessBoost}% with records</span> : null}
+              </div>
+              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.max(4, readinessDetails.percent)}%` }} />
+              </div>
+            </div>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row-reverse">
+              {evidenceUploadPath && (
+                <Link
+                  to={evidenceUploadPath}
+                  onClick={() => setSendInterstitialOpen(false)}
+                  className="group inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-3 text-sm font-bold text-white shadow-md shadow-amber-500/30 transition-all hover:-translate-y-0.5 hover:shadow-lg"
+                >
+                  <Upload className="h-4 w-4" aria-hidden /> Add records
+                  {docReadinessBoost > 0 ? <span className="rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-bold leading-none">+{docReadinessBoost}%</span> : null}
+                </Link>
+              )}
+              <button
+                type="button"
+                onClick={() => { setSendInterstitialOpen(false); proceedSendForReview() }}
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+              >
+                Send limited file
+              </button>
             </div>
           </div>
         </div>
@@ -2893,7 +3028,7 @@ Checklist:
             <div className="surface-panel max-h-[calc(100vh-3rem)] w-full max-w-md overflow-y-auto p-6 shadow-xl">
             <h3 className="section-title text-ui-xl">Before we send your case to attorneys</h3>
             <p className="section-copy mb-4">
-              Attorneys need your contact information and a saved case record before they review the file.
+              Add your contact info so attorneys can reach you about your case. No account required.
             </p>
             <div className="space-y-3">
               {contactComplete && !showContactEdit ? (
@@ -3172,27 +3307,13 @@ Checklist:
               <span>{t('results.chrome.sharedReadOnly')}</span>
             </div>
           )}
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h1 className="font-display text-2xl font-semibold leading-tight tracking-tight text-slate-900 sm:text-3xl">
-                {t('results.headings.snapshot')}
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                {t('results.headings.snapshotSub')}
-              </p>
-            </div>
-            <div className="flex shrink-0 flex-col items-start gap-1.5 sm:items-end">
-              <button
-                type="button"
-                onClick={openAttorneyReviewFlow}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
-              >
-                {t('results.shared.continueReview')} <ChevronRight className="h-4 w-4" />
-              </button>
-              <span className="flex items-center gap-1 text-xs text-slate-500">
-                <Lock className="h-3 w-3" /> {t('results.chrome.privateSecureBadge')}
-              </span>
-            </div>
+          <div className="mt-5">
+            <h1 className="font-display text-2xl font-semibold leading-tight tracking-tight text-slate-900 sm:text-3xl">
+              {t('results.headings.snapshot')}
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              {t('results.headings.snapshotSub')}
+            </p>
           </div>
         </header>
 
@@ -3208,15 +3329,23 @@ Checklist:
               {nextStepItems.map((step, i) => {
                 const isCurrent = i === currentNextStepIndex
                 const isDone = step.done
-                const showAction = (isCurrent || (step.optional && !isDone)) && (step.action || step.href)
+                // The "add records" step should draw the eye — give it a warm, standout
+                // card even though Send is the primary action. Both are always actionable
+                // (non-blocking), so every open step shows its button.
+                const isBoost = !!step.boost && !isDone
+                const showAction = !isDone && (step.action || step.href)
                 return (
                   <li
                     key={step.title}
-                    className={`flex items-center gap-3 rounded-xl border px-3.5 py-3 ${isCurrent ? 'border-brand-300 bg-white shadow-sm' : 'border-transparent bg-white/60'}`}
+                    className={`flex items-center gap-3 rounded-xl border px-3.5 py-3 transition-all ${
+                      isBoost
+                        ? 'border-amber-300 bg-gradient-to-r from-amber-50 via-orange-50/70 to-amber-50 shadow-sm ring-1 ring-amber-200/70 hover:shadow-md'
+                        : isCurrent ? 'border-brand-300 bg-white shadow-sm' : 'border-transparent bg-white/60'
+                    }`}
                   >
                     <span
                       className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                        isDone ? 'bg-emerald-100 text-emerald-700' : isCurrent ? 'bg-brand-700 text-white' : 'bg-slate-100 text-slate-500'
+                        isDone ? 'bg-emerald-100 text-emerald-700' : isBoost ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/30' : isCurrent ? 'bg-brand-700 text-white' : 'bg-slate-100 text-slate-500'
                       }`}
                     >
                       {isDone ? <CheckCircle className="h-4 w-4" aria-hidden /> : i + 1}
@@ -3224,24 +3353,47 @@ Checklist:
                     <div className="min-w-0 flex-1">
                       <p className={`flex flex-wrap items-center gap-1.5 text-sm font-semibold ${isDone ? 'text-slate-400' : 'text-slate-900'}`}>
                         <span className={isDone ? 'line-through' : undefined}>{step.title}</span>
-                        {step.optional && (
-                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{t('results.shared.optional')}</span>
+                        {step.boost && !isDone && (
+                          <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${isBoost ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/30' : 'bg-amber-100 text-amber-700'}`}>
+                            <TrendingUp className="h-3 w-3" aria-hidden /> {step.boost}
+                          </span>
                         )}
                       </p>
-                      <p className="text-xs text-slate-500">{step.desc}</p>
+                      <p className={`text-xs ${isBoost ? 'text-slate-600' : 'text-slate-500'}`}>{step.desc}</p>
+                      {typeof step.readiness === 'number' && !isDone && (
+                        <div className="mt-2 max-w-[240px]">
+                          <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                            <span>{step.readiness}% ready</span>
+                            {step.boostPct && step.boostPct > 0 ? (
+                              <span className="text-amber-600">+{step.boostPct}% with records</span>
+                            ) : null}
+                          </div>
+                          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                            <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${Math.max(4, step.readiness)}%` }} />
+                          </div>
+                        </div>
+                      )}
                     </div>
                     {showAction && step.href ? (
                       <Link
                         to={step.href}
-                        className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50"
+                        className={`group inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-bold text-white transition-all sm:min-w-[168px] ${
+                          isBoost
+                            ? 'bg-gradient-to-r from-amber-500 to-orange-500 shadow-md shadow-amber-500/30 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-amber-500/40'
+                            : 'bg-amber-500 shadow-sm hover:bg-amber-600'
+                        }`}
                       >
-                        {step.cta}
+                        <Upload className="h-3.5 w-3.5" aria-hidden /> {step.cta}
+                        {step.boostPct && step.boostPct > 0 ? (
+                          <span className="rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-bold leading-none">+{step.boostPct}%</span>
+                        ) : null}
+                        {isBoost && <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden />}
                       </Link>
                     ) : showAction && step.action ? (
                       <button
                         type="button"
                         onClick={step.action}
-                        className={`inline-flex shrink-0 items-center gap-1 rounded-lg px-3.5 py-2 text-xs font-semibold shadow-sm ${
+                        className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-bold shadow-sm sm:min-w-[168px] ${
                           isCurrent ? 'bg-brand-700 text-white hover:bg-brand-800' : 'border border-slate-200 bg-white text-brand-700 hover:bg-brand-50'
                         }`}
                       >
@@ -3256,25 +3408,32 @@ Checklist:
           </div>
 
           {/* Fact row */}
-          <div className="grid grid-cols-1 gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:grid-cols-3 sm:gap-4">
+          <div className="grid grid-cols-1 gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
             <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
               <Car className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
               <span className="capitalize">{caseSnapshotClaimLabel}</span>
             </div>
-            <div className="flex items-center gap-2 text-sm font-medium text-slate-800 sm:justify-center">
+            <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
               <MapPin className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
               <span>{[venueCounty, venueState === 'CA' ? 'California' : venueState].filter(Boolean).join(', ') || t('results.chrome.jurisdictionUnavailable')}</span>
             </div>
-            <div className="flex items-center gap-2 text-sm font-medium text-slate-800 sm:justify-end">
+            <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
               <Calendar className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
               <span>{t('results.chrome.incidentDate')} {snapshotIncidentDate ?? t('results.chrome.notProvided')}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
+              <ClipboardList className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
+              <span>
+                {t('results.chrome.filingDeadline')} {solDeadlineShort ?? t('results.chrome.tbd')}
+                {solDaysRemaining != null && <span className="block text-xs font-normal text-slate-500">{solDaysRemaining} {t('results.chrome.daysRemaining')}</span>}
+              </span>
             </div>
           </div>
 
           {/* Three core cards */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             {/* Settlement estimate */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="card !p-5">
               <div className="flex items-center gap-2">
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><DollarSign className="h-4 w-4" aria-hidden /></span>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.settlementEstimate')}</p>
@@ -3320,7 +3479,7 @@ Checklist:
             </div>
 
             {/* Liability */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="card !p-5 flex flex-col">
               <div className="flex items-center gap-2">
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-50 text-brand-600"><Shield className="h-4 w-4" aria-hidden /></span>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.liability')}</p>
@@ -3339,15 +3498,25 @@ Checklist:
                 ))}
               </div>
               <div className="mt-4">
-                <div className="relative h-1.5 rounded-full bg-gradient-to-r from-rose-200 via-amber-200 to-emerald-300">
-                  <span className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-brand-600 bg-white shadow" style={{ left: `${clampPercent(liabilityPercent)}%` }} />
+                <div className="cc-progress">
+                  <div className="cc-progress-bar" style={{ width: `${clampPercent(liabilityPercent)}%` }} />
                 </div>
                 <div className="mt-1.5 flex justify-between text-[11px] text-slate-500"><span>{t('results.shared.weak')}</span><span>{t('results.shared.moderate')}</span><span>{t('results.shared.strong')}</span></div>
               </div>
+              {evidenceUploadPath && liabilityChecklist.some((row) => !row.ok) && (
+                <div className="mt-auto pt-4">
+                  <Link
+                    to={evidenceUploadPath}
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-amber-600"
+                  >
+                    <Upload className="h-3.5 w-3.5" aria-hidden /> {t('results.chrome.addDocuments')}
+                  </Link>
+                </div>
+              )}
             </div>
 
             {/* Attorney interest */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="card !p-5 flex flex-col">
               <div className="flex items-center gap-2">
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-50 text-violet-600"><User className="h-4 w-4" aria-hidden /></span>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.attorneyInterest')}</p>
@@ -3365,11 +3534,21 @@ Checklist:
                 </div>
               )}
               <div className="mt-4">
-                <div className="relative h-1.5 rounded-full bg-gradient-to-r from-rose-200 via-violet-200 to-violet-400">
-                  <span className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-violet-600 bg-white shadow" style={{ left: `${attorneyInterestPct}%` }} />
+                <div className="cc-progress">
+                  <div className="cc-progress-bar" style={{ width: `${attorneyInterestPct}%` }} />
                 </div>
                 <div className="mt-1.5 flex justify-between text-[11px] text-slate-500"><span>{t('results.shared.low')}</span><span>{t('results.shared.building')}</span><span>{t('results.shared.high')}</span></div>
               </div>
+              {evidenceUploadPath && attorneyInterestMissing.length > 0 && (
+                <div className="mt-auto pt-4">
+                  <Link
+                    to={evidenceUploadPath}
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-amber-600"
+                  >
+                    <Upload className="h-3.5 w-3.5" aria-hidden /> {t('results.chrome.addDocuments')}
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
 
@@ -3444,33 +3623,6 @@ Checklist:
           </div>
           )}
 
-          {/* Top actions */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div>
-              <p className="font-display text-base font-semibold text-slate-900">{t('results.snap.topTitle')}</p>
-              <p className="mt-0.5 text-sm text-slate-500">{t('results.snap.topDesc')}</p>
-            </div>
-            <div className="mt-4 divide-y divide-slate-100">
-              {snapshotTopActions.map((action) => {
-                const Icon = action.icon
-                return (
-                  <div key={action.title} className="flex items-center gap-4 py-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-500"><Icon className="h-4 w-4" aria-hidden /></span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-slate-900">{trSnap(action.title)}</p>
-                      <p className="text-xs text-slate-500">{trSnap(action.desc)}</p>
-                    </div>
-                    <div className="hidden shrink-0 text-right sm:block">
-                      <p className="text-sm font-bold text-emerald-600">{action.boost}</p>
-                      <p className="text-[11px] text-slate-400">{t('results.snap.potentialImpact')}</p>
-                    </div>
-                    <Link to={`/evidence-upload/${assessment?.id ?? ''}`} className="shrink-0 rounded-lg border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-50">{trSnap(action.cta)}</Link>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
           {/* Your case strength — unified narrative, quality score, and factor/value breakdown */}
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between gap-4">
@@ -3505,7 +3657,7 @@ Checklist:
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 {([
                   { icon: Scale, label: t('results.chrome.faultLiability'), value: liabilitySnapshotLabel, tone: liabilityOutlook === 'strong' ? 'strong' : liabilityOutlook === 'moderate' ? 'moderate' : 'weak', desc: liabilitySummary || t('results.chrome.basedOnFacts') },
-                  { icon: Activity, label: t('results.chrome.injurySeverity'), value: severitySnapshotLabel, tone: severityPercent >= 66 ? 'strong' : severityPercent >= 40 ? 'moderate' : 'weak', desc: t('results.chrome.reportedInjuries') },
+                  { icon: Activity, label: t('results.chrome.injurySeverity'), value: severitySnapshotLabel, tone: severityPercent >= 66 ? 'strong' : severityPercent >= 40 ? 'moderate' : 'weak', desc: severitySnapshotDesc },
                   { icon: Calendar, label: t('results.chrome.treatmentHistory'), value: treatmentStrengthLevel === 'High' ? t('results.shared.high') : treatmentStrengthLevel === 'Medium' ? t('results.shared.medium') : t('results.shared.low'), tone: treatmentStrengthLevel === 'High' ? 'strong' : treatmentStrengthLevel === 'Medium' ? 'moderate' : 'weak', desc: treatment.length > 0 ? `${treatment.length} ${t('results.chrome.treatmentRecords')}` : t('results.chrome.noTreatmentRecords') },
                   { icon: DollarSign, label: t('results.chrome.lostIncome'), value: documentedWageLoss > 0 ? t('results.chrome.documented') : t('results.chrome.notAdded'), tone: documentedWageLoss > 0 ? 'moderate' : 'weak', desc: documentedWageLoss > 0 ? `${formatCurrency(documentedWageLoss)} ${t('results.chrome.wageLossReported')}` : t('results.chrome.addWageLoss') },
                   { icon: Shield, label: t('results.chrome.insuranceCoverage'), value: insuranceRecoveryPercent >= 75 ? t('results.chrome.sufficient') : insuranceRecoveryPercent >= 50 ? t('results.chrome.developing') : t('results.chrome.unclear'), tone: insuranceRecoveryPercent >= 75 ? 'strong' : insuranceRecoveryPercent >= 50 ? 'moderate' : 'weak', desc: insuranceRecoveryLabel },
@@ -3529,41 +3681,6 @@ Checklist:
             </div>
           </div>
 
-          {/* Likely attorney matches */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="font-display text-base font-semibold text-slate-900">{t('results.headings.likelyAttorneyMatches')}</p>
-            <p className="mt-0.5 text-sm text-slate-500">{t('results.chrome.attorneysHandle')}</p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {(rankedSnapshotAttorneys.length > 0
-                ? rankedSnapshotAttorneys.map((a: any, i: number) => ({
-                    name: a?.name ?? a?.law_firm?.name ?? `${t('results.chrome.topMatch')}${i + 1}`,
-                    line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '),
-                    meta: [getResponseBadge(a), t('results.chrome.freeConsultation')].filter(Boolean).join(' • '),
-                    score: formatMatchScore(a?.matchScore ?? a?.match_score ?? a?.score, 94 - i * 3),
-                  }))
-                : [
-                    { name: t('results.chrome.topLocalMatch'), line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: t('results.chrome.respondsFree'), score: '94%' },
-                    { name: t('results.chrome.experiencedAttorney'), line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: t('results.chrome.piBilingual'), score: '91%' },
-                    { name: t('results.chrome.localTrialAttorney'), line: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' • '), meta: t('results.chrome.localExperts'), score: '88%' },
-                  ]
-              ).map((m, i) => (
-                <div key={`${m.name}-${i}`} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700"><User className="h-5 w-5" aria-hidden /></span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-slate-900">{m.name}</p>
-                    <p className="truncate text-xs text-slate-500">{m.line}</p>
-                    <p className="truncate text-[11px] text-slate-400">{m.meta}</p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <span className="inline-flex rounded-md bg-emerald-50 px-2 py-1 text-sm font-bold text-emerald-700">{m.score}</span>
-                    <p className="mt-0.5 text-[10px] text-slate-400">{t('results.chrome.matchScore')}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <button type="button" onClick={() => { document.getElementById('attorney-matches')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.chrome.seeMoreMatches')} <ChevronRight className="h-3 w-3" /></button>
-          </div>
-
           {deadlineWarningText ? (
             <div className="rounded-2xl border border-red-200 bg-red-50 p-4 shadow-sm">
               <p className="text-sm font-semibold text-red-900">{t('results.chrome.important')}</p>
@@ -3571,17 +3688,6 @@ Checklist:
             </div>
           ) : null}
 
-          {/* Footer CTA */}
-          <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-2">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600"><Lock className="h-4 w-4" aria-hidden /></span>
-              <div>
-                <p className="text-sm font-semibold text-slate-900">{t('results.shared.privateSecureTitle')}</p>
-                <p className="text-xs text-slate-500">{t('results.shared.onlyShareChoose')}</p>
-              </div>
-            </div>
-            <button type="button" onClick={openAttorneyReviewFlow} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-800">{t('results.shared.continueReview')} <ChevronRight className="h-4 w-4" /></button>
-          </div>
           <button
             type="button"
             onClick={() => { const el = fullReportDetailsRef.current; if (el) { el.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }) } }}
@@ -3618,28 +3724,6 @@ Checklist:
             >
               {t('results.shared.continueReview')} <ChevronRight className="h-3.5 w-3.5" />
             </button>
-          </div>
-        </div>
-        {/* Fact row with filing deadline */}
-        <div className="mb-5 grid grid-cols-1 gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-          <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
-            <Car className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-            <span className="capitalize">{caseSnapshotClaimLabel}</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
-            <MapPin className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-            <span>{[venueCounty, venueState === 'CA' ? 'California' : venueState].filter(Boolean).join(', ') || t('results.chrome.jurisdictionUnavailable')}</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
-            <Calendar className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-            <span>{t('results.chrome.incidentDate')} {snapshotIncidentDate ?? t('results.chrome.notProvided')}</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
-            <ClipboardList className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
-            <span>
-              {t('results.chrome.filingDeadline')} {solDeadlineShort ?? t('results.chrome.tbd')}
-              {solDaysRemaining != null && <span className="block text-xs font-normal text-slate-500">{solDaysRemaining} {t('results.chrome.daysRemaining')}</span>}
-            </span>
           </div>
         </div>
         <nav className="surface-panel mb-6 overflow-x-auto p-2" aria-label={t('results.aria.sections')}>
@@ -3738,50 +3822,19 @@ Checklist:
             </div>
           </div>
 
-          {/* How to increase value + important notes */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="font-display text-base font-semibold text-slate-900">{t('results.headings.howToIncrease')}</p>
-              <p className="mt-0.5 text-sm text-slate-500">{t('results.overview.takeSteps')}</p>
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {snapshotTopActions.map((action) => {
-                  const Icon = action.icon
-                  return (
-                    <div key={action.title} className="rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-center">
-                      <span className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg bg-white text-brand-600 shadow-sm"><Icon className="h-4 w-4" aria-hidden /></span>
-                      <p className="mt-2 text-[11px] font-semibold leading-4 text-slate-800">{trSnap(action.title)}</p>
-                      <p className="mt-1 text-[11px] font-bold text-emerald-600">{action.boost}</p>
-                    </div>
-                  )
-                })}
-              </div>
-              <button type="button" onClick={() => setActiveResultsTab('attorney')} className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.overview.seeAllRecs')} <ChevronRight className="h-3 w-3" /></button>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="font-display text-base font-semibold text-slate-900">{t('results.overview.importantNotes')}</p>
-              <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                {[
-                  t('results.overview.note1'),
-                  t('results.overview.note2'),
-                  t('results.overview.note3'),
-                  t('results.overview.note4'),
-                ].map((note) => (
-                  <li key={note} className="flex items-start gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>{note}</span></li>
-                ))}
-              </ul>
-            </div>
-          </div>
-
-          {/* Footer CTA */}
-          <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-2">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600"><Lock className="h-4 w-4" aria-hidden /></span>
-              <div>
-                <p className="text-sm font-semibold text-slate-900">{t('results.shared.privateSecureTitle')}</p>
-                <p className="text-xs text-slate-500">{t('results.shared.onlyShareChoose')}</p>
-              </div>
-            </div>
-            <button type="button" onClick={openAttorneyReviewFlow} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-800">{t('results.shared.continueReview')} <ChevronRight className="h-4 w-4" /></button>
+          {/* Important notes */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="font-display text-base font-semibold text-slate-900">{t('results.overview.importantNotes')}</p>
+            <ul className="mt-3 space-y-2 text-sm text-slate-600">
+              {[
+                t('results.overview.note1'),
+                t('results.overview.note2'),
+                t('results.overview.note3'),
+                t('results.overview.note4'),
+              ].map((note) => (
+                <li key={note} className="flex items-start gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>{note}</span></li>
+              ))}
+            </ul>
           </div>
         </div>
         )}
@@ -3827,20 +3880,6 @@ Checklist:
                     <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${row.color}`} style={{ width: `${row.pct}%` }} /></div>
                   </div>
                 ))}
-              </div>
-            </div>
-
-            {/* Attorney interest */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500"><User className="h-3.5 w-3.5" aria-hidden /> {t('results.liability.attorneyInterest')}</p>
-              <p className="mt-3 font-display text-2xl font-bold text-violet-700">{liabAttorneyCurrent}%</p>
-              <p className="text-[11px] text-slate-500">{t('results.liability.currentLikelihood')}</p>
-              <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
-                <p className="text-[11px] font-semibold text-slate-700">{t('results.liability.ifAddEvidence')}</p>
-                <div className="mt-2 space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px]"><span className="text-slate-600">{t('results.liability.plusPolice')}</span><span className="font-semibold text-emerald-600">{liabAttorneyWithPolice}%</span></div>
-                  <div className="flex items-center justify-between text-[11px]"><span className="text-slate-600">{t('results.liability.plusPolicePhotos')}</span><span className="font-semibold text-emerald-600">{liabAttorneyWithPolicePhotos}%</span></div>
-                </div>
               </div>
             </div>
 
@@ -4089,8 +4128,8 @@ Checklist:
             </div>
           )}
 
-          {/* Five metric cards */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {/* Four metric cards */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {/* Treatment strength */}
             <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t('results.medical.treatmentStrength')}</p>
@@ -4103,13 +4142,6 @@ Checklist:
               </div>
               <p className="mt-1 text-xs font-semibold text-emerald-600">{medTreatmentStrengthLabel}</p>
               <p className="mt-0.5 text-[10px] leading-4 text-slate-400">{t('results.medical.treatmentStrengthSub')}</p>
-            </div>
-            {/* Attorney readiness */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t('results.medical.attorneyReadiness')}</p>
-              <p className="mt-3 font-display text-3xl font-bold text-brand-600">{medAttorneyReadinessPct}%</p>
-              <p className="mt-1 text-xs font-semibold text-brand-600">{medAttorneyReadinessLabel}</p>
-              <p className="mt-0.5 text-[10px] leading-4 text-slate-400">{t('results.medical.attorneyReadinessSub')}</p>
             </div>
             {/* Injury severity (semicircle) */}
             <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
@@ -4498,10 +4530,10 @@ Checklist:
                           <p className="text-sm font-bold text-emerald-600">{meta.conf} <span className="font-medium text-slate-500">{t('results.documents.confidence')}</span></p>
                           <p className="text-xs font-medium text-slate-600">{meta.value} <span className="text-slate-400">{t('results.documents.estValue')}</span></p>
                         </div>
-                        <Link to={action.to} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-700">
+                        <Link to={action.to} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-600">
                           <Upload className="h-3.5 w-3.5" aria-hidden />
                           {t('results.shared.upload')}
-                          <span className="ml-1 text-[10px] font-normal text-brand-100">{files}</span>
+                          <span className="ml-1 text-[10px] font-normal text-amber-100">{files}</span>
                         </Link>
                       </div>
                     )
@@ -4736,33 +4768,6 @@ Checklist:
         <section className="surface-panel mb-10 px-5 py-5" aria-label={t('results.aria.value')}>
         <div className="mt-1 mb-8">
           <PlaintiffCaseCommandCenter summary={displayedCommandCenter} />
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white px-5 py-5 shadow-sm">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 mb-3">{t('results.value.overallAssessment')}</p>
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="relative inline-flex h-20 w-20 shrink-0 items-center justify-center">
-              <svg className="absolute h-20 w-20 -rotate-90 text-slate-200" viewBox="0 0 36 36" aria-hidden>
-                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3" />
-                <path
-                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                  fill="none"
-                  stroke="currentColor"
-                  className="text-brand-600"
-                  strokeWidth="3"
-                  strokeDasharray={`${caseStrengthScore} ${100 - caseStrengthScore}`}
-                  strokeLinecap="round"
-                />
-              </svg>
-              <span className="relative text-lg font-bold text-brand-800 tabular-nums">{caseStrengthScore}</span>
-            </div>
-            <div>
-              <p className="text-lg font-semibold text-slate-900">
-                {caseStrengthScore} / 100 - {caseStrengthLabel(caseStrengthScore)}
-              </p>
-              <p className="text-sm text-slate-600 mt-1">{t('results.value.compositeScore')}</p>
-            </div>
-          </div>
         </div>
 
         <div className="rounded-xl border-l-4 border-l-brand-600 border border-slate-200 bg-slate-50/60 p-6 sm:p-8 mb-10 shadow-sm">
@@ -5294,45 +5299,6 @@ Checklist:
 
             {/* Right column */}
             <div className="space-y-5">
-              {/* Top attorney matches */}
-              <div id="attorney-matches" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <p className="font-display text-base font-semibold text-slate-900">{t('results.headings.topAttorneyMatches')}</p>
-                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{t('results.next.preview')}</span>
-                </div>
-                <p className="mt-0.5 text-xs text-slate-500">{t('results.next.handleCasesLikeYours')}</p>
-                <div className="mt-4 space-y-3">
-                  {rankedSnapshotAttorneys.length > 0 ? rankedSnapshotAttorneys.map((attorney: any) => {
-                    const initials = String(attorney?.name ?? 'AT').split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
-                    const matchScore = Math.round((attorney.fit_score || 0.9) * 100)
-                    const rating = (attorney.averageRating || attorney.rating || 0)
-                    const reviews = attorney.verifiedReviewCount || 0
-                    return (
-                      <div key={attorney.id || attorney.attorney_id} className="flex items-start gap-3 border-b border-slate-100 pb-3 last:border-0 last:pb-0">
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">{initials}</span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-slate-900">{attorney?.law_firm?.name ?? attorney?.name ?? t('results.next.lawFirm')}</p>
-                          <p className="truncate text-[11px] text-slate-500">{getAttorneyPracticePreview(attorney, { venueState, venueCounty }) || t('results.next.personalInjury')}</p>
-                          {rating > 0 && (
-                            <p className="mt-0.5 flex items-center gap-1 text-[11px] text-amber-600"><Star className="h-3 w-3" aria-hidden />{rating.toFixed(1)}{reviews > 0 ? ` (${reviews} ${t('results.next.reviewsSuffix')})` : ''}</p>
-                          )}
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-[10px] font-medium text-slate-400">{t('results.next.matchScore')}</p>
-                          <p className="text-sm font-bold text-emerald-600">{matchScore}%</p>
-                        </div>
-                      </div>
-                    )
-                  }) : (
-                    <p className="text-xs text-slate-500">{t('results.next.submitToSee')}</p>
-                  )}
-                </div>
-                <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] text-slate-500">
-                  <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  {t('results.next.unlockProfiles')}
-                </div>
-              </div>
-
               {/* Save your case — signed-out users create/sign in; signed-in users jump to their case */}
               {isLoggedIn ? (
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

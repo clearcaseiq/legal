@@ -22,7 +22,6 @@ const AdminLogin = lazy(() => import('./pages/AdminLogin'))
 const OAuthCallback = lazy(() => import('./pages/OAuthCallback'))
 const IntakeWizard = lazy(() => import('./pages/IntakeWizard'))
 const IntakeWizardQuick = lazy(() => import('./pages/IntakeWizardQuick'))
-const IntakeWizardV2 = lazy(() => import('./pages/IntakeWizardV2'))
 const Results = lazy(() => import('./pages/Results'))
 const Attorneys = lazy(() => import('./pages/Attorneys'))
 const AttorneysEnhanced = lazy(() => import('./pages/AttorneysEnhanced'))
@@ -77,7 +76,18 @@ const AttorneyProfile = lazy(() => import('./pages/AttorneyProfile'))
 const AttorneyPreferences = lazy(() => import('./pages/AttorneyPreferences'))
 const Integrations = lazy(() => import('./pages/Integrations'))
 const MedicalProviders = lazy(() => import('./pages/MedicalProviders'))
-const EvidenceUpload = lazy(() => import('./pages/EvidenceUpload'))
+// The standalone Evidence Upload page is retired in favor of the richer intake
+// "Supporting Documents" experience (readiness scoring, wrong-file & name-mismatch
+// checks, HIPAA gate). Every /evidence-upload/:id link now forwards there.
+function EvidenceUploadRedirect() {
+  const { assessmentId } = useParams()
+  return (
+    <Navigate
+      to={assessmentId ? `/intake2?assessment=${assessmentId}&step=evidence` : '/assess'}
+      replace
+    />
+  )
+}
 const DocumentPortal = lazy(() => import('./pages/DocumentPortal'))
 const EvidenceDashboard = lazy(() => import('./pages/EvidenceDashboard'))
 const Demand = lazy(() => import('./pages/Demand'))
@@ -464,14 +474,15 @@ function App() {
               <Route path="/medical-providers" element={<MedicalProviders />} />
             </Route>
             <Route path="/respond/documents/:token" element={<DocumentPortal />} />
-            <Route path="/evidence-upload/:assessmentId" element={<EvidenceUpload />} />
+            <Route path="/evidence-upload/:assessmentId" element={<EvidenceUploadRedirect />} />
+            <Route path="/evidence-upload" element={<EvidenceUploadRedirect />} />
             <Route path="/evidence-dashboard/:assessmentId" element={<EvidenceDashboard />} />
             <Route path="/evidence-dashboard" element={<EvidenceDashboard />} />
             <Route path="/demand/:assessmentId" element={<Demand />} />
             <Route path="/drafts/:assessmentId" element={<Drafts />} />
             <Route path="/intake" element={<IntakeWizardQuick />} />
             <Route path="/assess" element={<IntakeWizardQuick />} />
-            <Route path="/intake-v2" element={<IntakeWizardV2 />} />
+            <Route path="/intake2" element={<IntakeWizardQuick />} />
             <Route path="/rose" element={<RoseIntake />} />
             <Route path="/edit-assessment/:assessmentId" element={<IntakeWizard />} />
             <Route path="/results/:assessmentId" element={<ResultsRouteBoundary />} />

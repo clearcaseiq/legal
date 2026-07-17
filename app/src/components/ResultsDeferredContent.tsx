@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle, ChevronRight, Clock, Copy, Download, LayoutDashboard, Square, Star, Upload } from 'lucide-react'
+import { AlertTriangle, CheckCircle, ChevronRight, Clock, Copy, Download, LayoutDashboard, ShieldCheck, Square, Star, TrendingUp, Upload } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 
 type TFunc = (key: string) => string
@@ -169,203 +169,232 @@ export function ResultsSubmittedView({
   const timeline = Array.isArray(submissionTimeline) ? submissionTimeline : []
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="rounded-2xl border border-slate-200/90 bg-white shadow-card overflow-hidden">
-      <div className="px-6 sm:px-10 py-10 border-b border-slate-100">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-50 border border-emerald-100 mb-5">
-            <CheckCircle className="h-9 w-9 text-emerald-600" />
+    <div className="mx-auto max-w-2xl">
+      <div className="overflow-hidden rounded-3xl border border-slate-200/90 bg-white shadow-card">
+        {/* Success hero */}
+        <div className="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-emerald-600 to-emerald-700 px-6 py-10 text-center text-white sm:px-10">
+          <span className="pointer-events-none absolute -right-14 -top-16 h-44 w-44 rounded-full bg-white/10 blur-2xl" aria-hidden />
+          <span className="pointer-events-none absolute -bottom-20 -left-12 h-48 w-48 rounded-full bg-emerald-300/20 blur-2xl" aria-hidden />
+          <div className="relative">
+            <div className="mx-auto mb-5 inline-flex h-16 w-16 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/30 backdrop-blur-sm">
+              <CheckCircle className="h-9 w-9 text-white" aria-hidden />
+            </div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-50/90">{t('results.submitted.confirmed')}</p>
+            <h1 className="mt-2 font-display text-2xl font-semibold tracking-tight sm:text-3xl">{t('results.submitted.title')}</h1>
+            <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-emerald-50/90">{t('results.submitted.deliveredSecurely')}</p>
+            <p className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-medium text-white ring-1 ring-white/25">
+              <Clock className="h-3.5 w-3.5" aria-hidden />
+              {t('results.submitted.initialResponses')}
+            </p>
           </div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 mb-2">{t('results.submitted.confirmed')}</p>
-          <h1 className="font-display text-2xl sm:text-3xl font-semibold text-slate-900 tracking-tight mb-3">{t('results.submitted.title')}</h1>
-          <p className="text-slate-600 mb-2 leading-relaxed">{t('results.submitted.deliveredSecurely')}</p>
-          <p className="text-sm font-medium text-emerald-800">{t('results.submitted.initialResponses')}</p>
         </div>
 
-        <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-6 mb-8">
-          <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-4">{t('results.submitted.status')}</h3>
-          <ol className="space-y-3">
-            {timeline.map((step, index) => (
-              <li key={index} className="flex items-center gap-3">
-                {step.done ? (
-                  <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
-                ) : (
-                  <span className="w-5 h-5 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs text-gray-500 flex-shrink-0">
-                    {index + 1}
-                  </span>
-                )}
-                <span className={step.done ? 'text-gray-700' : 'text-gray-600'}>{step.label}</span>
+        <div className="px-6 py-8 sm:px-10">
+          {/* Status stepper */}
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5">
+            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">{t('results.submitted.status')}</h3>
+            <ol className="mt-4">
+              {timeline.map((step, index) => (
+                <li key={index} className="relative flex gap-3 pb-4 last:pb-0">
+                  {index < timeline.length - 1 && (
+                    <span className="absolute left-[11px] top-6 h-[calc(100%-1.25rem)] w-px bg-slate-200" aria-hidden />
+                  )}
+                  {step.done ? (
+                    <span className="relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                      <CheckCircle className="h-4 w-4" aria-hidden />
+                    </span>
+                  ) : (
+                    <span className="relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-slate-300 bg-white text-[11px] font-semibold text-slate-500">
+                      {index + 1}
+                    </span>
+                  )}
+                  <span className={`pt-0.5 text-sm ${step.done ? 'font-semibold text-slate-900' : 'text-slate-600'}`}>{step.label}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          {/* What happens next */}
+          <div className="mt-6">
+            <h3 className="font-display text-base font-semibold tracking-tight text-slate-900">{t('results.submitted.whatHappensNext')}</h3>
+            <ul className="mt-3 space-y-2 text-[15px] leading-relaxed text-slate-600">
+              <li className="flex items-start gap-2">
+                <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-500" />
+                {t('results.submitted.next1')}
               </li>
-            ))}
-          </ol>
-        </div>
+              <li className="flex items-start gap-2">
+                <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-500" />
+                {t('results.submitted.next2')}
+              </li>
+              <li className="flex items-start gap-2">
+                <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-500" />
+                {t('results.submitted.next3')}
+              </li>
+            </ul>
+          </div>
 
-        <div className="mb-8 text-left">
-          <h3 className="text-base font-semibold text-slate-900 mb-3 tracking-tight">{t('results.submitted.whatHappensNext')}</h3>
-          <ul className="text-slate-600 space-y-2 text-[15px] leading-relaxed">
-            <li className="flex items-start gap-2">
-              <ChevronRight className="h-4 w-4 text-brand-500 flex-shrink-0 mt-0.5" />
-              {t('results.submitted.next1')}
-            </li>
-            <li className="flex items-start gap-2">
-              <ChevronRight className="h-4 w-4 text-brand-500 flex-shrink-0 mt-0.5" />
-              {t('results.submitted.next2')}
-            </li>
-            <li className="flex items-start gap-2">
-              <ChevronRight className="h-4 w-4 text-brand-500 flex-shrink-0 mt-0.5" />
-              {t('results.submitted.next3')}
-            </li>
-          </ul>
-        </div>
+          {/* Save your case — the key next action for guests */}
+          {showSavePrompt && (
+            <div className="mt-6 rounded-2xl border border-brand-200 bg-gradient-to-b from-brand-50 to-white p-6">
+              <div className="flex items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-700">
+                  <ShieldCheck className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="font-display text-lg font-semibold text-brand-900">{t('results.submitted.saveTitle')}</h2>
+                  <p className="mt-1 text-sm leading-relaxed text-brand-800/90">{t('results.submitted.saveDesc')}</p>
+                </div>
+              </div>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <Link
+                  to={`/register?redirect=/dashboard&assessmentId=${assessmentId}`}
+                  className="inline-flex w-full items-center justify-center rounded-lg bg-brand-600 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-700 sm:w-auto"
+                >
+                  {t('results.submitted.createAccount')}
+                </Link>
+                <Link
+                  to={`/login?redirect=/dashboard&assessmentId=${assessmentId}`}
+                  className="inline-flex w-full items-center justify-center rounded-lg border border-brand-200 bg-white px-5 py-3 text-sm font-semibold text-brand-700 hover:bg-brand-50 sm:w-auto"
+                >
+                  {t('results.submitted.signIn')}
+                </Link>
+              </div>
+            </div>
+          )}
 
-        {attorneyCards.length > 0 && (
-          <div className="mb-8 rounded-xl border border-slate-200 bg-slate-50/80 p-6">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500 mb-4">{t('results.submitted.rankedPicks')}</h3>
-            <div className="space-y-3">
-              {attorneyCards.map((attorney, index) => (
-                <div key={attorney.id || attorney.attorney_id || attorney.name} className="rounded-lg border border-slate-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">{t('results.submitted.choice')} {index + 1}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{attorney?.name ?? t('results.submitted.attorney')}</p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    {[
-                      attorney?.law_firm?.name ?? t('results.submitted.lawFirm'),
-                      `${Math.round((attorney.fit_score || 0.6) * 100)}% ${t('results.common.fit')}`,
-                      getResponseBadge(attorney, t),
-                    ].filter(Boolean).join(' • ')}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {getAttorneyPracticePreview(attorney, {
-                      venueCounty,
-                      venueState,
-                    }) || getAttorneyWhyMatched(attorney, {
-                      assessmentClaimType,
-                      venueCounty,
-                      venueState,
-                    })}
-                  </p>
-                  <div className="mt-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">{t('results.submitted.whyRecommend')}</p>
-                    <ul className="mt-1 space-y-1 text-[11px] text-brand-900">
-                      {getAttorneyRecommendationReasons(attorney, {
+          {attorneyCards.length > 0 && (
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/70 p-5">
+              <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">{t('results.submitted.rankedPicks')}</h3>
+              <div className="mt-4 space-y-3">
+                {attorneyCards.map((attorney, index) => (
+                  <div key={attorney.id || attorney.attorney_id || attorney.name} className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">{t('results.submitted.choice')} {index + 1}</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">{attorney?.name ?? t('results.submitted.attorney')}</p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      {[
+                        attorney?.law_firm?.name ?? t('results.submitted.lawFirm'),
+                        `${Math.round((attorney.fit_score || 0.6) * 100)}% ${t('results.common.fit')}`,
+                        getResponseBadge(attorney, t),
+                      ].filter(Boolean).join(' • ')}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {getAttorneyPracticePreview(attorney, {
+                        venueCounty,
+                        venueState,
+                      }) || getAttorneyWhyMatched(attorney, {
                         assessmentClaimType,
                         venueCounty,
                         venueState,
-                      }).map((reason) => (
-                        <li key={reason} className="flex items-start gap-1.5">
-                          <CheckCircle className="mt-0.5 h-3 w-3 flex-shrink-0 text-brand-600" />
-                          <span>{reason}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
-                      <CheckCircle className="mr-1 h-3 w-3" />
-                      {(attorney.verifiedReviewCount || 0) > 0
-                        ? `${attorney.verifiedReviewCount} ${t('results.common.verifiedReviews')}`
-                        : t('results.submitted.newProfile')}
-                    </span>
-                    {((attorney.averageRating || attorney.rating || 0) > 0) && (
-                      <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
-                        <Star className="mr-1 h-3 w-3" />
-                        {(attorney.averageRating || attorney.rating || 0).toFixed(1)} {t('results.common.rating')}
+                      })}
+                    </p>
+                    <div className="mt-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">{t('results.submitted.whyRecommend')}</p>
+                      <ul className="mt-1 space-y-1 text-[11px] text-brand-900">
+                        {getAttorneyRecommendationReasons(attorney, {
+                          assessmentClaimType,
+                          venueCounty,
+                          venueState,
+                        }).map((reason) => (
+                          <li key={reason} className="flex items-start gap-1.5">
+                            <CheckCircle className="mt-0.5 h-3 w-3 flex-shrink-0 text-brand-600" />
+                            <span>{reason}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
+                        <CheckCircle className="mr-1 h-3 w-3" />
+                        {(attorney.verifiedReviewCount || 0) > 0
+                          ? `${attorney.verifiedReviewCount} ${t('results.common.verifiedReviews')}`
+                          : t('results.submitted.newProfile')}
                       </span>
-                    )}
-                    <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
-                      <Clock className="mr-1 h-3 w-3" />
-                      {getResponseBadge(attorney, t)}
-                    </span>
+                      {((attorney.averageRating || attorney.rating || 0) > 0) && (
+                        <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
+                          <Star className="mr-1 h-3 w-3" />
+                          {(attorney.averageRating || attorney.rating || 0).toFixed(1)} {t('results.common.rating')}
+                        </span>
+                      )}
+                      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
+                        <Clock className="mr-1 h-3 w-3" />
+                        {getResponseBadge(attorney, t)}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <div className="bg-brand-50/60 border border-brand-100 rounded-xl p-6 mb-8">
-          <h3 className="text-base font-semibold text-slate-900 mb-2 tracking-tight">{t('results.submitted.strengthenTitle')}</h3>
-          <p className="text-sm text-slate-600 mb-4 leading-relaxed">{t('results.submitted.strengthenDesc')}</p>
-          <ul className="space-y-2 mb-4">
-            {improvementItems.map((item) => (
-              <li key={item.label} className="flex items-center gap-2">
-                {item.done ? (
-                  <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
-                ) : (
-                  <Square className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                )}
-                <span className={item.done ? 'text-gray-600 line-through' : 'text-gray-900'}>{item.label}</span>
-              </li>
-            ))}
-          </ul>
-          <Link
-            to={`/evidence-upload/${assessmentId}`}
-            className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700"
-          >
-            <Upload className="h-4 w-4 mr-2" />
-            {t('results.submitted.uploadEvidence')}
-          </Link>
+          {/* Strengthen your file */}
+          <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50/60 p-6">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                <TrendingUp className="h-5 w-5" aria-hidden />
+              </span>
+              <h3 className="font-display text-base font-semibold tracking-tight text-slate-900">{t('results.submitted.strengthenTitle')}</h3>
+            </div>
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">{t('results.submitted.strengthenDesc')}</p>
+            <ul className="mt-4 space-y-2">
+              {improvementItems.map((item) => (
+                <li key={item.label} className="flex items-center gap-2">
+                  {item.done ? (
+                    <CheckCircle className="h-4 w-4 flex-shrink-0 text-emerald-600" />
+                  ) : (
+                    <Square className="h-4 w-4 flex-shrink-0 text-slate-400" />
+                  )}
+                  <span className={item.done ? 'text-slate-500 line-through' : 'text-slate-900'}>{item.label}</span>
+                </li>
+              ))}
+            </ul>
+            <Link
+              to={`/evidence-upload/${assessmentId}`}
+              className="mt-4 inline-flex items-center rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              {t('results.submitted.uploadEvidence')}
+            </Link>
+          </div>
+
+          {isLoggedIn ? (
+            <Link
+              to="/dashboard"
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-4 text-lg font-semibold text-white hover:bg-brand-700"
+            >
+              <LayoutDashboard className="h-5 w-5" />
+              {t('results.submitted.goToDashboard')}
+            </Link>
+          ) : (
+            <p className="mt-6 text-center text-sm text-slate-500">
+              {t('results.submitted.alreadyHaveAccount')}{' '}
+              <Link to={`/login?redirect=/dashboard&assessmentId=${assessmentId}`} className="font-medium text-brand-600">
+                {t('results.submitted.signIn')}
+              </Link>{' '}
+              {t('results.submitted.toSaveCase')}
+            </p>
+          )}
         </div>
 
-        {showSavePrompt && (
-          <div className="mb-8 rounded-xl border-2 border-brand-200 bg-brand-50 px-6 py-6">
-            <h2 className="text-lg font-semibold text-brand-900">{t('results.submitted.saveTitle')}</h2>
-            <p className="mt-2 text-brand-800">{t('results.submitted.saveDesc')}</p>
-            <div className="mt-4 flex flex-wrap gap-3">
-              <Link
-                to={`/register?redirect=/dashboard&assessmentId=${assessmentId}`}
-                className="inline-flex items-center justify-center px-5 py-3 text-base font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700"
-              >
-                {t('results.submitted.createAccount')}
-              </Link>
-              <Link
-                to={`/login?redirect=/dashboard&assessmentId=${assessmentId}`}
-                className="inline-flex items-center justify-center px-5 py-3 text-base font-medium text-brand-700 border border-brand-200 rounded-lg hover:bg-brand-100"
-              >
-                {t('results.submitted.signIn')}
-              </Link>
-            </div>
-          </div>
-        )}
+        <div className="flex flex-wrap justify-center gap-4 border-t border-slate-200 bg-slate-50/60 px-6 py-4 text-sm">
+          <button type="button" onClick={() => void handleDownloadReportPdf()} className="inline-flex items-center gap-1.5 font-semibold text-brand-800 hover:text-brand-950">
+            <Download className="h-4 w-4" aria-hidden />
+            {t('results.common.downloadPdf')}
+          </button>
+          <button type="button" onClick={handleCopyShareLink} className="inline-flex items-center gap-1.5 font-semibold text-brand-800 hover:text-brand-950">
+            <Copy className="h-4 w-4" aria-hidden />
+            {shareCopied ? t('results.common.linkCopied') : t('results.common.copyLink')}
+          </button>
+        </div>
 
-        {isLoggedIn ? (
-          <Link
-            to="/dashboard"
-            className="flex items-center justify-center gap-2 w-full py-4 text-lg font-semibold text-white bg-brand-600 rounded-xl hover:bg-brand-700"
-          >
-            <LayoutDashboard className="h-5 w-5" />
-            {t('results.submitted.goToDashboard')}
-          </Link>
-        ) : (
-          <p className="text-center text-sm text-gray-500">
-            {t('results.submitted.alreadyHaveAccount')}{' '}
-            <Link to={`/login?redirect=/dashboard&assessmentId=${assessmentId}`} className="text-brand-600 font-medium">
-              {t('results.submitted.signIn')}
-            </Link>{' '}
-            {t('results.submitted.toSaveCase')}
-          </p>
-        )}
-      </div>
-
-      <div className="px-6 py-5 border-t border-slate-200 bg-slate-50/50 flex flex-wrap gap-4 justify-center text-sm">
-        <button type="button" onClick={() => void handleDownloadReportPdf()} className="font-semibold text-brand-800 hover:text-brand-950">
-          {t('results.common.downloadPdf')}
-        </button>
-        <button type="button" onClick={handleCopyShareLink} className="font-semibold text-brand-800 hover:text-brand-950">
-          {shareCopied ? t('results.common.linkCopied') : t('results.common.copyLink')}
-        </button>
-      </div>
-
-      <div className="px-6 sm:px-10 py-6 border-t border-slate-200 bg-slate-50/80">
-        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex gap-3">
-            <AlertTriangle className="h-5 w-5 text-slate-500 shrink-0 mt-0.5" aria-hidden />
-            <p className="text-sm text-slate-700 leading-relaxed">
+        <div className="border-t border-slate-200 bg-slate-50/80 px-6 py-5 sm:px-10">
+          <div className="flex gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" aria-hidden />
+            <p className="text-sm leading-relaxed text-slate-700">
               <span className="font-semibold text-slate-900">{t('results.submitted.limitationsLabel')}</span>
               {t('results.submitted.limitationsBody')}
             </p>
           </div>
         </div>
-      </div>
       </div>
     </div>
   )

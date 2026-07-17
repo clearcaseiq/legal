@@ -351,7 +351,7 @@ function handleRequestError(
       // non-fatal, so never bounce an un-authenticated user out of the intake flow.
       const guestOnIntake =
         !hadToken &&
-        (pathname === '/assess' || pathname === '/intake' || pathname === '/intake-v2')
+        (pathname === '/assess' || pathname === '/intake' || pathname === '/intake2')
       // Post-registration consent save: show error on /register instead of clearing session + sending to login
       const registerConsentSave =
         pathname.startsWith('/register') &&

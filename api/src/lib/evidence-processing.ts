@@ -502,6 +502,51 @@ function computeWageFigures(ocrText: string): WageFigures | undefined {
   return { grossPerPeriod, payFrequency, weeklyIncome }
 }
 
+const NAME_STOPWORDS = new Set([
+  'patient', 'name', 'member', 'insured', 'claimant', 'date', 'total', 'page', 'report',
+  'provider', 'account', 'number', 'dob', 'birth', 'address', 'phone', 'guarantor',
+  'subscriber', 'policy', 'group', 'id', 'mr', 'mrs', 'ms', 'dr', 'the', 'of', 'and',
+])
+
+/**
+ * Best-effort patient/person name from a document's OCR text. Used only to flag
+ * when two uploaded records appear to belong to different people (a name-only
+ * consistency check). This is heuristic and non-authoritative: a miss simply
+ * returns null (no warning) and never blocks an upload.
+ */
+export function extractPatientName(ocrText: string): string | null {
+  if (!ocrText) return null
+  // Case-insensitive labels; [ \t] (not \s) separators so a capture never bleeds
+  // onto the next line.
+  const patterns: RegExp[] = [
+    // "Patient: Last, First" / "Name: Doe, John A"
+    /(?:patient(?:'s)?(?:[ \t]+name)?|member(?:[ \t]+name)?|insured|claimant|guarantor|name)[ \t]*[:\-][ \t]*([A-Za-z][A-Za-z'’\-]+[ \t]*,[ \t]*[A-Za-z][A-Za-z'’.\-]+(?:[ \t]+[A-Za-z'’.\-]+){0,2})/i,
+    // "Patient Name: John A. Doe" / "Name: John Doe"
+    /(?:patient(?:'s)?(?:[ \t]+name)?|member(?:[ \t]+name)?|insured|claimant|guarantor|name)[ \t]*[:\-][ \t]*([A-Za-z][A-Za-z'’.\-]+(?:[ \t]+[A-Za-z'’.\-]+){1,3})/i,
+  ]
+  for (const re of patterns) {
+    const m = re.exec(ocrText)
+    if (m && m[1]) {
+      const cleaned = normalizePersonName(m[1])
+      if (cleaned) return cleaned
+    }
+  }
+  return null
+}
+
+/** Cleans an OCR name capture and rejects captures that are clearly not a person. */
+function normalizePersonName(raw: string): string | null {
+  // Normalize "Last, First" -> "First Last" and collapse whitespace/trailing punctuation.
+  let value = raw.replace(/\s+/g, ' ').trim().replace(/[.,]+$/, '')
+  const comma = value.match(/^([A-Za-z'’\-]+)\s*,\s*(.+)$/)
+  if (comma) value = `${comma[2]} ${comma[1]}`
+  const tokens = value.split(/\s+/).filter(Boolean)
+  const meaningful = tokens.filter((t) => t.replace(/[^A-Za-z]/g, '').length >= 2 && !NAME_STOPWORDS.has(t.toLowerCase()))
+  // Require at least a first + last name so single stray words don't create false mismatches.
+  if (meaningful.length < 2) return null
+  return meaningful.join(' ')
+}
+
 async function processExtractedData(ocrText: string, category: string, originalName: string): Promise<any> {
   try {
     const moneyRegex = /\$[\d,]+\.?\d*/g
@@ -530,16 +575,20 @@ async function processExtractedData(ocrText: string, category: string, originalN
       totalAmount: totalAmount || undefined,
     })
 
+    const patientName = extractPatientName(ocrText)
+
     return {
       dollarAmounts,
       totalAmount,
       ...(wage ? { wage } : {}),
+      ...(patientName ? { patientName } : {}),
       dates,
       icdCodes,
       cptCodes,
       timeline: medicalEvents,
       entities: {
         provider: extractProvider(ocrText),
+        patientName: patientName || undefined,
         visitType: inferVisitType(ocrText, category),
         medications: extractMedications(ocrText),
         ...(wage ? { wage } : {}),
@@ -589,7 +638,7 @@ export async function extractDataFromBuffer(
   mimetype: string,
   category: string,
   originalName: string,
-): Promise<{ dollarAmounts: string[]; totalAmount?: number; wage?: WageFigures }> {
+): Promise<{ dollarAmounts: string[]; totalAmount?: number; wage?: WageFigures; patientName?: string }> {
   const rasterOcrAllowed = process.env.ENABLE_OCR !== 'false'
   const safeName = (originalName || 'document').replace(/[^\w.\-]/g, '_')
   const tmpPath = path.join(os.tmpdir(), `extract_${Date.now()}_${Math.random().toString(36).slice(2)}_${safeName}`)
@@ -617,6 +666,7 @@ export async function extractDataFromBuffer(
       dollarAmounts: (extracted?.dollarAmounts as string[]) || [],
       totalAmount: extracted?.totalAmount,
       wage: extracted?.wage as WageFigures | undefined,
+      patientName: (extracted?.patientName as string | undefined) || undefined,
     }
   } finally {
     try {

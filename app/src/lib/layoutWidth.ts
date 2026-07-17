@@ -33,3 +33,12 @@ export function isCalendarRoute(pathname: string): boolean {
 export function isWideAttorneyRoute(pathname: string): boolean {
   return ATTORNEY_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 }
+
+/**
+ * Routes that render at the wider workspace column even though they are not
+ * attorney routes. The claimant Results / "Case Snapshot" report uses the same
+ * width as the attorney experience so its dense cards get equal horizontal room.
+ */
+export function isWideContentRoute(pathname: string): boolean {
+  return isWideAttorneyRoute(pathname) || pathname.startsWith('/results') || pathname === '/intake2'
+}

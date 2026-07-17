@@ -61,7 +61,7 @@ export default function CaseProgressPipeline({
 
   return (
     <section
-      className="rounded-xl border border-slate-200/80 dark:border-slate-700 bg-white/90 dark:bg-slate-900/60 shadow-sm dark:shadow-none px-4 py-5 pb-6"
+      className="rounded-2xl border border-slate-200/80 dark:border-slate-700 bg-white/90 dark:bg-slate-900/60 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_10px_30px_-16px_rgba(15,23,42,0.16)] dark:shadow-none px-4 py-5 pb-6"
       aria-label="Your case progress"
     >
       <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-4">
@@ -82,7 +82,7 @@ export default function CaseProgressPipeline({
             <li
               key={step.id}
               className={clsx(
-                'relative flex gap-3 sm:flex-col sm:items-center sm:text-center rounded-lg px-3 py-3 border transition-all duration-200 motion-reduce:transition-none',
+                'relative flex gap-3 sm:flex-col sm:items-center sm:text-center rounded-xl px-3 py-3 border transition-all duration-200 motion-reduce:transition-none',
                 complete && 'border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/50 dark:bg-emerald-950/20',
                 current && !complete && 'border-amber-300 dark:border-amber-700/80 bg-amber-50/60 dark:bg-amber-950/25 ring-1 ring-amber-200/80 dark:ring-amber-800/50 shadow-sm',
                 !complete && !current && 'border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/30'

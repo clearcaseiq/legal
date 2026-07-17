@@ -4,7 +4,8 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, type IntakeLeadPayload } from '../lib/api-plaintiff'
-import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, type LucideIcon } from 'lucide-react'
+import { deleteEvidenceFile } from '../lib/api'
+import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, X, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import { useLanguage } from '../contexts/LanguageContext'
 import { buildCaseTaxonomy, injuryTypeToClaimType, sanitizeDetectedCounty, usesPoliceReportLabel } from '../lib/intakeQuickHelpers'
@@ -12,6 +13,15 @@ import { US_STATES } from '../lib/constants'
 import { getCountiesForState } from '../lib/usLocationData'
 import { formatPhoneInput, validatePhoneField } from '../lib/phone'
 import { savePendingRegistration } from '../lib/pendingRegistration'
+import { createConsent, fetchPublicConsentTemplate } from '../lib/api-consent'
+
+// Health-info (HIPAA) authorization captured at the moment a plaintiff adds
+// medical records. Keeps the version in sync with the server consent template
+// (CONSENT_TEMPLATES.hipaa) so the recorded authorization is traceable.
+const HIPAA_CONSENT_VERSION = '1.0'
+// PHI-bearing document types gated behind health-info authorization. Medical bills
+// reveal treatment/diagnosis, so they carry PHI just like medical records.
+const HIPAA_UPLOAD_CATEGORIES = ['medical_records', 'bills']
 
 type Step =
   | 'injury_type'
@@ -680,17 +690,30 @@ const WHO_CAUSED_OPTIONS = [
   { value: 'not_sure', labelKey: 'optionNotSure' }
 ]
 
-const STEPS: { key: Step; title: string }[] = [
+/**
+ * The intake2 funnel: 5 steps.
+ * - Incident & Location absorbs the old "case details" screen + a compact fault question.
+ * - "Your Injuries & Treatment" merges the severity + injury-details screens.
+ * - Evidence upload and the full legal/insurance screen are deferred to post-report.
+ */
+const STEPS_V2: { key: Step; title: string }[] = [
   { key: 'injury_type', title: 'Injury Type' },
-  { key: 'when', title: 'Incident Facts' },
-  { key: 'injury_severity', title: 'Your Injuries' },
-  { key: 'injury_details', title: 'Treatment & Recovery' },
-  { key: 'case_details', title: 'Case Details' },
-  { key: 'evidence', title: 'Evidence Upload' },
-  { key: 'financial_impact', title: 'Damages & Valuation' },
-  { key: 'legal_status', title: 'Insurance & Legal Status' },
-  { key: 'consent', title: 'Your Case Report Is Ready' }
+  { key: 'when', title: 'Incident & Location' },
+  { key: 'injury_severity', title: 'Your Injuries & Treatment' },
+  { key: 'financial_impact', title: 'Damages & Insurance' },
+  { key: 'consent', title: 'Review & Consent' },
 ]
+
+/**
+ * These standalone steps are folded into a host step's screen. Used to remap
+ * "Edit" jumps from the review card so navigation indexes stay valid.
+ */
+const V2_MERGED_INTO: Partial<Record<Step, Step>> = {
+  case_details: 'when',
+  legal_status: 'financial_impact',
+  evidence: 'when',
+  injury_details: 'injury_severity',
+}
 
 /** Steps that have no questions for a given injury type are skipped entirely. */
 const HIDDEN_STEPS_BY_INJURY: Record<string, Step[]> = {}
@@ -706,8 +729,6 @@ const LEGACY_STEP_MAP: Record<string, Step> = {
   branch_9: 'case_details',
   branch_10: 'case_details',
 }
-
-const DRAFT_STORAGE_KEY = 'intake_quick_draft_v1'
 
 // Shared section header: a colored rounded badge (icon or number) + title + optional helper.
 // Used across wizard steps so section headers look consistent.
@@ -825,10 +846,26 @@ export default function IntakeWizardQuick() {
   const ATTORNEY_STATUS_OPTIONS = localizeOptions(ATTORNEY_STATUS_OPTION_DEFS)
   const PRODUCT_TYPE_OPTIONS = localizeOptions(PRODUCT_TYPE_OPTION_DEFS)
 
+  // Focused "Supporting Documents" deep link from the Case Snapshot "Add documents"
+  // CTAs: /intake2?assessment=<id>&step=evidence opens the Step 6 evidence screen for
+  // an existing case (uploads attach directly to that assessment). Computed once.
+  const documentsModeRef = useRef<{ mode: boolean; assessmentId: string | null } | null>(null)
+  if (documentsModeRef.current === null) {
+    let mode = false
+    let deepLinkAssessmentId: string | null = null
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search)
+      deepLinkAssessmentId = p.get('assessment')
+      mode = p.get('step') === 'evidence' && !!deepLinkAssessmentId
+    }
+    documentsModeRef.current = { mode: mode && !!deepLinkAssessmentId, assessmentId: mode ? deepLinkAssessmentId : null }
+  }
+  const isDocumentsMode = documentsModeRef.current.mode
+
   const [currentStep, setCurrentStep] = useState<Step>('injury_type')
   const [loading, setLoading] = useState(false)
   const [generatingReport, setGeneratingReport] = useState(false)
-  const [assessmentId, setAssessmentId] = useState<string | null>(null)
+  const [assessmentId, setAssessmentId] = useState<string | null>(documentsModeRef.current.assessmentId)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [uploadFailures, setUploadFailures] = useState<string[]>([])
   const [draftRestored, setDraftRestored] = useState(false)
@@ -852,6 +889,20 @@ export default function IntakeWizardQuick() {
   const [docFinancials, setDocFinancials] = useState<Record<string, { total: number; amounts: string[]; weeklyIncome?: number }>>({})
   // Tracks which uploaded files have already been sent for extraction so we don't re-OCR them.
   const extractedFileSigRef = useRef<Map<string, { total: number; amounts: string[]; weeklyIncome?: number }>>(new Map())
+  // Name-only identity consistency: the patient/person name extracted from each
+  // uploaded document, used to flag when records appear to belong to different
+  // people. Non-blocking — surfaces a warning the user can confirm or delete.
+  const docNamesRef = useRef<Array<{ key: string; category: string; fileName: string; name: string; tokens: string[] }>>([])
+  const nameSigRef = useRef<Set<string>>(new Set())
+  const dismissedNameKeysRef = useRef<Set<string>>(new Set())
+  const [nameWarnings, setNameWarnings] = useState<Record<string, { fileName: string; message: string }[]>>({})
+  // Health-info authorization gate for medical uploads (no account required).
+  const [hipaaModalOpen, setHipaaModalOpen] = useState(false)
+  const [hipaaSummary, setHipaaSummary] = useState('')
+  const [hipaaAgreed, setHipaaAgreed] = useState(false)
+  const [hipaaAuthorized, setHipaaAuthorized] = useState<boolean>(() => {
+    try { return localStorage.getItem('consent_read_hipaa') === 'true' } catch { return false }
+  })
   const [returnToReviewFromStep, setReturnToReviewFromStep] = useState<Step | null>(null)
   const [customDate, setCustomDate] = useState('')
   const [detectedLocation, setDetectedLocation] = useState<{ city: string; county: string; state: string } | null>(null)
@@ -861,6 +912,7 @@ export default function IntakeWizardQuick() {
   const [furthestReachedStepIndex, setFurthestReachedStepIndex] = useState(0)
 
   const [formData, setFormData] = useState({
+    injuredParty: 'self' as 'self' | 'child' | 'dependent' | 'deceased',
     injuryType: '' as string,
     claimType: '' as string,
     incidentDate: '',
@@ -915,8 +967,10 @@ export default function IntakeWizardQuick() {
     consents: { tos: false, privacy: false, ml_use: false }
   })
 
+  const activeSteps = STEPS_V2
+  const draftKey = 'intake_quick_draft_v2'
   const hiddenSteps = HIDDEN_STEPS_BY_INJURY[formData.injuryType] || []
-  const visibleSteps = STEPS.filter(s => !hiddenSteps.includes(s.key))
+  const visibleSteps = activeSteps.filter(s => !hiddenSteps.includes(s.key))
   const currentStepIndex = visibleSteps.findIndex(s => s.key === currentStep)
   const progressPercent = Math.round(((currentStepIndex + 1) / visibleSteps.length) * 100)
   // Estimate remaining time from steps left (whole assessment budgeted at ~60s),
@@ -931,6 +985,12 @@ export default function IntakeWizardQuick() {
   // --- Draft autosave: nothing used to be saved until final submit, so a refresh lost all 15 steps. ---
   const draftLoadedRef = useRef(false)
   useEffect(() => {
+    // Documents mode is a focused view over an existing case; skip lead/draft
+    // resume so it never overwrites the deep-linked assessment or its evidence.
+    if (isDocumentsMode) {
+      draftLoadedRef.current = true
+      return
+    }
     // Resume from an emailed/SMS "return later" link (?lead=<id>) on any device.
     const leadParam = new URLSearchParams(window.location.search).get('lead')
     if (leadParam) {
@@ -962,7 +1022,7 @@ export default function IntakeWizardQuick() {
           }))
           if (typeof snapCustomDate === 'string') setCustomDate(snapCustomDate)
           const hidden = HIDDEN_STEPS_BY_INJURY[snap?.injuryType] || []
-          const validKeys = STEPS.map(s => s.key).filter(key => !hidden.includes(key))
+          const validKeys = activeSteps.map(s => s.key).filter(key => !hidden.includes(key))
           const restoredStep = typeof lead.currentStep === 'string'
             ? (LEGACY_STEP_MAP[lead.currentStep] ?? lead.currentStep)
             : undefined
@@ -987,7 +1047,7 @@ export default function IntakeWizardQuick() {
     // a device that already has a browser-global draft was dropped onto their old
     // step instead of step 1 (#214). Clear the draft and start at the first step.
     if (new URLSearchParams(window.location.search).get('fresh') === '1') {
-      try { localStorage.removeItem(DRAFT_STORAGE_KEY) } catch { /* ignore */ }
+      try { localStorage.removeItem(draftKey) } catch { /* ignore */ }
       setCurrentStep('injury_type')
       setFurthestReachedStepIndex(0)
       draftLoadedRef.current = true
@@ -1002,7 +1062,7 @@ export default function IntakeWizardQuick() {
     }
 
     try {
-      const raw = localStorage.getItem(DRAFT_STORAGE_KEY)
+      const raw = localStorage.getItem(draftKey)
       if (raw) {
         const draft = JSON.parse(raw)
         if (draft && typeof draft === 'object' && draft.formData?.injuryType) {
@@ -1018,7 +1078,7 @@ export default function IntakeWizardQuick() {
           }))
           if (typeof draft.customDate === 'string') setCustomDate(draft.customDate)
           const hidden = HIDDEN_STEPS_BY_INJURY[draft.formData.injuryType] || []
-          const validKeys = STEPS.map(s => s.key).filter(key => !hidden.includes(key))
+          const validKeys = activeSteps.map(s => s.key).filter(key => !hidden.includes(key))
           const restoredStep = typeof draft.currentStep === 'string'
             ? (LEGACY_STEP_MAP[draft.currentStep] ?? draft.currentStep)
             : undefined
@@ -1047,7 +1107,7 @@ export default function IntakeWizardQuick() {
     const handle = setTimeout(() => {
       try {
         localStorage.setItem(
-          DRAFT_STORAGE_KEY,
+          draftKey,
           JSON.stringify({ formData, currentStep, customDate, furthestReachedStepIndex, leadId: leadIdRef.current, savedAt: Date.now() })
         )
       } catch {
@@ -1137,9 +1197,20 @@ export default function IntakeWizardQuick() {
     return () => { cancelled = true }
   }, [assessmentId])
 
+  // v2 asks fault inline as "who was at fault?" (branch.faultParty) on the incident
+  // screen. Mirror it into casePosture.faultBelief so the estimate's liability mapping
+  // still reflects comparative fault without the full legal screen.
+  useEffect(() => {
+    const fp = formData.branch.faultParty
+    const mapped = fp === 'other_driver' ? 'other_party' : fp === 'shared' ? 'shared_fault' : fp === 'not_sure' ? 'not_sure' : ''
+    if (mapped && formData.casePosture.faultBelief !== mapped) {
+      setFormData(prev => ({ ...prev, casePosture: { ...prev.casePosture, faultBelief: mapped } }))
+    }
+  }, [formData.branch.faultParty])
+
   const clearDraft = () => {
     try {
-      localStorage.removeItem(DRAFT_STORAGE_KEY)
+      localStorage.removeItem(draftKey)
     } catch {
       /* ignore */
     }
@@ -1226,8 +1297,11 @@ export default function IntakeWizardQuick() {
   }, [currentStepIndex])
 
   const editReviewStep = (step: Step) => {
-    setReturnToReviewFromStep(step)
-    setCurrentStep(step)
+    // Several review categories are folded into a host screen; jump to the host
+    // so currentStepIndex stays valid and "return to review" still works.
+    const target = V2_MERGED_INTO[step] ?? step
+    setReturnToReviewFromStep(target)
+    setCurrentStep(target)
   }
 
   // The step panel scrolls internally on desktop; reset it so each step starts at
@@ -1578,12 +1652,123 @@ export default function IntakeWizardQuick() {
 
   /** Categories whose uploads we OCR at intake time to surface document-derived dollar figures. */
   const FINANCIAL_DOC_CATEGORIES = ['bills', 'wage_verification']
+  // Document categories that carry a person's name, used for the name-only
+  // identity consistency check. bills/wage already OCR via the financial path.
+  const IDENTITY_DOC_CATEGORIES = ['medical_records', 'bills', 'wage_verification', 'insurance_letters']
 
   const handleEvidenceFiles = (category: string, files: any[]) => {
     setPendingEvidenceFiles(prev => ({ ...prev, [category]: files }))
+    // Drop cached names for files removed from this category, then recompute.
+    if (IDENTITY_DOC_CATEGORIES.includes(category)) {
+      const currentNames = new Set(
+        (Array.isArray(files) ? files : [])
+          .map((f: any) => f?.originalName || f?.filename || f?.name)
+          .filter(Boolean),
+      )
+      docNamesRef.current = docNamesRef.current.filter(
+        (e) => e.category !== category || currentNames.has(e.fileName),
+      )
+      recomputeNameWarnings()
+    }
     if (FINANCIAL_DOC_CATEGORIES.includes(category)) {
       void extractFinancialsForCategory(category, files)
+    } else if (IDENTITY_DOC_CATEGORIES.includes(category)) {
+      void captureNamesForCategory(category, files)
     }
+  }
+
+  // --- Name-only identity consistency ------------------------------------------------
+  const nameTokens = (name: string) =>
+    name.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter((t) => t.length >= 2)
+
+  /** Records (or clears) the extracted person name for one document and re-evaluates mismatches. */
+  const recordDocName = (category: string, fileName: string, name: string | null) => {
+    const key = `${category}:${fileName}`
+    const rest = docNamesRef.current.filter((e) => e.key !== key)
+    if (name) rest.push({ key, category, fileName, name, tokens: nameTokens(name) })
+    docNamesRef.current = rest
+    recomputeNameWarnings()
+  }
+
+  /**
+   * Flags documents whose person name shares no significant token with the first
+   * document's name (e.g. "John Doe" vs "Jane Smith"). Tolerates middle initials
+   * and "Last, First" ordering. Non-blocking; dismissed rows stay dismissed.
+   */
+  const recomputeNameWarnings = () => {
+    const entries = docNamesRef.current.filter((e) => e.tokens.length > 0)
+    const next: Record<string, { fileName: string; message: string }[]> = {}
+    if (entries.length >= 2) {
+      const reference = entries[0]
+      for (let i = 1; i < entries.length; i++) {
+        const e = entries[i]
+        const shares = e.tokens.some((t) => reference.tokens.includes(t))
+        if (!shares && !dismissedNameKeysRef.current.has(e.key)) {
+          ;(next[e.category] || (next[e.category] = [])).push({
+            fileName: e.fileName,
+            message: tx('evidence_nameMismatch').replace('{name}', e.name).replace('{other}', reference.name),
+          })
+        }
+      }
+    }
+    setNameWarnings(next)
+  }
+
+  /** OCRs freshly-picked identity docs (medical records, insurance letters) to capture the person name. */
+  const captureNamesForCategory = async (category: string, files: any[]) => {
+    const arr = Array.isArray(files) ? files : []
+    for (const file of arr) {
+      const raw: File | undefined = file?.rawFile
+      const fileName = file?.originalName || file?.filename || file?.name
+      if (!raw || !fileName) continue
+      const key = `${category}:${fileName}`
+      if (nameSigRef.current.has(key)) continue
+      nameSigRef.current.add(key)
+      try {
+        const fd = new FormData()
+        fd.append('file', raw)
+        fd.append('category', category)
+        const res = await extractEvidenceData(fd)
+        recordDocName(category, fileName, res?.extraction?.patientName || null)
+      } catch {
+        /* name capture is best-effort */
+      }
+    }
+  }
+
+  const dismissNameWarning = (category: string, fileName: string) => {
+    dismissedNameKeysRef.current.add(`${category}:${fileName}`)
+    setNameWarnings((prev) => ({
+      ...prev,
+      [category]: (prev[category] || []).filter((w) => w.fileName !== fileName),
+    }))
+  }
+
+  // --- Health-info (HIPAA) authorization gate -----------------------------------------
+  const openHipaaModal = () => {
+    setHipaaAgreed(false)
+    setHipaaModalOpen(true)
+    if (!hipaaSummary) {
+      fetchPublicConsentTemplate('hipaa')
+        .then((tpl) => setHipaaSummary(tpl.plainLanguageSummary || ''))
+        .catch(() => setHipaaSummary(tx('hipaa_fallbackSummary')))
+    }
+  }
+
+  const authorizeHipaa = () => {
+    setHipaaAuthorized(true)
+    try { localStorage.setItem('consent_read_hipaa', 'true') } catch { /* ignore */ }
+    // Best-effort durable record when a session exists; guests are recorded via the
+    // case facts (consents.hipaa) on submit plus the per-file upload access log (IP + time).
+    void createConsent({
+      consentType: 'hipaa',
+      version: HIPAA_CONSENT_VERSION,
+      documentId: `hipaa-v${HIPAA_CONSENT_VERSION}`,
+      granted: true,
+      signatureMethod: 'clicked',
+      consentText: hipaaSummary || 'HIPAA authorization v1.0',
+    }).catch(() => { /* unauthenticated guest — recorded downstream */ })
+    setHipaaModalOpen(false)
   }
 
   /** OCRs newly-added bill/wage files (ephemerally, nothing persisted) and aggregates extracted totals. */
@@ -1606,6 +1791,8 @@ export default function IntakeWizardQuick() {
         const amounts: string[] = Array.isArray(extraction?.dollarAmounts) ? extraction.dollarAmounts : []
         const weeklyIncome = Number(extraction?.wage?.weeklyIncome) || 0
         extractedFileSigRef.current.set(sig, { total, amounts, weeklyIncome })
+        // Reuse this OCR pass for the name-only identity consistency check.
+        recordDocName(category, file?.originalName || raw.name, extraction?.patientName || null)
       } catch {
         extractedFileSigRef.current.set(sig, { total: 0, amounts: [] })
       }
@@ -1644,6 +1831,19 @@ export default function IntakeWizardQuick() {
         [toCategory]: [...toList, { ...moving, category: toCategory, subcategory: subcategoryByCategory[toCategory] || moving?.subcategory }],
       }
     })
+  }
+
+  /** Remove a queued/persisted evidence file flagged as the wrong type for its category. */
+  const handleDeleteEvidence = (category: string, fileName: string) => {
+    const matches = (f: any) => (f?.originalName || f?.filename || f?.name) === fileName
+    const list = Array.isArray(pendingEvidenceFiles[category]) ? pendingEvidenceFiles[category] : []
+    const target = list.find(matches)
+    const id = target?.id
+    // Persisted files (non-temp ids) are removed server-side; queued files are local only.
+    if (id && !String(id).startsWith('temp_')) {
+      void deleteEvidenceFile(id).catch(() => {})
+    }
+    handleEvidenceFiles(category, list.filter((f: any) => !matches(f)))
   }
 
   /** Uploads queued files, keeps only the failed ones queued, and returns the failed file names. */
@@ -1722,6 +1922,8 @@ export default function IntakeWizardQuick() {
       else if (email && emailDeliverable === 'bad') err.contactEmail = tx('contact_emailUndeliverable')
       const phoneError = validatePhoneField(formData.contact.phone)
       if (phoneError) err.contactPhone = tx('contact_phoneError')
+      // intake2 requires a treatment answer ("No treatment yet" counts).
+      if (formData.medicalTreatment.length === 0) err.medicalTreatment = tx('treatment_required')
     }
     if (currentStep === 'injury_severity' && !formData.injurySeverity) err.injurySeverity = t('intake.selectSeverity')
     if (currentStep === 'consent') {
@@ -1949,10 +2151,12 @@ export default function IntakeWizardQuick() {
         consents: {
           tos: consents.tos,
           privacy: consents.privacy,
-          ml_use: consents.ml_use
+          ml_use: consents.ml_use,
+          ...(hipaaAuthorized ? { hipaa: true } : {})
         }
       }
       ;(payload as any).intakeData = {
+        injuredParty: formData.injuredParty,
         injuryType: formData.injuryType,
         caseTaxonomy,
         narrative: formData.narrative,
@@ -2251,8 +2455,545 @@ export default function IntakeWizardQuick() {
     }
   }
 
-  const renderStep = () => {
-    switch (currentStep) {
+  // Save-progress (email/phone) block. In v1 it renders at the bottom of the
+  // When step; in v2 it is re-ordered below the folded-in case details so it
+  // stays the last thing before the Next action.
+  const renderSaveProgress = () => {
+    const emailSuggestion = suggestEmail(formData.contact.email)
+    return (
+    <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+      <div className="flex items-start gap-2.5">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <Save className="h-4 w-4" aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">{tx('contact_saveTitle')}</p>
+          <p className="mt-0.5 text-xs leading-snug text-gray-500">{tx('contact_saveDesc')}</p>
+        </div>
+      </div>
+      <div className="mt-2 space-y-2 sm:pl-[2.375rem]">
+          <div className="grid gap-2 sm:max-w-2xl sm:grid-cols-2 sm:gap-5">
+          {/* Email */}
+          <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${contactMethod === 'email' ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
+            <input
+              type="radio"
+              name="contact-method"
+              checked={contactMethod === 'email'}
+              onChange={() => setContactMethod('email')}
+              aria-label={tx('contact_emailShort')}
+              className="!h-4 !w-4 !min-h-0 shrink-0 accent-brand-600"
+            />
+            <Mail className={`h-4 w-4 shrink-0 ${contactMethod === 'email' ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
+            <span className="shrink-0 text-sm font-medium text-gray-700 dark:text-slate-200">{tx('contact_emailShort')}</span>
+            <input
+              id="contact-email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              value={formData.contact.email}
+              onFocus={() => setContactMethod('email')}
+              onBlur={saveContactProgress}
+              onChange={e => updateForm({ contact: { ...formData.contact, email: e.target.value } })}
+              placeholder="name@email.com"
+              maxLength={254}
+              aria-invalid={!!errors.contactEmail}
+              className="!min-h-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0 !text-sm text-gray-900 placeholder:text-gray-400 focus:!ring-0 dark:text-slate-100"
+            />
+          </div>
+          {/* Phone */}
+          <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${contactMethod === 'phone' ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
+            <input
+              type="radio"
+              name="contact-method"
+              checked={contactMethod === 'phone'}
+              onChange={() => setContactMethod('phone')}
+              aria-label={tx('contact_phoneShort')}
+              className="!h-4 !w-4 !min-h-0 shrink-0 accent-brand-600"
+            />
+            <Phone className={`h-4 w-4 shrink-0 ${contactMethod === 'phone' ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
+            <span className="shrink-0 text-sm font-medium text-gray-700 dark:text-slate-200">{tx('contact_phoneShort')}</span>
+            <input
+              id="contact-phone"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              value={formData.contact.phone}
+              onFocus={() => setContactMethod('phone')}
+              onBlur={saveContactProgress}
+              onChange={e => updateForm({ contact: { ...formData.contact, phone: formatPhoneInput(e.target.value) } })}
+              placeholder="(555) 123-4567"
+              maxLength={20}
+              aria-invalid={!!errors.contactPhone}
+              className="!min-h-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0 !text-sm text-gray-900 placeholder:text-gray-400 focus:!ring-0 dark:text-slate-100"
+            />
+          </div>
+          </div>
+          {errors.contactEmail && (
+            <p className="text-xs text-red-600">{errors.contactEmail}</p>
+          )}
+          {!errors.contactEmail && emailSuggestion && (
+            <p className="text-xs text-amber-700">
+              {tx('contact_emailDidYouMean')}{' '}
+              <button
+                type="button"
+                onClick={() => updateForm({ contact: { ...formData.contact, email: emailSuggestion } })}
+                className="!min-h-0 font-semibold underline underline-offset-2 hover:opacity-80"
+              >
+                {emailSuggestion}
+              </button>
+              ?
+            </p>
+          )}
+          {!errors.contactEmail && !emailSuggestion && emailDeliverable === 'bad' && (
+            <p className="text-xs text-amber-700">{tx('contact_emailUndeliverable')}</p>
+          )}
+          {errors.contactPhone && (
+            <p className="text-xs text-red-600">{errors.contactPhone}</p>
+          )}
+        {/* SMS consent — documents opt-in for A2P/toll-free compliance. */}
+        <p className="mt-1 whitespace-pre-line text-[11px] leading-snug text-gray-400 sm:max-w-3xl">
+          {tx('contact_smsConsent')}{' '}
+          <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-gray-600">{tx('contact_smsConsentTerms')}</a>
+          {' '}&{' '}
+          <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-gray-600">{tx('contact_smsConsentPrivacy')}</a>.
+        </p>
+        {/* Trust badges */}
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-gray-400">
+          <span className="flex items-center gap-1"><Lock className="h-3.5 w-3.5" aria-hidden /> {tx('badge_private')}</span>
+          <span className="flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5" aria-hidden /> {tx('badge_neverShared')}</span>
+          <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" aria-hidden /> {tx('badge_noObligation')}</span>
+        </div>
+      </div>
+    </div>
+    )
+  }
+
+  // Insurance & Representation (+ optional insurance details). Extracted so it can be
+  // merged into the "Damages & Insurance" step. Renders standalone (no liability column).
+  const renderInsuranceStatus = () => {
+        const icLegal = formData.insuranceCoverage
+        const cpLegal = formData.casePosture || {}
+        const setInsuranceField = (field: string, value: string) =>
+          updateForm({ insuranceCoverage: { ...icLegal, [field]: (icLegal as any)[field] === value ? '' : value } })
+        const hasAnyInsuranceSignal = Boolean(
+          icLegal.otherPartyInsured ||
+          icLegal.healthCoverage ||
+          icLegal.defendantCoverageLimits ||
+          icLegal.umUimCoverage ||
+          icLegal.pipCoverage ||
+          (icLegal.plaintiffAutoCarrier && icLegal.plaintiffAutoCarrier.trim())
+        )
+        const insurerContactValue =
+          cpLegal.settlementOfferStatus === 'yes'
+            ? 'offer'
+            : cpLegal.insuranceContact === 'yes'
+              ? 'contact_only'
+              : cpLegal.insuranceContact === 'no'
+                ? 'no'
+                : ''
+        const setInsurerContact = (value: string) => {
+          const isToggleOff = insurerContactValue === value
+          setFormData(prev => ({
+            ...prev,
+            casePosture: {
+              ...prev.casePosture,
+              insuranceContact: isToggleOff ? '' : value === 'no' ? 'no' : 'yes',
+              settlementOfferStatus: isToggleOff ? '' : value === 'offer' ? 'yes' : 'no',
+              ...(isToggleOff || value !== 'offer' ? { settlementOffer: '' } : {})
+            }
+          }))
+        }
+        const liabilityOptionsForClaim = FAULT_BELIEF_OPTIONS.map((option) => {
+          if (option.value !== 'other_party') return option
+          const label = isVehicle
+            ? tx('fault_otherDriver')
+            : isSlipFall
+              ? tx('fault_propertyOwner')
+              : isMedmal
+                ? tx('fault_provider')
+                : tx('fault_otherPartyGeneric')
+          return { ...option, label }
+        })
+        // Insurance & legal status — redesigned two-card layout with icon choices.
+        const faultIconFor = (value: string): LucideIcon =>
+          value === 'shared_fault' ? Users : value === 'not_sure' ? HelpCircle : isVehicle ? Car : Users
+        const renderChoice = (
+          active: boolean,
+          onClick: () => void,
+          Icon: LucideIcon,
+          label: string,
+          opts?: { tone?: 'emerald' | 'amber' | 'red'; stack?: boolean; key?: string }
+        ) => {
+          const iconColor = active
+            ? 'text-brand-700'
+            : opts?.tone === 'emerald'
+              ? 'text-emerald-600'
+              : opts?.tone === 'amber'
+                ? 'text-amber-500'
+                : opts?.tone === 'red'
+                  ? 'text-rose-500'
+                  : 'text-slate-400'
+          return (
+            <button
+              key={opts?.key}
+              type="button"
+              aria-pressed={active}
+              onClick={onClick}
+              className={`relative flex ${opts?.stack ? 'flex-col items-center gap-1.5 text-center' : 'items-center gap-2'} rounded-xl border-[1.5px] px-3 py-2.5 text-xs font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${active ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
+            >
+              {active && <Check className="absolute right-1.5 top-1.5 h-3.5 w-3.5 text-brand-600" aria-hidden />}
+              <Icon className={`h-4 w-4 shrink-0 ${iconColor}`} aria-hidden />
+              <span>{label}</span>
+            </button>
+          )
+        }
+        const detailCard = (
+          active: boolean,
+          onClick: () => void,
+          Icon: LucideIcon,
+          title: string,
+          subtitle: string,
+          iconWrap: string,
+          key?: string
+        ) => (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={active}
+            onClick={onClick}
+            className={`flex items-center gap-2.5 rounded-xl border-[1.5px] px-3 py-2.5 text-left shadow-sm transition-all active:scale-[0.99] ${active ? 'border-brand-600 bg-brand-50 shadow' : 'border-gray-200 bg-white hover:border-brand-400 hover:bg-brand-50/40 hover:shadow-md'}`}
+          >
+            <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${active ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white'}`}>
+              {active && <Check className="h-3.5 w-3.5" aria-hidden />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-semibold leading-tight text-slate-900">{title}</span>
+              <span className="block text-[11px] leading-4 text-slate-500">{subtitle}</span>
+            </span>
+            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${iconWrap}`}><Icon className="h-4 w-4" aria-hidden /></span>
+          </button>
+        )
+        const coverageMeta: Record<string, { Icon: LucideIcon; sub: string; wrap: string }> = {
+          state_minimum: { Icon: Landmark, sub: tx('coverage_stateMinimum_sub'), wrap: 'bg-violet-100 text-violet-600' },
+          '50000': { Icon: DollarSign, sub: tx('coverage_50k_sub'), wrap: 'bg-emerald-100 text-emerald-600' },
+          '100000': { Icon: Shield, sub: tx('coverage_100k_sub'), wrap: 'bg-emerald-100 text-emerald-600' },
+          commercial_policy: { Icon: Briefcase, sub: tx('coverage_commercial_sub'), wrap: 'bg-blue-100 text-blue-600' },
+          umbrella_policy: { Icon: Umbrella, sub: tx('coverage_umbrella_sub'), wrap: 'bg-violet-100 text-violet-600' },
+          not_sure: { Icon: HelpCircle, sub: tx('coverage_notSure_sub'), wrap: 'bg-slate-100 text-slate-500' },
+        }
+        const umUimMeta: Record<string, { Icon: LucideIcon; sub: string; wrap: string }> = {
+          yes: { Icon: ShieldCheck, sub: tx('umuim_yes_sub'), wrap: 'bg-blue-100 text-blue-600' },
+          no: { Icon: XCircle, sub: tx('umuim_no_sub'), wrap: 'bg-rose-100 text-rose-500' },
+          not_sure: { Icon: HelpCircle, sub: tx('umuim_notSure_sub'), wrap: 'bg-slate-100 text-slate-500' },
+        }
+        const medPayMeta: Record<string, { Icon: LucideIcon; sub: string; wrap: string }> = {
+          yes: { Icon: ShieldCheck, sub: '', wrap: 'bg-emerald-100 text-emerald-600' },
+          no: { Icon: XCircle, sub: '', wrap: 'bg-rose-100 text-rose-500' },
+          not_sure: { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' },
+        }
+        const pipMeta: Record<string, { Icon: LucideIcon; sub: string; wrap: string }> = {
+          yes: { Icon: ShieldCheck, sub: tx('pip_yes_sub'), wrap: 'bg-emerald-100 text-emerald-600' },
+          no: { Icon: XCircle, sub: tx('pip_no_sub'), wrap: 'bg-rose-100 text-rose-500' },
+          not_sure: { Icon: HelpCircle, sub: tx('pip_notSure_sub'), wrap: 'bg-slate-100 text-slate-500' },
+        }
+    return (
+      <div className="space-y-3">
+              <section className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700"><ShieldCheck className="h-5 w-5" aria-hidden /></span>
+                  <div className="min-w-0">
+                    <h3 className="font-display text-sm font-semibold text-slate-950">{tx('legal_insuranceStatus')}</h3>
+                    <p className="text-xs leading-5 text-slate-500">{tx('legal_insuranceStatusHelper')}</p>
+                  </div>
+                </div>
+
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_otherPartyInsuredQuestion')}</p>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {renderChoice(icLegal.otherPartyInsured === 'yes', () => setInsuranceField('otherPartyInsured', 'yes'), ShieldCheck, tx('optionYes'), { tone: 'emerald', stack: true })}
+                  {renderChoice(icLegal.otherPartyInsured === 'no', () => setInsuranceField('otherPartyInsured', 'no'), XCircle, tx('optionNo'), { tone: 'red', stack: true })}
+                  {renderChoice(icLegal.otherPartyInsured === 'unsure', () => setInsuranceField('otherPartyInsured', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
+                </div>
+
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_healthInsuranceQuestion')}</p>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {renderChoice(icLegal.healthCoverage === 'yes', () => setInsuranceField('healthCoverage', 'yes'), CheckCircle2, tx('optionYes'), { tone: 'emerald', stack: true })}
+                  {renderChoice(icLegal.healthCoverage === 'no', () => setInsuranceField('healthCoverage', 'no'), XCircle, tx('optionNo'), { tone: 'amber', stack: true })}
+                  {renderChoice(icLegal.healthCoverage === 'unsure', () => setInsuranceField('healthCoverage', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
+                </div>
+
+                {!hasAnyInsuranceSignal && (
+                  <div className="mt-3 flex items-start gap-2 rounded-xl border border-dashed border-violet-200 bg-violet-50/60 px-3 py-2 text-[11px] leading-5 text-violet-800">
+                    <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                    <span>{tx('legal_insuranceNudge')}</span>
+                  </div>
+                )}
+
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_insurerContactQuestion')}</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {renderChoice(insurerContactValue === 'no', () => setInsurerContact('no'), Phone, tx('optionNo'))}
+                  {renderChoice(insurerContactValue === 'contact_only', () => setInsurerContact('contact_only'), Clock, tx('legal_contactNoOffer'))}
+                  {renderChoice(insurerContactValue === 'offer', () => setInsurerContact('offer'), ClipboardCheck, tx('legal_contactWithOffer'))}
+                </div>
+
+                {insurerContactValue === 'offer' && (
+                  <div className="mt-3 rounded-xl border border-brand-100 bg-brand-50/50 p-2">
+                    <p className="font-display text-xs font-semibold text-slate-950">{tx('legal_offerAmountQuestion')}</p>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {SETTLEMENT_OFFER_OPTIONS.filter((option) => option.value !== 'no').map(({ value, label }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          aria-pressed={cpLegal.settlementOffer === value}
+                          onClick={() => setCasePostureField('settlementOffer', value)}
+                          className={`flex items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
+                        >
+                          <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent'}`}>✓</span>
+                          <span>{label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_attorneyQuestion')}</p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {ATTORNEY_STATUS_OPTIONS.map(({ value, label }) =>
+                    renderChoice(
+                      cpLegal.attorneyStatus === value,
+                      () => {
+                        setFormData(prev => ({
+                          ...prev,
+                          casePosture: {
+                            ...prev.casePosture,
+                            attorneyStatus: prev.casePosture.attorneyStatus === value ? '' : value,
+                            ...(value !== 'hired' ? { attorneyName: '', secondOpinionInterest: '' } : {})
+                          }
+                        }))
+                      },
+                      value === 'hired' ? User : UserX,
+                      label,
+                      { key: value }
+                    )
+                  )}
+                </div>
+
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_acceptedQuestion')}</p>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {([
+                    { value: 'no', label: tx('optionNo'), Icon: CheckCircle2, tone: 'emerald' as const },
+                    { value: 'yes', label: tx('optionYes'), Icon: CheckCircle2, tone: 'amber' as const },
+                    { value: 'not_sure', label: tx('optionNotSure'), Icon: HelpCircle, tone: undefined },
+                  ]).map(({ value, label, Icon, tone }) =>
+                    renderChoice(
+                      cpLegal.acceptedSettlement === value,
+                      () => {
+                        setFormData(prev => ({
+                          ...prev,
+                          casePosture: {
+                            ...prev.casePosture,
+                            acceptedSettlement: prev.casePosture.acceptedSettlement === value ? '' : value,
+                            ...(value !== 'yes' ? { acceptedSettlementAmount: '' } : {})
+                          }
+                        }))
+                      },
+                      Icon,
+                      label,
+                      { tone, key: value }
+                    )
+                  )}
+                </div>
+
+                {cpLegal.acceptedSettlement === 'yes' && (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                    <p className="text-sm font-semibold">{tx('legal_settledTitle')}</p>
+                    <p className="mt-1 text-xs leading-5">⚠ {tx('legal_settledWarning')}</p>
+                  </div>
+                )}
+
+                <div className="mt-4 flex items-start gap-2 rounded-xl bg-violet-50 px-3 py-2 text-[11px] leading-5 text-violet-800">
+                  <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span>{tx('legal_whyInsurance')}</span>
+                </div>
+              </section>
+            <details className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <summary className="flex cursor-pointer list-none items-center gap-3 [&::-webkit-details-marker]:hidden">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600"><ShieldCheck className="h-5 w-5" aria-hidden /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-display text-sm font-semibold text-slate-950">{tx('legal_insuranceDetails')}</span>
+                    <span className="block text-xs leading-5 text-slate-500">{tx('legal_insuranceDetailsSubtitle')}</span>
+                  </span>
+                  <ChevronDown className="h-5 w-5 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
+                </summary>
+                <div className="mt-4 space-y-5">
+                  <div className="border-t border-slate-100 pt-4">
+                    <div className="flex items-center gap-2">
+                      <Umbrella className="h-4 w-4 shrink-0 text-violet-500" aria-hidden />
+                      <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_coverageLimitsQuestion')}</p>
+                    </div>
+                    <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_coverageLimitsHelper')}</p>
+                    <div className="mt-3 grid gap-3 lg:grid-cols-4">
+                      <div className="grid gap-2 sm:grid-cols-2 lg:col-span-3 lg:grid-cols-3">
+                        {DEFENDANT_COVERAGE_OPTIONS.map(({ value, label }) => {
+                          const meta = coverageMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
+                          return detailCard(
+                            icLegal.defendantCoverageLimits === value,
+                            () => updateForm({ insuranceCoverage: { ...icLegal, defendantCoverageLimits: icLegal.defendantCoverageLimits === value ? '' : value } }),
+                            meta.Icon,
+                            label,
+                            meta.sub,
+                            meta.wrap,
+                            value
+                          )
+                        })}
+                      </div>
+                      <div className="flex flex-col justify-center rounded-xl bg-indigo-50 p-3 lg:col-span-1">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-700">
+                          <Lightbulb className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whyMattersTitle')}
+                        </div>
+                        <p className="mt-1.5 text-[11px] leading-4 text-indigo-800/90">{tx('legal_whyLimits')}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {isVehicle && (
+                    <div className="border-t border-slate-100 pt-4">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4 shrink-0 text-blue-500" aria-hidden />
+                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_umUimQuestion')}</p>
+                      </div>
+                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_umUimHelper')}</p>
+                      <div className="mt-3 grid gap-3 lg:grid-cols-4">
+                        <div className="grid gap-2 sm:grid-cols-3 lg:col-span-3">
+                          {UM_UIM_OPTIONS.map(({ value, label }) => {
+                            const meta = umUimMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
+                            return detailCard(
+                              icLegal.umUimCoverage === value,
+                              () => updateForm({ insuranceCoverage: { ...icLegal, umUimCoverage: icLegal.umUimCoverage === value ? '' : value } }),
+                              meta.Icon,
+                              label,
+                              meta.sub,
+                              meta.wrap,
+                              value
+                            )
+                          })}
+                        </div>
+                        <div className="flex flex-col justify-center rounded-xl bg-blue-50 p-3 lg:col-span-1">
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-700">
+                            <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whatUmUimTitle')}
+                          </div>
+                          <p className="mt-1.5 text-[11px] leading-4 text-blue-800/90">{tx('legal_whatUmUim')}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {isVehicle && (
+                    <div className="border-t border-slate-100 pt-4">
+                      <div className="flex items-center gap-2">
+                        <HeartPulse className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
+                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_pipQuestion')}</p>
+                      </div>
+                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_pipHelper')}</p>
+                      <div className="mt-3 grid gap-3 lg:grid-cols-4">
+                        <div className="grid gap-2 sm:grid-cols-3 lg:col-span-3">
+                          {PIP_OPTIONS.map(({ value, label }) => {
+                            const meta = pipMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
+                            return detailCard(
+                              icLegal.pipCoverage === value,
+                              () => updateForm({ insuranceCoverage: { ...icLegal, pipCoverage: icLegal.pipCoverage === value ? '' : value } }),
+                              meta.Icon,
+                              label,
+                              meta.sub,
+                              meta.wrap,
+                              value
+                            )
+                          })}
+                        </div>
+                        <div className="flex flex-col justify-center rounded-xl bg-emerald-50 p-3 lg:col-span-1">
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                            <HeartPulse className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whatPipTitle')}
+                          </div>
+                          <p className="mt-1.5 text-[11px] leading-4 text-emerald-800/90">{tx('legal_whatPip')}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {isVehicle && (
+                    <div className="border-t border-slate-100 pt-4">
+                      <div className="flex items-center gap-2">
+                        <HeartPulse className="h-4 w-4 shrink-0 text-teal-500" aria-hidden />
+                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_medPayQuestion')}</p>
+                      </div>
+                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_medPayHelper')}</p>
+                      <div className="mt-3 grid gap-3 lg:grid-cols-4">
+                        <div className="grid gap-2 sm:grid-cols-3 lg:col-span-3">
+                          {PIP_OPTIONS.map(({ value, label }) => {
+                            const meta = medPayMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
+                            return detailCard(
+                              icLegal.medPayCoverage === value,
+                              () => updateForm({ insuranceCoverage: { ...icLegal, medPayCoverage: icLegal.medPayCoverage === value ? '' : value } }),
+                              meta.Icon,
+                              label,
+                              meta.sub,
+                              meta.wrap,
+                              value
+                            )
+                          })}
+                        </div>
+                        <div className="flex flex-col justify-center rounded-xl bg-teal-50 p-3 lg:col-span-1">
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-teal-700">
+                            <HeartPulse className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whatMedPayTitle')}
+                          </div>
+                          <p className="mt-1.5 text-[11px] leading-4 text-teal-800/90">{tx('legal_whatMedPay')}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {isVehicle && (
+                    <div className="border-t border-slate-100 pt-4">
+                      <div className="flex items-center gap-2">
+                        <Umbrella className="h-4 w-4 shrink-0 text-violet-500" aria-hidden />
+                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_plaintiffCarrierQuestion')}</p>
+                      </div>
+                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_plaintiffCarrierHelper')}</p>
+                      <input
+                        type="text"
+                        maxLength={120}
+                        value={icLegal.plaintiffAutoCarrier}
+                        onChange={(event) => updateForm({ insuranceCoverage: { ...icLegal, plaintiffAutoCarrier: event.target.value } })}
+                        placeholder={tx('legal_plaintiffCarrierPlaceholder')}
+                        className="input mt-3 w-full border-gray-300"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex flex-col gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="flex items-start gap-2 text-[11px] leading-4 text-slate-600">
+                      <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                      <span>{tx('legal_uploadInstead')}</span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={(e) => { const d = e.currentTarget.closest('details'); if (d) d.open = false }}
+                      className="inline-flex shrink-0 items-center gap-1 self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 sm:self-auto"
+                    >
+                      {tx('legal_addDetailsLater')} <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </div>
+
+                  <p className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
+                    <Lock className="h-3 w-3 shrink-0" aria-hidden /> {tx('legal_secureNote')}
+                  </p>
+                </div>
+              </details>
+      </div>
+    )
+  }
+
+  const renderStepContent = (step: Step) => {
+    switch (step) {
       case 'injury_type':
         return (
           <div className="space-y-1.5">
@@ -2302,7 +3043,6 @@ export default function IntakeWizardQuick() {
       case 'when': {
         const detectedDisplay = detectedLocation ? [detectedLocation.city, detectedLocation.county, detectedLocation.state].filter(Boolean).join(', ') : ''
         const countyOptions = formData.venue.state ? getCountiesForState(formData.venue.state) : []
-        const emailSuggestion = suggestEmail(formData.contact.email)
         const NARRATIVE_MAX = 1000
         const narrativeLen = formData.narrative.length
         // Helpful-detail prompts adapt to the incident type chosen in "What happened?".
@@ -2320,9 +3060,28 @@ export default function IntakeWizardQuick() {
                   ? [tx('hint_product_what'), tx('hint_product_malfunction'), tx('hint_product_have'), tx('hint_product_receipt')]
                   : isAssault
                     ? [tx('hint_assault_where'), tx('hint_policeCalled'), tx('hint_witnesses'), tx('hint_assault_security')]
-                    : isToxic
+                      : isToxic
                       ? [tx('hint_toxic_substance'), tx('hint_toxic_where'), tx('hint_toxic_symptoms'), tx('hint_medmal_records')]
                       : [tx('hint_whatHappened'), tx('hint_whoCaused'), tx('hint_witnesses'), tx('hint_photos')]
+        // The narrative example also adapts to the incident type chosen in step 1
+        // so the prompt feels relevant to the claimant's situation.
+        const narrativePlaceholder = isVehicle
+          ? tx('narrative_ph_vehicle')
+          : isSlipFall
+            ? tx('narrative_ph_slipFall')
+            : isWorkplace
+              ? tx('narrative_ph_workplace')
+              : isMedmal
+                ? tx('narrative_ph_medmal')
+                : isDogBite
+                  ? tx('narrative_ph_dogBite')
+                  : isProduct
+                    ? tx('narrative_ph_product')
+                    : isAssault
+                      ? tx('narrative_ph_assault')
+                      : isToxic
+                        ? tx('narrative_ph_toxic')
+                        : tx('narrative_placeholder')
         const isoOffset = (opts: { days?: number; months?: number; years?: number }) => {
           const d = new Date()
           if (opts.days) d.setDate(d.getDate() - opts.days)
@@ -2347,7 +3106,10 @@ export default function IntakeWizardQuick() {
           { Icon: Activity, title: tx('whyAsk_local_t'), desc: tx('whyAsk_local_d') },
         ]
         return (
-          <div className="mx-auto w-full max-w-6xl">
+          // v2 folds sections 5/6 (crash/fault) below at full card width, so the
+          // When/Where/Describe/Treatment block also spans full width to keep every
+          // section's left edge aligned. v1 keeps the centered reading column.
+          <div className="w-full">
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-6">
               {/* Main form */}
               <div className="space-y-5">
@@ -2369,6 +3131,10 @@ export default function IntakeWizardQuick() {
                     ))}
                   </div>
                 </details>
+                {/* Sections 1 (When) + 2 (Where) share a row on large screens to cut scrolling.
+                    "When" only needs ~18rem (date box + presets), so give the rest to "Where"
+                    — a tighter "When" track + smaller gap pulls "Where" further left. */}
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:gap-5 lg:items-start">
                 {/* Section 1: When */}
                 <div>
                   <div className="flex items-start gap-3">
@@ -2376,33 +3142,53 @@ export default function IntakeWizardQuick() {
                       <CalendarDays className="h-5 w-5" aria-hidden />
                     </span>
                     <div className="min-w-0">
-                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">1. {tx('when_heading')}</p>
-                      <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('when_helper')}</p>
+                      <p className="whitespace-nowrap font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">1. {tx('when_heading')}</p>
+                      <p className="mt-0.5 whitespace-nowrap text-xs leading-snug text-gray-500 sm:text-sm">{tx('when_helper')}</p>
                     </div>
                   </div>
-                  <div className="mt-2 grid grid-cols-1 gap-3 sm:pl-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,15rem)] lg:items-start">
+                  {/* When + Where now share a row, so the "When" column is only half-width.
+                      Stack the deadline card BELOW the date field/presets (rather than beside
+                      them) so the date box and preset buttons keep their full width. */}
+                  <div className="mt-2 space-y-3 sm:pl-12">
                     <div>
+                      {/* Date box + presets stack and share a width so the column lines up. */}
+                      <div className="flex flex-col gap-2 max-w-[18rem]">
                       {/* Exact date drives the filing deadline, so lead with it. */}
-                      <div className={`relative rounded-xl border py-1.5 pl-3 pr-10 transition-colors focus-within:border-brand-500 focus-within:ring-1 focus-within:ring-brand-500 ${errors.incidentDate ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-300 dark:border-slate-600'}`}>
-                        <CalendarDays className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-brand-600 dark:text-brand-400" aria-hidden />
-                        <label htmlFor="incident-exact-date" className="block !text-[11px] font-medium text-gray-500">{tx('when_selectDate')}</label>
-                        <input
-                          id="incident-exact-date"
-                          type="date"
-                          min={MIN_INCIDENT_DATE}
-                          max={isoToday()}
-                          value={formData.incidentDatePreset === 'custom' ? customDate : ''}
-                          onChange={e => {
-                            const val = e.target.value
-                            setCustomDate(val)
-                            if (val) updateForm({ incidentDatePreset: 'custom', incidentDate: val })
-                            else updateForm({ incidentDatePreset: '', incidentDate: '' })
-                          }}
-                          className="!min-h-0 w-full !border-0 !bg-transparent !p-0 !text-base text-gray-900 focus:!ring-0 dark:text-slate-100"
-                        />
+                      <div className={`group relative w-full rounded-xl border bg-white py-2 pl-3.5 pr-2.5 shadow-sm transition-all focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/25 dark:bg-slate-900/40 ${errors.incidentDate ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-300 hover:border-slate-400 dark:border-slate-600 dark:hover:border-slate-500'}`}>
+                        <div className="flex items-center gap-3">
+                          <div className="min-w-0 flex-1">
+                            <label htmlFor="incident-exact-date" className="block !text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">{tx('when_selectDate')}</label>
+                            <input
+                              id="incident-exact-date"
+                              type="date"
+                              min={MIN_INCIDENT_DATE}
+                              max={isoToday()}
+                              value={formData.incidentDatePreset === 'custom' ? customDate : ''}
+                              onChange={e => {
+                                const val = e.target.value
+                                setCustomDate(val)
+                                if (val) updateForm({ incidentDatePreset: 'custom', incidentDate: val })
+                                else updateForm({ incidentDatePreset: '', incidentDate: '' })
+                              }}
+                              className="date-input-clean !min-h-0 w-full !border-0 !bg-transparent !p-0 !text-[15px] font-medium text-gray-900 focus:!ring-0 dark:text-slate-100"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            aria-label={tx('when_selectDate')}
+                            onClick={() => {
+                              const el = document.getElementById('incident-exact-date') as (HTMLInputElement & { showPicker?: () => void }) | null
+                              if (el?.showPicker) el.showPicker()
+                              else el?.focus()
+                            }}
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 transition-colors hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-300 dark:hover:bg-brand-500/25"
+                          >
+                            <CalendarDays className="h-5 w-5" aria-hidden />
+                          </button>
+                        </div>
                       </div>
-                      {/* Quick date presets */}
-                      <div className="mt-2 flex flex-wrap gap-1.5">
+                      {/* Quick date presets: 2x2 grid of equal-size buttons */}
+                      <div className="grid w-full grid-cols-2 gap-1.5">
                         {datePresets.map(p => {
                           const active = formData.incidentDatePreset === 'custom' && customDate === p.iso
                           return (
@@ -2410,49 +3196,167 @@ export default function IntakeWizardQuick() {
                               key={p.key}
                               type="button"
                               onClick={() => applyPresetDate(p.iso)}
-                              className={`!min-h-0 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${active ? 'border-brand-500 bg-brand-50 text-brand-700 dark:border-brand-500/50 dark:bg-brand-500/15 dark:text-brand-300' : 'border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800/60'}`}
+                              className={`!min-h-0 w-full whitespace-nowrap rounded-lg border px-2 py-1 text-center text-[11px] font-semibold transition-colors ${active ? 'border-brand-600 bg-brand-600 text-white shadow-sm dark:border-brand-400 dark:bg-brand-500 dark:text-white' : 'border-brand-200 bg-brand-50/60 text-brand-700 hover:border-brand-300 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/20'}`}
                             >
                               {p.label}
                             </button>
                           )
                         })}
                       </div>
-                      <div className="mt-2 min-h-[1.25rem]">
-                        {whenDateChosen && !formData.venue.state ? (
-                          <p className="text-xs text-gray-500">{tx('when_addLocationForDeadline')}</p>
-                        ) : !whenDateChosen ? (
-                          <p className="flex items-center gap-1.5 text-xs text-gray-500">
-                            <ShieldCheck className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('when_dateReassure')}
-                          </p>
-                        ) : null}
                       </div>
-                    </div>
-                    {/* Estimated filing deadline card */}
-                    {hasFilingDeadline && (
-                      <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
-                        <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                          <CalendarClock className="h-4 w-4 shrink-0" aria-hidden /> {tx('sol_estimatedFilingDeadline')}
+                      {!whenDateChosen && (
+                        <p className="mt-2 flex items-center gap-1.5 whitespace-nowrap text-[10px] leading-tight text-gray-500">
+                          <ShieldCheck className="h-3 w-3 shrink-0 text-brand-600" aria-hidden /> {tx('when_dateReassure')}
                         </p>
-                        <p className="mt-1 font-display text-xl font-bold text-emerald-800 dark:text-emerald-200">{filingDeadlineLong}</p>
-                        {filingDaysRemaining != null && (
-                          <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                            {tx(filingDaysRemaining === 1 ? 'sol_dayRemainingShort' : 'sol_daysRemainingShort').replace('{days}', String(filingDaysRemaining))}
-                          </p>
-                        )}
-                        <p className="mt-1.5 text-[11px] leading-snug text-emerald-700/80 dark:text-emerald-300/80">{tx('whenCard_estimateNote').replace('{state}', venueStateName || tx('whenCard_yourState'))}</p>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* Section 2: Briefly describe what happened */}
+                {/* Section 2: Where */}
+                <div>
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
+                      <MapPin className="h-5 w-5" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">2. {t('intake.where')}</p>
+                      <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{t('intake.whereHelp')}</p>
+                    </div>
+                  </div>
+                  <div className="mt-2 sm:pl-12">
+                    {detectedLocation && !locationAccepted && !formData.venue.state && (
+                      <div className="mb-3 flex w-fit max-w-full flex-wrap items-center gap-2.5 rounded-xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white px-3 py-2 shadow-sm dark:border-brand-500/30 dark:from-brand-500/10 dark:to-slate-900/20">
+                        <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-brand-600 shadow-sm ring-1 ring-brand-100 dark:bg-slate-800 dark:text-brand-300 dark:ring-brand-500/30">
+                          <MapPin className="h-4 w-4" aria-hidden />
+                          <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-500 text-white ring-2 ring-white dark:ring-slate-900">
+                            <Check className="h-2 w-2" aria-hidden />
+                          </span>
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold uppercase leading-none tracking-wide text-brand-600 dark:text-brand-300">{t('intake.weDetectedLocation').replace(/[:：]\s*$/, '')}</p>
+                          <p className="truncate font-display text-sm font-bold leading-tight text-slate-900 dark:text-slate-100">{detectedDisplay}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const county = sanitizeDetectedCounty(detectedLocation.state, detectedLocation.county)
+                            updateForm({ venue: { state: detectedLocation.state, county, city: detectedLocation.city } })
+                            setLocationAccepted(true)
+                            setDetectedLocation(null)
+                            if (!county) {
+                              setErrors((current) => ({ ...current, county: t('intake.enterCounty') }))
+                            }
+                          }}
+                          className="ml-1 inline-flex items-center gap-1 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
+                        >
+                          <Check className="h-3.5 w-3.5" aria-hidden /> {t('intake.useLocation')}
+                        </button>
+                        <button type="button" onClick={() => setDetectedLocation(null)} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">{t('intake.change')}</button>
+                      </div>
+                    )}
+                    {(!detectedLocation || locationAccepted || formData.venue.state) && (
+                      // State & County hold long values ("California", "Los Angeles") so
+                      // give them more width; City is optional/short, so it gets less.
+                      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.2fr)]">
+                        <div className="min-w-0">
+                          <label className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-gray-700"><MapPin className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {t('intake.state')}</label>
+                          <select
+                            value={formData.venue.state}
+                            onChange={e => {
+                              const state = e.target.value
+                              // Changing the state invalidates a previously detected/entered
+                              // county AND city (both are state-specific). Clearing the city too
+                              // prevents mismatches like "Palo Alto, Litchfield, CT".
+                              const stateChanged = formData.venue.state !== state
+                              updateVenue({
+                                state,
+                                county: stateChanged ? '' : formData.venue.county,
+                                city: stateChanged ? '' : formData.venue.city,
+                              })
+                            }}
+                            className={`input w-full text-xs border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.state ? 'border-red-500' : ''}`}
+                          >
+                            <option value="">{t('intake.selectState')}</option>
+                            {US_STATES.map(s => (<option key={s.code} value={s.code}>{s.name}</option>))}
+                          </select>
+                        </div>
+                        <div className="min-w-0">
+                          <label className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-gray-700"><Building2 className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {t('intake.county')}</label>
+                          {countyOptions.length > 0 ? (
+                            <select value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full text-xs border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.county ? 'border-red-500' : ''}`}>
+                              <option value="">{t('intake.searchCounty')}</option>
+                              {(countyOptions ?? []).map(c => (<option key={c} value={c}>{c}</option>))}
+                            </select>
+                          ) : (
+                            <input type="text" maxLength={80} value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full text-xs border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.county ? 'border-red-500' : ''}`} placeholder={tx('where_countyPlaceholder')} />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <label className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-gray-700"><MapPin className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {t('intake.city')}</label>
+                          <input type="text" maxLength={80} value={formData.venue.city} onChange={e => updateVenue({ city: e.target.value })} className="input w-full text-xs border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0" placeholder={tx('where_cityPlaceholder')} />
+                        </div>
+                      </div>
+                    )}
+                    <p className="mt-2 flex items-center gap-1.5 whitespace-nowrap text-[10px] leading-tight text-gray-400">
+                      <Lock className="h-3 w-3 shrink-0" aria-hidden /> {tx('where_reassure')}
+                    </p>
+                  </div>
+                </div>
+                {/* Estimated filing deadline: full-width banner across the When + Where
+                    columns, laid out on two lines (headline row + estimate note). */}
+                {hasFilingDeadline && (
+                  <div className="lg:col-span-2 w-fit max-w-full rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-1.5 dark:border-emerald-500/30 dark:bg-emerald-500/10 sm:ml-12">
+                    <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+                      <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                        <CalendarClock className="h-3.5 w-3.5 shrink-0 self-center" aria-hidden /> {tx('sol_estimatedFilingDeadline')}
+                      </span>
+                      <span className="font-display text-base font-bold leading-none text-emerald-800 dark:text-emerald-200">{filingDeadlineLong}</span>
+                      {filingDaysRemaining != null && (
+                        <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                          {tx(filingDaysRemaining === 1 ? 'sol_dayRemainingShort' : 'sol_daysRemainingShort').replace('{days}', String(filingDaysRemaining))}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-[11px] leading-snug text-emerald-700/80 dark:text-emerald-300/80">{tx('whenCard_estimateNote').replace('{state}', venueStateName || tx('whenCard_yourState'))}</p>
+                  </div>
+                )}
+                </div>
+
+                {/* Section 3: This happened to */}
+                <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
+                      <Users className="h-5 w-5" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">3. {tx('injuredParty_heading')}</p>
+                      <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('injuredParty_helper')}</p>
+                    </div>
+                  </div>
+                  <div className="mt-2 sm:pl-12">
+                    <select
+                      id="injuredParty-when"
+                      value={formData.injuredParty}
+                      onChange={(e) => updateForm({ injuredParty: e.target.value as typeof formData.injuredParty })}
+                      className="input w-full max-w-xs rounded-xl border-gray-300 py-2.5 text-base focus-visible:ring-inset focus-visible:ring-offset-0"
+                    >
+                      <option value="self">{tx('injuredParty_self')}</option>
+                      <option value="child">{tx('injuredParty_child')}</option>
+                      <option value="dependent">{tx('injuredParty_dependent')}</option>
+                      <option value="deceased">{tx('injuredParty_deceased')}</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Section 4: Briefly describe what happened */}
                 <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
                   <div className="flex items-start gap-3">
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
                       <MessageSquare className="h-5 w-5" aria-hidden />
                     </span>
                     <div className="min-w-0">
-                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">2. {tx('narrative_heading')}</p>
+                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">4. {tx('narrative_heading')}</p>
                       <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('narrative_helper')}</p>
                     </div>
                   </div>
@@ -2461,107 +3365,32 @@ export default function IntakeWizardQuick() {
                       <textarea
                         value={formData.narrative}
                         onChange={e => updateForm({ narrative: e.target.value.slice(0, NARRATIVE_MAX) })}
-                        placeholder={tx('narrative_placeholder')}
+                        placeholder={narrativePlaceholder}
                         rows={3}
                         maxLength={NARRATIVE_MAX}
-                        className="input w-full resize-none border-gray-300 py-2.5 pb-7 text-base leading-relaxed !min-h-[5.5rem] focus-visible:ring-inset focus-visible:ring-offset-0"
+                        className="input w-full resize-none rounded-xl border-gray-300 py-3 pb-7 text-base leading-relaxed !min-h-[6rem] focus-visible:ring-inset focus-visible:ring-offset-0"
                       />
                       <span className="pointer-events-none absolute bottom-2 right-3 text-[11px] tabular-nums text-gray-400">
                         {narrativeLen} / {NARRATIVE_MAX}
                       </span>
                     </div>
-                    {/* Helpful details */}
-                    <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-slate-50 px-2.5 py-1.5 dark:bg-slate-800/50">
-                      <span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-[10px] font-semibold text-slate-500">
-                        <Info className="h-3 w-3 text-slate-400" aria-hidden /> {tx('narrative_hintsLabel')}
-                      </span>
-                      {narrativeHints.map(hint => (
-                        <span key={hint} className="flex items-center gap-0.5 text-[10px] text-slate-600 dark:text-slate-300">
-                          <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" aria-hidden /> {hint}
-                        </span>
-                      ))}
+                    {/* Helpful details: suggestions to spark recall, not a checklist */}
+                    <div className="mt-1 flex w-fit max-w-full flex-nowrap items-center gap-x-2 gap-y-1.5 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/70 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-800/40">
+                      <p className="flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        <Lightbulb className="h-3.5 w-3.5 text-amber-500" aria-hidden /> {tx('narrative_hintsLabel')}
+                      </p>
+                      <div className="flex flex-nowrap gap-1">
+                        {narrativeHints.map(hint => (
+                          <span key={hint} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                            <span className="h-1.5 w-1.5 rounded-full bg-brand-400" aria-hidden /> {hint}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Section 3: Where */}
-                <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-                  <div className="flex items-start gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
-                      <MapPin className="h-5 w-5" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">3. {t('intake.where')}</p>
-                      <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{t('intake.whereHelp')}</p>
-                    </div>
-                  </div>
-                  <div className="mt-2 sm:pl-12">
-                    {detectedLocation && !locationAccepted && !formData.venue.state && (
-                      <div className="mb-3 rounded-xl border border-brand-200 bg-brand-50 p-3">
-                        <p className="mb-2 text-sm font-medium text-slate-900">{t('intake.weDetectedLocation')} {detectedDisplay}</p>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const county = sanitizeDetectedCounty(detectedLocation.state, detectedLocation.county)
-                              updateForm({ venue: { state: detectedLocation.state, county, city: detectedLocation.city } })
-                              setLocationAccepted(true)
-                              setDetectedLocation(null)
-                              if (!county) {
-                                setErrors((current) => ({ ...current, county: t('intake.enterCounty') }))
-                              }
-                            }}
-                            className="flex-1 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
-                          >
-                            {t('intake.useLocation')}
-                          </button>
-                          <button type="button" onClick={() => setDetectedLocation(null)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">{t('intake.change')}</button>
-                        </div>
-                      </div>
-                    )}
-                    {(!detectedLocation || locationAccepted || formData.venue.state) && (
-                      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-                        <div>
-                          <label className="mb-1 flex items-center gap-2 text-sm font-medium text-gray-700"><MapPin className="h-4 w-4 text-brand-600" /> {t('intake.state')}</label>
-                          <select
-                            value={formData.venue.state}
-                            onChange={e => {
-                              const state = e.target.value
-                              updateVenue({
-                                state,
-                                county: formData.venue.state !== state ? '' : formData.venue.county,
-                              })
-                            }}
-                            className={`input w-full border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.state ? 'border-red-500' : ''}`}
-                          >
-                            <option value="">{t('intake.selectState')}</option>
-                            {US_STATES.map(s => (<option key={s.code} value={s.code}>{s.name}</option>))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="mb-1 flex items-center gap-2 text-sm font-medium text-gray-700"><Building2 className="h-4 w-4 text-brand-600" /> {t('intake.county')}</label>
-                          {countyOptions.length > 0 ? (
-                            <select value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.county ? 'border-red-500' : ''}`}>
-                              <option value="">{t('intake.searchCounty')}</option>
-                              {(countyOptions ?? []).map(c => (<option key={c} value={c}>{c}</option>))}
-                            </select>
-                          ) : (
-                            <input type="text" maxLength={80} value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.county ? 'border-red-500' : ''}`} placeholder={tx('where_countyPlaceholder')} />
-                          )}
-                        </div>
-                        <div>
-                          <label className="mb-1 flex items-center gap-2 text-sm font-medium text-gray-700"><MapPin className="h-4 w-4 text-brand-600" /> {t('intake.city')}</label>
-                          <input type="text" maxLength={80} value={formData.venue.city} onChange={e => updateVenue({ city: e.target.value })} className="input w-full border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0" placeholder={tx('where_cityPlaceholder')} />
-                        </div>
-                      </div>
-                    )}
-                    <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-400">
-                      <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('where_reassure')}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Section 4: What treatment have you received? */}
+                {/* Section 5: What treatment have you received? */}
                 <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
                   <div className="flex items-start gap-3">
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
@@ -2569,14 +3398,13 @@ export default function IntakeWizardQuick() {
                     </span>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">4. {tx('treatment_heading')}</p>
-                        <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">{tx('caseDetails_optionalBadge')}</span>
+                        <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">5. {tx('treatment_heading')}</p>
                       </div>
                       <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('treatment_helper')}</p>
                     </div>
                   </div>
                   <div className="mt-2 sm:pl-12">
-                    <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
                       {MEDICAL_TREATMENT_OPTIONS.map(({ value }) => {
                         const Icon = TREATMENT_ICONS[value] ?? Check
                         const selected = formData.medicalTreatment.includes(value)
@@ -2589,7 +3417,7 @@ export default function IntakeWizardQuick() {
                             onClick={() => toggleMedicalTreatment(value)}
                             className={`relative flex items-center justify-center shadow-sm transition-all focus-visible:ring-inset focus-visible:ring-offset-0 active:scale-[0.99] ${
                               fullWidth
-                                ? 'col-span-3 flex-row gap-2 rounded-2xl border-[1.5px] px-3 py-2.5'
+                                ? 'col-span-2 flex-row gap-2 rounded-2xl border-[1.5px] px-3 py-2.5'
                                 : 'flex-col gap-1.5 rounded-2xl border-[1.5px] px-2 py-2.5'
                             } ${
                               selected ? 'border-brand-600 bg-brand-50 shadow' : 'border-gray-200 bg-white hover:border-brand-400 hover:shadow-md'
@@ -2605,113 +3433,13 @@ export default function IntakeWizardQuick() {
                         )
                       })}
                     </div>
+                    {errors.medicalTreatment && (
+                      <p className="mt-2 text-xs text-red-600">{errors.medicalTreatment}</p>
+                    )}
                     <p className="mt-2 text-[11px] leading-snug text-gray-500">{tx('treatment_tip')}</p>
                   </div>
                 </div>
 
-                {/* Save your progress (optional) — kept visually secondary to the primary Next action */}
-                <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-                  <div className="flex items-start gap-2.5">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                      <Save className="h-4 w-4" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">{tx('contact_saveTitle')}</p>
-                      <p className="mt-0.5 text-xs leading-snug text-gray-500">{tx('contact_saveDesc')}</p>
-                    </div>
-                  </div>
-                  <div className="mt-2 space-y-2 sm:max-w-md sm:pl-[2.375rem]">
-                      {/* Email */}
-                      <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${contactMethod === 'email' ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
-                        <input
-                          type="radio"
-                          name="contact-method"
-                          checked={contactMethod === 'email'}
-                          onChange={() => setContactMethod('email')}
-                          aria-label={tx('contact_emailShort')}
-                          className="!h-4 !w-4 !min-h-0 shrink-0 accent-brand-600"
-                        />
-                        <Mail className={`h-4 w-4 shrink-0 ${contactMethod === 'email' ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
-                        <span className="shrink-0 text-sm font-medium text-gray-700 dark:text-slate-200">{tx('contact_emailShort')}</span>
-                        <input
-                          id="contact-email"
-                          type="email"
-                          inputMode="email"
-                          autoComplete="email"
-                          value={formData.contact.email}
-                          onFocus={() => setContactMethod('email')}
-                          onBlur={saveContactProgress}
-                          onChange={e => updateForm({ contact: { ...formData.contact, email: e.target.value } })}
-                          placeholder="name@email.com"
-                          maxLength={254}
-                          aria-invalid={!!errors.contactEmail}
-                          className="!min-h-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0 !text-sm text-gray-900 placeholder:text-gray-400 focus:!ring-0 dark:text-slate-100"
-                        />
-                      </div>
-                      {/* Phone */}
-                      <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${contactMethod === 'phone' ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
-                        <input
-                          type="radio"
-                          name="contact-method"
-                          checked={contactMethod === 'phone'}
-                          onChange={() => setContactMethod('phone')}
-                          aria-label={tx('contact_phoneShort')}
-                          className="!h-4 !w-4 !min-h-0 shrink-0 accent-brand-600"
-                        />
-                        <Phone className={`h-4 w-4 shrink-0 ${contactMethod === 'phone' ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
-                        <span className="shrink-0 text-sm font-medium text-gray-700 dark:text-slate-200">{tx('contact_phoneShort')}</span>
-                        <input
-                          id="contact-phone"
-                          type="tel"
-                          inputMode="tel"
-                          autoComplete="tel"
-                          value={formData.contact.phone}
-                          onFocus={() => setContactMethod('phone')}
-                          onBlur={saveContactProgress}
-                          onChange={e => updateForm({ contact: { ...formData.contact, phone: formatPhoneInput(e.target.value) } })}
-                          placeholder="(555) 123-4567"
-                          maxLength={20}
-                          aria-invalid={!!errors.contactPhone}
-                          className="!min-h-0 min-w-0 flex-1 !border-0 !bg-transparent !p-0 !text-sm text-gray-900 placeholder:text-gray-400 focus:!ring-0 dark:text-slate-100"
-                        />
-                      </div>
-                      {errors.contactEmail && (
-                        <p className="text-xs text-red-600">{errors.contactEmail}</p>
-                      )}
-                      {!errors.contactEmail && emailSuggestion && (
-                        <p className="text-xs text-amber-700">
-                          {tx('contact_emailDidYouMean')}{' '}
-                          <button
-                            type="button"
-                            onClick={() => updateForm({ contact: { ...formData.contact, email: emailSuggestion } })}
-                            className="!min-h-0 font-semibold underline underline-offset-2 hover:opacity-80"
-                          >
-                            {emailSuggestion}
-                          </button>
-                          ?
-                        </p>
-                      )}
-                      {!errors.contactEmail && !emailSuggestion && emailDeliverable === 'bad' && (
-                        <p className="text-xs text-amber-700">{tx('contact_emailUndeliverable')}</p>
-                      )}
-                      {errors.contactPhone && (
-                        <p className="text-xs text-red-600">{errors.contactPhone}</p>
-                      )}
-                    {/* SMS consent — documents opt-in for A2P/toll-free compliance. */}
-                    <p className="mt-1 text-[11px] leading-snug text-gray-400">
-                      {tx('contact_smsConsent')}{' '}
-                      <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-gray-600">{tx('contact_smsConsentTerms')}</a>
-                      {' '}&{' '}
-                      <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-gray-600">{tx('contact_smsConsentPrivacy')}</a>.
-                    </p>
-                    {/* Trust badges */}
-                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-gray-400">
-                      <span className="flex items-center gap-1"><Lock className="h-3.5 w-3.5" aria-hidden /> {tx('badge_private')}</span>
-                      <span className="flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5" aria-hidden /> {tx('badge_neverShared')}</span>
-                      <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" aria-hidden /> {tx('badge_noObligation')}</span>
-                    </div>
-                  </div>
-                </div>
               </div>
 
               {/* Right: Why we ask this (desktop only; mobile uses the collapsible above) */}
@@ -2742,7 +3470,15 @@ export default function IntakeWizardQuick() {
 
       case 'injury_severity':
       case 'injury_details': {
-        const isSeverityStep = currentStep === 'injury_severity'
+        const isSeverityStep = step === 'injury_severity'
+        // Severity + treatment are merged onto one screen: show both sub-sections.
+        const mergeInjuries = step === 'injury_severity'
+        const showSeverity = isSeverityStep || mergeInjuries
+        const showDetails = !isSeverityStep || mergeInjuries
+        // When severity + treatment are merged onto one screen, the treatment/details
+        // sub-sections continue the severity numbering (which uses 1-2) instead of
+        // restarting at 1. On the standalone treatment step this offset is 0.
+        const detailsSectionBase = mergeInjuries ? 2 : 0
         const hasHeadInjury = formData.injuryDetails.bodyParts.includes('head_concussion')
         const hasShoulderInjury = formData.injuryDetails.bodyParts.includes('shoulder')
         const hasBackInjury = formData.injuryDetails.bodyParts.includes('lower_back')
@@ -2823,10 +3559,10 @@ export default function IntakeWizardQuick() {
           knee: [{ cx: 58, cy: 192 }, { cx: 82, cy: 192 }],
           other: [{ cx: 70, cy: 92 }],
         }
-        const snapshotCards = [
-          { key: 'severity', icon: Star, label: tx('injuryDetails_metricSeverity'), value: sevLevel, sub: '★★★★★'.slice(0, sevStars) + '☆☆☆☆☆'.slice(0, 5 - sevStars), tone: sevScore >= 67 ? 'text-rose-600' : sevScore >= 34 ? 'text-amber-600' : 'text-emerald-600' },
-          { key: 'doc', icon: FileText, label: tx('injuryDetails_metricDocumentation'), value: docLevel, sub: tx('injuryDetails_metricKeepBuilding'), tone: 'text-brand-600' },
-          { key: 'confidence', icon: TrendingUp, label: tx('injuryDetails_metricValueConfidence'), value: `${valueConfidence}%`, sub: tx('injuryDetails_metricMoreEvidence'), tone: 'text-brand-600' },
+        const snapshotCards: { key: string; icon: LucideIcon; label: string; value: string; sub: string; tone: string; tip: string }[] = [
+          { key: 'severity', icon: Star, label: tx('injuryDetails_metricSeverity'), value: sevLevel, sub: '★★★★★'.slice(0, sevStars) + '☆☆☆☆☆'.slice(0, 5 - sevStars), tone: sevScore >= 67 ? 'text-rose-600' : sevScore >= 34 ? 'text-amber-600' : 'text-emerald-600', tip: tx('injuryDetails_tipSeverity') },
+          { key: 'doc', icon: FileText, label: tx('injuryDetails_metricDocumentation'), value: docLevel, sub: tx('injuryDetails_metricKeepBuilding'), tone: 'text-brand-600', tip: tx('injuryDetails_tipDocumentation') },
+          { key: 'confidence', icon: TrendingUp, label: tx('injuryDetails_metricValueConfidence'), value: `${valueConfidence}%`, sub: tx('injuryDetails_metricMoreEvidence'), tone: 'text-brand-600', tip: tx('injuryDetails_tipConfidence') },
         ]
         // Liability strength only appears once the user has given a real fault signal on an earlier step.
         // Until then we hide the card rather than show a meaningless "Unknown / More info needed" placeholder.
@@ -2842,7 +3578,7 @@ export default function IntakeWizardQuick() {
             ? { value: tx('injuryDetails_liabFavorable'), sub: tx('injuryDetails_liabFavorableSub'), tone: 'text-emerald-600' }
             : null
         if (liabilityCard) {
-          snapshotCards.unshift({ key: 'liability', icon: ShieldCheck, label: tx('injuryDetails_metricLiability'), ...liabilityCard })
+          snapshotCards.unshift({ key: 'liability', icon: ShieldCheck, label: tx('injuryDetails_metricLiability'), tip: tx('injuryDetails_tipLiability'), ...liabilityCard })
         }
         return (
           <div className="space-y-4">
@@ -2852,21 +3588,27 @@ export default function IntakeWizardQuick() {
                 <HeartPulse className="h-5 w-5" aria-hidden />
               </span>
               <div className="min-w-0">
-                <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">{isSeverityStep ? tx('injuryDetails_heading') : tx('injuryTreatment_heading')}</p>
-                <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{isSeverityStep ? tx('injuryDetails_helper') : tx('injuryTreatment_helper')}</p>
+                <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">{mergeInjuries ? 'Your Injuries & Treatment' : isSeverityStep ? tx('injuryDetails_heading') : tx('injuryTreatment_heading')}</p>
+                <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{mergeInjuries ? tx('injuryDetails_helper') : isSeverityStep ? tx('injuryDetails_helper') : tx('injuryTreatment_helper')}</p>
               </div>
             </div>
 
             {/* Case Snapshot metric bar */}
             <div className={`grid grid-cols-2 gap-2 ${snapshotCards.length >= 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
-              {snapshotCards.map(({ key, icon: Icon, label, value, sub, tone }) => (
-                <div key={key} className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 dark:border-slate-700 dark:bg-slate-900/40">
+              {snapshotCards.map(({ key, icon: Icon, label, value, sub, tone, tip }) => (
+                <div key={key} className="group relative cursor-help rounded-lg border border-slate-200 bg-white px-2.5 py-1 dark:border-slate-700 dark:bg-slate-900/40" tabIndex={0}>
                   <div className="flex items-center gap-1 text-[9px] font-semibold uppercase leading-none tracking-wide text-gray-600 dark:text-slate-300">
                     <Icon className="h-3 w-3 shrink-0" aria-hidden />
                     <span className="truncate">{label}</span>
+                    {tip && <Info className="ml-auto h-3 w-3 shrink-0 text-slate-400" aria-hidden />}
                   </div>
                   <p className={`mt-0.5 font-display text-[13px] font-bold leading-none ${tone}`}>{value}</p>
                   <p className="mt-0.5 truncate text-[9px] font-medium leading-none text-gray-600 dark:text-slate-400">{sub}</p>
+                  {tip && (
+                    <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-60 max-w-[80vw] -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus:opacity-100 dark:bg-slate-700">
+                      {tip}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -2876,11 +3618,11 @@ export default function IntakeWizardQuick() {
               {/* ---------- Main column ---------- */}
               <div className="space-y-4">
 
-            {isSeverityStep ? (
+            {showSeverity && (
             <>
             {/* 1. How serious are your injuries? */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader icon={HeartPulse} number={1} title={t('intake.injurySeverity')} helper={tx('injurySeverity_helper')} />
+              <SectionHeader icon={mergeInjuries ? undefined : HeartPulse} number={1} title={t('intake.injurySeverity')} helper={tx('injurySeverity_helper')} />
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
                 {INJURY_SEVERITY_OPTIONS.map(({ value, labelKey }) => {
                   const { main, desc } = splitLabel(t(`intake.${labelKey}`))
@@ -3002,11 +3744,12 @@ export default function IntakeWizardQuick() {
             </div>
 
             </>
-            ) : (
+            )}
+            {showDetails && (
             <>
             {/* 1. Treatment received — recap of step 2 selections + only the extra imaging detail (de-duped) */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={1} title={tx('injuryDetails_treatmentReceived')} />
+              <SectionHeader number={detailsSectionBase + 1} title={tx('injuryDetails_treatmentReceived')} />
               <p className="mt-2 text-xs font-semibold text-gray-600 dark:text-slate-300">{tx('injuryDetails_treatmentRecapTitle')}</p>
               {(() => {
                 const picked = MEDICAL_TREATMENT_OPTIONS.filter(o => o.value !== 'none' && formData.medicalTreatment.includes(o.value))
@@ -3044,7 +3787,7 @@ export default function IntakeWizardQuick() {
 
             {/* 3. Diagnoses */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={2} title={tx('injuryDetails_diagnosesQuestion')} helper={tx('injuryDetails_diagnosesHelper')} />
+              <SectionHeader number={detailsSectionBase + 2} title={tx('injuryDetails_diagnosesQuestion')} helper={tx('injuryDetails_diagnosesHelper')} />
               <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 {DIAGNOSIS_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.diagnoses.includes(value)
@@ -3062,7 +3805,7 @@ export default function IntakeWizardQuick() {
 
             {/* 4. Current symptoms */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={3} title={tx('injuryDetails_currentSymptomsQuestion')} helper={tx('injuryDetails_selectAllApply')} />
+              <SectionHeader number={detailsSectionBase + 3} title={tx('injuryDetails_currentSymptomsQuestion')} helper={tx('injuryDetails_selectAllApply')} />
               <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                 {CURRENT_SYMPTOM_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.currentSymptoms.includes(value)
@@ -3080,7 +3823,7 @@ export default function IntakeWizardQuick() {
 
             {/* 5. Recovery status */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={4} title={tx('injuryDetails_recoveryQuestion')} />
+              <SectionHeader number={detailsSectionBase + 4} title={tx('injuryDetails_recoveryQuestion')} />
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {RECOVERY_STATUS_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.recoveryStatus === value
@@ -3096,7 +3839,7 @@ export default function IntakeWizardQuick() {
 
             {/* 6. Impact on daily life */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={5} title={tx('injuryDetails_dailyLifeQuestion')} helper={tx('injuryDetails_dailyLifeHelper')} />
+              <SectionHeader number={detailsSectionBase + 5} title={tx('injuryDetails_dailyLifeQuestion')} helper={tx('injuryDetails_dailyLifeHelper')} />
               <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
                 {LIFE_AREA_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.lifestyleImpact.includes(value)
@@ -3303,7 +4046,7 @@ export default function IntakeWizardQuick() {
                 </div>
 
                 {/* Quick stats — only once there's data to count; desktop-only to cut mobile scroll */}
-                {!isSeverityStep && hasAnySelection && (
+                {showDetails && hasAnySelection && (
                 <div className="hidden rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/40 lg:block">
                   <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_quickStats')}</p>
                   <div className="mt-3 space-y-2">
@@ -3323,7 +4066,7 @@ export default function IntakeWizardQuick() {
                 )}
 
                 {/* Why this matters + tips (combined; desktop-only). Severity already appears in the snapshot bar above, so it's not repeated here. */}
-                {!isSeverityStep && (
+                {showDetails && (
                 <div className="hidden rounded-2xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/10 lg:block">
                   <div className="flex items-center gap-2">
                     <Scale className="h-4 w-4 text-brand-600" aria-hidden />
@@ -3354,8 +4097,8 @@ export default function IntakeWizardQuick() {
       case 'case_details': {
         const cdTileClass = (selected: boolean) =>
           `flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10' : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`
-        const cdSingleGrid = (opts: { value: string; label: string; icon?: LucideIcon }[], current: string, onPick: (v: string) => void) => (
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+        const cdSingleGrid = (opts: { value: string; label: string; icon?: LucideIcon }[], current: string, onPick: (v: string) => void, gridClass = 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3') => (
+          <div className={`grid gap-2.5 ${gridClass}`}>
             {opts.map(({ value, label, icon: Icon }) => {
               const selected = current === value
               return (
@@ -3380,11 +4123,14 @@ export default function IntakeWizardQuick() {
           </div>
         )
         // Pill-style single-select grid matching the non-vehicle branch visuals.
-        const cdPillGrid = (opts: { value: string; labelKey: string }[], current: string, onPick: (v: string) => void) => (
+        // labelClass wraps the text in a <span> so the parent's responsive type
+        // overrides scale it the same way as cdSingleGrid tiles (span.text-sm →
+        // text-base), keeping option text the same size across both grids.
+        const cdPillGrid = (opts: { value: string; labelKey: string }[], current: string, onPick: (v: string) => void, labelClass?: string) => (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {opts.map(({ value, labelKey }) => (
               <button key={value} type="button" aria-pressed={current === value} onClick={() => onPick(value)} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${current === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
-                {t(`intake.${labelKey}`)} {current === value && <Check className="h-5 w-5 text-brand-600" />}
+                {labelClass ? <span className={labelClass}>{t(`intake.${labelKey}`)}</span> : t(`intake.${labelKey}`)} {current === value && <Check className="h-5 w-5 text-brand-600" />}
               </button>
             ))}
           </div>
@@ -3396,102 +4142,190 @@ export default function IntakeWizardQuick() {
         const defendantIcons: Record<string, LucideIcon> = { private: User, uber_lyft: Car, delivery: Package, trucking: Truck, company: Briefcase, government: Landmark, not_sure: HelpCircle }
         const damageIcons: Record<string, LucideIcon> = { minor: Car, moderate: Car, not_drivable: AlertTriangle, total_loss: Ban }
         const vehOpts = (arr: { value: string; labelKey: string }[], icons?: Record<string, LucideIcon>) => arr.map(o => ({ value: o.value, label: t(`intake.${o.labelKey}`), icon: icons?.[o.value] }))
+        // In the v2 flow these questions are folded under the "When/Where/Who/Describe/
+        // Treatment" screen (sections 1-5), so they continue that screen's numbering:
+        // the first folded question is section 6, the second is section 7. In v1 the
+        // case-details step stands alone and stays unnumbered.
+        const nFirst = '6. '
+        const nSecond = '7. '
+        // Renders a folded question in the same visual format as the on-screen
+        // sections above (icon badge + numbered heading + helper + indented content).
+        const cdV2Section = (opts: { num: string; icon: LucideIcon; heading: string; helper: string; body: ReactNode; topBorder?: boolean }) => (
+          <div className={opts.topBorder ? 'border-t border-slate-200 pt-4 dark:border-slate-700' : ''}>
+            <div className="flex items-start gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
+                <opts.icon className="h-5 w-5" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">{opts.num}{opts.heading}</p>
+                <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{opts.helper}</p>
+              </div>
+            </div>
+            <div className="mt-2 sm:pl-12">{opts.body}</div>
+          </div>
+        )
         const section1 = (() => {
         if (isVehicle) {
           return (
-            <div className="space-y-3">
-              <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{t('intake.vehicle_crashQuestion')}</p>
-              {cdSingleGrid(vehOpts(VEHICLE_CRASH_OPTIONS, crashIcons), formData.branch.crashType, (v) => setBranch('crashType', v))}
-              <p className="pt-1 font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('vehicle_faultQuestion')}</p>
-              {cdPillGrid(FAULT_PARTY_OPTIONS, formData.branch.faultParty, (v) => setBranch('faultParty', v))}
+            <div className="space-y-4">
+              {cdV2Section({
+                num: nFirst,
+                icon: Car,
+                heading: t('intake.vehicle_crashQuestion'),
+                helper: tx('vehicle_crashHelper'),
+                body: cdSingleGrid(vehOpts(VEHICLE_CRASH_OPTIONS, crashIcons), formData.branch.crashType, (v) => setBranch('crashType', v), 'grid-cols-2 lg:grid-cols-4'),
+              })}
+              {cdV2Section({
+                num: nSecond,
+                icon: Scale,
+                heading: tx('vehicle_faultQuestion'),
+                helper: tx('vehicle_faultHelper'),
+                body: cdPillGrid(FAULT_PARTY_OPTIONS, formData.branch.faultParty, (v) => setBranch('faultParty', v), 'text-sm font-medium'),
+                topBorder: true,
+              })}
             </div>
           )
         }
         if (isWorkplace) {
           return (
-            <div className="space-y-3">
-              <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('wp_causeQuestion')}</p>
-              {cdPillGrid(WORKPLACE_CAUSE_OPTIONS, formData.branch.workplaceCause, (v) => setBranch('workplaceCause', v))}
+            <div className="space-y-4">
+              {cdV2Section({
+                num: nFirst,
+                icon: HardHat,
+                heading: tx('wp_causeQuestion'),
+                helper: tx('wp_causeHelper'),
+                body: cdPillGrid(WORKPLACE_CAUSE_OPTIONS, formData.branch.workplaceCause, (v) => setBranch('workplaceCause', v), 'text-sm font-medium'),
+              })}
             </div>
           )
         }
         if (isSlipFall) {
           return (
             <div className="space-y-4">
-              <p className="font-display text-sm font-semibold text-slate-950">{t('intake.slip_hazardQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {SLIP_HAZARD_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('hazardType', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.hazardType === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
-                    {t(`intake.${labelKey}`)} {formData.branch.hazardType === value && <Check className="h-5 w-5 text-brand-600" />}
-                  </button>
-                ))}
-              </div>
+              {cdV2Section({
+                num: nFirst,
+                icon: AlertTriangle,
+                heading: t('intake.slip_hazardQuestion'),
+                helper: tx('slip_hazardHelper'),
+                body: cdPillGrid(SLIP_HAZARD_OPTIONS, formData.branch.hazardType, (v) => setBranch('hazardType', v), 'text-sm font-medium'),
+              })}
             </div>
           )
         }
         if (isMedmal) {
           return (
             <div className="space-y-4">
-              <p className="font-display text-sm font-semibold text-slate-950">{t('intake.medmal_errorQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {MEDMAL_ERROR_OPTIONS.map(({ value, labelKey }) => (
-                  <button key={value} type="button" onClick={() => { setBranch('errorType', value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.errorType === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
-                    {t(`intake.${labelKey}`)} {formData.branch.errorType === value && <Check className="h-5 w-5 text-brand-600" />}
-                  </button>
-                ))}
-              </div>
+              {cdV2Section({
+                num: nFirst,
+                icon: Stethoscope,
+                heading: t('intake.medmal_errorQuestion'),
+                helper: tx('medmal_errorHelper'),
+                body: cdPillGrid(MEDMAL_ERROR_OPTIONS, formData.branch.errorType, (v) => setBranch('errorType', v), 'text-sm font-medium'),
+              })}
             </div>
           )
         }
         if (isDogBite) {
           return (
-            <div className="space-y-3">
-              <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('animal_typeQuestion')}</p>
-              {cdPillGrid(ANIMAL_TYPE_OPTIONS, formData.branch.animalType, (v) => setBranch('animalType', v))}
-              <p className="pt-1 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{t('intake.dog_ownershipQuestion')}</p>
-              {cdPillGrid(DOG_OWNERSHIP_OPTIONS, formData.branch.dogOwned, (v) => setBranch('dogOwned', v))}
+            <div className="space-y-4">
+              {cdV2Section({
+                num: nFirst,
+                icon: Dog,
+                heading: tx('animal_typeQuestion'),
+                helper: tx('animal_typeHelper'),
+                body: cdPillGrid(ANIMAL_TYPE_OPTIONS, formData.branch.animalType, (v) => setBranch('animalType', v), 'text-sm font-medium'),
+              })}
+              {cdV2Section({
+                num: nSecond,
+                icon: User,
+                heading: t('intake.dog_ownershipQuestion'),
+                helper: tx('dog_ownershipHelper'),
+                body: cdPillGrid(DOG_OWNERSHIP_OPTIONS, formData.branch.dogOwned, (v) => setBranch('dogOwned', v), 'text-sm font-medium'),
+                topBorder: true,
+              })}
             </div>
           )
         }
         if (isProduct) {
+          const productGrid = () => (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {PRODUCT_TYPE_OPTIONS.map((option) => {
+                const label = 'labelKey' in option ? t(`intake.${option.labelKey}`) : option.label
+                return (
+                  <button key={option.value} type="button" onClick={() => { setBranch('productType', option.value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.productType === option.value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
+                    <span className="text-sm font-medium">{label}</span> {formData.branch.productType === option.value && <Check className="h-5 w-5 text-brand-600" />}
+                  </button>
+                )
+              })}
+            </div>
+          )
           return (
             <div className="space-y-4">
-              <p className="font-display text-sm font-semibold text-slate-950">{t('intake.product_typeQuestion')}</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {PRODUCT_TYPE_OPTIONS.map((option) => (
-                  <button key={option.value} type="button" onClick={() => { setBranch('productType', option.value) }} className={`flex min-h-[3rem] items-center justify-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-center text-sm font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${formData.branch.productType === option.value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}>
-                    {'labelKey' in option ? t(`intake.${option.labelKey}`) : option.label} {formData.branch.productType === option.value && <Check className="h-5 w-5 text-brand-600" />}
-                  </button>
-                ))}
-              </div>
+              {cdV2Section({
+                num: nFirst,
+                icon: Package,
+                heading: t('intake.product_typeQuestion'),
+                helper: tx('product_typeHelper'),
+                body: productGrid(),
+              })}
             </div>
           )
         }
         if (isAssault) {
           return (
-            <div className="space-y-3">
-              <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('assault_whereQuestion')}</p>
-              {cdPillGrid(ASSAULT_TYPE_OPTIONS, formData.branch.assaultType, (v) => setBranch('assaultType', v))}
-              <p className="pt-1 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('assault_priorIncidentsQuestion')}</p>
-              {cdPillGrid(YES_NO_NOT_SURE_OPTIONS, formData.branch.priorIncidents, (v) => setBranch('priorIncidents', v))}
+            <div className="space-y-4">
+              {cdV2Section({
+                num: nFirst,
+                icon: MapPin,
+                heading: tx('assault_whereQuestion'),
+                helper: tx('assault_whereHelper'),
+                body: cdPillGrid(ASSAULT_TYPE_OPTIONS, formData.branch.assaultType, (v) => setBranch('assaultType', v), 'text-sm font-medium'),
+              })}
+              {cdV2Section({
+                num: nSecond,
+                icon: Clock,
+                heading: tx('assault_priorIncidentsQuestion'),
+                helper: tx('assault_priorIncidentsHelper'),
+                body: cdPillGrid(YES_NO_NOT_SURE_OPTIONS, formData.branch.priorIncidents, (v) => setBranch('priorIncidents', v), 'text-sm font-medium'),
+                topBorder: true,
+              })}
             </div>
           )
         }
         if (isToxic) {
           return (
-            <div className="space-y-3">
-              <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{t('intake.toxic_substanceQuestion')}</p>
-              {cdPillGrid(TOXIC_SUBSTANCE_OPTIONS, formData.branch.substance, (v) => setBranch('substance', v))}
-              <p className="pt-1 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('exp_locationQuestion')}</p>
-              {cdPillGrid(EXPOSURE_LOCATION_OPTIONS, formData.branch.exposureLocation, (v) => setBranch('exposureLocation', v))}
+            <div className="space-y-4">
+              {cdV2Section({
+                num: nFirst,
+                icon: Droplets,
+                heading: t('intake.toxic_substanceQuestion'),
+                helper: tx('toxic_substanceHelper'),
+                body: cdPillGrid(TOXIC_SUBSTANCE_OPTIONS, formData.branch.substance, (v) => setBranch('substance', v), 'text-sm font-medium'),
+              })}
+              {cdV2Section({
+                num: nSecond,
+                icon: MapPin,
+                heading: tx('exp_locationQuestion'),
+                helper: tx('exp_locationHelper'),
+                body: cdPillGrid(EXPOSURE_LOCATION_OPTIONS, formData.branch.exposureLocation, (v) => setBranch('exposureLocation', v), 'text-sm font-medium'),
+                topBorder: true,
+              })}
             </div>
           )
         }
         if (isOther) {
+          const otherTextarea = (
+            <textarea value={formData.branch.otherDetails || ''} onChange={e => setBranch('otherDetails', e.target.value)} placeholder={t('intake.otherDetailsPlaceholder')} rows={3} maxLength={2000} className="input w-full resize-none border-gray-300" />
+          )
           return (
             <div className="space-y-4">
-              <p className="font-display text-sm font-semibold text-slate-950">{t('intake.tellMore')}</p>
-              <textarea value={formData.branch.otherDetails || ''} onChange={e => setBranch('otherDetails', e.target.value)} placeholder={t('intake.otherDetailsPlaceholder')} rows={3} maxLength={2000} className="input w-full resize-none border-gray-300" />
+              {cdV2Section({
+                num: nFirst,
+                icon: Pencil,
+                heading: t('intake.tellMore'),
+                helper: tx('tellMoreHelper'),
+                body: otherTextarea,
+              })}
             </div>
           )
         }
@@ -3938,38 +4772,15 @@ export default function IntakeWizardQuick() {
             cdBranch.responderFire || cdBranch.responderNone || (cdBranch.emergencyCallTime || '')
           ),
         ]
-        const sectionEntries = [section1, section2, section3, section4, emergencySection]
+        // Fold only the primary descriptor (e.g. crash type + fault) into the
+        // incident screen; the secondary evidence/damage battery is deferred.
+        const sectionEntries = [section1]
           .map((node, index) => ({ node, answered: sectionAnswered[index] }))
           .filter((entry) => entry.node)
-        const answeredCount = sectionEntries.filter((entry) => entry.answered).length
-        const pct = sectionEntries.length ? Math.round((answeredCount / sectionEntries.length) * 100) : 0
         return (
           <div className="space-y-4">
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3.5 dark:border-emerald-500/30 dark:bg-emerald-500/10">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-2.5">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-display text-sm font-semibold leading-tight text-gray-900 dark:text-slate-100">{tx('caseDetails_progressTitle')}</p>
-                      <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">{tx('caseDetails_optionalBadge')}</span>
-                    </div>
-                    <p className="mt-0.5 text-xs leading-snug text-gray-500">{tx('caseDetails_progressSubtitle')}</p>
-                  </div>
-                </div>
-                <span className="shrink-0 whitespace-nowrap text-xs font-semibold text-gray-500">
-                  {tx('caseDetails_progressCount').replace('{answered}', String(answeredCount)).replace('{total}', String(sectionEntries.length))}
-                </span>
-              </div>
-              <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-emerald-100 dark:bg-emerald-900/40">
-                <div className="h-full rounded-full bg-emerald-500 transition-all duration-300" style={{ width: `${pct}%` }} />
-              </div>
-            </div>
             {sectionEntries.map((entry, index) => (
-              <div key={index} className={`flex gap-2.5 ${index === 0 ? '' : 'border-t border-slate-200 pt-4 dark:border-slate-700'}`}>
-                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs font-bold text-white">{index + 1}</span>
-                <div className="min-w-0 flex-1">{entry.node}</div>
-              </div>
+              <div key={index} className="min-w-0">{entry.node}</div>
             ))}
           </div>
         )
@@ -3995,8 +4806,13 @@ export default function IntakeWizardQuick() {
             { id: 'medical', title: tx('evidence_groupMedical'), helper: tx('evidence_sectionMedicalHelper'), items: [itemDefs.bills, itemDefs.medical_records] },
             { id: 'financial', title: tx('evidence_groupFinancial'), helper: tx('evidence_groupFinancialHelper'), items: [itemDefs.wage_verification] },
           ]
-          const isUploaded = (cat: string) => (pendingEvidenceFiles[cat]?.length || 0) > 0
+          // Only files the vision precheck accepted (or the user confirmed) count as
+          // uploaded — a flagged mismatch stays "not uploaded" until confirmed/deleted.
+          const isUploaded = (cat: string) => validEvidenceCount(cat) > 0
           const weightFor = (cat: string) => evidenceStatusItems.find((it) => it.category === cat)?.weight || 0
+          // Stable 1..N ordering across all groups for the row status chips.
+          const orderedCats = evGroups.flatMap((g) => g.items.map((it) => it.category))
+          const stepNumberFor = (cat: string) => orderedCats.indexOf(cat) + 1
           const scoreDrivers = evGroups
             .flatMap((g) => g.items)
             .filter((it) => weightFor(it.category) > 0 && !isUploaded(it.category))
@@ -4030,28 +4846,39 @@ export default function IntakeWizardQuick() {
             const rowWarnings = evidenceWarnings[item.category]
             const dropRef = getEvidenceDropRef(item.category)
             const isDragging = evidenceDragCategory === item.category
+            const weight = weightFor(item.category)
+            const stepNo = stepNumberFor(item.category)
             return (
               <div
                 key={item.category}
                 ref={dropRef}
-                className={`rounded-xl border bg-white px-3 py-1 transition-colors dark:bg-slate-900/40 ${
+                className={`rounded-xl border px-3 py-2 transition-all ${
                   isDragging
-                    ? 'border-brand-400 ring-2 ring-brand-300 ring-offset-1 dark:border-brand-500'
-                    : 'border-slate-200 dark:border-slate-700'
+                    ? 'border-brand-400 bg-white ring-2 ring-brand-300 ring-offset-1 dark:border-brand-500 dark:bg-slate-900/40'
+                    : uploaded
+                      ? 'border-emerald-200 bg-emerald-50/60 dark:border-emerald-500/30 dark:bg-emerald-500/[0.06]'
+                      : 'border-slate-200 bg-white hover:border-brand-300 hover:shadow-sm dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-brand-600'
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${uploaded ? 'bg-emerald-600 text-white' : 'border-2 border-slate-300 dark:border-slate-600'}`}>
-                    {uploaded && <Check className="h-3 w-3" aria-hidden />}
+                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${uploaded ? 'bg-emerald-600 text-white' : 'border-2 border-slate-300 text-slate-500 dark:border-slate-600 dark:text-slate-400'}`}>
+                    {uploaded ? <Check className="h-3 w-3" aria-hidden /> : stepNo}
                   </span>
-                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${uploaded ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'}`}>
+                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${uploaded ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'}`}>
                     <Icon className="h-3.5 w-3.5" aria-hidden />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-gray-900 dark:text-slate-100">{item.title}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-semibold text-gray-900 dark:text-slate-100">{item.title}</p>
+                      {weight > 0 && (
+                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${uploaded ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'}`}>
+                          +{weight}%
+                        </span>
+                      )}
+                    </div>
                     <p className="truncate text-xs text-gray-500">{item.helper}</p>
                   </div>
-                  <div className="hidden shrink-0 text-right sm:block">
+                  <div className="hidden w-[104px] shrink-0 text-right sm:block">
                     {isDragging ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-xs font-semibold text-brand-700 dark:bg-brand-500/20 dark:text-brand-200">
                         <Upload className="h-3 w-3" aria-hidden />
@@ -4065,7 +4892,7 @@ export default function IntakeWizardQuick() {
                     ) : (
                       <>
                         <p className="text-xs font-medium text-gray-500">{tx('evidence_notUploaded')}</p>
-                        <p className="text-[11px] text-gray-400">{tx('evidence_recommended')}</p>
+                        <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-500">{tx('evidence_recommended')}</p>
                       </>
                     )}
                   </div>
@@ -4075,7 +4902,18 @@ export default function IntakeWizardQuick() {
                         <FolderOpen className="h-3.5 w-3.5" aria-hidden /><span className="hidden sm:inline">{tx('evidence_manageShort')}</span>
                       </button>
                     )}
-                    <div className={uploaded ? '' : 'w-[100px]'}>
+                    <div className={uploaded ? '' : 'w-[104px]'}>
+                      {HIPAA_UPLOAD_CATEGORIES.includes(item.category) && !hipaaAuthorized && !uploaded ? (
+                        <button
+                          type="button"
+                          onClick={openHipaaModal}
+                          className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-600"
+                          title={tx('hipaa_authorizeHint')}
+                        >
+                          <Lock className="h-3.5 w-3.5" aria-hidden />
+                          {tx('hipaa_authorizeAction')}
+                        </button>
+                      ) : (
                       <InlineEvidenceUpload
                         assessmentId={assessmentId || undefined}
                         category={item.category}
@@ -4091,6 +4929,7 @@ export default function IntakeWizardQuick() {
                         manageOpen={managing}
                         onManageOpenChange={setManaging}
                         uploadButtonLabel={tx('evidence_uploadAction')}
+                        uploadButtonColorClass="bg-amber-500 text-white hover:bg-amber-600"
                         onFilesUploaded={(f) => handleEvidenceFiles(item.category, f)}
                         onMoveMismatch={(fileName, target) => handleMoveEvidence(item.category, target, fileName)}
                         hideInlineWarnings
@@ -4098,6 +4937,7 @@ export default function IntakeWizardQuick() {
                         dropTargetRef={dropRef}
                         onDragStateChange={(active) => setEvidenceDragCategory(active ? item.category : null)}
                       />
+                      )}
                     </div>
                     <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" aria-hidden />
                   </div>
@@ -4129,6 +4969,38 @@ export default function IntakeWizardQuick() {
                         )}
                         <button type="button" onClick={() => rowWarnings.dismiss(warning.fileName)} className="shrink-0 rounded px-1.5 py-0 !text-[12px] !leading-none font-semibold text-slate-600 hover:text-slate-800 dark:text-slate-300">
                           Dismiss
+                        </button>
+                        {warning.status !== 'relevant' && (
+                          <button
+                            type="button"
+                            onClick={() => { handleDeleteEvidence(item.category, warning.fileName); rowWarnings.dismiss(warning.fileName) }}
+                            className="shrink-0 rounded px-1.5 py-0 !text-[12px] !leading-none font-semibold text-red-600 hover:text-red-700 dark:text-red-400"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {(nameWarnings[item.category]?.length ?? 0) > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    {nameWarnings[item.category].map((warning) => (
+                      <div
+                        key={`name-${warning.fileName}`}
+                        className="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[12px] leading-none text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+                      >
+                        <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+                        <p className="min-w-0 flex-1 break-words leading-snug">{warning.message}</p>
+                        <button type="button" onClick={() => dismissNameWarning(item.category, warning.fileName)} className="shrink-0 rounded px-1.5 py-0 !text-[12px] !leading-none font-semibold text-slate-600 hover:text-slate-800 dark:text-slate-300">
+                          Dismiss
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { handleDeleteEvidence(item.category, warning.fileName); dismissNameWarning(item.category, warning.fileName) }}
+                          className="shrink-0 rounded px-1.5 py-0 !text-[12px] !leading-none font-semibold text-red-600 hover:text-red-700 dark:text-red-400"
+                        >
+                          Delete
                         </button>
                       </div>
                     ))}
@@ -4162,14 +5034,23 @@ export default function IntakeWizardQuick() {
                         <div className="mt-2 grid gap-2 sm:grid-cols-3">
                           {scoreDrivers.map((it) => {
                             const DriverIcon = it.icon
+                            const driverTip = tx('evidence_topItemTip')
+                              .replace('{item}', it.title)
+                              .replace('{percent}', `+${weightFor(it.category)}%`)
                             return (
-                              <div key={it.category} className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 dark:border-slate-700 dark:bg-slate-800/40">
+                              <div key={it.category} tabIndex={0} className="group relative cursor-help rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 dark:border-slate-700 dark:bg-slate-800/40">
                                 <div className="flex items-center justify-between gap-1">
                                   <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-brand-600 shadow-sm dark:bg-slate-900"><DriverIcon className="h-3.5 w-3.5" aria-hidden /></span>
-                                  <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">+{weightFor(it.category)}%</span>
+                                  <span className="flex items-center gap-1">
+                                    <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">+{weightFor(it.category)}%</span>
+                                    <Info className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+                                  </span>
                                 </div>
                                 <p className="mt-1.5 text-xs font-semibold leading-tight text-gray-900 dark:text-slate-100">{it.title}</p>
                                 <p className="text-[11px] leading-tight text-gray-500">{it.helper}</p>
+                                <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-60 max-w-[80vw] -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus:opacity-100 dark:bg-slate-700">
+                                  {driverTip}
+                                </span>
                               </div>
                             )
                           })}
@@ -4220,6 +5101,32 @@ export default function IntakeWizardQuick() {
                 </div>
                 <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="hidden shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-brand-600 transition-colors hover:text-brand-700 sm:inline-flex">{tx('evidence_learnSecurity')}<ChevronRight className="h-3.5 w-3.5" aria-hidden /></a>
               </div>
+
+              {hipaaModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+                  <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl dark:bg-slate-900">
+                    <div className="flex items-start gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10"><ShieldCheck className="h-5 w-5" aria-hidden /></span>
+                      <div className="min-w-0">
+                        <p className="font-display text-base font-semibold text-gray-900 dark:text-slate-100">{tx('hipaa_modalTitle')}</p>
+                        <p className="mt-0.5 text-xs text-gray-500">{tx('hipaa_modalSubtitle')}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-gray-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-300">
+                      {hipaaSummary || tx('hipaa_fallbackSummary')}
+                    </div>
+                    <a href={`/hipaa-authorization?return=${encodeURIComponent('/intake2')}`} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700">{tx('hipaa_readFull')}<ChevronRight className="h-3.5 w-3.5" aria-hidden /></a>
+                    <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800/40">
+                      <input type="checkbox" checked={hipaaAgreed} onChange={(e) => setHipaaAgreed(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600" />
+                      <span className="text-xs leading-snug text-gray-700 dark:text-slate-300">{tx('hipaa_agreeLabel')}</span>
+                    </label>
+                    <div className="mt-4 flex items-center justify-end gap-2">
+                      <button type="button" onClick={() => setHipaaModalOpen(false)} className="rounded-lg px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800">{tx('hipaa_cancel')}</button>
+                      <button type="button" disabled={!hipaaAgreed} onClick={authorizeHipaa} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-700">{tx('hipaa_authorizeConfirm')}</button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )
         }
@@ -4371,215 +5278,18 @@ export default function IntakeWizardQuick() {
         return (
           <div className="space-y-4">
             <div className="text-center">
-              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-slate-100 sm:text-xl">{tx('dv_title')}</h2>
-              <p className="mt-0.5 text-xs leading-5 text-slate-500">{dvHasValue ? tx('dv_subtitle') : tx('dv_subtitleEmpty')}</p>
+              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-slate-100 sm:text-xl">{tx('dv_titleSimple')}</h2>
             </div>
 
-            {dvHasValue ? (
-              <>
-                {/* Top metric cards */}
-                <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr_1fr]">
-                  {/* Estimated case value */}
-                  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{tx('dv_estValue')}</p>
-                    <div className="mt-2 flex items-end justify-between gap-2">
-                      <div className="text-center">
-                        <p className="text-[10px] text-slate-400">{tx('dv_low')}</p>
-                        <p className="text-sm font-semibold text-slate-600">{usd(lowEstimate)}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="flex items-center justify-center gap-1 text-[10px] font-semibold text-emerald-600"><Star className="h-3 w-3" aria-hidden /> {tx('dv_mostLikely')}</p>
-                        <p className="font-display text-2xl font-bold text-emerald-600 sm:text-3xl">{usd(mostLikely)}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-[10px] text-slate-400">{tx('dv_high')}</p>
-                        <p className="text-sm font-semibold text-slate-600">{usd(highEstimate)}</p>
-                      </div>
-                    </div>
-                    <div className="mt-3 flex items-center gap-2">
-                      <div className="relative h-1.5 flex-1 rounded-full bg-slate-200">
-                        <span className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-emerald-500 shadow" style={{ left: '50%' }} aria-hidden />
-                      </div>
-                    </div>
-                    <p className="mt-3 rounded-lg bg-emerald-50 px-2 py-1.5 text-center text-[11px] leading-snug text-emerald-700">{tx('dv_rangeNote')}</p>
-                  </section>
 
-                  {/* Confidence */}
-                  <section className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{tx('dv_confTitle')}</p>
-                    <div className="relative mx-auto mt-2 h-20 w-20">
-                      <svg viewBox="0 0 80 80" className="h-20 w-20 -rotate-90">
-                        <circle cx="40" cy="40" r="34" fill="none" stroke="#e2e8f0" strokeWidth="7" />
-                        <circle cx="40" cy="40" r="34" fill="none" stroke="#059669" strokeWidth="7" strokeLinecap="round" strokeDasharray={ringCirc} strokeDashoffset={ringCirc * (1 - ringPct / 100)} />
-                      </svg>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className="font-display text-xl font-bold text-slate-900">{confScore}</span>
-                        <span className="text-[9px] text-slate-400">/100</span>
-                      </div>
-                    </div>
-                    <p className="mt-1 text-xs font-semibold text-emerald-600">{confLabel}</p>
-                    <p className="mt-0.5 text-[10px] leading-snug text-slate-400">{tx('dv_confSub')}</p>
-                  </section>
-
-                  {/* Attorney readiness */}
-                  <section className="rounded-2xl border border-slate-200 bg-white p-4 text-center shadow-sm">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{tx('dv_attorneyReadiness')}</p>
-                    <p className="mt-2 text-[10px] text-slate-500">{tx('dv_currentLikelihood')}</p>
-                    <p className="font-display text-2xl font-bold text-brand-600">{readinessNow}%</p>
-                    <p className="mt-1 text-[10px] text-slate-500">{tx('dv_afterAdding')}</p>
-                    <p className="flex items-center justify-center gap-1 text-sm font-bold text-emerald-600"><TrendingUp className="h-3.5 w-3.5" aria-hidden /> {readinessPotential}%</p>
-                    <p className="mt-1 text-[10px] leading-snug text-slate-400">{tx('dv_readinessNote')}</p>
-                  </section>
-                </div>
-
-                {/* Factor columns */}
-                <div className="grid gap-3 lg:grid-cols-3">
-                  <section className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
-                    <p className="flex items-center gap-1.5 text-sm font-semibold text-emerald-700"><TrendingUp className="h-4 w-4" aria-hidden /> {tx('dv_increasingTitle')}</p>
-                    <ul className="mt-2 space-y-1.5">
-                      {increasingFactors.slice(0, 4).map(f => (
-                        <li key={f} className="flex items-start gap-2 text-xs text-slate-700"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden />{f}</li>
-                      ))}
-                      {increasingFactors.length === 0 && <li className="text-xs text-slate-400">{tx('dv_noneYet')}</li>}
-                    </ul>
-                    {increasingFactors.length > 4 && <p className="mt-2 text-[11px] font-semibold text-emerald-600">{tx('dv_viewAllPositive').replace('{n}', String(increasingFactors.length))}</p>}
-                  </section>
-
-                  <section className="rounded-2xl border border-rose-100 bg-white p-4 shadow-sm">
-                    <p className="flex items-center gap-1.5 text-sm font-semibold text-rose-700"><AlertTriangle className="h-4 w-4" aria-hidden /> {tx('dv_reducingTitle')}</p>
-                    <ul className="mt-2 space-y-1.5">
-                      {reducingFactors.slice(0, 4).map(f => (
-                        <li key={f} className="flex items-start gap-2 text-xs text-slate-700"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-400" aria-hidden />{f}</li>
-                      ))}
-                      {reducingFactors.length === 0 && <li className="text-xs text-slate-400">{tx('dv_noneYet')}</li>}
-                    </ul>
-                    {reducingFactors.length > 4 && <p className="mt-2 text-[11px] font-semibold text-rose-600">{tx('dv_viewAllRisk').replace('{n}', String(reducingFactors.length))}</p>}
-                  </section>
-
-                  <section className="rounded-2xl border border-brand-100 bg-white p-4 shadow-sm">
-                    <p className="flex items-center gap-1.5 text-sm font-semibold text-brand-700"><Sparkles className="h-4 w-4" aria-hidden /> {tx('dv_increaseTitle')}</p>
-                    <ul className="mt-2 space-y-1.5">
-                      {increaseValueItems.slice(0, 4).map(item => (
-                        <li key={item.label} className="flex items-center justify-between gap-2 text-xs text-slate-700">
-                          <span className="flex items-start gap-2"><FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-500" aria-hidden />{item.label}</span>
-                          <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">{item.impact}</span>
-                        </li>
-                      ))}
-                      {increaseValueItems.length === 0 && <li className="text-xs text-slate-400">{tx('dv_wellDocumented')}</li>}
-                    </ul>
-                  </section>
-                </div>
-
-                {/* Breakdown + settlement vs trial */}
-                <div className="grid gap-3 lg:grid-cols-2">
-                  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <p className="font-display text-sm font-semibold text-slate-900">{tx('dv_breakdownTitle')}</p>
-                    <div className="mt-3 space-y-2">
-                      {breakdownRows.map(r => (
-                        <div key={r.label} className="flex items-center justify-between text-xs"><span className="text-slate-600">{r.label}</span><span className="font-semibold text-slate-900">{usd(r.value)}</span></div>
-                      ))}
-                      <div className="flex items-center justify-between rounded-lg bg-brand-50 px-2 py-1.5 text-xs"><span className="font-medium text-brand-800">{tx('dv_brPainSuffering')}</span><span className="font-bold text-brand-700">{painMultiplier.toFixed(1)}x</span></div>
-                      <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm"><span className="font-semibold text-slate-900">{tx('dv_brTotal')}</span><span className="font-display font-bold text-emerald-600">{usd(mostLikely)}</span></div>
-                    </div>
-                  </section>
-
-                  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <p className="font-display text-sm font-semibold text-slate-900">{tx('dv_settleVsTrial')}</p>
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 text-center">
-                        <Scale className="mx-auto h-4 w-4 text-emerald-600" aria-hidden />
-                        <p className="mt-1 text-[11px] font-medium text-slate-600">{tx('dv_settlementValue')}</p>
-                        <p className="mt-1 text-xs font-bold text-emerald-700">{usd(lowEstimate)} – {usd(highEstimate)}</p>
-                      </div>
-                      <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-3 text-center">
-                        <Landmark className="mx-auto h-4 w-4 text-violet-600" aria-hidden />
-                        <p className="mt-1 text-[11px] font-medium text-slate-600">{tx('dv_trialValue')}</p>
-                        <p className="mt-1 text-xs font-bold text-violet-700">{usd(trialLow)} – {usd(trialHigh)}</p>
-                      </div>
-                    </div>
-                    <p className="mt-2 text-[11px] leading-snug text-slate-500">{tx('dv_settleNote')}</p>
-                  </section>
-                </div>
-
-                {/* Confidence factors + comparables + timeline */}
-                <div className="grid gap-3 lg:grid-cols-3">
-                  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <p className="font-display text-sm font-semibold text-slate-900">{tx('dv_confFactorsTitle')}</p>
-                    <ul className="mt-3 space-y-2">
-                      {dvConfidenceFactors.map(f => {
-                        const width = f.status === 'included' ? '100%' : f.status === 'partial' ? '55%' : '18%'
-                        const barColor = f.status === 'included' ? 'bg-emerald-500' : f.status === 'partial' ? 'bg-amber-400' : 'bg-rose-400'
-                        const tagColor = f.status === 'included' ? 'text-emerald-600' : f.status === 'partial' ? 'text-amber-600' : 'text-rose-500'
-                        const tagText = f.status === 'included' ? tx('dv_included') : f.status === 'partial' ? tx('dv_partial') : tx('dv_missing')
-                        return (
-                          <li key={f.label} className="space-y-1">
-                            <div className="flex items-center justify-between text-[11px]"><span className="text-slate-600">{f.label}</span><span className={`font-semibold ${tagColor}`}>{tagText}</span></div>
-                            <div className="h-1.5 rounded-full bg-slate-200"><div className={`h-full rounded-full ${barColor}`} style={{ width }} /></div>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  </section>
-
-                  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <p className="font-display text-sm font-semibold text-slate-900">{tx('dv_compTitle')}</p>
-                    <p className="mt-2 font-display text-xl font-bold text-slate-900">{usd(compMedian)}</p>
-                    <p className="text-[11px] text-slate-500">{tx('dv_compMedianLabel')}</p>
-                    <div className="mt-3 grid grid-cols-3 gap-1 text-center text-[10px]">
-                      <div><p className="text-slate-400">25th</p><p className="font-semibold text-slate-700">{usd(compP25)}</p></div>
-                      <div><p className="text-slate-400">{tx('dv_median')}</p><p className="font-semibold text-slate-700">{usd(compMedian)}</p></div>
-                      <div><p className="text-slate-400">75th</p><p className="font-semibold text-slate-700">{usd(compP75)}</p></div>
-                    </div>
-                    <p className="mt-2 text-[10px] leading-snug text-slate-400">{tx('dv_compNote')}</p>
-                  </section>
-
-                  <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <p className="font-display text-sm font-semibold text-slate-900">{tx('dv_timelineTitle')}</p>
-                    <ol className="mt-3 space-y-2">
-                      {[tx('dv_tl1'), tx('dv_tl2'), tx('dv_tl3'), tx('dv_tl4'), tx('dv_tl5')].map((s, i) => (
-                        <li key={i} className="flex items-center gap-2 text-[11px] text-slate-600"><span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[9px] font-bold text-brand-700">{i + 1}</span>{s}</li>
-                      ))}
-                    </ol>
-                    <div className="mt-3 rounded-xl bg-brand-50 p-2 text-center">
-                      <p className="text-[10px] text-slate-500">{tx('dv_estTimeline')}</p>
-                      <p className="font-display text-base font-bold text-brand-700">{timelineMonths} {tx('dv_months')}</p>
-                    </div>
-                  </section>
-                </div>
-
-                {/* How we calculated */}
-                <details className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-xs font-semibold text-slate-700">
-                    <span className="flex items-center gap-2"><Info className="h-4 w-4 text-brand-600" aria-hidden /> {tx('dv_howCalcTitle')}</span>
-                    <ChevronDown className="h-4 w-4 text-slate-400" aria-hidden />
-                  </summary>
-                  <p className="border-t border-slate-200 px-4 py-3 text-[11px] leading-5 text-slate-500">{tx('dv_howCalcBody')}</p>
-                </details>
-              </>
-            ) : null}
-
-            {/* Edit your damage details (inputs) */}
-            <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm" open={!dvHasValue}>
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-semibold text-slate-800">
-                <span className="flex items-center gap-2"><Pencil className="h-4 w-4 text-brand-600" aria-hidden /> {dvHasValue ? tx('dv_editInputs') : tx('dv_enterInputs')}</span>
+            {/* Damage detail inputs: this is the whole step so the collapsible header
+                is hidden and the inputs show directly. */}
+            <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm" open>
+              <summary className="hidden">
+                <span className="flex items-center gap-2"><Pencil className="h-4 w-4 text-brand-600" aria-hidden /> {tx('dv_enterInputs')}</span>
                 <ChevronDown className="h-4 w-4 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
               </summary>
-              <div className="space-y-3 border-t border-slate-200 p-4">
-
-            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-slate-900 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold leading-tight">{tx('financial_completenessTitle')}</p>
-                <p className="text-xs font-bold text-slate-600">{financialProgressPercent}%</p>
-              </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
-                <div className={`h-full rounded-full transition-[width] duration-300 ${financialProgressPercent >= 67 ? 'bg-emerald-600' : financialProgressPercent >= 34 ? 'bg-amber-500' : 'bg-rose-400'}`} style={{ width: `${financialProgressPercent}%` }} />
-              </div>
-              {missingFinancialFactors.length > 0 ? (
-                <p className="mt-2 text-xs leading-5 text-slate-600">{tx('financial_need')}: {missingFinancialFactors.join(' • ')}</p>
-              ) : (
-                <p className="mt-2 text-xs leading-5 text-emerald-700">{tx('financial_completeNote')}</p>
-              )}
-            </section>
+              <div className="space-y-3 p-4">
 
             <div className="grid gap-3 lg:grid-cols-2">
               <section className="order-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -4622,45 +5332,9 @@ export default function IntakeWizardQuick() {
                   </div>
                 )}
 
-                {!!icFinancial.medicalBillRange && icFinancial.medicalBillRange !== 'not_sure' && (
-                  <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs font-semibold text-slate-700">{tx('financial_billsCompleteQuestion')}</p>
-                    <div className="mt-2 flex gap-2">
-                      {[{ value: 'yes' as const, label: tx('optionYes') }, { value: 'no' as const, label: tx('optionNo') }].map(({ value, label }) => (
-                        <button
-                          key={value}
-                          type="button"
-                          aria-pressed={icFinancial.billsComplete === value}
-                          onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, billsComplete: icFinancial.billsComplete === value ? '' : value } })}
-                          className={`rounded-lg border-[1.5px] px-3 py-1.5 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${icFinancial.billsComplete === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="mt-1.5 text-[11px] leading-4 text-slate-500">{tx('financial_billsCompleteHelper')}</p>
-                  </div>
-                )}
-
                 {showCaseValueIncrease && (
                   <p className="mt-2 rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1.5 text-xs font-semibold text-emerald-800">↑ {tx('financial_valueSignal')}</p>
                 )}
-
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('financial_futureTreatment')}</p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  {FUTURE_MEDICAL_RANGE_OPTIONS.map(({ value, label }) => (
-                    <button
-                      key={value}
-                      type="button"
-                      aria-pressed={icFinancial.futureMedicalRange === value}
-                      onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, futureMedicalRange: icFinancial.futureMedicalRange === value ? '' : value } })}
-                      className={`flex items-center gap-2 rounded-lg border-[1.5px] px-3 py-2 text-left text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${icFinancial.futureMedicalRange === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-                    >
-                      <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${icFinancial.futureMedicalRange === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent'}`}>✓</span>
-                      <span>{label}</span>
-                    </button>
-                  ))}
-                </div>
 
               </section>
 
@@ -4723,468 +5397,16 @@ export default function IntakeWizardQuick() {
             </div>
               </div>
             </details>
+            {/* Insurance & Representation merged into the Damages step. */}
+            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+              {renderInsuranceStatus()}
+            </div>
           </div>
         )
       }
 
       case 'legal_status': {
-        const icLegal = formData.insuranceCoverage
-        const cpLegal = formData.casePosture || {}
-        const setInsuranceField = (field: string, value: string) =>
-          updateForm({ insuranceCoverage: { ...icLegal, [field]: (icLegal as any)[field] === value ? '' : value } })
-        const hasAnyInsuranceSignal = Boolean(
-          icLegal.otherPartyInsured ||
-          icLegal.healthCoverage ||
-          icLegal.defendantCoverageLimits ||
-          icLegal.umUimCoverage ||
-          icLegal.pipCoverage ||
-          (icLegal.plaintiffAutoCarrier && icLegal.plaintiffAutoCarrier.trim())
-        )
-        const insurerContactValue =
-          cpLegal.settlementOfferStatus === 'yes'
-            ? 'offer'
-            : cpLegal.insuranceContact === 'yes'
-              ? 'contact_only'
-              : cpLegal.insuranceContact === 'no'
-                ? 'no'
-                : ''
-        const setInsurerContact = (value: string) => {
-          const isToggleOff = insurerContactValue === value
-          setFormData(prev => ({
-            ...prev,
-            casePosture: {
-              ...prev.casePosture,
-              insuranceContact: isToggleOff ? '' : value === 'no' ? 'no' : 'yes',
-              settlementOfferStatus: isToggleOff ? '' : value === 'offer' ? 'yes' : 'no',
-              ...(isToggleOff || value !== 'offer' ? { settlementOffer: '' } : {})
-            }
-          }))
-        }
-        const liabilityOptionsForClaim = FAULT_BELIEF_OPTIONS.map((option) => {
-          if (option.value !== 'other_party') return option
-          const label = isVehicle
-            ? tx('fault_otherDriver')
-            : isSlipFall
-              ? tx('fault_propertyOwner')
-              : isMedmal
-                ? tx('fault_provider')
-                : tx('fault_otherPartyGeneric')
-          return { ...option, label }
-        })
-        // Insurance & legal status — redesigned two-card layout with icon choices.
-        const faultIconFor = (value: string): LucideIcon =>
-          value === 'shared_fault' ? Users : value === 'not_sure' ? HelpCircle : isVehicle ? Car : Users
-        const renderChoice = (
-          active: boolean,
-          onClick: () => void,
-          Icon: LucideIcon,
-          label: string,
-          opts?: { tone?: 'emerald' | 'amber' | 'red'; stack?: boolean; key?: string }
-        ) => {
-          const iconColor = active
-            ? 'text-brand-700'
-            : opts?.tone === 'emerald'
-              ? 'text-emerald-600'
-              : opts?.tone === 'amber'
-                ? 'text-amber-500'
-                : opts?.tone === 'red'
-                  ? 'text-rose-500'
-                  : 'text-slate-400'
-          return (
-            <button
-              key={opts?.key}
-              type="button"
-              aria-pressed={active}
-              onClick={onClick}
-              className={`relative flex ${opts?.stack ? 'flex-col items-center gap-1.5 text-center' : 'items-center gap-2'} rounded-xl border-[1.5px] px-3 py-2.5 text-xs font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${active ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-            >
-              {active && <Check className="absolute right-1.5 top-1.5 h-3.5 w-3.5 text-brand-600" aria-hidden />}
-              <Icon className={`h-4 w-4 shrink-0 ${iconColor}`} aria-hidden />
-              <span>{label}</span>
-            </button>
-          )
-        }
-        const detailCard = (
-          active: boolean,
-          onClick: () => void,
-          Icon: LucideIcon,
-          title: string,
-          subtitle: string,
-          iconWrap: string,
-          key?: string
-        ) => (
-          <button
-            key={key}
-            type="button"
-            aria-pressed={active}
-            onClick={onClick}
-            className={`flex items-center gap-2.5 rounded-xl border-[1.5px] px-3 py-2.5 text-left shadow-sm transition-all active:scale-[0.99] ${active ? 'border-brand-600 bg-brand-50 shadow' : 'border-gray-200 bg-white hover:border-brand-400 hover:bg-brand-50/40 hover:shadow-md'}`}
-          >
-            <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${active ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 bg-white'}`}>
-              {active && <Check className="h-3.5 w-3.5" aria-hidden />}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-xs font-semibold leading-tight text-slate-900">{title}</span>
-              <span className="block text-[11px] leading-4 text-slate-500">{subtitle}</span>
-            </span>
-            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${iconWrap}`}><Icon className="h-4 w-4" aria-hidden /></span>
-          </button>
-        )
-        const coverageMeta: Record<string, { Icon: LucideIcon; sub: string; wrap: string }> = {
-          state_minimum: { Icon: Landmark, sub: tx('coverage_stateMinimum_sub'), wrap: 'bg-violet-100 text-violet-600' },
-          '50000': { Icon: DollarSign, sub: tx('coverage_50k_sub'), wrap: 'bg-emerald-100 text-emerald-600' },
-          '100000': { Icon: Shield, sub: tx('coverage_100k_sub'), wrap: 'bg-emerald-100 text-emerald-600' },
-          commercial_policy: { Icon: Briefcase, sub: tx('coverage_commercial_sub'), wrap: 'bg-blue-100 text-blue-600' },
-          umbrella_policy: { Icon: Umbrella, sub: tx('coverage_umbrella_sub'), wrap: 'bg-violet-100 text-violet-600' },
-          not_sure: { Icon: HelpCircle, sub: tx('coverage_notSure_sub'), wrap: 'bg-slate-100 text-slate-500' },
-        }
-        const umUimMeta: Record<string, { Icon: LucideIcon; sub: string; wrap: string }> = {
-          yes: { Icon: ShieldCheck, sub: tx('umuim_yes_sub'), wrap: 'bg-blue-100 text-blue-600' },
-          no: { Icon: XCircle, sub: tx('umuim_no_sub'), wrap: 'bg-rose-100 text-rose-500' },
-          not_sure: { Icon: HelpCircle, sub: tx('umuim_notSure_sub'), wrap: 'bg-slate-100 text-slate-500' },
-        }
-        const medPayMeta: Record<string, { Icon: LucideIcon; sub: string; wrap: string }> = {
-          yes: { Icon: ShieldCheck, sub: '', wrap: 'bg-emerald-100 text-emerald-600' },
-          no: { Icon: XCircle, sub: '', wrap: 'bg-rose-100 text-rose-500' },
-          not_sure: { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' },
-        }
-        const pipMeta: Record<string, { Icon: LucideIcon; sub: string; wrap: string }> = {
-          yes: { Icon: ShieldCheck, sub: tx('pip_yes_sub'), wrap: 'bg-emerald-100 text-emerald-600' },
-          no: { Icon: XCircle, sub: tx('pip_no_sub'), wrap: 'bg-rose-100 text-rose-500' },
-          not_sure: { Icon: HelpCircle, sub: tx('pip_notSure_sub'), wrap: 'bg-slate-100 text-slate-500' },
-        }
-        return (
-          <div className="space-y-3">
-            <div className="flex items-center justify-center gap-2 text-center">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
-              <p className="font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{tx('legal_heading')}</p>
-            </div>
-            <p className="text-center text-xs leading-5 text-gray-500">{tx('legal_helper')}</p>
-
-            <div className="grid gap-3 lg:grid-cols-2">
-              <section className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-start gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700"><Users className="h-5 w-5" aria-hidden /></span>
-                  <div className="min-w-0">
-                    <h3 className="font-display text-sm font-semibold text-slate-950">{tx('legal_caseReview')}</h3>
-                    <p className="text-xs leading-5 text-slate-500">{tx('legal_caseReviewHelper')}</p>
-                  </div>
-                </div>
-
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_responsibleQuestion')}</p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                  {liabilityOptionsForClaim.map(({ value, label }) =>
-                    renderChoice(cpLegal.faultBelief === value, () => setCasePostureField('faultBelief', value), faultIconFor(value), label, { stack: true, key: value })
-                  )}
-                </div>
-
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_partialFaultQuestion')}</p>
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  {renderChoice(cpLegal.comparativeFault === 'no', () => setCasePostureField('comparativeFault', 'no'), CheckCircle2, tx('optionNo'), { tone: 'emerald', stack: true })}
-                  {renderChoice(cpLegal.comparativeFault === 'possibly', () => setCasePostureField('comparativeFault', 'possibly'), HelpCircle, tx('optionPossibly'), { tone: 'amber', stack: true })}
-                  {renderChoice(cpLegal.comparativeFault === 'yes', () => setCasePostureField('comparativeFault', 'yes'), XCircle, tx('optionYes'), { tone: 'red', stack: true })}
-                </div>
-
-                <div className="mt-4 flex items-start gap-2 rounded-xl bg-blue-50 px-3 py-2 text-[11px] leading-5 text-blue-800">
-                  <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                  <span>{tx('legal_whyLiability')}</span>
-                </div>
-              </section>
-
-              <section className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-start gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700"><ShieldCheck className="h-5 w-5" aria-hidden /></span>
-                  <div className="min-w-0">
-                    <h3 className="font-display text-sm font-semibold text-slate-950">{tx('legal_insuranceStatus')}</h3>
-                    <p className="text-xs leading-5 text-slate-500">{tx('legal_insuranceStatusHelper')}</p>
-                  </div>
-                </div>
-
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_otherPartyInsuredQuestion')}</p>
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  {renderChoice(icLegal.otherPartyInsured === 'yes', () => setInsuranceField('otherPartyInsured', 'yes'), ShieldCheck, tx('optionYes'), { tone: 'emerald', stack: true })}
-                  {renderChoice(icLegal.otherPartyInsured === 'no', () => setInsuranceField('otherPartyInsured', 'no'), XCircle, tx('optionNo'), { tone: 'red', stack: true })}
-                  {renderChoice(icLegal.otherPartyInsured === 'unsure', () => setInsuranceField('otherPartyInsured', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
-                </div>
-
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_healthInsuranceQuestion')}</p>
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  {renderChoice(icLegal.healthCoverage === 'yes', () => setInsuranceField('healthCoverage', 'yes'), CheckCircle2, tx('optionYes'), { tone: 'emerald', stack: true })}
-                  {renderChoice(icLegal.healthCoverage === 'no', () => setInsuranceField('healthCoverage', 'no'), XCircle, tx('optionNo'), { tone: 'amber', stack: true })}
-                  {renderChoice(icLegal.healthCoverage === 'unsure', () => setInsuranceField('healthCoverage', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
-                </div>
-
-                {!hasAnyInsuranceSignal && (
-                  <div className="mt-3 flex items-start gap-2 rounded-xl border border-dashed border-violet-200 bg-violet-50/60 px-3 py-2 text-[11px] leading-5 text-violet-800">
-                    <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                    <span>{tx('legal_insuranceNudge')}</span>
-                  </div>
-                )}
-
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_insurerContactQuestion')}</p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                  {renderChoice(insurerContactValue === 'no', () => setInsurerContact('no'), Phone, tx('optionNo'))}
-                  {renderChoice(insurerContactValue === 'contact_only', () => setInsurerContact('contact_only'), Clock, tx('legal_contactNoOffer'))}
-                  {renderChoice(insurerContactValue === 'offer', () => setInsurerContact('offer'), ClipboardCheck, tx('legal_contactWithOffer'))}
-                </div>
-
-                {insurerContactValue === 'offer' && (
-                  <div className="mt-3 rounded-xl border border-brand-100 bg-brand-50/50 p-2">
-                    <p className="font-display text-xs font-semibold text-slate-950">{tx('legal_offerAmountQuestion')}</p>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      {SETTLEMENT_OFFER_OPTIONS.filter((option) => option.value !== 'no').map(({ value, label }) => (
-                        <button
-                          key={value}
-                          type="button"
-                          aria-pressed={cpLegal.settlementOffer === value}
-                          onClick={() => setCasePostureField('settlementOffer', value)}
-                          className={`flex items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-                        >
-                          <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent'}`}>✓</span>
-                          <span>{label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_attorneyQuestion')}</p>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  {ATTORNEY_STATUS_OPTIONS.map(({ value, label }) =>
-                    renderChoice(
-                      cpLegal.attorneyStatus === value,
-                      () => {
-                        setFormData(prev => ({
-                          ...prev,
-                          casePosture: {
-                            ...prev.casePosture,
-                            attorneyStatus: prev.casePosture.attorneyStatus === value ? '' : value,
-                            ...(value !== 'hired' ? { attorneyName: '', secondOpinionInterest: '' } : {})
-                          }
-                        }))
-                      },
-                      value === 'hired' ? User : UserX,
-                      label,
-                      { key: value }
-                    )
-                  )}
-                </div>
-
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_acceptedQuestion')}</p>
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  {([
-                    { value: 'no', label: tx('optionNo'), Icon: CheckCircle2, tone: 'emerald' as const },
-                    { value: 'yes', label: tx('optionYes'), Icon: CheckCircle2, tone: 'amber' as const },
-                    { value: 'not_sure', label: tx('optionNotSure'), Icon: HelpCircle, tone: undefined },
-                  ]).map(({ value, label, Icon, tone }) =>
-                    renderChoice(
-                      cpLegal.acceptedSettlement === value,
-                      () => {
-                        setFormData(prev => ({
-                          ...prev,
-                          casePosture: {
-                            ...prev.casePosture,
-                            acceptedSettlement: prev.casePosture.acceptedSettlement === value ? '' : value,
-                            ...(value !== 'yes' ? { acceptedSettlementAmount: '' } : {})
-                          }
-                        }))
-                      },
-                      Icon,
-                      label,
-                      { tone, key: value }
-                    )
-                  )}
-                </div>
-
-                {cpLegal.acceptedSettlement === 'yes' && (
-                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
-                    <p className="text-sm font-semibold">{tx('legal_settledTitle')}</p>
-                    <p className="mt-1 text-xs leading-5">⚠ {tx('legal_settledWarning')}</p>
-                  </div>
-                )}
-
-                <div className="mt-4 flex items-start gap-2 rounded-xl bg-violet-50 px-3 py-2 text-[11px] leading-5 text-violet-800">
-                  <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                  <span>{tx('legal_whyInsurance')}</span>
-                </div>
-              </section>
-            </div>
-
-            <details className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <summary className="flex cursor-pointer list-none items-center gap-3 [&::-webkit-details-marker]:hidden">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600"><ShieldCheck className="h-5 w-5" aria-hidden /></span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-display text-sm font-semibold text-slate-950">{tx('legal_insuranceDetails')}</span>
-                    <span className="block text-xs leading-5 text-slate-500">{tx('legal_insuranceDetailsSubtitle')}</span>
-                  </span>
-                  <ChevronDown className="h-5 w-5 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
-                </summary>
-                <div className="mt-4 space-y-5">
-                  <div className="border-t border-slate-100 pt-4">
-                    <div className="flex items-center gap-2">
-                      <Umbrella className="h-4 w-4 shrink-0 text-violet-500" aria-hidden />
-                      <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_coverageLimitsQuestion')}</p>
-                    </div>
-                    <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_coverageLimitsHelper')}</p>
-                    <div className="mt-3 grid gap-3 lg:grid-cols-4">
-                      <div className="grid gap-2 sm:grid-cols-2 lg:col-span-3 lg:grid-cols-3">
-                        {DEFENDANT_COVERAGE_OPTIONS.map(({ value, label }) => {
-                          const meta = coverageMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
-                          return detailCard(
-                            icLegal.defendantCoverageLimits === value,
-                            () => updateForm({ insuranceCoverage: { ...icLegal, defendantCoverageLimits: icLegal.defendantCoverageLimits === value ? '' : value } }),
-                            meta.Icon,
-                            label,
-                            meta.sub,
-                            meta.wrap,
-                            value
-                          )
-                        })}
-                      </div>
-                      <div className="flex flex-col justify-center rounded-xl bg-indigo-50 p-3 lg:col-span-1">
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-700">
-                          <Lightbulb className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whyMattersTitle')}
-                        </div>
-                        <p className="mt-1.5 text-[11px] leading-4 text-indigo-800/90">{tx('legal_whyLimits')}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {isVehicle && (
-                    <div className="border-t border-slate-100 pt-4">
-                      <div className="flex items-center gap-2">
-                        <ShieldCheck className="h-4 w-4 shrink-0 text-blue-500" aria-hidden />
-                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_umUimQuestion')}</p>
-                      </div>
-                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_umUimHelper')}</p>
-                      <div className="mt-3 grid gap-3 lg:grid-cols-4">
-                        <div className="grid gap-2 sm:grid-cols-3 lg:col-span-3">
-                          {UM_UIM_OPTIONS.map(({ value, label }) => {
-                            const meta = umUimMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
-                            return detailCard(
-                              icLegal.umUimCoverage === value,
-                              () => updateForm({ insuranceCoverage: { ...icLegal, umUimCoverage: icLegal.umUimCoverage === value ? '' : value } }),
-                              meta.Icon,
-                              label,
-                              meta.sub,
-                              meta.wrap,
-                              value
-                            )
-                          })}
-                        </div>
-                        <div className="flex flex-col justify-center rounded-xl bg-blue-50 p-3 lg:col-span-1">
-                          <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-700">
-                            <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whatUmUimTitle')}
-                          </div>
-                          <p className="mt-1.5 text-[11px] leading-4 text-blue-800/90">{tx('legal_whatUmUim')}</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {isVehicle && (
-                    <div className="border-t border-slate-100 pt-4">
-                      <div className="flex items-center gap-2">
-                        <HeartPulse className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
-                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_pipQuestion')}</p>
-                      </div>
-                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_pipHelper')}</p>
-                      <div className="mt-3 grid gap-3 lg:grid-cols-4">
-                        <div className="grid gap-2 sm:grid-cols-3 lg:col-span-3">
-                          {PIP_OPTIONS.map(({ value, label }) => {
-                            const meta = pipMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
-                            return detailCard(
-                              icLegal.pipCoverage === value,
-                              () => updateForm({ insuranceCoverage: { ...icLegal, pipCoverage: icLegal.pipCoverage === value ? '' : value } }),
-                              meta.Icon,
-                              label,
-                              meta.sub,
-                              meta.wrap,
-                              value
-                            )
-                          })}
-                        </div>
-                        <div className="flex flex-col justify-center rounded-xl bg-emerald-50 p-3 lg:col-span-1">
-                          <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
-                            <HeartPulse className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whatPipTitle')}
-                          </div>
-                          <p className="mt-1.5 text-[11px] leading-4 text-emerald-800/90">{tx('legal_whatPip')}</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {isVehicle && (
-                    <div className="border-t border-slate-100 pt-4">
-                      <div className="flex items-center gap-2">
-                        <HeartPulse className="h-4 w-4 shrink-0 text-teal-500" aria-hidden />
-                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_medPayQuestion')}</p>
-                      </div>
-                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_medPayHelper')}</p>
-                      <div className="mt-3 grid gap-3 lg:grid-cols-4">
-                        <div className="grid gap-2 sm:grid-cols-3 lg:col-span-3">
-                          {PIP_OPTIONS.map(({ value, label }) => {
-                            const meta = medPayMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
-                            return detailCard(
-                              icLegal.medPayCoverage === value,
-                              () => updateForm({ insuranceCoverage: { ...icLegal, medPayCoverage: icLegal.medPayCoverage === value ? '' : value } }),
-                              meta.Icon,
-                              label,
-                              meta.sub,
-                              meta.wrap,
-                              value
-                            )
-                          })}
-                        </div>
-                        <div className="flex flex-col justify-center rounded-xl bg-teal-50 p-3 lg:col-span-1">
-                          <div className="flex items-center gap-1.5 text-xs font-semibold text-teal-700">
-                            <HeartPulse className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whatMedPayTitle')}
-                          </div>
-                          <p className="mt-1.5 text-[11px] leading-4 text-teal-800/90">{tx('legal_whatMedPay')}</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {isVehicle && (
-                    <div className="border-t border-slate-100 pt-4">
-                      <div className="flex items-center gap-2">
-                        <Umbrella className="h-4 w-4 shrink-0 text-violet-500" aria-hidden />
-                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_plaintiffCarrierQuestion')}</p>
-                      </div>
-                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_plaintiffCarrierHelper')}</p>
-                      <input
-                        type="text"
-                        maxLength={120}
-                        value={icLegal.plaintiffAutoCarrier}
-                        onChange={(event) => updateForm({ insuranceCoverage: { ...icLegal, plaintiffAutoCarrier: event.target.value } })}
-                        placeholder={tx('legal_plaintiffCarrierPlaceholder')}
-                        className="input mt-3 w-full border-gray-300"
-                      />
-                    </div>
-                  )}
-
-                  <div className="flex flex-col gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="flex items-start gap-2 text-[11px] leading-4 text-slate-600">
-                      <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                      <span>{tx('legal_uploadInstead')}</span>
-                    </p>
-                    <button
-                      type="button"
-                      onClick={(e) => { const d = e.currentTarget.closest('details'); if (d) d.open = false }}
-                      className="inline-flex shrink-0 items-center gap-1 self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 sm:self-auto"
-                    >
-                      {tx('legal_addDetailsLater')} <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-                    </button>
-                  </div>
-
-                  <p className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
-                    <Lock className="h-3 w-3 shrink-0" aria-hidden /> {tx('legal_secureNote')}
-                  </p>
-                </div>
-              </details>
-          </div>
-        )
+        return renderInsuranceStatus()
       }
 
       case 'consent':
@@ -5303,7 +5525,8 @@ export default function IntakeWizardQuick() {
             <p className="text-center text-sm leading-snug text-gray-500 dark:text-slate-400">{tx('report_subtitle')}</p>
 
             <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+              <div className="group relative cursor-help rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/40" tabIndex={0}>
+                <Info className="absolute right-2 top-2 h-3.5 w-3.5 text-slate-300 dark:text-slate-500" aria-hidden />
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('profile_complete')}</p>
                 <div className="mt-2 flex items-center justify-center gap-3">
                   <span className="font-display text-2xl font-bold text-emerald-600">{profilePercent}%</span>
@@ -5316,26 +5539,34 @@ export default function IntakeWizardQuick() {
                 </div>
                 <p className="mt-1 text-xs text-gray-500">{tx('profile_almostDone')}</p>
                 <p className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />{tx('profile_readyReview')}</p>
+                <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-60 max-w-[80vw] -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus:opacity-100 dark:bg-slate-700">{tx('profile_completeTip')}</span>
               </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+              <div className="group relative cursor-help rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/40" tabIndex={0}>
+                <Info className="absolute right-2 top-2 h-3.5 w-3.5 text-slate-300 dark:text-slate-500" aria-hidden />
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('est_settlementRange')}</p>
                 <p className="mt-2 font-display text-xl font-bold text-emerald-700">{previewSettlementRange}</p>
                 <p className="mt-1 inline-flex items-center gap-1 text-xs text-gray-500"><Info className="h-3.5 w-3.5" aria-hidden />{tx('preliminaryEstimate')}</p>
                 <p className="mt-1 text-xs text-gray-400">{tx('est_moreAccurate')}</p>
+                <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-60 max-w-[80vw] -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus:opacity-100 dark:bg-slate-700">{tx('est_rangeTip')}</span>
               </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+              <div className="group relative cursor-help rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/40" tabIndex={0}>
+                <Info className="absolute right-2 top-2 h-3.5 w-3.5 text-slate-300 dark:text-slate-500" aria-hidden />
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('readiness_title')}</p>
                 <div className="mt-2 flex items-center justify-center gap-2">
                   <span className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-100 text-violet-600 dark:bg-violet-500/20"><Star className="h-4 w-4" aria-hidden /></span>
                   <span className="font-display text-xl font-bold text-violet-700 dark:text-violet-300">{readinessLabel}</span>
                 </div>
                 <p className="mt-1 text-xs text-gray-500">{tx('readiness_desc')}</p>
+                <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-60 max-w-[80vw] -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus:opacity-100 dark:bg-slate-700">{tx('readiness_tip')}</span>
               </div>
 
               <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-3 shadow-sm dark:border-amber-500/30 dark:bg-amber-500/5">
                 <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">{tx('strengthen_title')}</p>
+                {strengthenItems.length > 0 && (
+                  <p className="mt-1 text-[11px] leading-snug text-amber-700/80 dark:text-amber-300/80">{tx('strengthen_afterSubmit')}</p>
+                )}
                 <ul className="mt-2 space-y-1">
                   {strengthenItems.length ? strengthenItems.map((it) => (
                     <li key={it.label} className="flex w-full items-center gap-1.5 text-left text-xs font-medium text-amber-900 dark:text-amber-200">
@@ -5365,15 +5596,6 @@ export default function IntakeWizardQuick() {
                     </span>
                   </p>
                 ))}</>
-              ) })}
-              {renderCard({ title: tx('card_documents'), icon: FileText, step: 'evidence', count: tx('card_viewAllEvidence'), children: (
-                <>{docRows.map((row) => <p key={row.k} className="flex items-center justify-between gap-2"><span className="text-gray-500">{row.k}</span>{row.n > 0 ? <span className="font-medium text-emerald-700">{row.n} {row.n === 1 ? tx('card_file') : tx('card_files')}</span> : <span className="text-gray-400">{tx('evidence_notUploaded')}</span>}</p>)}</>
-              ) })}
-              {renderCard({ title: tx('card_legal'), icon: Scale, step: 'legal_status', children: (
-                <>{legalLines.map((row) => <p key={row.k} className="flex items-center justify-between gap-2"><span className="text-gray-500">{row.k}</span><span className="text-right font-medium text-gray-800 dark:text-slate-200">{row.v}</span></p>)}</>
-              ) })}
-              {renderCard({ title: tx('card_notes'), icon: Pencil, step: 'when', children: (
-                <><p className="line-clamp-3">{notesText}</p>{priorNote && <p className="mt-1 text-gray-500">{priorNote}</p>}</>
               ) })}
             </div>
 
@@ -5438,6 +5660,22 @@ export default function IntakeWizardQuick() {
     }
   }
 
+  // v2 composes merged screens. The injuries merge is handled inside renderStepContent
+  // (showSeverity/showDetails); the incident screen stitches "when" + the primary
+  // case-detail descriptor (crash type + fault party, via section1 only).
+  const renderStep = () => {
+    if (currentStep === 'when') {
+      return (
+        <div className="space-y-6">
+          {renderStepContent('when')}
+          <div className="border-t border-slate-200 pt-4 dark:border-slate-700">{renderStepContent('case_details')}</div>
+          {renderSaveProgress()}
+        </div>
+      )
+    }
+    return renderStepContent(currentStep)
+  }
+
   const stepTitles: Record<string, string> = {
     injury_type: t('intake.stepTitles_injury_type'),
     when: tx('stepTitles_incidentFacts'),
@@ -5450,6 +5688,10 @@ export default function IntakeWizardQuick() {
     legal_status: tx('stepTitles_legal_status'),
     consent: t('intake.stepTitles_consent')
   }
+  stepTitles.when = 'Incident & Location'
+  stepTitles.injury_severity = 'Your Injuries & Treatment'
+  stepTitles.financial_impact = 'Damages & Insurance'
+  stepTitles.consent = 'Review & Consent'
 
   const isFirstStep = currentStep === 'injury_type'
   const isRevisitingAnsweredStep =
@@ -5505,6 +5747,19 @@ export default function IntakeWizardQuick() {
     updateForm({ incidentDatePreset: 'custom' })
     setCurrentStep('when')
   }
+  // A file the vision precheck flagged as the wrong type (status 'mismatch' or
+  // 'review') must NOT count toward readiness until the user confirms it (dismisses
+  // the warning) or deletes it. Only files with no active flag are "valid".
+  const flaggedEvidenceNames = (cat: string): Set<string> => {
+    const items = evidenceWarnings[cat]?.items || []
+    return new Set(items.filter((w) => w.status !== 'relevant').map((w) => w.fileName))
+  }
+  const validEvidenceCount = (cat: string): number => {
+    const files = Array.isArray(pendingEvidenceFiles[cat]) ? pendingEvidenceFiles[cat] : []
+    const flagged = flaggedEvidenceNames(cat)
+    if (flagged.size === 0) return files.length
+    return files.filter((f: any) => !flagged.has(f?.originalName || f?.filename || f?.name)).length
+  }
   const evidenceStatusItems = [
     { category: 'photos', label: tx('evidence_photos'), weight: 20 },
     { category: 'video', label: tx('evidence_videos'), weight: 0 },
@@ -5517,7 +5772,7 @@ export default function IntakeWizardQuick() {
   const evidenceCompletenessScore = Math.min(
     100,
     evidenceStatusItems.reduce((score, item) => {
-      const count = pendingEvidenceFiles[item.category]?.length || 0
+      const count = validEvidenceCount(item.category)
       return count > 0 ? score + item.weight : score
     }, 0),
   )
@@ -5552,8 +5807,54 @@ export default function IntakeWizardQuick() {
         : 'early'
   const documentationSignalLabel = injuryConfidencePercent >= 70 ? 'strong' : injuryConfidencePercent >= 40 ? 'moderate' : 'early'
 
+  // Focused "Supporting Documents" (Step 6 evidence) screen for an existing case,
+  // reached from the Case Snapshot "Add documents" CTAs. Reuses the exact wizard
+  // evidence UI without the multi-step chrome, and returns to the case report.
+  if (isDocumentsMode) {
+    const backTo = assessmentId ? `/results/${assessmentId}` : '/results'
+    // Return to wherever the user opened this from (Dashboard, Case Snapshot, a
+    // requested-docs card, etc.). The prior in-app history entry is the true
+    // origin — the /evidence-upload/:id redirect uses `replace`, so it is not on
+    // the stack. Fall back to the case report only for direct/fresh loads.
+    const canGoBack = typeof window !== 'undefined' && ((window.history.state as { idx?: number } | null)?.idx ?? 0) > 0
+    const goBackToCase = () => {
+      if (canGoBack) navigate(-1)
+      else navigate(backTo)
+    }
+    return (
+      <div className="mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-[1440px] flex-col px-2 py-3 sm:px-4 md:px-8 md:py-4">
+        <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={goBackToCase}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden /> {tx('documents_backToCase')}
+          </button>
+        </div>
+        <div className="mb-4 shrink-0 text-center">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300">{tx('documents_eyebrow')}</p>
+          <h1 className="font-display text-xl font-bold leading-tight text-slate-900 dark:text-slate-50 sm:text-2xl">{tx('stepTitles_evidence')}</h1>
+          <p className="mx-auto mt-1 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">{tx('documents_subtitle')}</p>
+        </div>
+        <div className="mb-4 rounded-2xl border border-slate-200/90 bg-white p-3 shadow-card dark:border-slate-700 dark:bg-slate-900/80 sm:p-4 md:p-6">
+          {renderStepContent('evidence')}
+        </div>
+        <div className="flex shrink-0 justify-end">
+          <button
+            type="button"
+            onClick={goBackToCase}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-brand-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-800"
+          >
+            {tx('documents_done')} <ChevronRight className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-7xl flex-col overflow-visible px-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:px-4 md:min-h-[calc(100dvh-7.5rem)] md:overflow-visible md:px-8 md:py-3 ${isFirstStep ? 'py-1' : 'py-1.5 sm:py-2'}`}>
+    <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-[1440px] flex-col overflow-visible px-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:px-4 md:min-h-[calc(100dvh-7.5rem)] md:overflow-visible md:px-8 md:py-3 ${isFirstStep ? 'py-1' : 'py-1.5 sm:py-2'}`}>
       {generatingReport && (
         <ReportGeneratingOverlay
           title={tx('generatingTitle')}
@@ -5607,9 +5908,9 @@ export default function IntakeWizardQuick() {
           aria-valuenow={Math.round(progressPercent)}
           aria-label={tx('progress_ariaLabel')}
         >
-          <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden shadow-inner">
+          <div className="cc-progress">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-brand-600 to-accent-500 transition-[width] duration-300 ease-out motion-reduce:transition-none"
+              className="cc-progress-bar motion-reduce:transition-none"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
@@ -5655,8 +5956,8 @@ export default function IntakeWizardQuick() {
       {draftRestored && (
         <div className="mb-1 flex shrink-0 items-center justify-between gap-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-1.5 text-xs leading-5 text-sky-900 sm:px-4 sm:py-2 sm:text-sm">
           <span><span className="font-semibold">{tx('draft_welcomeBack')}</span> {tx('draft_savedProgress')}</span>
-          <button type="button" onClick={() => setDraftRestored(false)} aria-label={tx('draft_dismiss')} className="shrink-0 rounded-full px-1 text-sky-700 hover:text-sky-900">
-            ✕
+          <button type="button" onClick={() => setDraftRestored(false)} aria-label={tx('draft_dismiss')} className="shrink-0 rounded-full p-0.5 text-sky-700 hover:text-sky-900">
+            <X className="h-4 w-4" aria-hidden />
           </button>
         </div>
       )}
@@ -5673,7 +5974,7 @@ export default function IntakeWizardQuick() {
 
       {showSavedAnswerHint && Object.keys(errors).length === 0 && (
         <div className="mb-1 shrink-0 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs leading-5 text-emerald-900 sm:px-4 sm:text-sm">
-          <span className="font-semibold">✓ {tx('savedAnswer_title')}</span> {tx('savedAnswer_hint')}
+          <span className="inline-flex items-center gap-1 font-semibold"><Check className="h-3.5 w-3.5" aria-hidden /> {tx('savedAnswer_title')}</span> {tx('savedAnswer_hint')}
         </div>
       )}
 
@@ -5685,7 +5986,7 @@ export default function IntakeWizardQuick() {
             isRevisitingAnsweredStep ? 'border-emerald-100 bg-emerald-50 text-emerald-900' : 'invisible border-transparent'
           }`}
         >
-          <span className="font-semibold">✓ {tx('savedAnswer_title')}</span> {tx('savedAnswer_hint')}
+          <span className="inline-flex items-center gap-1 font-semibold"><Check className="h-3.5 w-3.5" aria-hidden /> {tx('savedAnswer_title')}</span> {tx('savedAnswer_hint')}
         </div>
       )}
 
@@ -5700,8 +6001,8 @@ export default function IntakeWizardQuick() {
             <span className="rounded-lg bg-white/80 px-2 py-1 font-medium text-slate-700">{tx('signal_severity')}: <strong>{tx(`signal_${injurySeveritySignalLabel}`)}</strong></span>
             <span className="rounded-lg bg-white/80 px-2 py-1 font-medium text-slate-700">{tx('signal_documentation')}: <strong>{tx(`signal_${documentationSignalLabel}`)}</strong></span>
           </div>
-          <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-white">
-            <div className="h-full rounded-full bg-brand-600 transition-[width] duration-300" style={{ width: `${injuryConfidencePercent}%` }} />
+          <div className="cc-progress mt-1.5 bg-white">
+            <div className="cc-progress-bar" style={{ width: `${injuryConfidencePercent}%` }} />
           </div>
         </div>
       )}

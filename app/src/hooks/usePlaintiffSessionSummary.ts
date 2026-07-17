@@ -45,12 +45,20 @@ export async function loadPlaintiffSessionSummary(force = false): Promise<Plaint
 
   if (inFlight) return inFlight
 
-  inFlight = Promise.all([getCurrentUser(), listAssessments()])
-    .then(([user, assessments]) => {
-      cachedSummary = {
-        user: user ?? null,
-        assessments: Array.isArray(assessments) ? assessments : [],
-      }
+  // Resolve the user and the assessment list independently. A failure fetching
+  // the assessment list (e.g. a transient error, or an endpoint that 403s on a
+  // consent-incomplete account) must NOT drop the authenticated user — otherwise
+  // a real logged-in claimant gets treated as a guest (e.g. the "create account"
+  // upsell reappears on the submitted-case screen). Only a failed /auth/me means
+  // there is genuinely no session.
+  inFlight = Promise.allSettled([getCurrentUser(), listAssessments()])
+    .then(([userResult, assessmentsResult]) => {
+      const user = userResult.status === 'fulfilled' ? userResult.value ?? null : null
+      const assessments =
+        assessmentsResult.status === 'fulfilled' && Array.isArray(assessmentsResult.value)
+          ? assessmentsResult.value
+          : []
+      cachedSummary = { user, assessments }
       cachedAt = Date.now()
       cachedSessionKey = getSessionKey()
       return cachedSummary

@@ -144,6 +144,8 @@ interface InlineEvidenceUploadProps {
   onFilesUploaded?: (files: EvidenceFile[]) => void
   /** Custom label for the primary upload button (e.g. "Upload Photos") */
   uploadButtonLabel?: string
+  /** Override the primary upload button color classes (bg/text/hover). */
+  uploadButtonColorClass?: string
   /** Impact hint shown to motivate uploads (e.g. "+10%") */
   impactHint?: string
   /** When true, always show upload area instead of toggling */
@@ -194,6 +196,7 @@ export default function InlineEvidenceUpload({
   compact = false,
   onFilesUploaded,
   uploadButtonLabel,
+  uploadButtonColorClass,
   impactHint,
   alwaysShowUpload = false,
   hideHeader = false,
@@ -1053,13 +1056,15 @@ export default function InlineEvidenceUpload({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={loading}
-                className={`inline-flex items-center justify-center rounded-md bg-brand-600 font-medium text-white hover:bg-brand-700 disabled:opacity-50 ${
-                  tight ? 'min-h-0 h-[10px] px-2.5 py-0 text-[8px] leading-none' : 'px-4 py-2 text-sm'
+                className={`inline-flex items-center justify-center rounded-md font-medium disabled:opacity-50 ${
+                  uploadButtonColorClass || 'bg-brand-600 text-white hover:bg-brand-700'
+                } ${
+                  tight ? 'min-h-0 h-[26px] gap-1 px-3 py-0 text-[11px] font-semibold leading-none shadow-sm ring-1 ring-black/5 transition-transform hover:-translate-y-px' : 'px-4 py-2 text-sm'
                 } ${
                   hideCameraButton ? 'w-full' : ''
                 }`}
               >
-                <Upload className={`mr-1 shrink-0 ${tight ? 'h-2 w-2' : 'mr-2 h-4 w-4'}`} />
+                <Upload className={`shrink-0 ${tight ? 'h-3 w-3' : 'mr-2 h-4 w-4'}`} />
                 {uploadButtonLabel || 'Upload Files'}
               </button>
 

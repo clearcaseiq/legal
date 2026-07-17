@@ -24,6 +24,17 @@
     scroll-behavior: smooth;
   }
 
+  /* Hide the native date picker indicator; a styled calendar button triggers it instead. */
+  .date-input-clean::-webkit-calendar-picker-indicator {
+    display: none;
+    -webkit-appearance: none;
+    opacity: 0;
+  }
+  .date-input-clean::-webkit-inner-spin-button,
+  .date-input-clean::-webkit-clear-button {
+    display: none;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     html {
       scroll-behavior: auto;
@@ -311,5 +322,70 @@
 
   .link-underline {
     @apply text-brand-700 dark:text-brand-400 underline decoration-brand-300 dark:decoration-brand-600 underline-offset-4 hover:text-brand-800 dark:hover:text-brand-300;
+  }
+
+  /* Reusable amber CTA (extracted from the one-off Home hero gradient) so the
+     whole claimant funnel can share a single primary call-to-action. */
+  .btn-cta {
+    @apply pressable inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-6 py-3 text-center text-base font-bold text-white shadow-lg shadow-accent-500/25 ring-1 ring-white/20 transition-[filter,box-shadow] hover:brightness-[1.05] hover:shadow-xl hover:shadow-accent-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900;
+  }
+
+  /* One progress-bar treatment for the claimant funnel (intake + results). */
+  .cc-progress {
+    @apply h-2 w-full overflow-hidden rounded-full bg-slate-200/90 shadow-inner dark:bg-slate-700;
+  }
+
+  .cc-progress-bar {
+    @apply h-full rounded-full bg-gradient-to-r from-brand-600 to-accent-500 transition-[width] duration-300 ease-out;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Claimant-scoped visual polish. These override the shared component classes
+   ONLY within `.claimant-theme` (applied by Layout on non-attorney/admin
+   routes), so the attorney workspace keeps its current look untouched.
+--------------------------------------------------------------------------- */
+@layer components {
+  .claimant-theme .btn-primary {
+    @apply rounded-xl px-5 py-2.5 text-sm font-semibold bg-brand-700 hover:bg-brand-800 shadow-[0_1px_2px_rgba(15,23,42,0.08),0_6px_16px_-8px_rgba(42,70,101,0.5)];
+  }
+
+  .claimant-theme .btn-secondary {
+    @apply rounded-xl px-5 py-2.5 text-sm font-semibold bg-white text-brand-800 border border-brand-200 hover:bg-brand-50 dark:bg-slate-800 dark:text-brand-200 dark:border-slate-700;
+  }
+
+  .claimant-theme .btn-outline {
+    @apply rounded-xl px-5 py-2.5 text-sm font-semibold border-slate-300 text-slate-700 hover:bg-slate-50 hover:border-slate-400;
+  }
+
+  .claimant-theme .btn-ghost {
+    @apply rounded-xl px-4 py-2.5 text-sm font-semibold;
+  }
+
+  .claimant-theme .card {
+    @apply rounded-2xl border-slate-200/80 p-6 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_10px_30px_-16px_rgba(15,23,42,0.18)] hover:shadow-[0_2px_6px_rgba(15,23,42,0.06),0_16px_40px_-18px_rgba(15,23,42,0.22)];
+  }
+
+  .claimant-theme .surface-panel,
+  .claimant-theme .subtle-panel {
+    @apply rounded-2xl border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_10px_30px_-16px_rgba(15,23,42,0.16)];
+  }
+
+  .claimant-theme .premium-panel {
+    @apply rounded-3xl border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_18px_50px_-24px_rgba(15,23,42,0.22)];
+  }
+
+  .claimant-theme .metric-card {
+    @apply rounded-2xl border-slate-200/80 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_8px_24px_-16px_rgba(15,23,42,0.16)];
+  }
+
+  .claimant-theme .input,
+  .claimant-theme .select,
+  .claimant-theme .textarea {
+    @apply rounded-xl px-3.5 py-2.5 border-slate-300 shadow-sm focus-visible:border-brand-500 focus-visible:ring-brand-500/30;
+  }
+
+  .claimant-theme .workspace-tab {
+    @apply rounded-xl;
   }
 }

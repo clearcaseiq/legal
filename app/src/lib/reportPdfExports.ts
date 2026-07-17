@@ -20,6 +20,8 @@ type ResultsReportInput = {
   incidentDate: string
   caseStrengthScore: number
   successProbability: number
+  overallQualityScore?: string
+  overallQualityLabel?: string
   evidenceCompletionPercent: number
   solRemaining: string
   solDeadline?: string | null
@@ -27,8 +29,22 @@ type ResultsReportInput = {
   settlementRangeText: string
   settlementExpectedText: string
   estimateConfidenceLevel: string
+  valuationMissingInputs?: string[]
   trialValueText: string
   trialExpectedText: string
+  netRecovery?: {
+    settlementText: string
+    attorneyFeeText: string
+    medicalLiensLabel: string
+    medicalLiensText: string
+    caseExpensesText: string
+    totalText: string
+    exhausted: boolean
+  } | null
+  litigationCosts?: {
+    items: { label: string; amountText: string; litigated: boolean }[]
+    totalText: string
+  } | null
   liabilityLabel: string
   liabilitySummary: string
   liabilityChecklist: { label: string; ok: boolean }[]
@@ -40,10 +56,13 @@ type ResultsReportInput = {
   medicalSummary: string
   treatmentTimeline: { label: string; detail: string }[]
   attorneyInterestWord: string
+  attorneyInterestPercent?: number
   attorneyInterestSummary: string
   attorneyInterestMissing: string[]
+  attorneyMatches?: { name: string; detail: string; meta: string; score: string }[]
   caseDetails: { label: string; value: string; tone: ToneKey; desc: string }[]
   topActions: { title: string; desc: string; boost: string }[]
+  nextSteps?: { title: string; desc: string; done: boolean; optional: boolean }[]
   aiSummaryBullets: string[]
   valueDrivers: { label: string; level: string }[]
   deadlineWarning?: string | null
@@ -568,10 +587,32 @@ export async function downloadResultsCaseReportPdf(input: ResultsReportInput) {
   // ---- Key metric cards ----
   drawStatCards(doc, [
     { label: 'Case Strength', value: `${input.caseStrengthScore}/100`, color: COLORS.brand },
-    { label: 'Success Probability', value: `${input.successProbability}%`, color: COLORS.emerald },
+    input.overallQualityScore
+      ? { label: `Overall Quality${input.overallQualityLabel ? ` (${input.overallQualityLabel})` : ''}`, value: `${input.overallQualityScore}/10`, color: COLORS.emerald }
+      : { label: 'Success Probability', value: `${input.successProbability}%`, color: COLORS.emerald },
     { label: 'Documentation', value: `${input.evidenceCompletionPercent}%`, color: COLORS.ink },
     { label: 'Time to File', value: input.solRemaining, color: COLORS.amber },
   ])
+
+  // ---- Your next steps ----
+  if (input.nextSteps && input.nextSteps.length) {
+    drawSectionTitle(doc, 'Your Next Steps')
+    const steps = makeBlock()
+    input.nextSteps.forEach((step, i) => {
+      if (i > 0) steps.gap(4)
+      const status = step.done ? 'Done' : step.optional ? 'Optional' : 'Next'
+      const statusColor = step.done ? COLORS.emerald : step.optional ? COLORS.faint : COLORS.brand
+      steps.row(`${i + 1}. ${step.title}`, status, {
+        size: 10.5,
+        leftFont: 'F2',
+        leftColor: step.done ? COLORS.muted : COLORS.ink,
+        rightColor: statusColor,
+        badge: step.done ? COLORS.emeraldSoft : step.optional ? undefined : COLORS.brandSoft,
+      })
+      steps.wrapped(step.desc, { size: 9, color: COLORS.muted, indent: 12 })
+    })
+    drawPanel(doc, steps, { accent: COLORS.brand })
+  }
 
   // ---- Settlement estimate ----
   drawSectionTitle(doc, 'Settlement Estimate')
@@ -579,12 +620,60 @@ export async function downloadResultsCaseReportPdf(input: ResultsReportInput) {
   settle.row('Most likely range', input.settlementRangeText, { rightColor: COLORS.emerald, size: 12 })
   settle.row('Most likely amount', input.settlementExpectedText, { rightColor: COLORS.ink })
   settle.row('Confidence', input.estimateConfidenceLevel, { rightColor: COLORS.ink })
+  if (input.valuationMissingInputs && input.valuationMissingInputs.length) {
+    settle.gap(2)
+    settle.wrapped(
+      `Preliminary estimate. This range will sharpen once you add: ${input.valuationMissingInputs.slice(0, 3).join(', ')}.`,
+      { size: 9, color: COLORS.amber }
+    )
+  }
   settle.divider()
   settle.text('IF YOUR CASE GOES TO TRIAL', { font: 'F2', size: 8, color: COLORS.muted })
   settle.row('Trial range', input.trialValueText, { rightColor: COLORS.ink })
   settle.row('Trial most likely', input.trialExpectedText, { rightColor: COLORS.ink })
   settle.wrapped('Trials can result in higher awards, but carry more time, risk, and uncertainty, and may be limited by collectability or policy limits.', { size: 9, color: COLORS.muted })
   drawPanel(doc, settle, { accent: COLORS.emerald })
+
+  // ---- Estimated net recovery ("take-home") ----
+  if (input.netRecovery) {
+    drawSectionTitle(doc, 'Estimated Net Recovery')
+    const net = makeBlock()
+    net.wrapped("What you might take home after typical deductions from your most likely settlement.", { size: 9.5, color: COLORS.muted })
+    net.gap(2)
+    net.row('Settlement (most likely)', input.netRecovery.settlementText, { size: 10.5, rightColor: COLORS.ink })
+    net.row('Attorney fee (contingency)', `- ${input.netRecovery.attorneyFeeText}`, { size: 10.5, rightColor: COLORS.rose })
+    net.row(input.netRecovery.medicalLiensLabel, `- ${input.netRecovery.medicalLiensText}`, { size: 10.5, rightColor: COLORS.rose })
+    net.row('Case expenses', `- ${input.netRecovery.caseExpensesText}`, { size: 10.5, rightColor: COLORS.rose })
+    net.divider()
+    net.row('Estimated net to you', input.netRecovery.totalText, {
+      size: 12,
+      leftFont: 'F2',
+      leftColor: COLORS.ink,
+      rightColor: input.netRecovery.exhausted ? COLORS.amber : COLORS.emerald,
+    })
+    net.gap(2)
+    net.wrapped(
+      input.netRecovery.exhausted
+        ? 'At this estimated range, fees, liens, and expenses may absorb most of the settlement. In a contingency case you never pay more than you recover.'
+        : 'Illustrative only. Actual fees, liens, and expenses vary by case and firm.',
+      { size: 9, color: input.netRecovery.exhausted ? COLORS.amber : COLORS.faint }
+    )
+    drawPanel(doc, net, { accent: COLORS.emerald })
+  }
+
+  // ---- Potential litigation costs ----
+  if (input.litigationCosts && input.litigationCosts.items.length) {
+    drawSectionTitle(doc, 'Potential Litigation Costs')
+    const costs = makeBlock()
+    costs.wrapped('Typical case costs. Deposition and expert items apply only if the case is actively litigated.', { size: 9.5, color: COLORS.muted })
+    costs.gap(2)
+    for (const item of input.litigationCosts.items) {
+      costs.row(`${item.label}${item.litigated ? ' (if litigated)' : ''}`, item.amountText, { size: 10.5, leftColor: COLORS.ink, rightColor: COLORS.ink })
+    }
+    costs.divider()
+    costs.row('Estimated total', input.litigationCosts.totalText, { size: 11, leftFont: 'F2', leftColor: COLORS.ink, rightColor: COLORS.ink })
+    drawPanel(doc, costs)
+  }
 
   // ---- Liability ----
   drawSectionTitle(doc, 'Liability')
@@ -639,6 +728,9 @@ export async function downloadResultsCaseReportPdf(input: ResultsReportInput) {
   drawSectionTitle(doc, 'Attorney Interest')
   const atty = makeBlock()
   atty.row('Interest level', input.attorneyInterestWord, { rightColor: COLORS.violet, badge: COLORS.violetSoft })
+  if (typeof input.attorneyInterestPercent === 'number') {
+    atty.row('Interest strength', `${input.attorneyInterestPercent}%`, { size: 10, rightColor: COLORS.violet })
+  }
   atty.wrapped(input.attorneyInterestSummary, { size: 10, color: COLORS.ink })
   if (input.attorneyInterestMissing.length) {
     atty.gap(4)
@@ -646,6 +738,21 @@ export async function downloadResultsCaseReportPdf(input: ResultsReportInput) {
     for (const item of input.attorneyInterestMissing) atty.bullet(item, { size: 10, markColor: COLORS.amber, color: COLORS.ink })
   }
   drawPanel(doc, atty, { accent: COLORS.violet })
+
+  // ---- Likely attorney matches ----
+  if (input.attorneyMatches && input.attorneyMatches.length) {
+    drawSectionTitle(doc, 'Likely Attorney Matches')
+    const matches = makeBlock()
+    matches.wrapped('Attorneys who handle cases like yours, ranked by fit. Consultations are free with no obligation.', { size: 9.5, color: COLORS.muted })
+    matches.gap(2)
+    input.attorneyMatches.forEach((m, i) => {
+      if (i > 0) matches.divider()
+      matches.row(m.name, m.score, { size: 10.5, leftFont: 'F2', leftColor: COLORS.ink, rightColor: COLORS.emerald, badge: COLORS.emeraldSoft })
+      if (m.detail) matches.wrapped(m.detail, { size: 9, color: COLORS.muted })
+      if (m.meta) matches.wrapped(m.meta, { size: 9, color: COLORS.faint })
+    })
+    drawPanel(doc, matches, { accent: COLORS.brand })
+  }
 
   // ---- Case details breakdown ----
   drawSectionTitle(doc, 'Case Details Breakdown')
