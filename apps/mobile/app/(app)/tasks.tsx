@@ -23,6 +23,22 @@ import { formatClaimType, leadLabel, leadMeta } from '../../src/lib/formatLead'
 type Section = { title: string; data: TaskSummaryItem[] }
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
 
+const PRIORITY_RANK: Record<string, number> = { urgent: 3, high: 2, medium: 1, low: 0 }
+
+// Mirror the web workspace ordering: due date (soonest/overdue first, undated last),
+// then priority, then title, so same-date tasks keep a stable, predictable order.
+function sortTasksByDue(items: TaskSummaryItem[]): TaskSummaryItem[] {
+  return [...items].sort((a, b) => {
+    const at = a.dueDate ? new Date(a.dueDate).getTime() : Number.POSITIVE_INFINITY
+    const bt = b.dueDate ? new Date(b.dueDate).getTime() : Number.POSITIVE_INFINITY
+    if (at !== bt) return at - bt
+    const ap = PRIORITY_RANK[String(a.priority || '').toLowerCase()] ?? -1
+    const bp = PRIORITY_RANK[String(b.priority || '').toLowerCase()] ?? -1
+    if (ap !== bp) return bp - ap
+    return String(a.title || '').localeCompare(String(b.title || ''))
+  })
+}
+
 export default function TasksScreen() {
   const [sections, setSections] = useState<Section[]>([])
   const [loading, setLoading] = useState(true)
@@ -44,10 +60,10 @@ export default function TasksScreen() {
     try {
       const s = await getTasksSummary()
       const next: Section[] = []
-      if (s.overdue?.length) next.push({ title: 'Overdue', data: s.overdue })
-      if (s.today?.length) next.push({ title: 'Due today', data: s.today })
-      if (s.upcoming?.length) next.push({ title: 'Upcoming', data: s.upcoming })
-      if (s.noDueDate?.length) next.push({ title: 'No due date', data: s.noDueDate })
+      if (s.overdue?.length) next.push({ title: 'Overdue', data: sortTasksByDue(s.overdue) })
+      if (s.today?.length) next.push({ title: 'Due today', data: sortTasksByDue(s.today) })
+      if (s.upcoming?.length) next.push({ title: 'Upcoming', data: sortTasksByDue(s.upcoming) })
+      if (s.noDueDate?.length) next.push({ title: 'No due date', data: sortTasksByDue(s.noDueDate) })
       setSections(next)
     } catch (err: unknown) {
       setSections([])

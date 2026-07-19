@@ -20,6 +20,9 @@ export const ENV = {
   JWT_SECRET: req('JWT_SECRET'),
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN ?? '7d',
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  // Anthropic Claude (optional) — used for narrative → structured incident extraction.
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? 'claude-3-5-haiku-latest',
   ML_SERVICE_URL: process.env.ML_SERVICE_URL,
   ML_PREDICTION_MODE: process.env.ML_PREDICTION_MODE ?? 'fallback',
   ML_REQUEST_TIMEOUT_MS: Number(process.env.ML_REQUEST_TIMEOUT_MS ?? 5000),

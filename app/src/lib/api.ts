@@ -444,6 +444,23 @@ export async function calculateSOL(incidentDate: string, venue: { state: string;
   return data
 }
 
+// Incident narrative -> structured details (best-effort; extraction may be null)
+export interface IncidentExtraction {
+  crashType: 'rear_end' | 'side_impact' | 'head_on' | 'left_turn' | 'multi_vehicle' | 'pedestrian' | 'bicycle' | 'not_sure' | null
+  atFault: 'other_driver' | 'shared' | 'not_sure' | null
+  isVehicle: boolean
+  policeReport: 'yes' | 'no' | 'unknown'
+  witnesses: 'yes' | 'no' | 'unknown'
+  photos: 'yes' | 'no' | 'unknown'
+  summary: string
+  confidence: number
+}
+
+export async function extractIncidentDetails(narrative: string, injuryType?: string): Promise<IncidentExtraction | null> {
+  const { data } = await api.post('/v1/incident-extraction', { narrative, injuryType })
+  return (data?.extraction ?? null) as IncidentExtraction | null
+}
+
 export async function getSOLRules(state: string) {
   const { data } = await api.get(`/v1/sol/rules/${state}`)
   return data

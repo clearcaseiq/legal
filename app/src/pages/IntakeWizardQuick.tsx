@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, type IntakeLeadPayload } from '../lib/api-plaintiff'
-import { deleteEvidenceFile } from '../lib/api'
+import { deleteEvidenceFile, extractIncidentDetails, type IncidentExtraction } from '../lib/api'
 import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, X, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -907,6 +907,14 @@ export default function IntakeWizardQuick() {
   const [customDate, setCustomDate] = useState('')
   const [detectedLocation, setDetectedLocation] = useState<{ city: string; county: string; state: string } | null>(null)
   const [locationAccepted, setLocationAccepted] = useState(false)
+  // AI narrative extraction ("Detect details"): status + last result + which
+  // narrative text produced it (so a stale card clears when the story changes).
+  const [detecting, setDetecting] = useState(false)
+  const [detection, setDetection] = useState<IncidentExtraction | null>(null)
+  const [detectionSourceText, setDetectionSourceText] = useState('')
+  const [detectionApplied, setDetectionApplied] = useState(false)
+  const [detectionDismissed, setDetectionDismissed] = useState(false)
+  const [detectionError, setDetectionError] = useState(false)
   const [solPreview, setSolPreview] = useState<any>(null)
   const [solPreviewError, setSolPreviewError] = useState<string | null>(null)
   const [furthestReachedStepIndex, setFurthestReachedStepIndex] = useState(0)
@@ -2214,6 +2222,47 @@ export default function IntakeWizardQuick() {
     }
   }
 
+  // Ask Claude to turn the free-text narrative into structured incident facts.
+  // Best-effort: any failure silently clears (the manual flow still works).
+  const runIncidentDetection = async () => {
+    const text = formData.narrative.trim()
+    if (text.length < 20 || detecting) return
+    setDetecting(true)
+    setDetectionError(false)
+    setDetectionDismissed(false)
+    setDetectionApplied(false)
+    try {
+      const result = await extractIncidentDetails(text, formData.injuryType || undefined)
+      if (result) {
+        setDetection(result)
+        setDetectionSourceText(text)
+      } else {
+        setDetection(null)
+        setDetectionError(true)
+      }
+    } catch {
+      setDetection(null)
+      setDetectionError(true)
+    } finally {
+      setDetecting(false)
+    }
+  }
+
+  // "Looks right" — fold detected crash/fault into the form so they flow into
+  // the estimate (the same fields the old Accident Details screen set).
+  const applyDetection = () => {
+    if (!detection) return
+    setFormData(prev => ({
+      ...prev,
+      branch: {
+        ...prev.branch,
+        ...(detection.crashType ? { crashType: detection.crashType } : {}),
+        ...(detection.atFault ? { faultParty: detection.atFault } : {}),
+      },
+    }))
+    setDetectionApplied(true)
+  }
+
   const toggleMedicalTreatment = (v: string) => {
     setFormData(prev => {
       const medicalTreatment =
@@ -2698,16 +2747,13 @@ export default function IntakeWizardQuick() {
         }
     return (
       <div className="space-y-3">
-              <section className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-start gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700"><ShieldCheck className="h-5 w-5" aria-hidden /></span>
-                  <div className="min-w-0">
-                    <h3 className="font-display text-sm font-semibold text-slate-950">{tx('legal_insuranceStatus')}</h3>
-                    <p className="text-xs leading-5 text-slate-500">{tx('legal_insuranceStatusHelper')}</p>
-                  </div>
+              <section className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
+                  <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_insurance')}</h3>
                 </div>
 
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_otherPartyInsuredQuestion')}</p>
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_otherPartyInsuredQuestion')}</p>
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   {renderChoice(icLegal.otherPartyInsured === 'yes', () => setInsuranceField('otherPartyInsured', 'yes'), ShieldCheck, tx('optionYes'), { tone: 'emerald', stack: true })}
                   {renderChoice(icLegal.otherPartyInsured === 'no', () => setInsuranceField('otherPartyInsured', 'no'), XCircle, tx('optionNo'), { tone: 'red', stack: true })}
@@ -2727,8 +2773,15 @@ export default function IntakeWizardQuick() {
                     <span>{tx('legal_insuranceNudge')}</span>
                   </div>
                 )}
+              </section>
 
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_insurerContactQuestion')}</p>
+              <section className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Scale className="h-4 w-4" aria-hidden /></span>
+                  <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_legalStatus')}</h3>
+                </div>
+
+                <p className="mt-4 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_insurerContactQuestion')}</p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
                   {renderChoice(insurerContactValue === 'no', () => setInsurerContact('no'), Phone, tx('optionNo'))}
                   {renderChoice(insurerContactValue === 'contact_only', () => setInsurerContact('contact_only'), Clock, tx('legal_contactNoOffer'))}
@@ -2809,11 +2862,6 @@ export default function IntakeWizardQuick() {
                     <p className="mt-1 text-xs leading-5">⚠ {tx('legal_settledWarning')}</p>
                   </div>
                 )}
-
-                <div className="mt-4 flex items-start gap-2 rounded-xl bg-violet-50 px-3 py-2 text-[11px] leading-5 text-violet-800">
-                  <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                  <span>{tx('legal_whyInsurance')}</span>
-                </div>
               </section>
             <details className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <summary className="flex cursor-pointer list-none items-center gap-3 [&::-webkit-details-marker]:hidden">
@@ -3112,7 +3160,7 @@ export default function IntakeWizardQuick() {
           <div className="w-full">
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-6">
               {/* Main form */}
-              <div className="space-y-5">
+              <div className="space-y-6">
                 {/* Mobile-only: collapsed "Why we ask this" so the rail does not add a long scroll under the form */}
                 <details className="group rounded-xl border border-slate-200 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-800/40 lg:hidden">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-semibold text-gray-900 dark:text-slate-100">
@@ -3131,30 +3179,26 @@ export default function IntakeWizardQuick() {
                     ))}
                   </div>
                 </details>
-                {/* Sections 1 (When) + 2 (Where) share a row on large screens to cut scrolling.
-                    "When" only needs ~18rem (date box + presets), so give the rest to "Where"
-                    — a tighter "When" track + smaller gap pulls "Where" further left. */}
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:gap-5 lg:items-start">
-                {/* Section 1: When */}
+                {/* ===== Band 1: Incident Basics (required) — When, Where, Who stacked ===== */}
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><MapPin className="h-4 w-4" aria-hidden /></span>
+                  <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('band_basics')}</h3>
+                  <span className="ml-auto rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-600 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300">{tx('band_required')}</span>
+                </div>
+                <div className="space-y-4">
+                {/* When */}
                 <div>
-                  <div className="flex items-start gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
-                      <CalendarDays className="h-5 w-5" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="whitespace-nowrap font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">1. {tx('when_heading')}</p>
-                      <p className="mt-0.5 whitespace-nowrap text-xs leading-snug text-gray-500 sm:text-sm">{tx('when_helper')}</p>
-                    </div>
-                  </div>
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><CalendarDays className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('when_heading')}</p>
+                  <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('when_helper')}</p>
                   {/* When + Where now share a row, so the "When" column is only half-width.
                       Stack the deadline card BELOW the date field/presets (rather than beside
                       them) so the date box and preset buttons keep their full width. */}
-                  <div className="mt-2 space-y-3 sm:pl-12">
+                  <div className="mt-2 space-y-3">
                     <div>
-                      {/* Date box + presets stack and share a width so the column lines up. */}
-                      <div className="flex flex-col gap-2 max-w-[18rem]">
+                      {/* Date box + presets span three-quarters width (reduced by 1/4 from full). */}
+                      <div className="flex w-3/4 flex-col gap-2">
                       {/* Exact date drives the filing deadline, so lead with it. */}
-                      <div className={`group relative w-full rounded-xl border bg-white py-2 pl-3.5 pr-2.5 shadow-sm transition-all focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/25 dark:bg-slate-900/40 ${errors.incidentDate ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-300 hover:border-slate-400 dark:border-slate-600 dark:hover:border-slate-500'}`}>
+                      <div className={`group relative w-full rounded-xl border bg-white py-1 pl-3.5 pr-2.5 shadow-sm transition-all focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/25 dark:bg-slate-900/40 ${errors.incidentDate ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-300 hover:border-slate-400 dark:border-slate-600 dark:hover:border-slate-500'}`}>
                         <div className="flex items-center gap-3">
                           <div className="min-w-0 flex-1">
                             <label htmlFor="incident-exact-date" className="block !text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">{tx('when_selectDate')}</label>
@@ -3181,14 +3225,14 @@ export default function IntakeWizardQuick() {
                               if (el?.showPicker) el.showPicker()
                               else el?.focus()
                             }}
-                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 transition-colors hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-300 dark:hover:bg-brand-500/25"
+                            className="flex h-8 w-14 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 transition-colors hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-300 dark:hover:bg-brand-500/25"
                           >
                             <CalendarDays className="h-5 w-5" aria-hidden />
                           </button>
                         </div>
                       </div>
-                      {/* Quick date presets: 2x2 grid of equal-size buttons */}
-                      <div className="grid w-full grid-cols-2 gap-1.5">
+                      {/* Quick date presets: single row of equal-size buttons */}
+                      <div className="grid w-full grid-cols-4 gap-1.5">
                         {datePresets.map(p => {
                           const active = formData.incidentDatePreset === 'custom' && customDate === p.iso
                           return (
@@ -3213,18 +3257,11 @@ export default function IntakeWizardQuick() {
                   </div>
                 </div>
 
-                {/* Section 2: Where */}
+                {/* Where */}
                 <div>
-                  <div className="flex items-start gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
-                      <MapPin className="h-5 w-5" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">2. {t('intake.where')}</p>
-                      <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{t('intake.whereHelp')}</p>
-                    </div>
-                  </div>
-                  <div className="mt-2 sm:pl-12">
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><MapPin className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {t('intake.where')}</p>
+                  <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{t('intake.whereHelp')}</p>
+                  <div className="mt-2">
                     {detectedLocation && !locationAccepted && !formData.venue.state && (
                       <div className="mb-3 flex w-fit max-w-full flex-wrap items-center gap-2.5 rounded-xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white px-3 py-2 shadow-sm dark:border-brand-500/30 dark:from-brand-500/10 dark:to-slate-900/20">
                         <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-brand-600 shadow-sm ring-1 ring-brand-100 dark:bg-slate-800 dark:text-brand-300 dark:ring-brand-500/30">
@@ -3306,7 +3343,7 @@ export default function IntakeWizardQuick() {
                 {/* Estimated filing deadline: full-width banner across the When + Where
                     columns, laid out on two lines (headline row + estimate note). */}
                 {hasFilingDeadline && (
-                  <div className="lg:col-span-2 w-fit max-w-full rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-1.5 dark:border-emerald-500/30 dark:bg-emerald-500/10 sm:ml-12">
+                  <div className="w-fit max-w-full rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-1.5 dark:border-emerald-500/30 dark:bg-emerald-500/10">
                     <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
                       <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
                         <CalendarClock className="h-3.5 w-3.5 shrink-0 self-center" aria-hidden /> {tx('sol_estimatedFilingDeadline')}
@@ -3321,20 +3358,11 @@ export default function IntakeWizardQuick() {
                     <p className="mt-0.5 text-[11px] leading-snug text-emerald-700/80 dark:text-emerald-300/80">{tx('whenCard_estimateNote').replace('{state}', venueStateName || tx('whenCard_yourState'))}</p>
                   </div>
                 )}
-                </div>
-
-                {/* Section 3: This happened to */}
-                <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-                  <div className="flex items-start gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
-                      <Users className="h-5 w-5" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">3. {tx('injuredParty_heading')}</p>
-                      <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('injuredParty_helper')}</p>
-                    </div>
-                  </div>
-                  <div className="mt-2 sm:pl-12">
+                {/* Who was injured */}
+                <div>
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Users className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('injuredParty_heading')}</p>
+                  <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('injuredParty_helper')}</p>
+                  <div className="mt-2">
                     <select
                       id="injuredParty-when"
                       value={formData.injuredParty}
@@ -3348,27 +3376,27 @@ export default function IntakeWizardQuick() {
                     </select>
                   </div>
                 </div>
+                </div>
 
-                {/* Section 4: Briefly describe what happened */}
-                <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-                  <div className="flex items-start gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
-                      <MessageSquare className="h-5 w-5" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">4. {tx('narrative_heading')}</p>
-                      <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('narrative_helper')}</p>
-                    </div>
-                  </div>
-                  <div className="mt-2 sm:pl-12">
+                {/* ===== Band 2: Tell us what happened (recommended) ===== */}
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><MessageSquare className="h-4 w-4" aria-hidden /></span>
+                  <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('band_story')}</h3>
+                  <span className="ml-auto rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-600 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300">{tx('band_recommended')}</span>
+                </div>
+                {/* Narrative */}
+                <div>
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><MessageSquare className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('narrative_heading')}</p>
+                  <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('narrative_helper')}</p>
+                  <div className="mt-2">
                     <div className="relative">
                       <textarea
                         value={formData.narrative}
                         onChange={e => updateForm({ narrative: e.target.value.slice(0, NARRATIVE_MAX) })}
                         placeholder={narrativePlaceholder}
-                        rows={3}
+                        rows={5}
                         maxLength={NARRATIVE_MAX}
-                        className="input w-full resize-none rounded-xl border-gray-300 py-3 pb-7 text-base leading-relaxed !min-h-[6rem] focus-visible:ring-inset focus-visible:ring-offset-0"
+                        className="input w-full resize-none rounded-xl border-gray-300 py-3 pb-7 text-base leading-relaxed !min-h-[9rem] focus-visible:ring-inset focus-visible:ring-offset-0"
                       />
                       <span className="pointer-events-none absolute bottom-2 right-3 text-[11px] tabular-nums text-gray-400">
                         {narrativeLen} / {NARRATIVE_MAX}
@@ -3387,23 +3415,87 @@ export default function IntakeWizardQuick() {
                         ))}
                       </div>
                     </div>
+                    {/* AI: turn the free-text story into structured details the claimant confirms */}
+                    {formData.narrative.trim().length >= 20 && (() => {
+                      const current = formData.narrative.trim()
+                      const showCard = !!detection && !detectionDismissed && detectionSourceText === current
+                      if (showCard && detection) {
+                        const crashLabel = detection.crashType ? tx('vehicle_' + detection.crashType) : null
+                        const faultLabel = detection.atFault === 'other_driver' ? tx('fault_otherDriver') : detection.atFault === 'shared' ? tx('fault_shared') : detection.atFault === 'not_sure' ? tx('optionNotSure') : null
+                        const missing = [
+                          detection.policeReport !== 'yes' ? tx('ai_police') : null,
+                          detection.witnesses !== 'yes' ? tx('ai_witnesses') : null,
+                          detection.photos !== 'yes' ? tx('ai_photos') : null,
+                        ].filter(Boolean) as string[]
+                        return (
+                          <div className="mt-3 rounded-xl border border-brand-200 bg-brand-50/60 p-3 dark:border-brand-500/30 dark:bg-brand-500/10">
+                            <div className="flex items-center gap-2">
+                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Sparkles className="h-3.5 w-3.5" aria-hidden /></span>
+                              <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('ai_detectedTitle')}</p>
+                            </div>
+                            {detection.summary && (
+                              <p className="mt-2 text-sm leading-snug text-slate-700 dark:text-slate-200"><span className="font-semibold">{tx('ai_summaryLabel')}:</span> {detection.summary}</p>
+                            )}
+                            {(crashLabel || faultLabel) && (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {crashLabel && <span className="inline-flex items-center gap-1 rounded-full border border-brand-200 bg-white px-2.5 py-1 text-xs font-medium text-brand-700 dark:border-brand-500/30 dark:bg-slate-900/40 dark:text-brand-300"><Car className="h-3.5 w-3.5" aria-hidden /> {tx('ai_crashLabel')}: {crashLabel}</span>}
+                                {faultLabel && <span className="inline-flex items-center gap-1 rounded-full border border-brand-200 bg-white px-2.5 py-1 text-xs font-medium text-brand-700 dark:border-brand-500/30 dark:bg-slate-900/40 dark:text-brand-300"><Scale className="h-3.5 w-3.5" aria-hidden /> {tx('ai_faultLabel')}: {faultLabel}</span>}
+                              </div>
+                            )}
+                            {missing.length > 0 && (
+                              <div className="mt-2.5">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{tx('ai_missingTitle')}</p>
+                                <div className="mt-1 flex flex-wrap gap-1.5">
+                                  {missing.map(m => (
+                                    <span key={m} className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-300"><Camera className="h-3.5 w-3.5" aria-hidden /> {m}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {detectionApplied ? (
+                              <p className="mt-3 flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden /> {tx('ai_applied')}</p>
+                            ) : (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button type="button" onClick={applyDetection} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700">
+                                  <Check className="h-4 w-4" aria-hidden /> {tx('ai_looksRight')}
+                                </button>
+                                <button type="button" onClick={() => setDetectionDismissed(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-300">
+                                  {tx('ai_dismiss')}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      }
+                      return (
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            onClick={runIncidentDetection}
+                            disabled={detecting}
+                            className="inline-flex items-center gap-2 rounded-xl border border-brand-300 bg-white px-3 py-2 text-sm font-semibold text-brand-700 shadow-sm transition-colors hover:border-brand-400 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-brand-500/40 dark:bg-slate-900/40 dark:text-brand-300 dark:hover:bg-slate-800"
+                          >
+                            {detecting ? <RotateCw className="h-4 w-4 animate-spin" aria-hidden /> : <Sparkles className="h-4 w-4" aria-hidden />}
+                            {detecting ? tx('ai_detecting') : tx('ai_detectCta')}
+                          </button>
+                          <p className={`mt-1.5 text-[11px] ${detectionError ? 'text-slate-500' : 'text-slate-400'}`}>{detectionError ? tx('ai_error') : tx('ai_detectHint')}</p>
+                        </div>
+                      )
+                    })()}
                   </div>
                 </div>
 
-                {/* Section 5: What treatment have you received? */}
-                <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-                  <div className="flex items-start gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15">
-                      <Stethoscope className="h-5 w-5" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100 sm:text-[17px]">5. {tx('treatment_heading')}</p>
-                      </div>
-                      <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('treatment_helper')}</p>
-                    </div>
-                  </div>
-                  <div className="mt-2 sm:pl-12">
+                {/* ===== Band 3: Medical Care (required) ===== */}
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Stethoscope className="h-4 w-4" aria-hidden /></span>
+                  <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('band_medical')}</h3>
+                  <span className="ml-auto rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-600 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300">{tx('band_required')}</span>
+                </div>
+                {/* Treatment */}
+                <div>
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Stethoscope className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('treatment_heading')}</p>
+                  <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('treatment_helper')}</p>
+                  <div className="mt-2">
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
                       {MEDICAL_TREATMENT_OPTIONS.map(({ value }) => {
                         const Icon = TREATMENT_ICONS[value] ?? Check
@@ -3620,9 +3712,15 @@ export default function IntakeWizardQuick() {
 
             {showSeverity && (
             <>
-            {/* 1. How serious are your injuries? */}
-            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader icon={mergeInjuries ? undefined : HeartPulse} number={1} title={t('intake.injurySeverity')} helper={tx('injurySeverity_helper')} />
+            {/* ===== Card 1: Your Injury ===== */}
+            <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><HeartPulse className="h-4 w-4" aria-hidden /></span>
+                <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_yourInjury')}</h3>
+              </div>
+            {/* Severity */}
+            <div>
+              <SectionHeader icon={HeartPulse} title={t('intake.injurySeverity')} helper={tx('injurySeverity_helper')} />
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
                 {INJURY_SEVERITY_OPTIONS.map(({ value, labelKey }) => {
                   const { main, desc } = splitLabel(t(`intake.${labelKey}`))
@@ -3657,9 +3755,9 @@ export default function IntakeWizardQuick() {
               {errors.injurySeverity && <p className="mt-2 text-xs text-red-600">{errors.injurySeverity}</p>}
             </div>
 
-            {/* 2. Where are you injured? */}
+            {/* Body parts */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={2} title={tx('injuryDetails_whereInjured')} helper={tx('injuryDetails_whereInjuredHelper')} />
+              <SectionHeader icon={Bone} title={tx('injuryDetails_whereInjured')} helper={tx('injuryDetails_whereInjuredHelper')} />
               <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                 {BODY_PART_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.bodyParts.includes(value)
@@ -3742,14 +3840,21 @@ export default function IntakeWizardQuick() {
                 </div>
               )}
             </div>
+            </div>{/* end Card 1 */}
 
             </>
             )}
             {showDetails && (
             <>
-            {/* 1. Treatment received — recap of step 2 selections + only the extra imaging detail (de-duped) */}
-            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={detailsSectionBase + 1} title={tx('injuryDetails_treatmentReceived')} />
+            {/* ===== Card 2: Medical Care ===== */}
+            <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Stethoscope className="h-4 w-4" aria-hidden /></span>
+                <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_medicalCare')}</h3>
+              </div>
+            {/* Treatment received recap + imaging */}
+            <div>
+              <SectionHeader icon={Stethoscope} title={tx('injuryDetails_treatmentReceived')} />
               <p className="mt-2 text-xs font-semibold text-gray-600 dark:text-slate-300">{tx('injuryDetails_treatmentRecapTitle')}</p>
               {(() => {
                 const picked = MEDICAL_TREATMENT_OPTIONS.filter(o => o.value !== 'none' && formData.medicalTreatment.includes(o.value))
@@ -3785,9 +3890,9 @@ export default function IntakeWizardQuick() {
               </div>
             </div>
 
-            {/* 3. Diagnoses */}
+            {/* Diagnoses */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={detailsSectionBase + 2} title={tx('injuryDetails_diagnosesQuestion')} helper={tx('injuryDetails_diagnosesHelper')} />
+              <SectionHeader icon={ClipboardCheck} title={tx('injuryDetails_diagnosesQuestion')} helper={tx('injuryDetails_diagnosesHelper')} />
               <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 {DIAGNOSIS_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.diagnoses.includes(value)
@@ -3801,11 +3906,19 @@ export default function IntakeWizardQuick() {
                   )
                 })}
               </div>
+              <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-snug text-gray-400 dark:text-slate-500"><HelpCircle className="mt-px h-3 w-3 shrink-0" aria-hidden />{tx('injuryDetails_notSureNote')}</p>
             </div>
+            </div>{/* end Card 2 */}
 
-            {/* 4. Current symptoms */}
-            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={detailsSectionBase + 3} title={tx('injuryDetails_currentSymptomsQuestion')} helper={tx('injuryDetails_selectAllApply')} />
+            {/* ===== Card 3: How You're Feeling ===== */}
+            <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Activity className="h-4 w-4" aria-hidden /></span>
+                <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_howFeeling')}</h3>
+              </div>
+            {/* Symptoms */}
+            <div>
+              <SectionHeader icon={HeartPulse} title={tx('injuryDetails_currentSymptomsQuestion')} helper={tx('injuryDetails_selectAllApply')} />
               <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                 {CURRENT_SYMPTOM_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.currentSymptoms.includes(value)
@@ -3819,11 +3932,12 @@ export default function IntakeWizardQuick() {
                   )
                 })}
               </div>
+              <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-snug text-gray-400 dark:text-slate-500"><HelpCircle className="mt-px h-3 w-3 shrink-0" aria-hidden />{tx('injuryDetails_notSureNote')}</p>
             </div>
 
-            {/* 5. Recovery status */}
+            {/* Recovery */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={detailsSectionBase + 4} title={tx('injuryDetails_recoveryQuestion')} />
+              <SectionHeader icon={Activity} title={tx('injuryDetails_recoveryQuestion')} />
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {RECOVERY_STATUS_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.recoveryStatus === value
@@ -3837,9 +3951,9 @@ export default function IntakeWizardQuick() {
               </div>
             </div>
 
-            {/* 6. Impact on daily life */}
+            {/* Daily life */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader number={detailsSectionBase + 5} title={tx('injuryDetails_dailyLifeQuestion')} helper={tx('injuryDetails_dailyLifeHelper')} />
+              <SectionHeader icon={Briefcase} title={tx('injuryDetails_dailyLifeQuestion')} helper={tx('injuryDetails_dailyLifeHelper')} />
               <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
                 {LIFE_AREA_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.lifestyleImpact.includes(value)
@@ -3868,8 +3982,9 @@ export default function IntakeWizardQuick() {
                 />
               </div>
             </div>
+            </div>{/* end Card 3 */}
 
-            {/* AI summary */}
+            {/* ===== Card 4: AI summary ===== */}
             <div className="rounded-2xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
               <div className="flex items-center gap-2">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Sparkles className="h-4 w-4" aria-hidden /></span>
@@ -5281,23 +5396,32 @@ export default function IntakeWizardQuick() {
               <h2 className="font-display text-lg font-bold text-slate-900 dark:text-slate-100 sm:text-xl">{tx('dv_titleSimple')}</h2>
             </div>
 
+            {/* Live "current assessment" strip (reuses the computed confidence model) */}
+            <div className={`mx-auto flex w-full max-w-xl items-center gap-3 rounded-xl border px-3 py-2 ${confScore >= 78 ? 'border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/30 dark:bg-emerald-500/10' : confScore >= 52 ? 'border-amber-200 bg-amber-50/70 dark:border-amber-500/30 dark:bg-amber-500/10' : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`}>
+              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${confScore >= 78 ? 'bg-emerald-500' : confScore >= 52 ? 'bg-amber-500' : 'bg-slate-400'}`} aria-hidden />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{tx('dv_currentAssessment')}: <span className={confScore >= 78 ? 'text-emerald-700 dark:text-emerald-300' : confScore >= 52 ? 'text-amber-700 dark:text-amber-300' : 'text-slate-600 dark:text-slate-300'}>{confLabel}</span></span>
+                  <span className="text-xs font-semibold tabular-nums text-slate-500 dark:text-slate-400">{confScore}%</span>
+                </div>
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                  <div className={`h-full rounded-full transition-all ${confScore >= 78 ? 'bg-emerald-500' : confScore >= 52 ? 'bg-amber-500' : 'bg-slate-400'}`} style={{ width: `${ringPct}%` }} />
+                </div>
+              </div>
+            </div>
 
-            {/* Damage detail inputs: this is the whole step so the collapsible header
-                is hidden and the inputs show directly. */}
-            <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm" open>
-              <summary className="hidden">
-                <span className="flex items-center gap-2"><Pencil className="h-4 w-4 text-brand-600" aria-hidden /> {tx('dv_enterInputs')}</span>
-                <ChevronDown className="h-4 w-4 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
-              </summary>
-              <div className="space-y-3 p-4">
+            {/* ===== Card: Financial Impact ===== */}
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><DollarSign className="h-4 w-4" aria-hidden /></span>
+                <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_financialImpact')}</h3>
+              </div>
 
-            <div className="grid gap-3 lg:grid-cols-2">
-              <section className="order-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="order-1">
                 <SectionHeader icon={DollarSign} accent="emerald" title={tx('financial_medicalCosts')} helper={tx('financial_medicalCostsHelper')} />
 
-                <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-4 text-slate-600">{tx('financial_estimateNote')}</p>
-
-                <p className="mt-3 font-display text-sm font-semibold text-slate-950">{tx('financial_billsSoFar')}</p>
+                <p className="mt-3 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('financial_billsSoFar')}</p>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   {medicalBillCards.map(({ value, label }) => (
                     <button
@@ -5336,9 +5460,9 @@ export default function IntakeWizardQuick() {
                   <p className="mt-2 rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1.5 text-xs font-semibold text-emerald-800">↑ {tx('financial_valueSignal')}</p>
                 )}
 
-              </section>
+              </div>
 
-              <section className="order-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="order-2 border-t border-slate-200 pt-4 dark:border-slate-700 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
                 <SectionHeader icon={Briefcase} accent="brand" title={tx('financial_workImpact')} helper={tx('financial_workImpactHelper')} />
                 <div className="mt-3 grid gap-2">
                   {MISSED_WORK_OPTIONS.map(({ value, label }) => (
@@ -5393,12 +5517,11 @@ export default function IntakeWizardQuick() {
                   </div>
                 )}
 
-              </section>
-            </div>
               </div>
-            </details>
+            </div>
+            </section>
             {/* Insurance & Representation merged into the Damages step. */}
-            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+            <div>
               {renderInsuranceStatus()}
             </div>
           </div>
@@ -5503,6 +5626,52 @@ export default function IntakeWizardQuick() {
           const notesText = formData.narrative.trim() || tx('notAnsweredYet')
           const priorNote = formData.injuryDetails.priorInjury ? `${tx('sum_prior')}: ${labelForValue(PRIOR_INJURY_OPTIONS, formData.injuryDetails.priorInjury)}` : null
 
+          // ---- Case strength / readiness / AI insights (rule-based; reuses answers) ----
+          const csImagingDone = formData.injuryDetails.imaging.filter(v => v !== 'none').length > 0 || ['mri', 'ct_scan', 'xray'].some(v => formData.medicalTreatment.includes(v))
+          const csHasBills = !!formData.insuranceCoverage.medicalBillRange || billsDocTotal > 0 || evCount('bills') > 0
+          const csHasPolice = evCount('police_report') > 0
+          const csHasWages = !!formData.casePosture.missedWork && formData.casePosture.missedWork !== 'no'
+          const csLiabilityFav = formData.casePosture.faultBelief === 'other_party'
+          const csHasTreatment = formData.medicalTreatment.length > 0
+          const strengthFactorDefs: { label: string; met: boolean; weight: number }[] = [
+            { label: tx('cs_factorTreatment'), met: csHasTreatment, weight: 20 },
+            { label: tx('cs_factorBills'), met: csHasBills, weight: 15 },
+            { label: usesPoliceReportLabel(formData.injuryType) ? tx('cs_factorPolice') : tx('cs_factorIncident'), met: csHasPolice, weight: 20 },
+            { label: tx('cs_factorLiability'), met: csLiabilityFav, weight: 20 },
+            { label: tx('cs_factorImaging'), met: csImagingDone, weight: 15 },
+            { label: tx('cs_factorWages'), met: csHasWages, weight: 10 },
+          ]
+          const caseStrengthScore = strengthFactorDefs.reduce((a, f) => a + (f.met ? f.weight : 0), 0)
+          const caseStrengthStars = Math.max(1, Math.min(5, Math.round(caseStrengthScore / 20)))
+          const caseStrengthLabel = caseStrengthScore >= 80 ? tx('cs_strong') : caseStrengthScore >= 55 ? tx('cs_good') : caseStrengthScore >= 35 ? tx('cs_moderate') : tx('cs_building')
+          const missingFactors = strengthFactorDefs.filter(f => !f.met)
+          const attorneyReadinessPct = Math.min(95, Math.round(caseStrengthScore * 0.85 + 12))
+          const confidencePct = previewConfidence === 'high' ? 85 : previewConfidence === 'moderate' ? 60 : 35
+          const confidenceText = previewConfidence === 'high' ? tx('dv_confHigh') : previewConfidence === 'moderate' ? tx('dv_confMedium') : tx('dv_confLow')
+          const settlementBreakdown = ([
+            previewMedicalBillEstimate > 0 ? { k: tx('br_medical'), v: fmtMoney(previewMedicalBillEstimate) } : null,
+            previewFutureMedicalEstimate > 0 ? { k: tx('br_future'), v: fmtMoney(previewFutureMedicalEstimate) } : null,
+            previewWageLossEstimate > 0 ? { k: tx('br_wages'), v: fmtMoney(previewWageLossEstimate) } : null,
+          ].filter(Boolean) as { k: string; v: string }[])
+          const aiInsights = ([
+            (formData.injuryType === 'vehicle' && formData.branch?.crashType === 'rear_end') ? tx('ai_ins_rearEnd') : null,
+            csHasTreatment ? tx('ai_ins_treatment') : null,
+            !csImagingDone ? tx('ai_ins_noImaging') : null,
+            csLiabilityFav ? tx('ai_ins_liability') : null,
+            !csHasPolice ? tx('ai_ins_noPolice') : null,
+            csHasWages ? tx('ai_ins_wages') : null,
+          ].filter(Boolean) as string[]).slice(0, 4)
+          const planItems: { label: string; done: boolean; step?: Step }[] = [
+            { label: tx('plan_intakeComplete'), done: true },
+            { label: tx('cs_factorTreatment'), done: csHasTreatment, step: 'injury_severity' as Step },
+            { label: usesPoliceReportLabel(formData.injuryType) ? tx('cs_factorPolice') : tx('cs_factorIncident'), done: csHasPolice, step: 'evidence' as Step },
+            { label: tx('cs_factorBills'), done: csHasBills, step: 'financial_impact' as Step },
+            { label: tx('cs_factorImaging'), done: csImagingDone, step: 'evidence' as Step },
+          ]
+          const planDone = planItems.filter(p => p.done).length
+          const planPct = Math.round((planDone / planItems.length) * 100)
+          const whatNextSteps = [tx('next_s1'), tx('next_s2'), tx('next_s3'), tx('next_s4'), tx('next_s5')]
+
           const renderCard = (opts: { title: string; icon: LucideIcon; step: Step; count?: string; children: ReactNode }) => {
             const { title, icon: Icon, step, count, children } = opts
             return (
@@ -5522,9 +5691,70 @@ export default function IntakeWizardQuick() {
 
         return (
           <div className="space-y-3">
-            <p className="text-center text-sm leading-snug text-gray-500 dark:text-slate-400">{tx('report_subtitle')}</p>
+            {/* Completion delight */}
+            <div className="flex items-center justify-center gap-2.5 rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-2.5 text-center dark:border-emerald-500/30 dark:bg-emerald-500/10">
+              <span className="text-xl" aria-hidden>🎉</span>
+              <div>
+                <p className="font-display text-sm font-bold text-emerald-800 dark:text-emerald-200">{tx('delight_title')}</p>
+                <p className="text-xs leading-snug text-emerald-700/80 dark:text-emerald-300/80">{tx('delight_body')}</p>
+              </div>
+            </div>
 
-            <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+            {/* ===== HERO: settlement estimate + case strength ===== */}
+            <section className="overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white shadow-sm dark:border-emerald-500/30 dark:from-emerald-500/10 dark:to-slate-900/40">
+              <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[1.5fr_1fr]">
+                {/* Estimated settlement */}
+                <div className="lg:border-r lg:border-emerald-100 lg:pr-5 dark:lg:border-emerald-500/20">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">{tx('hero_estSettlement')}</p>
+                  <p className="mt-1 font-display text-3xl font-extrabold leading-none text-emerald-700 dark:text-emerald-300 sm:text-4xl">{previewSettlementRange}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="flex items-center gap-0.5">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <Star key={i} className={`h-4 w-4 ${i < caseStrengthStars ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-600'}`} aria-hidden />
+                      ))}
+                    </span>
+                    <span className="text-xs font-medium text-slate-600 dark:text-slate-300">{tx('hero_confidence')}: <span className="font-semibold">{confidenceText}</span></span>
+                  </div>
+                  <div className="group relative mt-2 max-w-xs cursor-help">
+                    <div className="h-2 overflow-hidden rounded-full bg-emerald-100 dark:bg-emerald-500/20"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${confidencePct}%` }} /></div>
+                    <span role="tooltip" className="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-60 max-w-[80vw] rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 dark:bg-slate-700">{tx('hero_confTip')}</span>
+                  </div>
+                  <p className="mt-2 text-xs leading-snug text-slate-500 dark:text-slate-400">{tx('hero_rangeNote')}</p>
+                  {settlementBreakdown.length > 0 && (
+                    <details className="group mt-3">
+                      <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 dark:text-emerald-300 [&::-webkit-details-marker]:hidden">
+                        <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" aria-hidden />{tx('hero_why')}
+                      </summary>
+                      <div className="mt-2 space-y-1 rounded-xl border border-emerald-100 bg-white/70 p-2.5 dark:border-emerald-500/20 dark:bg-slate-900/40">
+                        {settlementBreakdown.map(row => (
+                          <p key={row.k} className="flex items-center justify-between gap-2 text-xs"><span className="text-slate-500 dark:text-slate-400">{row.k}</span><span className="font-semibold text-slate-800 dark:text-slate-200">{row.v}</span></p>
+                        ))}
+                        <p className="flex items-center gap-1.5 pt-1 text-[11px] text-slate-400"><Info className="h-3 w-3 shrink-0" aria-hidden />{tx('br_painSuffering')} · {tx('br_liabilityVenue')}</p>
+                      </div>
+                    </details>
+                  )}
+                </div>
+                {/* Case strength + readiness */}
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/40">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('cs_title')}</p>
+                    <p className="mt-0.5 font-display text-2xl font-bold text-slate-900 dark:text-slate-100">{caseStrengthScore} <span className="text-sm font-semibold text-slate-400">/ 100</span></p>
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <span className="flex items-center gap-0.5">{Array.from({ length: 5 }).map((_, i) => <Star key={i} className={`h-3 w-3 ${i < caseStrengthStars ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-600'}`} aria-hidden />)}</span>
+                      <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">{caseStrengthLabel}</span>
+                    </div>
+                    <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">{tx('cs_strongReview')}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/40">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('readiness_title')}</p>
+                    <p className="mt-0.5 font-display text-2xl font-bold text-violet-700 dark:text-violet-300">{attorneyReadinessPct}%</p>
+                    <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">{tx('readiness_pctDesc')}</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <div className="hidden" aria-hidden>
               <div className="group relative cursor-help rounded-2xl border border-slate-200 bg-white p-3 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900/40" tabIndex={0}>
                 <Info className="absolute right-2 top-2 h-3.5 w-3.5 text-slate-300 dark:text-slate-500" aria-hidden />
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('profile_complete')}</p>
@@ -5599,6 +5829,24 @@ export default function IntakeWizardQuick() {
               ) })}
             </div>
 
+            {/* AI Case Insights */}
+            {aiInsights.length > 0 && (
+              <div className="rounded-2xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Sparkles className="h-4 w-4" aria-hidden /></span>
+                  <div>
+                    <p className="font-display text-sm font-bold text-gray-900 dark:text-slate-100">{tx('aiins_title')}</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{tx('aiins_intro')}</p>
+                  </div>
+                </div>
+                <ul className="mt-2.5 space-y-1.5">
+                  {aiInsights.map((ins) => (
+                    <li key={ins} className="flex items-start gap-2 text-[13px] leading-snug text-gray-700 dark:text-slate-300"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" aria-hidden />{ins}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <section className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/5">
               <p className="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300"><ShieldCheck className="h-4 w-4" aria-hidden />{tx('report_includeTitle')}</p>
               <ul className="mt-2 grid gap-1.5 text-xs text-emerald-900/90 dark:text-emerald-200 sm:grid-cols-2 lg:grid-cols-3">
@@ -5609,6 +5857,7 @@ export default function IntakeWizardQuick() {
             </section>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+              <p className="mb-2 font-display text-sm font-bold text-slate-900 dark:text-slate-100">{tx('consent_beforeTitle')}</p>
               <div className="grid gap-2 sm:grid-cols-2">
                 <label className={`flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2 transition-all ${consents.tos && consents.privacy ? 'border-brand-300 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-200 bg-slate-50 hover:border-brand-200 dark:border-slate-700 dark:bg-slate-800/40'}`}>
                   <input type="checkbox" checked={!!(consents.tos && consents.privacy)} onChange={e => { const checked = e.target.checked; updateForm({ consents: { ...consents, tos: checked, privacy: checked } }) }} className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600" />
@@ -5668,7 +5917,6 @@ export default function IntakeWizardQuick() {
       return (
         <div className="space-y-6">
           {renderStepContent('when')}
-          <div className="border-t border-slate-200 pt-4 dark:border-slate-700">{renderStepContent('case_details')}</div>
           {renderSaveProgress()}
         </div>
       )
@@ -5881,8 +6129,10 @@ export default function IntakeWizardQuick() {
           </p>
         )}
         <div className="mt-1 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 tabular-nums sm:text-sm">
-          <span>
-            {t('intake.step')} {currentStepIndex + 1} {t('intake.of')} {visibleSteps.length}
+          <span className="flex items-center gap-2">
+            <span className="font-semibold text-brand-700 dark:text-brand-300">{progressPercent}% {tx('progress_completeLabel')}</span>
+            <span className="text-slate-300 dark:text-slate-600">·</span>
+            <span>{t('intake.step')} {currentStepIndex + 1} {t('intake.of')} {visibleSteps.length}</span>
           </span>
           <span className="flex items-center gap-3">
             <span>
@@ -6064,14 +6314,14 @@ export default function IntakeWizardQuick() {
             disabled={loading}
             className="min-h-10 rounded-lg bg-accent-600 px-5 py-2 text-sm font-semibold text-white shadow-md transition-all hover:bg-accent-700 hover:shadow-lg disabled:opacity-50 sm:min-h-11 sm:rounded-xl sm:px-6"
           >
-            {loading ? t('intake.submitting') : tx('viewMyReport')}
+            {loading ? t('intake.submitting') : tx('cta_generateReport')}
           </button>
         ) : currentStep === 'when' && (formData.incidentDatePreset === 'custom' || formData.incidentDatePreset === 'month_year') ? (
           <button
             type="button"
             onClick={validateAndNext}
             disabled={formData.incidentDatePreset === 'custom' ? !customDate : !formData.incidentDate}
-            className="inline-flex min-h-10 items-center justify-center rounded-lg bg-accent-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-accent-700 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-11 sm:rounded-xl sm:px-6"
+            className="inline-flex min-h-10 items-center justify-center rounded-lg bg-accent-600 px-6 py-2.5 text-sm font-bold text-white shadow-md transition-all hover:bg-accent-700 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-11 sm:rounded-xl sm:px-6"
           >
             {t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
           </button>
@@ -6087,7 +6337,7 @@ export default function IntakeWizardQuick() {
             <button
               type="button"
               onClick={validateAndNext}
-              className="inline-flex min-h-10 items-center justify-center rounded-lg bg-accent-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-accent-700 sm:min-h-11 sm:rounded-xl sm:px-6"
+              className="inline-flex min-h-10 items-center justify-center rounded-lg bg-accent-600 px-6 py-2.5 text-sm font-bold text-white shadow-md transition-all hover:bg-accent-700 hover:shadow-lg sm:min-h-11 sm:rounded-xl sm:px-6"
             >
               {t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
             </button>
@@ -6096,9 +6346,9 @@ export default function IntakeWizardQuick() {
           <button
             type="button"
             onClick={validateAndNext}
-            className="inline-flex min-h-10 items-center justify-center rounded-lg bg-accent-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-accent-700 sm:min-h-11 sm:rounded-xl sm:px-6"
+            className="inline-flex min-h-10 items-center justify-center rounded-lg bg-accent-600 px-6 py-2.5 text-sm font-bold text-white shadow-md transition-all hover:bg-accent-700 hover:shadow-lg sm:min-h-11 sm:rounded-xl sm:px-6"
           >
-            {t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
+            {currentStep === 'financial_impact' ? tx('cta_continueReview') : t('common.next')} <ChevronRight className="h-4 w-4 ml-1" aria-hidden />
           </button>
         )}
       </div>

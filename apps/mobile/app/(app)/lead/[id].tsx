@@ -28,6 +28,7 @@ import {
   createSolTask,
   getLeadCommandCenter,
   getLeadNegotiations,
+  getTasksSummary,
   reviewLeadEvidenceFile,
   runConflictCheck,
   toAbsoluteApiUrl,
@@ -36,6 +37,7 @@ import {
   type LeadEvidenceFile,
   type LeadQualityDetails,
   type NegotiationEvent,
+  type TaskSummaryItem,
 } from '../../../src/lib/api'
 import { InlineErrorBanner } from '../../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../../src/components/ScreenState'
@@ -94,6 +96,7 @@ export default function LeadDetailScreen() {
   } | null>(null)
   const [commandCenter, setCommandCenter] = useState<any>(null)
   const [negotiations, setNegotiations] = useState<NegotiationEvent[]>([])
+  const [caseTasks, setCaseTasks] = useState<TaskSummaryItem[]>([])
   const [actionBusy, setActionBusy] = useState<string | null>(null)
   const [plaintiffStatusOpen, setPlaintiffStatusOpen] = useState(false)
   const [plaintiffStatus, setPlaintiffStatus] = useState<(typeof PLAINTIFF_STATUSES)[number]['value']>('UNDER_REVIEW')
@@ -126,12 +129,24 @@ export default function LeadDetailScreen() {
       getLeadNegotiations(id)
         .then(setNegotiations)
         .catch(() => setNegotiations([]))
+      getTasksSummary()
+        .then((summary) => {
+          const all = [
+            ...(summary.overdue || []),
+            ...(summary.today || []),
+            ...(summary.upcoming || []),
+            ...(summary.noDueDate || []),
+          ]
+          setCaseTasks(all.filter((task) => task.leadId === id))
+        })
+        .catch(() => setCaseTasks([]))
     } catch (err: unknown) {
       setLead(null)
       setEvidenceFiles([])
       setLeadQuality(null)
       setCommandCenter(null)
       setNegotiations([])
+      setCaseTasks([])
       setLoadError(getApiErrorMessage(err))
     } finally {
       setLoading(false)
@@ -256,6 +271,27 @@ export default function LeadDetailScreen() {
   const lifecycleState = (lead?.lifecycleState || '').toLowerCase()
   const canDecide = status === 'submitted'
   const lifecycleLabel = formatLifecycleState(lead?.lifecycleState)
+
+  // Case overview (mirrors the web workspace Overview/Info: timeline, status, tasks, case info).
+  const openedAtRaw = lead?.submittedAt || assessment?.createdAt || lead?.createdAt || null
+  const retainedAtRaw = lead?.retainedAt || null
+  const stageLabelText = lifecycleLabel || formatStatus(lead?.status) || 'No stage'
+  const daysOpen = useMemo(() => {
+    if (!openedAtRaw) return null
+    const opened = new Date(openedAtRaw).getTime()
+    if (!Number.isFinite(opened)) return null
+    return Math.max(0, Math.floor((Date.now() - opened) / 86400000))
+  }, [openedAtRaw])
+  const todayStartMs = useMemo(() => new Date(new Date().setHours(0, 0, 0, 0)).getTime(), [])
+  const caseTasksNext30 = useMemo(() => {
+    const horizon = Date.now() + 30 * 86400000
+    return caseTasks
+      .filter((task) => task.dueDate && String(task.status || '').toLowerCase() !== 'done')
+      .map((task) => ({ ...task, ts: new Date(task.dueDate as string).getTime() }))
+      .filter((task) => Number.isFinite(task.ts) && task.ts <= horizon)
+      .sort((a, b) => a.ts - b.ts)
+  }, [caseTasks])
+  const venueText = [assessment.venueCounty, assessment.venueState].filter(Boolean).join(', ') || '—'
   const lifecycleHelp =
     lifecycleState === 'manual_review_needed'
       ? 'Routing moved to manual review. A coordinator may intervene before this case is sent back out.'
@@ -726,6 +762,87 @@ export default function LeadDetailScreen() {
         </View>
 
         <View style={styles.card}>
+          <Text style={styles.cardTitle}>Case overview</Text>
+
+          <View style={styles.overviewHeaderRow}>
+            <Text style={styles.overviewLabel}>Case timeline</Text>
+            <Text style={styles.overviewMuted}>{daysOpen != null ? `${daysOpen} days open` : '—'}</Text>
+          </View>
+          <View style={styles.timelineMetaRow}>
+            <Text style={styles.timelineMeta}>Opened {fmtFull(openedAtRaw)}</Text>
+            <Text style={styles.timelineMeta}>Today</Text>
+          </View>
+          <View style={styles.timelineBarTrack}>
+            <View style={styles.timelineBarFill}>
+              <Text style={styles.timelineBarText} numberOfLines={1}>
+                {stageLabelText}{daysOpen != null ? ` · ${daysOpen} days` : ''}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.overviewBlock}>
+            <Text style={styles.overviewLabel}>Status</Text>
+            <View style={styles.stageChip}>
+              <Text style={styles.stageChipText}>{stageLabelText}</Text>
+            </View>
+            {retainedAtRaw ? <Text style={styles.timelineMeta}>Retained {fmtFull(retainedAtRaw)}</Text> : null}
+          </View>
+
+          <View style={styles.overviewBlock}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.overviewLabel}>Tasks (next 30 days)</Text>
+              <TouchableOpacity
+                onPress={() => router.push('/(app)/tasks')}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.viewAllLink}>View all</Text>
+              </TouchableOpacity>
+            </View>
+            {caseTasksNext30.length > 0 ? (
+              caseTasksNext30.slice(0, 4).map((task) => {
+                const overdue = task.ts < todayStartMs
+                return (
+                  <TouchableOpacity
+                    key={task.id}
+                    style={styles.taskRow}
+                    onPress={() => router.push('/(app)/tasks')}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name={overdue ? 'alert-circle' : 'ellipse-outline'}
+                      size={16}
+                      color={overdue ? colors.danger : colors.primary}
+                    />
+                    <View style={styles.taskRowBody}>
+                      <Text style={styles.taskRowTitle} numberOfLines={1}>{task.title}</Text>
+                      <Text style={[styles.taskRowMeta, overdue && styles.taskRowMetaOverdue]}>
+                        {overdue ? 'Overdue · ' : 'Due '}{fmtFull(task.dueDate)}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+                  </TouchableOpacity>
+                )
+              })
+            ) : (
+              <Text style={styles.emptyOverviewText}>No tasks due in the next 30 days.</Text>
+            )}
+          </View>
+
+          <View style={styles.overviewBlock}>
+            <Text style={styles.overviewLabel}>Case information</Text>
+            <InfoLine label="Name" value={plaintiff || '—'} />
+            <InfoLine label="Case type" value={formatClaimType(assessment.claimType) || '—'} />
+            <InfoLine label="Venue" value={venueText} />
+            <InfoLine label="Stage" value={stageLabelText} />
+            <InfoLine label="Date opened" value={fmtFull(openedAtRaw)} />
+            {retainedAtRaw ? <InfoLine label="Date retained" value={fmtFull(retainedAtRaw)} /> : null}
+            {daysOpen != null ? <InfoLine label="Days open" value={String(daysOpen)} /> : null}
+            <InfoLine label="Case reference" value={String(lead.id)} mono />
+          </View>
+        </View>
+
+        <View style={styles.card}>
           <View style={styles.sectionHeader}>
             <Text style={styles.cardTitle}>Case Snapshot</Text>
             <Text style={styles.sectionCount}>{acceptanceLabel}</Text>
@@ -1183,6 +1300,24 @@ function SnapshotMetric({ label, value, helper, accent }: { label: string; value
   )
 }
 
+function InfoLine({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <View style={styles.infoLine}>
+      <Text style={styles.infoLineLabel}>{label}</Text>
+      <Text style={[styles.infoLineValue, mono && styles.infoLineMono]} numberOfLines={1}>
+        {value}
+      </Text>
+    </View>
+  )
+}
+
+function fmtFull(iso?: string | null) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return '—'
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 function FactorRow({ label, present }: { label: string; present: boolean }) {
   return (
     <View style={styles.factorRow}>
@@ -1343,6 +1478,28 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 12, fontWeight: '800', color: colors.primary, textTransform: 'uppercase' },
   badgeDanger: { color: colors.danger },
   qualitySummary: { fontSize: 15, lineHeight: 22, color: colors.text, marginBottom: space.md },
+  overviewHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  overviewLabel: { fontSize: 12, fontWeight: '800', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.45 },
+  overviewMuted: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
+  overviewBlock: { marginTop: space.md, paddingTop: space.md, borderTopWidth: 1, borderTopColor: colors.border },
+  timelineMetaRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, marginBottom: 5 },
+  timelineMeta: { fontSize: 11, fontWeight: '700', color: colors.textSecondary },
+  timelineBarTrack: { height: 26, borderRadius: radii.md, backgroundColor: colors.border, overflow: 'hidden' },
+  timelineBarFill: { flex: 1, height: '100%', borderRadius: radii.md, backgroundColor: colors.primary, justifyContent: 'center', paddingHorizontal: space.md },
+  timelineBarText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  stageChip: { alignSelf: 'flex-start', marginTop: 6, borderRadius: 999, backgroundColor: colors.primary + '14', paddingHorizontal: space.md, paddingVertical: 6, borderWidth: 1, borderColor: colors.primary + '33' },
+  stageChipText: { fontSize: 13, fontWeight: '800', color: colors.primaryDark },
+  viewAllLink: { fontSize: 13, fontWeight: '800', color: colors.primary },
+  taskRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: 9, borderTopWidth: 1, borderTopColor: colors.border },
+  taskRowBody: { flex: 1 },
+  taskRowTitle: { fontSize: 14, fontWeight: '700', color: colors.text },
+  taskRowMeta: { fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginTop: 2 },
+  taskRowMetaOverdue: { color: colors.danger },
+  emptyOverviewText: { fontSize: 14, color: colors.textSecondary, marginTop: 6, lineHeight: 20 },
+  infoLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
+  infoLineLabel: { fontSize: 11, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.4 },
+  infoLineValue: { flex: 1, textAlign: 'right', fontSize: 14, fontWeight: '600', color: colors.text },
+  infoLineMono: { fontSize: 12, color: colors.textSecondary, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
   snapshotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginBottom: space.md },
   snapshotMetric: {
     width: '48%',

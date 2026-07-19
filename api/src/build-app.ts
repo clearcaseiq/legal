@@ -30,6 +30,7 @@ import evidence from './routes/evidence'
 import oauth from './routes/oauth'
 import consent from './routes/consent'
 import chatgpt from './routes/chatgpt'
+import incidentExtraction from './routes/incident-extraction'
 import admin from './routes/admin'
 import firmDashboard from './routes/firm-dashboard'
 import firms from './routes/firms'
@@ -82,6 +83,7 @@ export function buildApp(): Express {
   app.use('/v1/evidence', evidence)
   app.use('/v1/consent', consent)
   app.use('/v1/chatgpt', chatgpt)
+  app.use('/v1/incident-extraction', incidentExtraction)
   app.use('/v1/auth', oauth)
   app.use('/v1/assessments', assessments)
   app.use('/v1/intake-leads', intakeLeads)

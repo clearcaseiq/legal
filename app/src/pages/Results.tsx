@@ -3047,7 +3047,7 @@ Checklist:
                 <input
                   type="text"
                   value={contactForm.firstName}
-                  onChange={e => setContactForm(f => ({ ...f, firstName: e.target.value }))}
+                  onChange={e => { setShowContactEdit(true); setContactForm(f => ({ ...f, firstName: e.target.value })) }}
                   className="input"
                   placeholder="John"
                 />
@@ -3057,7 +3057,7 @@ Checklist:
                 <input
                   type="email"
                   value={contactForm.email}
-                  onChange={e => setContactForm(f => ({ ...f, email: e.target.value }))}
+                  onChange={e => { setShowContactEdit(true); setContactForm(f => ({ ...f, email: e.target.value })) }}
                   className="input"
                   placeholder="john@example.com"
                 />
@@ -3069,6 +3069,10 @@ Checklist:
                   inputMode="tel"
                   value={contactForm.phone}
                   onChange={e => {
+                    // Keep the form open while editing — otherwise completing all three
+                    // fields flips `contactComplete` and collapses to the summary view
+                    // mid-keystroke (e.g. the first phone digit), losing input focus.
+                    setShowContactEdit(true)
                     setContactForm(f => ({ ...f, phone: formatPhoneInput(e.target.value) }))
                     if (contactPhoneError) setContactPhoneError(null)
                   }}
