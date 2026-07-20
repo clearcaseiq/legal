@@ -3610,23 +3610,35 @@ export default function IntakeWizardQuick() {
 
         // --- Case Snapshot + sidebar metrics (derived from selections) ---
         const idd = formData.injuryDetails
+        // A "recovery" question is meaningless for a wrongful-death claim, so it is
+        // hidden below and excluded from the Step 3 completeness score here.
+        const isDeceased = formData.injuredParty === 'deceased'
         const treatmentsSelected = new Set([...idd.imaging, ...formData.medicalTreatment].filter(v => v !== 'none')).size
         const diagnosesSelected = idd.diagnoses.length
-        const symptomsSelected = idd.currentSymptoms.length
-        const lifeAreasSelected = idd.lifestyleImpact.length
+        // Symptoms / daily-life impact are hidden for deceased claims, so they must not
+        // count toward the severity or completeness scores.
+        const symptomsSelected = isDeceased ? 0 : idd.currentSymptoms.length
+        const lifeAreasSelected = isDeceased ? 0 : idd.lifestyleImpact.length
         const bodyCount = idd.bodyParts.length
         const seriousDx = idd.diagnoses.some(d => ['tear', 'herniation', 'fracture', 'tbi'].includes(d))
         let sevScore = bodyCount * 8 + treatmentsSelected * 6 + diagnosesSelected * 8 + lifeAreasSelected * 3 + symptomsSelected * 3
         if (seriousDx) sevScore += 15
         if (hasSurgeryTreatment) sevScore += 18
-        if (idd.recoveryStatus === 'getting_worse') sevScore += 10
-        if (idd.recoveryStatus === 'fully_recovered') sevScore -= 12
+        if (!isDeceased && idd.recoveryStatus === 'getting_worse') sevScore += 10
+        if (!isDeceased && idd.recoveryStatus === 'fully_recovered') sevScore -= 12
         sevScore = Math.max(0, Math.min(100, sevScore))
         const sevStars = Math.max(0, Math.min(5, Math.round(sevScore / 20)))
         const sevLevel = sevScore === 0
           ? tx('injuryDetails_sevUnknown')
           : sevScore >= 67 ? tx('injuryDetails_sevSerious') : sevScore >= 34 ? tx('injuryDetails_sevModerate') : tx('injuryDetails_sevMinor')
-        const completenessGroups = [bodyCount > 0, treatmentsSelected > 0, diagnosesSelected > 0, symptomsSelected > 0, !!idd.recoveryStatus, lifeAreasSelected > 0, idd.futureTreatment.length > 0]
+        const completenessGroups = [
+          bodyCount > 0,
+          treatmentsSelected > 0,
+          diagnosesSelected > 0,
+          // These questions are hidden for deceased claims, so exclude them entirely
+          // rather than counting them as unanswered.
+          ...(isDeceased ? [] : [symptomsSelected > 0, !!idd.recoveryStatus, lifeAreasSelected > 0, idd.futureTreatment.length > 0]),
+        ]
         const filledGroups = completenessGroups.filter(Boolean).length
         const valueConfidence = filledGroups === 0 ? 0 : Math.min(90, Math.round((filledGroups / completenessGroups.length) * 75) + 15)
         const docLevel = filledGroups <= 2 ? tx('injuryDetails_docEarly') : filledGroups <= 4 ? tx('injuryDetails_docBuilding') : tx('injuryDetails_docStrong')
@@ -3636,7 +3648,7 @@ export default function IntakeWizardQuick() {
           ...MEDICAL_TREATMENT_OPTIONS.filter(o => o.value !== 'none' && formData.medicalTreatment.includes(o.value)).map(o => o.label),
           ...TREATMENT_RECEIVED_OPTIONS.filter(o => idd.imaging.includes(o.value)).map(o => o.label),
         ]))
-        const recoveryLabel = RECOVERY_STATUS_OPTIONS.find(o => o.value === idd.recoveryStatus)?.label || ''
+        const recoveryLabel = isDeceased ? '' : (RECOVERY_STATUS_OPTIONS.find(o => o.value === idd.recoveryStatus)?.label || '')
         const hasAnySelection = bodyCount > 0 || treatmentsSelected > 0 || diagnosesSelected > 0 || symptomsSelected > 0
         // Approximate marker coordinates on the body diagram (viewBox 0 0 140 250).
         // Symmetric body parts (shoulders, hands/wrists, knees) mark both sides of
@@ -3910,7 +3922,10 @@ export default function IntakeWizardQuick() {
             </div>
             </div>{/* end Card 2 */}
 
-            {/* ===== Card 3: How You're Feeling ===== */}
+            {/* ===== Card 3: How You're Feeling — symptoms, recovery, and daily-life impact
+                 are all present/future-tense questions about a living person, so this card is
+                 hidden for wrongful-death (deceased) claims. ===== */}
+            {!isDeceased && (
             <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
               <div className="flex items-center gap-2.5">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Activity className="h-4 w-4" aria-hidden /></span>
@@ -3982,7 +3997,8 @@ export default function IntakeWizardQuick() {
                 />
               </div>
             </div>
-            </div>{/* end Card 3 */}
+            </div>
+            )}{/* end Card 3 */}
 
             {/* ===== Card 4: AI summary ===== */}
             <div className="rounded-2xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-500/30 dark:bg-brand-500/10">
@@ -4041,7 +4057,8 @@ export default function IntakeWizardQuick() {
                   </div>
                 </section>
 
-                {/* Future treatment */}
+                {/* Future treatment — a deceased claimant will have no future treatment. */}
+                {!isDeceased && (
                 <section className="border-t border-slate-200 pt-4 dark:border-slate-700">
                   <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">7. {tx('injuryDetails_futureTreatmentQuestion')}</p>
                   <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_selectAllApply')}</p>
@@ -4059,6 +4076,7 @@ export default function IntakeWizardQuick() {
                     })}
                   </div>
                 </section>
+                )}
 
                 {hasInjectionTreatment && (
                   <section className="border-t border-slate-200 pt-4 dark:border-slate-700">

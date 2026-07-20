@@ -10,6 +10,7 @@ import { retryPendingPlatformNotifications } from './lib/platform-notifications'
 import { runIntakeAbandonmentSweep } from './lib/intake-abandonment'
 import { runRoutingEscalationSweep } from './lib/routing-escalation-sweep'
 import { runOfferExpirySweep } from './lib/offer-expiry-sweep'
+import { runCaseReminderSweep } from './lib/case-reminder-sweep'
 
 const app = buildApp()
 
@@ -19,6 +20,7 @@ let notificationRetryTimer: NodeJS.Timeout | null = null
 let intakeAbandonmentTimer: NodeJS.Timeout | null = null
 let routingEscalationTimer: NodeJS.Timeout | null = null
 let offerExpiryTimer: NodeJS.Timeout | null = null
+let caseReminderTimer: NodeJS.Timeout | null = null
 
 async function runCalendarWebhookRenewalSweep(trigger: 'startup' | 'interval') {
   try {
@@ -158,6 +160,28 @@ function startOfferExpiryLoop() {
   }, intervalMs)
 }
 
+async function runCaseReminderLoop(trigger: 'startup' | 'interval') {
+  try {
+    const result = await runCaseReminderSweep()
+    if (result.sent > 0 || result.failed > 0 || trigger === 'startup') {
+      logger.info('Case reminder sweep completed', {
+        trigger,
+        ...result,
+      })
+    }
+  } catch (error) {
+    logger.error('Case reminder sweep failed', { error, trigger })
+  }
+}
+
+function startCaseReminderLoop() {
+  const intervalMs = 5 * 60 * 1000
+  void runCaseReminderLoop('startup')
+  caseReminderTimer = setInterval(() => {
+    void runCaseReminderLoop('interval')
+  }, intervalMs)
+}
+
 const server = app.listen(ENV.PORT, ENV.HOST, () => {
   logger.info(`API server listening on http://${ENV.HOST}:${ENV.PORT}`)
   startCalendarWebhookRenewalLoop()
@@ -166,6 +190,7 @@ const server = app.listen(ENV.PORT, ENV.HOST, () => {
   startIntakeAbandonmentLoop()
   startRoutingEscalationLoop()
   startOfferExpiryLoop()
+  startCaseReminderLoop()
 })
 
 function stopBackgroundLoops() {
@@ -175,11 +200,14 @@ function stopBackgroundLoops() {
   if (intakeAbandonmentTimer) clearInterval(intakeAbandonmentTimer)
   if (routingEscalationTimer) clearInterval(routingEscalationTimer)
   if (offerExpiryTimer) clearInterval(offerExpiryTimer)
+  if (caseReminderTimer) clearInterval(caseReminderTimer)
   calendarWebhookRenewalTimer = null
   appointmentEngagementTimer = null
   notificationRetryTimer = null
   intakeAbandonmentTimer = null
   routingEscalationTimer = null
+  offerExpiryTimer = null
+  caseReminderTimer = null
 }
 
 function closeHttpServer() {
