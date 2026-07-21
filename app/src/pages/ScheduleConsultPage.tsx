@@ -33,9 +33,11 @@ export default function ScheduleConsultPage() {
   const typeFromUrl = searchParams.get('type')
   const isReschedule = !!(timeFromUrl || typeFromUrl)
   // Where "Back"/"Cancel"/success returns to — the caller passes ?returnTo=
-  // (e.g. Active Cases). Must be an internal path; falls back to the dashboard.
+  // (e.g. Active Cases). Must be an internal path. Falls back to the Consult &
+  // Schedule (calendar) module rather than the New Matches dashboard so a
+  // just-scheduled consult lands where it's visible (CP-328).
   const returnToRaw = searchParams.get('returnTo')
-  const returnTo = returnToRaw && returnToRaw.startsWith('/') ? returnToRaw : '/attorney-dashboard'
+  const returnTo = returnToRaw && returnToRaw.startsWith('/') ? returnToRaw : '/attorney-dashboard/cases/calendar'
   const [lead, setLead] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)

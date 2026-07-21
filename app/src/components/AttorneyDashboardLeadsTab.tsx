@@ -1122,7 +1122,7 @@ export default function AttorneyDashboardLeadsTab({
                       <td className="px-4 py-3 align-top text-sm text-gray-600">
                         {[lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || '—'}
                       </td>
-                      <td className="px-4 py-3 align-top text-sm font-medium text-gray-900 whitespace-nowrap">
+                      <td className="truncate px-4 py-3 align-top text-sm font-medium text-gray-900">
                         {bands.low && bands.high ? `${compactCurrency(bands.low)}–${compactCurrency(bands.high)}` : '—'}
                       </td>
                       <td className="px-4 py-3 align-top">

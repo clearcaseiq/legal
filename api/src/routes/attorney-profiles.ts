@@ -6,6 +6,7 @@ import { authMiddleware, AuthRequest } from '../lib/auth'
 import { generateAvailableTimeSlots, getDayBounds } from '../lib/availability-slots'
 import { buildAttorneyConversionMetrics, getResponseTimeBadge, maybeVerifyAttorneyReview } from '../lib/appointment-engagement'
 import { computeAttorneyTrustMetrics } from '../lib/attorney-trust-metrics'
+import { recomputeAttorneyRatingAggregates } from '../lib/attorney-rating-aggregates'
 
 const router = Router()
 
@@ -161,62 +162,43 @@ router.post('/:attorneyId/reviews', authMiddleware, async (req: AuthRequest, res
       }
     })
 
-    if (existingReview) {
-      return res.status(409).json({ error: 'You have already reviewed this attorney' })
-    }
-
     const isVerified = await maybeVerifyAttorneyReview({
       attorneyId,
       userId: req.user!.id,
     })
 
-    // Create review
-    const newReview = await prisma.attorneyReview.create({
-      data: {
-        attorneyId,
-        userId: req.user!.id,
-        rating,
-        title,
-        review,
-        isVerified
-      },
-      include: {
-        user: {
-          select: {
-            firstName: true,
-            lastName: true
+    // Create the review, or update it in place if this user already rated this
+    // attorney. Updating (rather than rejecting with 409) lets clients revise a
+    // rating and keeps the recomputed aggregate current on every resubmit.
+    const newReview = existingReview
+      ? await prisma.attorneyReview.update({
+          where: { id: existingReview.id },
+          data: { rating, title, review, isVerified },
+          include: { user: { select: { firstName: true, lastName: true } } }
+        })
+      : await prisma.attorneyReview.create({
+          data: {
+            attorneyId,
+            userId: req.user!.id,
+            rating,
+            title,
+            review,
+            isVerified
+          },
+          include: {
+            user: {
+              select: {
+                firstName: true,
+                lastName: true
+              }
+            }
           }
-        }
-      }
-    })
+        })
 
-    // Update attorney's average rating and review count
-    const allReviews = await prisma.attorneyReview.findMany({
-      where: { attorneyId },
-      select: { rating: true }
-    })
-
-    const averageRating = allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length
-    const totalReviews = allReviews.length
-
-    await prisma.attorney.update({
-      where: { id: attorneyId },
-      data: {
-        averageRating,
-        totalReviews
-      }
-    })
-
-    // Keep the AttorneyProfile aggregate in sync. The firm dashboard and the
-    // public attorney list read AttorneyProfile.averageRating/totalReviews, so
-    // without this they'd stay at 0 even after ratings come in (CP-326).
-    await prisma.attorneyProfile.updateMany({
-      where: { attorneyId },
-      data: {
-        averageRating,
-        totalReviews
-      }
-    })
+    // Recompute the attorney's stored rating aggregates from source so the
+    // Attorney row and its AttorneyProfile stay consistent for every reader
+    // (admin views, firm dashboard Team & Roles, public list) — CP-308/321/326.
+    await recomputeAttorneyRatingAggregates(attorneyId)
 
     logger.info('Attorney review created', { 
       reviewId: newReview.id,

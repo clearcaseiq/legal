@@ -11,6 +11,7 @@ import { runIntakeAbandonmentSweep } from './lib/intake-abandonment'
 import { runRoutingEscalationSweep } from './lib/routing-escalation-sweep'
 import { runOfferExpirySweep } from './lib/offer-expiry-sweep'
 import { runCaseReminderSweep } from './lib/case-reminder-sweep'
+import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggregates'
 
 const app = buildApp()
 
@@ -184,6 +185,9 @@ function startCaseReminderLoop() {
 
 const server = app.listen(ENV.PORT, ENV.HOST, () => {
   logger.info(`API server listening on http://${ENV.HOST}:${ENV.PORT}`)
+  // Heal any stale attorney rating aggregates left by reviews created before
+  // the on-write sync existed, so ratings render everywhere (CP-308/321/326).
+  void reconcileAllAttorneyRatingAggregates()
   startCalendarWebhookRenewalLoop()
   startAppointmentEngagementLoop()
   startNotificationRetryLoop()

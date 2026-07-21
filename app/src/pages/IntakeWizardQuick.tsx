@@ -2831,7 +2831,7 @@ export default function IntakeWizardQuick() {
                 </div>
 
                 <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_acceptedQuestion')}</p>
-                <div className="mt-3 grid grid-cols-3 gap-2">
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                   {([
                     { value: 'no', label: tx('optionNo'), Icon: CheckCircle2, tone: 'emerald' as const },
                     { value: 'yes', label: tx('optionYes'), Icon: CheckCircle2, tone: 'amber' as const },
@@ -3219,7 +3219,7 @@ export default function IntakeWizardQuick() {
                                 if (val) updateForm({ incidentDatePreset: 'custom', incidentDate: val })
                                 else updateForm({ incidentDatePreset: '', incidentDate: '' })
                               }}
-                              className="date-input-clean !min-h-0 w-full !border-0 !bg-transparent !p-0 !text-[15px] font-medium text-gray-900 focus:!ring-0 dark:text-slate-100"
+                              className="date-input-clean !min-h-0 w-full min-w-0 max-w-full !border-0 !bg-transparent !p-0 !text-[15px] font-medium text-gray-900 focus:!ring-0 dark:text-slate-100"
                             />
                           </div>
                           <button
@@ -3236,8 +3236,10 @@ export default function IntakeWizardQuick() {
                           </button>
                         </div>
                       </div>
-                      {/* Quick date presets: single row of equal-size buttons */}
-                      <div className="grid w-full grid-cols-4 gap-1">
+                      {/* Quick date presets. Two columns on mobile so each label fits in
+                          full ("Last Week" was being truncated to "Last" and buttons
+                          overlapped in a cramped 4-up row — CP-369); single row on sm+. */}
+                      <div className="grid w-full grid-cols-2 gap-1.5 sm:grid-cols-4 sm:gap-1">
                         {datePresets.map(p => {
                           const active = formData.incidentDatePreset === 'custom' && customDate === p.iso
                           return (
@@ -3245,7 +3247,7 @@ export default function IntakeWizardQuick() {
                               key={p.key}
                               type="button"
                               onClick={() => applyPresetDate(p.iso)}
-                              className={`!min-h-0 w-full min-w-0 truncate rounded-lg border px-1 py-1 text-center text-[11px] font-semibold transition-colors ${active ? 'border-brand-600 bg-brand-600 text-white shadow-sm dark:border-brand-400 dark:bg-brand-500 dark:text-white' : 'border-brand-200 bg-brand-50/60 text-brand-700 hover:border-brand-300 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/20'}`}
+                              className={`!min-h-0 w-full min-w-0 whitespace-nowrap rounded-lg border px-1 py-1.5 text-center text-xs font-semibold transition-colors sm:text-[11px] ${active ? 'border-brand-600 bg-brand-600 text-white shadow-sm dark:border-brand-400 dark:bg-brand-500 dark:text-white' : 'border-brand-200 bg-brand-50/60 text-brand-700 hover:border-brand-300 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/20'}`}
                             >
                               {p.label}
                             </button>
@@ -3590,7 +3592,7 @@ export default function IntakeWizardQuick() {
           other: { emoji: '🩹', label: tx('optionOther') },
         }
         const tileClass = (selected: boolean) =>
-          `flex items-center gap-2 rounded-xl border px-3 py-0.5 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10' : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`
+          `flex min-h-[2.25rem] items-center gap-1.5 overflow-hidden rounded-xl border px-2.5 py-1 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10' : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`
         const renderCheck = (on: boolean) =>
           on ? (
             <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
@@ -3780,7 +3782,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('bodyParts', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs dark:bg-slate-800" aria-hidden>{disp?.emoji || '•'}</span>
-                      <span className="min-w-0 flex-1 break-words text-xs font-semibold text-gray-800 dark:text-slate-200">{disp?.label || label}</span>
+                      <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{disp?.label || label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -5836,7 +5838,7 @@ export default function IntakeWizardQuick() {
                 hasAnyFinancial ? (
                 <>{financialLines.map((row) => (
                   <p key={row.k} className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 shrink-0 text-gray-500">{row.k}</span>
+                    <span className="min-w-0 flex-1 truncate text-gray-500">{row.k}</span>
                     <span className="flex min-w-0 items-center gap-1 text-right font-medium text-gray-800 dark:text-slate-200">
                       {row.doc && <FileText className="h-3 w-3 shrink-0 text-emerald-600" aria-label={tx('card_fromDocuments')} />}
                       <span className="min-w-0 break-words">{row.v}</span>

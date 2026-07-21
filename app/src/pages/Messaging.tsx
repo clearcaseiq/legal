@@ -156,8 +156,17 @@ export default function Messaging() {
       })
       
       setNewMessage('')
-      // Reload messages
+      // Reload the open thread, then silently refresh the room list so the
+      // conversation we just messaged jumps to the top (backend orders by
+      // lastMessageAt) with an up-to-date preview — without flashing the
+      // full-page loader or re-running the create flow (CP-306).
       await loadMessages(selectedRoom.id)
+      try {
+        const refreshed = await getChatRooms()
+        setChatRooms(refreshed)
+      } catch (refreshErr) {
+        console.error('Failed to refresh chat room order:', refreshErr)
+      }
     } catch (error) {
       console.error('Failed to send message:', error)
     } finally {

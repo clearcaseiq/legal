@@ -181,9 +181,9 @@ export default function AdminCases() {
         <ChevronDown className="h-4 w-4 text-slate-700" />
       )
     ) : (
-      // Inactive but sortable: show a muted indicator so the column reads as clickable
-      // without waiting for a first click (CP-320).
-      <ChevronsUpDown className="h-4 w-4 text-slate-300" aria-hidden />
+      // Inactive but sortable: show a clearly visible (not near-invisible) indicator
+      // so the column reads as clickable without waiting for a first click (CP-320).
+      <ChevronsUpDown className="h-4 w-4 text-slate-500" aria-hidden />
     )
 
   return (

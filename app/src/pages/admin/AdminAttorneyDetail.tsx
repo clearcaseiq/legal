@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { getAdminAttorneyDetail } from '../../lib/api'
-import { formatDate, formatEnumLabel } from '../../lib/formatters'
+import { formatDate, formatEnumLabel, formatJurisdictions, capitalizeWords } from '../../lib/formatters'
 import { formatSpecialty } from '../../lib/constants'
 import { BackButton } from '../../features/shared/ui'
 import {
@@ -79,7 +79,7 @@ export default function AdminAttorneyDetail() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <p className="text-xs text-slate-500">Name</p>
-            <p className="font-medium">{attorney.name}</p>
+            <p className="font-medium">{capitalizeWords(attorney.name) || '—'}</p>
           </div>
           <div>
             <p className="text-xs text-slate-500">Firm</p>
@@ -129,23 +129,8 @@ export default function AdminAttorneyDetail() {
           <p className="text-sm">
             {(() => {
               const j = profile?.jurisdictions
-              const formatJurisdiction = (item: any): string => {
-                if (!item) return ''
-                if (typeof item === 'string') return formatEnumLabel(item)
-                const state = item.state || item.name || ''
-                const counties = Array.isArray(item.counties) ? item.counties.join(', ') : ''
-                return counties ? `${state} (${counties})` : String(state)
-              }
-              if (j) {
-                if (typeof j === 'string') return j
-                if (Array.isArray(j)) return j.map(formatJurisdiction).filter(Boolean).join('; ') || '—'
-                return formatJurisdiction(j) || '—'
-              }
-              if (attorney.venues) {
-                return Array.isArray(attorney.venues)
-                  ? attorney.venues.map((v: any) => v.state || v).join(', ')
-                  : attorney.venues
-              }
+              if (j != null && j !== '') return formatJurisdictions(j)
+              if (attorney.venues) return formatJurisdictions(attorney.venues)
               return '—'
             })()}
           </p>

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { getAdminAttorneys } from '../../lib/api'
 import { RefreshCw, ExternalLink, Users, Star, CheckCircle, Clock } from 'lucide-react'
 import { formatSpecialty } from '../../lib/constants'
-import { formatEnumLabel } from '../../lib/formatters'
+import { formatEnumLabel, capitalizeWords, formatJurisdictions } from '../../lib/formatters'
 
 /** Human-readable "State (County, County)" from a venue/jurisdiction entry. */
 function formatVenue(item: any): string {
@@ -22,7 +22,8 @@ function formatVenueSummary(a: any): string {
     ? a.profile.jurisdictions
     : null
   if (!source) {
-    if (typeof a.venues === 'string' && a.venues) return a.venues
+    if (typeof a.venues === 'string' && a.venues) return formatJurisdictions(a.venues)
+    if (typeof a.profile?.jurisdictions === 'string' && a.profile.jurisdictions) return formatJurisdictions(a.profile.jurisdictions)
     return '—'
   }
   const labels = source.map(formatVenue).filter(Boolean)
@@ -158,7 +159,7 @@ export default function AdminAttorneys() {
                     onClick={() => navigate(`/admin/attorneys/${a.id}`)}
                   >
                     <td className="py-3 px-4">
-                      <p className="font-medium">{a.name}</p>
+                      <p className="font-medium">{capitalizeWords(a.name) || '—'}</p>
                       <p className="text-sm text-slate-500">{a.lawFirm?.name || '—'}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                         <span className="inline-flex items-center">

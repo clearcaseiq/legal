@@ -34,6 +34,14 @@
   .date-input-clean::-webkit-clear-button {
     display: none;
   }
+  /* iOS Safari gives date inputs a fixed intrinsic width and won't let them
+     shrink inside a flex row, which pushed the calendar button off-screen
+     (CP-370). Neutralize the native appearance so the input honors min-width:0. */
+  .date-input-clean {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 0;
+  }
 
   @media (prefers-reduced-motion: reduce) {
     html {

@@ -7,11 +7,14 @@ import { logger } from './logger'
  * (assessments route) and the persisted status stay consistent.
  */
 export const DOCUMENT_REQUEST_CATEGORY_MAP: Record<string, string[]> = {
-  police_report: ['police_report'],
-  medical_records: ['medical_records', 'bills'],
-  injury_photos: ['photos'],
-  wage_loss: ['wage_loss'],
-  insurance: ['insurance'],
+  // Include synonyms actually used across the app so a plaintiff upload advances
+  // the matching request regardless of which category spelling the upload UI
+  // sends (e.g. request key `injury_photos` vs upload category `photos`) — CP-330.
+  police_report: ['police_report', 'police'],
+  medical_records: ['medical_records', 'bills', 'medical', 'medical_bills'],
+  injury_photos: ['photos', 'injury_photos', 'injury', 'injuries'],
+  wage_loss: ['wage_loss', 'lost_wages', 'wages'],
+  insurance: ['insurance', 'insurance_card', 'insurance_info'],
   other: [],
 }
 
@@ -32,7 +35,9 @@ export function computeRequestStatus(requestedDocs: string[], uploadedCategories
   if (requestedDocs.length === 0) return null // link-only / free-form request: can't auto-complete
   const fulfilledCount = requestedDocs.filter((key) => {
     const accepted = DOCUMENT_REQUEST_CATEGORY_MAP[key] || []
-    return accepted.some((category) => uploadedCategories.has(category))
+    // Match a known synonym, or the request key used verbatim as the upload
+    // category (the requested-docs uploader tags files with the request key).
+    return uploadedCategories.has(key) || accepted.some((category) => uploadedCategories.has(category))
   }).length
   if (fulfilledCount === 0) return 'pending'
   return fulfilledCount === requestedDocs.length ? 'completed' : 'partial'
