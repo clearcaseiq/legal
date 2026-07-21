@@ -7,6 +7,7 @@ import { prisma } from './prisma'
 import { computeFeatures, predictViability } from './prediction'
 import { logger } from './logger'
 import { sendPlaintiffCaseValueUpdated, sendAttorneyCaseMaterialUpdate } from './case-notifications'
+import { underwriteCase, reconcileValueBandsWithUnderwriting } from './underwriting-engine'
 
 const MODEL_VERSION = 'v1.3'
 
@@ -459,17 +460,40 @@ export async function runCaseRecalculation(
     const features = computeFeatures(assessmentUpdated)
     const result = await predictViability(features)
 
-    const newBands = result.value_bands
+    // Reconcile with the authoritative underwriting settlement so a recalculated row matches
+    // the /predict path (settlement from underwriting, trial derived from it) instead of
+    // persisting a divergent heuristic settlement/trial. Underwriting must never block the
+    // recalculation, so fall back to the heuristic bands if it throws.
+    let underwriting: ReturnType<typeof underwriteCase> | null = null
+    try {
+      underwriting = underwriteCase({
+        id: assessmentUpdated.id,
+        claimType: assessmentUpdated.claimType,
+        venueState: assessmentUpdated.venueState,
+        venueCounty: assessmentUpdated.venueCounty,
+        facts: mergedFacts,
+        evidenceFiles,
+      })
+    } catch (underwritingError) {
+      logger.error('Underwriting failed during recalculation; using heuristic bands', {
+        underwritingError,
+        assessmentId,
+      })
+    }
+
+    const newBands = underwriting
+      ? reconcileValueBandsWithUnderwriting(result.value_bands, underwriting.settlement)
+      : result.value_bands
     const prevPred = assessment.predictions[0]
     const prevBands = prevPred ? (JSON.parse(prevPred.bands) as { p25: number; median: number; p75: number }) : null
 
     const prediction = await prisma.prediction.create({
       data: {
         assessmentId,
-        modelVersion: MODEL_VERSION,
+        modelVersion: underwriting ? 'ca-pi-underwriting-v1' : MODEL_VERSION,
         viability: JSON.stringify(result.viability),
         bands: JSON.stringify(newBands),
-        explain: JSON.stringify({ ...result.explainability, reason, trigger: reason })
+        explain: JSON.stringify({ ...result.explainability, reason, trigger: reason, underwriting })
       }
     })
 

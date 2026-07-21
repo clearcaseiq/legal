@@ -489,6 +489,7 @@ export default function CalendarPage() {
             <TimeGridView
               days={days}
               items={visibleItems}
+              selected={anchor}
               onItemClick={openItem}
               onSlotClick={(day) => {
                 const withTime = day.getHours() !== 0 || day.getMinutes() !== 0

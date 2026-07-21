@@ -58,7 +58,7 @@ function tzOffsetMinutes(tz: string, atUtc: Date): number {
 }
 
 /** Convert a wall-clock time in `tz` (on calendar date y/m/d) to a UTC Date. */
-function zonedWallClockToUtc(
+export function zonedWallClockToUtc(
   y: number,
   m: number,
   d: number,

@@ -32,6 +32,7 @@ import {
   type BookingLocationType,
 } from '../../lib/api'
 import { PageHeader, SectionCard, EmptyState, Badge } from '../shared/ui'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 const COMMON_TIMEZONES = [
   'America/New_York',
@@ -717,6 +718,20 @@ const BLANK_EVENT: Partial<SchedulingEventType> = {
 
 function EventTypesCard({ settings, onChanged }: { settings: SchedulingSettings; onChanged: () => void }) {
   const [editing, setEditing] = useState<Partial<SchedulingEventType> | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<SchedulingEventType | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete?.id) return
+    setDeleting(true)
+    try {
+      await deleteEventType(pendingDelete.id)
+      setPendingDelete(null)
+      onChanged()
+    } finally {
+      setDeleting(false)
+    }
+  }, [pendingDelete, onChanged])
 
   return (
     <SectionCard
@@ -769,11 +784,7 @@ function EventTypesCard({ settings, onChanged }: { settings: SchedulingSettings;
                   </button>
                   <button
                     type="button"
-                    onClick={async () => {
-                      if (!confirm(`Delete "${et.name}"?`)) return
-                      await deleteEventType(et.id)
-                      onChanged()
-                    }}
+                    onClick={() => setPendingDelete(et)}
                     className="rounded-md p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600"
                     aria-label="Delete"
                   >
@@ -796,6 +807,15 @@ function EventTypesCard({ settings, onChanged }: { settings: SchedulingSettings;
           }}
         />
       )}
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Delete meeting type?"
+        message={pendingDelete ? <>“{pendingDelete.name}” will no longer be bookable from your scheduling link. This can’t be undone.</> : null}
+        confirmLabel="Delete"
+        busy={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </SectionCard>
   )
 }

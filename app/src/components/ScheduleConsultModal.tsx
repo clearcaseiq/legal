@@ -32,9 +32,15 @@ export default function ScheduleConsultModal({
   onSubmit,
   loading = false
 }: ScheduleConsultModalProps) {
-  const tomorrow = new Date()
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  const defaultDate = tomorrow.toISOString().slice(0, 10)
+  // Local calendar dates (toISOString is UTC and shifts the day near midnight).
+  // Earliest selectable date is today so same-day consults can be booked (CP-305).
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const toLocalYmd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const now = new Date()
+  const todayStr = toLocalYmd(now)
+  const tomorrow = new Date(now)
+  tomorrow.setDate(now.getDate() + 1)
+  const defaultDate = toLocalYmd(tomorrow)
 
   const [date, setDate] = useState(defaultDate)
   const [time, setTime] = useState('2:00 PM')
@@ -65,7 +71,7 @@ export default function ScheduleConsultModal({
               type="date"
               value={date}
               onChange={e => setDate(e.target.value)}
-              min={defaultDate}
+              min={todayStr}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
             />
           </div>

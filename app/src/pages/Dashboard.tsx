@@ -1923,7 +1923,9 @@ export default function Dashboard() {
                       </h3>
                       <div className="space-y-3">
                         {routingStatus?.caseMessages && routingStatus.caseMessages.length > 0 ? (
-                          routingStatus.caseMessages.map((m, i) => (
+                          [...routingStatus.caseMessages]
+                            .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0))
+                            .map((m, i) => (
                             <div
                               key={i}
                               className={`p-4 rounded-lg border ${
@@ -2530,7 +2532,9 @@ export default function Dashboard() {
                   routingStatusMessage={plaintiffRoutingStatusMessage}
                   attorneyReviewCount={attorneyReviewCount}
                   attorneyActivity={routingStatus?.attorneyActivity ?? []}
-                  caseMessages={routingStatus?.caseMessages ?? []}
+                  caseMessages={[...(routingStatus?.caseMessages ?? [])].sort(
+                    (a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)
+                  )}
                   attorneyName={routingStatus?.attorneyMatched?.name}
                 />
               </Suspense>

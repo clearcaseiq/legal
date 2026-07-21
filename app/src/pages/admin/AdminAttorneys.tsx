@@ -2,6 +2,45 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAdminAttorneys } from '../../lib/api'
 import { RefreshCw, ExternalLink, Users, Star, CheckCircle, Clock } from 'lucide-react'
+import { formatSpecialty } from '../../lib/constants'
+import { formatEnumLabel } from '../../lib/formatters'
+
+/** Human-readable "State (County, County)" from a venue/jurisdiction entry. */
+function formatVenue(item: any): string {
+  if (!item) return ''
+  if (typeof item === 'string') return formatEnumLabel(item)
+  const state = item.state || item.name || ''
+  const counties = Array.isArray(item.counties) ? item.counties.join(', ') : ''
+  return counties ? `${state} (${counties})` : String(state || '')
+}
+
+/** Summarize an attorney's coverage, falling back from venues to profile jurisdictions. */
+function formatVenueSummary(a: any): string {
+  const source = Array.isArray(a.venues) && a.venues.length
+    ? a.venues
+    : Array.isArray(a.profile?.jurisdictions)
+    ? a.profile.jurisdictions
+    : null
+  if (!source) {
+    if (typeof a.venues === 'string' && a.venues) return a.venues
+    return '—'
+  }
+  const labels = source.map(formatVenue).filter(Boolean)
+  if (labels.length === 0) return '—'
+  const shown = labels.slice(0, 2).join(', ')
+  return labels.length > 2 ? `${shown} +${labels.length - 2}` : shown
+}
+
+/** Summarize an attorney's case types with friendly labels (no raw underscores). */
+function formatSpecialtiesSummary(a: any): string {
+  if (Array.isArray(a.specialties) && a.specialties.length) {
+    const labels = a.specialties.map((s: string) => formatSpecialty(s))
+    const shown = labels.slice(0, 2).join(', ')
+    return labels.length > 2 ? `${shown} +${labels.length - 2}` : shown
+  }
+  if (typeof a.specialties === 'string' && a.specialties) return formatSpecialty(a.specialties)
+  return '—'
+}
 
 function formatLastActive(value?: string | null) {
   if (!value) return 'Never logged in'
@@ -134,16 +173,10 @@ export default function AdminAttorneys() {
                       </div>
                     </td>
                     <td className="py-3 px-4 text-sm">
-                      {Array.isArray(a.venues)
-                        ? a.venues.slice(0, 2).map((v: any) => v.state || v).join(', ')
-                        : typeof a.venues === 'string'
-                        ? a.venues
-                        : '—'}
+                      {formatVenueSummary(a)}
                     </td>
                     <td className="py-3 px-4 text-sm">
-                      {Array.isArray(a.specialties)
-                        ? a.specialties.slice(0, 2).join(', ')
-                        : a.specialties || '—'}
+                      {formatSpecialtiesSummary(a)}
                     </td>
                     <td className="py-3 px-4 text-sm">
                       {a.subscriptionTier || a.profile?.subscriptionTier || 'Standard'}

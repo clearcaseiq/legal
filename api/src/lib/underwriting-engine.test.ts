@@ -95,6 +95,35 @@ describe('underwriteCase', () => {
   })
 })
 
+describe('calculateSettlement general damages', () => {
+  it('values a treated soft-tissue case well above 1x the medical specials (so the plaintiff nets a real recovery)', () => {
+    const medCharges = 25000
+    const result = underwriteCase({
+      claimType: 'auto',
+      venueState: 'CA',
+      venueCounty: 'Los Angeles',
+      facts: {
+        claimType: 'auto',
+        liability: { crashType: 'rear_end', comparativeNegligence: 0 },
+        incident: { date: '2026-01-01', narrative: 'Stopped at a light and rear-ended. Neck and back pain with ongoing physical therapy.' },
+        injuries: [{ diagnoses: ['neck strain', 'back sprain'], lifestyleImpact: ['daily_pain'] }],
+        treatment: [
+          { type: 'physical_therapy' },
+          { type: 'physical_therapy' },
+          { type: 'chiropractic' },
+        ],
+        damages: { med_charges: medCharges },
+      },
+      evidenceFiles: [{ category: 'medical_records' }, { category: 'bills' }],
+    })
+
+    expect(result.severity.primaryInjury).toBe('SOFT_TISSUE')
+    // Non-economic damages should lift the settlement clearly above the bills, not ~1x them.
+    expect(result.settlement.expected).toBeGreaterThan(medCharges)
+    expect(result.settlement.expected).toBeGreaterThanOrEqual(medCharges * 1.5)
+  })
+})
+
 describe('calculateAttorneyConsensus', () => {
   it('returns median values when three attorneys review', () => {
     const consensus = calculateAttorneyConsensus([

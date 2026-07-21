@@ -1,11 +1,8 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
-import { Clock, Info, Lock, LockOpen, MessageSquare, Phone, Sparkles, Star, Users } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { ArrowRight, Clock, Info, Lock, LockOpen, MessageSquare, Phone, Sparkles, Star, Users } from 'lucide-react'
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
 import { FilterStat, FilterBar, type FilterField } from '../features/shared/ui'
-
-// A match counts as "hot" when its estimated case value (high band) exceeds this
-// threshold. Surfaced as the Hot matches tile/filter on the New Matches inbox.
-const HOT_MATCH_MIN_VALUE = 30000
 
 type CaseLeadsFilter = {
   caseType: string
@@ -71,6 +68,7 @@ export default function AttorneyDashboardLeadsTab({
   setStarredLeadIds,
   starredLeadIds,
 }: AttorneyDashboardLeadsTabProps) {
+  const navigate = useNavigate()
   const [now, setNow] = useState(() => Date.now())
   const [showAllStarred, setShowAllStarred] = useState(false)
 
@@ -221,10 +219,20 @@ export default function AttorneyDashboardLeadsTab({
     return 'Review case'
   }
 
+  // A match reads as "Hot" in the PRIORITY column when it's flagged hot, is a
+  // high-value case, or already carries substantial evidence. The Hot matches
+  // tile/filter must use this SAME test so its count matches the rows labelled
+  // "Hot" — previously the tile counted every match over $30K, which swept in
+  // "Warm" rows and inflated the Hot count (CP-325).
+  const isHotLead = (lead: any) => {
+    const { high } = getLeadBands(lead)
+    return lead?.hotnessLevel === 'high' || (Number(high) || 0) >= 50000 || getLeadEvidenceCount(lead) >= 4
+  }
+
   const getPriorityLabel = (lead: any) => {
     const { high } = getLeadBands(lead)
     const evidenceCount = getLeadEvidenceCount(lead)
-    if (lead?.hotnessLevel === 'high' || high >= 50000 || evidenceCount >= 4) {
+    if (isHotLead(lead)) {
       return { label: 'Hot', class: 'bg-red-100 text-red-700', icon: '!!' }
     }
     if (lead?.hotnessLevel === 'warm' || high >= 10000) {
@@ -334,11 +342,11 @@ export default function AttorneyDashboardLeadsTab({
         // New matches = every open (submitted) match awaiting a decision.
         if ((lead?.status || '') !== 'submitted') return false
       }
-      // "Hot Matches" = open matches whose estimated value (high band) exceeds
-      // HOT_MATCH_MIN_VALUE. Expired matches are already excluded above.
+      // "Hot Matches" = open matches flagged Hot in the PRIORITY column (see
+      // isHotLead). Expired matches are already excluded above.
       if (
         caseLeadsFilter.routingInboxView === 'hotMatches' &&
-        ((Number(getLeadBands(lead).high) || 0) <= HOT_MATCH_MIN_VALUE || (lead?.status || '') !== 'submitted')
+        (!isHotLead(lead) || (lead?.status || '') !== 'submitted')
       ) {
         // Hot matches are open, unaccepted matches only; an accepted high-value case
         // belongs to Active Cases, not the New Matches inbox.
@@ -432,7 +440,7 @@ export default function AttorneyDashboardLeadsTab({
     // Expired/missed matches are counted only under their own tile, never under the
     // active tiles, so the tile numbers match the lists they open (an expired case is
     // no longer "hot" or "aging").
-    hotMatches: (dashboardData?.recentLeads || []).filter((lead: any) => (Number(getLeadBands(lead).high) || 0) > HOT_MATCH_MIN_VALUE && (lead?.status || '') === 'submitted' && !isExpiredMatch(lead)).length,
+    hotMatches: (dashboardData?.recentLeads || []).filter((lead: any) => isHotLead(lead) && (lead?.status || '') === 'submitted' && !isExpiredMatch(lead)).length,
     staleMatches: (dashboardData?.recentLeads || []).filter((lead: any) => {
       if (isExpiredMatch(lead)) return false
       const submittedAt = Date.parse(lead?.submittedAt || '')
@@ -683,19 +691,31 @@ export default function AttorneyDashboardLeadsTab({
             filled
             active={caseLeadsFilter.routingInboxView === 'hotMatches'}
             onClick={() => applyRoutingInboxView('hotMatches', {}, null)}
-            hint={hintText('Open matches with an estimated value over $30K — your highest-value cases to review first.')}
+            hint={hintText('Open matches flagged high-priority — high estimated value or strong evidence. Your highest-value cases to review first.')}
           />
           <div
             className="relative"
             onMouseEnter={() => setAcceptTipOpen(true)}
             onMouseLeave={() => setAcceptTipOpen(false)}
           >
-            <div className="flex h-full cursor-default flex-col items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center transition duration-150 hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md">
-              <span className="text-2xl font-bold leading-none tabular-nums text-emerald-700">{acceptedInWindow}</span>
-              <span className="mt-1 flex items-center gap-1 text-xs font-medium text-emerald-700">
-                Accepted
-                {showHints && <Info className="h-3 w-3 opacity-60" aria-hidden />}
-              </span>
+            <div className="flex h-full flex-col items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center transition duration-150 hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md">
+              {/* The count + label link to the Active Cases list (where the accepted
+                  caseload lives), so clicking "Accepted" actually surfaces those
+                  cases rather than doing nothing (CP-301). The 7/30/90 window
+                  toggles below are analytics controls and must not navigate. */}
+              <button
+                type="button"
+                onClick={() => navigate('/attorney-dashboard/cases/active')}
+                title="View your accepted cases"
+                className="group/accepted flex flex-col items-center rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+              >
+                <span className="text-2xl font-bold leading-none tabular-nums text-emerald-700">{acceptedInWindow}</span>
+                <span className="mt-1 flex items-center gap-1 text-xs font-medium text-emerald-700">
+                  Accepted
+                  <ArrowRight className="h-3 w-3 opacity-0 transition-opacity group-hover/accepted:opacity-70" aria-hidden />
+                  {showHints && <Info className="h-3 w-3 opacity-60" aria-hidden />}
+                </span>
+              </button>
               <div className="mt-2 inline-flex overflow-hidden rounded-lg border border-emerald-200 bg-white">
                 {(['7', '30', '90'] as const).map((w) => (
                   <button
@@ -720,7 +740,7 @@ export default function AttorneyDashboardLeadsTab({
                 className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-60 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-medium leading-5 text-white shadow-lg shadow-slate-900/20"
               >
                 Matches you accepted in the last {acceptWindow} days
-                {acceptRateWindow != null ? ` — ${acceptRateWindow}% of the ${decidedInAcceptWindow} you decided.` : '.'}
+                {acceptRateWindow != null ? ` — ${acceptRateWindow}% of the ${decidedInAcceptWindow} you decided.` : '.'} Click to view your accepted cases.
                 <span
                   className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 bg-slate-900"
                   aria-hidden
@@ -1103,7 +1123,7 @@ export default function AttorneyDashboardLeadsTab({
                         {[lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || '—'}
                       </td>
                       <td className="px-4 py-3 align-top text-sm font-medium text-gray-900 whitespace-nowrap">
-                        {bands.low && bands.high ? `${formatCurrency(bands.low)}-${formatCurrency(bands.high)}` : '—'}
+                        {bands.low && bands.high ? `${compactCurrency(bands.low)}–${compactCurrency(bands.high)}` : '—'}
                       </td>
                       <td className="px-4 py-3 align-top">
                         {strength > 0 ? (

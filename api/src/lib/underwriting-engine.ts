@@ -141,6 +141,25 @@ const BASE_INJURY_VALUES: Record<InjuryType, number> = {
   WRONGFUL_DEATH: 500000,
 }
 
+// General (pain-and-suffering) damages scale with the medical specials via the industry
+// "multiplier method": the more (and more serious) the treatment, the larger the
+// non-economic award. These multiples are applied to the medical specials and floored by
+// the flat BASE_INJURY_VALUES above, so a soft-tissue case with substantial treatment is
+// no longer valued at ~1x its bills. Wrongful death is driven by its base value, not a
+// medical-specials multiple.
+const GENERAL_DAMAGES_MULTIPLIERS: Record<InjuryType, number> = {
+  SOFT_TISSUE: 1.5,
+  DISC_BULGE: 2,
+  DISC_HERNIATION: 2.5,
+  RADICULOPATHY: 3,
+  TBI_MILD: 3,
+  TBI_MODERATE: 4,
+  TBI_SEVERE: 5,
+  BROKEN_BONE: 2.5,
+  SPINAL_CORD: 5,
+  WRONGFUL_DEATH: 0,
+}
+
 const VENUE_MODIFIERS: Record<string, number> = {
   'los angeles': 1.15,
   orange: 1.05,
@@ -438,7 +457,18 @@ export function calculateSettlement(input: UnderwritingInput, liability: Liabili
   const venueModifier = getVenueModifier(input.venueCounty)
   const liabilityModifier = Math.max(0.25, liability.score / 100)
   const treatmentModifier = 0.75 + (treatment.score / 100) * 0.5
-  const expected = (baseInjuryValue + economicDamages.total) * venueModifier * liabilityModifier * treatmentModifier
+
+  // Non-economic (pain & suffering) damages scale with the medical specials. Documented
+  // procedures (injections/surgery) raise the multiplier because they signal a more painful,
+  // invasive course of treatment. The flat per-injury base value acts as a floor so a case
+  // with little/no billed treatment is not under-valued either.
+  const medicalSpecials = economicDamages.medicalBills + economicDamages.futureMedicalAdjusted
+  let generalDamagesMultiplier = GENERAL_DAMAGES_MULTIPLIERS[severity.primaryInjury]
+  if (severity.factors.some((factor) => factor.includes('surgery'))) generalDamagesMultiplier += 1
+  else if (severity.factors.some((factor) => factor.includes('injection'))) generalDamagesMultiplier += 0.5
+  const generalDamages = Math.max(baseInjuryValue, medicalSpecials * generalDamagesMultiplier)
+
+  const expected = (generalDamages + economicDamages.total) * venueModifier * liabilityModifier * treatmentModifier
 
   return {
     low: money(expected * 0.7),
@@ -449,7 +479,7 @@ export function calculateSettlement(input: UnderwritingInput, liability: Liabili
     venueModifier,
     liabilityModifier,
     treatmentModifier,
-    formula: '(baseInjuryValue + economicDamages) * venueModifier * liabilityModifier * treatmentModifier',
+    formula: '(generalDamages + economicDamages) * venueModifier * liabilityModifier * treatmentModifier; generalDamages = max(baseInjuryValue, medicalSpecials * severityMultiplier)',
   }
 }
 
@@ -512,6 +542,52 @@ export function calculateAttorneyConsensus(reviews: AttorneyCaseReviewValue[]): 
     trialHigh: money(median(reviews.map((review) => review.trialHigh || 0).filter(Boolean))),
     reviewCount: reviews.length,
     confidence: reviews.length >= 3 ? 'high' : reviews.length === 2 ? 'medium' : 'low',
+  }
+}
+
+/**
+ * Build a `value_bands` object whose settlement AND trial both derive from the
+ * authoritative underwriting settlement, so the two can never disagree. The trial band is a
+ * defensible risk-premium multiple of the settlement high (most cases settle; a verdict
+ * carries added risk/exposure). This is the single reconciliation point shared by the
+ * /predict route and the evidence-driven case recalculation, replacing the older behaviour
+ * where the displayed settlement came from underwriting while the trial band kept a
+ * divergent heuristic value anchored to the pre-underwriting settlement.
+ */
+export function reconcileValueBandsWithUnderwriting(legacyValueBands: any, settlement: SettlementResult) {
+  const legacy = legacyValueBands || {}
+  const trialLow = money(settlement.high * 1.35)
+  const trialHigh = money(settlement.high * 3.25)
+  return {
+    ...legacy,
+    p25: settlement.low,
+    median: settlement.expected,
+    p75: settlement.high,
+    settlement: {
+      ...(legacy.settlement || {}),
+      p25: settlement.low,
+      median: settlement.expected,
+      p75: settlement.high,
+      formula: settlement.formula,
+      policyLimitConstrained: false,
+    },
+    trial: {
+      ...(legacy.trial || {}),
+      p25: trialLow,
+      median: money((trialLow + trialHigh) / 2),
+      p75: trialHigh,
+      formula: 'settlement_high * trial_risk_premium (1.35x low, 3.25x high); most cases settle',
+      policyLimitConstrained: false,
+    },
+    economics: {
+      ...(legacy.economics || {}),
+      medicalBills: settlement.economicDamages.medicalBills,
+      lostWages: settlement.economicDamages.lostWages,
+      outOfPocket: settlement.economicDamages.outOfPocket,
+      futureMedicalAdjusted: settlement.economicDamages.futureMedicalAdjusted,
+      economicDamages: settlement.economicDamages.total,
+      baseInjuryValue: settlement.baseInjuryValue,
+    },
   }
 }
 

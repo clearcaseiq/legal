@@ -1172,7 +1172,7 @@ router.get('/routing-queue', authMiddleware, adminMiddleware, async (req: AuthRe
 router.get('/attorneys/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
-    const [attorney, verifiedReviewCount] = await Promise.all([
+    const [attorney, verifiedReviewCount, reviews] = await Promise.all([
       prisma.attorney.findUnique({
         where: { id },
         select: {
@@ -1222,6 +1222,21 @@ router.get('/attorneys/:id', authMiddleware, adminMiddleware, async (req: AuthRe
           attorneyId: id,
           isVerified: true,
         },
+      }),
+      // Surface the actual submitted reviews so admins can read them (CP-308).
+      prisma.attorneyReview.findMany({
+        where: { attorneyId: id },
+        select: {
+          id: true,
+          rating: true,
+          title: true,
+          review: true,
+          isVerified: true,
+          createdAt: true,
+          user: { select: { firstName: true, lastName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
       }),
     ])
 
@@ -1288,6 +1303,15 @@ router.get('/attorneys/:id', authMiddleware, adminMiddleware, async (req: AuthRe
       profile: attorney.attorneyProfile,
       attorneyDashboard: attorney.dashboard,
       verifiedReviewCount,
+      reviews: reviews.map((r) => ({
+        id: r.id,
+        rating: r.rating,
+        title: r.title,
+        review: r.review,
+        isVerified: r.isVerified,
+        createdAt: r.createdAt,
+        reviewerName: `${r.user?.firstName || ''} ${r.user?.lastName || ''}`.trim() || 'Anonymous',
+      })),
       performance: {
         acceptanceRate: totalIntros > 0 ? Math.round((accepted / totalIntros) * 100) : 0,
         medianResponseMinutes: Math.round(medianResponseMs / 60000),

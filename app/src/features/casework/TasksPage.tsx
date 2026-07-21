@@ -33,6 +33,13 @@ interface TaskRow {
   assessmentId?: string | null
   leadId?: string | null
   claimType?: string | null
+  // 'workflow' rows come from reassigned workflow steps (CaseWorkflowItem) rather
+  // than CaseTask. They roll up into the open-task queue/counts (CP-333) but are
+  // read-only here — completed/deleted from the case's Workflow tab instead.
+  source?: 'task' | 'workflow'
+  stageName?: string | null
+  phaseName?: string | null
+  required?: boolean
 }
 
 interface TaskSummary {
@@ -95,6 +102,39 @@ function byDayThenPriority(a: TaskRow, b: TaskRow): number {
   const dd = dueDayMs(a.dueDate) - dueDayMs(b.dueDate)
   if (dd !== 0) return dd
   return priorityRank(a.priority) - priorityRank(b.priority)
+}
+
+type OpenBucket = 'overdue' | 'today' | 'upcoming' | 'noDueDate'
+
+/** Which open-task bucket a due date falls into (mirrors the backend split). */
+function openBucketOf(dueDate?: string | null): OpenBucket {
+  const ms = dueDayMs(dueDate)
+  if (!Number.isFinite(ms)) return 'noDueDate'
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  if (ms < todayStart.getTime()) return 'overdue'
+  if (ms === todayStart.getTime()) return 'today'
+  return 'upcoming'
+}
+
+/** Convert a reassigned workflow step into an open-task row for the queue. */
+function workflowTaskToRow(t: MyWorkflowTask): TaskRow {
+  return {
+    id: `wf:${t.id}`,
+    title: t.title,
+    dueDate: t.dueDate ?? null,
+    completedAt: null,
+    status: 'open',
+    priority: t.required ? 'high' : 'medium',
+    taskType: 'workflow',
+    assessmentId: t.assessmentId ?? null,
+    leadId: t.leadId ?? null,
+    claimType: t.claimType ?? null,
+    source: 'workflow',
+    stageName: t.stageName ?? null,
+    phaseName: t.phaseName ?? null,
+    required: t.required,
+  }
 }
 
 const claimLabel = (s?: string | null) =>
@@ -193,16 +233,32 @@ export default function TasksPage() {
     }
   }, [])
 
+  // Open-task buckets with the caller's reassigned workflow steps folded in, so a
+  // reassigned step counts and shows under "All open tasks" — not just the
+  // dedicated workflow section (CP-333).
+  const openBuckets = useMemo(() => {
+    const base: Record<OpenBucket, TaskRow[]> = {
+      overdue: [...(summary?.overdue ?? [])],
+      today: [...(summary?.today ?? [])],
+      upcoming: [...(summary?.upcoming ?? [])],
+      noDueDate: [...(summary?.noDueDate ?? [])],
+    }
+    for (const wf of workflowTasks) {
+      base[openBucketOf(wf.dueDate)].push(workflowTaskToRow(wf))
+    }
+    return base
+  }, [summary, workflowTasks])
+
   const rows = useMemo<TaskRow[]>(() => {
     if (!summary) return []
     if (bucket === 'completed') return summary.recentlyCompleted ?? []
     const base =
       bucket === 'all'
-        ? [...summary.overdue, ...summary.today, ...summary.upcoming, ...summary.noDueDate]
-        : summary[bucket] ?? []
+        ? [...openBuckets.overdue, ...openBuckets.today, ...openBuckets.upcoming, ...openBuckets.noDueDate]
+        : openBuckets[bucket] ?? []
     // Organize by day (soonest/overdue first), then by priority within each day.
     return [...base].sort(byDayThenPriority)
-  }, [summary, bucket])
+  }, [summary, bucket, openBuckets])
 
   const viewingCompleted = bucket === 'completed'
 
@@ -278,7 +334,9 @@ export default function TasksPage() {
       header: '',
       cellClassName: 'w-10',
       cell: (r) =>
-        busyId === r.id ? (
+        r.source === 'workflow' ? (
+          <ListChecks className="h-5 w-5 text-indigo-500" aria-label="Workflow step — complete it in the case Workflow tab" />
+        ) : busyId === r.id ? (
           <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
         ) : viewingCompleted ? (
           <button
@@ -306,7 +364,16 @@ export default function TasksPage() {
       key: 'title',
       header: 'Task',
       cell: (r) =>
-        r.leadId ? (
+        r.source === 'workflow' ? (
+          <span className="inline-flex items-center gap-2">
+            <ClientLink name={r.title} leadId={r.leadId} section="workflow" />
+            {r.required && (
+              <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-600 ring-1 ring-rose-200">
+                Required
+              </span>
+            )}
+          </span>
+        ) : r.leadId ? (
           <button
             type="button"
             onClick={() => setDetail({ leadId: r.leadId as string, taskId: r.id, caseLabel: claimLabel(r.claimType) })}
@@ -342,17 +409,18 @@ export default function TasksPage() {
       header: '',
       align: 'right',
       cellClassName: 'w-10',
-      cell: (r) => (
-        <button
-          onClick={() => removeTask(r)}
-          disabled={busyId === r.id}
-          className="text-slate-300 transition hover:text-rose-600 disabled:opacity-50"
-          title="Delete task"
-          aria-label="Delete task"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
-      ),
+      cell: (r) =>
+        r.source === 'workflow' ? null : (
+          <button
+            onClick={() => removeTask(r)}
+            disabled={busyId === r.id}
+            className="text-slate-300 transition hover:text-rose-600 disabled:opacity-50"
+            title="Delete task"
+            aria-label="Delete task"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        ),
     },
   ]
 
@@ -550,28 +618,28 @@ export default function TasksPage() {
 
       <StatGrid columns={5}>
         <FilterStat
-          value={summary?.overdue.length ?? 0}
+          value={openBuckets.overdue.length}
           label="Overdue"
           tone="danger"
           active={bucket === 'overdue'}
           onClick={() => toggle('overdue')}
         />
         <FilterStat
-          value={summary?.today.length ?? 0}
+          value={openBuckets.today.length}
           label="Due today"
           tone="warning"
           active={bucket === 'today'}
           onClick={() => toggle('today')}
         />
         <FilterStat
-          value={summary?.upcoming.length ?? 0}
+          value={openBuckets.upcoming.length}
           label="Upcoming"
           tone="info"
           active={bucket === 'upcoming'}
           onClick={() => toggle('upcoming')}
         />
         <FilterStat
-          value={summary?.noDueDate.length ?? 0}
+          value={openBuckets.noDueDate.length}
           label="No due date"
           active={bucket === 'noDueDate'}
           onClick={() => toggle('noDueDate')}

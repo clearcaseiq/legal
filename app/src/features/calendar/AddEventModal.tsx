@@ -59,10 +59,10 @@ const UNIT_MINUTES: Record<ReminderUnit, number> = {
   weeks: 10080,
 }
 const UNIT_OPTS: { v: ReminderUnit; label: string }[] = [
-  { v: 'minutes', label: 'minutes' },
-  { v: 'hours', label: 'hours' },
-  { v: 'days', label: 'days' },
-  { v: 'weeks', label: 'weeks' },
+  { v: 'minutes', label: 'Minutes' },
+  { v: 'hours', label: 'Hours' },
+  { v: 'days', label: 'Days' },
+  { v: 'weeks', label: 'Weeks' },
 ]
 const RECIPIENT_OPTS: { v: ReminderRecipient; label: string }[] = [
   { v: 'attorneys', label: 'Attorneys' },
@@ -70,8 +70,8 @@ const RECIPIENT_OPTS: { v: ReminderRecipient; label: string }[] = [
   { v: 'all', label: 'Everyone' },
 ]
 const CHANNEL_OPTS: { v: ReminderChannel; label: string }[] = [
-  { v: 'email', label: 'email' },
-  { v: 'popup', label: 'pop-up' },
+  { v: 'email', label: 'Email' },
+  { v: 'popup', label: 'Pop-up' },
 ]
 
 /** Convert an offset in minutes into the largest whole unit for display. */

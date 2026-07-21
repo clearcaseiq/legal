@@ -11,6 +11,7 @@ import { runAnalysisForAssessment } from './evidence'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
 import { runCaseRecalculation } from '../lib/case-recalculation'
+import { syncPlaintiffDocumentRequestStatuses } from '../lib/document-request-status'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { z } from 'zod'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
@@ -31,6 +32,8 @@ import { createZoomMeeting } from '../lib/zoom'
 import { deliverDirectNotification, createNotificationEvent } from '../lib/platform-notifications'
 import { translateToEnglish, looksNonEnglish } from '../lib/translate'
 import { isValidPhone, normalizePhone, PHONE_ERROR_MESSAGE } from '../lib/phone'
+import { zonedWallClockToUtc } from '../lib/booking-slots'
+import { hasAppointmentConflict } from '../lib/availability-slots'
 import { answerCommandCenterCopilot, buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
 import { computeSettlement } from '../lib/settlement'
 import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
@@ -157,6 +160,83 @@ const intakeImportUpload = multer({
   },
 })
 
+export type FirmVisibility = {
+  /** Firm the caller belongs to, when any. */
+  lawFirmId: string | null
+  /** True when the caller may see every case in their firm (firm admin). */
+  canViewAllCases: boolean
+}
+
+/**
+ * Resolve whether the caller can see cases firm-wide (CP-299). Firm admins
+ * should see cases routed to any attorney in their firm — not just their own.
+ * Mirrors the firm-role model used by firm-dashboard.ts without creating any
+ * firm rows as a side effect.
+ */
+async function resolveFirmVisibility(req: any, attorney: any): Promise<FirmVisibility> {
+  const none: FirmVisibility = { lawFirmId: null, canViewAllCases: false }
+  try {
+    const email = req.user?.email ? String(req.user.email).toLowerCase() : null
+    if (!email) return none
+
+    const user = await prisma.user.findUnique({ where: { email } })
+    const firmMember = user
+      ? await (prisma as any).firmMember
+          .findFirst({ where: { userId: user.id, status: 'active' } })
+          .catch(() => null)
+      : null
+
+    if (firmMember?.lawFirmId) {
+      const role = firmMember.role || 'intake_specialist'
+      let extraPermissions: string[] = []
+      if (typeof firmMember.permissions === 'string' && firmMember.permissions.trim()) {
+        try {
+          const parsed = JSON.parse(firmMember.permissions)
+          if (Array.isArray(parsed)) extraPermissions = parsed
+        } catch {
+          /* ignore malformed permission JSON */
+        }
+      } else if (Array.isArray(firmMember.permissions)) {
+        extraPermissions = firmMember.permissions
+      }
+      const canViewAllCases = role === 'firm_admin' || extraPermissions.includes('view_all_cases')
+      return { lawFirmId: firmMember.lawFirmId, canViewAllCases }
+    }
+
+    // An attorney tied to a firm but without an explicit membership row is
+    // treated as the firm admin (same fallback as firm-dashboard.ts).
+    if (attorney?.lawFirmId) {
+      return { lawFirmId: attorney.lawFirmId, canViewAllCases: true }
+    }
+
+    return none
+  } catch {
+    return none
+  }
+}
+
+/**
+ * Build the lead visibility OR-clause for a caller. Always includes the
+ * attorney's own assigned/introduced leads; when the caller is a firm admin
+ * with firm-wide visibility, also includes every lead belonging to an attorney
+ * in the same firm (CP-299).
+ */
+function buildLeadVisibilityOr(attorneyId: string, firm: FirmVisibility, extra: any[] = []): any[] {
+  const or: any[] = [
+    { assignedAttorneyId: attorneyId },
+    { assessment: { introductions: { some: { attorneyId } } } },
+    ...extra,
+  ]
+  if (firm.canViewAllCases && firm.lawFirmId) {
+    or.push(
+      { assignedAttorney: { lawFirmId: firm.lawFirmId } },
+      { assessment: { lawFirmId: firm.lawFirmId } },
+      { assessment: { introductions: { some: { attorney: { lawFirmId: firm.lawFirmId } } } } },
+    )
+  }
+  return or
+}
+
 async function getAttorneyFromReq(req: any) {
   if (!req.user?.email) {
     return { error: { status: 401, message: 'Authentication required' } }
@@ -170,7 +250,9 @@ async function getAttorneyFromReq(req: any) {
     return { error: { status: 403, message: 'Attorney profile not found' } }
   }
 
-  return { attorney }
+  const firm = await resolveFirmVisibility(req, attorney)
+
+  return { attorney, firm }
 }
 
 async function getAuthorizedLead(req: any, leadId: string) {
@@ -2084,6 +2166,8 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
     }
 
     const attorneyId = attorney.id
+    // Firm admins see cases routed to any attorney in their firm (CP-299).
+    const firmVisibility = await resolveFirmVisibility(req, attorney)
 
     // Get or create dashboard
     let dashboard
@@ -2157,16 +2241,7 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
     }
 
     const dashboardLeadWhere = {
-      OR: [
-        { assignedAttorneyId: attorneyId },
-        {
-          assessment: {
-            introductions: {
-              some: { attorneyId }
-            }
-          }
-        }
-      ]
+      OR: buildLeadVisibilityOr(attorneyId, firmVisibility)
     }
     const dashboardLeadInclude = {
       assessment: {
@@ -2176,7 +2251,12 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
           evidenceFiles: true,
           user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
           introductions: {
-            where: { attorneyId },
+            // Firm admins should still see the routed introduction even when it
+            // belongs to another attorney in the firm (CP-299).
+            where:
+              firmVisibility.canViewAllCases && firmVisibility.lawFirmId
+                ? { OR: [{ attorneyId }, { attorney: { lawFirmId: firmVisibility.lawFirmId } }] }
+                : { attorneyId },
             orderBy: { requestedAt: 'desc' as const },
             take: 1,
             select: {
@@ -4632,6 +4712,7 @@ router.get('/leads/filtered', authMiddleware, async (req: any, res) => {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
     const attorneyId = auth.attorney.id
+    const firmVisibility = auth.firm ?? { lawFirmId: null, canViewAllCases: false }
     const { 
       caseType, 
       venueState, 
@@ -4647,12 +4728,9 @@ router.get('/leads/filtered', authMiddleware, async (req: any, res) => {
       limit = 20
     } = req.query
 
-    // Build query filters
+    // Build query filters. Firm admins see cases routed to any firm attorney (CP-299).
     const whereClause: any = {
-      OR: [
-        { assignedAttorneyId: attorneyId },
-        { assignmentType: 'shared' }
-      ]
+      OR: buildLeadVisibilityOr(attorneyId, firmVisibility, [{ assignmentType: 'shared' }])
     }
 
     if (caseType) whereClause.assessment = { claimType: caseType }
@@ -5416,7 +5494,14 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
     const [h, m] = numPart.split(':').map((x: string) => parseInt(x || '0', 10))
     let hour = isPm && h < 12 ? h + 12 : !isPm && h === 12 ? 0 : h
     const [y, mo, d] = dateStr.split('-').map(Number)
-    const scheduledAt = new Date(y, mo - 1, d, hour, m || 0, 0)
+    // Interpret the entered wall-clock time in the attorney's own scheduling
+    // timezone (not the API server's local zone). Building the Date with the raw
+    // constructor previously stored e.g. "2:00 PM" as 2 PM server-local (UTC in
+    // prod), so the calendar and confirmation email — rendered in the attorney's
+    // zone — showed a shifted time (CP-304 / CP-307 / CP-344).
+    const attorneyTz = attorney.schedulingTimezone || 'America/New_York'
+    const scheduledAt = zonedWallClockToUtc(y, mo, d, hour, m || 0, attorneyTz)
+    const CONSULT_DURATION = 30
 
     // Reuse an existing upcoming consult for this case instead of stacking a new
     // one on every click. Without this, repeated "Schedule Consultation" presses
@@ -5431,6 +5516,21 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
       },
       orderBy: { scheduledAt: 'desc' },
     })
+
+    // Prevent double-booking the attorney at the same date/time. Look at this
+    // attorney's other SCHEDULED appointments (excluding the one we're about to
+    // reschedule for this same case) and reject overlapping slots (CP-303).
+    const otherAppointments = await prisma.appointment.findMany({
+      where: {
+        attorneyId: attorney.id,
+        status: 'SCHEDULED',
+        id: existingUpcoming ? { not: existingUpcoming.id } : undefined,
+      },
+      select: { scheduledAt: true, duration: true },
+    })
+    if (hasAppointmentConflict(scheduledAt, CONSULT_DURATION, otherAppointments)) {
+      return res.status(409).json({ error: 'A consultation is already scheduled for this date and time.' })
+    }
 
     const appointment = existingUpcoming
       ? await prisma.appointment.update({
@@ -5554,8 +5654,8 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
     const plaintiffEmail = user?.email
     if (plaintiffEmail) {
       const attorneyName = attorney.name || 'Smith Injury Law'
-      const dateStr = scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-      const timeStr = scheduledAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      const dateStr = scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: attorneyTz })
+      const timeStr = scheduledAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: attorneyTz, timeZoneName: 'short' })
       const typeLabel = meetingType === 'phone' ? 'Phone consultation' : meetingType === 'video' ? 'Video call' : 'In person'
       const subject = 'Your consultation has been scheduled'
       const joinLine = meetingType === 'video' && meetingUrl ? `Join link: ${meetingUrl}\n` : ''
@@ -6232,6 +6332,9 @@ router.post(
       // Re-run the valuation so an attorney-collected document updates the live
       // estimate the same way a client upload does.
       void runCaseRecalculation(lead.assessmentId, 'document_upload')
+      // Advance any matching "Request from client" document request so it no
+      // longer shows as pending once the document exists on the case (CP-330).
+      void syncPlaintiffDocumentRequestStatuses(lead.assessmentId)
       logger.info('Attorney uploaded case document', {
         leadId,
         evidenceFileId: evidenceFile.id,

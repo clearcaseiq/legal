@@ -15,6 +15,9 @@ import {
   type PublicBookingEventType,
 } from '../../lib/api'
 import { DaySlotPicker, LOCATION_META, formatDuration } from './bookingShared'
+import { formatPhoneInput, validatePhoneField } from '../../lib/phone'
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
@@ -129,7 +132,7 @@ function EventTypePicker({
           >
             <div className="min-w-0">
               <div className="text-base font-semibold text-slate-900">{et.name}</div>
-              {et.description && <p className="mt-1 line-clamp-2 text-sm text-slate-500">{et.description}</p>}
+              {et.description && <p className="mt-1 whitespace-pre-line text-sm text-slate-500">{et.description}</p>}
               <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
                 <span className="inline-flex items-center gap-1">
                   <Clock className="h-3.5 w-3.5" />
@@ -238,6 +241,15 @@ function BookingForm({
       setErr('Please enter your name and email.')
       return
     }
+    if (!EMAIL_RE.test(email.trim())) {
+      setErr('Please enter a valid email address.')
+      return
+    }
+    const phoneError = validatePhoneField(phone)
+    if (phoneError) {
+      setErr(phoneError)
+      return
+    }
     setSubmitting(true)
     setErr(null)
     try {
@@ -319,7 +331,13 @@ function BookingForm({
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-medium text-slate-700">Phone</span>
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} className="rounded-lg border border-slate-200 px-3 py-2" />
+          <input
+            type="tel"
+            inputMode="tel"
+            value={phone}
+            onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
+            className="rounded-lg border border-slate-200 px-3 py-2"
+          />
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-medium text-slate-700">What would you like to discuss?</span>

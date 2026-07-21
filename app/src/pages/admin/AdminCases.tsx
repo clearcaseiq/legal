@@ -8,6 +8,7 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronUp,
+  ChevronsUpDown,
   ExternalLink,
   FolderOpen,
 } from 'lucide-react'
@@ -175,11 +176,15 @@ export default function AdminCases() {
   const SortIcon = ({ field }: { field: SortField }) =>
     sortField === field ? (
       sortDirection === 'asc' ? (
-        <ChevronUp className="h-4 w-4" />
+        <ChevronUp className="h-4 w-4 text-slate-700" />
       ) : (
-        <ChevronDown className="h-4 w-4" />
+        <ChevronDown className="h-4 w-4 text-slate-700" />
       )
-    ) : null
+    ) : (
+      // Inactive but sortable: show a muted indicator so the column reads as clickable
+      // without waiting for a first click (CP-320).
+      <ChevronsUpDown className="h-4 w-4 text-slate-300" aria-hidden />
+    )
 
   return (
     <div className="flex h-[calc(100vh-6.5rem)] min-h-0 flex-col gap-4 overflow-hidden">

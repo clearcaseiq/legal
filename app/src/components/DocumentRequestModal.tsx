@@ -44,10 +44,15 @@ export default function DocumentRequestModal({
 
   useEffect(() => {
     if (!isOpen) return
+    // Re-seed from the prefill ONLY when the modal opens. Depending on the
+    // initial* props would re-run this on every parent re-render — and the parent
+    // passes fresh array/string literals each render — which silently wiped the
+    // attorney's checkbox selection the moment they ticked a box (CP-311).
     setSelected(new Set(initialRequestedDocs))
     setCustomMessage(initialCustomMessage)
     setSendUploadLinkOnly(initialSendUploadLinkOnly)
-  }, [initialCustomMessage, initialRequestedDocs, initialSendUploadLinkOnly, isOpen])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen])
 
   const toggle = (id: DocTypeId) => {
     setSelected(prev => {

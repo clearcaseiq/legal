@@ -2688,11 +2688,11 @@ export default function IntakeWizardQuick() {
               type="button"
               aria-pressed={active}
               onClick={onClick}
-              className={`relative flex ${opts?.stack ? 'flex-col items-center gap-1.5 text-center' : 'items-center gap-2'} rounded-xl border-[1.5px] px-3 py-2.5 text-xs font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${active ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
+              className={`relative flex ${opts?.stack ? 'flex-col items-center gap-1.5 text-center' : 'items-center gap-2'} rounded-xl border-[1.5px] px-3 py-2.5 text-xs font-semibold leading-tight shadow-sm transition-all active:scale-[0.99] ${active && !opts?.stack ? 'pr-6' : ''} ${active ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
             >
               {active && <Check className="absolute right-1.5 top-1.5 h-3.5 w-3.5 text-brand-600" aria-hidden />}
               <Icon className={`h-4 w-4 shrink-0 ${iconColor}`} aria-hidden />
-              <span>{label}</span>
+              <span className="min-w-0 break-words">{label}</span>
             </button>
           )
         }
@@ -2801,7 +2801,7 @@ export default function IntakeWizardQuick() {
                           className={`flex items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
                         >
                           <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent'}`}>✓</span>
-                          <span>{label}</span>
+                          <span className="min-w-0 break-words">{label}</span>
                         </button>
                       ))}
                     </div>
@@ -3091,6 +3091,9 @@ export default function IntakeWizardQuick() {
       case 'when': {
         const detectedDisplay = detectedLocation ? [detectedLocation.city, detectedLocation.county, detectedLocation.state].filter(Boolean).join(', ') : ''
         const countyOptions = formData.venue.state ? getCountiesForState(formData.venue.state) : []
+        // For a wrongful-death claim the medical question is reframed to ask, in past
+        // tense, about the care the decedent received before passing.
+        const isDeceased = formData.injuredParty === 'deceased'
         const NARRATIVE_MAX = 1000
         const narrativeLen = formData.narrative.length
         // Helpful-detail prompts adapt to the incident type chosen in "What happened?".
@@ -3183,7 +3186,6 @@ export default function IntakeWizardQuick() {
                 <div className="flex items-center gap-2.5">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><MapPin className="h-4 w-4" aria-hidden /></span>
                   <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('band_basics')}</h3>
-                  <span className="ml-auto rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-600 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300">{tx('band_required')}</span>
                 </div>
                 <div className="space-y-4">
                 {/* When */}
@@ -3195,8 +3197,11 @@ export default function IntakeWizardQuick() {
                       them) so the date box and preset buttons keep their full width. */}
                   <div className="mt-2 space-y-3">
                     <div>
-                      {/* Date box + presets span three-quarters width (reduced by 1/4 from full). */}
-                      <div className="flex w-3/4 flex-col gap-2">
+                      {/* Date box + presets: full width on mobile (nothing sits beside them
+                          there, and the cramped 3/4 width made the native date value clip and
+                          the 4 quick-date presets overlap — CP-372/CP-369). Narrow to 3/4 on
+                          larger screens where the layout has room. */}
+                      <div className="flex w-full flex-col gap-2 sm:w-3/4">
                       {/* Exact date drives the filing deadline, so lead with it. */}
                       <div className={`group relative w-full rounded-xl border bg-white py-1 pl-3.5 pr-2.5 shadow-sm transition-all focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/25 dark:bg-slate-900/40 ${errors.incidentDate ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-300 hover:border-slate-400 dark:border-slate-600 dark:hover:border-slate-500'}`}>
                         <div className="flex items-center gap-3">
@@ -3232,7 +3237,7 @@ export default function IntakeWizardQuick() {
                         </div>
                       </div>
                       {/* Quick date presets: single row of equal-size buttons */}
-                      <div className="grid w-full grid-cols-4 gap-1.5">
+                      <div className="grid w-full grid-cols-4 gap-1">
                         {datePresets.map(p => {
                           const active = formData.incidentDatePreset === 'custom' && customDate === p.iso
                           return (
@@ -3240,7 +3245,7 @@ export default function IntakeWizardQuick() {
                               key={p.key}
                               type="button"
                               onClick={() => applyPresetDate(p.iso)}
-                              className={`!min-h-0 w-full whitespace-nowrap rounded-lg border px-2 py-1 text-center text-[11px] font-semibold transition-colors ${active ? 'border-brand-600 bg-brand-600 text-white shadow-sm dark:border-brand-400 dark:bg-brand-500 dark:text-white' : 'border-brand-200 bg-brand-50/60 text-brand-700 hover:border-brand-300 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/20'}`}
+                              className={`!min-h-0 w-full min-w-0 truncate rounded-lg border px-1 py-1 text-center text-[11px] font-semibold transition-colors ${active ? 'border-brand-600 bg-brand-600 text-white shadow-sm dark:border-brand-400 dark:bg-brand-500 dark:text-white' : 'border-brand-200 bg-brand-50/60 text-brand-700 hover:border-brand-300 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/20'}`}
                             >
                               {p.label}
                             </button>
@@ -3382,7 +3387,6 @@ export default function IntakeWizardQuick() {
                 <div className="flex items-center gap-2.5">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><MessageSquare className="h-4 w-4" aria-hidden /></span>
                   <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('band_story')}</h3>
-                  <span className="ml-auto rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-600 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300">{tx('band_recommended')}</span>
                 </div>
                 {/* Narrative */}
                 <div>
@@ -3489,12 +3493,11 @@ export default function IntakeWizardQuick() {
                 <div className="flex items-center gap-2.5">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Stethoscope className="h-4 w-4" aria-hidden /></span>
                   <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('band_medical')}</h3>
-                  <span className="ml-auto rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-600 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300">{tx('band_required')}</span>
                 </div>
                 {/* Treatment */}
                 <div>
-                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Stethoscope className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('treatment_heading')}</p>
-                  <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('treatment_helper')}</p>
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Stethoscope className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx(isDeceased ? 'treatment_heading_deceased' : 'treatment_heading')}</p>
+                  <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx(isDeceased ? 'treatment_helper_deceased' : 'treatment_helper')}</p>
                   <div className="mt-2">
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
                       {MEDICAL_TREATMENT_OPTIONS.map(({ value }) => {
@@ -3519,7 +3522,7 @@ export default function IntakeWizardQuick() {
                             <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${selected ? 'bg-brand-100' : 'bg-brand-50'}`}>
                               <Icon className={`h-5 w-5 ${selected ? 'text-brand-700' : 'text-brand-600'}`} aria-hidden />
                             </span>
-                            <span className="text-[13px] font-semibold leading-tight text-gray-900">{getOptionLabel(MEDICAL_TREATMENT_OPTIONS, value)}</span>
+                            <span className="text-[13px] font-semibold leading-tight text-gray-900">{value === 'none' && isDeceased ? tx('treatment_none_deceased') : getOptionLabel(MEDICAL_TREATMENT_OPTIONS, value)}</span>
                             {selected && fullWidth && <Check className="h-4 w-4 text-brand-600" aria-hidden />}
                           </button>
                         )
@@ -3777,7 +3780,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('bodyParts', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs dark:bg-slate-800" aria-hidden>{disp?.emoji || '•'}</span>
-                      <span className="min-w-0 flex-1 text-xs font-semibold text-gray-800 dark:text-slate-200">{disp?.label || label}</span>
+                      <span className="min-w-0 flex-1 break-words text-xs font-semibold text-gray-800 dark:text-slate-200">{disp?.label || label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -3809,7 +3812,7 @@ export default function IntakeWizardQuick() {
                       const selected = formData.injuryDetails.concussionSymptoms.includes(value)
                       return (
                         <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('concussionSymptoms', value)} className={tileClass(selected)}>
-                          <span className="min-w-0 flex-1 text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                          <span className="min-w-0 flex-1 break-words text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
                           {renderCheck(selected)}
                         </button>
                       )
@@ -3826,7 +3829,7 @@ export default function IntakeWizardQuick() {
                       const selected = formData.injuryDetails.shoulderFindings.includes(value)
                       return (
                         <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('shoulderFindings', value)} className={tileClass(selected)}>
-                          <span className="min-w-0 flex-1 text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                          <span className="min-w-0 flex-1 break-words text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
                           {renderCheck(selected)}
                         </button>
                       )
@@ -3843,7 +3846,7 @@ export default function IntakeWizardQuick() {
                       const selected = formData.injuryDetails.backFindings.includes(value)
                       return (
                         <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('backFindings', value)} className={tileClass(selected)}>
-                          <span className="min-w-0 flex-1 text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                          <span className="min-w-0 flex-1 break-words text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
                           {renderCheck(selected)}
                         </button>
                       )
@@ -3894,7 +3897,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('imaging', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -3912,7 +3915,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('diagnoses', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -3941,7 +3944,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('currentSymptoms', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -3959,7 +3962,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, recoveryStatus: selected ? '' : value } })} className={radioCardClass(selected)}>
                       {radioDot(selected)}
-                      <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
                     </button>
                   )
                 })}
@@ -3976,7 +3979,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('lifestyleImpact', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -4050,7 +4053,7 @@ export default function IntakeWizardQuick() {
                       return (
                         <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, priorInjury: selected ? '' : value } })} className={radioCardClass(selected)}>
                           {radioDot(selected)}
-                          <span className="min-w-0 flex-1 text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                          <span className="min-w-0 flex-1 break-words text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
                         </button>
                       )
                     })}
@@ -4069,7 +4072,7 @@ export default function IntakeWizardQuick() {
                       return (
                         <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('futureTreatment', value, value === 'none')} className={tileClass(selected)}>
                           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                          <span className="min-w-0 flex-1 text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                          <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
                           {renderCheck(selected)}
                         </button>
                       )
@@ -4086,7 +4089,7 @@ export default function IntakeWizardQuick() {
                         const selected = formData.injuryDetails.procedures.includes(value)
                         return (
                           <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('procedures', value)} className={tileClass(selected)}>
-                            <span className="min-w-0 flex-1 text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                            <span className="min-w-0 flex-1 break-words text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
                             {renderCheck(selected)}
                           </button>
                         )
@@ -5362,7 +5365,6 @@ export default function IntakeWizardQuick() {
           { label: tx('dv_factorEmployment'), status: ((cpFinancial.missedWork && cpFinancial.missedWork !== 'no') || hasUploadedWageDocs) ? ((cpFinancial.lostWagesRange || hasUploadedWageDocs) ? 'included' : 'partial') : 'missing' },
         ]
         const confScore = Math.round(dvConfidenceFactors.reduce((acc, f) => acc + (f.status === 'included' ? 1 : f.status === 'partial' ? 0.5 : 0), 0) / dvConfidenceFactors.length * 100)
-        const confLabel = confScore >= 78 ? tx('dv_confHigh') : confScore >= 52 ? tx('dv_confMedium') : tx('dv_confLow')
         const readinessNow = Math.min(95, Math.round(confScore * 0.85 + 12))
         const readinessPotential = Math.min(98, readinessNow + 7)
 
@@ -5405,27 +5407,11 @@ export default function IntakeWizardQuick() {
         const compP75 = Math.round(compMedian * 1.85)
         const timelineMonths = hasSurgery ? '12 – 24' : economicTotal > 30000 ? '9 – 18' : '7 – 14'
         const dvHasValue = mostLikely > 0
-        const ringPct = Math.max(4, Math.min(100, confScore))
-        const ringCirc = 2 * Math.PI * 34
 
         return (
           <div className="space-y-4">
             <div className="text-center">
               <h2 className="font-display text-lg font-bold text-slate-900 dark:text-slate-100 sm:text-xl">{tx('dv_titleSimple')}</h2>
-            </div>
-
-            {/* Live "current assessment" strip (reuses the computed confidence model) */}
-            <div className={`mx-auto flex w-full max-w-xl items-center gap-3 rounded-xl border px-3 py-2 ${confScore >= 78 ? 'border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/30 dark:bg-emerald-500/10' : confScore >= 52 ? 'border-amber-200 bg-amber-50/70 dark:border-amber-500/30 dark:bg-amber-500/10' : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`}>
-              <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${confScore >= 78 ? 'bg-emerald-500' : confScore >= 52 ? 'bg-amber-500' : 'bg-slate-400'}`} aria-hidden />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{tx('dv_currentAssessment')}: <span className={confScore >= 78 ? 'text-emerald-700 dark:text-emerald-300' : confScore >= 52 ? 'text-amber-700 dark:text-amber-300' : 'text-slate-600 dark:text-slate-300'}>{confLabel}</span></span>
-                  <span className="text-xs font-semibold tabular-nums text-slate-500 dark:text-slate-400">{confScore}%</span>
-                </div>
-                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                  <div className={`h-full rounded-full transition-all ${confScore >= 78 ? 'bg-emerald-500' : confScore >= 52 ? 'bg-amber-500' : 'bg-slate-400'}`} style={{ width: `${ringPct}%` }} />
-                </div>
-              </div>
             </div>
 
             {/* ===== Card: Financial Impact ===== */}
@@ -5628,6 +5614,18 @@ export default function IntakeWizardQuick() {
                     ? { k: tx('card_lostIncome'), v: labelForValue(WAGE_LOSS_RANGE_OPTIONS, formData.casePosture.lostWagesRange), doc: false }
                     : { k: tx('card_lostIncome'), v: tx('notAnsweredYet'), doc: false },
           ]
+          // Financial specials (bills / future care / lost income) are the biggest driver of
+          // case value, so when the claimant skipped all of them the review card should invite
+          // them to add it rather than just reporting three "Not answered yet" lines.
+          const hasAnyFinancial =
+            billsDocTotal > 0 ||
+            !!formData.insuranceCoverage.medicalBillRange ||
+            evCount('bills') > 0 ||
+            !!formData.insuranceCoverage.futureMedicalRange ||
+            wageDocLoss > 0 ||
+            evCount('wage_verification') > 0 ||
+            !!formData.casePosture.missedWork ||
+            !!formData.casePosture.lostWagesRange
           const docRows = [
             { k: tx('evidence_medicalBills'), n: evCount('bills') },
             { k: tx('evidence_medicalRecords'), n: evCount('medical_records') },
@@ -5835,15 +5833,32 @@ export default function IntakeWizardQuick() {
                 <>{injuryLines.length ? injuryLines.map((l, i) => <p key={i} className="flex items-center gap-1.5"><CheckCircle2 className="h-3 w-3 shrink-0 text-brand-500" aria-hidden /><span className="truncate">{l}</span></p>) : <p>{tx('notAnsweredYet')}</p>}</>
               ) })}
               {renderCard({ title: tx('card_financial'), icon: DollarSign, step: 'financial_impact', children: (
+                hasAnyFinancial ? (
                 <>{financialLines.map((row) => (
                   <p key={row.k} className="flex items-center justify-between gap-2">
-                    <span className="text-gray-500">{row.k}</span>
-                    <span className="flex items-center gap-1 text-right font-medium text-gray-800 dark:text-slate-200">
+                    <span className="min-w-0 shrink-0 text-gray-500">{row.k}</span>
+                    <span className="flex min-w-0 items-center gap-1 text-right font-medium text-gray-800 dark:text-slate-200">
                       {row.doc && <FileText className="h-3 w-3 shrink-0 text-emerald-600" aria-label={tx('card_fromDocuments')} />}
-                      {row.v}
+                      <span className="min-w-0 break-words">{row.v}</span>
                     </span>
                   </p>
                 ))}</>
+                ) : (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-2.5 dark:border-amber-500/30 dark:bg-amber-500/10">
+                    <p className="flex items-start gap-1.5 text-[13px] leading-snug text-amber-800 dark:text-amber-200">
+                      <TrendingUp className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
+                      {tx('financialEmpty_prompt')}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => editReviewStep('financial_impact')}
+                      className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-amber-600"
+                    >
+                      <DollarSign className="h-3.5 w-3.5" aria-hidden />
+                      {tx('financialEmpty_cta')}
+                    </button>
+                  </div>
+                )
               ) })}
             </div>
 
@@ -5879,11 +5894,21 @@ export default function IntakeWizardQuick() {
               <div className="grid gap-2 sm:grid-cols-2">
                 <label className={`flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2 transition-all ${consents.tos && consents.privacy ? 'border-brand-300 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-200 bg-slate-50 hover:border-brand-200 dark:border-slate-700 dark:bg-slate-800/40'}`}>
                   <input type="checkbox" checked={!!(consents.tos && consents.privacy)} onChange={e => { const checked = e.target.checked; updateForm({ consents: { ...consents, tos: checked, privacy: checked } }) }} className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600" />
-                  <span className="text-xs leading-snug text-gray-700 dark:text-slate-300">{tx('consent_agreeTerms')} <span className="font-semibold text-red-500" aria-hidden>*</span></span>
+                  <span className="text-xs leading-snug text-gray-700 dark:text-slate-300">
+                    {tx('consent_agreeTermsPre')}
+                    <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_termsLink')}</a>
+                    {tx('consent_termsMid')}
+                    <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_privacyLink')}</a>
+                    {' '}<span className="font-semibold text-red-500" aria-hidden>*</span>
+                  </span>
                 </label>
                 <label className={`flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2 transition-all ${consents.ml_use ? 'border-brand-300 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-200 bg-slate-50 hover:border-brand-200 dark:border-slate-700 dark:bg-slate-800/40'}`}>
                   <input type="checkbox" checked={!!consents.ml_use} onChange={e => updateForm({ consents: { ...consents, ml_use: e.target.checked } })} className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600" />
-                  <span className="text-xs leading-snug text-gray-700 dark:text-slate-300">{tx('consent_agreeAi')} <span className="font-semibold text-red-500" aria-hidden>*</span></span>
+                  <span className="text-xs leading-snug text-gray-700 dark:text-slate-300">
+                    {tx('consent_agreeAiPre')}
+                    <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_aiLink')}</a>
+                    {' '}<span className="font-semibold text-red-500" aria-hidden>*</span>
+                  </span>
                 </label>
               </div>
               {(errors.tos || errors.privacy || errors.ml_use) && (

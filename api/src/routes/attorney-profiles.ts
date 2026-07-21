@@ -207,6 +207,17 @@ router.post('/:attorneyId/reviews', authMiddleware, async (req: AuthRequest, res
       }
     })
 
+    // Keep the AttorneyProfile aggregate in sync. The firm dashboard and the
+    // public attorney list read AttorneyProfile.averageRating/totalReviews, so
+    // without this they'd stay at 0 even after ratings come in (CP-326).
+    await prisma.attorneyProfile.updateMany({
+      where: { attorneyId },
+      data: {
+        averageRating,
+        totalReviews
+      }
+    })
+
     logger.info('Attorney review created', { 
       reviewId: newReview.id,
       attorneyId,

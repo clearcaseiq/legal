@@ -18,11 +18,13 @@ const TYPE_ICON: Record<string, typeof Video> = { video: Video, phone: Phone, in
 export function TimeGridView({
   days,
   items,
+  selected,
   onItemClick,
   onSlotClick,
 }: {
   days: Date[]
   items: CalItem[]
+  selected?: Date
   onItemClick: (item: CalItem) => void
   onSlotClick: (day: Date) => void
 }) {
@@ -50,20 +52,32 @@ export function TimeGridView({
         <div className="grid flex-1" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
           {days.map((day) => {
             const isToday = sameDay(day, now)
+            const isSelected = selected ? sameDay(day, selected) : false
             const allDay = itemsFor(day).filter((i) => !i.hasTime)
             return (
-              <div key={dateKeyOf(day)} className="border-l border-slate-100 first:border-l-0">
+              <div
+                key={dateKeyOf(day)}
+                className={`border-l border-slate-100 first:border-l-0 ${isSelected && !isToday ? 'bg-brand-50/60' : ''}`}
+              >
                 <button
                   type="button"
                   onClick={() => onSlotClick(day)}
                   className="flex w-full flex-col items-center py-2 transition hover:bg-slate-50"
                 >
-                  <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                  <span
+                    className={`text-[11px] font-medium uppercase tracking-wide ${
+                      isToday ? 'text-brand-600' : isSelected ? 'text-brand-500' : 'text-slate-400'
+                    }`}
+                  >
                     {day.toLocaleDateString('en-US', { weekday: 'short' })}
                   </span>
                   <span
                     className={`mt-0.5 flex h-8 w-8 items-center justify-center rounded-full text-lg font-semibold ${
-                      isToday ? 'bg-brand-600 text-white' : 'text-slate-800'
+                      isToday
+                        ? 'bg-brand-600 text-white'
+                        : isSelected
+                        ? 'text-brand-700 ring-2 ring-brand-500'
+                        : 'text-slate-800'
                     }`}
                   >
                     {day.getDate()}

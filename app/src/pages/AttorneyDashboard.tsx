@@ -582,8 +582,12 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
       }
     }
     if (initialView?.leadsSection === 'matches') {
+      // Scope to new/open matches via the routing-inbox view (the "New matches"
+      // tile), NOT via status/pipelineStage. Seeding pipelineStage='matched' made
+      // the FilterBar count a hidden stage filter as active — so New Matches loaded
+      // showing "1 active / Clear all" with no visible control (CP-310).
       // Honor an optional ?caseType= deep link (e.g. from Lead Quality practice-area rows).
-      return { ...DEFAULT_CASE_LEADS_FILTER, status: 'submitted', pipelineStage: 'matched', caseType: searchParams.get('caseType') || '' }
+      return { ...DEFAULT_CASE_LEADS_FILTER, routingInboxView: 'newMatches' as const, caseType: searchParams.get('caseType') || '' }
     }
     return {
       ...DEFAULT_CASE_LEADS_FILTER,
@@ -810,7 +814,7 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
     }
 
     if (item.actionType === 'schedule_consult') {
-      navigate(`/attorney-dashboard/schedule-consult/${lead.id}`)
+      navigate(`/attorney-dashboard/schedule-consult/${lead.id}?returnTo=${encodeURIComponent('/attorney-dashboard/cases/calendar')}`)
       return
     }
 
@@ -1514,7 +1518,7 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
       setError('Select a case to schedule a consultation')
       return
     }
-    navigate(`/attorney-dashboard/schedule-consult/${lead.id}`)
+    navigate(`/attorney-dashboard/schedule-consult/${lead.id}?returnTo=${encodeURIComponent('/attorney-dashboard/cases/calendar')}`)
   }, [selectedLead, dashboardData, navigate, setError])
 
   const handleScheduleConsultSubmit = useCallback(async (payload: { date: string; time: string; meetingType: string; notes?: string }) => {

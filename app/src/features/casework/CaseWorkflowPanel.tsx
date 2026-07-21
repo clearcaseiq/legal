@@ -444,7 +444,7 @@ function StepItem({
             >
               <User className="h-3.5 w-3.5" />
               <select
-                className="max-w-[160px] bg-transparent text-xs focus:outline-none disabled:opacity-60"
+                className="max-w-[160px] truncate bg-transparent pr-4 text-xs focus:outline-none disabled:opacity-60"
                 value={step.assignedFirmMemberId ?? ''}
                 disabled={pending}
                 onChange={(e) => onAssign(e.target.value || null)}

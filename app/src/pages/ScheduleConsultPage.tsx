@@ -41,9 +41,17 @@ export default function ScheduleConsultPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const tomorrow = new Date()
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  const defaultDate = dateFromUrl || tomorrow.toISOString().slice(0, 10)
+  // Use LOCAL calendar dates (not toISOString, which is UTC and shifts the day
+  // near midnight). `todayStr` is the earliest selectable date so the attorney can
+  // book same-day (CP-305) and can move a reschedule earlier than its original
+  // date (CP-339); it just can't be pushed into the past.
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const toLocalYmd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const now = new Date()
+  const todayStr = toLocalYmd(now)
+  const tomorrow = new Date(now)
+  tomorrow.setDate(now.getDate() + 1)
+  const defaultDate = dateFromUrl || toLocalYmd(tomorrow)
 
   const [date, setDate] = useState(defaultDate)
   const [time, setTime] = useState(timeFromUrl && TIME_SLOTS.includes(timeFromUrl) ? timeFromUrl : '2:00 PM')
@@ -213,7 +221,7 @@ export default function ScheduleConsultPage() {
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                min={defaultDate}
+                min={todayStr}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
               />
             </div>

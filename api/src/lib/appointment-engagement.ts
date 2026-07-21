@@ -200,14 +200,18 @@ export async function notifyAppointmentEvent(params: {
     }),
     prisma.attorney.findUnique({
       where: { id: params.attorneyId },
-      select: { name: true },
+      select: { name: true, schedulingTimezone: true },
     }),
   ])
 
   if (!user?.email || !attorney?.name) return
 
+  // Format in the attorney's scheduling timezone (with a tz abbreviation) so the
+  // booking time in the notification/email matches the attorney's calendar rather
+  // than the API server's local zone (CP-307 / CP-344).
+  const attorneyTz = attorney.schedulingTimezone || 'America/New_York'
   const when = params.scheduledAt
-    ? new Date(params.scheduledAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
+    ? new Date(params.scheduledAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: attorneyTz, timeZoneName: 'short' })
     : null
   const subjectMap = {
     scheduled: 'Consultation booked',

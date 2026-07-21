@@ -4,7 +4,7 @@ import { computeFeatures, predictViability, simulateScenario } from '../lib/pred
 import { PredictionRequest, SimulationRequest } from '../lib/validators'
 import { logger } from '../lib/logger'
 import { authMiddleware, optionalAuthMiddleware, type AuthRequest } from '../lib/auth'
-import { underwriteCase } from '../lib/underwriting-engine'
+import { underwriteCase, reconcileValueBandsWithUnderwriting } from '../lib/underwriting-engine'
 
 const router = Router()
 
@@ -97,29 +97,9 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
         preliminary: true,
       }
     } else {
-    const legacyValueBands = result.value_bands as any
-    const underwritingValueBands = {
-      ...legacyValueBands,
-      p25: underwriting.settlement.low,
-      median: underwriting.settlement.expected,
-      p75: underwriting.settlement.high,
-      settlement: {
-        ...(legacyValueBands?.settlement || {}),
-        p25: underwriting.settlement.low,
-        median: underwriting.settlement.expected,
-        p75: underwriting.settlement.high,
-        formula: underwriting.settlement.formula,
-      },
-      economics: {
-        ...(legacyValueBands?.economics || {}),
-        medicalBills: underwriting.settlement.economicDamages.medicalBills,
-        lostWages: underwriting.settlement.economicDamages.lostWages,
-        outOfPocket: underwriting.settlement.economicDamages.outOfPocket,
-        futureMedicalAdjusted: underwriting.settlement.economicDamages.futureMedicalAdjusted,
-        economicDamages: underwriting.settlement.economicDamages.total,
-        baseInjuryValue: underwriting.settlement.baseInjuryValue,
-      }
-    }
+    // Settlement is authoritative from the underwriting engine; the trial band is derived
+    // from it here so the two never diverge (previously trial kept a heuristic value).
+    const underwritingValueBands = reconcileValueBandsWithUnderwriting(result.value_bands, underwriting.settlement)
     underwritingResult = {
       ...result,
       viability: {

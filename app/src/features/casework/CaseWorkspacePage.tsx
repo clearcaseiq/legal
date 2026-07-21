@@ -2354,8 +2354,10 @@ function EvidencePanel({
       await nudgeDocumentRequest(id)
       setBanner({ tone: 'ok', text: 'Reminder sent to the client.' })
       refreshRequests()
-    } catch {
-      setBanner({ tone: 'err', text: 'Could not send the reminder.' })
+    } catch (err: any) {
+      // Surface the server message (e.g. the 24h cooldown notice) instead of a
+      // generic failure so a second Nudge explains why it was blocked (CP-314).
+      setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not send the reminder.' })
     }
   }
 

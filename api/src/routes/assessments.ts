@@ -16,6 +16,7 @@ import { buildCaseCommandCenter } from '../lib/case-command-center'
 import { runEscalationWave } from '../lib/routing-lifecycle'
 import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
 import { runCaseRecalculation } from '../lib/case-recalculation'
+import { DOCUMENT_REQUEST_CATEGORY_MAP, parseRequestedDocs } from '../lib/document-request-status'
 
 const router = Router()
 
@@ -38,25 +39,6 @@ const DOCUMENT_REQUEST_LABELS: Record<string, string> = {
   wage_loss: 'Wage loss documentation',
   insurance: 'Insurance information',
   other: 'Other documents'
-}
-
-const DOCUMENT_REQUEST_CATEGORY_MAP: Record<string, string[]> = {
-  police_report: ['police_report'],
-  medical_records: ['medical_records', 'bills'],
-  injury_photos: ['photos'],
-  wage_loss: ['wage_loss'],
-  insurance: ['insurance'],
-  other: []
-}
-
-function parseRequestedDocs(value: string | null | undefined): string[] {
-  if (!value) return []
-  try {
-    const parsed = JSON.parse(value) as unknown
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string' && item.length > 0) : []
-  } catch {
-    return []
-  }
 }
 
 function parsePredictionExplain(value: string) {

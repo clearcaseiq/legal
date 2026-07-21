@@ -16,6 +16,7 @@ import { ENV } from '../env'
 import { prisma } from '../lib/prisma'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence, extractDataFromBuffer } from '../lib/evidence-processing'
 import { analyzeImageRelevance, analyzePdfRelevance, type VisionRelevanceResult } from '../lib/evidence-vision'
+import { syncPlaintiffDocumentRequestStatuses } from '../lib/document-request-status'
 
 const router = Router()
 
@@ -649,6 +650,9 @@ router.post('/upload', upload.single('file'), async (req: any, res) => {
     })
     if (assessmentId) {
       void runAnalysisForAssessment(assessmentId)
+      // Advance any attorney "Request from client" document request this upload
+      // fulfills so it no longer shows as pending on the attorney side (CP-330).
+      void syncPlaintiffDocumentRequestStatuses(assessmentId)
     }
     res.status(201).json({ ...evidenceFile, vision: visionResult })
   } catch (error: any) {
@@ -793,6 +797,9 @@ router.post('/upload-multiple', optionalAuthMiddleware, upload.array('files', 10
     if (assessmentId) {
       void runAnalysisForAssessment(assessmentId)
       void runCaseRecalculation(assessmentId, 'document_upload')
+      // Advance any attorney "Request from client" document requests this batch
+      // fulfills so they no longer show as pending on the attorney side (CP-330).
+      void syncPlaintiffDocumentRequestStatuses(assessmentId)
     }
     res.status(201).json({ files: results, count: results.length })
   } catch (error) {

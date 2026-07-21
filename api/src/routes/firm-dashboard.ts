@@ -1752,10 +1752,10 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
     let verifiedReviewCount = 0
 
     attorneys.forEach((a: any) => {
-      if (a.attorneyProfile) {
-        totalRating += a.attorneyProfile.averageRating || 0
-        totalReviews += a.attorneyProfile.totalReviews || 0
-      }
+      // Prefer the profile aggregate but fall back to the Attorney aggregate,
+      // which is what the review-submission path keeps up to date (CP-326).
+      totalRating += a.attorneyProfile?.averageRating ?? a.averageRating ?? 0
+      totalReviews += a.attorneyProfile?.totalReviews ?? a.totalReviews ?? 0
       verifiedReviewCount += verifiedReviewCountMap.get(a.id) || 0
     })
 
@@ -2011,8 +2011,8 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
         email: a.email,
         isVerified: a.isVerified,
         responseTimeHours: a.responseTimeHours,
-        averageRating: a.attorneyProfile?.averageRating || 0,
-        totalReviews: a.attorneyProfile?.totalReviews || 0,
+        averageRating: a.attorneyProfile?.averageRating ?? a.averageRating ?? 0,
+        totalReviews: a.attorneyProfile?.totalReviews ?? a.totalReviews ?? 0,
         verifiedReviewCount: verifiedReviewCountMap.get(a.id) || 0,
         subscriptionTier: a.attorneyProfile?.subscriptionTier || null,
         specialties: a.attorneyProfile?.specialties ? JSON.parse(a.attorneyProfile.specialties) : [],

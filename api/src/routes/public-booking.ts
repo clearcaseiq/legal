@@ -339,6 +339,8 @@ router.post('/:slug/:eventSlug', async (req, res) => {
         day: 'numeric',
         hour: 'numeric',
         minute: '2-digit',
+        timeZone: timezone,
+        timeZoneName: 'short',
       })
       await notifyAttorneyInApp({
         attorneyId: attorney.id,
@@ -690,6 +692,8 @@ router.post('/team/:firmSlug/:linkSlug', async (req, res) => {
         day: 'numeric',
         hour: 'numeric',
         minute: '2-digit',
+        timeZone: chosen.timezone || DEFAULT_TZ,
+        timeZoneName: 'short',
       })
       await notifyAttorneyInApp({
         attorneyId: chosen.attorneyId,
@@ -809,7 +813,7 @@ router.post('/manage/:token/cancel', async (req, res) => {
       attorneyId: appointment.attorneyId,
       eventType: ATTORNEY_EVENTS.consult_scheduled,
       subject: 'Booking cancelled',
-      body: `A booking for ${appointment.scheduledAt.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} was cancelled.`,
+      body: `A booking for ${appointment.scheduledAt.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: appointment.attorney?.schedulingTimezone || DEFAULT_TZ, timeZoneName: 'short' })} was cancelled.`,
     }).catch(() => {})
 
     res.json({ ok: true, status: 'CANCELLED' })
@@ -937,7 +941,7 @@ router.post('/manage/:token/reschedule', async (req, res) => {
       attorneyId: appointment.attorneyId,
       eventType: ATTORNEY_EVENTS.consult_scheduled,
       subject: 'Booking rescheduled',
-      body: `A booking moved to ${startDate.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.`,
+      body: `A booking moved to ${startDate.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: timezone, timeZoneName: 'short' })}.`,
     }).catch(() => {})
 
     res.json({ ok: true, status: 'SCHEDULED', scheduledAt: startDate })

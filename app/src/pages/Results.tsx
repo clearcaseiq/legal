@@ -1648,10 +1648,34 @@ export default function Results() {
   const settlementLow = underwriting?.settlement?.low ?? settlementRange?.p25 ?? valueBands?.p25 ?? 15000
   const settlementHigh = underwriting?.settlement?.high ?? settlementRange?.p75 ?? valueBands?.p75 ?? 75000
   const settlementExpected = underwriting?.settlement?.expected ?? settlementRange?.median ?? valueBands?.median ?? Math.round((settlementLow + settlementHigh) / 2)
-  const potentialTrialLow = trialRange?.p25 ?? Math.round(settlementHigh * 1.35)
-  const potentialTrialHigh = trialRange?.p75 ?? Math.round(settlementHigh * 3.25)
-  const settlementRangeText = `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`
   const policyLimitConstrained = !!(settlementRange?.policyLimitConstrained || trialRange?.policyLimitConstrained)
+  // The trial band must stay internally consistent with the settlement number actually
+  // shown on this card. Settlement is often sourced from the underwriting engine while the
+  // trial band comes from the prediction engine, and those two are not reconciled — which
+  // produced implausible gaps (e.g. a $25k settlement beside a $677k trial "most likely").
+  // Unless the case is genuinely policy-limit constrained (where a low cap is legitimate),
+  // only trust the backend trial band when it lands within a defensible multiple of the
+  // displayed settlement; otherwise fall back to a settlement-anchored range.
+  const backendTrialLow = typeof trialRange?.p25 === 'number' ? trialRange.p25 : null
+  const backendTrialHigh = typeof trialRange?.p75 === 'number' ? trialRange.p75 : null
+  let potentialTrialLow: number
+  let potentialTrialHigh: number
+  if (policyLimitConstrained && backendTrialLow != null && backendTrialHigh != null) {
+    potentialTrialLow = backendTrialLow
+    potentialTrialHigh = backendTrialHigh
+  } else {
+    const trialFloor = Math.round(settlementHigh * 1.3)
+    const trialCeil = Math.round(settlementHigh * 4)
+    const backendWithinBounds =
+      backendTrialLow != null &&
+      backendTrialHigh != null &&
+      backendTrialHigh >= backendTrialLow &&
+      backendTrialLow >= trialFloor &&
+      backendTrialHigh <= trialCeil
+    potentialTrialLow = backendWithinBounds ? (backendTrialLow as number) : Math.round(settlementHigh * 1.35)
+    potentialTrialHigh = backendWithinBounds ? (backendTrialHigh as number) : Math.round(settlementHigh * 3.25)
+  }
+  const settlementRangeText = `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`
   const insuranceRecoveryPercent = clampPercent(
     policyLimitConstrained
       ? 42
@@ -1870,7 +1894,14 @@ export default function Results() {
 
   // ---- Estimated net recovery ("take-home") ----
   const netAttorneyFee = Math.round(displaySettlementExpected * 0.33)
-  const netMedicalLiens = Math.round(Math.min(documentedMedicalCharges, displaySettlementExpected))
+  // Medical liens/bills are almost never repaid at full billed charges: health-insurer,
+  // Medicare and ERISA liens are based on the (lower) amounts actually paid, and provider
+  // liens are routinely negotiated down. Modeling the payoff at full billed charges made
+  // the take-home collapse to $0 and contradicted the "liens are commonly negotiated down"
+  // note. Estimate a realistic negotiated payoff (~60% of billed) instead, still capped at
+  // the settlement since liens can't be paid beyond the available recovery.
+  const LIEN_NEGOTIATION_FACTOR = 0.6
+  const netMedicalLiens = Math.round(Math.min(documentedMedicalCharges * LIEN_NEGOTIATION_FACTOR, displaySettlementExpected))
   const netCaseExpenses = preSuitCaseExpenses
   // Raw (unclamped) take-home. In a contingency case the plaintiff never owes
   // out of pocket beyond the recovery, so the headline is floored at $0 — but a
@@ -2140,7 +2171,7 @@ export default function Results() {
       ? {
           settlementText: formatCurrency(displaySettlementExpected),
           attorneyFeeText: formatCurrency(netAttorneyFee),
-          medicalLiensLabel: `Medical liens${documentedMedicalCharges > 0 ? '' : ' (est.)'}`,
+          medicalLiensLabel: 'Medical liens (est.)',
           medicalLiensText: formatCurrency(netMedicalLiens),
           caseExpensesText: formatCurrency(netCaseExpenses),
           totalText: formatCurrency(netEstimatedRecovery),
@@ -3381,7 +3412,7 @@ Checklist:
                     {showAction && step.href ? (
                       <Link
                         to={step.href}
-                        className={`group inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-bold text-white transition-all sm:min-w-[168px] ${
+                        className={`group inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-bold text-white transition-all sm:w-52 ${
                           isBoost
                             ? 'bg-gradient-to-r from-amber-500 to-orange-500 shadow-md shadow-amber-500/30 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-amber-500/40'
                             : 'bg-amber-500 shadow-sm hover:bg-amber-600'
@@ -3397,7 +3428,7 @@ Checklist:
                       <button
                         type="button"
                         onClick={step.action}
-                        className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-bold shadow-sm sm:min-w-[168px] ${
+                        className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-bold shadow-sm sm:w-52 ${
                           isCurrent ? 'bg-brand-700 text-white hover:bg-brand-800' : 'border border-slate-200 bg-white text-brand-700 hover:bg-brand-50'
                         }`}
                       >
@@ -3574,7 +3605,7 @@ Checklist:
                 <span className="font-medium text-rose-600">&ndash; {formatCurrency(netAttorneyFee)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-600">{t('results.chrome.medicalLiens')}{documentedMedicalCharges > 0 ? '' : t('results.chrome.estSuffix')}</span>
+                <span className="text-slate-600">{t('results.chrome.medicalLiens')}{t('results.chrome.estSuffix')}</span>
                 <span className="font-medium text-rose-600">&ndash; {formatCurrency(netMedicalLiens)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
@@ -4412,11 +4443,15 @@ Checklist:
                       <div className="relative mt-1">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
                         <input
-                          type="number"
-                          min="0"
-                          step="100"
+                          type="text"
+                          inputMode="numeric"
                           value={damageEstimateForm[key as keyof typeof damageEstimateForm]}
-                          onChange={(e) => setDamageEstimateForm((current) => ({ ...current, [key]: e.target.value }))}
+                          onChange={(e) => {
+                            // Dollar amounts are whole numbers only — strip letters, symbols,
+                            // and the number-input escapes (e/+/-/.) that slipped through (CP-368).
+                            const digitsOnly = e.target.value.replace(/[^0-9]/g, '')
+                            setDamageEstimateForm((current) => ({ ...current, [key]: digitsOnly }))
+                          }}
                           disabled={isSharedReadOnly}
                           className="w-full rounded-lg border border-slate-300 px-3 py-2 pl-7 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:cursor-not-allowed disabled:bg-slate-50"
                           placeholder="0"

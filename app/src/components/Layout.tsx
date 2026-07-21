@@ -427,20 +427,26 @@ export default function Layout({ children }: LayoutProps) {
 
         {!isFocusRoute && !isAuthenticated && (
           <div className="border-t border-slate-200/60 px-3 pb-2 lg:hidden dark:border-slate-800/70">
-            <div className="flex items-center gap-2 overflow-x-auto py-2 [-webkit-overflow-scrolling:touch]">
-              <Link to={navLinks.howItWorks} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
-                {t('common.howItWorks')}
-              </Link>
-              <Link to={navLinks.forAttorneys} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
-                {t('common.forAttorneys')}
-              </Link>
-              <Link to={navLinks.help} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
-                {t('common.help')}
-              </Link>
-              <div className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-2 py-1 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
-                <Suspense fallback={languageFallback}>
-                  <LanguageSwitcher />
-                </Suspense>
+            {/* Sign in is pinned outside the scroll area so it is always visible; the
+                informational chips scroll in the remaining space. Previously Sign in was
+                the last item inside the horizontal scroller, so it sat off-screen on
+                narrow phones until the user scrolled the row (CP-348). */}
+            <div className="flex items-center gap-2 py-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto [-webkit-overflow-scrolling:touch]">
+                <Link to={navLinks.howItWorks} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
+                  {t('common.howItWorks')}
+                </Link>
+                <Link to={navLinks.forAttorneys} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
+                  {t('common.forAttorneys')}
+                </Link>
+                <Link to={navLinks.help} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
+                  {t('common.help')}
+                </Link>
+                <div className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-2 py-1 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
+                  <Suspense fallback={languageFallback}>
+                    <LanguageSwitcher />
+                  </Suspense>
+                </div>
               </div>
               <Link to={navLinks.plaintiffLogin} className="shrink-0 rounded-full bg-brand-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm">
                 {t('common.signIn')}

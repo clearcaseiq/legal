@@ -196,6 +196,44 @@ export default function AdminAttorneyDetail() {
         </div>
       </div>
 
+      {/* Client reviews */}
+      <div className="bg-white rounded-xl border border-slate-200 p-6">
+        <h2 className="font-semibold text-slate-900 flex items-center gap-2 mb-4">
+          <Star className="h-5 w-5" />
+          Client reviews ({attorney.totalReviews || 0})
+        </h2>
+        {Array.isArray(attorney.reviews) && attorney.reviews.length > 0 ? (
+          <ul className="space-y-3">
+            {attorney.reviews.map((r: any) => (
+              <li key={r.id} className="rounded-lg border border-slate-200 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Star
+                        key={n}
+                        className={`h-4 w-4 ${n <= (r.rating || 0) ? 'fill-amber-400 text-amber-400' : 'text-slate-300'}`}
+                      />
+                    ))}
+                    <span className="ml-1 text-sm font-medium text-slate-700">{(r.rating || 0).toFixed(1)}</span>
+                    {r.isVerified && (
+                      <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700">
+                        Verified
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs text-slate-400">{r.createdAt ? formatDate(r.createdAt) : ''}</span>
+                </div>
+                {r.title && <p className="mt-2 text-sm font-semibold text-slate-800">{r.title}</p>}
+                {r.review && <p className="mt-1 text-sm text-slate-600">{r.review}</p>}
+                <p className="mt-2 text-xs text-slate-400">— {r.reviewerName || 'Anonymous'}</p>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-slate-500">No client reviews yet.</p>
+        )}
+      </div>
+
       {/* Recent routed cases */}
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         <h2 className="font-semibold text-slate-900 flex items-center gap-2 mb-4">
