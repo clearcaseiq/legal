@@ -1,3 +1,5 @@
+import { getStateName } from './constants'
+
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -48,14 +50,40 @@ export function capitalizeWords(value: unknown): string {
     .trim()
 }
 
+/**
+ * Turn a raw jurisdiction token into a human label:
+ *  - a 2-letter state code ("CA") -> full state name ("California")
+ *  - a state-prefixed slug ("ca_los_angeles") -> the readable remainder ("Los Angeles")
+ *  - anything else -> Title Case ("los_angeles" -> "Los Angeles")
+ */
+function prettifyToken(token: string): string {
+  const t = token.trim()
+  if (!t) return ''
+  if (/^[A-Za-z]{2}$/.test(t)) return getStateName(t.toUpperCase())
+  const slug = t.match(/^([A-Za-z]{2})[_-](.+)$/)
+  if (slug && getStateName(slug[1].toUpperCase()) !== slug[1].toUpperCase()) {
+    return formatEnumLabel(slug[2])
+  }
+  return formatEnumLabel(t)
+}
+
 /** Format a single jurisdiction/venue entry (string or {state, counties}). */
 function formatJurisdictionEntry(item: unknown): string {
   if (item == null) return ''
-  if (typeof item === 'string') return formatEnumLabel(item)
-  const obj = item as { state?: string; name?: string; counties?: unknown }
-  const state = obj.state || obj.name || ''
-  const counties = Array.isArray(obj.counties) ? obj.counties.join(', ') : ''
-  return counties ? `${state} (${counties})` : String(state || '')
+  if (typeof item === 'string') return prettifyToken(item)
+  const obj = item as { state?: string; name?: string; counties?: unknown; county?: unknown }
+  const rawState = obj.state || obj.name || ''
+  const state = rawState ? prettifyToken(String(rawState)) : ''
+  const countyList = Array.isArray(obj.counties)
+    ? obj.counties
+    : obj.county != null
+    ? [obj.county]
+    : []
+  const counties = countyList
+    .map((c) => formatEnumLabel(String(c)))
+    .filter(Boolean)
+    .join(', ')
+  return counties ? `${state} (${counties})` : state
 }
 
 /**

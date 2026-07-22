@@ -30,6 +30,8 @@ interface ChatRoom {
     id: string
     name: string
     email: string
+    phone?: string | null
+    bookingSlug?: string | null
     profile?: any
   }
   assessment?: {
@@ -83,6 +85,32 @@ export default function Messaging() {
     }, 5000)
     return () => clearInterval(interval)
   }, [selectedRoom])
+
+  // Call the attorney: prefer their phone (native dialer), otherwise fall back
+  // to email so the button always does something useful (CP-389).
+  const handleCallAttorney = (room: ChatRoom) => {
+    const phone = room.attorney.phone || room.attorney.profile?.phone
+    if (phone) {
+      window.location.href = `tel:${String(phone).replace(/[^\d+]/g, '')}`
+    } else if (room.attorney.email) {
+      window.location.href = `mailto:${room.attorney.email}?subject=${encodeURIComponent(
+        'Requesting a call about my case',
+      )}`
+    }
+  }
+
+  // Video call: attorneys don't take ad-hoc calls, so route to their public
+  // "Calendly-style" booking page to schedule a video consult; fall back to
+  // email when no booking link is configured (CP-389).
+  const handleVideoCallAttorney = (room: ChatRoom) => {
+    if (room.attorney.bookingSlug) {
+      window.open(`/book/${room.attorney.bookingSlug}`, '_blank', 'noopener,noreferrer')
+    } else if (room.attorney.email) {
+      window.location.href = `mailto:${room.attorney.email}?subject=${encodeURIComponent(
+        'Requesting a video consultation about my case',
+      )}`
+    }
+  }
 
   const loadChatRooms = async () => {
     try {
@@ -351,10 +379,30 @@ export default function Messaging() {
                   </div>
                   
                   <div className="flex items-center space-x-2">
-                    <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => handleCallAttorney(selectedRoom)}
+                      title={
+                        selectedRoom.attorney.phone
+                          ? `Call ${selectedRoom.attorney.name}`
+                          : `Email ${selectedRoom.attorney.name}`
+                      }
+                      aria-label="Call attorney"
+                      className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+                    >
                       <Phone className="h-5 w-5" />
                     </button>
-                    <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => handleVideoCallAttorney(selectedRoom)}
+                      title={
+                        selectedRoom.attorney.bookingSlug
+                          ? 'Book a video consultation'
+                          : 'Request a video consultation'
+                      }
+                      aria-label="Start a video consultation"
+                      className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+                    >
                       <Video className="h-5 w-5" />
                     </button>
                   </div>

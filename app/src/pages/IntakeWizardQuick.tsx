@@ -3592,7 +3592,7 @@ export default function IntakeWizardQuick() {
           other: { emoji: '🩹', label: tx('optionOther') },
         }
         const tileClass = (selected: boolean) =>
-          `flex min-h-[2.25rem] items-center gap-1.5 overflow-hidden rounded-xl border px-2.5 py-1 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10' : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`
+          `flex min-h-[2.25rem] w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-xl border px-2.5 py-1 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10' : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`
         const renderCheck = (on: boolean) =>
           on ? (
             <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />

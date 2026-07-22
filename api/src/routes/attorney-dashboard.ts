@@ -9395,6 +9395,67 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
       dueDate: record.dueDate,
       escalationLevel: record.escalationLevel
     })
+
+    // When a task is assigned to the client/plaintiff, surface it to them: it
+    // shows in their Tasks list AND we send an in-app message + email so they
+    // actually know about it (CP-388).
+    if (assigneeRole === 'client' || assigneeRole === 'plaintiff') {
+      try {
+        const assessment = await prisma.assessment.findUnique({
+          where: { id: lead.assessmentId },
+          select: { userId: true, user: { select: { firstName: true, lastName: true, email: true } } },
+        })
+        if (assessment?.userId) {
+          const attorneyName = attorney.name || 'Your attorney'
+          const dueText = record.dueDate ? ` (due ${new Date(record.dueDate).toLocaleDateString()})` : ''
+          const notesText = record.notes ? `\n\n${record.notes}` : ''
+          const inAppMsg = `${attorneyName} added a task for you: ${record.title}${dueText}.${notesText}`
+
+          let chatRoom = await prisma.chatRoom.findUnique({
+            where: { userId_attorneyId: { userId: assessment.userId, attorneyId: attorney.id } },
+            select: { id: true },
+          })
+          if (!chatRoom) {
+            chatRoom = await prisma.chatRoom.create({
+              data: { userId: assessment.userId, attorneyId: attorney.id, assessmentId: lead.assessmentId },
+              select: { id: true },
+            })
+          }
+          await prisma.message.create({
+            data: {
+              chatRoomId: chatRoom.id,
+              senderId: attorney.id,
+              senderType: 'attorney',
+              content: inAppMsg,
+              messageType: 'text',
+            },
+          })
+          await prisma.chatRoom.update({ where: { id: chatRoom.id }, data: { lastMessageAt: new Date() } })
+
+          const plaintiffEmail = assessment.user?.email
+          if (plaintiffEmail) {
+            const plaintiffName = assessment.user?.firstName
+              ? `${assessment.user.firstName} ${assessment.user.lastName || ''}`.trim()
+              : 'there'
+            await deliverDirectNotification({
+              type: 'email',
+              recipient: plaintiffEmail,
+              subject: `${attorneyName} added a new task to your case`,
+              message: `Hi ${plaintiffName},\n\n${attorneyName} added a task for you to complete${dueText}:\n\n• ${record.title}${notesText}\n\nSign in to your ClearCaseIQ dashboard to view it under "Your next steps".\n\nBest regards,\nClearCaseIQ`,
+              userId: assessment.userId,
+              assessmentId: lead.assessmentId,
+              role: 'plaintiff',
+              replyTo: attorney.email || null,
+              fromName: attorney.name || null,
+              metadata: { eventType: 'client_task_assigned', leadId, assessmentId: lead.assessmentId, taskId: record.id },
+            })
+          }
+        }
+      } catch (notifyErr: any) {
+        logger.error('Failed to notify plaintiff of assigned task', { error: notifyErr?.message, taskId: record.id })
+      }
+    }
+
     res.json(record)
   } catch (error: any) {
     logger.error('Failed to create case task', { error: error.message })

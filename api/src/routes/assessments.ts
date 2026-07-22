@@ -17,6 +17,7 @@ import { runEscalationWave } from '../lib/routing-lifecycle'
 import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
 import { runCaseRecalculation } from '../lib/case-recalculation'
 import { DOCUMENT_REQUEST_CATEGORY_MAP, parseRequestedDocs } from '../lib/document-request-status'
+import { deliverDirectNotification } from '../lib/platform-notifications'
 
 const router = Router()
 
@@ -825,6 +826,27 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       }
     })
     logger.info('Case submitted for review', { assessmentId: id, userId: req.user?.id })
+
+    // Confirm receipt by email so the submitter — including guests without an
+    // account — knows the case went through. Best-effort and non-blocking so a
+    // mail failure never breaks submission/routing (CP-361).
+    const confirmationEmail = (email || (plaintiffContext.email as string | undefined) || '').trim()
+    if (confirmationEmail) {
+      const submitterName =
+        (firstName && firstName.trim()) || (plaintiffContext.firstName as string | undefined) || 'there'
+      void deliverDirectNotification({
+        type: 'email',
+        recipient: confirmationEmail,
+        subject: 'We received your case — ClearCaseIQ',
+        message: `Hi ${submitterName},\n\nThanks for submitting your case to ClearCaseIQ. Our attorney network is reviewing it now, and we'll email you as soon as an attorney responds — typically within about 24 hours.\n\nWhat happens next:\n• Attorneys review your case summary\n• A matched attorney reaches out to you directly\n• You can add documents anytime to strengthen your case\n\nBest regards,\nClearCaseIQ`,
+        userId: req.user?.id || null,
+        assessmentId: id,
+        role: 'plaintiff',
+        metadata: { eventType: 'case_submitted_confirmation', assessmentId: id },
+      }).catch((err: any) =>
+        logger.error('Failed to send case submission confirmation email', { assessmentId: id, error: err?.message }),
+      )
+    }
 
     // Generate the AI incident-scene schematic once, up front, for every routed lead
     // (non-blocking — never delays submission/routing).

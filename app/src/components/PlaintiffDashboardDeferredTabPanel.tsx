@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { CheckCircle, ChevronRight, Clock, Download, FileText, MessageCircle, Plus, TrendingUp, Upload, Users } from 'lucide-react'
 import { formatCurrency } from '../lib/formatters'
+import { linkify } from '../lib/linkify'
 
 type DeferredTabId = 'tasks' | 'documents' | 'attorney' | 'value' | 'journal' | 'insights' | 'evidence' | 'activity'
 
@@ -449,7 +450,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
                   <div key={`${message.createdAt}-${index}`} className={`rounded-xl border p-4 ${isYou ? 'border-brand-100 bg-brand-50/50' : 'border-slate-200 bg-slate-50'}`}>
                     <p className="mb-1 text-xs font-semibold text-slate-500">{isYou ? 'You' : attorneyName || 'Attorney'}</p>
                     {message.subject && <p className="text-sm font-semibold text-slate-900">{message.subject}</p>}
-                    <p className="mt-1 text-sm text-slate-700">{message.message}</p>
+                    <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{linkify(message.message)}</p>
                   </div>
                 )
               })}

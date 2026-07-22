@@ -77,7 +77,9 @@ router.post(
           select: {
             id: true,
             name: true,
-            email: true
+            email: true,
+            phone: true,
+            bookingSlug: true
           }
         },
         assessment: {
@@ -103,7 +105,9 @@ router.post(
             select: {
               id: true,
               name: true,
-              email: true
+              email: true,
+              phone: true,
+              bookingSlug: true
             }
           },
           assessment: {
@@ -161,6 +165,8 @@ router.get('/chat-rooms', authMiddleware, async (req: AuthRequest, res) => {
             id: true,
             name: true,
             email: true,
+            phone: true,
+            bookingSlug: true,
             profile: true
           }
         },

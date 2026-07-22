@@ -44,7 +44,7 @@ export function MonthView({
         ))}
       </div>
 
-      <div className="grid flex-1 grid-cols-7 grid-rows-6">
+      <div className="grid flex-1 grid-cols-7 overflow-y-auto [grid-template-rows:repeat(6,minmax(108px,1fr))]">
         {cells.map((day, i) => {
           const inMonth = day.getMonth() === anchor.getMonth()
           const isToday = sameDay(day, today)

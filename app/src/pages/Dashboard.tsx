@@ -864,13 +864,18 @@ export default function Dashboard() {
       done: false,
       href: `/evidence-upload/${assessmentIdForTasks}`,
     }))
+  // Keep completed evidence items in the list (marked done) rather than dropping
+  // them. evidenceImpact is a fixed checklist, so a stable denominator means
+  // completing an item raises the "done" count and the progress bar instead of
+  // shrinking the total (CP-364).
   const evidenceGapTasks = evidenceImpact
-    .filter((item) => !item.done)
     .slice(0, 3)
     .map((item) => ({
       label: item.label,
-      detail: `${item.impact} estimated impact when added.`,
-      done: false,
+      detail: item.done
+        ? 'Uploaded to your case.'
+        : `${item.impact} estimated impact when added.`,
+      done: item.done,
       href: `/evidence-upload/${assessmentIdForTasks}`,
     }))
   const reviewTask = submittedForReview
@@ -1698,13 +1703,15 @@ export default function Dashboard() {
                           </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          <a
-                            href={routingStatus?.attorneyMatched?.phone ? `tel:${routingStatus.attorneyMatched.phone}` : '#'}
-                            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium"
-                          >
-                            <Phone className="h-4 w-4" />
-                            Call
-                          </a>
+                          {routingStatus?.attorneyMatched?.phone && (
+                            <a
+                              href={`tel:${routingStatus.attorneyMatched.phone}`}
+                              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium"
+                            >
+                              <Phone className="h-4 w-4" />
+                              Call
+                            </a>
+                          )}
                           <Link
                             to="/messaging"
                             state={{ attorneyId: routingStatus?.attorneyMatched?.id, assessmentId: activeAssessment?.id }}
