@@ -5693,7 +5693,7 @@ export default function IntakeWizardQuick() {
           const renderCard = (opts: { title: string; icon: LucideIcon; step: Step; count?: string; children: ReactNode }) => {
             const { title, icon: Icon, step, count, children } = opts
             return (
-              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+              <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
                 <div className="flex items-center justify-between gap-2">
                   <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-gray-900 dark:text-slate-100">
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-900/40"><Icon className="h-4 w-4" aria-hidden /></span>

@@ -3591,7 +3591,7 @@ Checklist:
 
           {/* Estimated net recovery */}
           {displaySettlementExpected > 0 && (
-          <div id="net-recovery" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div id="net-recovery" className="scroll-mt-6 min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><DollarSign className="h-4 w-4" aria-hidden /></span>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.estNetRecovery')}</p>
@@ -3635,7 +3635,7 @@ Checklist:
 
           {/* Potential litigation costs */}
           {hasValuation && (
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500"><Scale className="h-4 w-4" aria-hidden /></span>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.snap.litTitle')}</p>
@@ -3661,7 +3661,7 @@ Checklist:
           )}
 
           {/* Your case strength — unified narrative, quality score, and factor/value breakdown */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <p className="font-display text-base font-semibold text-slate-900">{t('results.chrome.yourCaseStrength')}</p>
@@ -3795,7 +3795,7 @@ Checklist:
 
           {/* Medical timeline | Damages | What's missing */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-2">
                 <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><Calendar className="h-4 w-4 text-brand-600" aria-hidden /> {t('results.overview.medicalTimeline')}</p>
                 <button type="button" onClick={() => setActiveResultsTab('medical')} className="text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.overview.viewFullTimeline')}</button>
@@ -3817,7 +3817,7 @@ Checklist:
               )}
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-2">
                 <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><DollarSign className="h-4 w-4 text-brand-600" aria-hidden /> {t('results.overview.damagesBreakdown')}</p>
                 <button type="button" onClick={() => setActiveResultsTab('value')} className="text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.overview.viewDetails')}</button>
@@ -3840,7 +3840,7 @@ Checklist:
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><AlertTriangle className="h-4 w-4 text-amber-500" aria-hidden /> {t('results.overview.whatsMissing')} <span className="text-slate-400">{t('results.overview.impact')}</span></p>
               <div className="mt-3 space-y-2.5">
                 {overviewMissingRows.length > 0 ? overviewMissingRows.map((r) => (
@@ -3860,7 +3860,7 @@ Checklist:
           </div>
 
           {/* Important notes */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <p className="font-display text-base font-semibold text-slate-900">{t('results.overview.importantNotes')}</p>
             <ul className="mt-3 space-y-2 text-sm text-slate-600">
               {[
@@ -3902,7 +3902,7 @@ Checklist:
             </div>
 
             {/* Most likely at fault */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500"><Scale className="h-3.5 w-3.5" aria-hidden /> {t('results.liability.mostLikelyAtFault')}</p>
               <p className="mt-3 font-display text-xl font-bold text-emerald-600">{liabMostLikelyAtFault}</p>
               <p className="text-[11px] text-slate-500">{t('results.liability.basedOnInfo')}</p>
@@ -3954,7 +3954,7 @@ Checklist:
 
           {/* Three columns: strongest factors | what insurer argues | additional evidence */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className="text-sm font-semibold text-slate-900">{t('results.liability.strongestFactors')}</p>
               <div className="mt-3 space-y-2">
                 {liabStrongFactors.map((f) => (
@@ -3970,7 +3970,7 @@ Checklist:
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className="text-sm font-semibold text-amber-700">{t('results.liability.insurerArgue')}</p>
               <div className="mt-3 space-y-2">
                 {liabInsuranceArgues.map((item) => (
@@ -3983,7 +3983,7 @@ Checklist:
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className="text-sm font-semibold text-slate-900">{t('results.liability.estImpactEvidence')}</p>
               <div className="mt-3 space-y-2">
                 {liabAdditionalEvidence.map((e) => {
@@ -4004,7 +4004,7 @@ Checklist:
           </div>
 
           {/* How liability could improve */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-sm font-semibold text-slate-900">{t('results.liability.howImprove')}</p>
             <p className="mt-0.5 text-sm text-slate-500">{t('results.liability.howImproveSub')}</p>
             <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
@@ -4024,7 +4024,7 @@ Checklist:
 
           {/* Venue intelligence + insurance recovery */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><MapPin className="h-4 w-4 text-brand-600" aria-hidden /> {t('results.liability.venueIntel')}</p>
               <div className="mt-3 flex items-center gap-2">
                 <p className="font-semibold text-slate-900">{formatVenueLabel(venueState, venueCounty) || t('results.liability.venueUnavailable')}</p>
@@ -4048,7 +4048,7 @@ Checklist:
               <button type="button" onClick={() => setActiveResultsTab('value')} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.liability.viewVenue')} <ChevronRight className="h-3 w-3" /></button>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><Shield className="h-4 w-4 text-brand-600" aria-hidden /> {t('results.liability.insuranceOutlook')}</p>
               <p className="mt-0.5 text-sm text-slate-500">{t('results.liability.insuranceSub')}</p>
               <div className="mt-3 space-y-3">
@@ -4222,7 +4222,7 @@ Checklist:
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">{t('results.medical.yourTimeline')}</p>
@@ -4266,7 +4266,7 @@ Checklist:
             {/* Right column */}
             <div className="space-y-4">
               {/* Missing evidence impact */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p className="text-sm font-semibold text-slate-900">{t('results.medical.missingEvidenceImpact')}</p>
                 <div className="mt-3 space-y-2">
                   {medMissingEvidence.length > 0 ? medMissingEvidence.map((row) => (
@@ -4281,7 +4281,7 @@ Checklist:
               </div>
 
               {/* Confidence if added */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p className="text-sm font-semibold text-slate-900">{t('results.medical.confidenceIfAdded')}</p>
                 <div className="mt-4 flex items-end justify-between gap-1">
                   {medConfidenceSteps.map((step, i) => (
@@ -4295,7 +4295,7 @@ Checklist:
               </div>
 
               {/* Known economic damages */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p className="text-sm font-semibold text-slate-900">{t('results.medical.knownEconomic')}</p>
                 <div className="mt-3 divide-y divide-slate-100 text-sm">
                   {medEconomicRows.map((row) => (
@@ -4313,7 +4313,7 @@ Checklist:
               </div>
 
               {/* Future treatment indicators */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p className="text-sm font-semibold text-slate-900">{t('results.medical.futureIndicators')}</p>
                 <div className="mt-3 space-y-2 text-sm">
                   {medFutureIndicators.map((row) => (
@@ -4379,7 +4379,7 @@ Checklist:
 
           {/* Footer: next best action + support */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
               <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><Upload className="h-4 w-4 text-emerald-600" aria-hidden /> {t('results.medical.nextBestAction')}</p>
               <p className="mt-1 text-sm text-slate-600">{t('results.medical.nextBestActionDesc')}</p>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -4391,7 +4391,7 @@ Checklist:
                 </button>
               </div>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <p className="text-sm font-semibold text-slate-900">{t('results.medical.haveQuestions')}</p>
               <p className="mt-1 text-sm text-slate-600">{t('results.medical.haveQuestionsDesc')}</p>
               <Link to="/help" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-700 hover:text-brand-800">{t('results.medical.contactSupport')} <ChevronRight className="h-3.5 w-3.5" /></Link>
@@ -4541,7 +4541,7 @@ Checklist:
 
           {/* Missing documents + progress/unlocks */}
           <div className="grid gap-5 lg:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
               <p className="font-display text-base font-semibold text-slate-900">{t('results.documents.mostImportantMissing')}</p>
               <p className="mt-0.5 text-xs text-slate-500">{t('results.documents.biggestImpact')}</p>
               {missingDocItems.length > 0 ? (
@@ -4588,7 +4588,7 @@ Checklist:
             </div>
 
             <div className="space-y-5">
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p className="font-display text-base font-semibold text-slate-900">{t('results.documents.yourProgress')}</p>
                 <p className="mt-0.5 text-xs text-slate-500">{t('results.documents.yourProgressSub')}</p>
                 <div className="mt-4 space-y-4">
@@ -4608,7 +4608,7 @@ Checklist:
                   ))}
                 </div>
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p className="font-display text-base font-semibold text-slate-900">{t('results.documents.unlocksTitle')}</p>
                 <p className="mt-0.5 text-xs text-slate-500">{t('results.documents.unlocksSub')}</p>
                 <div className="mt-4 space-y-3">
@@ -4633,7 +4633,7 @@ Checklist:
           </div>
 
           {/* Impact of uploading */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <p className="font-display text-base font-semibold text-slate-900">{t('results.documents.seeImpact')}</p>
             <p className="mt-0.5 text-xs text-slate-500">{t('results.documents.seeImpactSub')}</p>
             <div className="mt-4 overflow-x-auto">
@@ -4753,7 +4753,7 @@ Checklist:
           )}
 
           {/* Demand package status */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600"><Briefcase className="h-5 w-5" aria-hidden /></span>
@@ -4787,7 +4787,7 @@ Checklist:
           </div>
 
           {/* Get help */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600"><ShieldCheck className="h-5 w-5" aria-hidden /></span>
@@ -5246,7 +5246,7 @@ Checklist:
             {/* Left column */}
             <div className="space-y-5 lg:col-span-2">
               {/* Attorney Review Readiness */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p className="font-display text-base font-semibold text-slate-900">{t('results.headings.attorneyReviewReadiness')}</p>
                 <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:items-start">
                   <div className="flex shrink-0 flex-col items-center">
@@ -5298,7 +5298,7 @@ Checklist:
               </div>
 
               {/* What happens next */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p className="font-display text-base font-semibold text-slate-900">{t('results.next.whatHappensNext')}</p>
                 <div className="mt-4 grid gap-4 sm:grid-cols-4">
                   {[
@@ -5321,7 +5321,7 @@ Checklist:
               </div>
 
               {/* Increase your case value */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <p className="font-display text-base font-semibold text-slate-900">{t('results.headings.increaseValue')}</p>
                 <p className="mt-0.5 text-xs text-slate-500">{t('results.next.increaseValueSub')}</p>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -5342,7 +5342,7 @@ Checklist:
             <div className="space-y-5">
               {/* Save your case — signed-out users create/sign in; signed-in users jump to their case */}
               {isLoggedIn ? (
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <p className="flex items-center gap-1.5 font-display text-base font-semibold text-slate-900">{t('results.next.caseSaved')} <CheckCircle className="h-4 w-4 text-emerald-500" aria-hidden /></p>
                   <p className="mt-0.5 text-xs text-slate-500">{t('results.next.caseSavedSub')}</p>
                   <Link
@@ -5361,7 +5361,7 @@ Checklist:
                   )}
                 </div>
               ) : (
-                <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <p className="flex items-center gap-1.5 font-display text-base font-semibold text-slate-900">{t('results.next.saveYourCase')} <Lock className="h-3.5 w-3.5 text-slate-400" aria-hidden /></p>
                   <p className="mt-0.5 text-xs text-slate-500">{t('results.next.saveYourCaseSub')}</p>
                   <ul className="mt-3 space-y-1.5">
@@ -5389,7 +5389,7 @@ Checklist:
           </div>
 
           {/* Bottom submit CTA */}
-          <div id="attorney-handoff" className="scroll-mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div id="attorney-handoff" className="scroll-mt-6 min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             {medicalReviewPending && (
               <p className="mb-3 text-center text-sm text-amber-700">
                 {t('results.next.reviewBeforeSubmit')}
