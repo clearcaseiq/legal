@@ -3477,7 +3477,14 @@ export async function getAllAdminCases(
     if (paramsOrStatus.state) search.append('state', paramsOrStatus.state)
     if (paramsOrStatus.county) search.append('county', paramsOrStatus.county)
     if (paramsOrStatus.routingStatus) search.append('routingStatus', paramsOrStatus.routingStatus)
-    if (paramsOrStatus.createdToday) search.append('createdToday', '1')
+    if (paramsOrStatus.createdToday) {
+      search.append('createdToday', '1')
+      // Also send the caller's local start-of-day so "today" matches the admin's
+      // calendar day rather than the server's timezone (which is typically UTC) — CP-324.
+      const dayStart = new Date()
+      dayStart.setHours(0, 0, 0, 0)
+      search.append('createdAfter', dayStart.toISOString())
+    }
     if (paramsOrStatus.limit) search.append('limit', paramsOrStatus.limit.toString())
     if (paramsOrStatus.offset) search.append('offset', paramsOrStatus.offset.toString())
   }

@@ -1623,7 +1623,13 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
     if (county) {
       where.venueCounty = { contains: county as string, mode: 'insensitive' }
     }
-    if (createdToday === '1' || createdToday === 'true') {
+    // Prefer the caller's explicit local start-of-day (createdAfter) so "New today"
+    // reflects the admin's calendar day rather than the server's timezone (CP-324).
+    const createdAfter = req.query.createdAfter
+    if (typeof createdAfter === 'string' && createdAfter) {
+      const after = new Date(createdAfter)
+      if (!isNaN(after.getTime())) where.createdAt = { gte: after }
+    } else if (createdToday === '1' || createdToday === 'true') {
       const now = new Date()
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
       where.createdAt = { gte: todayStart }

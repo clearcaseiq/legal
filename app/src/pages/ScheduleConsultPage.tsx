@@ -113,18 +113,24 @@ export default function ScheduleConsultPage() {
     if (zoomConnecting) return
     setZoomConnecting(true)
     setError(null)
+    // Open the popup synchronously, inside the click gesture. Opening it AFTER
+    // awaiting the authorize URL loses the user-activation context and the
+    // browser's popup blocker kills it — which showed up as an error instead of
+    // the Zoom login (CP-383). We open a blank popup now and redirect it once
+    // the authorize URL is ready.
+    const w = 520
+    const h = 660
+    const left = window.screenX + Math.max(0, (window.outerWidth - w) / 2)
+    const top = window.screenY + Math.max(0, (window.outerHeight - h) / 2)
+    const popup = window.open('about:blank', 'zoom-oauth', `width=${w},height=${h},left=${left},top=${top}`)
+    if (!popup) {
+      setError('Your browser blocked the Zoom popup. Allow popups for this site, then click "Connect Zoom" again.')
+      setZoomConnecting(false)
+      return
+    }
     try {
       const { authorizeUrl } = await getAttorneyZoomConnectUrl()
-      const w = 520
-      const h = 660
-      const left = window.screenX + Math.max(0, (window.outerWidth - w) / 2)
-      const top = window.screenY + Math.max(0, (window.outerHeight - h) / 2)
-      const popup = window.open(authorizeUrl, 'zoom-oauth', `width=${w},height=${h},left=${left},top=${top}`)
-      if (!popup) {
-        setError('Your browser blocked the Zoom popup. Allow popups for this site, then click "Connect Zoom" again.')
-        setZoomConnecting(false)
-        return
-      }
+      popup.location.href = authorizeUrl
 
       let settled = false
       const finish = async (ok: boolean, message?: string) => {
@@ -154,6 +160,7 @@ export default function ScheduleConsultPage() {
         if (popup.closed) void finish(false)
       }, 1000)
     } catch (err: any) {
+      popup.close()
       setError(err?.response?.data?.error || 'Failed to start Zoom connection.')
       setZoomConnecting(false)
     }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { getAdminCaseDetail, bulkRouteCases, getAdminAttorneys, holdCaseForManualReview, getAdminCaseRoutingState, getAdminAttorneyDebug, getAdminAttorneyRecommendations, runAdminRouteEngine, manualReviewAction } from '../../lib/api'
 import { DECLINE_REASONS } from '../../components/DeclineModal'
@@ -193,6 +193,8 @@ export default function AdminCaseDetail() {
   const [routing, setRouting] = useState(false)
   const [holding, setHolding] = useState(false)
   const [routingState, setRoutingState] = useState<any>(null)
+  const [routingStateLoading, setRoutingStateLoading] = useState(false)
+  const routingStateRef = useRef<HTMLDivElement>(null)
   const [attorneyDebug, setAttorneyDebug] = useState<any>(null)
   const [routeError, setRouteError] = useState<string | null>(null)
   const [routingTarget, setRoutingTarget] = useState<string | null>(null)
@@ -241,12 +243,21 @@ export default function AdminCaseDetail() {
 
   const checkRoutingState = async (email?: string) => {
     if (!id) return
+    // The diagnostic panel renders lower on the page, so without an explicit
+    // loading state + scroll the button looked like a no-op (CP-300).
+    setRoutingStateLoading(true)
     try {
       setRoutingState(null)
       const state = await getAdminCaseRoutingState(id, email || attorneyEmail.trim() || undefined)
       setRoutingState(state)
     } catch (e: any) {
       setRoutingState({ error: e.response?.data?.error || e.message })
+    } finally {
+      setRoutingStateLoading(false)
+      // Defer until the panel has rendered, then bring it into view.
+      setTimeout(() => {
+        routingStateRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 50)
     }
   }
 
@@ -446,9 +457,11 @@ export default function AdminCaseDetail() {
           )}
           <button
             onClick={() => checkRoutingState()}
-            className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50"
+            disabled={routingStateLoading}
+            className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-60"
           >
-            Check routing state
+            {routingStateLoading && <RefreshCw className="h-4 w-4 animate-spin" />}
+            {routingStateLoading ? 'Checking…' : 'Check routing state'}
           </button>
           <button
             onClick={() => { setShowRouteModal(true); setRouteError(null); }}
@@ -603,9 +616,10 @@ export default function AdminCaseDetail() {
           <button
             type="button"
             onClick={() => checkRoutingState()}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm hover:bg-slate-50"
+            disabled={routingStateLoading}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm hover:bg-slate-50 disabled:opacity-60"
           >
-            <p className="font-semibold text-slate-900">Diagnose routing</p>
+            <p className="font-semibold text-slate-900">{routingStateLoading ? 'Diagnosing…' : 'Diagnose routing'}</p>
             <p className="mt-1 text-xs text-slate-500">Inspect intros, waves, and lock state.</p>
           </button>
           <button
@@ -620,7 +634,7 @@ export default function AdminCaseDetail() {
       </div>
 
       {routingState && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <div ref={routingStateRef} className="bg-amber-50 border border-amber-200 rounded-xl p-4">
           <h3 className="font-semibold text-amber-900 mb-2">Routing state (diagnostic)</h3>
           <p className="text-xs text-amber-800 mb-2">
             Use this to verify the case was routed correctly. If introductions exist but the attorney doesn&apos;t see it, ensure they log in with the same email.
