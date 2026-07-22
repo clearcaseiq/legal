@@ -160,6 +160,35 @@ export const minutesOfDay = (d: Date) => d.getHours() * 60 + d.getMinutes()
 
 export const timeLabel = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 
+/**
+ * Return a Date whose LOCAL fields (getHours/getDate/…) equal the wall-clock
+ * time of `instant` in `timeZone`. This lets the whole calendar (grid placement,
+ * day bucketing, time labels — all of which read local fields) render in the
+ * attorney's business timezone instead of the viewer's browser zone (CP-304).
+ * Falls back to the raw instant when no zone is given or conversion fails.
+ */
+export function zonedWallClock(instant: string | Date, timeZone?: string | null): Date {
+  const utc = instant instanceof Date ? instant : new Date(instant)
+  if (!timeZone) return utc
+  try {
+    const wall = new Date(utc.toLocaleString('en-US', { timeZone }))
+    return Number.isNaN(wall.getTime()) ? utc : wall
+  } catch {
+    return utc
+  }
+}
+
+/** Short timezone label (e.g. "EDT") for the given zone, for display hints. */
+export function tzAbbreviation(timeZone?: string | null, at: Date = new Date()): string {
+  if (!timeZone) return ''
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' }).formatToParts(at)
+    return parts.find((p) => p.type === 'timeZoneName')?.value || ''
+  } catch {
+    return ''
+  }
+}
+
 export const hourLabel = (h: number) => {
   if (h === 0) return '12 AM'
   if (h === 12) return '12 PM'

@@ -50,6 +50,8 @@ import {
   startOfDay,
   startOfWeek,
   timeLabel,
+  zonedWallClock,
+  tzAbbreviation,
 } from '../features/calendar/calendarUtils'
 
 const MEETING_META: Record<string, { label: string; icon: typeof Video }> = {
@@ -90,6 +92,10 @@ export default function CalendarPage() {
   const [view, setView] = useState<CalView>('week')
   const [anchor, setAnchor] = useState(() => new Date())
   const [consults, setConsults] = useState<CalItem[]>([])
+  // Attorney's business timezone (from the calendar API); consult times are
+  // rendered in this zone so they match what was scheduled regardless of the
+  // viewer's browser timezone (CP-304).
+  const [timezone, setTimezone] = useState<string | null>(null)
   const [tasks, setTasks] = useState<CalItem[]>([])
   const [events, setEvents] = useState<CalItem[]>([])
   const [eventDtos, setEventDtos] = useState<Map<string, CalendarEventDto>>(new Map())
@@ -115,9 +121,11 @@ export default function CalendarPage() {
     getAttorneyCalendarAppointments(from.toISOString(), to.toISOString())
       .then((res) => {
         if (cancelled) return
+        const tz = (res as any).timezone || null
+        setTimezone(tz)
         const items: CalItem[] = (res.events || [])
           .map((e) => {
-            const d = new Date(e.scheduledAt)
+            const d = zonedWallClock(e.scheduledAt, tz)
             if (Number.isNaN(d.getTime())) return null
             return {
               kind: 'consult' as const,
@@ -386,6 +394,14 @@ export default function CalendarPage() {
           </button>
         </div>
         <h2 className="text-lg font-semibold tracking-tight text-slate-900">{rangeLabel}</h2>
+        {timezone && (
+          <span
+            className="hidden rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 sm:inline"
+            title={`Consult times are shown in your business timezone (${timezone})`}
+          >
+            Times in {tzAbbreviation(timezone) || timezone}
+          </span>
+        )}
 
         <div className="ml-auto flex items-center gap-2">
           {loading && <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-brand-600" />}

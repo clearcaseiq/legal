@@ -3463,7 +3463,16 @@ router.get('/appointments', authMiddleware, async (req: any, res) => {
       }
     })
 
-    res.json({ from: from.toISOString(), to: to.toISOString(), events })
+    // Surface the attorney's business timezone so the calendar can render times
+    // in the zone the consult was scheduled in, rather than the viewer's browser
+    // zone (which made times appear shifted / on the wrong slot) — CP-304.
+    const tzRow = await prisma.attorney.findUnique({
+      where: { id: attorney.id },
+      select: { schedulingTimezone: true },
+    })
+    const timezone = tzRow?.schedulingTimezone || 'America/New_York'
+
+    res.json({ from: from.toISOString(), to: to.toISOString(), timezone, events })
   } catch (error: any) {
     logger.error('Failed to get attorney appointments', { error: error.message })
     res.status(500).json({ error: 'Failed to load appointments' })
