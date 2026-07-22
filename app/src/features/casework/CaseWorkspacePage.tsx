@@ -82,6 +82,8 @@ import InsurancePanel from './InsurancePanel'
 import SettlementPanel from './SettlementPanel'
 import CaseWorkflowPanel from './CaseWorkflowPanel'
 import CaseTimePanel from './CaseTimePanel'
+import CaseIntelligencePanel from './CaseIntelligencePanel'
+import CaseCoachPanel from './CaseCoachPanel'
 import ConsultSchedulerModal from './ConsultSchedulerModal'
 import TaskDetailModal from './TaskDetailModal'
 import { BackButton, EmptyState } from '../shared/ui'
@@ -1305,6 +1307,12 @@ function WorkstreamPanel({
 
     return (
       <div className="space-y-4">
+        {/* AI Case Coach — ranked next-best actions (Phase 2) */}
+        <CaseCoachPanel leadId={lead.id} />
+
+        {/* AI Case Intelligence — Already Known, Missing Info, Intelligent Questions */}
+        <CaseIntelligencePanel leadId={lead.id} />
+
         <p className="text-sm text-slate-600">
           {cc?.stage?.detail || cc?.readiness?.detail || 'Retained case in progress. Work the tabs above to advance the file.'}
         </p>

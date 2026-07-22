@@ -40,6 +40,11 @@ import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
 import { exportCaseToConnectionSafe } from '../lib/cms'
 import { applyFirmWorkflowToCase, serializeCaseWorkflow } from '../lib/case-workflow'
+import { buildCaseIntelligence, type GapAction } from '../lib/case-intelligence'
+import { buildBaselineQuestions } from '../lib/intake-questions'
+import { generateIntelligentQuestions } from '../services/intelligent-questions'
+import { buildCaseCoach } from '../lib/case-coach'
+import { narrateCaseCoach } from '../services/case-coach-narrator'
 import {
   resolveHourlyRate,
   computeAmount,
@@ -5503,6 +5508,15 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
     const scheduledAt = zonedWallClockToUtc(y, mo, d, hour, m || 0, attorneyTz)
     const CONSULT_DURATION = 30
 
+    // Reject a slot that has already passed (e.g. an earlier time today). Both
+    // sides are absolute instants (UTC), so this is timezone-safe (CP-379).
+    if (Number.isNaN(scheduledAt.getTime())) {
+      return res.status(400).json({ error: 'Please choose a valid date and time.' })
+    }
+    if (scheduledAt.getTime() < Date.now()) {
+      return res.status(400).json({ error: 'Please choose a time in the future — you cannot schedule a consultation in the past.' })
+    }
+
     // Reuse an existing upcoming consult for this case instead of stacking a new
     // one on every click. Without this, repeated "Schedule Consultation" presses
     // created multiple SCHEDULED appointments, so the case's appointment card
@@ -8461,6 +8475,177 @@ router.get('/leads/:leadId/workflow', authMiddleware, async (req: any, res) => {
   } catch (error: any) {
     logger.error('Failed to load case workflow', { error: error.message })
     res.status(500).json({ error: 'Failed to load case workflow' })
+  }
+})
+
+// ---- Case Intelligence (Phase 0/1) ----
+// Deterministic per-case "brain": Already Known facts + a star-rated gap registry.
+router.get('/leads/:leadId/intelligence', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead } = auth
+
+    const intelligence = await buildCaseIntelligence(lead.assessmentId)
+    if (!intelligence) return res.status(404).json({ error: 'Case data not available yet' })
+    res.json({ intelligence })
+  } catch (error: any) {
+    logger.error('Failed to build case intelligence', { error: error.message })
+    res.status(500).json({ error: 'Failed to build case intelligence' })
+  }
+})
+
+// Case-specific intelligent intake questions (deterministic baseline + LLM personalization).
+router.get('/leads/:leadId/intelligence/questions', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead } = auth
+
+    const intelligence = await buildCaseIntelligence(lead.assessmentId)
+    if (!intelligence) return res.status(404).json({ error: 'Case data not available yet' })
+    const baseline = buildBaselineQuestions(intelligence)
+    const result = await generateIntelligentQuestions(intelligence, baseline)
+    res.json(result)
+  } catch (error: any) {
+    logger.error('Failed to generate intelligent questions', { error: error.message })
+    res.status(500).json({ error: 'Failed to generate intelligent questions' })
+  }
+})
+
+// One-click gap remediation. For Phase 0 every action creates a tailored CaseTask
+// (the safe, universal primitive); doc-request wiring can be upgraded later.
+router.post('/leads/:leadId/intelligence/gap-action', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+
+    const label = String(req.body?.label || '').trim()
+    const action = String(req.body?.action || '').trim() as GapAction
+    const severity = Number(req.body?.severity || 0)
+    if (!label) return res.status(400).json({ error: 'label is required' })
+
+    const validActions: GapAction[] = ['request_from_client', 'assign_paralegal', 'generate_doc_request', 'schedule_followup']
+    if (!validActions.includes(action)) return res.status(400).json({ error: 'invalid action' })
+
+    const titleByAction: Record<GapAction, string> = {
+      request_from_client: `Request from client: ${label}`,
+      assign_paralegal: `${label} — order / obtain`,
+      generate_doc_request: `Send document request: ${label}`,
+      schedule_followup: `Follow up with client re: ${label}`,
+    }
+    const paralegalActions: GapAction[] = ['assign_paralegal', 'generate_doc_request']
+    const assignedRole = paralegalActions.includes(action) ? 'paralegal' : 'attorney'
+
+    const record = await prisma.caseTask.create({
+      data: {
+        assessmentId: lead.assessmentId,
+        title: titleByAction[action],
+        priority: severity >= 5 ? 'high' : severity >= 3 ? 'medium' : 'low',
+        status: 'open',
+        taskType: 'general',
+        assignedRole,
+        notes: `Auto-created from Case Intelligence (missing: ${label}).`,
+        createdById: req.user?.id || null,
+        createdByName: req.user ? `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || req.user.email : null,
+        escalationLevel: 'none',
+      },
+      select: caseTaskSelect,
+    })
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: attorney.id,
+      action: 'task_created',
+      entityType: 'case_task',
+      entityId: record.id,
+      metadata: { title: record.title, source: 'case_intelligence', gapAction: action },
+    }).catch(() => undefined)
+    res.json({ task: record })
+  } catch (error: any) {
+    logger.error('Failed to run gap action', { error: error.message })
+    res.status(500).json({ error: 'Failed to run gap action' })
+  }
+})
+
+// ---- AI Case Coach (Phase 2) ----
+// Ranked, per-case "next best action" feed built on the deterministic registry,
+// then narrated by the LLM (fail-safe to deterministic copy).
+router.get('/leads/:leadId/coach', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead } = auth
+
+    const coach = await buildCaseCoach(lead.assessmentId)
+    if (!coach) return res.status(404).json({ error: 'Case data not available yet' })
+
+    const intelligence = await buildCaseIntelligence(lead.assessmentId)
+    const narrated = intelligence ? await narrateCaseCoach(intelligence, coach) : { ...coach, narrationSource: 'deterministic' as const }
+    res.json({ coach: narrated })
+  } catch (error: any) {
+    logger.error('Failed to build case coach', { error: error.message })
+    res.status(500).json({ error: 'Failed to build case coach' })
+  }
+})
+
+// Act on a coach recommendation — creates a tailored CaseTask (mirrors gap-action).
+router.post('/leads/:leadId/coach/action', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+
+    const title = String(req.body?.title || '').trim()
+    const action = String(req.body?.action || '').trim() as GapAction
+    const priority = String(req.body?.priority || 'medium').trim()
+    if (!title) return res.status(400).json({ error: 'title is required' })
+
+    const validActions: GapAction[] = ['request_from_client', 'assign_paralegal', 'generate_doc_request', 'schedule_followup']
+    if (!validActions.includes(action)) return res.status(400).json({ error: 'invalid action' })
+
+    const titleByAction: Record<GapAction, string> = {
+      request_from_client: `Request from client: ${title}`,
+      assign_paralegal: `${title}`,
+      generate_doc_request: `Send document request: ${title}`,
+      schedule_followup: `Follow up: ${title}`,
+    }
+    const paralegalActions: GapAction[] = ['assign_paralegal', 'generate_doc_request']
+    const assignedRole = paralegalActions.includes(action) ? 'paralegal' : 'attorney'
+    const taskPriority = priority === 'critical' || priority === 'high' ? 'high' : priority === 'low' ? 'low' : 'medium'
+
+    const record = await prisma.caseTask.create({
+      data: {
+        assessmentId: lead.assessmentId,
+        title: titleByAction[action],
+        priority: taskPriority,
+        status: 'open',
+        taskType: 'general',
+        assignedRole,
+        notes: `Auto-created from AI Case Coach: ${title}.`,
+        createdById: req.user?.id || null,
+        createdByName: req.user ? `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || req.user.email : null,
+        escalationLevel: 'none',
+      },
+      select: caseTaskSelect,
+    })
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: attorney.id,
+      action: 'task_created',
+      entityType: 'case_task',
+      entityId: record.id,
+      metadata: { title: record.title, source: 'case_coach', coachAction: action },
+    }).catch(() => undefined)
+    res.json({ task: record })
+  } catch (error: any) {
+    logger.error('Failed to run coach action', { error: error.message })
+    res.status(500).json({ error: 'Failed to run coach action' })
   }
 })
 

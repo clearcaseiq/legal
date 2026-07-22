@@ -3372,12 +3372,13 @@ Checklist:
                 return (
                   <li
                     key={step.title}
-                    className={`flex items-center gap-3 rounded-xl border px-3.5 py-3 transition-all ${
+                    className={`flex flex-col gap-3 rounded-xl border px-3.5 py-3 transition-all sm:flex-row sm:items-center ${
                       isBoost
                         ? 'border-amber-300 bg-gradient-to-r from-amber-50 via-orange-50/70 to-amber-50 shadow-sm ring-1 ring-amber-200/70 hover:shadow-md'
                         : isCurrent ? 'border-brand-300 bg-white shadow-sm' : 'border-transparent bg-white/60'
                     }`}
                   >
+                    <div className="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
                     <span
                       className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
                         isDone ? 'bg-emerald-100 text-emerald-700' : isBoost ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/30' : isCurrent ? 'bg-brand-700 text-white' : 'bg-slate-100 text-slate-500'
@@ -3409,10 +3410,11 @@ Checklist:
                         </div>
                       )}
                     </div>
+                    </div>
                     {showAction && step.href ? (
                       <Link
                         to={step.href}
-                        className={`group inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-bold text-white transition-all sm:w-52 ${
+                        className={`group inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-bold text-white transition-all sm:w-52 ${
                           isBoost
                             ? 'bg-gradient-to-r from-amber-500 to-orange-500 shadow-md shadow-amber-500/30 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-amber-500/40'
                             : 'bg-amber-500 shadow-sm hover:bg-amber-600'
@@ -3428,7 +3430,7 @@ Checklist:
                       <button
                         type="button"
                         onClick={step.action}
-                        className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-bold shadow-sm sm:w-52 ${
+                        className={`inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-bold shadow-sm sm:w-52 ${
                           isCurrent ? 'bg-brand-700 text-white hover:bg-brand-800' : 'border border-slate-200 bg-white text-brand-700 hover:bg-brand-50'
                         }`}
                       >
@@ -3474,7 +3476,7 @@ Checklist:
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.settlementEstimate')}</p>
               </div>
               <p className="mt-4 text-xs text-slate-500">{t('results.chrome.mostLikelyRange')}</p>
-              <p className="font-display text-2xl font-bold text-emerald-600">{displaySettlementRangeText}</p>
+              <p className="font-display text-2xl font-bold tabular-nums text-emerald-600 [overflow-wrap:anywhere]">{displaySettlementRangeText}</p>
               <p className="mt-1 text-sm text-slate-600">{t('results.chrome.mostLikely')} <span className="font-semibold text-slate-900">{formatCurrency(displaySettlementExpected)}</span></p>
               {netEstimatedRecovery > 0 && (
                 <p className="mt-1 text-xs text-slate-500">
@@ -3500,7 +3502,7 @@ Checklist:
               <div className="mt-4 border-t border-slate-100 pt-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.ifTrial')}</p>
                 <p className="mt-1 text-xs text-slate-500">{t('results.chrome.trialRange')}</p>
-                <p className="font-display text-xl font-bold text-slate-900">{trialValueText}</p>
+                <p className="font-display text-xl font-bold tabular-nums text-slate-900 [overflow-wrap:anywhere]">{trialValueText}</p>
                 <p className="mt-1 text-sm text-slate-600">{t('results.chrome.mostLikely')} <span className="font-semibold text-slate-900">{formatCurrency(Math.round((potentialTrialLow + potentialTrialHigh) / 2))}</span></p>
                 <p className="mt-2 text-xs leading-5 text-slate-500">{t('results.chrome.trialGrossA')} <span className="font-semibold text-slate-600">{t('results.chrome.trialGrossMid')}</span>{t('results.chrome.trialGrossB')}</p>
                 <button
@@ -3641,12 +3643,12 @@ Checklist:
             <p className="mt-3 text-sm text-slate-600">{t('results.snap.litDesc')}</p>
             <div className="mt-4 space-y-2.5">
               {litigationCostItems.map((item) => (
-                <div key={item.label} className="flex items-center justify-between text-sm">
-                  <span className="flex items-center gap-2 text-slate-600">
-                    {trSnap(item.label)}
-                    {item.stage === 'litigation' && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">{t('results.snap.ifLitigated')}</span>}
+                <div key={item.label} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="flex min-w-0 flex-wrap items-center gap-2 text-slate-600">
+                    <span className="min-w-0">{trSnap(item.label)}</span>
+                    {item.stage === 'litigation' && <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">{t('results.snap.ifLitigated')}</span>}
                   </span>
-                  <span className="font-medium text-slate-900">{formatCurrency(item.amount)}</span>
+                  <span className="shrink-0 pl-1 font-medium text-slate-900">{formatCurrency(item.amount)}</span>
                 </div>
               ))}
               <div className="flex items-center justify-between border-t border-slate-200 pt-3">
@@ -3822,18 +3824,18 @@ Checklist:
               </div>
               <div className="mt-3 space-y-2">
                 {overviewDamageRows.map((r) => (
-                  <div key={r.label} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="text-slate-600">{r.label}</span>
-                    <span className="shrink-0 font-semibold text-slate-900">{r.value}</span>
+                  <div key={r.label} className="flex items-baseline justify-between gap-3 text-xs">
+                    <span className="min-w-0 text-slate-600">{r.label}</span>
+                    <span className="min-w-0 text-right font-semibold tabular-nums text-slate-900 [overflow-wrap:anywhere]">{r.value}</span>
                   </div>
                 ))}
               </div>
               <div className="mt-3 rounded-xl border border-amber-100 bg-amber-50/60 p-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{t('results.overview.settlementRange')}</p>
-                <div className="mt-1 grid grid-cols-3 text-center">
-                  <div><p className="text-[10px] text-slate-500">{t('results.overview.low')}</p><p className="text-sm font-bold text-slate-700">{formatCurrency(displaySettlementLow)}</p></div>
-                  <div><p className="text-[10px] text-slate-500">{t('results.overview.mostLikely')}</p><p className="text-sm font-bold text-emerald-600">{formatCurrency(displaySettlementExpected)}</p></div>
-                  <div><p className="text-[10px] text-slate-500">{t('results.overview.high')}</p><p className="text-sm font-bold text-slate-700">{formatCurrency(displaySettlementHighValue)}</p></div>
+                <div className="mt-1 grid grid-cols-3 gap-2 text-center">
+                  <div className="min-w-0"><p className="text-[10px] text-slate-500">{t('results.overview.low')}</p><p className="text-xs font-bold tabular-nums text-slate-700 [overflow-wrap:anywhere]">{formatCurrency(displaySettlementLow)}</p></div>
+                  <div className="min-w-0"><p className="text-[10px] text-slate-500">{t('results.overview.mostLikely')}</p><p className="text-xs font-bold tabular-nums text-emerald-600 [overflow-wrap:anywhere]">{formatCurrency(displaySettlementExpected)}</p></div>
+                  <div className="min-w-0"><p className="text-[10px] text-slate-500">{t('results.overview.high')}</p><p className="text-xs font-bold tabular-nums text-slate-700 [overflow-wrap:anywhere]">{formatCurrency(displaySettlementHighValue)}</p></div>
                 </div>
               </div>
             </div>
@@ -3842,8 +3844,8 @@ Checklist:
               <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900"><AlertTriangle className="h-4 w-4 text-amber-500" aria-hidden /> {t('results.overview.whatsMissing')} <span className="text-slate-400">{t('results.overview.impact')}</span></p>
               <div className="mt-3 space-y-2.5">
                 {overviewMissingRows.length > 0 ? overviewMissingRows.map((r) => (
-                  <div key={r.label} className="flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-1.5 text-xs text-slate-700"><AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" /> {r.label}</span>
+                  <div key={r.label} className="flex items-center justify-between gap-3">
+                    <span className="flex min-w-0 items-center gap-1.5 text-xs text-slate-700"><AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" /> <span className="min-w-0">{r.label}</span></span>
                     <span className="flex shrink-0 items-center gap-2 text-[11px]">
                       <span className={r.priority === 'High' ? 'font-semibold text-rose-600' : r.priority === 'Medium' ? 'font-semibold text-amber-600' : 'font-semibold text-slate-400'}>{r.priority === 'High' ? t('results.shared.high') : r.priority === 'Medium' ? t('results.shared.medium') : t('results.shared.low')}</span>
                       <span className="font-semibold text-emerald-600">{r.range}</span>

@@ -2027,6 +2027,116 @@ export async function syncLeadReadinessAutomation(leadId: string) {
   }
 }
 
+// ---- Case Intelligence (Phase 0/1) ----
+export type CaseIntelligenceGapAction = 'request_from_client' | 'assign_paralegal' | 'generate_doc_request' | 'schedule_followup'
+
+export interface CaseIntelligenceGap {
+  key: string
+  label: string
+  category: 'liability' | 'medical' | 'damages' | 'insurance' | 'evidence' | 'case_strategy'
+  severity: number
+  valueImpact: 'high' | 'medium' | 'low'
+  rationale: string
+  actions: CaseIntelligenceGapAction[]
+  requestedDoc?: string
+}
+
+export interface CaseIntelligenceKnownFact {
+  key: string
+  label: string
+  value: string
+  detail?: string
+}
+
+export interface CaseIntelligence {
+  assessmentId: string
+  claimType: string
+  claimTypeKey: string
+  generatedAt: string
+  modelVersion: string
+  summary: {
+    severity: { label: string; score: number }
+    estimatedValue: { low: number; expected: number; high: number }
+    attorneyInterest: number
+    liability: { grade: string; score: number }
+    caseStrength: number
+    sol: { daysRemaining: number | null; expiresAt: string | null; status: string }
+    medical: string
+    evidence: string
+    documentation?: { score: number; grade: string }
+    economic?: { medicalBills: number; futureMedical: number; lostWages: number }
+  }
+  known: CaseIntelligenceKnownFact[]
+  gaps: CaseIntelligenceGap[]
+}
+
+export type CoachPriority = 'critical' | 'high' | 'medium' | 'low'
+export type CoachCategory = CaseIntelligenceGap['category'] | 'deadline' | 'strategy'
+
+export interface CoachInsight {
+  key: string
+  title: string
+  category: CoachCategory
+  priority: CoachPriority
+  priorityScore: number
+  why: string
+  impact: string
+  valueImpact: 'high' | 'medium' | 'low'
+  actions: CaseIntelligenceGapAction[]
+}
+
+export interface CaseCoach {
+  assessmentId: string
+  generatedAt: string
+  modelVersion: string
+  headline: string
+  insights: CoachInsight[]
+  narrationSource: 'ai' | 'deterministic'
+}
+
+export interface IntelligentQuestion {
+  id: string
+  section: 'Liability' | 'Medical' | 'Damages' | 'Insurance' | 'Case Strategy'
+  text: string
+  whyAsked: string
+  valueImpact: 'high' | 'medium' | 'low'
+  confidence?: number
+  source: 'baseline' | 'ai'
+}
+
+export async function getCaseIntelligence(leadId: string): Promise<CaseIntelligence> {
+  const { data } = await api.get<{ intelligence: CaseIntelligence }>(`/v1/attorney-dashboard/leads/${leadId}/intelligence`)
+  return data.intelligence
+}
+
+export async function getCaseIntelligenceQuestions(leadId: string) {
+  const { data } = await api.get<{ questions: IntelligentQuestion[]; source: 'ai' | 'baseline'; modelVersion: string }>(
+    `/v1/attorney-dashboard/leads/${leadId}/intelligence/questions`,
+  )
+  return data
+}
+
+export async function runCaseIntelligenceGapAction(
+  leadId: string,
+  payload: { label: string; action: CaseIntelligenceGapAction; severity?: number },
+) {
+  const { data } = await api.post<{ task: any }>(`/v1/attorney-dashboard/leads/${leadId}/intelligence/gap-action`, payload)
+  return data
+}
+
+export async function getCaseCoach(leadId: string): Promise<CaseCoach> {
+  const { data } = await api.get<{ coach: CaseCoach }>(`/v1/attorney-dashboard/leads/${leadId}/coach`)
+  return data.coach
+}
+
+export async function runCaseCoachAction(
+  leadId: string,
+  payload: { title: string; action: CaseIntelligenceGapAction; priority?: CoachPriority },
+) {
+  const { data } = await api.post<{ task: any }>(`/v1/attorney-dashboard/leads/${leadId}/coach/action`, payload)
+  return data
+}
+
 export async function scheduleConsultation(
   leadId: string,
   payload: { date: string; time: string; meetingType: string; notes?: string }

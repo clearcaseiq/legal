@@ -57,6 +57,20 @@ export default function ScheduleConsultPage() {
 
   const [date, setDate] = useState(defaultDate)
   const [time, setTime] = useState(timeFromUrl && TIME_SLOTS.includes(timeFromUrl) ? timeFromUrl : '2:00 PM')
+
+  // Minutes-since-midnight for a "2:00 PM" style slot, so we can hide slots that
+  // have already passed when the attorney picks today (CP-379).
+  const slotToMinutes = (slot: string): number => {
+    const isPm = /pm/i.test(slot)
+    const [hRaw, mRaw] = slot.replace(/\s*[AP]M/i, '').trim().split(':')
+    let h = parseInt(hRaw || '0', 10)
+    if (isPm && h < 12) h += 12
+    if (!isPm && h === 12) h = 0
+    return h * 60 + (parseInt(mRaw || '0', 10) || 0)
+  }
+  const isToday = date === todayStr
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  const availableSlots = isToday ? TIME_SLOTS.filter((s) => slotToMinutes(s) > nowMinutes) : TIME_SLOTS
   const [meetingType, setMeetingType] = useState(
     typeFromUrl && MEETING_TYPES.some((t) => t.id === typeFromUrl) ? typeFromUrl : 'phone',
   )
@@ -161,6 +175,10 @@ export default function ScheduleConsultPage() {
       setError('Connect your Zoom account to schedule a Zoom consultation.')
       return
     }
+    if (isToday && (!time || slotToMinutes(time) <= nowMinutes)) {
+      setError('Please choose a time later today — you cannot schedule a consultation in the past.')
+      return
+    }
     setError(null)
     setSaving(true)
     try {
@@ -234,9 +252,13 @@ export default function ScheduleConsultPage() {
                 onChange={(e) => setTime(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
               >
-                {TIME_SLOTS.map((slot) => (
-                  <option key={slot} value={slot}>{slot}</option>
-                ))}
+                {availableSlots.length === 0 ? (
+                  <option value="">No times left today — pick another date</option>
+                ) : (
+                  availableSlots.map((slot) => (
+                    <option key={slot} value={slot}>{slot}</option>
+                  ))
+                )}
               </select>
             </div>
             <div>
