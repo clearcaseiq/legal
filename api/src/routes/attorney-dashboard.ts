@@ -11,7 +11,7 @@ import { runAnalysisForAssessment } from './evidence'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
 import { runCaseRecalculation } from '../lib/case-recalculation'
-import { syncPlaintiffDocumentRequestStatuses } from '../lib/document-request-status'
+import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, parseRequestedDocs } from '../lib/document-request-status'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { z } from 'zod'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
@@ -4275,6 +4275,7 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
         lead: {
           select: {
             id: true,
+            assessmentId: true,
             assessment: {
               select: {
                 claimType: true,
@@ -4289,6 +4290,30 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
       take: 100,
     })
 
+    // Compute plaintiff-request status LIVE from uploaded evidence so the attorney's
+    // "Request from client" list is correct even if the write-side sync never ran
+    // (the persisted status could be a stale "pending") — CP-330.
+    const plaintiffAssessmentIds = Array.from(
+      new Set(
+        rows
+          .filter((r) => r.targetType !== 'opposing_party' && r.lead?.assessmentId)
+          .map((r) => r.lead!.assessmentId as string),
+      ),
+    )
+    const categoriesByAssessment = new Map<string, Set<string>>()
+    if (plaintiffAssessmentIds.length > 0) {
+      const files = await prisma.evidenceFile.findMany({
+        where: { assessmentId: { in: plaintiffAssessmentIds } },
+        select: { assessmentId: true, category: true },
+      })
+      for (const f of files) {
+        if (!f.assessmentId || !f.category) continue
+        if (!categoriesByAssessment.has(f.assessmentId)) categoriesByAssessment.set(f.assessmentId, new Set())
+        categoriesByAssessment.get(f.assessmentId)!.add(f.category)
+      }
+    }
+    const statusRank: Record<string, number> = { pending: 0, partial: 1, completed: 2 }
+
     const parsed = rows.map((r) => {
       let requested: string[] = []
       try {
@@ -4298,10 +4323,20 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
       }
       const u = r.lead?.assessment?.user
       const clientName = [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || null
+
+      // For plaintiff requests, surface the greater of persisted vs freshly-computed
+      // status so a client's upload is reflected immediately (never regress).
+      let status = r.status
+      if (r.targetType !== 'opposing_party' && r.lead?.assessmentId) {
+        const cats = categoriesByAssessment.get(r.lead.assessmentId) || new Set<string>()
+        const live = computeRequestStatus(parseRequestedDocs(r.requestedDocs), cats)
+        if (live && (statusRank[live] ?? 0) > (statusRank[r.status] ?? 0)) status = live
+      }
+
       return {
         id: r.id,
         leadId: r.leadId,
-        status: r.status,
+        status,
         requestedDocs: requested,
         customMessage: r.customMessage,
         uploadLink: r.uploadLink,
