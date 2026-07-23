@@ -15,6 +15,11 @@ export async function loginAttorney(payload: any) {
   return data
 }
 
+export async function loginStaff(payload: any) {
+  const { data } = await api.post('/v1/auth/staff-login', payload)
+  return data
+}
+
 export async function requestPasswordReset(email: string) {
   const { data } = await api.post('/v1/auth/request-password-reset', { email })
   return data as { ok: boolean; message: string }

@@ -7,6 +7,19 @@ import { UserRegister, UserLogin, UserUpdate, PasswordResetRequest, PasswordRese
 import { generateToken, authMiddleware, AuthRequest } from '../lib/auth'
 import { isAdminEmail } from '../lib/admin-access'
 import { sendClaimEmail } from '../lib/claims'
+import { permissionsForRole } from '../lib/firm-roles'
+
+// Look up a user's active firm membership (the record that makes a paralegal /
+// case manager / etc. a real firm staffer). Returns null for plaintiffs.
+async function findActiveFirmMembership(userId: string) {
+  return (prisma as any).firmMember
+    .findFirst({
+      where: { userId, status: 'active' },
+      include: { lawFirm: true },
+      orderBy: { createdAt: 'asc' },
+    })
+    .catch(() => null)
+}
 
 // Password-reset tokens are valid for one hour and are single-use.
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000
@@ -219,6 +232,19 @@ router.post('/login', async (req, res) => {
         error: 'Please use the attorney login page',
         isAttorney: true
       })
+    }
+
+    // Non-attorney firm staff (paralegal, case manager, etc.) have a real login
+    // but belong in the firm workspace, not the plaintiff dashboard. Send them
+    // to the staff login page instead of silently treating them as a claimant.
+    if (!isAdminEmail(user.email)) {
+      const membership = await findActiveFirmMembership(user.id)
+      if (membership) {
+        return res.status(403).json({
+          error: 'Please use the firm staff login page',
+          isFirmStaff: true,
+        })
+      }
     }
 
     // Update last login
@@ -478,6 +504,100 @@ router.post('/attorney-login', async (req, res) => {
     })
   } catch (error) {
     logger.error('Attorney login failed', { error })
+    res.status(500).json({ error: 'Login failed' })
+  }
+})
+
+// Firm staff login (paralegals, case managers, intake specialists, etc.).
+// Authenticates against the same User credentials as everyone else, but requires
+// an active FirmMember record and returns that firm role + permissions so the
+// web app can route them into the firm workspace scoped to what they can do.
+router.post('/staff-login', async (req, res) => {
+  try {
+    const parsed = UserLogin.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid login data', details: parsed.error.flatten() })
+    }
+
+    const { email, password } = parsed.data
+    const user = await prisma.user.findUnique({ where: { email } })
+
+    if (!user || !user.isActive) {
+      return res.status(401).json({ error: 'Invalid credentials' })
+    }
+
+    if (!user.passwordHash) {
+      if (user.provider === 'intake') {
+        return res.status(400).json({
+          error:
+            "You haven't set a password yet. Use the invite link we emailed you, or \"Forgot your password?\" to create one.",
+          code: 'NO_PASSWORD_SET',
+        })
+      }
+      return res.status(400).json({
+        error: 'This account has no password on file. Please set a password first.',
+      })
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.passwordHash)
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' })
+    }
+
+    const membership = await findActiveFirmMembership(user.id)
+    if (!membership) {
+      // Pending invite? Give an actionable hint instead of a flat rejection.
+      const invited = await (prisma as any).firmMember
+        .findFirst({ where: { userId: user.id, status: 'invited' } })
+        .catch(() => null)
+      if (invited) {
+        return res.status(403).json({
+          error:
+            'Your firm invitation is still pending. Please open the invite email and set your password first.',
+          code: 'INVITE_PENDING',
+        })
+      }
+      return res.status(403).json({
+        error: 'This account is not a member of any law firm. Please use the regular login page.',
+        isFirmStaff: false,
+      })
+    }
+
+    await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
+    const token = generateToken(user.id)
+
+    logger.info('Firm staff logged in', {
+      userId: user.id,
+      firmId: membership.lawFirmId,
+      role: membership.role,
+    })
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
+        createdAt: user.createdAt,
+      },
+      firm: {
+        id: membership.lawFirmId,
+        name: membership.lawFirm?.name || null,
+        role: membership.role,
+        title: membership.title || null,
+        permissions: [
+          ...permissionsForRole(membership.role),
+          ...(Array.isArray(membership.permissions)
+            ? membership.permissions.map(String)
+            : parseStringArrayField(membership.permissions)),
+        ],
+      },
+      token,
+      role: 'staff',
+    })
+  } catch (error) {
+    logger.error('Staff login failed', { error })
     res.status(500).json({ error: 'Login failed' })
   }
 })

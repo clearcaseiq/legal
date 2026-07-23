@@ -9,6 +9,7 @@ import { ATTORNEY_ROUTE_PREFIXES } from './lib/layoutWidth'
 const Home = lazy(() => import('./pages/Home'))
 const Login = lazy(() => import('./pages/Login'))
 const AttorneyLogin = lazy(() => import('./pages/AttorneyLogin'))
+const StaffLogin = lazy(() => import('./pages/StaffLogin'))
 const Register = lazy(() => import('./pages/Register'))
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'))
 const ResetPassword = lazy(() => import('./pages/ResetPassword'))
@@ -302,6 +303,10 @@ function App() {
               <Route path="/admin-login" element={<AdminLogin />} />
               <Route path="/login/admin" element={<AdminLogin />} />
             </Route>
+            <Route element={<GuestRoute role="staff" />}>
+              <Route path="/staff-login" element={<StaffLogin />} />
+              <Route path="/login/staff" element={<StaffLogin />} />
+            </Route>
             <Route element={<ProtectedRoute role="plaintiff" />}>
               <Route path="/auth/complete-consent" element={<CompleteConsent />} />
               <Route path="/dashboard" element={<Dashboard />} />
@@ -414,6 +419,12 @@ function App() {
             <Route path="/how-to-build-a-medical-chronology" element={<SeoLandingPage />} />
             <Route path="/what-medical-records-do-lawyers-need" element={<SeoLandingPage />} />
             <Route path="/how-insurance-companies-review-medical-records" element={<SeoLandingPage />} />
+            {/* Firm workspace is shared by firm attorneys/admins and non-attorney
+                staff (paralegals, case managers, etc.); the page scopes its tabs
+                by the member's permissions. */}
+            <Route element={<ProtectedRoute role={['attorney', 'staff']} />}>
+              <Route path="/firm-dashboard" element={<FirmDashboard />} />
+            </Route>
             <Route element={<ProtectedRoute role="attorney" />}>
               {/* Two-domain workspace shell (Lead Generation vs Case Management).
                   Each route mounts the shared sidebar layout and a focused page. */}
@@ -465,7 +476,6 @@ function App() {
               <Route path="/attorney-dashboard/draft-message/:leadId" element={<DraftMessagePage />} />
               <Route path="/attorney-dashboard/events" element={<EventsPage />} />
               <Route path="/attorney-dashboard/calendar" element={<CalendarPage />} />
-              <Route path="/firm-dashboard" element={<FirmDashboard />} />
               <Route path="/firm-settings" element={<FirmSettings />} />
               <Route path="/attorney-billing" element={<AttorneyBilling />} />
               <Route path="/attorney-profile" element={<AttorneyProfile />} />

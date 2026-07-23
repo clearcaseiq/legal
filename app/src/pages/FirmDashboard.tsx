@@ -219,6 +219,33 @@ const TABS: Array<{ key: TabKey; label: string; icon: typeof LayoutDashboard }> 
   { key: 'time', label: 'Time & Billing', icon: Clock },
 ]
 
+// Firm attorneys and admins keep full access to every tab (no regression from
+// before staff login existed). Non-attorney staff (paralegal, case manager,
+// intake specialist, etc.) see only the tabs their permissions support.
+const FULL_ACCESS_FIRM_ROLES = ['firm_admin', 'attorney']
+
+function canSeeFirmTab(tab: TabKey, role: string | undefined, permissions: string[]): boolean {
+  if (!role || FULL_ACCESS_FIRM_ROLES.includes(role)) return true
+  const has = (p: string) => permissions.includes(p)
+  switch (tab) {
+    case 'overview':
+    case 'caseload':
+      return true
+    case 'team':
+      return has('manage_users')
+    case 'booking':
+      return has('schedule_consultations') || has('manage_users')
+    case 'templates':
+      return has('manage_documents') || has('generate_demands')
+    case 'workflow':
+      return has('manage_routing')
+    case 'time':
+      return has('manage_billing') || has('manage_invoices') || has('process_payments')
+    default:
+      return false
+  }
+}
+
 export default function FirmDashboard() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -577,6 +604,20 @@ export default function FirmDashboard() {
   const workspace = dashboardData?.workspace
   const assignmentRoles = workspace?.assignmentRoles || ['lead_attorney', 'secondary_attorney', 'case_manager', 'paralegal']
 
+  // Scope the visible tabs to what this member's role/permissions allow. Firm
+  // attorneys/admins see everything; staff see a relevant subset (CP-337).
+  const visibleTabs = useMemo(
+    () => TABS.filter((t) => canSeeFirmTab(t.key, workspace?.currentRole, workspace?.permissions || [])),
+    [workspace?.currentRole, workspace?.permissions],
+  )
+  // If the active tab isn't available to this member, fall back to the first
+  // one they can see (Overview for everyone).
+  useEffect(() => {
+    if (visibleTabs.length > 0 && !visibleTabs.some((t) => t.key === tab)) {
+      setTab(visibleTabs[0].key)
+    }
+  }, [visibleTabs, tab])
+
   const leadIdByAssessment = useMemo(() => {
     const m = new Map<string, string>()
     for (const c of cases) if (c.leadId) m.set(c.assessmentId, c.leadId)
@@ -755,7 +796,7 @@ export default function FirmDashboard() {
 
       {/* Tab nav */}
       <div className="flex flex-wrap gap-1.5 rounded-xl border border-slate-200 bg-white p-1.5">
-        {TABS.map((t) => {
+        {visibleTabs.map((t) => {
           const Icon = t.icon
           const active = tab === t.key
           return (

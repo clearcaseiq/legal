@@ -11,9 +11,16 @@ export interface AuthRequest extends Request {
 const JWT_SECRET: Secret = ENV.JWT_SECRET
 const JWT_EXPIRES_IN = ENV.JWT_EXPIRES_IN as SignOptions['expiresIn']
 
-function resolveUserRole(email: string): string {
+// Resolve the effective request role. Admin emails always win; otherwise we
+// honor the stored User.role (client | attorney | staff | admin) so backend
+// RBAC can actually see firm staff instead of collapsing everyone to "user".
+// Legacy default "client" maps to "user" to preserve existing requireRole gates.
+function resolveUserRole(user: { email: string; role?: string | null }): string {
   const adminEmails = ENV.ADMIN_EMAILS?.split(',') || ['admin@caseiq.com']
-  return adminEmails.includes(email.toLowerCase()) ? 'admin' : 'user'
+  if (adminEmails.includes(user.email.toLowerCase())) return 'admin'
+  const stored = (user.role || '').toLowerCase()
+  if (stored === 'admin' || stored === 'attorney' || stored === 'staff') return stored
+  return 'user'
 }
 
 export function generateToken(userId: string): string {
@@ -47,7 +54,8 @@ export async function authMiddleware(
         email: true,
         firstName: true,
         lastName: true,
-        isActive: true
+        isActive: true,
+        role: true
       }
     })
 
@@ -57,7 +65,7 @@ export async function authMiddleware(
 
     req.user = {
       ...user,
-      role: resolveUserRole(user.email)
+      role: resolveUserRole(user)
     }
     next()
   } catch (error) {
@@ -102,14 +110,15 @@ export async function optionalAuthMiddleware(
         email: true,
         firstName: true,
         lastName: true,
-        isActive: true
+        isActive: true,
+        role: true
       }
     })
 
     if (user && user.isActive) {
       req.user = {
         ...user,
-        role: resolveUserRole(user.email)
+        role: resolveUserRole(user)
       }
     }
     // If user not found or not active, continue without setting req.user
