@@ -9,15 +9,17 @@
  * - escalation classifier
  * - final intake summary generator
  */
-import OpenAI from 'openai'
 import { logger } from './logger'
 import { ENV } from '../env'
+import { getLlmChatClient, LLM_CHAT_MODEL, isKimiProvider } from './llm-client'
 
-const openai = (ENV.OPENAI_API_KEY || process.env.OPENAI_API_KEY)
-  ? new OpenAI({ apiKey: ENV.OPENAI_API_KEY || process.env.OPENAI_API_KEY })
-  : null
-const ROSE_LLM_MODEL = process.env.ROSE_LLM_MODEL ?? 'gpt-4o-mini'
-const ROSE_LLM_TIMEOUT_MS = Number(process.env.ROSE_LLM_TIMEOUT_MS ?? 1800)
+const openai = getLlmChatClient()
+const ROSE_LLM_MODEL = ENV.ROSE_LLM_MODEL ?? LLM_CHAT_MODEL
+// Kimi K3 is a reasoning model (thinking always on), so it needs a much larger
+// budget than the fast gpt-4o-mini path. Default higher when Kimi is active.
+const ROSE_LLM_TIMEOUT_MS = Number(
+  process.env.ROSE_LLM_TIMEOUT_MS ?? (isKimiProvider() ? 20000 : 1800),
+)
 
 export type CaseType =
   | 'auto_accident'

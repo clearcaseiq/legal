@@ -20,6 +20,13 @@ export const ENV = {
   JWT_SECRET: req('JWT_SECRET'),
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN ?? '7d',
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_ANALYSIS_MODEL: process.env.OPENAI_ANALYSIS_MODEL ?? 'gpt-4o-mini',
+  // Kimi / Moonshot AI (optional, OpenAI-compatible drop-in for text completions).
+  KIMI_API_KEY: process.env.KIMI_API_KEY,
+  KIMI_BASE_URL: process.env.KIMI_BASE_URL ?? 'https://api.moonshot.ai/v1',
+  KIMI_MODEL: process.env.KIMI_MODEL ?? 'kimi-k3',
+  AI_PROVIDER: process.env.AI_PROVIDER ?? 'openai',
+  ROSE_LLM_MODEL: process.env.ROSE_LLM_MODEL,
   // Anthropic Claude (optional) — used for narrative → structured incident extraction.
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? 'claude-3-5-haiku-latest',

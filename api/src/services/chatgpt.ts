@@ -1,16 +1,10 @@
-import OpenAI from 'openai'
 import { logger } from '../lib/logger'
 import { ENV } from '../env'
 import { searchGroundedLegalContext } from '../lib/ml-service'
+import { getLlmChatClient, LLM_CHAT_MODEL } from '../lib/llm-client'
 
-// Initialize OpenAI client (only if API key is available)
-const openai = (ENV.OPENAI_API_KEY || process.env.OPENAI_API_KEY) 
-  ? new OpenAI({
-      apiKey: ENV.OPENAI_API_KEY || process.env.OPENAI_API_KEY
-    })
-  : null
-
-const OPENAI_ANALYSIS_MODEL = process.env.OPENAI_ANALYSIS_MODEL || 'gpt-4o-mini'
+const openai = getLlmChatClient()
+const CHAT_MODEL = LLM_CHAT_MODEL
 
 export interface CaseAnalysisRequest {
   assessmentId: string
@@ -132,7 +126,7 @@ export async function analyzeCaseWithChatGPT(request: CaseAnalysisRequest): Prom
     const prompt = createAnalysisPrompt(caseData, groundedContext)
 
     const completion = await openai.chat.completions.create({
-      model: OPENAI_ANALYSIS_MODEL,
+      model: CHAT_MODEL,
       messages: [
         {
           role: "system",

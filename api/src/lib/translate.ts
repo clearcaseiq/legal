@@ -1,13 +1,13 @@
 /**
  * Translate attorney communications to plaintiff's preferred language.
- * Uses OpenAI when available; falls back to original text otherwise.
+ * Uses the configured LLM provider (OpenAI or Kimi) when available; falls back
+ * to original text otherwise.
  */
-import OpenAI from 'openai'
 import { logger } from './logger'
+import { getLlmChatClient, LLM_CHAT_MODEL } from './llm-client'
 
-const openai = (process.env.OPENAI_API_KEY)
-  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  : null
+const openai = getLlmChatClient()
+const TRANSLATE_MODEL = LLM_CHAT_MODEL
 
 const TARGET_LANGUAGES: Record<string, string> = {
   es: 'Spanish',
@@ -37,7 +37,7 @@ export async function translateForPlaintiff(text: string, targetLang: string): P
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: TRANSLATE_MODEL,
       messages: [
         {
           role: 'system',
@@ -86,7 +86,7 @@ export async function translateToEnglish(text: string): Promise<string> {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: TRANSLATE_MODEL,
       messages: [
         {
           role: 'system',

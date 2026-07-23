@@ -9,17 +9,13 @@
  * Fails safe: with no API key or on any error, returns the deterministic feed
  * unchanged (source: 'deterministic').
  */
-import OpenAI from 'openai'
 import { logger } from '../lib/logger'
-import { ENV } from '../env'
 import type { CaseIntelligence } from '../lib/case-intelligence'
 import type { CaseCoachResult } from '../lib/case-coach'
+import { getLlmChatClient, LLM_CHAT_MODEL } from '../lib/llm-client'
 
-const openai = (ENV.OPENAI_API_KEY || process.env.OPENAI_API_KEY)
-  ? new OpenAI({ apiKey: ENV.OPENAI_API_KEY || process.env.OPENAI_API_KEY })
-  : null
-
-const COACH_MODEL = process.env.OPENAI_ANALYSIS_MODEL || 'gpt-4o-mini'
+const openai = getLlmChatClient()
+const COACH_MODEL = LLM_CHAT_MODEL
 
 export interface NarratedCoachResult extends CaseCoachResult {
   narrationSource: 'ai' | 'deterministic'

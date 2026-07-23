@@ -8,17 +8,13 @@
  *
  * Fails safe: with no API key or on any error, returns the deterministic baseline.
  */
-import OpenAI from 'openai'
 import { logger } from '../lib/logger'
-import { ENV } from '../env'
 import type { CaseIntelligence } from '../lib/case-intelligence'
 import type { IntelligentQuestion, QuestionSection } from '../lib/intake-questions'
+import { getLlmChatClient, LLM_CHAT_MODEL } from '../lib/llm-client'
 
-const openai = (ENV.OPENAI_API_KEY || process.env.OPENAI_API_KEY)
-  ? new OpenAI({ apiKey: ENV.OPENAI_API_KEY || process.env.OPENAI_API_KEY })
-  : null
-
-const QUESTIONS_MODEL = process.env.OPENAI_ANALYSIS_MODEL || 'gpt-4o-mini'
+const openai = getLlmChatClient()
+const QUESTIONS_MODEL = LLM_CHAT_MODEL
 const MAX_AI_QUESTIONS = 8
 const MAX_TOTAL_QUESTIONS = 18
 const VALID_SECTIONS: QuestionSection[] = ['Liability', 'Medical', 'Damages', 'Insurance', 'Case Strategy']
