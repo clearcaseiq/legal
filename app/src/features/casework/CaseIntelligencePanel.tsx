@@ -21,12 +21,14 @@ import {
   Star,
   Pencil,
   MessageSquarePlus,
+  ListPlus,
 } from 'lucide-react'
 import {
   getCaseIntelligence,
   getCaseIntelligenceQuestions,
   runCaseIntelligenceGapAction,
   saveIntelligentQuestionAnswer,
+  createTaskFromQuestionAnswer,
   type CaseIntelligence,
   type CaseIntelligenceGap,
   type CaseIntelligenceGapAction,
@@ -83,6 +85,7 @@ function QuestionAnswerEditor({
   leadId,
   question,
   onSaved,
+  onPersisted,
 }: {
   leadId: string
   question: IntelligentQuestion
@@ -90,12 +93,15 @@ function QuestionAnswerEditor({
     questionKey: string,
     saved: { answer: string; answeredByName: string | null; answeredAt: string } | null,
   ) => void
+  // Fired after an answer is persisted/cleared so the parent can refresh gaps.
+  onPersisted: () => void
 }) {
   const hasAnswer = Boolean(question.answer && question.answer.trim())
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(question.answer ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [taskState, setTaskState] = useState<'idle' | 'loading' | 'done'>('idle')
 
   const key = question.questionKey
 
@@ -119,10 +125,25 @@ function QuestionAnswerEditor({
       })
       onSaved(key, saved)
       setEditing(false)
+      onPersisted()
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Failed to save answer')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const createTask = async () => {
+    setTaskState('loading')
+    try {
+      await createTaskFromQuestionAnswer(leadId, {
+        questionText: question.text,
+        answer: question.answer ?? '',
+        section: question.section,
+      })
+      setTaskState('done')
+    } catch {
+      setTaskState('idle')
     }
   }
 
@@ -174,6 +195,25 @@ function QuestionAnswerEditor({
               {question.answeredByName ? `Answered by ${question.answeredByName}` : 'Answered'}
               {question.answeredAt ? ` · ${new Date(question.answeredAt).toLocaleDateString()}` : ''}
             </p>
+            <button
+              type="button"
+              onClick={createTask}
+              disabled={taskState !== 'idle'}
+              className={`mt-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold ${
+                taskState === 'done'
+                  ? 'text-emerald-700'
+                  : 'text-slate-500 hover:bg-white hover:text-slate-700'
+              }`}
+            >
+              {taskState === 'loading' ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : taskState === 'done' ? (
+                <CheckCircle2 className="h-3 w-3" />
+              ) : (
+                <ListPlus className="h-3 w-3" />
+              )}
+              {taskState === 'done' ? 'Task created' : 'Create follow-up task'}
+            </button>
           </div>
           <button
             type="button"
@@ -218,6 +258,11 @@ export default function CaseIntelligencePanel({ leadId }: { leadId: string }) {
       .catch((err: any) => { if (alive) setError(err?.response?.data?.error || 'Case intelligence not available yet') })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
+  }, [leadId])
+
+  // Re-pull intelligence after an answer is saved so gap resolution is reflected.
+  const reloadIntel = useCallback(() => {
+    getCaseIntelligence(leadId).then(setIntel).catch(() => undefined)
   }, [leadId])
 
   const loadQuestions = useCallback(() => {
@@ -331,40 +376,57 @@ export default function CaseIntelligencePanel({ leadId }: { leadId: string }) {
           </div>
 
           <ul className="mt-3 space-y-2.5">
-            {intel.gaps.map((gap) => (
-              <li key={gap.key} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Stars n={gap.severity} />
-                  <span className="text-sm font-semibold text-slate-900">{gap.label}</span>
-                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ring-inset ${IMPACT_CHIP[gap.valueImpact]}`}>
-                    {gap.valueImpact} impact
-                  </span>
-                </div>
-                <p className="mt-1 text-xs leading-5 text-slate-500">{gap.rationale}</p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {gap.actions.map((action) => {
-                    const meta = ACTION_META[action]
-                    const state = actioned[`${gap.key}:${action}`]
-                    return (
-                      <button
-                        key={action}
-                        type="button"
-                        disabled={!!state}
-                        onClick={() => runAction(gap, action)}
-                        className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold ring-1 ring-inset transition-colors ${
-                          state === 'done'
-                            ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-                            : 'bg-white text-slate-700 ring-slate-200 hover:bg-brand-50 hover:text-brand-700 hover:ring-brand-200'
-                        }`}
-                      >
-                        {state === 'loading' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : state === 'done' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <meta.Icon className="h-3.5 w-3.5" />}
-                        {state === 'done' ? 'Task created' : meta.label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </li>
-            ))}
+            {[...intel.gaps]
+              .sort((a, b) => Number(Boolean(a.resolved)) - Number(Boolean(b.resolved)))
+              .map((gap) =>
+                gap.resolved ? (
+                  <li key={gap.key} className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                      <span className="text-sm font-semibold text-slate-500 line-through">{gap.label}</span>
+                      <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                        Resolved
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Answered during intake questions{gap.resolvedByName ? ` by ${gap.resolvedByName}` : ''}.
+                    </p>
+                  </li>
+                ) : (
+                  <li key={gap.key} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Stars n={gap.severity} />
+                      <span className="text-sm font-semibold text-slate-900">{gap.label}</span>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ring-inset ${IMPACT_CHIP[gap.valueImpact]}`}>
+                        {gap.valueImpact} impact
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">{gap.rationale}</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {gap.actions.map((action) => {
+                        const meta = ACTION_META[action]
+                        const state = actioned[`${gap.key}:${action}`]
+                        return (
+                          <button
+                            key={action}
+                            type="button"
+                            disabled={!!state}
+                            onClick={() => runAction(gap, action)}
+                            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold ring-1 ring-inset transition-colors ${
+                              state === 'done'
+                                ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                                : 'bg-white text-slate-700 ring-slate-200 hover:bg-brand-50 hover:text-brand-700 hover:ring-brand-200'
+                            }`}
+                          >
+                            {state === 'loading' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : state === 'done' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <meta.Icon className="h-3.5 w-3.5" />}
+                            {state === 'done' ? 'Task created' : meta.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </li>
+                ),
+              )}
           </ul>
         </div>
       )}
@@ -408,7 +470,7 @@ export default function CaseIntelligencePanel({ leadId }: { leadId: string }) {
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-slate-800">{q.text}</p>
                           {q.whyAsked ? <p className="mt-0.5 text-xs text-slate-500">Why: {q.whyAsked}</p> : null}
-                          <QuestionAnswerEditor leadId={leadId} question={q} onSaved={applyAnswer} />
+                          <QuestionAnswerEditor leadId={leadId} question={q} onSaved={applyAnswer} onPersisted={reloadIntel} />
                         </div>
                         <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ring-1 ring-inset ${IMPACT_CHIP[q.valueImpact]}`}>{q.valueImpact}</span>
                       </div>

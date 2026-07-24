@@ -32,6 +32,10 @@ export interface CaseGap {
   actions: GapAction[]
   /** When a document request is the natural remedy, the request key to pre-fill. */
   requestedDoc?: string
+  /** Set when an answered Intelligent Question has addressed this gap. */
+  resolved?: boolean
+  /** Who recorded the answer that resolved this gap (for display). */
+  resolvedByName?: string | null
 }
 
 export interface KnownFact {

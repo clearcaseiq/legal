@@ -21,6 +21,8 @@ export interface IntelligentQuestion {
   valueImpact: ValueImpact
   confidence?: number
   source: 'baseline' | 'ai'
+  /** Gap registry keys this question addresses; answering it resolves those gaps. */
+  gapKeys?: string[]
 }
 
 interface BankQuestion {
@@ -31,6 +33,8 @@ interface BankQuestion {
   valueImpact: ValueImpact
   /** Only include when this returns true. Receives the set of live gap keys. */
   gate?: (gapKeys: Set<string>) => boolean
+  /** Gap keys this question addresses (used both for gating and answer→gap resolution). */
+  gapKeys?: string[]
 }
 
 const onlyIfGap = (key: string) => (gapKeys: Set<string>) => gapKeys.has(key)
@@ -39,14 +43,14 @@ const onlyIfGap = (key: string) => (gapKeys: Set<string>) => gapKeys.has(key)
 const COMMON: BankQuestion[] = [
   { id: 'strat_prior_attorney', section: 'Case Strategy', text: 'Have you spoken with or hired any other attorney about this incident?', whyAsked: 'Prior representation affects conflicts and fee disputes.', valueImpact: 'medium' },
   { id: 'strat_social_media', section: 'Case Strategy', text: 'Have you posted anything about the incident or your injuries on social media?', whyAsked: 'Defense routinely mines social media to contradict damages.', valueImpact: 'medium' },
-  { id: 'strat_prior_accidents', section: 'Case Strategy', text: 'Have you been in any prior accidents or made prior injury claims?', whyAsked: 'Prior claims are a common causation defense.', valueImpact: 'medium', gate: onlyIfGap('prior_injuries') },
+  { id: 'strat_prior_accidents', section: 'Case Strategy', text: 'Have you been in any prior accidents or made prior injury claims?', whyAsked: 'Prior claims are a common causation defense.', valueImpact: 'medium', gate: onlyIfGap('prior_injuries'), gapKeys: ['prior_injuries'] },
   { id: 'strat_bankruptcy', section: 'Case Strategy', text: 'Have you filed for bankruptcy, or are you considering it?', whyAsked: 'A pending bankruptcy can make the claim an asset of the estate.', valueImpact: 'low' },
-  { id: 'strat_prior_injury', section: 'Case Strategy', text: 'Any prior injuries or treatment to the same body part(s)?', whyAsked: 'Pre-existing conditions are the leading damages defense — get ahead of it.', valueImpact: 'medium', gate: onlyIfGap('prior_injuries') },
+  { id: 'strat_prior_injury', section: 'Case Strategy', text: 'Any prior injuries or treatment to the same body part(s)?', whyAsked: 'Pre-existing conditions are the leading damages defense — get ahead of it.', valueImpact: 'medium', gate: onlyIfGap('prior_injuries'), gapKeys: ['prior_injuries'] },
 ]
 
 const INSURANCE_COMMON: BankQuestion[] = [
-  { id: 'ins_carrier', section: 'Insurance', text: "Do you know the at-fault party's insurance carrier and claim number?", whyAsked: 'Needed to open the claim and route the demand to the right adjuster.', valueImpact: 'high', gate: (g) => g.has('defendant_carrier') || g.has('defendant_policy_limits') },
-  { id: 'ins_limits', section: 'Insurance', text: 'Do you know (or can we request) the defendant’s policy limits?', whyAsked: 'Policy limits cap realistic recovery and shape demand strategy.', valueImpact: 'high', gate: onlyIfGap('defendant_policy_limits') },
+  { id: 'ins_carrier', section: 'Insurance', text: "Do you know the at-fault party's insurance carrier and claim number?", whyAsked: 'Needed to open the claim and route the demand to the right adjuster.', valueImpact: 'high', gate: (g) => g.has('defendant_carrier') || g.has('defendant_policy_limits'), gapKeys: ['defendant_carrier'] },
+  { id: 'ins_limits', section: 'Insurance', text: 'Do you know (or can we request) the defendant’s policy limits?', whyAsked: 'Policy limits cap realistic recovery and shape demand strategy.', valueImpact: 'high', gate: onlyIfGap('defendant_policy_limits'), gapKeys: ['defendant_policy_limits'] },
   { id: 'ins_adjuster', section: 'Insurance', text: 'Has an insurance adjuster contacted you, and did you give a recorded statement?', whyAsked: 'Recorded statements can be used against the plaintiff and change strategy.', valueImpact: 'medium' },
   { id: 'ins_um', section: 'Insurance', text: 'Do you carry uninsured/underinsured motorist (UM/UIM) coverage?', whyAsked: 'UM/UIM can be a recovery source when the defendant is underinsured.', valueImpact: 'medium', gate: (g) => g.has('defendant_policy_limits') },
 ]
@@ -56,7 +60,7 @@ const BANKS: Record<string, BankQuestion[]> = {
     { id: 'auto_liab_fault', section: 'Liability', text: 'Did the other driver admit fault or apologize at the scene?', whyAsked: 'Admissions are powerful liability evidence.', valueImpact: 'high' },
     { id: 'auto_liab_cited', section: 'Liability', text: 'Was anyone cited or ticketed by police?', whyAsked: 'A citation strongly supports fault.', valueImpact: 'high' },
     { id: 'auto_liab_passengers', section: 'Liability', text: 'Were there passengers or independent witnesses?', whyAsked: 'Neutral witnesses corroborate the account.', valueImpact: 'medium' },
-    { id: 'auto_med_mri', section: 'Medical', text: 'Has any doctor recommended or ordered an MRI?', whyAsked: 'Objective imaging can materially increase case value.', valueImpact: 'high', gate: onlyIfGap('imaging_mri') },
+    { id: 'auto_med_mri', section: 'Medical', text: 'Has any doctor recommended or ordered an MRI?', whyAsked: 'Objective imaging can materially increase case value.', valueImpact: 'high', gate: onlyIfGap('imaging_mri'), gapKeys: ['imaging_mri'] },
     { id: 'auto_med_worse', section: 'Medical', text: 'Has your pain gotten worse, or do you have numbness, tingling, headaches, or dizziness?', whyAsked: 'Radicular/neuro symptoms elevate severity and value.', valueImpact: 'high' },
     { id: 'auto_med_gap', section: 'Medical', text: 'Have you had any gaps in treatment, and if so, why?', whyAsked: 'Treatment gaps are a favorite defense argument.', valueImpact: 'medium' },
     { id: 'auto_dmg_work', section: 'Damages', text: 'Have you missed work, promotions, bonuses, or used vacation/sick days?', whyAsked: 'Captures the full wage-loss and lost-earning-capacity claim.', valueImpact: 'high' },
@@ -74,8 +78,8 @@ const BANKS: Record<string, BankQuestion[]> = {
     { id: 'sf_warning', section: 'Liability', text: 'Were there any warning signs (wet floor, caution cones) present?', whyAsked: 'Absence of warnings supports a hazard/notice claim.', valueImpact: 'high' },
     { id: 'sf_condition', section: 'Liability', text: 'What was the condition (spill, ice, uneven surface), and how long had it been there?', whyAsked: 'Notice/time is central to premises liability.', valueImpact: 'high' },
     { id: 'sf_footwear', section: 'Liability', text: 'What footwear were you wearing, and what were you doing at the time?', whyAsked: 'Anticipates comparative-fault defenses.', valueImpact: 'medium' },
-    { id: 'sf_video', section: 'Liability', text: 'Is there surveillance video or an incident report from the property?', whyAsked: 'Video/reports are the strongest liability evidence — request before it’s overwritten.', valueImpact: 'high', gate: onlyIfGap('police_report') },
-    { id: 'sf_witness', section: 'Liability', text: 'Did any employees or witnesses see the fall or the hazard?', whyAsked: 'Witnesses corroborate the hazard and notice.', valueImpact: 'medium', gate: onlyIfGap('witness_statements') },
+    { id: 'sf_video', section: 'Liability', text: 'Is there surveillance video or an incident report from the property?', whyAsked: 'Video/reports are the strongest liability evidence — request before it’s overwritten.', valueImpact: 'high', gate: onlyIfGap('police_report'), gapKeys: ['police_report'] },
+    { id: 'sf_witness', section: 'Liability', text: 'Did any employees or witnesses see the fall or the hazard?', whyAsked: 'Witnesses corroborate the hazard and notice.', valueImpact: 'medium', gate: onlyIfGap('witness_statements'), gapKeys: ['witness_statements'] },
     { id: 'sf_report', section: 'Damages', text: 'Did the store/property create an incident report, and did you get a copy?', whyAsked: 'Documents the fall and the property’s response.', valueImpact: 'medium' },
   ],
   medmal: [
@@ -105,7 +109,7 @@ const BANKS: Record<string, BankQuestion[]> = {
   ],
   default: [
     { id: 'def_fault', section: 'Liability', text: 'In your words, who was at fault and why?', whyAsked: 'Establishes the liability theory.', valueImpact: 'high' },
-    { id: 'def_witness', section: 'Liability', text: 'Were there any witnesses, and do you have their contact information?', whyAsked: 'Witnesses corroborate the account.', valueImpact: 'medium', gate: onlyIfGap('witness_statements') },
+    { id: 'def_witness', section: 'Liability', text: 'Were there any witnesses, and do you have their contact information?', whyAsked: 'Witnesses corroborate the account.', valueImpact: 'medium', gate: onlyIfGap('witness_statements'), gapKeys: ['witness_statements'] },
     { id: 'def_worse', section: 'Medical', text: 'Have your symptoms improved, stayed the same, or gotten worse?', whyAsked: 'Trajectory affects severity and future-care value.', valueImpact: 'high' },
     { id: 'def_work', section: 'Damages', text: 'Have you missed work or lost income because of the injury?', whyAsked: 'Captures the wage-loss claim.', valueImpact: 'high' },
   ],
@@ -134,7 +138,22 @@ export function buildBaselineQuestions(intel: CaseIntelligence): IntelligentQues
       valueImpact: q.valueImpact,
       confidence: 0.9,
       source: 'baseline',
+      gapKeys: q.gapKeys,
     })
   }
   return out
 }
+
+/**
+ * Map of baseline question id → the gap keys it addresses. Lets the server
+ * resolve Missing-Information gaps once the matching question is answered,
+ * without re-deriving the gate logic. Built once from every bank.
+ */
+export const BASELINE_QUESTION_GAP_KEYS: Record<string, string[]> = (() => {
+  const map: Record<string, string[]> = {}
+  const all: BankQuestion[] = [...COMMON, ...INSURANCE_COMMON, ...Object.values(BANKS).flat()]
+  for (const q of all) {
+    if (q.gapKeys && q.gapKeys.length > 0) map[q.id] = q.gapKeys
+  }
+  return map
+})()

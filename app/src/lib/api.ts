@@ -2114,6 +2114,9 @@ export interface CaseIntelligenceGap {
   rationale: string
   actions: CaseIntelligenceGapAction[]
   requestedDoc?: string
+  // Set when an answered Intelligent Question has addressed this gap.
+  resolved?: boolean
+  resolvedByName?: string | null
 }
 
 export interface CaseIntelligenceKnownFact {
@@ -2177,6 +2180,8 @@ export interface IntelligentQuestion {
   valueImpact: 'high' | 'medium' | 'low'
   confidence?: number
   source: 'baseline' | 'ai'
+  // Gap registry keys this question addresses (answering resolves those gaps).
+  gapKeys?: string[]
   // Stable key + any captured answer (populated by the questions endpoint).
   questionKey?: string
   answer?: string | null
@@ -2224,6 +2229,18 @@ export async function saveIntelligentQuestionAnswer(
     answer: { questionKey: string; answer: string; answeredByName: string | null; answeredAt: string } | null
   }>(`/v1/attorney-dashboard/leads/${leadId}/intelligence/questions/answer`, payload)
   return data.answer
+}
+
+// Spin up a follow-up task from an answered intelligent question.
+export async function createTaskFromQuestionAnswer(
+  leadId: string,
+  payload: { questionText: string; answer?: string; section?: string | null },
+) {
+  const { data } = await api.post<{ task: any }>(
+    `/v1/attorney-dashboard/leads/${leadId}/intelligence/questions/task`,
+    payload,
+  )
+  return data.task
 }
 
 export async function runCaseIntelligenceGapAction(

@@ -41,7 +41,7 @@ import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
 import { exportCaseToConnectionSafe } from '../lib/cms'
 import { applyFirmWorkflowToCase, serializeCaseWorkflow } from '../lib/case-workflow'
 import { buildCaseIntelligence, type GapAction } from '../lib/case-intelligence'
-import { buildBaselineQuestions } from '../lib/intake-questions'
+import { buildBaselineQuestions, BASELINE_QUESTION_GAP_KEYS } from '../lib/intake-questions'
 import { generateIntelligentQuestions } from '../services/intelligent-questions'
 import { buildCaseCoach } from '../lib/case-coach'
 import { narrateCaseCoach } from '../services/case-coach-narrator'
@@ -8535,6 +8535,27 @@ router.get('/leads/:leadId/workflow', authMiddleware, async (req: any, res) => {
   }
 })
 
+// Which Missing-Information gap keys have been addressed by an answered baseline
+// question, mapped to the person who recorded the answer. Answering e.g. the
+// carrier question resolves the `defendant_carrier` gap so it stops re-prompting.
+async function resolvedGapKeysForAssessment(
+  assessmentId: string,
+): Promise<Map<string, string | null>> {
+  const resolved = new Map<string, string | null>()
+  const answers = await prisma.caseQuestionAnswer.findMany({
+    where: { assessmentId, source: 'baseline' },
+    select: { questionKey: true, answer: true, answeredByName: true },
+  })
+  for (const a of answers) {
+    if (!a.answer || !a.answer.trim()) continue
+    const questionId = a.questionKey.startsWith('base:') ? a.questionKey.slice(5) : a.questionKey
+    const gapKeys = BASELINE_QUESTION_GAP_KEYS[questionId]
+    if (!gapKeys) continue
+    for (const key of gapKeys) resolved.set(key, a.answeredByName)
+  }
+  return resolved
+}
+
 // ---- Case Intelligence (Phase 0/1) ----
 // Deterministic per-case "brain": Already Known facts + a star-rated gap registry.
 router.get('/leads/:leadId/intelligence', authMiddleware, async (req: any, res) => {
@@ -8546,6 +8567,16 @@ router.get('/leads/:leadId/intelligence', authMiddleware, async (req: any, res) 
 
     const intelligence = await buildCaseIntelligence(lead.assessmentId)
     if (!intelligence) return res.status(404).json({ error: 'Case data not available yet' })
+
+    // Overlay answer-driven gap resolution so answering an Intelligent Question
+    // closes the corresponding Missing-Information item.
+    const resolved = await resolvedGapKeysForAssessment(lead.assessmentId)
+    if (resolved.size > 0) {
+      intelligence.gaps = intelligence.gaps.map((g) =>
+        resolved.has(g.key) ? { ...g, resolved: true, resolvedByName: resolved.get(g.key) ?? null } : g,
+      )
+    }
+
     res.json({ intelligence })
   } catch (error: any) {
     logger.error('Failed to build case intelligence', { error: error.message })
@@ -8679,6 +8710,56 @@ router.put('/leads/:leadId/intelligence/questions/answer', authMiddleware, async
   } catch (error: any) {
     logger.error('Failed to save question answer', { error: error.message })
     res.status(500).json({ error: 'Failed to save answer' })
+  }
+})
+
+// Spin up a follow-up CaseTask from an answered Intelligent Question (e.g. an
+// answer that reveals work to do — obtain prior records, request the police
+// report). Mirrors the gap-action task primitive.
+router.post('/leads/:leadId/intelligence/questions/task', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead, attorney } = auth
+
+    const questionText = String(req.body?.questionText || '').trim()
+    const answer = String(req.body?.answer || '').trim()
+    const section = req.body?.section ? String(req.body.section).trim() : null
+    if (!questionText) return res.status(400).json({ error: 'questionText is required' })
+
+    const shortQuestion = questionText.length > 90 ? `${questionText.slice(0, 87)}…` : questionText
+    const notesParts = [`From Intelligent Questions${section ? ` (${section})` : ''}.`, `Q: ${questionText}`]
+    if (answer) notesParts.push(`Client answer: ${answer}`)
+
+    const record = await prisma.caseTask.create({
+      data: {
+        assessmentId: lead.assessmentId,
+        title: `Follow up: ${shortQuestion}`,
+        priority: 'medium',
+        status: 'open',
+        taskType: 'general',
+        assignedRole: 'attorney',
+        notes: notesParts.join('\n'),
+        createdById: req.user?.id || null,
+        createdByName: req.user ? `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || req.user.email : null,
+        escalationLevel: 'none',
+      },
+      select: caseTaskSelect,
+    })
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: attorney.id,
+      action: 'task_created',
+      entityType: 'case_task',
+      entityId: record.id,
+      metadata: { title: record.title, source: 'intelligent_question' },
+    }).catch(() => undefined)
+
+    res.json({ task: record })
+  } catch (error: any) {
+    logger.error('Failed to create task from question answer', { error: error.message })
+    res.status(500).json({ error: 'Failed to create follow-up task' })
   }
 })
 
