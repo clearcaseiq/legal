@@ -21,6 +21,7 @@ import {
   type DataTableColumn,
 } from '../shared/ui'
 import TaskDetailModal from './TaskDetailModal'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 interface TaskRow {
   id: string
@@ -183,6 +184,8 @@ export default function TasksPage() {
   const [saving, setSaving] = useState(false)
   const [workflowTasks, setWorkflowTasks] = useState<MyWorkflowTask[]>([])
   const [detail, setDetail] = useState<{ leadId: string; taskId: string; caseLabel?: string } | null>(null)
+  // In-app delete confirmation (replaces window.confirm — CP-335)
+  const [taskToDelete, setTaskToDelete] = useState<TaskRow | null>(null)
 
   const flash = (tone: 'ok' | 'err', text: string) => {
     setMsg({ tone, text })
@@ -281,17 +284,23 @@ export default function TasksPage() {
     }
   }
 
-  const removeTask = async (row: TaskRow) => {
+  const removeTask = (row: TaskRow) => {
     if (!row.leadId) {
       flash('err', 'Cannot delete this task — missing case reference.')
       return
     }
-    if (!window.confirm(`Delete task "${row.title}"? This can't be undone.`)) return
+    setTaskToDelete(row)
+  }
+
+  const confirmRemoveTask = async () => {
+    const row = taskToDelete
+    if (!row?.leadId) return
     setBusyId(row.id)
     try {
       await deleteLeadTask(row.leadId, row.id)
       await loadTasks()
       flash('ok', 'Task deleted.')
+      setTaskToDelete(null)
     } catch (err: any) {
       flash('err', err?.response?.data?.error || 'Failed to delete task.')
     } finally {
@@ -472,6 +481,21 @@ export default function TasksPage() {
           onChanged={() => void loadTasks()}
         />
       ) : null}
+      <ConfirmDialog
+        open={Boolean(taskToDelete)}
+        title="Delete task?"
+        message={
+          taskToDelete ? (
+            <>
+              This will permanently delete <span className="font-semibold">"{taskToDelete.title}"</span>. This can't be undone.
+            </>
+          ) : undefined
+        }
+        confirmLabel="Delete task"
+        busy={Boolean(busyId) && busyId === taskToDelete?.id}
+        onConfirm={() => void confirmRemoveTask()}
+        onCancel={() => setTaskToDelete(null)}
+      />
       <PageHeader
         title="Tasks"
         description="A cross-case queue that rolls up every case's task list so nothing slips. Complete, add, or open any task without leaving the page — changes sync to each case's Tasks tab."

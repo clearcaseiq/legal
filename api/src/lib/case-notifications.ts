@@ -276,15 +276,25 @@ export async function sendPlaintiffAttorneyAccepted(
     return false
   }
 
-  const experienceText = yearsExperience ? `${yearsExperience} years experience` : 'Experienced attorney'
-  const firmText = firmName ? `\nFirm: ${firmName}` : ''
+  const experienceText = yearsExperience ? `${yearsExperience} years of experience` : 'an experienced attorney'
+  const firmText = firmName ? ` at ${firmName}` : ''
+  const greetingName = assessment.user.firstName ? ` ${assessment.user.firstName}` : ''
   const message = [
-    'Good news — an attorney is interested in your case.',
+    `Hello${greetingName},`,
     '',
-    `Attorney: ${attorneyName}${firmText}`,
+    `Good news — ${attorneyName}${firmText} has reviewed and accepted your case and would like to help.`,
+    '',
+    `Your attorney: ${attorneyName}${firmName ? `, ${firmName}` : ''}`,
     `Experience: ${experienceText}`,
     '',
-    'Schedule a consultation to discuss your case.'
+    'What happens next:',
+    '1. Your attorney will reach out to schedule a consultation.',
+    '2. You can message them and share documents securely from your ClearCaseIQ dashboard.',
+    '',
+    'We are glad to have connected you with representation for your claim.',
+    '',
+    'Warm regards,',
+    'The ClearCaseIQ Team'
   ].join('\n')
 
   try {

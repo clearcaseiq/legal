@@ -80,14 +80,64 @@ function bodyToHtml(body: string): string {
   // inside an href), so reset/verification links are actually clickable in mail
   // clients instead of arriving as plain text.
   const urlRe = /(https?:\/\/[^\s<]+)/g
-  return String(body || '')
+  const paragraphs = String(body || '')
     .split('\n')
     .map((line) => {
+      const trimmed = line.trim()
+      if (!trimmed) return '<div style="height:12px;line-height:12px">&nbsp;</div>'
       const escaped = escapeHtml(line)
-      const linked = escaped.replace(urlRe, (url) => `<a href="${url}" style="color:#2563eb;text-decoration:underline;word-break:break-all">${url}</a>`)
-      return `<p>${linked}</p>`
+      const linked = escaped.replace(
+        urlRe,
+        (url) => `<a href="${url}" style="color:#2563eb;text-decoration:underline;word-break:break-all">${url}</a>`,
+      )
+      return `<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#1f2937">${linked}</p>`
     })
     .join('')
+  return wrapBrandedEmail(paragraphs)
+}
+
+/**
+ * Wrap rendered content in a branded, responsive, email-client-safe shell so all
+ * transactional mail looks professional (header wordmark, white card, footer with
+ * confidentiality note) instead of bare <p> tags (CP-296, CP-316, CP-366).
+ */
+function wrapBrandedEmail(contentHtml: string): string {
+  const year = new Date().getFullYear()
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9;padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+          <tr>
+            <td style="padding:8px 8px 16px;">
+              <span style="font-size:20px;font-weight:700;letter-spacing:-0.02em;color:#1e3a8a;">ClearCase<span style="color:#2563eb;">IQ</span></span>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#ffffff;border:1px solid #e2e8f0;border-radius:14px;padding:28px 28px 24px;box-shadow:0 1px 2px rgba(15,23,42,0.04);">
+              ${contentHtml}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 12px 8px;">
+              <p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#94a3b8;">
+                This message was sent by ClearCaseIQ. It may contain confidential information intended only for the recipient. ClearCaseIQ is not a law firm and does not provide legal advice.
+              </p>
+              <p style="margin:0;font-size:12px;color:#94a3b8;">&copy; ${year} ClearCaseIQ. All rights reserved.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`
 }
 
 /**

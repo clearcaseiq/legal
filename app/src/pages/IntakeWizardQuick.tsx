@@ -3256,8 +3256,8 @@ export default function IntakeWizardQuick() {
                       </div>
                       </div>
                       {!whenDateChosen && (
-                        <p className="mt-2 flex items-center gap-1.5 whitespace-nowrap text-[10px] leading-tight text-gray-500">
-                          <ShieldCheck className="h-3 w-3 shrink-0 text-brand-600" aria-hidden /> {tx('when_dateReassure')}
+                        <p className="mt-2 flex items-start gap-1.5 text-[10px] leading-tight text-gray-500">
+                          <ShieldCheck className="mt-0.5 h-3 w-3 shrink-0 text-brand-600" aria-hidden /> <span className="min-w-0">{tx('when_dateReassure')}</span>
                         </p>
                       )}
                     </div>
@@ -3342,8 +3342,8 @@ export default function IntakeWizardQuick() {
                         </div>
                       </div>
                     )}
-                    <p className="mt-2 flex items-center gap-1.5 whitespace-nowrap text-[10px] leading-tight text-gray-400">
-                      <Lock className="h-3 w-3 shrink-0" aria-hidden /> {tx('where_reassure')}
+                    <p className="mt-2 flex items-start gap-1.5 text-[10px] leading-tight text-gray-400">
+                      <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden /> <span className="min-w-0">{tx('where_reassure')}</span>
                     </p>
                   </div>
                 </div>
@@ -5908,7 +5908,7 @@ export default function IntakeWizardQuick() {
                   <input type="checkbox" checked={!!consents.ml_use} onChange={e => updateForm({ consents: { ...consents, ml_use: e.target.checked } })} className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600" />
                   <span className="text-xs leading-snug text-gray-700 dark:text-slate-300">
                     {tx('consent_agreeAiPre')}
-                    <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_aiLink')}</a>
+                    <a href="/ai-ml-consent" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_aiLink')}</a>
                     {' '}<span className="font-semibold text-red-500" aria-hidden>*</span>
                   </span>
                 </label>

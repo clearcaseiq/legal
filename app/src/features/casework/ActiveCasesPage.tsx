@@ -445,7 +445,10 @@ export default function ActiveCasesPage() {
   const isDemandFocus = (r: CaseRow) => r.actionType === 'open_demand' || r.isDemandReady
 
   const passesView = (r: CaseRow) => {
-    if (view === 'consults') return r.consultToday || r.actionType === 'schedule_consult' || r.stageKey === 'consulted'
+    // "Consults today" must only surface cases with a consult actually scheduled
+    // for today — not every case awaiting a consult or in the consulted stage,
+    // which previously leaked future/overdue rows into the view (CP-394).
+    if (view === 'consults') return r.consultToday
     if (view === 'tasks') return isTaskDue(r)
     if (view === 'demands') return isDemandFocus(r)
     return true
@@ -470,7 +473,7 @@ export default function ActiveCasesPage() {
   const counts = useMemo(
     () => ({
       all: rows.length,
-      consults: rows.filter((r) => r.consultToday || r.actionType === 'schedule_consult' || r.stageKey === 'consulted').length,
+      consults: rows.filter((r) => r.consultToday).length,
       tasks: rows.filter((r) => isTaskDue(r)).length,
       demands: rows.filter((r) => isDemandFocus(r)).length,
     }),

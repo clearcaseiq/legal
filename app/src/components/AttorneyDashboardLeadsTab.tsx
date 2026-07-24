@@ -72,38 +72,14 @@ export default function AttorneyDashboardLeadsTab({
   const [now, setNow] = useState(() => Date.now())
   const [showAllStarred, setShowAllStarred] = useState(false)
 
-  // Mirrored top horizontal scrollbar for the leads table, so wide columns can be
-  // scrolled from the top of the table without reaching the bottom scrollbar first.
-  const topScrollRef = useRef<HTMLDivElement>(null)
+  // Single horizontal scrollbar lives on the table body below the cases. A second
+  // mirrored top scrollbar was previously rendered too, which QA flagged as two
+  // scrollbars on the New Matches table (CP-392).
   const bodyScrollRef = useRef<HTMLDivElement>(null)
-  const [tableScrollWidth, setTableScrollWidth] = useState(0)
-  const syncingScroll = useRef<'top' | 'body' | null>(null)
-
-  const syncScroll = (from: 'top' | 'body') => {
-    if (syncingScroll.current && syncingScroll.current !== from) return
-    const top = topScrollRef.current
-    const body = bodyScrollRef.current
-    if (!top || !body) return
-    syncingScroll.current = from
-    if (from === 'top') body.scrollLeft = top.scrollLeft
-    else top.scrollLeft = body.scrollLeft
-    window.requestAnimationFrame(() => {
-      syncingScroll.current = null
-    })
-  }
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(intervalId)
-  }, [])
-
-  // Keep the top scrollbar's spacer width in sync with the actual table content
-  // width (measured on mount and on viewport resize).
-  useEffect(() => {
-    const measure = () => setTableScrollWidth(bodyScrollRef.current?.scrollWidth ?? 0)
-    measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
   }, [])
 
   // A new match = an open (submitted), unexpired match awaiting the attorney's
@@ -956,16 +932,7 @@ export default function AttorneyDashboardLeadsTab({
           </div>
         </div>
         <div
-          ref={topScrollRef}
-          onScroll={() => syncScroll('top')}
-          className="w-full min-w-0 overflow-x-auto overflow-y-hidden"
-          aria-hidden
-        >
-          <div style={{ width: tableScrollWidth || undefined, height: 1 }} className="min-w-[1280px]" />
-        </div>
-        <div
           ref={bodyScrollRef}
-          onScroll={() => syncScroll('body')}
           className="w-full min-w-0 max-h-[70vh] overflow-auto rounded-lg border border-slate-200"
         >
           <table className="w-full min-w-[1280px] table-fixed divide-y divide-slate-100">

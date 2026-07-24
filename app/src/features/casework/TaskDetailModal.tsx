@@ -31,6 +31,7 @@ import {
   type TaskComment,
   type TaskHistoryEntry,
 } from '../../lib/api'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 interface TaskDetailModalProps {
   leadId: string
@@ -116,6 +117,8 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  // In-app delete confirmation (replaces window.confirm — CP-347)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
@@ -216,8 +219,9 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
     void patch({ estimateMinutes: total > 0 ? total : null })
   }
 
-  const remove = async () => {
-    if (!window.confirm(`Delete task "${task?.title || ''}"? This can't be undone.`)) return
+  const remove = () => setConfirmingDelete(true)
+
+  const confirmRemove = async () => {
     setDeleting(true)
     try {
       await deleteLeadTask(leadId, taskId)
@@ -226,6 +230,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Failed to delete task.')
       setDeleting(false)
+      setConfirmingDelete(false)
     }
   }
 
@@ -249,6 +254,19 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4">
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="Delete task?"
+        message={
+          <>
+            This will permanently delete <span className="font-semibold">"{task?.title || 'this task'}"</span>. This can't be undone.
+          </>
+        }
+        confirmLabel="Delete task"
+        busy={deleting}
+        onConfirm={() => void confirmRemove()}
+        onCancel={() => setConfirmingDelete(false)}
+      />
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative my-4 w-full max-w-4xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
         {/* Header */}

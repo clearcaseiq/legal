@@ -1295,7 +1295,7 @@ export default function FirmDashboard() {
                     ))}
                   </select>
                   <select value={newMember.officeId} onChange={(e) => setNewMember({ ...newMember, officeId: e.target.value })} className={inputCls}>
-                    <option value="">No office (unassigned)</option>
+                    <option value="">No Office (unassigned)</option>
                     {offices.map((office) => (
                       <option key={office.id} value={office.id}>{office.name}</option>
                     ))}
@@ -1352,7 +1352,7 @@ export default function FirmDashboard() {
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">Office</label>
                   <select value={newAttorney.officeId} onChange={(e) => setNewAttorney({ ...newAttorney, officeId: e.target.value })} className={inputCls}>
-                    <option value="">No office (unassigned)</option>
+                    <option value="">No Office (unassigned)</option>
                     {offices.map((office) => (
                       <option key={office.id} value={office.id}>{office.name}</option>
                     ))}
@@ -1483,7 +1483,7 @@ export default function FirmDashboard() {
                   ))}
                 </select>
                 <select value={newTeam.officeId} onChange={(e) => setNewTeam({ ...newTeam, officeId: e.target.value })} className={inputCls}>
-                  <option value="">No office (firm-wide)</option>
+                  <option value="">No Office (firm-wide)</option>
                   {offices.map((office) => (
                     <option key={office.id} value={office.id}>{office.name}</option>
                   ))}

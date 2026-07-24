@@ -133,11 +133,11 @@ export default function Login() {
     >
       <div className="mb-6">
         <OAuthButtons onError={setError} disabled={isLoading} emphasizeGoogle />
-        <div className="mt-4 grid gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          <p>Free to use</p>
-          <p>No obligation to hire an attorney</p>
-          <p>Your information stays private</p>
-        </div>
+        <ul className="mt-4 grid gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800 list-disc list-inside marker:text-emerald-500">
+          <li>Free to use.</li>
+          <li>No obligation to hire an attorney.</li>
+          <li>Your information stays private.</li>
+        </ul>
       </div>
 
       <div className="relative mb-6">

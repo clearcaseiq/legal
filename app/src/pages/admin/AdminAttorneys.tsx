@@ -160,7 +160,7 @@ export default function AdminAttorneys() {
                   >
                     <td className="py-3 px-4">
                       <p className="font-medium">{capitalizeWords(a.name) || '—'}</p>
-                      <p className="text-sm text-slate-500">{a.lawFirm?.name || '—'}</p>
+                      <p className="text-sm text-slate-500">{capitalizeWords(a.lawFirm?.name) || '—'}</p>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                         <span className="inline-flex items-center">
                           <Star className="mr-1 h-3 w-3 text-yellow-400" />

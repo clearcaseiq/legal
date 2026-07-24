@@ -83,7 +83,7 @@ export default function AdminAttorneyDetail() {
           </div>
           <div>
             <p className="text-xs text-slate-500">Firm</p>
-            <p>{attorney.lawFirm?.name || '—'}</p>
+            <p>{capitalizeWords(attorney.lawFirm?.name) || '—'}</p>
           </div>
           <div>
             <p className="text-xs text-slate-500">Email</p>

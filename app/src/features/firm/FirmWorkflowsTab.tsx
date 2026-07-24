@@ -44,6 +44,38 @@ import {
   type WorkflowStepType,
 } from '../../lib/api'
 import { SectionCard, EmptyState, Badge } from '../shared/ui'
+import ConfirmDialog from '../../components/ConfirmDialog'
+import { PRACTICE_AREAS, US_STATES } from '../../lib/constants'
+
+// Suggested values per condition field, offered as a <datalist> dropdown on the
+// value input so firms pick real values instead of guessing free text (CP-336).
+// These must match the lowercased values the backend compares against
+// (see api/src/lib/workflow-signals.ts resolveConditionContext): claimType is the
+// stored assessment claim slug, state is the venue state code, status is the
+// assessment status. The input stays free-text so "is one of / none of" can still
+// take a comma-separated list.
+const CONDITION_VALUE_SUGGESTIONS: Record<string, { value: string; label: string }[]> = {
+  claimType: [
+    { value: 'auto', label: 'Auto / Vehicle' },
+    { value: 'slip_and_fall', label: 'Slip & Fall / Premises' },
+    { value: 'medmal', label: 'Medical Malpractice' },
+    { value: 'dog_bite', label: 'Dog Bite' },
+    { value: 'product', label: 'Product Liability' },
+    { value: 'nursing_home_abuse', label: 'Nursing Home Abuse' },
+    { value: 'wrongful_death', label: 'Wrongful Death' },
+  ],
+  state: US_STATES.map((s) => ({ value: s.code.toLowerCase(), label: s.name })),
+  status: [
+    { value: 'draft', label: 'Draft' },
+    { value: 'submitted', label: 'Submitted' },
+    { value: 'routing', label: 'Routing' },
+    { value: 'matched', label: 'Matched' },
+    { value: 'contacted', label: 'Contacted' },
+    { value: 'consulted', label: 'Consulted' },
+    { value: 'retained', label: 'Retained' },
+    { value: 'closed', label: 'Closed' },
+  ],
+}
 
 const btnPrimary =
   'inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60'
@@ -92,6 +124,9 @@ export function FirmWorkflowsTab() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<FirmWorkflow | null>(null)
   const [busy, setBusy] = useState(false)
+  // In-app confirm modal + inline name error (replaces window.confirm/alert — CP-315)
+  const [confirmAction, setConfirmAction] = useState<null | 'apply' | 'delete'>(null)
+  const [nameError, setNameError] = useState<string | null>(null)
 
   const load = useCallback(async (selectId?: string) => {
     setLoading(true)
@@ -152,9 +187,10 @@ export function FirmWorkflowsTab() {
   const save = async () => {
     if (!draft) return
     if (!draft.name.trim()) {
-      alert('Give the workflow a name before saving.')
+      setNameError('Give the workflow a name before saving.')
       return
     }
+    setNameError(null)
     setBusy(true)
     try {
       await updateFirmWorkflow(draft.id, {
@@ -170,30 +206,29 @@ export function FirmWorkflowsTab() {
     }
   }
 
-  const applyWorkflow = async () => {
+  // Apply/delete open the in-app confirm modal; the actual work runs on confirm.
+  const applyWorkflow = () => {
     if (!draft) return
-    if (
-      !confirm(
-        `Apply "${draft.name}" as your firm's standard workflow? New matters will follow this pipeline, and it replaces any previously applied workflow.`
-      )
-    )
-      return
-    setBusy(true)
-    try {
-      await updateFirmWorkflow(draft.id, { isDefault: true, isActive: true })
-      await load(draft.id)
-    } finally {
-      setBusy(false)
-    }
+    setConfirmAction('apply')
   }
 
-  const remove = async () => {
+  const remove = () => {
     if (!draft) return
-    if (!confirm(`Delete the "${draft.name}" workflow? This cannot be undone.`)) return
+    setConfirmAction('delete')
+  }
+
+  const runConfirmedAction = async () => {
+    if (!draft || !confirmAction) return
     setBusy(true)
     try {
-      await deleteFirmWorkflow(draft.id)
-      await load()
+      if (confirmAction === 'apply') {
+        await updateFirmWorkflow(draft.id, { isDefault: true, isActive: true })
+        await load(draft.id)
+      } else {
+        await deleteFirmWorkflow(draft.id)
+        await load()
+      }
+      setConfirmAction(null)
     } finally {
       setBusy(false)
     }
@@ -328,18 +363,29 @@ export function FirmWorkflowsTab() {
                         className={inputCls}
                         value={draft.name}
                         disabled={!canManage}
-                        onChange={(e) => patchDraft({ name: e.target.value })}
+                        onChange={(e) => {
+                          if (nameError) setNameError(null)
+                          patchDraft({ name: e.target.value })
+                        }}
                       />
+                      {nameError && <p className="mt-1 text-xs text-red-600">{nameError}</p>}
                     </div>
                     <div>
                       <label className={labelCls}>Practice area</label>
-                      <input
+                      <select
                         className={inputCls}
                         value={draft.practiceArea ?? ''}
                         disabled={!canManage}
-                        placeholder="e.g. Personal Injury"
                         onChange={(e) => patchDraft({ practiceArea: e.target.value || null })}
-                      />
+                      >
+                        <option value="">Select practice area…</option>
+                        {PRACTICE_AREAS.map((area) => (
+                          <option key={area} value={area}>{area}</option>
+                        ))}
+                        {draft.practiceArea && !PRACTICE_AREAS.includes(draft.practiceArea) && (
+                          <option value={draft.practiceArea}>{draft.practiceArea}</option>
+                        )}
+                      </select>
                     </div>
                   </div>
                   <div className="mt-3">
@@ -441,6 +487,27 @@ export function FirmWorkflowsTab() {
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={confirmAction !== null}
+        title={confirmAction === 'delete' ? 'Delete workflow?' : 'Apply this workflow?'}
+        message={
+          confirmAction === 'delete' ? (
+            <>
+              This will permanently delete <span className="font-semibold">"{draft?.name}"</span>. This cannot be undone.
+            </>
+          ) : (
+            <>
+              Apply <span className="font-semibold">"{draft?.name}"</span> as your firm's standard workflow? New matters
+              will follow this pipeline, and it replaces any previously applied workflow.
+            </>
+          )
+        }
+        confirmLabel={confirmAction === 'delete' ? 'Delete workflow' : 'Apply workflow'}
+        tone={confirmAction === 'delete' ? 'danger' : 'default'}
+        busy={busy}
+        onConfirm={() => void runConfirmedAction()}
+        onCancel={() => setConfirmAction(null)}
+      />
     </SectionCard>
   )
 }
@@ -871,8 +938,22 @@ function StepRow({
               value={step.conditionValue ?? ''}
               disabled={!canManage}
               placeholder="value(s), comma-separated"
+              list={
+                step.conditionField && CONDITION_VALUE_SUGGESTIONS[step.conditionField]
+                  ? `cond-values-${step.conditionField}`
+                  : undefined
+              }
               onChange={(e) => onPatch({ conditionValue: e.target.value || null })}
             />
+            {step.conditionField && CONDITION_VALUE_SUGGESTIONS[step.conditionField] && (
+              <datalist id={`cond-values-${step.conditionField}`}>
+                {CONDITION_VALUE_SUGGESTIONS[step.conditionField].map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </datalist>
+            )}
           </>
         )}
       </div>

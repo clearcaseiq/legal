@@ -363,7 +363,7 @@ export default function AddEventModal({
       repeatUntil: repeats && repeatUntil ? combine(repeatUntil, '23:59').toISOString() : null,
       reminders: reminders.map(rowToReminder),
       attendees: buildAttendees(),
-    }
+  }
 
     setSaving(true)
     setError(null)
@@ -397,7 +397,7 @@ export default function AddEventModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative my-4 w-full max-w-3xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
@@ -405,7 +405,7 @@ export default function AddEventModal({
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 ring-1 ring-inset ring-emerald-100">
               <CalendarIcon className="h-5 w-5" />
             </span>
-            <h2 className="text-lg font-semibold text-slate-900">{isEdit ? 'Edit event' : 'Add event'}</h2>
+          <h2 className="text-lg font-semibold text-slate-900">{isEdit ? 'Edit event' : 'Add event'}</h2>
           </div>
           <button
             onClick={onClose}
@@ -601,7 +601,7 @@ export default function AddEventModal({
                   >
                     Add location
                   </button>
-                </div>
+              </div>
               )}
             </div>
 
@@ -820,33 +820,33 @@ export default function AddEventModal({
             {error && <p className="truncate text-sm text-rose-600">{error}</p>}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {isEdit && (
-              <button
+          {isEdit && (
+            <button
                 type="button"
-                onClick={remove}
-                disabled={deleting || saving}
+              onClick={remove}
+              disabled={deleting || saving}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-              >
-                {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                Delete
-              </button>
-            )}
+            >
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Delete
+            </button>
+          )}
             <button
               type="button"
               onClick={onClose}
               className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              Cancel
-            </button>
-            <button
+            Cancel
+          </button>
+          <button
               type="button"
-              onClick={save}
-              disabled={saving || deleting}
+            onClick={save}
+            disabled={saving || deleting}
               className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-            >
+          >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarIcon className="h-4 w-4" />}
               {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create event'}
-            </button>
+          </button>
           </div>
         </div>
       </div>

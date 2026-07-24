@@ -29,7 +29,7 @@ import {
 import { sendPlaintiffAttorneyAccepted } from '../lib/case-notifications'
 import { createExternalCalendarEvent } from '../lib/calendar-sync'
 import { createZoomMeeting } from '../lib/zoom'
-import { deliverDirectNotification, createNotificationEvent } from '../lib/platform-notifications'
+import { deliverDirectNotification, createNotificationEvent, notifyAdmins } from '../lib/platform-notifications'
 import { translateToEnglish, looksNonEnglish } from '../lib/translate'
 import { isValidPhone, normalizePhone, PHONE_ERROR_MESSAGE } from '../lib/phone'
 import { zonedWallClockToUtc } from '../lib/booking-slots'
@@ -12324,6 +12324,40 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
         totalLeadsAccepted: decision === 'accept' ? 1 : 0
       }
     })
+
+    // Alert admins when an attorney declines so ops can re-route the case to
+    // another attorney (CP-390). Best-effort; never blocks the decision response.
+    if (decision === 'reject') {
+      try {
+        const assessment = await prisma.assessment.findUnique({
+          where: { id: existingLead.assessmentId },
+          select: { claimType: true, user: { select: { firstName: true, lastName: true } } },
+        })
+        const claimantName = assessment?.user
+          ? `${assessment.user.firstName || ''} ${assessment.user.lastName || ''}`.trim()
+          : ''
+        const caseLabel = claimantName
+          ? `${claimantName}'s case`
+          : `case ${existingLead.assessmentId.slice(0, 8)}`
+        await notifyAdmins({
+          subject: 'Attorney declined a routed case',
+          message:
+            `${attorney.name} declined ${caseLabel}` +
+            `${assessment?.claimType ? ` (${assessment.claimType})` : ''}.` +
+            `${declineReason ? ` Reason: ${declineReason}.` : ''}` +
+            ' The case is back in routing and may need to be re-routed to another attorney.',
+          assessmentId: existingLead.assessmentId,
+          metadata: {
+            eventType: 'lead.declined',
+            attorneyId,
+            attorneyName: attorney.name,
+            declineReason: declineReason || null,
+          },
+        })
+      } catch (adminErr: any) {
+        logger.warn('Failed to notify admins of attorney decline', { error: adminErr?.message })
+      }
+    }
 
     if (decision === 'accept') {
       // Notify plaintiff that attorney accepted

@@ -23,6 +23,7 @@ import {
 import Tooltip from '../components/Tooltip'
 import { formatClaimTypeShort } from '../lib/constants'
 import { linkify } from '../lib/linkify'
+import RecordedCallBar from '../components/RecordedCallBar'
 
 interface ChatRoom {
   id: string
@@ -266,7 +267,7 @@ export default function Messaging() {
           <div className="p-4 border-b border-gray-200">
             <div className="flex items-center justify-between mb-4">
               <h1 className="text-xl font-bold text-gray-900">Messages</h1>
-              <Tooltip content="AI Assistant">
+              <Tooltip content="AI Assistant" placement="bottom">
                 <button
                   onClick={() => setShowChatBot(!showChatBot)}
                   className="p-2 text-primary-600 hover:bg-primary-50 rounded-lg"
@@ -408,6 +409,14 @@ export default function Messaging() {
                   </div>
                 </div>
               </div>
+
+              {/* Recorded phone call (Amazon Connect + Contact Lens) */}
+              <RecordedCallBar
+                chatRoomId={selectedRoom.id}
+                attorneyId={selectedRoom.attorney?.id}
+                assessmentId={selectedRoom.assessment?.id}
+                attorneyName={selectedRoom.attorney?.name || 'your attorney'}
+              />
 
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">

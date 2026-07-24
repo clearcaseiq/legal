@@ -21,7 +21,8 @@ import {
   AlertCircle,
   Clock,
   DollarSign,
-  Settings
+  Settings,
+  X
 } from 'lucide-react'
 
 /** The <input accept> value for a given evidence category so the OS file picker
@@ -223,6 +224,14 @@ export default function InlineEvidenceUpload({
   const [deletingFile, setDeletingFile] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // In-app error toast (replaces window.alert for upload failures — CP-363)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flashUploadError = useCallback((message: string) => {
+    setErrorMessage(message)
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
+    errorTimerRef.current = setTimeout(() => setErrorMessage(null), 6000)
+  }, [])
 
   // Show a transient "uploaded successfully" confirmation. Users previously had
   // no visible signal that an upload finished (only a console.log), so uploads
@@ -483,9 +492,9 @@ export default function InlineEvidenceUpload({
       
       // Handle rate limiting
       if (error.response?.status === 429) {
-        alert('Server is busy. Please wait a moment and try again.')
+        flashUploadError('Server is busy. Please wait a moment and try again.')
       } else {
-        alert(`Failed to upload file: ${error.response?.data?.details || error.response?.data?.error || error.message}`)
+        flashUploadError(`Failed to upload file: ${error.response?.data?.details || error.response?.data?.error || error.message}`)
       }
     } finally {
       setLoading(false)
@@ -720,9 +729,9 @@ export default function InlineEvidenceUpload({
       })
 
       if (status === 429) {
-        alert('Server is busy. Please wait a moment and try again.')
+        flashUploadError('Server is busy. Please wait a moment and try again.')
       } else {
-        alert(`Failed to upload files: ${error.response?.data?.details || error.response?.data?.error || error.message}`)
+        flashUploadError(`Failed to upload files: ${error.response?.data?.details || error.response?.data?.error || error.message}`)
       }
     } finally {
       setLoading(false)
@@ -863,6 +872,29 @@ export default function InlineEvidenceUpload({
       <div className="flex items-center gap-2 rounded-full bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-lg">
         <CheckCircle className="h-4 w-4" aria-hidden />
         <span>{successMessage}</span>
+      </div>
+    </div>
+  ) : null
+
+  // In-app error toast shown when an upload is rejected (e.g. unsupported file
+  // format) instead of a native browser alert (CP-363).
+  const uploadErrorToast = errorMessage ? (
+    <div
+      className="fixed bottom-5 left-1/2 z-[95] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 transform"
+      role="alert"
+      aria-live="assertive"
+    >
+      <div className="flex items-start gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-medium text-white shadow-lg">
+        <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden />
+        <span className="min-w-0 break-words">{errorMessage}</span>
+        <button
+          type="button"
+          onClick={() => setErrorMessage(null)}
+          className="ml-auto shrink-0 rounded p-0.5 hover:bg-white/20"
+          aria-label="Dismiss"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
     </div>
   ) : null
@@ -1288,6 +1320,7 @@ export default function InlineEvidenceUpload({
 
         {deleteConfirmModal}
         {uploadSuccessToast}
+        {uploadErrorToast}
       </div>
     )
   }
@@ -1437,6 +1470,7 @@ export default function InlineEvidenceUpload({
 
       {deleteConfirmModal}
       {uploadSuccessToast}
+      {uploadErrorToast}
 
       <CameraCaptureModal
         open={showCamera}

@@ -385,3 +385,58 @@ export async function deliverDirectNotification(input: {
     platformEventId: event.id,
   }
 }
+
+/**
+ * Fan-out a notification to every platform admin. Admins are identified two ways:
+ * the ADMIN_EMAILS allow-list and any User row with role='admin'. Best-effort and
+ * de-duplicated by email; never throws to the caller. Used for events the ops team
+ * must act on, e.g. an attorney declining a routed case so it can be re-routed
+ * (CP-390).
+ */
+export async function notifyAdmins(input: {
+  subject: string
+  message: string
+  metadata?: Record<string, unknown>
+  assessmentId?: string | null
+}): Promise<number> {
+  try {
+    const envEmails = (process.env.ADMIN_EMAILS || 'admin@caseiq.com')
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean)
+
+    const adminUsers = await prisma.user.findMany({
+      where: { role: 'admin' },
+      select: { id: true, email: true },
+    })
+
+    const recipients = new Map<string, string | null>()
+    for (const email of envEmails) recipients.set(email, null)
+    for (const u of adminUsers) {
+      if (u.email) recipients.set(u.email.toLowerCase(), u.id)
+    }
+
+    let sent = 0
+    for (const [email, userId] of recipients) {
+      try {
+        await deliverDirectNotification({
+          type: 'email',
+          recipient: email,
+          subject: input.subject,
+          message: input.message,
+          role: 'admin',
+          userId: userId || undefined,
+          assessmentId: input.assessmentId || undefined,
+          metadata: { ...(input.metadata || {}), eventType: input.metadata?.eventType || 'admin.alert' },
+        })
+        sent += 1
+      } catch (err: any) {
+        logger.warn('Failed to deliver admin notification', { email, error: err?.message })
+      }
+    }
+    return sent
+  } catch (error: any) {
+    logger.warn('notifyAdmins failed', { error: error?.message })
+    return 0
+  }
+}

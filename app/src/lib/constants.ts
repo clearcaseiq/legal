@@ -82,6 +82,26 @@ export function getStateCode(name: string): string {
  * routing engine maps these to the stored claim type (see case-type-match.ts)
  * so matching stays correct.
  */
+/**
+ * Practice areas offered as a dropdown when a firm names a workflow, so the field
+ * is a consistent controlled value instead of free text (CP-338). Broad enough to
+ * cover the personal-injury verticals the platform routes.
+ */
+export const PRACTICE_AREAS = [
+  'Personal Injury (General)',
+  'Auto / Vehicle Accident',
+  'Slip & Fall / Premises Liability',
+  'Workplace Injury',
+  'Medical Malpractice',
+  'Product Liability',
+  'Dog Bite / Animal Attack',
+  'Nursing Home Abuse',
+  'Wrongful Death',
+  'Assault / Negligent Security',
+  'Toxic Exposure / Mass Tort',
+  'Other',
+]
+
 export const ATTORNEY_CASE_TYPES = [
   { value: 'vehicle', label: 'Vehicle Accident (car, truck, motorcycle, rideshare)' },
   { value: 'slip_fall', label: 'Slip / Trip / Unsafe Property' },

@@ -262,14 +262,14 @@ export default function Demand() {
                 Demand Amount *
               </label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                <span className="pointer-events-none absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
                 <input
                   type="number"
                   min="0"
                   step="100"
                   value={formData.targetAmount || ''}
                   onChange={(e) => setFormData(prev => ({ ...prev, targetAmount: parseFloat(e.target.value) || 0 }))}
-                  className="input pl-8"
+                  className="input !pl-9"
                   placeholder="0"
                 />
               </div>
