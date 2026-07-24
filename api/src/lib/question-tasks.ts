@@ -14,6 +14,8 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { isCaseRetained, resolveCaseAssignees } from './case-coach-loop'
+import { buildCaseIntelligence } from './case-intelligence'
+import { buildBaselineQuestions } from './intake-questions'
 
 export const QUESTION_TASK_TYPE = 'question'
 const MAX_QUESTION_TASKS = 12
@@ -122,6 +124,36 @@ export async function syncQuestionTasks(
   if (created > 0 || completed > 0) {
     logger.info('Synced Intelligent Question tasks', { assessmentId, created, completed })
   }
+}
+
+/**
+ * Proactively materialize baseline question tasks for a case WITHOUT needing the
+ * Intelligent Questions panel to be opened. Rebuilds the deterministic baseline
+ * from case intelligence, merges in any saved answers, then syncs. Safe to call
+ * fire-and-forget from the event loop (doc upload, answer saved, task done).
+ */
+export async function syncBaselineQuestionTasks(
+  assessmentId: string,
+  opts?: { actor?: { id?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null } | null; requireRetained?: boolean },
+): Promise<void> {
+  const intel = await buildCaseIntelligence(assessmentId).catch(() => null)
+  if (!intel) return
+  const baseline = buildBaselineQuestions(intel)
+  if (baseline.length === 0) return
+
+  const saved = await prisma.caseQuestionAnswer
+    .findMany({ where: { assessmentId }, select: { questionKey: true, answer: true } })
+    .catch(() => [] as Array<{ questionKey: string; answer: string | null }>)
+  const answerByKey = new Map(saved.map((a) => [a.questionKey, a.answer]))
+
+  const questions: QuestionForTask[] = baseline.map((q) => {
+    // Mirror intelligentQuestionKey() for baseline questions exactly so the task
+    // created here is the same one the questions panel completes on answer.
+    const questionKey = `base:${q.id}`
+    return { questionKey, text: q.text, section: q.section, source: 'baseline', answer: answerByKey.get(questionKey) ?? null }
+  })
+
+  await syncQuestionTasks(assessmentId, questions, opts)
 }
 
 /** Complete/reopen the single question-task behind a stable questionKey. */

@@ -341,5 +341,15 @@ export async function syncCaseCoachTasks(
     logger.warn('Demand-ready announce failed', { assessmentId, error: e?.message }),
   )
 
+  // Also (re)materialize baseline Intelligent Questions as tasks so they appear
+  // in the Tasks queue proactively — no need to open the questions panel first.
+  // Dynamic import avoids a static import cycle with question-tasks.
+  try {
+    const { syncBaselineQuestionTasks } = await import('./question-tasks')
+    await syncBaselineQuestionTasks(assessmentId, { actor: opts?.actor, requireRetained: false })
+  } catch (e: any) {
+    logger.warn('Question-task sync failed', { assessmentId, error: e?.message })
+  }
+
   return coach
 }
