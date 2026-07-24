@@ -95,7 +95,16 @@ export async function isCaseRetained(assessmentId: string): Promise<boolean> {
       select: { id: true },
     })
     .catch(() => null)
-  return !!intro
+  if (intro) return true
+  // Acquired / directly-assigned leads: an attorney owns the case via
+  // LeadSubmission.assignedAttorneyId even without an ACCEPTED introduction row.
+  const assigned = await prisma.leadSubmission
+    .findFirst({
+      where: { assessmentId, assignedAttorneyId: { not: null } },
+      select: { id: true },
+    })
+    .catch(() => null)
+  return !!assigned
 }
 
 /**
@@ -113,17 +122,27 @@ export async function resolveCaseAssignees(assessmentId: string): Promise<CaseAs
     paralegalUserId: null,
     paralegalName: null,
   }
+  const attorneySelect = { id: true, name: true, email: true, lawFirmId: true, claimedByUserId: true } as const
+
   const intro = await prisma.introduction
     .findFirst({
       where: { assessmentId, status: { in: RETAINED_INTRO_STATUSES } },
       orderBy: { respondedAt: 'desc' },
-      include: {
-        attorney: { select: { id: true, name: true, email: true, lawFirmId: true, claimedByUserId: true } },
-      },
+      include: { attorney: { select: attorneySelect } },
     })
     .catch(() => null)
 
-  const attorney = intro?.attorney
+  // Fall back to the acquired/assigned attorney when there's no ACCEPTED intro.
+  let attorney = intro?.attorney ?? null
+  if (!attorney) {
+    const submission = await prisma.leadSubmission
+      .findFirst({
+        where: { assessmentId, assignedAttorneyId: { not: null } },
+        include: { assignedAttorney: { select: attorneySelect } },
+      })
+      .catch(() => null)
+    attorney = submission?.assignedAttorney ?? null
+  }
   if (!attorney) return empty
 
   let members: Array<{ userId: string | null; role: string; name: string }> = []
