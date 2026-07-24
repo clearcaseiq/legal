@@ -57,6 +57,7 @@ import {
   getEvidenceObjectUrl,
   getAttorneyDashboard,
   getAttorneyDocumentRequests,
+  getLead,
   getLeadCommandCenter,
   getLeadEvidenceFiles,
   getLeadMedicalChronologySummary,
@@ -385,7 +386,20 @@ export default function CaseWorkspacePage() {
           getLeadTasks(leadId).catch(() => [] as any[]),
         ])
         if (cancelled) return
-        const found = ((dash?.recentLeads as any[]) || []).find((l: any) => l.id === leadId) || null
+        let found = ((dash?.recentLeads as any[]) || []).find((l: any) => l.id === leadId) || null
+        // The dashboard only lists the caller's own caseload. A firm colleague who
+        // was assigned a single workflow step (or otherwise has firm-level access)
+        // won't find the case there, which previously dead-ended on "This case
+        // isn't in your caseload." Fall back to fetching the lead directly; the
+        // backend still enforces same-firm/assignment access (CP-332).
+        if (!found) {
+          try {
+            found = await getLead(leadId)
+          } catch {
+            found = null
+          }
+          if (cancelled) return
+        }
         setLead(found)
         if (!found) {
           setNotFound(true)

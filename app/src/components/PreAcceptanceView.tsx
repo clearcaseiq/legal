@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { formatCurrency, formatPercentage } from '../lib/formatters'
-import { ChevronDown, ChevronRight, Clock, Check, Info, RefreshCw, Sparkles, ImageOff, Gauge, Image as ImageIcon, Stethoscope, ShieldCheck, FolderOpen } from 'lucide-react'
+import { ChevronDown, ChevronRight, Clock, Check, Info, RefreshCw, Sparkles, ImageOff, Gauge, Image as ImageIcon, Stethoscope, ShieldCheck, FolderOpen, AlertCircle } from 'lucide-react'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { caseStrengthLabel } from '../lib/heuristics'
 import { useStatHints, StatHintsToggle } from '../features/shared/ui'
@@ -102,6 +102,8 @@ interface PreAcceptanceViewProps {
   caseExpiresAt?: Date | null
   /** When true, hide Accept/Decline buttons (case already accepted) */
   accepted?: boolean
+  /** Error surfaced from a failed accept/decline attempt (e.g. not authorized). */
+  decisionError?: string | null
 }
 
 export default function PreAcceptanceView({
@@ -125,7 +127,8 @@ export default function PreAcceptanceView({
   onDecline,
   loading,
   caseExpiresAt,
-  accepted = false
+  accepted = false,
+  decisionError = null
 }: PreAcceptanceViewProps) {
   const heuristics = useHeuristics()
   const { showHints, toggleHints } = useStatHints()
@@ -380,6 +383,15 @@ export default function PreAcceptanceView({
           <div className="mb-4 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
             <Clock className="h-4 w-4" />
             <span>Response window expired — this match has been released to another attorney and can no longer be accepted.</span>
+          </div>
+        )}
+        {!accepted && decisionError && (
+          <div
+            role="alert"
+            className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700"
+          >
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{decisionError}</span>
           </div>
         )}
         {/* The incident: when / where / how */}

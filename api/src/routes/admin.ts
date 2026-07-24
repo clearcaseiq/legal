@@ -1290,6 +1290,26 @@ router.get('/attorneys/:id', authMiddleware, adminMiddleware, async (req: AuthRe
       take: 50
     })
 
+    // Firm team members (paralegals, case managers, intake specialists, etc.) so the
+    // admin sees the whole firm — not just the attorney. Previously the admin view
+    // surfaced attorney info only and firm staff were invisible (CP-334).
+    const firmMembers = attorney.lawFirm?.id
+      ? await prisma.firmMember.findMany({
+          where: { lawFirmId: attorney.lawFirm.id },
+          select: {
+            id: true,
+            role: true,
+            title: true,
+            status: true,
+            joinedAt: true,
+            createdAt: true,
+            user: { select: { firstName: true, lastName: true, email: true } },
+            office: { select: { name: true } },
+          },
+          orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
+        }).catch(() => [])
+      : []
+
     const totalIntros = attorney._count.introductions
     const accepted = attorney.introductions.filter(i => i.status === 'ACCEPTED').length
     const declined = attorney.introductions.filter(i => i.status === 'DECLINED').length
@@ -1353,7 +1373,17 @@ router.get('/attorneys/:id', authMiddleware, adminMiddleware, async (req: AuthRe
         declined,
         pending
       },
-      recentCases
+      recentCases,
+      firmMembers: firmMembers.map((m) => ({
+        id: m.id,
+        role: m.role,
+        title: m.title,
+        status: m.status,
+        joinedAt: m.joinedAt,
+        name: `${m.user?.firstName || ''} ${m.user?.lastName || ''}`.trim() || m.user?.email || '—',
+        email: m.user?.email || null,
+        office: m.office?.name || null,
+      })),
     })
   } catch (error) {
     logger.error('Failed to get attorney detail', { error })

@@ -16,6 +16,31 @@ export const DOCUMENT_REQUEST_CATEGORY_MAP: Record<string, string[]> = {
   wage_loss: ['wage_loss', 'lost_wages', 'wages'],
   insurance: ['insurance', 'insurance_card', 'insurance_info'],
   other: [],
+  // AI "suggested document request" keys (from case-insights missingDocs). Mapped
+  // here so a client upload advances them and, crucially, so the plaintiff view can
+  // resolve a friendly label that matches the attorney note (CP-318).
+  bills: ['bills', 'medical_bills', 'medical'],
+  photos: ['photos', 'injury_photos', 'injury', 'injuries'],
+  hipaa: ['hipaa', 'hipaa_authorization', 'authorization'],
+}
+
+/**
+ * Friendly labels for every document-request key the app can emit — both the manual
+ * picker keys (DocumentRequestModal) and the AI "suggested request" keys from
+ * case-insights missingDocs. Kept here as the single source of truth so the
+ * plaintiff "Upload next" pills read the SAME name the attorney note uses (CP-318).
+ */
+export const DOCUMENT_REQUEST_LABELS: Record<string, string> = {
+  police_report: 'Police/incident report',
+  medical_records: 'Medical records',
+  injury_photos: 'Injury photos',
+  wage_loss: 'Wage loss documentation',
+  insurance: 'Insurance information',
+  other: 'Other documents',
+  // Suggested-request keys — labels mirror case-insights missingDocs exactly.
+  bills: 'Medical bills',
+  photos: 'Injury/damage photos',
+  hipaa: 'HIPAA authorization',
 }
 
 export function parseRequestedDocs(value: string | null | undefined): string[] {

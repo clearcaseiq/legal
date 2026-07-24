@@ -16,7 +16,7 @@ import { buildCaseCommandCenter } from '../lib/case-command-center'
 import { runEscalationWave } from '../lib/routing-lifecycle'
 import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
 import { runCaseRecalculation } from '../lib/case-recalculation'
-import { DOCUMENT_REQUEST_CATEGORY_MAP, parseRequestedDocs } from '../lib/document-request-status'
+import { DOCUMENT_REQUEST_CATEGORY_MAP, DOCUMENT_REQUEST_LABELS, parseRequestedDocs } from '../lib/document-request-status'
 import { deliverDirectNotification } from '../lib/platform-notifications'
 
 const router = Router()
@@ -32,15 +32,6 @@ const DamageEstimates = z.object({
   billsComplete: z.boolean().optional(),
   notes: z.string().trim().max(1000).optional(),
 })
-
-const DOCUMENT_REQUEST_LABELS: Record<string, string> = {
-  police_report: 'Police report',
-  medical_records: 'Medical records',
-  injury_photos: 'Injury photos',
-  wage_loss: 'Wage loss documentation',
-  insurance: 'Insurance information',
-  other: 'Other documents'
-}
 
 function parsePredictionExplain(value: string) {
   const parsed = JSON.parse(value)

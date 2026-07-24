@@ -410,6 +410,7 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
     setProfile,
   } = useAttorneyProfileLicense(setError)
   const [leadDecisionLoading, setLeadDecisionLoading] = useState(false)
+  const [leadDecisionError, setLeadDecisionError] = useState<string | null>(null)
   const [decisionRationale, setDecisionRationale] = useState('')
   const [declineModalOpen, setDeclineModalOpen] = useState(false)
   const [declineSuccess, setDeclineSuccess] = useState(false)
@@ -1660,6 +1661,7 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
       const rationale = (rationaleOverride ?? decisionRationale).trim()
       try {
         setLeadDecisionLoading(true)
+        setLeadDecisionError(null)
         if (rationale && decision === 'accept') {
           await saveLeadDecisionOverride(leadId, { decision, rationale })
         }
@@ -1701,7 +1703,12 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
         }
       } catch (err: any) {
         console.error('Failed to update lead decision:', err)
-        setBulkActionMessage(err.response?.data?.error || 'Failed to update lead decision')
+        const message = err.response?.data?.error || 'Failed to update lead decision'
+        // Surface on both the list (bulk) banner and the lead-detail view so the
+        // attorney sees why an accept/decline was rejected — e.g. a firm admin
+        // trying to accept a lead routed to another associate (CP-393).
+        setBulkActionMessage(message)
+        setLeadDecisionError(message)
         setTimeout(() => setBulkActionMessage(null), 5000)
       } finally {
         setLeadDecisionLoading(false)
@@ -3879,6 +3886,7 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
             onOpenDocumentRequest={handleOpenDocumentRequest}
             onOpenLead={(lead) => {
               setSelectedLead(lead)
+              setLeadDecisionError(null)
               const isPost = ['contacted', 'consulted', 'retained'].includes(lead.status || '')
               setLeadPhaseTab(isPost ? 'post' : 'pre')
               // Accepted cases open the full Case Management case file; a pre-acceptance
@@ -4034,6 +4042,7 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
             setDeclineLeadId={setDeclineLeadId}
             setDeclineModalOpen={setDeclineModalOpen}
             leadDecisionLoading={leadDecisionLoading}
+            leadDecisionError={leadDecisionError}
             activeWorkstream={activeWorkstream}
             goToSection={goToSection}
             renderWorkstream={renderWorkstream}

@@ -65,6 +65,7 @@ type AttorneyDashboardLeadDetailProps = {
   setDeclineLeadId: (value: string | null) => void
   setDeclineModalOpen: (value: boolean) => void
   leadDecisionLoading: boolean
+  leadDecisionError?: string | null
   activeWorkstream: string
   goToSection: (section: string) => void
   renderWorkstream: (sectionKey: string) => ReactNode
@@ -139,6 +140,7 @@ export default function AttorneyDashboardLeadDetail({
   setDeclineLeadId,
   setDeclineModalOpen,
   leadDecisionLoading,
+  leadDecisionError,
   activeWorkstream,
   goToSection,
   renderWorkstream,
@@ -529,6 +531,7 @@ export default function AttorneyDashboardLeadDetail({
                   loading={leadDecisionLoading}
                   caseExpiresAt={expiresAt}
                   accepted={isPostAcceptance}
+                  decisionError={leadDecisionError}
                 />
               )
             }

@@ -7,6 +7,7 @@ import { BackButton } from '../../features/shared/ui'
 import {
   RefreshCw,
   User,
+  Users,
   Settings,
   BarChart3,
   FileText,
@@ -146,6 +147,60 @@ export default function AdminAttorneyDetail() {
           </p>
         </div>
       </div>
+
+      {/* Firm team (attorneys, paralegals, case managers, intake staff, etc.) so
+          the admin can see the whole firm — not just this attorney (CP-334). */}
+      {attorney.lawFirm?.name && (
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <h2 className="font-semibold text-slate-900 flex items-center gap-2 mb-4">
+            <Users className="h-5 w-5" />
+            Firm team — {capitalizeWords(attorney.lawFirm?.name)} ({attorney.firmMembers?.length || 0})
+          </h2>
+          {Array.isArray(attorney.firmMembers) && attorney.firmMembers.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className="text-left py-2 text-slate-500">Name</th>
+                    <th className="text-left py-2 text-slate-500">Role</th>
+                    <th className="text-left py-2 text-slate-500">Email</th>
+                    <th className="text-left py-2 text-slate-500">Office</th>
+                    <th className="text-left py-2 text-slate-500">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {attorney.firmMembers.map((m: any) => (
+                    <tr key={m.id} className="border-b border-slate-100">
+                      <td className="py-2 font-medium text-slate-800">
+                        {capitalizeWords(m.name) || '—'}
+                        {m.title ? <span className="ml-1 text-xs text-slate-400">({m.title})</span> : null}
+                      </td>
+                      <td className="py-2">{formatEnumLabel(m.role) || '—'}</td>
+                      <td className="py-2 text-slate-600">{m.email || '—'}</td>
+                      <td className="py-2 text-slate-600">{m.office || '—'}</td>
+                      <td className="py-2">
+                        <span
+                          className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                            m.status === 'active'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : m.status === 'suspended'
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {capitalizeWords(m.status) || 'Active'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">No firm team members have been added yet.</p>
+          )}
+        </div>
+      )}
 
       {/* Performance */}
       <div className="bg-white rounded-xl border border-slate-200 p-6">
