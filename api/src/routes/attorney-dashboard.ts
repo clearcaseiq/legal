@@ -221,22 +221,35 @@ async function resolveFirmVisibility(req: any, attorney: any): Promise<FirmVisib
 }
 
 /**
+ * Introduction statuses that mean the offer is no longer this attorney's to act
+ * on: the response window lapsed (EXPIRED) or they declined (DECLINED). A lead
+ * that only has terminal introductions for an attorney must NOT surface in that
+ * attorney's caseload — otherwise a lead that expires and re-routes to the next
+ * attorney keeps lingering in the first attorney's cases/New Matches (bug fix).
+ */
+const TERMINAL_INTRO_STATUSES = ['EXPIRED', 'DECLINED'] as const
+
+/**
  * Build the lead visibility OR-clause for a caller. Always includes the
  * attorney's own assigned/introduced leads; when the caller is a firm admin
  * with firm-wide visibility, also includes every lead belonging to an attorney
  * in the same firm (CP-299).
+ *
+ * Introduction-based visibility is scoped to non-terminal offers so an expired
+ * or declined match drops out of the attorney's list once it has moved on to the
+ * next attorney. Accepted cases stay visible via `assignedAttorneyId`.
  */
 function buildLeadVisibilityOr(attorneyId: string, firm: FirmVisibility, extra: any[] = []): any[] {
   const or: any[] = [
     { assignedAttorneyId: attorneyId },
-    { assessment: { introductions: { some: { attorneyId } } } },
+    { assessment: { introductions: { some: { attorneyId, status: { notIn: [...TERMINAL_INTRO_STATUSES] } } } } },
     ...extra,
   ]
   if (firm.canViewAllCases && firm.lawFirmId) {
     or.push(
       { assignedAttorney: { lawFirmId: firm.lawFirmId } },
       { assessment: { lawFirmId: firm.lawFirmId } },
-      { assessment: { introductions: { some: { attorney: { lawFirmId: firm.lawFirmId } } } } },
+      { assessment: { introductions: { some: { attorney: { lawFirmId: firm.lawFirmId }, status: { notIn: [...TERMINAL_INTRO_STATUSES] } } } } },
     )
   }
   return or
@@ -3703,7 +3716,7 @@ router.get('/fees/ytd', authMiddleware, async (req: any, res) => {
       select: leadSelect,
     })
     const introAssessments = await prisma.introduction.findMany({
-      where: { attorneyId: attorney.id },
+      where: { attorneyId: attorney.id, status: { notIn: [...TERMINAL_INTRO_STATUSES] } },
       select: { assessmentId: true },
     })
     const introAssessIds = [...new Set(introAssessments.map((i) => i.assessmentId))]
@@ -3781,7 +3794,7 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
       select: { id: true, assessmentId: true, assessment: { select: { claimType: true } } },
     })
     const introAssessments = await prisma.introduction.findMany({
-      where: { attorneyId: attorney.id },
+      where: { attorneyId: attorney.id, status: { notIn: [...TERMINAL_INTRO_STATUSES] } },
       select: { assessmentId: true },
     })
     const introAssessIds = [...new Set(introAssessments.map((i) => i.assessmentId))]
@@ -3908,7 +3921,7 @@ router.get('/deadlines', authMiddleware, async (req: any, res) => {
       select: { id: true, assessmentId: true },
     })
     const introAssessments = await prisma.introduction.findMany({
-      where: { attorneyId: attorney.id },
+      where: { attorneyId: attorney.id, status: { notIn: [...TERMINAL_INTRO_STATUSES] } },
       select: { assessmentId: true },
     })
     const introAssessIds = [...new Set(introAssessments.map((i) => i.assessmentId))]
@@ -8540,6 +8553,17 @@ router.get('/leads/:leadId/intelligence', authMiddleware, async (req: any, res) 
   }
 })
 
+// Stable key for an intelligent question so a captured answer survives question
+// regeneration. Baseline questions have stable bank ids; AI questions get a hash
+// of their (normalized) text so identical wording maps to the same answer.
+function intelligentQuestionKey(q: { id: string; text: string; source: 'ai' | 'baseline' }): string {
+  if (q.source === 'ai') {
+    const norm = String(q.text || '').trim().toLowerCase().replace(/\s+/g, ' ')
+    return `ai:${crypto.createHash('sha1').update(norm).digest('hex').slice(0, 16)}`
+  }
+  return `base:${q.id}`
+}
+
 // Case-specific intelligent intake questions (deterministic baseline + LLM personalization).
 router.get('/leads/:leadId/intelligence/questions', authMiddleware, async (req: any, res) => {
   try {
@@ -8552,10 +8576,109 @@ router.get('/leads/:leadId/intelligence/questions', authMiddleware, async (req: 
     if (!intelligence) return res.status(404).json({ error: 'Case data not available yet' })
     const baseline = buildBaselineQuestions(intelligence)
     const result = await generateIntelligentQuestions(intelligence, baseline)
-    res.json(result)
+
+    // Merge in any answers already captured for this case, keyed stably so they
+    // stick to the right question across regenerations.
+    const savedAnswers = await prisma.caseQuestionAnswer.findMany({
+      where: { assessmentId: lead.assessmentId },
+    })
+    const answerByKey = new Map(savedAnswers.map((a) => [a.questionKey, a]))
+
+    const questions = result.questions.map((q) => {
+      const questionKey = intelligentQuestionKey(q)
+      const saved = answerByKey.get(questionKey)
+      return {
+        ...q,
+        questionKey,
+        answer: saved?.answer ?? null,
+        answeredByName: saved?.answeredByName ?? null,
+        answeredAt: saved?.updatedAt ? saved.updatedAt.toISOString() : null,
+      }
+    })
+
+    // Answers whose question is no longer generated shouldn't silently vanish —
+    // surface them so the attorney still sees captured intake info.
+    const currentKeys = new Set(questions.map((q) => q.questionKey))
+    const answeredArchived = savedAnswers
+      .filter((a) => !currentKeys.has(a.questionKey))
+      .map((a) => ({
+        questionKey: a.questionKey,
+        section: a.section,
+        text: a.questionText,
+        source: a.source as 'ai' | 'baseline',
+        answer: a.answer,
+        answeredByName: a.answeredByName,
+        answeredAt: a.updatedAt.toISOString(),
+      }))
+
+    res.json({ ...result, questions, answeredArchived })
   } catch (error: any) {
     logger.error('Failed to generate intelligent questions', { error: error.message })
     res.status(500).json({ error: 'Failed to generate intelligent questions' })
+  }
+})
+
+// Save (or clear) an answer to an intelligent question. Upserts by questionKey so
+// re-answering updates in place; an empty answer removes the record.
+router.put('/leads/:leadId/intelligence/questions/answer', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { lead } = auth
+
+    const questionKey = String(req.body?.questionKey || '').trim()
+    const questionText = String(req.body?.questionText || '').trim()
+    const answer = String(req.body?.answer ?? '').trim()
+    const section = req.body?.section ? String(req.body.section).trim() : null
+    const source = String(req.body?.source || 'baseline').trim() === 'ai' ? 'ai' : 'baseline'
+    if (!questionKey) return res.status(400).json({ error: 'questionKey is required' })
+    if (!questionText) return res.status(400).json({ error: 'questionText is required' })
+
+    const answeredByName = req.user
+      ? `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || req.user.email
+      : null
+
+    // Empty answer = clear the record.
+    if (!answer) {
+      await prisma.caseQuestionAnswer.deleteMany({
+        where: { assessmentId: lead.assessmentId, questionKey },
+      })
+      return res.json({ answer: null })
+    }
+
+    const saved = await prisma.caseQuestionAnswer.upsert({
+      where: { assessmentId_questionKey: { assessmentId: lead.assessmentId, questionKey } },
+      create: {
+        assessmentId: lead.assessmentId,
+        questionKey,
+        questionText,
+        section,
+        source,
+        answer,
+        answeredById: req.user?.id || null,
+        answeredByName,
+      },
+      update: {
+        answer,
+        questionText,
+        section,
+        answeredById: req.user?.id || null,
+        answeredByName,
+      },
+    })
+
+    res.json({
+      answer: {
+        questionKey: saved.questionKey,
+        answer: saved.answer,
+        answeredByName: saved.answeredByName,
+        answeredAt: saved.updatedAt.toISOString(),
+      },
+    })
+  } catch (error: any) {
+    logger.error('Failed to save question answer', { error: error.message })
+    res.status(500).json({ error: 'Failed to save answer' })
   }
 })
 

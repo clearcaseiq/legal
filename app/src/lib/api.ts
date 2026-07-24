@@ -756,6 +756,81 @@ export async function getChatRoomMessages(chatRoomId: string, limit = 50, offset
   return data
 }
 
+// ---- Recorded calls (Amazon Connect + Contact Lens) ----
+export interface CallTranscriptDto {
+  status: string
+  source: string
+  summary?: string | null
+  sentiment?: string | null
+  actionItems: string[]
+  keyFacts: string[]
+  fullText?: string
+  segments?: Array<{ speaker: string; startMs: number; endMs: number; text: string }>
+}
+export interface CallDto {
+  id: string
+  status: string
+  direction: string
+  failureReason?: string | null
+  attorneyId?: string | null
+  chatRoomId?: string | null
+  assessmentId?: string | null
+  plaintiffPhone?: string | null
+  attorneyPhone?: string | null
+  startedAt?: string | null
+  answeredAt?: string | null
+  endedAt?: string | null
+  durationSec?: number | null
+  createdAt: string
+  hasRecording: boolean
+  transcript: CallTranscriptDto | null
+}
+
+export async function getCallsEnabled(): Promise<{ enabled: boolean }> {
+  const { data } = await api.get('/v1/calls/config/status')
+  return data
+}
+
+export async function getCallRecordingConsent(): Promise<{
+  granted: boolean
+  version: string | null
+  title: string | null
+  summary: string | null
+}> {
+  const { data } = await api.get('/v1/calls/consent')
+  return data
+}
+
+export async function grantCallRecordingConsent(granted = true) {
+  const { data } = await api.post('/v1/calls/consent', { granted })
+  return data
+}
+
+export async function startRecordedCall(payload: {
+  chatRoomId?: string
+  attorneyId?: string
+  assessmentId?: string
+  acknowledgeRecording?: boolean
+}): Promise<{ call: CallDto }> {
+  const { data } = await api.post('/v1/calls/start', payload)
+  return data
+}
+
+export async function listCalls(chatRoomId?: string): Promise<{ calls: CallDto[] }> {
+  const { data } = await api.get('/v1/calls', { params: chatRoomId ? { chatRoomId } : {} })
+  return data
+}
+
+export async function getCall(id: string): Promise<{ call: CallDto }> {
+  const { data } = await api.get(`/v1/calls/${id}`)
+  return data
+}
+
+export async function cancelCall(id: string): Promise<{ call: CallDto }> {
+  const { data } = await api.post(`/v1/calls/${id}/cancel`, {})
+  return data
+}
+
 export async function markMessagesAsRead(chatRoomId: string) {
   const { data } = await api.put(`/v1/messaging/chat-room/${chatRoomId}/read`)
   return data
@@ -2102,6 +2177,21 @@ export interface IntelligentQuestion {
   valueImpact: 'high' | 'medium' | 'low'
   confidence?: number
   source: 'baseline' | 'ai'
+  // Stable key + any captured answer (populated by the questions endpoint).
+  questionKey?: string
+  answer?: string | null
+  answeredByName?: string | null
+  answeredAt?: string | null
+}
+
+export interface ArchivedQuestionAnswer {
+  questionKey: string
+  section: string | null
+  text: string
+  source: 'baseline' | 'ai'
+  answer: string
+  answeredByName: string | null
+  answeredAt: string
 }
 
 export async function getCaseIntelligence(leadId: string): Promise<CaseIntelligence> {
@@ -2110,10 +2200,30 @@ export async function getCaseIntelligence(leadId: string): Promise<CaseIntellige
 }
 
 export async function getCaseIntelligenceQuestions(leadId: string) {
-  const { data } = await api.get<{ questions: IntelligentQuestion[]; source: 'ai' | 'baseline'; modelVersion: string }>(
-    `/v1/attorney-dashboard/leads/${leadId}/intelligence/questions`,
-  )
+  const { data } = await api.get<{
+    questions: IntelligentQuestion[]
+    source: 'ai' | 'baseline'
+    modelVersion: string
+    answeredArchived?: ArchivedQuestionAnswer[]
+  }>(`/v1/attorney-dashboard/leads/${leadId}/intelligence/questions`)
   return data
+}
+
+// Save (or clear, when `answer` is empty) an answer to an intelligent question.
+export async function saveIntelligentQuestionAnswer(
+  leadId: string,
+  payload: {
+    questionKey: string
+    questionText: string
+    answer: string
+    section?: string | null
+    source?: 'baseline' | 'ai'
+  },
+) {
+  const { data } = await api.put<{
+    answer: { questionKey: string; answer: string; answeredByName: string | null; answeredAt: string } | null
+  }>(`/v1/attorney-dashboard/leads/${leadId}/intelligence/questions/answer`, payload)
+  return data.answer
 }
 
 export async function runCaseIntelligenceGapAction(

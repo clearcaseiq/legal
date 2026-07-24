@@ -211,6 +211,7 @@ model Assessment {
   firmCaseAssignments FirmCaseAssignment[]
   caseWorkflow        CaseWorkflow?
   timeEntries         TimeEntry[]
+  questionAnswers     CaseQuestionAnswer[]
 
   // Phase 2: Communications
   platformNotificationEvents PlatformNotificationEvent[]
@@ -219,9 +220,14 @@ model Assessment {
 
   // Manual review queue (held for low confidence, duplicate, near-SOL, etc.)
   manualReviewStatus String? // null | pending | released | rejected | request_info | compliance
-  manualReviewReason String? // low_confidence | duplicate | conflicting_facts | suspicious_documents | near_sol | unsupported_jurisdiction | premium_case | ocr_failure
+  manualReviewReason String? // low_confidence | duplicate | conflicting_facts | suspicious_documents | near_sol | unsupported_jurisdiction | premium_case | ocr_failure | fraud_suspected | identity_mismatch | document_tampering
   manualReviewHeldAt DateTime?
   manualReviewNote   String?   @db.Text
+  // Fraud / suspicion review (computed by the pre-routing fraud gate).
+  fraudScore         Float? // 0-100 composite suspicion score at time of hold
+  fraudSignals       String?   @db.Text // JSON array of { code, label, detail, points, severity }
+  reviewedBy         String? // admin/reviewer user id who made the last review decision
+  reviewedAt         DateTime?
 
   @@index([lawFirmId])
   @@index([officeId])
@@ -432,6 +438,30 @@ model CaseNote {
   updatedAt    DateTime   @updatedAt
 
   @@map("case_notes")
+}
+
+// Answers captured against AI-generated "Intelligent Questions" for a case.
+// Keyed by a stable questionKey (baseline questions use their bank id; AI
+// questions use a hash of their text) so an answer survives question
+// regeneration. The question text/section are denormalized so an answer can be
+// shown even if the underlying question is no longer generated.
+model CaseQuestionAnswer {
+  id             String     @id @default(cuid())
+  assessmentId   String
+  assessment     Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  questionKey    String
+  questionText   String     @db.Text
+  section        String? // Liability | Medical | Damages | Insurance | Case Strategy
+  source         String     @default("baseline") // baseline | ai
+  answer         String     @db.Text
+  answeredById   String?
+  answeredByName String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@unique([assessmentId, questionKey])
+  @@index([assessmentId])
+  @@map("case_question_answers")
 }
 
 model CaseCommentThread {
@@ -1988,6 +2018,111 @@ model Message {
   createdAt DateTime  @default(now())
 
   @@map("messages")
+}
+
+// ---- Recorded plaintiff <-> attorney calls (Amazon Connect + Contact Lens) ----
+// A Call is a single recorded phone conversation placed through Amazon Connect.
+// We store loose scalar references (userId/attorneyId/assessmentId/chatRoomId)
+// instead of hard relations so the feature stays self-contained and calls can
+// survive if the linked record is later archived. Recording + transcript arrive
+// asynchronously via the Connect/S3 webhook and are attached once ready.
+model Call {
+  id String @id @default(cuid())
+
+  // Who is on the call. userId = plaintiff (nullable for guest leads).
+  userId       String?
+  attorneyId   String?
+  assessmentId String?
+  chatRoomId   String?
+
+  // Who pressed "call" and the numbers actually dialed (E.164). Stored for the
+  // audit trail; masked in API responses.
+  initiatedBy      String? // 'plaintiff' | 'attorney' | 'staff'
+  initiatedByUserId String?
+  plaintiffPhone   String?
+  attorneyPhone    String?
+
+  // Amazon Connect linkage.
+  provider        String  @default("amazon_connect")
+  connectContactId String? @unique // ContactId returned by StartOutboundVoiceContact
+  connectInstanceId String?
+
+  // Lifecycle: queued -> ringing -> in_progress -> completed | failed | no_answer | canceled
+  status       String    @default("queued")
+  direction    String    @default("outbound")
+  failureReason String?
+  startedAt    DateTime?
+  answeredAt   DateTime?
+  endedAt      DateTime?
+  durationSec  Int?
+
+  // Two-party recording consent captured before the call is placed. The Connect
+  // contact flow also plays a spoken disclosure to both parties at connect time.
+  recordingConsent      Boolean   @default(false)
+  recordingConsentAt    DateTime?
+  recordingConsentBy    String? // user/attorney id who acknowledged
+  recordingConsentNote  String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  recording  CallRecording?
+  transcript CallTranscript?
+
+  @@index([userId])
+  @@index([attorneyId])
+  @@index([assessmentId])
+  @@index([chatRoomId])
+  @@index([status])
+  @@map("calls")
+}
+
+model CallRecording {
+  id     String @id @default(cuid())
+  callId String @unique
+  call   Call   @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  // Where Amazon Connect wrote the recording (S3). We keep bucket/key so we can
+  // generate short-lived signed URLs on demand rather than storing public links.
+  s3Bucket   String?
+  s3Key      String?
+  mediaType  String  @default("audio/wav")
+  durationSec Int?
+  sizeBytes  Int?
+
+  status    String   @default("pending") // pending | available | failed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("call_recordings")
+}
+
+model CallTranscript {
+  id     String @id @default(cuid())
+  callId String @unique
+  call   Call   @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  // 'contact_lens' when Amazon Connect Contact Lens produced it, or 'transcribe'
+  // when we ran Amazon Transcribe on the recording ourselves.
+  source   String @default("contact_lens")
+  language String @default("en-US")
+
+  status    String  @default("pending") // pending | processing | ready | failed
+  fullText  String? @db.Text
+  segments  String? @db.Text // JSON: [{ speaker, startMs, endMs, text }]
+
+  // LLM-derived extraction (summary + action items + sentiment) built from the
+  // transcript. Kept separate from raw text so re-summarization is cheap.
+  summary      String? @db.Text
+  actionItems  String? @db.Text // JSON string[]
+  keyFacts     String? @db.Text // JSON string[]
+  sentiment    String? // positive | neutral | negative
+  processedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("call_transcripts")
 }
 
 model ChatBotSession {
