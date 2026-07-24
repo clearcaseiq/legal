@@ -23,6 +23,10 @@ const COACH_AUTO_TASK_PRIORITIES: CoachPriority[] = ['critical', 'high']
 // An attorney is actively working the case once they ACCEPT the introduction
 // (Introduction.status is stored uppercase; accept lowercase defensively too).
 const RETAINED_INTRO_STATUSES = ['ACCEPTED', 'accepted']
+// Lead conversion states that mean an attorney is actively working the case —
+// covers shared/marketplace ("acquired") leads that never get a formal
+// assignment or ACCEPTED intro but are advanced past intake.
+const ACTIVE_LEAD_STATUSES = ['contacted', 'consulted', 'retained']
 // Preference order when routing a task to a real person for each coach role.
 const PARALEGAL_ROLE_PREFERENCE = ['paralegal', 'legal_assistant', 'case_manager', 'demand_writer']
 const ATTORNEY_ROLE_PREFERENCE = ['attorney', 'firm_admin']
@@ -96,11 +100,15 @@ export async function isCaseRetained(assessmentId: string): Promise<boolean> {
     })
     .catch(() => null)
   if (intro) return true
-  // Acquired / directly-assigned leads: an attorney owns the case via
-  // LeadSubmission.assignedAttorneyId even without an ACCEPTED introduction row.
+  // Acquired / shared / directly-assigned leads: an attorney owns the case via
+  // assignment OR by advancing it past intake (contacted/consulted/retained),
+  // even without an ACCEPTED introduction row.
   const assigned = await prisma.leadSubmission
     .findFirst({
-      where: { assessmentId, assignedAttorneyId: { not: null } },
+      where: {
+        assessmentId,
+        OR: [{ assignedAttorneyId: { not: null } }, { status: { in: ACTIVE_LEAD_STATUSES } }],
+      },
       select: { id: true },
     })
     .catch(() => null)
@@ -218,12 +226,17 @@ async function generateCoachTasks(params: {
       insight.autoTaskCreated = true
       continue
     }
-    // Route to a real person when we can resolve one; fall back to role-only.
+    // Route to a real person when we can resolve one; for shared/acquired leads
+    // with no firm assignee, fall back to the acting attorney; else role-only.
     const role = coachActionRole(insight.actions[0])
     const person =
       role === 'paralegal'
         ? { userId: assignees?.paralegalUserId || null, name: assignees?.paralegalName || null }
         : { userId: assignees?.attorneyUserId || null, name: assignees?.attorneyName || null }
+    if (!person.userId && actor?.id) {
+      person.userId = actor.id
+      person.name = createdByName
+    }
     const record = await prisma.caseTask
       .create({
         data: {
@@ -341,11 +354,11 @@ export async function syncCaseCoachTasks(
   if (!coach) return null
 
   const requireRetained = opts?.requireRetained !== false
-  const assignees = await resolveCaseAssignees(assessmentId)
-  if (requireRetained && !assignees.attorneyId) {
-    // Not retained yet (no accepting attorney) — never create premature tasks.
+  if (requireRetained && !(await isCaseRetained(assessmentId))) {
+    // Not being worked yet (intake-only) — never create premature tasks.
     return coach
   }
+  const assignees = await resolveCaseAssignees(assessmentId)
 
   await generateCoachTasks({
     assessmentId,

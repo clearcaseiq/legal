@@ -64,13 +64,19 @@ export async function syncQuestionTasks(
   const byKey = new Map(existing.filter((e) => e.sourceTemplateStepId).map((e) => [e.sourceTemplateStepId as string, e]))
 
   const assignees = await resolveCaseAssignees(assessmentId).catch(() => null)
-  const assignedUserId = assignees?.paralegalUserId || assignees?.attorneyUserId || null
-  const assignedTo = assignees?.paralegalName || assignees?.attorneyName || null
-  const assignedRole = assignees?.paralegalUserId ? 'paralegal' : 'attorney'
-
   const createdByName = opts?.actor
     ? `${opts.actor.firstName || ''} ${opts.actor.lastName || ''}`.trim() || opts.actor.email || null
     : null
+
+  // Prefer a firm paralegal, then the case attorney; for shared/acquired leads
+  // with no firm assignee, fall back to the acting attorney.
+  let assignedUserId = assignees?.paralegalUserId || assignees?.attorneyUserId || null
+  let assignedTo = assignees?.paralegalName || assignees?.attorneyName || null
+  const assignedRole = assignees?.paralegalUserId ? 'paralegal' : 'attorney'
+  if (!assignedUserId && opts?.actor?.id) {
+    assignedUserId = opts.actor.id
+    assignedTo = createdByName
+  }
 
   let created = 0
   let completed = 0
