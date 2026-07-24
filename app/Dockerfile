@@ -6,8 +6,12 @@ RUN corepack enable
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* .npmrc ./
 COPY app/package.json ./app/package.json
+# api/package.json is copied so the workspace matches the lockfile for a frozen
+# install, but we only install the web app's own dependency tree — the API's
+# heavy deps (AWS SDK, Prisma, etc.) aren't needed to build the Next.js app and
+# bloated the image enough to hit ENOSPC on smaller disks.
 COPY api/package.json ./api/package.json
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --filter caseiq-web...
 
 FROM base AS builder
 COPY --from=deps /repo/node_modules ./node_modules
