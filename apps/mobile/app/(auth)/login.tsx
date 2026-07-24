@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -9,36 +9,107 @@ import {
   Platform,
   ActivityIndicator,
   ScrollView,
+  Linking,
 } from 'react-native'
 import { router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
+import * as SecureStore from 'expo-secure-store'
 import { useAuth } from '../../src/contexts/AuthContext'
 import { getApiErrorMessage, getApiTroubleshootingMessage, normalizeAuthEmail } from '../../src/lib/api'
 import { BrandWordmark } from '../../src/components/BrandWordmark'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { colors, radii, shadows, space } from '../../src/theme/tokens'
+import { IS_PLAINTIFF_APP } from '../../src/lib/appVariant'
+
+const FORGOT_PASSWORD_URL = 'https://www.clearcaseiq.com/forgot-password'
+
+const VALUE_PROPS = IS_PLAINTIFF_APP
+  ? (['Track your case status in real time', 'See your settlement estimate', 'Message your legal team securely'] as const)
+  : (['AI medical chronologies', 'Settlement valuations', 'Demand letters & case intelligence'] as const)
+
+// Ambient, illustrative preview of what the app delivers (not live data).
+const PREVIEW_STATS: { label: string; value: string; tone: 'accent' | 'success' | 'warning' }[] = IS_PLAINTIFF_APP
+  ? [
+      { label: 'Case status', value: 'Active', tone: 'success' },
+      { label: 'Settlement est.', value: '$285K', tone: 'success' },
+      { label: 'Documents', value: '2 due', tone: 'warning' },
+      { label: 'Next update', value: 'Soon', tone: 'accent' },
+    ]
+  : [
+      { label: 'Case score', value: '94%', tone: 'accent' },
+      { label: 'Settlement est.', value: '$285K', tone: 'success' },
+      { label: 'Medical chronology', value: 'Ready', tone: 'success' },
+      { label: 'Liability', value: 'High', tone: 'warning' },
+    ]
+
+const LOGIN_STAGES = IS_PLAINTIFF_APP
+  ? (['Verifying credentials', 'Loading your case', 'Opening your dashboard'] as const)
+  : (['Verifying credentials', "Scanning today's cases", 'Opening dashboard'] as const)
+
+const SUBTITLE = IS_PLAINTIFF_APP
+  ? 'Your personal injury case, clear and always up to date.'
+  : 'The AI operating system for personal injury law.'
+
+const PREVIEW_LABEL = IS_PLAINTIFF_APP ? 'Your case at a glance' : 'Case intelligence preview'
+
+function greetingForNow(): string {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
+}
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [loadingStage, setLoadingStage] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [savedName, setSavedName] = useState<string | null>(null)
   const { login, hasBiometrics, authenticateWithBiometrics } = useAuth()
+
+  const stageTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    SecureStore.getItemAsync('last_login_name')
+      .then((name) => {
+        if (name && name.trim()) setSavedName(name.trim())
+      })
+      .catch(() => {})
+    return () => stopStageCycle()
+  }, [])
+
+  function startStageCycle() {
+    setLoadingStage(0)
+    stopStageCycle()
+    stageTimer.current = setInterval(() => {
+      setLoadingStage((stage) => Math.min(stage + 1, LOGIN_STAGES.length - 1))
+    }, 850)
+  }
+
+  function stopStageCycle() {
+    if (stageTimer.current) {
+      clearInterval(stageTimer.current)
+      stageTimer.current = null
+    }
+  }
 
   async function handleLogin() {
     if (!email.trim() || !password) {
-      setError('Please enter email and password.')
+      setError(IS_PLAINTIFF_APP ? 'Please enter your email and password.' : 'Please enter your work email and password.')
       return
     }
     setLoading(true)
     setError(null)
+    startStageCycle()
     try {
       await login(normalizeAuthEmail(email), password)
       router.replace('/(app)/(tabs)')
     } catch (err: unknown) {
       setError(getApiErrorMessage(err))
     } finally {
+      stopStageCycle()
       setLoading(false)
     }
   }
@@ -47,6 +118,7 @@ export default function LoginScreen() {
     if (!hasBiometrics || loading) return
     setLoading(true)
     setError(null)
+    startStageCycle()
     try {
       const result = await authenticateWithBiometrics()
       if (result === 'authenticated') {
@@ -54,14 +126,17 @@ export default function LoginScreen() {
         return
       }
       if (result === 'missing_session') {
-        setError('Please sign in with email and password first. Biometric unlock works after your first successful login.')
+        setError('Sign in with your work email and password once. Face ID unlock works after your first successful login.')
       } else if (result === 'restore_failed') {
-        setError('We could not restore your saved session. Sign in with email and password and try biometric unlock again.')
+        setError('We could not restore your saved session. Sign in with email and password and try Face ID again.')
       }
     } finally {
+      stopStageCycle()
       setLoading(false)
     }
   }
+
+  const greeting = greetingForNow()
 
   return (
     <KeyboardAvoidingView
@@ -81,15 +156,56 @@ export default function LoginScreen() {
         <View style={styles.content}>
           <View style={styles.wordmarkBlock}>
             <View style={styles.heroBadge}>
-              <Ionicons name="shield-checkmark-outline" size={14} color={colors.brandAccent} />
-              <Text style={styles.heroBadgeText}>Secure attorney access</Text>
+              <Ionicons name="shield-checkmark" size={13} color={colors.brandAccent} />
+              <Text style={styles.heroBadgeText}>HIPAA Secure</Text>
             </View>
             <BrandWordmark variant="hero" />
-            <Text style={styles.subtitle}>Decision-ready case intelligence from anywhere.</Text>
-            <View style={styles.underlineAccent} />
+            <Text style={styles.subtitle}>{SUBTITLE}</Text>
+
+            <View style={styles.valueProps}>
+              {VALUE_PROPS.map((item) => (
+                <View key={item} style={styles.valueRow}>
+                  <View style={styles.valueTick}>
+                    <Ionicons name="checkmark" size={12} color={colors.brandAccent} />
+                  </View>
+                  <Text style={styles.valueText}>{item}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.previewCard}>
+            <View style={styles.previewHeader}>
+              <View style={styles.previewPulse} />
+              <Text style={styles.previewLabel}>{PREVIEW_LABEL}</Text>
+            </View>
+            <View style={styles.previewGrid}>
+              {PREVIEW_STATS.map((stat) => (
+                <View key={stat.label} style={styles.previewStat}>
+                  <Text style={styles.previewStatLabel}>{stat.label}</Text>
+                  <Text style={[styles.previewStatValue, styles[`tone_${stat.tone}`]]}>{stat.value}</Text>
+                </View>
+              ))}
+            </View>
           </View>
 
           <View style={styles.formPanel}>
+            <View style={styles.panelHeader}>
+              <Text style={styles.greeting}>
+                {greeting}
+                {savedName ? `, ${savedName}` : ''}
+              </Text>
+              <Text style={styles.greetingSub}>
+                {IS_PLAINTIFF_APP
+                  ? savedName
+                    ? 'Welcome back. Here is the latest on your case.'
+                    : 'Sign in to track your case.'
+                  : savedName
+                    ? 'Welcome back. Ready to review your cases?'
+                    : 'Sign in to review your cases.'}
+              </Text>
+            </View>
+
             {error ? (
               <InlineErrorBanner
                 message={`${error} ${getApiTroubleshootingMessage()}`}
@@ -98,16 +214,32 @@ export default function LoginScreen() {
               />
             ) : null}
 
-            <View style={styles.panelHeader}>
-              <Text style={styles.panelTitle}>Sign in</Text>
-            </View>
+            {hasBiometrics && (
+              <>
+                <TouchableOpacity
+                  style={[styles.faceIdButton, loading && styles.buttonDisabled]}
+                  onPress={handleBiometricLogin}
+                  activeOpacity={0.9}
+                  disabled={loading}
+                >
+                  <Ionicons name="scan-outline" size={20} color={colors.loginBg} />
+                  <Text style={styles.faceIdText}>Continue with Face ID</Text>
+                </TouchableOpacity>
+                <View style={styles.dividerRow}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>{IS_PLAINTIFF_APP ? 'or use your email' : 'or use your work email'}</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+              </>
+            )}
 
             <View style={styles.fieldBlock}>
+              <Text style={styles.fieldLabel}>{IS_PLAINTIFF_APP ? 'Email' : 'Work email'}</Text>
               <View style={styles.inputShell}>
                 <Ionicons name="mail-outline" size={18} color={colors.muted} />
                 <TextInput
                   style={styles.input}
-                  placeholder="name@firm.com"
+                  placeholder={IS_PLAINTIFF_APP ? 'you@email.com' : 'name@firm.com'}
                   placeholderTextColor={colors.muted}
                   value={email}
                   onChangeText={setEmail}
@@ -122,6 +254,15 @@ export default function LoginScreen() {
             </View>
 
             <View style={styles.fieldBlock}>
+              <View style={styles.fieldLabelRow}>
+                <Text style={styles.fieldLabel}>Password</Text>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL(FORGOT_PASSWORD_URL)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.forgotText}>Forgot password?</Text>
+                </TouchableOpacity>
+              </View>
               <View style={styles.inputShell}>
                 <Ionicons name="lock-closed-outline" size={18} color={colors.muted} />
                 <TextInput
@@ -150,38 +291,33 @@ export default function LoginScreen() {
             </View>
 
             <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
+              style={[styles.button, hasBiometrics && styles.buttonSecondary, loading && styles.buttonDisabled]}
               onPress={handleLogin}
               disabled={loading}
               activeOpacity={0.88}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" />
+                <View style={styles.buttonContent}>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={styles.buttonText}>{LOGIN_STAGES[loadingStage]}…</Text>
+                </View>
               ) : (
                 <View style={styles.buttonContent}>
-                  <Ionicons name="arrow-forward-circle-outline" size={18} color="#fff" />
-                  <Text style={styles.buttonText}>Sign in</Text>
+                  <Text style={styles.buttonText}>Continue securely</Text>
+                  <Ionicons name="arrow-forward" size={18} color="#fff" />
                 </View>
               )}
             </TouchableOpacity>
 
-            {hasBiometrics && (
-              <TouchableOpacity
-                style={[styles.biometricButton, loading && styles.biometricButtonDisabled]}
-                onPress={handleBiometricLogin}
-                activeOpacity={0.82}
-                disabled={loading}
-              >
-                <Ionicons name="scan-outline" size={18} color={colors.brandAccent} />
-                <Text style={styles.biometricText}>Use Face ID / Fingerprint</Text>
-              </TouchableOpacity>
-            )}
-
-            <View style={styles.trustBlock}>
-              <View style={styles.trustRow}>
-                <Ionicons name="lock-closed-outline" size={14} color={colors.brandAccent} />
-                <Text style={styles.trustText}>Encrypted session on this device</Text>
-              </View>
+            <View style={styles.trustRow}>
+              {['HIPAA compliant', '256-bit encryption', 'Secure authentication'].map((label, index) => (
+                <View key={label} style={styles.trustChip}>
+                  {index === 0 && <Ionicons name="shield-checkmark-outline" size={12} color={colors.brandAccent} />}
+                  {index === 1 && <Ionicons name="lock-closed-outline" size={12} color={colors.brandAccent} />}
+                  {index === 2 && <Ionicons name="finger-print-outline" size={12} color={colors.brandAccent} />}
+                  <Text style={styles.trustChipText}>{label}</Text>
+                </View>
+              ))}
             </View>
           </View>
         </View>
@@ -231,12 +367,13 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
+    paddingVertical: space.xl,
   },
   content: {
     padding: space.xl,
   },
   wordmarkBlock: {
-    marginBottom: space.xxl,
+    marginBottom: space.xl,
     alignItems: 'center',
   },
   heroBadge: {
@@ -244,63 +381,201 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: space.md,
-    paddingVertical: space.sm,
+    paddingVertical: 7,
     borderRadius: 999,
     backgroundColor: 'rgba(15,23,42,0.42)',
     borderWidth: 1,
-    borderColor: 'rgba(34,211,238,0.24)',
+    borderColor: 'rgba(34,211,238,0.32)',
     marginBottom: space.lg,
   },
   heroBadgeText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
     color: colors.brandAccent,
-    letterSpacing: 0.3,
+    letterSpacing: 0.6,
   },
   subtitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#f8fafc',
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'rgba(226,232,240,0.86)',
     textAlign: 'center',
     marginTop: space.md,
-    letterSpacing: 0.2,
-    lineHeight: 26,
+    lineHeight: 23,
+    maxWidth: 300,
   },
-  underlineAccent: {
-    width: 64,
-    height: 4,
+  valueProps: {
+    marginTop: space.lg,
+    gap: space.sm,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+  },
+  valueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  valueTick: {
+    width: 20,
+    height: 20,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(34,211,238,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(34,211,238,0.3)',
+  },
+  valueText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#e2e8f0',
+    letterSpacing: 0.2,
+  },
+  previewCard: {
+    backgroundColor: 'rgba(15,23,42,0.45)',
+    borderRadius: radii.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    padding: space.lg,
+    marginBottom: space.lg,
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginBottom: space.md,
+  },
+  previewPulse: {
+    width: 8,
+    height: 8,
     borderRadius: 999,
     backgroundColor: colors.brandAccent,
-    marginTop: space.lg,
-    opacity: 0.92,
   },
+  previewLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: 'rgba(148,163,184,0.95)',
+  },
+  previewGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.sm,
+  },
+  previewStat: {
+    flexGrow: 1,
+    flexBasis: '46%',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  previewStatLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(148,163,184,0.9)',
+    marginBottom: 2,
+  },
+  previewStatValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  tone_accent: { color: colors.brandAccent },
+  tone_success: { color: '#4ade80' },
+  tone_warning: { color: '#fbbf24' },
   formPanel: {
-    backgroundColor: 'rgba(15,23,42,0.76)',
+    backgroundColor: 'rgba(15,23,42,0.82)',
     borderRadius: radii['2xl'],
     padding: space.xl,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
+    borderColor: 'rgba(255,255,255,0.14)',
     ...shadows.card,
   },
   panelHeader: {
     marginBottom: space.lg,
   },
-  panelTitle: {
-    fontSize: 22,
+  greeting: {
+    fontSize: 24,
     fontWeight: '800',
     color: '#fff',
+    letterSpacing: -0.3,
+  },
+  greetingSub: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: 'rgba(203,213,225,0.85)',
+    marginTop: 4,
+  },
+  faceIdButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    minHeight: 56,
+    borderRadius: radii.lg,
+    backgroundColor: colors.brandAccent,
+    marginBottom: space.md,
+    shadowColor: colors.brandAccent,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  faceIdText: {
+    color: colors.loginBg,
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginBottom: space.lg,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  dividerText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(148,163,184,0.9)',
   },
   fieldBlock: {
-    marginBottom: space.md,
+    marginBottom: space.lg,
+  },
+  fieldLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: space.sm,
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: 'rgba(226,232,240,0.9)',
+    letterSpacing: 0.2,
+    marginBottom: space.sm,
+  },
+  forgotText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.brandAccent,
+    marginBottom: space.sm,
   },
   inputShell: {
     backgroundColor: colors.loginFieldBg,
     borderRadius: radii.lg,
-    paddingHorizontal: space.md,
-    minHeight: 56,
+    paddingHorizontal: space.lg,
+    minHeight: 60,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
+    gap: space.md,
     borderWidth: 1,
     borderColor: colors.loginFieldBorder,
   },
@@ -316,12 +591,19 @@ const styles = StyleSheet.create({
     minHeight: 56,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: space.sm,
+    marginTop: space.xs,
     shadowColor: colors.primaryDark,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.35,
     shadowRadius: 12,
     elevation: 4,
+  },
+  buttonSecondary: {
+    backgroundColor: 'rgba(56,189,248,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(56,189,248,0.4)',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   buttonDisabled: {
     opacity: 0.7,
@@ -337,39 +619,27 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.3,
   },
-  biometricButton: {
-    marginTop: space.md,
-    minHeight: 52,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(34,211,238,0.28)',
-    backgroundColor: 'rgba(34,211,238,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: space.sm,
-  },
-  biometricButtonDisabled: {
-    opacity: 0.6,
-  },
-  biometricText: {
-    color: colors.brandAccent,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  trustBlock: {
-    marginTop: space.lg,
-    gap: space.sm,
-  },
   trustRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
     gap: space.sm,
+    marginTop: space.xl,
   },
-  trustText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 18,
+  trustChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: space.sm,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  trustChipText: {
+    fontSize: 11,
+    fontWeight: '600',
     color: 'rgba(203,213,225,0.9)',
   },
 })

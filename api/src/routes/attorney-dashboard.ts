@@ -43,7 +43,7 @@ import { applyFirmWorkflowToCase, serializeCaseWorkflow } from '../lib/case-work
 import { buildCaseIntelligence, type GapAction } from '../lib/case-intelligence'
 import { buildBaselineQuestions, BASELINE_QUESTION_GAP_KEYS } from '../lib/intake-questions'
 import { generateIntelligentQuestions } from '../services/intelligent-questions'
-import { buildCaseCoach } from '../lib/case-coach'
+import { syncCaseCoachTasks } from '../lib/case-coach-loop'
 import { narrateCaseCoach } from '../services/case-coach-narrator'
 import {
   resolveHourlyRate,
@@ -2786,9 +2786,25 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
     // they must be sourced from the fully-hydrated + sanitized leads (not the lightweight
     // pipeline projection) to avoid "Venue pending"/"Not scored" on first load (A3-33).
     const recentMatchedLeads = recentLeadsWithMessaging.filter((l: any) => l.status === 'submitted')
-    const newCaseMatches = recentMatchedLeads.slice(0, 10)
+    // Defensive expiry guard: never surface an offer whose response window has already
+    // lapsed, even when the offer-expiry sweep hasn't flipped it to EXPIRED yet — e.g.
+    // routing is disabled by admin, or the match reached the attorney via direct
+    // assignment with no PENDING Introduction for the sweep to act on. The card's
+    // countdown is display-only, so without this an overdue match lingers in "New
+    // Matches". Accepted cases already drop out (status !== 'submitted').
+    const nowMs = Date.now()
+    const isOfferStillOpen = (l: any) => {
+      if (l.offerStatus === 'EXPIRED' || l.offerStatus === 'DECLINED') return false
+      if (l.offerExpiresAt) {
+        const exp = new Date(l.offerExpiresAt).getTime()
+        if (!Number.isNaN(exp) && exp <= nowMs) return false
+      }
+      return true
+    }
+    const openMatchedLeads = recentMatchedLeads.filter(isOfferStillOpen)
+    const newCaseMatches = openMatchedLeads.slice(0, 10)
     const topCaseToday = topCaseTodayId
-      ? recentLeadsWithMessaging.find((l: any) => l.id === topCaseTodayId) || newCaseMatches[0] || null
+      ? openMatchedLeads.find((l: any) => l.id === topCaseTodayId) || newCaseMatches[0] || null
       : newCaseMatches[0] || null
 
     const workQueueData = await buildAttorneyWorkQueue({
@@ -8699,6 +8715,13 @@ router.put('/leads/:leadId/intelligence/questions/answer', authMiddleware, async
       },
     })
 
+    // Loop: a new answer is "new info" — re-run the coach to assign what's next.
+    void syncCaseCoachTasks(lead.assessmentId, {
+      attorneyId: auth.attorney?.id,
+      actor: req.user,
+      trigger: 'answer_saved',
+    })
+
     res.json({
       answer: {
         questionKey: saved.questionKey,
@@ -8827,9 +8850,15 @@ router.get('/leads/:leadId/coach', authMiddleware, async (req: any, res) => {
     const { leadId } = req.params
     const auth = await getAuthorizedLead(req, leadId)
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
-    const { lead } = auth
+    const { lead, attorney } = auth
 
-    const coach = await buildCaseCoach(lead.assessmentId)
+    // One loop iteration: (re)build the coach and auto-assign the top actions as
+    // tasks (retention-gated + idempotent inside syncCaseCoachTasks).
+    const coach = await syncCaseCoachTasks(lead.assessmentId, {
+      attorneyId: attorney?.id,
+      actor: req.user,
+      trigger: 'coach_view',
+    })
     if (!coach) return res.status(404).json({ error: 'Case data not available yet' })
 
     const intelligence = await buildCaseIntelligence(lead.assessmentId)
@@ -9879,6 +9908,16 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
       dueDate: record.dueDate,
       escalationLevel: record.escalationLevel
     })
+
+    // Loop: completing a task is "new info" — re-run the coach to assign what's next.
+    if (status === 'done' && existing.status !== 'done') {
+      void syncCaseCoachTasks(record.assessmentId, {
+        attorneyId: auth.attorney?.id,
+        actor: req.user,
+        trigger: 'task_completed',
+      })
+    }
+
     res.json(record)
   } catch (error: any) {
     logger.error('Failed to update case task', { error: error.message })

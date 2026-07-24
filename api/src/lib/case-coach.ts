@@ -35,6 +35,9 @@ export interface CoachInsight {
   valueImpact: ValueImpact
   /** One-click remediation actions (reuse the gap-action task primitive). */
   actions: GapAction[]
+  /** Set when the coach auto-generated (or found an existing) task for this action. */
+  autoTaskId?: string
+  autoTaskCreated?: boolean
 }
 
 export interface CaseCoachResult {

@@ -139,6 +139,48 @@ export function leadMeta(lead: any, opts?: { includeId?: boolean }): string {
   return [claim, venue, idSuffix].filter(Boolean).join(' · ')
 }
 
+/** Default attorney response window (minutes) when a lead carries no explicit deadline. */
+const DEFAULT_RESPONSE_WINDOW_MIN = 1440
+
+/**
+ * Effective offer-expiry timestamp (ms) for a routed match. Prefers the
+ * server-computed offerExpiresAt; otherwise derives it from the offer/submission
+ * time plus the response window, so offers routed without a formal Introduction
+ * still resolve an expiry. Mirrors the web attorney dashboard.
+ */
+export function getOfferExpiryMs(lead: any): number | null {
+  const direct = lead?.offerExpiresAt ? Date.parse(lead.offerExpiresAt) : NaN
+  if (!Number.isNaN(direct)) return direct
+  const baseRaw = lead?.offerRequestedAt || lead?.submittedAt || lead?.createdAt
+  const base = baseRaw ? Date.parse(baseRaw) : NaN
+  if (Number.isNaN(base)) return null
+  const windowMin = Number(lead?.responseDeadlineMinutes) > 0
+    ? Number(lead.responseDeadlineMinutes)
+    : DEFAULT_RESPONSE_WINDOW_MIN
+  return base + windowMin * 60 * 1000
+}
+
+/**
+ * True once a routed match's response window has lapsed (or the backend already
+ * flagged the introduction EXPIRED/DECLINED). Such offers are no longer the
+ * attorney's to act on and must drop out of New Matches immediately — even before
+ * the offer-expiry sweep re-routes them.
+ */
+export function isExpiredMatch(lead: any, nowMs: number = Date.now()): boolean {
+  const offerStatus = lead?.offerStatus || ''
+  if (offerStatus === 'EXPIRED' || offerStatus === 'DECLINED') return true
+  if ((lead?.status || '').toLowerCase() === 'submitted') {
+    const expiresAt = getOfferExpiryMs(lead)
+    return expiresAt != null && expiresAt <= nowMs
+  }
+  return false
+}
+
+/** A still-open match the attorney can act on (submitted and not expired). */
+export function isOpenMatch(lead: any, nowMs: number = Date.now()): boolean {
+  return (lead?.status || '').toLowerCase() === 'submitted' && !isExpiredMatch(lead, nowMs)
+}
+
 /**
  * Normalize a score that may arrive as either a 0-1 fraction or a 0-100 number
  * into a clamped 0-100 integer. Backends are inconsistent about the scale.

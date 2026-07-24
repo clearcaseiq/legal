@@ -14,7 +14,7 @@ import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
 import { DomainBreadcrumb } from '../../src/components/DomainBreadcrumb'
 import { colors, radii, space, shadows, domains } from '../../src/theme/tokens'
-import { formatClaimType } from '../../src/lib/formatLead'
+import { formatClaimType, isOpenMatch } from '../../src/lib/formatLead'
 
 const ACCENT = domains.leadgen.accent
 
@@ -23,6 +23,11 @@ type Lead = {
   status?: string
   viabilityScore?: number | null
   createdAt?: string
+  submittedAt?: string
+  offerExpiresAt?: string | null
+  offerRequestedAt?: string | null
+  offerStatus?: string | null
+  responseDeadlineMinutes?: number | null
   assessment?: {
     claimType?: string
     venueState?: string
@@ -67,10 +72,13 @@ export default function NewMatchesScreen() {
   )
 
   const leads: Lead[] = (data as any)?.recentLeads || []
-  const matches = useMemo(
-    () => leads.filter((l) => (l.status || '').toLowerCase() === 'submitted'),
-    [leads]
-  )
+  // Exclude expired/lapsed offers so an overdue match the attorney never
+  // accepted/declined drops out of New Matches immediately (shared with the web
+  // dashboard + home-tab count), even before the offer-expiry sweep re-routes it.
+  const matches = useMemo(() => {
+    const nowMs = Date.now()
+    return leads.filter((l) => isOpenMatch(l, nowMs))
+  }, [leads])
 
   if (loading && !data) {
     return <ScreenState title="Loading new matches" message="Checking for cases routed to you." loading />

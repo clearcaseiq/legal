@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import * as LocalAuthentication from 'expo-local-authentication'
 import * as SecureStore from 'expo-secure-store'
-import { api, getApiErrorMessage, loginUser, logout as apiLogout, setUnauthorizedHandler } from '../lib/api'
+import { api, getApiErrorMessage, loginPlaintiff, loginUser, logout as apiLogout, setUnauthorizedHandler } from '../lib/api'
 import { clearPushTokenOnLogout, syncPushTokenAfterLogin } from '../lib/push-sync'
+import { IS_PLAINTIFF_APP } from '../lib/appVariant'
 
 type User = {
   id: string
@@ -57,8 +58,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data } = await api.get('/v1/auth/me')
       const sessionRole = (await SecureStore.getItemAsync('session_role')) as User['role'] | null
-      const resolvedRole = sessionRole || 'attorney'
+      const resolvedRole = sessionRole || (IS_PLAINTIFF_APP ? 'plaintiff' : 'attorney')
       setUser({ ...data, role: resolvedRole })
+      if (data?.firstName) {
+        await SecureStore.setItemAsync('last_login_name', String(data.firstName))
+      }
       if (resolvedRole === 'attorney') {
         await syncPushTokenAfterLogin()
       }
@@ -89,8 +93,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function login(email: string, password: string) {
     setStartupError(null)
-    const { user: u, role } = await loginUser(email, password)
+    const { user: u, role } = IS_PLAINTIFF_APP
+      ? await loginPlaintiff(email, password)
+      : await loginUser(email, password)
     setUser({ ...u, role })
+    if (u?.firstName) {
+      await SecureStore.setItemAsync('last_login_name', String(u.firstName))
+    }
     if (role === 'attorney') {
       await syncPushTokenAfterLogin()
     }

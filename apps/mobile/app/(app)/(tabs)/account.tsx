@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, Modal, ActivityIndicator, Linking } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, Modal, ActivityIndicator, Linking, ScrollView } from 'react-native'
 import { useFocusEffect } from 'expo-router'
 import { router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -122,6 +122,10 @@ export default function AccountScreen() {
 
   return (
     <View style={styles.screen}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
       <View style={styles.profileCard}>
         <View style={styles.brandRow}>
           <BrandWordmark variant="compact" />
@@ -298,6 +302,7 @@ export default function AccountScreen() {
       <Text style={styles.footer}>
         {isAttorney ? `${brand.displayNameAttorney} · Secure connection to your firm dashboard` : `${brand.displayName} · Secure connection to your case updates`}
       </Text>
+      </ScrollView>
 
       <Modal visible={confirmLogoutOpen} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
@@ -336,7 +341,8 @@ export default function AccountScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.surface, padding: space.lg },
+  screen: { flex: 1, backgroundColor: colors.surface },
+  scrollContent: { padding: space.lg, paddingBottom: space.xxl },
   profileCard: {
     backgroundColor: colors.card,
     borderRadius: radii.xl,

@@ -1,7 +1,8 @@
 {
   "cli": {
     "version": ">= 12.0.0",
-    "appVersionSource": "local"
+    "appVersionSource": "local",
+    "promptToConfigurePushNotifications": false
   },
   "build": {
     "development": {
@@ -36,12 +37,57 @@
       "ios": {
         "simulator": false
       }
+    },
+    "development-plaintiff": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "APP_VARIANT": "plaintiff"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": true
+      }
+    },
+    "preview-plaintiff": {
+      "distribution": "internal",
+      "developmentClient": true,
+      "env": {
+        "APP_VARIANT": "plaintiff"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": false
+      },
+      "channel": "preview"
+    },
+    "production-plaintiff": {
+      "developmentClient": false,
+      "env": {
+        "APP_VARIANT": "plaintiff",
+        "EXPO_PUBLIC_API_URL": "https://api.clearcaseiq.com"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "simulator": false
+      }
     }
   },
   "submit": {
     "production": {
       "ios": {
         "ascAppId": "6773952405"
+      }
+    },
+    "production-plaintiff": {
+      "ios": {
+        "ascAppId": "REPLACE_WITH_PLAINTIFF_ASC_APP_ID"
       }
     }
   }

@@ -191,6 +191,25 @@ export async function loginUser(email: string, password: string) {
   }
 }
 
+// Plaintiff/claimant login — mirrors web /login. The endpoint rejects attorney
+// and firm-staff accounts (403), so only genuine claimants can sign in here.
+export async function loginPlaintiff(email: string, password: string) {
+  const normalizedEmail = normalizeAuthEmail(email)
+  const response = await api.post('/v1/auth/login', {
+    email: normalizedEmail,
+    password,
+  })
+  const data = response.data
+
+  await SecureStore.setItemAsync('auth_token', data.token)
+  await SecureStore.setItemAsync('user', JSON.stringify(data.user))
+  await SecureStore.setItemAsync('session_role', 'plaintiff')
+  return {
+    ...data,
+    role: 'plaintiff' as MobileSessionRole,
+  }
+}
+
 export async function getCurrentUser() {
   const { data } = await api.get('/v1/auth/me')
   return data

@@ -2161,6 +2161,8 @@ export interface CoachInsight {
   impact: string
   valueImpact: 'high' | 'medium' | 'low'
   actions: CaseIntelligenceGapAction[]
+  autoTaskId?: string
+  autoTaskCreated?: boolean
 }
 
 export interface CaseCoach {

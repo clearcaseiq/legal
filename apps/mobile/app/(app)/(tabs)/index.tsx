@@ -16,7 +16,7 @@ import { InlineErrorBanner } from '../../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../../src/components/ScreenState'
 import { isSameCalendarDay, navigateAttorneyQueueItem, type QueueActionType } from '../../../src/lib/attorneyQueueNav'
 import { colors, radii, space, shadows, domains, type DomainId } from '../../../src/theme/tokens'
-import { currencyFromMedian, formatClaimType } from '../../../src/lib/formatLead'
+import { currencyFromMedian, formatClaimType, isOpenMatch } from '../../../src/lib/formatLead'
 import { formatMeetingType, formatTime } from '../../../src/lib/calendar'
 import { buildPlaintiffCaseStageSummary } from '../../../src/lib/plaintiffCaseStage'
 import {
@@ -147,7 +147,9 @@ function AttorneyHomeDashboardScreen() {
   )
 
   const recentLeads: Lead[] = payload?.recentLeads || []
-  const needsReview = recentLeads.filter((l) => (l.status || '').toLowerCase() === 'submitted')
+  // Exclude expired/lapsed offers so the New Matches count matches the list (an
+  // overdue match the attorney never accepted/declined is no longer actionable).
+  const needsReview = recentLeads.filter((l) => isOpenMatch(l))
   const messagingSummaryRaw = payload?.messagingSummary || {}
   const messagingSummary = {
     unreadCount: Number(messagingSummaryRaw.unreadCount ?? 0),

@@ -100,6 +100,11 @@ export default function CaseCoachPanel({ leadId }: { leadId: string }) {
               </span>
             </div>
             <p className="mt-0.5 text-sm font-medium text-brand-50">{coach.headline}</p>
+            {coach.insights.some((i) => i.autoTaskCreated) && (
+              <p className="mt-1 flex items-center gap-1 text-[11px] font-medium text-brand-100">
+                <CheckCircle2 className="h-3 w-3" /> Top actions added to your tasks automatically.
+              </p>
+            )}
           </div>
         </div>
         <button
@@ -123,6 +128,11 @@ export default function CaseCoachPanel({ leadId }: { leadId: string }) {
                   {pri.label}
                 </span>
                 <span className="text-sm font-semibold text-slate-900">{insight.title}</span>
+                {insight.autoTaskCreated && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                    <CheckCircle2 className="h-3 w-3" /> Added to tasks
+                  </span>
+                )}
               </div>
               <p className="mt-1 text-xs leading-5 text-slate-500">{insight.why}</p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
