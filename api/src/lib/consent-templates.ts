@@ -3,7 +3,7 @@
  * (modal + public pages). Bump version when content changes to trigger re-consent.
  */
 
-export type ConsentTemplateKey = 'hipaa' | 'terms' | 'privacy' | 'marketing'
+export type ConsentTemplateKey = 'hipaa' | 'terms' | 'privacy' | 'marketing' | 'call_recording'
 
 export type ConsentTemplateRecord = {
   version: string
@@ -151,6 +151,37 @@ We may update this policy and will post changes with an updated effective date.
 You may receive occasional updates, educational content, or promotional messages about the service and related offerings. You can opt out at any time using links in email, replying STOP to SMS where applicable, or by contacting support.
 
 Partners may receive limited contact information only where you have agreed separately.
+    `.trim(),
+  },
+  call_recording: {
+    version: '1.0',
+    documentId: 'call-recording-v1.0',
+    title: 'Call recording consent',
+    effectiveDate: '2026-03-01',
+    plainLanguageSummary: `When you connect with your legal team by phone through the platform, the call may be recorded and automatically transcribed so your attorney can capture case details accurately and follow up on what you discussed. You'll also hear a spoken notice at the start of the call. Recordings and transcripts are treated as confidential case material, are stored securely, and are used only to support your case. You can decline recording—if you do, we won't place the recorded call.`,
+    content: `
+# Call recording and transcription consent
+
+## What you're agreeing to
+When you place or receive a phone call with your legal team through this platform, you consent to that call being **recorded and transcribed**. A spoken notice is played at the start of the call so everyone on the line is aware.
+
+## Why we record
+- Accurately capture facts, dates, and details about your case
+- Let your attorney and their staff review what was discussed
+- Automatically generate a written transcript and summary for your case file
+- Reduce the risk of miscommunication
+
+## How recordings are handled
+- Recordings and transcripts are confidential case material tied to your matter
+- They are stored securely and access is limited to your legal team and platform staff who support your case
+- They are retained as long as needed for your case and applicable law, then deleted or de-identified
+- They are not sold and are not shared for marketing
+
+## Two-party notice
+Some states require all parties to a call to consent to recording. By continuing, you consent to recording for calls placed through this platform, and the spoken notice at the start of the call provides notice to everyone on the line.
+
+## Your choice
+Providing this consent is voluntary. If you decline, we will not place a recorded call—you can still reach your legal team by other means. You may withdraw consent for future calls at any time by contacting your legal team or support.
     `.trim(),
   },
 }

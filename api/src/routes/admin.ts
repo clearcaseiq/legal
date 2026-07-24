@@ -922,8 +922,19 @@ router.get('/analytics', authMiddleware, adminMiddleware, async (req: AuthReques
 // Manual review queue
 const MANUAL_REVIEW_REASONS = [
   'low_confidence', 'duplicate', 'conflicting_facts', 'suspicious_documents',
-  'near_sol', 'unsupported_jurisdiction', 'premium_case', 'ocr_failure'
+  'near_sol', 'unsupported_jurisdiction', 'premium_case', 'ocr_failure',
+  'fraud_suspected', 'identity_mismatch', 'document_tampering'
 ] as const
+
+function parseFraudSignals(raw: string | null): unknown[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
 
 router.get('/manual-review', authMiddleware, adminMiddleware, async (_req: AuthRequest, res) => {
   try {
@@ -937,6 +948,8 @@ router.get('/manual-review', authMiddleware, adminMiddleware, async (_req: AuthR
         manualReviewReason: true,
         manualReviewHeldAt: true,
         manualReviewNote: true,
+        fraudScore: true,
+        fraudSignals: true,
         user: { select: { id: true, email: true, firstName: true, lastName: true } },
         predictions: {
           orderBy: { createdAt: 'desc' },
@@ -945,7 +958,7 @@ router.get('/manual-review', authMiddleware, adminMiddleware, async (_req: AuthR
         },
         _count: { select: { introductions: true, files: true } }
       },
-      orderBy: { manualReviewHeldAt: 'asc' }
+      orderBy: [{ fraudScore: 'desc' }, { manualReviewHeldAt: 'asc' }]
     })
 
     const cases = assessments.map(a => {
@@ -960,6 +973,8 @@ router.get('/manual-review', authMiddleware, adminMiddleware, async (_req: AuthR
         manualReviewReason: a.manualReviewReason,
         manualReviewHeldAt: a.manualReviewHeldAt,
         manualReviewNote: a.manualReviewNote,
+        fraudScore: a.fraudScore,
+        fraudSignals: parseFraudSignals(a.fraudSignals),
         caseScore: viability.overall ?? 0,
         valueEstimate: bands.median,
         user: a.user,
@@ -996,7 +1011,9 @@ router.post('/manual-review/:caseId/action', authMiddleware, adminMiddleware, as
 
     const updateData: any = {
       manualReviewStatus: action === 'release' ? 'released' : action === 'reject' ? 'rejected' : action === 'request_info' ? 'request_info' : 'compliance',
-      manualReviewNote: note || assessment.manualReviewNote
+      manualReviewNote: note || assessment.manualReviewNote,
+      reviewedBy: req.user?.id || null,
+      reviewedAt: new Date()
     }
 
     await prisma.assessment.update({
@@ -1028,10 +1045,26 @@ router.post('/manual-review/:caseId/action', authMiddleware, adminMiddleware, as
           evidenceChecklist: '{}',
           isExclusive: false,
           sourceType: 'admin',
+          lifecycleState: 'routing_active',
           routingLocked: false
         },
-        update: { routingLocked: false }
+        update: { lifecycleState: 'routing_active', routingLocked: false }
       })
+
+      // Actually re-trigger routing now that a human has cleared the case. We
+      // skip the pre-routing (fraud) gate here — otherwise the same signals
+      // that flagged it would immediately re-hold it, creating a loop. The
+      // admin decision IS the override. Fire-and-forget so the response is fast.
+      void startAssessmentRouting(caseId, {
+        skipPreRoutingGate: true,
+        preferTierRouting: true,
+        fallbackToClassic: true,
+      }).catch((err: any) =>
+        logger.error('Failed to re-route case after manual review release', {
+          caseId,
+          error: err?.message,
+        }),
+      )
     }
 
     res.json({ ok: true, action })

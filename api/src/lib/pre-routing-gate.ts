@@ -7,12 +7,22 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import type { NormalizedCase } from './case-normalization'
 import { normalizeClaimTypeForSOL } from './solRules'
+import { evaluateCaseFraud, type FraudSignal } from './fraud-gate'
 
 type GateHoldAction = 'manual_review' | 'needs_more_info' | 'not_routable_yet'
 
 export type RoutingGateResult =
   | { pass: true; reason?: string }
-  | { pass: false; reason: string; status: GateHoldAction }
+  | {
+      pass: false
+      reason: string
+      status: GateHoldAction
+      // Populated when the hold was triggered by the fraud/suspicion gate so
+      // the caller can persist the score + signals for the admin reviewer.
+      reviewReason?: string
+      fraudScore?: number
+      fraudSignals?: FraudSignal[]
+    }
 
 export interface ClaimTypeGateOverride {
   claimType: string
@@ -216,17 +226,20 @@ export async function runPreRoutingGate(
     }
   }
 
-  // 9. Fraud / compliance heuristics - suspicious cases should be reviewed manually.
-  const rawFacts = normalizedCase.rawFacts || {}
+  // 9. Fraud / suspicion gate — scores an itemized set of suspicion signals and
+  //    holds the case for admin review before any attorney is introduced.
   const evidenceFiles = await prisma.evidenceFile.findMany({
     where: { assessmentId: normalizedCase.case_id },
     select: {
       category: true,
+      mimetype: true,
       processingStatus: true,
       isVerified: true,
       isHIPAA: true,
       aiClassification: true,
       ocrText: true,
+      exifData: true,
+      location: true,
     }
   })
   const complianceSetting = await prisma.complianceSetting.findUnique({
@@ -235,112 +248,21 @@ export async function runPreRoutingGate(
     logger.warn('Failed to load compliance settings for pre-routing gate', { error })
     return null
   })
-  const verification = (rawFacts.verification as Record<string, unknown>) || {}
-  const verificationStatus = String(verification.status || '').toLowerCase()
-  if (verificationStatus === 'manual_review' || verificationStatus === 'failed' || verificationStatus === 'rejected') {
+
+  const fraud = await evaluateCaseFraud({
+    normalizedCase,
+    assessment: { id: normalizedCase.case_id, userId: assessment?.userId },
+    evidenceFiles,
+    complianceHipaaAligned: Boolean(complianceSetting?.hipaaAligned),
+  })
+  if (fraud.hold) {
     return {
       pass: false,
-      reason: `Identity verification status ${verificationStatus || 'unknown'} requires review`,
-      status: 'manual_review'
-    }
-  }
-
-  if (!normalizedCase.narrative_present && normalizedCase.liability_confidence >= 0.8) {
-    return {
-      pass: false,
-      reason: 'High liability score without a usable incident narrative',
-      status: 'manual_review'
-    }
-  }
-
-  const thinEvidence = !normalizedCase.medical_record_present && !normalizedCase.police_report_present && !normalizedCase.wage_loss_present
-  if (normalizedCase.estimated_case_value_high >= 100000 && thinEvidence) {
-    return {
-      pass: false,
-      reason: 'High-value case has thin supporting evidence',
-      status: 'manual_review'
-    }
-  }
-
-  if (evidenceFiles.some((file) => file.processingStatus === 'failed')) {
-    return {
-      pass: false,
-      reason: 'One or more uploaded documents failed evidence processing',
-      status: 'manual_review'
-    }
-  }
-
-  if (
-    complianceSetting?.hipaaAligned &&
-    evidenceFiles.some((file) => ['medical_records', 'bills'].includes(file.category) && !file.isHIPAA)
-  ) {
-    return {
-      pass: false,
-      reason: 'Medical evidence requires HIPAA-aligned handling before routing',
-      status: 'manual_review'
-    }
-  }
-
-  if (
-    evidenceFiles.some((file) =>
-      /suspicious|tamper|altered|fraud/i.test(String(file.aiClassification || ''))
-    )
-  ) {
-    return {
-      pass: false,
-      reason: 'Uploaded evidence appears suspicious and requires compliance review',
-      status: 'manual_review'
-    }
-  }
-
-  if (
-    normalizedCase.estimated_case_value_high >= 50000 &&
-    evidenceFiles.length > 0 &&
-    evidenceFiles.every((file) => !file.isVerified) &&
-    !evidenceFiles.some((file) => ['medical_records', 'police_report', 'bills'].includes(file.category))
-  ) {
-    return {
-      pass: false,
-      reason: 'High-value case lacks verified core evidence',
-      status: 'manual_review'
-    }
-  }
-
-  if (assessment?.userId) {
-    const recentCaseCount = await prisma.assessment.count({
-      where: {
-        userId: assessment.userId,
-        id: { not: normalizedCase.case_id },
-        createdAt: {
-          gte: new Date(Date.now() - (7 * 24 * 60 * 60 * 1000))
-        }
-      }
-    })
-    if (recentCaseCount >= 2) {
-      return {
-        pass: false,
-        reason: 'Multiple recent assessments from the same plaintiff require review',
-        status: 'manual_review'
-      }
-    }
-
-    const duplicateProfileCount = await prisma.assessment.count({
-      where: {
-        userId: assessment.userId,
-        id: { not: normalizedCase.case_id },
-        claimType: normalizedCase.claim_type,
-        venueState: normalizedCase.jurisdiction_state,
-        createdAt: {
-          gte: new Date(Date.now() - (30 * 24 * 60 * 60 * 1000))
-        }
-      }
-    })
-    if (duplicateProfileCount >= 1) {
-      return {
-        pass: false,
-        reason: 'Potential duplicate submission pattern detected for the same plaintiff',
-        status: 'manual_review'
-      }
+      reason: fraud.reason || 'Case flagged for suspicious activity and requires review',
+      status: 'manual_review',
+      reviewReason: fraud.reviewReason,
+      fraudScore: fraud.score,
+      fraudSignals: fraud.signals,
     }
   }
 

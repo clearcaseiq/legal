@@ -6,8 +6,10 @@ import { routeTier1Case } from './tier1-routing'
 import { routeTier2Case } from './tier2-routing'
 import { routeTier3Case } from './tier3-routing'
 import { routeTier4Case } from './tier4-routing'
-import { recordRoutingEvent } from './routing-lifecycle'
-import { isRoutingEnabled } from './matching-rules-config'
+import { recordRoutingEvent, placeAssessmentInManualReview } from './routing-lifecycle'
+import { isRoutingEnabled, getMatchingRules, getPreRoutingGateOptions } from './matching-rules-config'
+import { normalizeCaseForRouting } from './case-normalization'
+import { runPreRoutingGate } from './pre-routing-gate'
 
 type TierRouteResult = {
   routed: boolean
@@ -120,6 +122,75 @@ async function upsertTierLeadSubmission(assessmentId: string, routedAttorneyId: 
   })
 }
 
+/**
+ * Run the pre-routing gate (which includes the fraud/suspicion gate) up front,
+ * BEFORE any routing strategy is attempted. This is important because tier
+ * routing does not consult the gate on its own — running it here guarantees a
+ * suspicious case is held for admin review no matter which routing path it
+ * would have taken. Returns a terminal result when the case is held, or null
+ * when the case passes and routing should proceed.
+ */
+async function enforcePreRoutingGate(
+  assessmentId: string
+): Promise<AssessmentRoutingStartResult | null> {
+  const assessment = await prisma.assessment.findUnique({
+    where: { id: assessmentId },
+    include: { predictions: { orderBy: { createdAt: 'desc' }, take: 1 } },
+  })
+  // Let the engine surface a proper "not found" error rather than guessing here.
+  if (!assessment) return null
+
+  const normalizedCase = await normalizeCaseForRouting(assessment)
+  const matchingRules = await getMatchingRules()
+  const gateResult = await runPreRoutingGate(normalizedCase, getPreRoutingGateOptions(matchingRules))
+  if (gateResult.pass) return null
+
+  if (gateResult.status === 'manual_review') {
+    // Persists the hold + fraud score/signals and notifies the plaintiff.
+    await placeAssessmentInManualReview(
+      assessmentId,
+      gateResult.reviewReason || 'routing_gate_review',
+      gateResult.reason,
+      { fraudScore: gateResult.fraudScore, fraudSignals: gateResult.fraudSignals }
+    )
+  } else {
+    await prisma.leadSubmission.upsert({
+      where: { assessmentId },
+      create: {
+        assessmentId,
+        viabilityScore: normalizedCase.liability_confidence,
+        liabilityScore: normalizedCase.liability_confidence,
+        causationScore: 0.5,
+        damagesScore: normalizedCase.damages_score,
+        evidenceChecklist: JSON.stringify({ required: [] }),
+        isExclusive: false,
+        sourceType: 'routing_engine',
+        status: 'submitted',
+        lifecycleState: gateResult.status,
+        routingLocked: false,
+      },
+      update: { lifecycleState: gateResult.status, routingLocked: false },
+    })
+    await recordRoutingEvent(assessmentId, null, null, gateResult.status, {
+      reason: gateResult.reason,
+    })
+  }
+
+  return {
+    success: false,
+    strategy: 'classic',
+    tierNumber: null,
+    tierAttempted: false,
+    gatePassed: false,
+    gateStatus: gateResult.status,
+    gateReason: gateResult.reason,
+    holdReason: gateResult.reason,
+    routedTo: [],
+    introductionIds: [],
+    errors: [gateResult.reason],
+  }
+}
+
 export async function startAssessmentRouting(
   assessmentId: string,
   options?: RoutingEngineOptions & {
@@ -159,6 +230,18 @@ export async function startAssessmentRouting(
       errors: ['Routing disabled by admin'],
     }
   }
+
+  // Suspicious-case review gate — held cases never reach an attorney (tier or
+  // classic). Skipped when the caller explicitly bypasses (e.g. an admin
+  // releasing a case after review, which must not be instantly re-flagged).
+  let gateAlreadyRun = false
+  if (!options?.skipPreRoutingGate) {
+    const held = await enforcePreRoutingGate(assessmentId)
+    if (held) return held
+    gateAlreadyRun = true
+  }
+  // Avoid re-running the gate inside the classic engine when we've already run it.
+  const engineOptions = gateAlreadyRun ? { ...options, skipPreRoutingGate: true } : options
 
   let tierNumber: number | null = null
   if (preferTierRouting) {
@@ -211,7 +294,7 @@ export async function startAssessmentRouting(
     }
   }
 
-  const classic = await runRoutingEngine(assessmentId, options)
+  const classic = await runRoutingEngine(assessmentId, engineOptions)
   return {
     ...classic,
     strategy: 'classic',

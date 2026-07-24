@@ -11,7 +11,7 @@ const router = express.Router()
 
 // Validation schemas
 const ConsentCreateSchema = z.object({
-  consentType: z.enum(['hipaa', 'terms', 'privacy', 'marketing']),
+  consentType: z.enum(['hipaa', 'terms', 'privacy', 'marketing', 'call_recording']),
   version: z.string(),
   documentId: z.string(),
   granted: z.boolean(),

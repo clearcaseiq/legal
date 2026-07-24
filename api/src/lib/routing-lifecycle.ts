@@ -400,7 +400,8 @@ export async function syncDecisionMemoryForAssessment(params: {
 export async function placeAssessmentInManualReview(
   assessmentId: string,
   reason: string,
-  note?: string
+  note?: string,
+  extra?: { fraudScore?: number; fraudSignals?: unknown[] }
 ): Promise<void> {
   try {
     await Promise.all([
@@ -410,7 +411,14 @@ export async function placeAssessmentInManualReview(
           manualReviewStatus: 'pending',
           manualReviewReason: reason,
           manualReviewHeldAt: new Date(),
-          manualReviewNote: note || null
+          manualReviewNote: note || null,
+          ...(extra?.fraudScore != null ? { fraudScore: extra.fraudScore } : {}),
+          ...(extra?.fraudSignals != null
+            ? { fraudSignals: JSON.stringify(extra.fraudSignals) }
+            : {}),
+          // Clear any stale reviewer attribution from a prior decision.
+          reviewedBy: null,
+          reviewedAt: null
         }
       }),
       prisma.leadSubmission.upsert({

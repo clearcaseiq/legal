@@ -56,6 +56,8 @@ import esignWebhook from './routes/esign-webhook'
 import scheduling from './routes/scheduling'
 import publicBooking from './routes/public-booking'
 import calendarEvents from './routes/calendar-events'
+import calls from './routes/calls'
+import connectWebhook from './routes/connect-webhook'
 
 /**
  * Fully configured Express app (no listen). Used by index.ts and integration tests.
@@ -117,6 +119,10 @@ export function buildApp(): Express {
   app.use('/v1/scheduling', scheduling)
   app.use('/v1/calendar-events', calendarEvents)
   app.use('/v1/documents', documents)
+  // Recorded calls: the webhook must mount before the auth-guarded /v1/calls
+  // router so SNS can POST /v1/calls/connect/events without a token.
+  app.use('/v1/calls/connect', connectWebhook)
+  app.use('/v1/calls', calls)
   app.use('/v1/webhooks/esign', esignWebhook)
 
   app.get('/', (req, res) => {

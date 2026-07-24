@@ -13,6 +13,7 @@ import {
   MessageSquare,
   Shield,
   ChevronDown,
+  AlertTriangle,
 } from 'lucide-react'
 
 const REASON_LABELS: Record<string, string> = {
@@ -24,6 +25,30 @@ const REASON_LABELS: Record<string, string> = {
   unsupported_jurisdiction: 'Unsupported jurisdiction',
   premium_case: 'Premium case review',
   ocr_failure: 'OCR failure',
+  fraud_suspected: 'Fraud suspected',
+  identity_mismatch: 'Identity mismatch',
+  document_tampering: 'Document tampering',
+}
+
+interface FraudSignal {
+  code: string
+  label: string
+  detail: string
+  points: number
+  severity: 'low' | 'medium' | 'high'
+}
+
+// Color the composite suspicion score: green (low) → amber (elevated) → red (high).
+function scoreTone(score: number): string {
+  if (score >= 60) return 'bg-red-100 text-red-700 border border-red-200'
+  if (score >= 30) return 'bg-amber-100 text-amber-700 border border-amber-200'
+  return 'bg-slate-100 text-slate-600 border border-slate-200'
+}
+
+function severityTone(severity: string): string {
+  if (severity === 'high') return 'bg-red-50 text-red-700 ring-1 ring-inset ring-red-200'
+  if (severity === 'medium') return 'bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200'
+  return 'bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-200'
 }
 
 export default function AdminManualReview() {
@@ -154,6 +179,15 @@ export default function AdminManualReview() {
                         <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
                           {REASON_LABELS[c.manualReviewReason] || c.manualReviewReason}
                         </span>
+                        {typeof c.fraudScore === 'number' && (
+                          <span
+                            className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded ${scoreTone(c.fraudScore)}`}
+                            title="Composite suspicion score (0-100)"
+                          >
+                            <AlertTriangle className="h-3 w-3" />
+                            Risk {Math.round(c.fraudScore)}
+                          </span>
+                        )}
                       </div>
                       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0 text-sm text-slate-600">
                         <span>{c.claimType}</span>
@@ -171,6 +205,26 @@ export default function AdminManualReview() {
                       {c.manualReviewNote && (
                         <div className="mt-2 text-sm text-slate-600 bg-slate-50 rounded p-2">
                           {c.manualReviewNote}
+                        </div>
+                      )}
+                      {Array.isArray(c.fraudSignals) && c.fraudSignals.length > 0 && (
+                        <div className="mt-2 space-y-1.5">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                            Why this was flagged
+                          </p>
+                          {(c.fraudSignals as FraudSignal[]).map((s) => (
+                            <div key={s.code} className="flex items-start gap-2 text-sm">
+                              <span
+                                className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium capitalize ${severityTone(s.severity)}`}
+                              >
+                                {s.severity}
+                              </span>
+                              <span className="text-slate-700">
+                                <span className="font-medium">{s.label}.</span>{' '}
+                                <span className="text-slate-500">{s.detail}</span>
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>

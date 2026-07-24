@@ -119,4 +119,30 @@ export const ENV = {
   ADMIN_EMAILS: process.env.ADMIN_EMAILS ?? 'admin@caseiq.com',
   /** When true, sensitive plaintiff routes require user.emailVerified */
   REQUIRE_EMAIL_VERIFICATION: process.env.REQUIRE_EMAIL_VERIFICATION === 'true',
+  // ---- Recorded calls (Amazon Connect + Contact Lens + Transcribe) ----
+  /**
+   * Region the Amazon Connect instance lives in. This is often different from
+   * AWS_REGION (Textract/SES): Connect + its recordings S3 bucket + Transcribe
+   * for those recordings must all target the instance region. Defaults to
+   * AWS_REGION when unset.
+   */
+  CONNECT_REGION: process.env.CONNECT_REGION ?? process.env.AWS_REGION ?? 'us-east-1',
+  /** Amazon Connect instance id (UUID) that places the outbound calls. */
+  CONNECT_INSTANCE_ID: process.env.CONNECT_INSTANCE_ID,
+  /**
+   * Contact flow that bridges plaintiff -> attorney, plays the recording
+   * disclosure, and enables recording + Contact Lens. Its ARN/id from the
+   * Connect console.
+   */
+  CONNECT_CONTACT_FLOW_ID: process.env.CONNECT_CONTACT_FLOW_ID,
+  /** Claimed Connect phone number used as the caller id (E.164). */
+  CONNECT_SOURCE_PHONE_NUMBER: process.env.CONNECT_SOURCE_PHONE_NUMBER,
+  /** Optional Connect queue id for outbound. */
+  CONNECT_QUEUE_ID: process.env.CONNECT_QUEUE_ID,
+  /** S3 bucket where Connect writes call recordings + Contact Lens output. */
+  CONNECT_RECORDINGS_BUCKET: process.env.CONNECT_RECORDINGS_BUCKET,
+  /** Fallback transcription language for Amazon Transcribe. */
+  CALL_TRANSCRIBE_LANGUAGE: process.env.CALL_TRANSCRIBE_LANGUAGE ?? 'en-US',
+  /** Master switch to enable the recorded-calls feature in the UI/API. */
+  CALLS_ENABLED: process.env.CALLS_ENABLED !== 'false',
 }

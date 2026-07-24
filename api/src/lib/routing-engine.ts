@@ -397,7 +397,12 @@ export async function runRoutingEngine(
       if (!gateResult.pass) {
         if (!dryRun) {
           if (gateResult.status === 'manual_review') {
-            await placeAssessmentInManualReview(assessmentId, 'routing_gate_review', gateResult.reason)
+            await placeAssessmentInManualReview(
+              assessmentId,
+              gateResult.reviewReason || 'routing_gate_review',
+              gateResult.reason,
+              { fraudScore: gateResult.fraudScore, fraudSignals: gateResult.fraudSignals }
+            )
           } else {
             await prisma.leadSubmission.upsert({
               where: { assessmentId },
