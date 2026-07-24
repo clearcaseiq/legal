@@ -35,7 +35,7 @@ export interface CoachActor {
 }
 
 /** Resolved people a coach task can be routed to for this specific case. */
-interface CaseAssignees {
+export interface CaseAssignees {
   lawFirmId: string | null
   attorneyId: string | null
   attorneyName: string | null
@@ -103,7 +103,7 @@ export async function isCaseRetained(assessmentId: string): Promise<boolean> {
  * paralegal-type teammate from the same firm. Returns nulls when no person can
  * be resolved (caller falls back to role-only assignment).
  */
-async function resolveCaseAssignees(assessmentId: string): Promise<CaseAssignees> {
+export async function resolveCaseAssignees(assessmentId: string): Promise<CaseAssignees> {
   const empty: CaseAssignees = {
     lawFirmId: null,
     attorneyId: null,

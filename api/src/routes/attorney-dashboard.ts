@@ -44,6 +44,7 @@ import { buildCaseIntelligence, type GapAction } from '../lib/case-intelligence'
 import { buildBaselineQuestions, BASELINE_QUESTION_GAP_KEYS } from '../lib/intake-questions'
 import { generateIntelligentQuestions } from '../services/intelligent-questions'
 import { syncCaseCoachTasks } from '../lib/case-coach-loop'
+import { syncQuestionTasks, syncSingleQuestionTask } from '../lib/question-tasks'
 import { narrateCaseCoach } from '../services/case-coach-narrator'
 import {
   resolveHourlyRate,
@@ -8658,6 +8659,14 @@ router.get('/leads/:leadId/intelligence/questions', authMiddleware, async (req: 
         answeredAt: a.updatedAt.toISOString(),
       }))
 
+    // Materialize the stable baseline questions as trackable tasks so they show
+    // up in the cross-case Tasks queue as work assigned to a teammate.
+    void syncQuestionTasks(
+      lead.assessmentId,
+      questions.map((q) => ({ questionKey: q.questionKey, text: q.text, section: q.section, source: q.source, answer: q.answer })),
+      { actor: req.user },
+    )
+
     res.json({ ...result, questions, answeredArchived })
   } catch (error: any) {
     logger.error('Failed to generate intelligent questions', { error: error.message })
@@ -8691,6 +8700,8 @@ router.put('/leads/:leadId/intelligence/questions/answer', authMiddleware, async
       await prisma.caseQuestionAnswer.deleteMany({
         where: { assessmentId: lead.assessmentId, questionKey },
       })
+      // Reopen the backing question task since it's unanswered again.
+      void syncSingleQuestionTask(lead.assessmentId, questionKey, false)
       return res.json({ answer: null })
     }
 
@@ -8714,6 +8725,9 @@ router.put('/leads/:leadId/intelligence/questions/answer', authMiddleware, async
         answeredByName,
       },
     })
+
+    // Complete the backing question task now that it's answered.
+    void syncSingleQuestionTask(lead.assessmentId, questionKey, true)
 
     // Loop: a new answer is "new info" — re-run the coach to assign what's next.
     void syncCaseCoachTasks(lead.assessmentId, {
