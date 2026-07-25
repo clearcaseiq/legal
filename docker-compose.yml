@@ -107,6 +107,11 @@ services:
       # matches how CI builds the image.
       context: .
       dockerfile: app/Dockerfile
+      # Next inlines NEXT_PUBLIC_* at BUILD time, so the production API origin must
+      # be baked in here (the app throws "NEXT_PUBLIC_API_URL is not configured"
+      # otherwise). Override via a NEXT_PUBLIC_API_URL env/.env entry if needed.
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.clearcaseiq.com}
     container_name: injury-intelligence-web
     ports:
       - "3000:3000"
