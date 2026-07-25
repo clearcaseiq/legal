@@ -44,6 +44,8 @@ import { buildCaseIntelligence, type GapAction } from '../lib/case-intelligence'
 import { buildBaselineQuestions, BASELINE_QUESTION_GAP_KEYS } from '../lib/intake-questions'
 import { generateIntelligentQuestions } from '../services/intelligent-questions'
 import { syncCaseCoachTasks, resolveCaseAssignees } from '../lib/case-coach-loop'
+import { isReviewGateEnabled } from '../lib/task-review'
+import { isAiCaseManagerEnabled } from '../lib/ai-case-manager-sweep'
 import { syncQuestionTasks, syncSingleQuestionTask } from '../lib/question-tasks'
 import { narrateCaseCoach } from '../services/case-coach-narrator'
 import {
@@ -3925,6 +3927,171 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
   } catch (error: any) {
     logger.error('Failed to load task summary', { error: error.message })
     res.status(500).json({ error: 'Failed to load tasks' })
+  }
+})
+
+// ---- AI Case Manager -------------------------------------------------------
+// The AI Case Manager works every retained case for the attorney: it runs the
+// self-driving Case Coach loop (task generation, intelligent-question tasks,
+// demand-ready detection) on a background sweep and on demand. These endpoints
+// power the cross-case command center (a read-only overview + a manual "run").
+
+/** Union of the attorney's caseload assessmentIds → { leadId, label metadata }. */
+async function attorneyCaseloadByAssessment(attorneyId: string) {
+  const select = {
+    id: true,
+    assessmentId: true,
+    assessment: {
+      select: {
+        claimType: true,
+        venueState: true,
+        venueCounty: true,
+        user: { select: { firstName: true, lastName: true } },
+      },
+    },
+  } as const
+  const assignedLeads = await prisma.leadSubmission.findMany({
+    where: { assignedAttorneyId: attorneyId },
+    select,
+  })
+  const introAssessments = await prisma.introduction.findMany({
+    where: { attorneyId, status: { notIn: [...TERMINAL_INTRO_STATUSES] } },
+    select: { assessmentId: true },
+  })
+  const introIds = [...new Set(introAssessments.map((i) => i.assessmentId))]
+  const introLeads =
+    introIds.length > 0
+      ? await prisma.leadSubmission.findMany({ where: { assessmentId: { in: introIds } }, select })
+      : []
+
+  const byAssessment = new Map<
+    string,
+    { leadId: string; client: string; claimType: string | null; venue: string | null }
+  >()
+  const add = (l: (typeof assignedLeads)[number]) => {
+    if (byAssessment.has(l.assessmentId)) return
+    const u = l.assessment?.user
+    const client = u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : ''
+    const venue = [l.assessment?.venueCounty, l.assessment?.venueState].filter(Boolean).join(', ')
+    byAssessment.set(l.assessmentId, {
+      leadId: l.id,
+      client: client || 'Client',
+      claimType: l.assessment?.claimType ?? null,
+      venue: venue || null,
+    })
+  }
+  assignedLeads.forEach(add)
+  introLeads.forEach(add)
+  return byAssessment
+}
+
+router.get('/ai-case-manager/overview', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { attorney } = auth
+
+    const byAssessment = await attorneyCaseloadByAssessment(attorney.id)
+    const assessmentIds = [...byAssessment.keys()]
+    const base = { gateEnabled: isReviewGateEnabled(), enabled: isAiCaseManagerEnabled() }
+    if (assessmentIds.length === 0) {
+      return res.json({ ...base, stats: { casesManaged: 0, pendingReview: 0, aiTasksOpen: 0, demandReady: 0 }, cases: [] })
+    }
+
+    const [tasks, demand] = await Promise.all([
+      prisma.caseTask.findMany({
+        where: { assessmentId: { in: assessmentIds }, taskType: { not: 'time_entry' } },
+        select: { assessmentId: true, taskType: true, status: true, reviewStatus: true, createdAt: true },
+      }),
+      prisma.auditLog.findMany({
+        where: { entityType: 'assessment', entityId: { in: assessmentIds }, action: 'case_demand_ready' },
+        select: { entityId: true },
+      }),
+    ])
+    const demandSet = new Set(demand.map((d) => d.entityId))
+
+    const isOpen = (s: string) => s !== 'done' && s !== 'completed'
+    const isAiType = (t: string) => t === 'coach' || t === 'question'
+    type Agg = { pendingReview: number; aiTasksOpen: number; openTasks: number; lastActivity: Date | null }
+    const agg = new Map<string, Agg>()
+    for (const id of assessmentIds) agg.set(id, { pendingReview: 0, aiTasksOpen: 0, openTasks: 0, lastActivity: null })
+    for (const t of tasks) {
+      const a = agg.get(t.assessmentId)
+      if (!a) continue
+      if (t.reviewStatus === 'pending') a.pendingReview += 1
+      if (isOpen(t.status)) {
+        a.openTasks += 1
+        if (isAiType(t.taskType)) a.aiTasksOpen += 1
+      }
+      if (isAiType(t.taskType) && (!a.lastActivity || t.createdAt > a.lastActivity)) a.lastActivity = t.createdAt
+    }
+
+    const cases = assessmentIds
+      .map((id) => {
+        const meta = byAssessment.get(id)!
+        const a = agg.get(id)!
+        return {
+          leadId: meta.leadId,
+          assessmentId: id,
+          client: meta.client,
+          claimType: meta.claimType,
+          venue: meta.venue,
+          pendingReview: a.pendingReview,
+          aiTasksOpen: a.aiTasksOpen,
+          openTasks: a.openTasks,
+          demandReady: demandSet.has(id),
+          lastActivity: a.lastActivity ? a.lastActivity.toISOString() : null,
+        }
+      })
+      // Cases needing attention first: pending review, then demand-ready, then AI activity.
+      .sort(
+        (x, y) =>
+          y.pendingReview - x.pendingReview ||
+          Number(y.demandReady) - Number(x.demandReady) ||
+          y.aiTasksOpen - x.aiTasksOpen,
+      )
+
+    const stats = {
+      casesManaged: assessmentIds.length,
+      pendingReview: cases.reduce((n, c) => n + c.pendingReview, 0),
+      aiTasksOpen: cases.reduce((n, c) => n + c.aiTasksOpen, 0),
+      demandReady: cases.filter((c) => c.demandReady).length,
+    }
+    res.json({ ...base, stats, cases })
+  } catch (error: any) {
+    logger.error('Failed to load AI Case Manager overview', { error: error.message })
+    res.status(500).json({ error: 'Failed to load AI Case Manager overview' })
+  }
+})
+
+// Manually run the AI Case Manager across the attorney's whole caseload now.
+router.post('/ai-case-manager/run', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { attorney } = auth
+
+    const byAssessment = await attorneyCaseloadByAssessment(attorney.id)
+    const assessmentIds = [...byAssessment.keys()]
+
+    // Run in the background so the request returns immediately; sequential with a
+    // small delay to bound load (mirrors the periodic sweep).
+    void (async () => {
+      for (const assessmentId of assessmentIds) {
+        try {
+          await syncCaseCoachTasks(assessmentId, { attorneyId: attorney.id, actor: req.user, trigger: 'manual' })
+        } catch (e: any) {
+          logger.warn('AI Case Manager manual run case failed', { assessmentId, error: e?.message })
+        }
+        await new Promise((r) => setTimeout(r, 50))
+      }
+      logger.info('AI Case Manager manual run completed', { attorneyId: attorney.id, count: assessmentIds.length })
+    })()
+
+    res.json({ ok: true, queued: assessmentIds.length })
+  } catch (error: any) {
+    logger.error('Failed to run AI Case Manager', { error: error.message })
+    res.status(500).json({ error: 'Failed to run AI Case Manager' })
   }
 })
 

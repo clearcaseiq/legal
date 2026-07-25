@@ -1,0 +1,235 @@
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { Bot, Gavel, Loader2, Play, RefreshCw, Sparkles } from 'lucide-react'
+import {
+  getAiCaseManagerOverview,
+  runAiCaseManager,
+  type AiCaseManagerOverview,
+  type AiCaseManagerCase,
+} from '../../lib/api'
+import {
+  Badge,
+  ClientLink,
+  DataTable,
+  EmptyState,
+  FilterStat,
+  PageHeader,
+  SectionCard,
+  StatGrid,
+  type DataTableColumn,
+} from '../shared/ui'
+
+const claimLabel = (s?: string | null) =>
+  (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || 'Case'
+
+function formatWhen(value?: string | null): string {
+  if (!value) return '—'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return '—'
+  const diff = Date.now() - d.getTime()
+  const day = 86_400_000
+  if (diff < day) return 'Today'
+  if (diff < 2 * day) return 'Yesterday'
+  if (diff < 7 * day) return `${Math.floor(diff / day)}d ago`
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+export default function AiCaseManagerPage() {
+  const [data, setData] = useState<AiCaseManagerOverview | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [running, setRunning] = useState(false)
+  const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
+
+  const flash = (tone: 'ok' | 'err', text: string) => {
+    setMsg({ tone, text })
+    window.setTimeout(() => setMsg(null), 5000)
+  }
+
+  const load = async () => {
+    const res = await getAiCaseManagerOverview()
+    setData(res)
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    load()
+      .catch((err) => !cancelled && setError(err?.response?.data?.error || err?.message || 'Failed to load'))
+      .finally(() => !cancelled && setLoading(false))
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const runNow = async () => {
+    setRunning(true)
+    try {
+      const res = await runAiCaseManager()
+      flash('ok', `AI Case Manager is working ${res.queued} case${res.queued === 1 ? '' : 's'}. Refreshing shortly…`)
+      // The run is async on the server; give it a moment then refresh the board.
+      window.setTimeout(() => {
+        load().catch(() => undefined)
+      }, 6000)
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Failed to start the AI Case Manager.')
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  const stats = data?.stats
+  const cases = data?.cases ?? []
+
+  const columns: DataTableColumn<AiCaseManagerCase>[] = [
+    {
+      key: 'client',
+      header: 'Case',
+      cell: (r) => (
+        <div className="min-w-0">
+          <ClientLink name={r.client} leadId={r.leadId} section="tasks" />
+          <div className="text-[11px] text-slate-400">
+            {[claimLabel(r.claimType), r.venue].filter(Boolean).join(' · ')}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'pending',
+      header: 'Pending review',
+      align: 'center',
+      cell: (r) =>
+        r.pendingReview > 0 ? (
+          <Link
+            to={`/attorney-dashboard/lead/${r.leadId}/tasks`}
+            className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200 transition hover:bg-amber-100"
+          >
+            {r.pendingReview} to approve
+          </Link>
+        ) : (
+          <span className="text-slate-300">—</span>
+        ),
+    },
+    {
+      key: 'ai',
+      header: 'AI tasks',
+      align: 'center',
+      cell: (r) =>
+        r.aiTasksOpen > 0 ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700 ring-1 ring-inset ring-violet-200">
+            <Sparkles className="h-3 w-3" /> {r.aiTasksOpen}
+          </span>
+        ) : (
+          <span className="text-slate-300">—</span>
+        ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (r) =>
+        r.demandReady ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
+            <Gavel className="h-3 w-3" /> Demand-ready
+          </span>
+        ) : r.openTasks > 0 ? (
+          <Badge tone="neutral">{r.openTasks} open task{r.openTasks === 1 ? '' : 's'}</Badge>
+        ) : (
+          <span className="text-slate-400 text-xs">On track</span>
+        ),
+    },
+    {
+      key: 'activity',
+      header: 'Last AI activity',
+      align: 'right',
+      cell: (r) => <span className="text-xs text-slate-500">{formatWhen(r.lastActivity)}</span>,
+    },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        title="AI Case Manager"
+        description="Your AI teammate works every retained case automatically — generating the next tasks, turning intelligent questions into work, and flagging cases that are ready for demand. It runs continuously in the background; kick it manually any time."
+        actions={
+          <button
+            onClick={() => void runNow()}
+            disabled={running}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-60"
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            Run on all my cases
+          </button>
+        }
+      />
+
+      {msg ? (
+        <div
+          className={`rounded-xl px-4 py-2.5 text-sm ring-1 ring-inset ${
+            msg.tone === 'ok' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : 'bg-rose-50 text-rose-700 ring-rose-200'
+          }`}
+        >
+          {msg.text}
+        </div>
+      ) : null}
+
+      <div className="flex items-start gap-3 rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-3">
+        <Bot className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
+        <div className="text-sm text-violet-900">
+          <span className="font-semibold">How it works.</span> The AI Case Manager continuously reviews each case's
+          intake and evidence, then creates the highest-value next actions.{' '}
+          {data?.gateEnabled ? (
+            <>
+              New AI tasks are <span className="font-semibold">held for a case manager to approve</span> before they go
+              live (review gate is on).
+            </>
+          ) : (
+            <>AI tasks go live and are assigned automatically (review gate is off).</>
+          )}
+        </div>
+      </div>
+
+      <StatGrid columns={4}>
+        <FilterStat value={stats?.casesManaged ?? 0} label="Cases managed" tone="neutral" hint="Retained/active cases the AI is working." />
+        <FilterStat
+          value={stats?.pendingReview ?? 0}
+          label="Tasks pending review"
+          tone="warning"
+          filled={(stats?.pendingReview ?? 0) > 0}
+          hint="AI-generated tasks waiting for a case manager to approve."
+        />
+        <FilterStat value={stats?.aiTasksOpen ?? 0} label="AI tasks in flight" tone="info" hint="Open tasks the AI created across your caseload." />
+        <FilterStat
+          value={stats?.demandReady ?? 0}
+          label="Demand-ready"
+          tone="success"
+          filled={(stats?.demandReady ?? 0) > 0}
+          hint="Cases with strong documentation and no critical gaps."
+        />
+      </StatGrid>
+
+      <SectionCard
+        title="Caseload"
+        trailing={
+          <button
+            onClick={() => void load()}
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+          </button>
+        }
+      >
+        {loading ? (
+          <div className="flex items-center justify-center py-16 text-slate-400">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading caseload…
+          </div>
+        ) : error ? (
+          <div className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-rose-200">{error}</div>
+        ) : cases.length === 0 ? (
+          <EmptyState message="No retained cases yet. Once you accept or are assigned a case, the AI Case Manager starts working it automatically." />
+        ) : (
+          <DataTable columns={columns} rows={cases} rowKey={(r) => r.assessmentId} />
+        )}
+      </SectionCard>
+    </div>
+  )
+}

@@ -1674,6 +1674,38 @@ export async function getAttorneyTaskSummary() {
   return data
 }
 
+// ---- AI Case Manager --------------------------------------------------------
+
+export interface AiCaseManagerCase {
+  leadId: string
+  assessmentId: string
+  client: string
+  claimType?: string | null
+  venue?: string | null
+  pendingReview: number
+  aiTasksOpen: number
+  openTasks: number
+  demandReady: boolean
+  lastActivity?: string | null
+}
+
+export interface AiCaseManagerOverview {
+  gateEnabled: boolean
+  enabled: boolean
+  stats: { casesManaged: number; pendingReview: number; aiTasksOpen: number; demandReady: number }
+  cases: AiCaseManagerCase[]
+}
+
+export async function getAiCaseManagerOverview() {
+  const { data } = await api.get(`/v1/attorney-dashboard/ai-case-manager/overview`)
+  return data as AiCaseManagerOverview
+}
+
+export async function runAiCaseManager() {
+  const { data } = await api.post(`/v1/attorney-dashboard/ai-case-manager/run`)
+  return data as { ok: boolean; queued: number }
+}
+
 export interface CalendarConsultEvent {
   id: string
   leadId?: string | null

@@ -57,6 +57,7 @@ const CaseDeadlinesPage = lazy(() => import('./features/casework/DeadlinesPage')
 const CaseContactsPage = lazy(() => import('./features/casework/ContactsPage'))
 const CaseBillingPage = lazy(() => import('./features/casework/BillingPage'))
 const CaseCopilotPage = lazy(() => import('./features/casework/CopilotPage'))
+const AiCaseManagerPage = lazy(() => import('./features/casework/AiCaseManagerPage'))
 const AddContactPage = lazy(() => import('./pages/AddContactPage'))
 const ContactsPage = lazy(() => import('./pages/ContactsPage'))
 const CaseDocumentsPage = lazy(() => import('./pages/CaseDocumentsPage'))
@@ -455,6 +456,7 @@ function App() {
                 <Route path="/attorney-dashboard/cases/contacts" element={<CaseContactsPage />} />
                 <Route path="/attorney-dashboard/cases/billing" element={<CaseBillingPage />} />
                 <Route path="/attorney-dashboard/cases/copilot" element={<CaseCopilotPage />} />
+                <Route path="/attorney-dashboard/cases/ai-manager" element={<AiCaseManagerPage />} />
                 <Route path="/attorney-dashboard/cases/firm" element={<FirmDashboard />} />
                 {/* Single-case workspace (canonical + plan alias) */}
                 <Route path="/attorney-dashboard/lead/:leadId/:section" element={<CaseWorkspacePage />} />

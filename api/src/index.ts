@@ -11,6 +11,7 @@ import { runIntakeAbandonmentSweep } from './lib/intake-abandonment'
 import { runRoutingEscalationSweep } from './lib/routing-escalation-sweep'
 import { runOfferExpirySweep } from './lib/offer-expiry-sweep'
 import { runCaseReminderSweep } from './lib/case-reminder-sweep'
+import { runAiCaseManagerSweep, isAiCaseManagerEnabled } from './lib/ai-case-manager-sweep'
 import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggregates'
 
 const app = buildApp()
@@ -22,6 +23,7 @@ let intakeAbandonmentTimer: NodeJS.Timeout | null = null
 let routingEscalationTimer: NodeJS.Timeout | null = null
 let offerExpiryTimer: NodeJS.Timeout | null = null
 let caseReminderTimer: NodeJS.Timeout | null = null
+let aiCaseManagerTimer: NodeJS.Timeout | null = null
 
 async function runCalendarWebhookRenewalSweep(trigger: 'startup' | 'interval') {
   try {
@@ -183,6 +185,32 @@ function startCaseReminderLoop() {
   }, intervalMs)
 }
 
+async function runAiCaseManagerLoop(trigger: 'startup' | 'interval') {
+  try {
+    const result = await runAiCaseManagerSweep()
+    if (result.processed > 0 || trigger === 'startup') {
+      logger.info('AI Case Manager sweep completed', { trigger, ...result })
+    }
+  } catch (error) {
+    logger.error('AI Case Manager sweep failed', { error, trigger })
+  }
+}
+
+function startAiCaseManagerLoop() {
+  if (!isAiCaseManagerEnabled()) {
+    logger.info('AI Case Manager loop disabled')
+    return
+  }
+  // Proactive re-run cadence for the whole caseload. Event triggers still handle
+  // immediate reactions; this catches cases with no recent activity.
+  const raw = Number(process.env.AI_CASE_MANAGER_SWEEP_INTERVAL_MS)
+  const intervalMs = Number.isFinite(raw) && raw >= 60_000 ? raw : 30 * 60 * 1000
+  void runAiCaseManagerLoop('startup')
+  aiCaseManagerTimer = setInterval(() => {
+    void runAiCaseManagerLoop('interval')
+  }, intervalMs)
+}
+
 const server = app.listen(ENV.PORT, ENV.HOST, () => {
   logger.info(`API server listening on http://${ENV.HOST}:${ENV.PORT}`)
   // Heal any stale attorney rating aggregates left by reviews created before
@@ -195,6 +223,7 @@ const server = app.listen(ENV.PORT, ENV.HOST, () => {
   startRoutingEscalationLoop()
   startOfferExpiryLoop()
   startCaseReminderLoop()
+  startAiCaseManagerLoop()
 })
 
 function stopBackgroundLoops() {
@@ -205,6 +234,7 @@ function stopBackgroundLoops() {
   if (routingEscalationTimer) clearInterval(routingEscalationTimer)
   if (offerExpiryTimer) clearInterval(offerExpiryTimer)
   if (caseReminderTimer) clearInterval(caseReminderTimer)
+  if (aiCaseManagerTimer) clearInterval(aiCaseManagerTimer)
   calendarWebhookRenewalTimer = null
   appointmentEngagementTimer = null
   notificationRetryTimer = null
@@ -212,6 +242,7 @@ function stopBackgroundLoops() {
   routingEscalationTimer = null
   offerExpiryTimer = null
   caseReminderTimer = null
+  aiCaseManagerTimer = null
 }
 
 function closeHttpServer() {
