@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Activity,
   AlertTriangle,
+  BadgeCheck,
   CalendarClock,
   CalendarPlus,
   Check,
@@ -38,6 +39,7 @@ import {
   Search,
   Send,
   Shield,
+  ShieldAlert,
   Sparkles,
   Stethoscope,
   Trash2,
@@ -69,6 +71,7 @@ import {
   editCaseWorkflowStep,
   nudgeDocumentRequest,
   updateLeadTask,
+  approveLeadTask,
   uploadLeadEvidenceOnBehalf,
   type AttorneyDocumentRequest,
   type CaseCommandCenter,
@@ -296,6 +299,7 @@ interface TaskRow {
   dueDate?: string | null
   reminderAt?: string | null
   status?: string | null
+  reviewStatus?: string | null
   priority?: string | null
   taskType?: string | null
   notes?: string | null
@@ -3579,6 +3583,19 @@ function TasksPanel({
     }
   }
 
+  const approve = async (t: TaskRow) => {
+    setBusy(t.id)
+    try {
+      await approveLeadTask(leadId, t.id)
+      flash('ok', 'Task approved — it is now live and assigned.')
+      await load()
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Failed to approve task.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const generate = async () => {
     setBusy('generate')
     try {
@@ -3669,6 +3686,14 @@ function TasksPanel({
                 {chip.label}
               </span>
             ) : null}
+            {t.reviewStatus === 'pending' ? (
+              <span
+                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200"
+                title="Awaiting case-manager review — approve to assign it and make it live"
+              >
+                <ShieldAlert className="h-3 w-3" /> Pending review
+              </span>
+            ) : null}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
             {!taskDone ? (
@@ -3682,10 +3707,20 @@ function TasksPanel({
           </div>
           {t.notes ? <p className="mt-1 text-xs leading-relaxed text-slate-500">{t.notes}</p> : null}
         </div>
-        <div className="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100">
+        <div className="flex shrink-0 items-center gap-1">
+          {t.reviewStatus === 'pending' ? (
+            <button
+              onClick={() => void approve(t)}
+              disabled={rowBusy}
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+              title="Approve — assign it and make it live"
+            >
+              <BadgeCheck className="h-3.5 w-3.5" /> Approve
+            </button>
+          ) : null}
           <button
             onClick={() => setDetailTaskId(t.id)}
-            className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 opacity-0 transition hover:bg-slate-100 hover:text-slate-700 group-hover:opacity-100"
             aria-label="Open task details"
             title="Open details"
           >
@@ -3694,9 +3729,9 @@ function TasksPanel({
           <button
             onClick={() => remove(t)}
             disabled={rowBusy}
-            className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
-            aria-label="Delete task"
-            title="Delete"
+            className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 group-hover:opacity-100"
+            aria-label={t.reviewStatus === 'pending' ? 'Reject task' : 'Delete task'}
+            title={t.reviewStatus === 'pending' ? 'Reject' : 'Delete'}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>

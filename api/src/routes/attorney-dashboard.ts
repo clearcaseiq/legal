@@ -43,7 +43,7 @@ import { applyFirmWorkflowToCase, serializeCaseWorkflow } from '../lib/case-work
 import { buildCaseIntelligence, type GapAction } from '../lib/case-intelligence'
 import { buildBaselineQuestions, BASELINE_QUESTION_GAP_KEYS } from '../lib/intake-questions'
 import { generateIntelligentQuestions } from '../services/intelligent-questions'
-import { syncCaseCoachTasks } from '../lib/case-coach-loop'
+import { syncCaseCoachTasks, resolveCaseAssignees } from '../lib/case-coach-loop'
 import { syncQuestionTasks, syncSingleQuestionTask } from '../lib/question-tasks'
 import { narrateCaseCoach } from '../services/case-coach-narrator'
 import {
@@ -911,6 +911,9 @@ const caseTaskSelect = {
   assignedTo: true,
   assignedUserId: true,
   status: true,
+  reviewStatus: true,
+  reviewedByName: true,
+  reviewedAt: true,
   priority: true,
   notes: true,
   subtasks: true,
@@ -3870,6 +3873,7 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
       dueDate: string | null
       completedAt: string | null
       status: string
+      reviewStatus: string | null
       priority: string
       taskType: string
       assessmentId: string
@@ -3886,6 +3890,7 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
         dueDate: t.dueDate ? t.dueDate.toISOString() : null,
         completedAt: t.completedAt ? t.completedAt.toISOString() : null,
         status: t.status,
+        reviewStatus: (t as any).reviewStatus ?? null,
         priority: t.priority,
         taskType: t.taskType,
         assessmentId: t.assessmentId,
@@ -9951,6 +9956,110 @@ router.delete('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) 
   } catch (error: any) {
     logger.error('Failed to delete case task', { error: error.message })
     res.status(500).json({ error: 'Failed to delete case task' })
+  }
+})
+
+// Approve one AI-generated task pending review: assigns it to a real person and
+// flips it live. Assignment mirrors the coach/question routing (paralegal →
+// attorney → task creator fallback).
+async function approvePendingTask(
+  task: { id: string; assessmentId: string; assignedRole: string | null; createdById: string | null; createdByName: string | null },
+  reqUser: any,
+) {
+  const assignees = await resolveCaseAssignees(task.assessmentId).catch(() => null)
+  const role = task.assignedRole || 'attorney'
+  let assignedUserId =
+    role === 'paralegal'
+      ? assignees?.paralegalUserId || assignees?.attorneyUserId || null
+      : assignees?.attorneyUserId || null
+  let assignedTo =
+    role === 'paralegal'
+      ? assignees?.paralegalName || assignees?.attorneyName || null
+      : assignees?.attorneyName || null
+  if (!assignedUserId && task.createdById) {
+    assignedUserId = task.createdById
+    assignedTo = task.createdByName || assignedTo
+  }
+  const reviewerName = `${reqUser?.firstName || ''} ${reqUser?.lastName || ''}`.trim() || reqUser?.email || null
+  return prisma.caseTask.update({
+    where: { id: task.id },
+    data: {
+      reviewStatus: 'approved',
+      reviewedById: reqUser?.id || null,
+      reviewedByName: reviewerName,
+      reviewedAt: new Date(),
+      assignedUserId,
+      assignedTo,
+      assignedRole: role,
+    },
+    select: caseTaskSelect,
+  })
+}
+
+router.post('/leads/:leadId/tasks/:id/approve', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, id } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const task = await prisma.caseTask.findUnique({
+      where: { id },
+      select: { id: true, assessmentId: true, reviewStatus: true, assignedRole: true, createdById: true, createdByName: true },
+    })
+    if (!task || task.assessmentId !== auth.lead.assessmentId) {
+      return res.status(404).json({ error: 'Task not found' })
+    }
+    if (task.reviewStatus !== 'pending') {
+      return res.status(400).json({ error: 'Task is not pending review' })
+    }
+    const record = await approvePendingTask(task, req.user)
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: auth.attorney.id,
+      action: 'task_review_approved',
+      entityType: 'case_task',
+      entityId: id,
+      metadata: { assignee: record.assignedTo || 'Unassigned' },
+    })
+    res.json(record)
+  } catch (error: any) {
+    logger.error('Failed to approve case task', { error: error.message })
+    res.status(500).json({ error: 'Failed to approve case task' })
+  }
+})
+
+// Approve every pending AI task on a case in one action.
+router.post('/leads/:leadId/tasks/approve-all', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const pending = await prisma.caseTask.findMany({
+      where: { assessmentId: auth.lead.assessmentId, reviewStatus: 'pending' },
+      select: { id: true, assessmentId: true, assignedRole: true, createdById: true, createdByName: true },
+    })
+    let approved = 0
+    for (const task of pending) {
+      await approvePendingTask(task, req.user).catch(() => undefined)
+      approved += 1
+    }
+    if (approved > 0) {
+      await writeAutomationAudit({
+        userId: req.user?.id,
+        attorneyId: auth.attorney.id,
+        action: 'task_review_approved_bulk',
+        entityType: 'assessment',
+        entityId: auth.lead.assessmentId,
+        metadata: { approved },
+      })
+    }
+    res.json({ ok: true, approved })
+  } catch (error: any) {
+    logger.error('Failed to bulk-approve case tasks', { error: error.message })
+    res.status(500).json({ error: 'Failed to approve case tasks' })
   }
 })
 

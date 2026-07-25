@@ -338,6 +338,12 @@ model CaseTask {
   assignedUserId       String?
   assignedUser         User?      @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
   status               String     @default("open") // open, done
+  // AI-task human-in-the-loop review gate: null = not gated (live), 'pending' =
+  // awaiting case-manager review, 'approved' = reviewed and live.
+  reviewStatus         String?
+  reviewedById         String?
+  reviewedByName       String?
+  reviewedAt           DateTime?
   priority             String     @default("medium") // low, medium, high
   notes                String?
   // JSON array of checklist items: [{ id, title, done }]

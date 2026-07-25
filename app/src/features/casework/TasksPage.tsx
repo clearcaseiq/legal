@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Circle, HelpCircle, ListChecks, Loader2, Plus, Sparkles, Trash2, X } from 'lucide-react'
+import { BadgeCheck, CheckCircle2, Circle, HelpCircle, ListChecks, Loader2, Plus, ShieldAlert, Sparkles, Trash2, X } from 'lucide-react'
 import {
   getAttorneyTaskSummary,
   getAttorneyDashboard,
   createLeadTask,
   updateLeadTask,
   deleteLeadTask,
+  approveLeadTask,
   getMyWorkflowTasks,
   type MyWorkflowTask,
 } from '../../lib/api'
@@ -29,6 +30,7 @@ interface TaskRow {
   dueDate?: string | null
   completedAt?: string | null
   status?: string | null
+  reviewStatus?: string | null
   priority?: string | null
   taskType?: string | null
   assessmentId?: string | null
@@ -175,6 +177,18 @@ function TaskOriginBadge({ taskType }: { taskType?: string | null }) {
   return null
 }
 
+/** Flags an AI task held for case-manager review before it goes live. */
+function PendingReviewBadge() {
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700 ring-1 ring-amber-200"
+      title="Awaiting case-manager review — approve to assign it and make it live"
+    >
+      <ShieldAlert className="h-3 w-3" /> Pending review
+    </span>
+  )
+}
+
 function formatDue(value?: string | null) {
   if (!value) return '—'
   const d = new Date(value)
@@ -316,6 +330,23 @@ export default function TasksPage() {
     }
   }
 
+  const approveTask = async (row: TaskRow) => {
+    if (!row.leadId) {
+      flash('err', 'Cannot approve this task — missing case reference.')
+      return
+    }
+    setBusyId(row.id)
+    try {
+      await approveLeadTask(row.leadId, row.id)
+      await loadTasks()
+      flash('ok', 'Task approved — it is now live and assigned.')
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Failed to approve task.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const removeTask = (row: TaskRow) => {
     if (!row.leadId) {
       flash('err', 'Cannot delete this task — missing case reference.')
@@ -426,11 +457,13 @@ export default function TasksPage() {
               {r.title}
             </button>
             <TaskOriginBadge taskType={r.taskType} />
+            {r.reviewStatus === 'pending' && <PendingReviewBadge />}
           </span>
         ) : (
           <span className="inline-flex items-center gap-2">
             <span className={viewingCompleted ? 'font-medium text-slate-500 line-through' : 'font-medium text-slate-800'}>{r.title}</span>
             <TaskOriginBadge taskType={r.taskType} />
+            {r.reviewStatus === 'pending' && <PendingReviewBadge />}
           </span>
         ),
     },
@@ -455,18 +488,30 @@ export default function TasksPage() {
       key: 'actions',
       header: '',
       align: 'right',
-      cellClassName: 'w-10',
+      cellClassName: 'w-24',
       cell: (r) =>
         r.source === 'workflow' ? null : (
-          <button
-            onClick={() => removeTask(r)}
-            disabled={busyId === r.id}
-            className="text-slate-300 transition hover:text-rose-600 disabled:opacity-50"
-            title="Delete task"
-            aria-label="Delete task"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          <div className="flex items-center justify-end gap-1.5">
+            {r.reviewStatus === 'pending' && r.leadId ? (
+              <button
+                onClick={() => void approveTask(r)}
+                disabled={busyId === r.id}
+                className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                title="Approve — assign it and make it live"
+              >
+                <BadgeCheck className="h-3.5 w-3.5" /> Approve
+              </button>
+            ) : null}
+            <button
+              onClick={() => removeTask(r)}
+              disabled={busyId === r.id}
+              className="text-slate-300 transition hover:text-rose-600 disabled:opacity-50"
+              title={r.reviewStatus === 'pending' ? 'Reject task' : 'Delete task'}
+              aria-label={r.reviewStatus === 'pending' ? 'Reject task' : 'Delete task'}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
         ),
     },
   ]

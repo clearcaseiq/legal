@@ -16,6 +16,7 @@ import { logger } from './logger'
 import { isCaseRetained, resolveCaseAssignees } from './case-coach-loop'
 import { buildCaseIntelligence } from './case-intelligence'
 import { buildBaselineQuestions } from './intake-questions'
+import { isReviewGateEnabled, notifyTaskReviewers } from './task-review'
 
 export const QUESTION_TASK_TYPE = 'question'
 const MAX_QUESTION_TASKS = 12
@@ -47,13 +48,18 @@ function isMaterializable(q: QuestionForTask): boolean {
 export async function syncQuestionTasks(
   assessmentId: string,
   questions: QuestionForTask[],
-  opts?: { actor?: { id?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null } | null; requireRetained?: boolean },
-): Promise<void> {
+  opts?: {
+    actor?: { id?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null } | null
+    requireRetained?: boolean
+    /** When true, don't send the reviewer notification here (caller aggregates). */
+    deferNotify?: boolean
+  },
+): Promise<string[]> {
   const materializable = (questions || []).filter(isMaterializable).slice(0, MAX_QUESTION_TASKS)
-  if (materializable.length === 0) return
+  if (materializable.length === 0) return []
 
   const requireRetained = opts?.requireRetained !== false
-  if (requireRetained && !(await isCaseRetained(assessmentId))) return
+  if (requireRetained && !(await isCaseRetained(assessmentId))) return []
 
   const existing = await prisma.caseTask
     .findMany({
@@ -77,6 +83,11 @@ export async function syncQuestionTasks(
     assignedUserId = opts.actor.id
     assignedTo = createdByName
   }
+
+  // Human-in-the-loop gate: hold new question tasks unassigned as 'pending'
+  // review until a case manager approves them.
+  const gate = isReviewGateEnabled()
+  const pending: string[] = []
 
   let created = 0
   let completed = 0
@@ -105,17 +116,19 @@ export async function syncQuestionTasks(
       continue
     }
 
+    const qTitle = questionTaskTitle(q.text)
     await prisma.caseTask
       .create({
         data: {
           assessmentId,
-          title: questionTaskTitle(q.text),
+          title: qTitle,
           taskType: QUESTION_TASK_TYPE,
           status: 'open',
+          reviewStatus: gate ? 'pending' : null,
           priority: 'medium',
           assignedRole,
-          assignedUserId,
-          assignedTo,
+          assignedUserId: gate ? null : assignedUserId,
+          assignedTo: gate ? null : assignedTo,
           sourceTemplateStepId: key,
           notes: `Intelligent Question${q.section ? ` (${q.section})` : ''}. Capture the answer in the case's Intelligent Questions panel.`,
           createdById: opts?.actor?.id || null,
@@ -125,11 +138,38 @@ export async function syncQuestionTasks(
       })
       .catch((e: any) => logger.warn('Question task create failed', { assessmentId, key, error: e?.message }))
     created += 1
+    if (gate) pending.push(qTitle)
   }
 
   if (created > 0 || completed > 0) {
     logger.info('Synced Intelligent Question tasks', { assessmentId, created, completed })
   }
+
+  // Announce to reviewers unless the caller is aggregating (coach loop).
+  if (gate && pending.length > 0 && !opts?.deferNotify) {
+    const label = await caseLabelFor(assessmentId)
+    await notifyTaskReviewers({
+      assessmentId,
+      lawFirmId: assignees?.lawFirmId ?? null,
+      taskTitles: pending,
+      caseLabel: label,
+      actor: opts?.actor,
+    }).catch((e: any) => logger.warn('Reviewer notify failed', { assessmentId, error: e?.message }))
+  }
+
+  return pending
+}
+
+async function caseLabelFor(assessmentId: string): Promise<string | null> {
+  const a = await prisma.assessment
+    .findUnique({
+      where: { id: assessmentId },
+      select: { claimType: true, user: { select: { firstName: true, lastName: true } } },
+    })
+    .catch(() => null)
+  if (!a) return null
+  const name = [a.user?.firstName, a.user?.lastName].filter(Boolean).join(' ').trim()
+  return name || a.claimType || null
 }
 
 /**
@@ -140,12 +180,16 @@ export async function syncQuestionTasks(
  */
 export async function syncBaselineQuestionTasks(
   assessmentId: string,
-  opts?: { actor?: { id?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null } | null; requireRetained?: boolean },
-): Promise<void> {
+  opts?: {
+    actor?: { id?: string | null; firstName?: string | null; lastName?: string | null; email?: string | null } | null
+    requireRetained?: boolean
+    deferNotify?: boolean
+  },
+): Promise<string[]> {
   const intel = await buildCaseIntelligence(assessmentId).catch(() => null)
-  if (!intel) return
+  if (!intel) return []
   const baseline = buildBaselineQuestions(intel)
-  if (baseline.length === 0) return
+  if (baseline.length === 0) return []
 
   const saved = await prisma.caseQuestionAnswer
     .findMany({ where: { assessmentId }, select: { questionKey: true, answer: true } })
@@ -159,7 +203,7 @@ export async function syncBaselineQuestionTasks(
     return { questionKey, text: q.text, section: q.section, source: 'baseline', answer: answerByKey.get(questionKey) ?? null }
   })
 
-  await syncQuestionTasks(assessmentId, questions, opts)
+  return syncQuestionTasks(assessmentId, questions, opts)
 }
 
 /** Complete/reopen the single question-task behind a stable questionKey. */

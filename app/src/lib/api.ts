@@ -2488,6 +2488,18 @@ export async function createLeadSolTask(leadId: string) {
   return data
 }
 
+// Approve an AI-generated task that is pending case-manager review (assigns it
+// and flips it live).
+export async function approveLeadTask(leadId: string, taskId: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/tasks/${taskId}/approve`)
+  return data
+}
+
+export async function approveAllLeadTasks(leadId: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/tasks/approve-all`)
+  return data as { ok: boolean; approved: number }
+}
+
 // ---- Task detail view (MyCase-style modal) ----------------------------------
 
 export interface TaskSubtask {
@@ -2511,6 +2523,7 @@ export interface TaskDetail {
   dueDate?: string | null
   reminderAt?: string | null
   status?: string | null
+  reviewStatus?: string | null
   priority?: string | null
   notes?: string | null
   subtasks: TaskSubtask[]
