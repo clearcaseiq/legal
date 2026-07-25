@@ -110,6 +110,11 @@ export function createServer(): Express {
   const isDevLocalhost = (o: string) =>
     !o || devOrigins.includes(o) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o)
   const productionAllowedOrigins = isProduction ? getAllowedProductionOrigins() : []
+  // Origins explicitly configured via CORS_ORIGINS/WEB_URL are always honored,
+  // regardless of NODE_ENV. This lets a self-hosted web app on a real domain
+  // (e.g. https://www.clearcaseiq.com) reach an API running in "development"
+  // mode without being blocked as a non-localhost origin.
+  const configuredOrigins = parseCommaSeparatedEnv(process.env.CORS_ORIGINS || process.env.WEB_URL)
 
   app.use(cors({
     origin: (origin, callback) => {
@@ -118,7 +123,7 @@ export function createServer(): Express {
       }
 
       if (!origin) return callback(null, true)
-      return callback(null, isDevLocalhost(origin))
+      return callback(null, isDevLocalhost(origin) || configuredOrigins.includes(origin))
     },
     credentials: true
   }))
