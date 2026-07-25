@@ -100,8 +100,13 @@ services:
   # required. For local hot-reload, run `pnpm dev` in ./app directly instead.
   web:
     build:
-      context: ./app
-      dockerfile: Dockerfile
+      # app/Dockerfile is a workspace-aware build: it COPYs from the repo root
+      # (root package.json/lockfile, api/package.json, app/, and shared/). The
+      # build context must therefore be the repo root, not ./app, or the COPY of
+      # shared/ (and the root manifests) fails with "/shared: not found". This
+      # matches how CI builds the image.
+      context: .
+      dockerfile: app/Dockerfile
     container_name: injury-intelligence-web
     ports:
       - "3000:3000"
