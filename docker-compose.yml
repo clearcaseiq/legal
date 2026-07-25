@@ -90,6 +90,14 @@ services:
       - injury-network
 
   # Web Frontend
+  #
+  # Runs the production standalone build baked by app/Dockerfile (node app/server.js).
+  # We intentionally do NOT mount ./app or an empty node_modules volume here: the
+  # Dockerfile produces a lean standalone bundle (to stay under the disk limit that
+  # previously caused ENOSPC), so a dev-mode `pnpm dev` over a mounted source would
+  # fail with "next: not found". The frontend talks to the API same-origin through
+  # nginx (getApiOrigin() returns '' in production), so NEXT_PUBLIC_API_URL is not
+  # required. For local hot-reload, run `pnpm dev` in ./app directly instead.
   web:
     build:
       context: ./app
@@ -98,11 +106,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:4000
-    volumes:
-      - ./app:/app
-      - /app/node_modules
-    command: pnpm dev -- --hostname 0.0.0.0 --port 3000
+      NODE_ENV: production
     networks:
       - injury-network
 
