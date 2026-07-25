@@ -1686,6 +1686,7 @@ export interface AiCaseManagerCase {
   aiTasksOpen: number
   openTasks: number
   demandReady: boolean
+  topAction?: { title: string; priority: string; type: string } | null
   lastActivity?: string | null
 }
 
@@ -1704,6 +1705,11 @@ export async function getAiCaseManagerOverview() {
 export async function runAiCaseManager() {
   const { data } = await api.post(`/v1/attorney-dashboard/ai-case-manager/run`)
   return data as { ok: boolean; queued: number }
+}
+
+export async function approveAllAiCaseManager() {
+  const { data } = await api.post(`/v1/attorney-dashboard/ai-case-manager/approve-all`)
+  return data as { ok: boolean; approved: number }
 }
 
 export interface CalendarConsultEvent {

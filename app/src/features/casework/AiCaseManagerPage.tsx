@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Bot, Gavel, Loader2, Play, RefreshCw, Sparkles } from 'lucide-react'
+import { BadgeCheck, Bot, Gavel, HelpCircle, Loader2, Play, RefreshCw, Sparkles } from 'lucide-react'
 import {
   getAiCaseManagerOverview,
   runAiCaseManager,
+  approveAllAiCaseManager,
+  approveAllLeadTasks,
   type AiCaseManagerOverview,
   type AiCaseManagerCase,
 } from '../../lib/api'
@@ -22,6 +24,13 @@ import {
 const claimLabel = (s?: string | null) =>
   (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || 'Case'
 
+const priorityDot = (p?: string | null) => {
+  const v = (p || '').toLowerCase()
+  if (v === 'high' || v === 'urgent') return 'bg-rose-500'
+  if (v === 'medium') return 'bg-amber-500'
+  return 'bg-slate-400'
+}
+
 function formatWhen(value?: string | null): string {
   if (!value) return '—'
   const d = new Date(value)
@@ -39,6 +48,8 @@ export default function AiCaseManagerPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
+  const [approvingAll, setApprovingAll] = useState(false)
+  const [approvingId, setApprovingId] = useState<string | null>(null)
   const [msg, setMsg] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
 
   const flash = (tone: 'ok' | 'err', text: string) => {
@@ -78,6 +89,32 @@ export default function AiCaseManagerPage() {
     }
   }
 
+  const approveAll = async () => {
+    setApprovingAll(true)
+    try {
+      const res = await approveAllAiCaseManager()
+      flash('ok', `Approved ${res.approved} task${res.approved === 1 ? '' : 's'} across your caseload.`)
+      await load()
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Failed to approve tasks.')
+    } finally {
+      setApprovingAll(false)
+    }
+  }
+
+  const approveCase = async (c: AiCaseManagerCase) => {
+    setApprovingId(c.assessmentId)
+    try {
+      const res = await approveAllLeadTasks(c.leadId)
+      flash('ok', `Approved ${res.approved} task${res.approved === 1 ? '' : 's'} for ${c.client}.`)
+      await load()
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Failed to approve tasks.')
+    } finally {
+      setApprovingId(null)
+    }
+  }
+
   const stats = data?.stats
   const cases = data?.cases ?? []
 
@@ -95,17 +132,48 @@ export default function AiCaseManagerPage() {
       ),
     },
     {
+      key: 'nextAction',
+      header: '#1 next action',
+      cell: (r) =>
+        r.topAction ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${priorityDot(r.topAction.priority)}`} />
+            {r.topAction.type === 'question' ? (
+              <HelpCircle className="h-3.5 w-3.5 shrink-0 text-sky-500" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+            )}
+            <Link
+              to={`/attorney-dashboard/lead/${r.leadId}/tasks`}
+              className="max-w-[22rem] truncate text-slate-700 hover:text-brand-700 hover:underline"
+              title={r.topAction.title}
+            >
+              {r.topAction.title}
+            </Link>
+          </span>
+        ) : (
+          <span className="text-slate-400 text-xs">Nothing queued</span>
+        ),
+    },
+    {
       key: 'pending',
       header: 'Pending review',
       align: 'center',
       cell: (r) =>
         r.pendingReview > 0 ? (
-          <Link
-            to={`/attorney-dashboard/lead/${r.leadId}/tasks`}
-            className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200 transition hover:bg-amber-100"
+          <button
+            onClick={() => void approveCase(r)}
+            disabled={approvingId === r.assessmentId}
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+            title="Approve this case's pending AI tasks"
           >
-            {r.pendingReview} to approve
-          </Link>
+            {approvingId === r.assessmentId ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <BadgeCheck className="h-3 w-3" />
+            )}
+            Approve {r.pendingReview}
+          </button>
         ) : (
           <span className="text-slate-300">—</span>
         ),
@@ -151,14 +219,26 @@ export default function AiCaseManagerPage() {
         title="AI Case Manager"
         description="Your AI teammate works every retained case automatically — generating the next tasks, turning intelligent questions into work, and flagging cases that are ready for demand. It runs continuously in the background; kick it manually any time."
         actions={
-          <button
-            onClick={() => void runNow()}
-            disabled={running}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-60"
-          >
-            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            Run on all my cases
-          </button>
+          <>
+            {(stats?.pendingReview ?? 0) > 0 ? (
+              <button
+                onClick={() => void approveAll()}
+                disabled={approvingAll}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100 disabled:opacity-60"
+              >
+                {approvingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}
+                Approve all pending ({stats?.pendingReview})
+              </button>
+            ) : null}
+            <button
+              onClick={() => void runNow()}
+              disabled={running}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-60"
+            >
+              {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              Run on all my cases
+            </button>
+          </>
         }
       />
 

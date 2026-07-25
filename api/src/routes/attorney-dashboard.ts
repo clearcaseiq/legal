@@ -4001,7 +4001,7 @@ router.get('/ai-case-manager/overview', authMiddleware, async (req: any, res) =>
     const [tasks, demand] = await Promise.all([
       prisma.caseTask.findMany({
         where: { assessmentId: { in: assessmentIds }, taskType: { not: 'time_entry' } },
-        select: { assessmentId: true, taskType: true, status: true, reviewStatus: true, createdAt: true },
+        select: { assessmentId: true, taskType: true, status: true, reviewStatus: true, priority: true, title: true, createdAt: true },
       }),
       prisma.auditLog.findMany({
         where: { entityType: 'assessment', entityId: { in: assessmentIds }, action: 'case_demand_ready' },
@@ -4012,16 +4012,27 @@ router.get('/ai-case-manager/overview', authMiddleware, async (req: any, res) =>
 
     const isOpen = (s: string) => s !== 'done' && s !== 'completed'
     const isAiType = (t: string) => t === 'coach' || t === 'question'
-    type Agg = { pendingReview: number; aiTasksOpen: number; openTasks: number; lastActivity: Date | null }
+    const priorityRank = (p: string) => (p === 'high' || p === 'urgent' ? 0 : p === 'medium' ? 1 : 2)
+    type TopAction = { title: string; priority: string; type: string } | null
+    type Agg = { pendingReview: number; aiTasksOpen: number; openTasks: number; lastActivity: Date | null; top: TopAction }
     const agg = new Map<string, Agg>()
-    for (const id of assessmentIds) agg.set(id, { pendingReview: 0, aiTasksOpen: 0, openTasks: 0, lastActivity: null })
+    for (const id of assessmentIds) agg.set(id, { pendingReview: 0, aiTasksOpen: 0, openTasks: 0, lastActivity: null, top: null })
     for (const t of tasks) {
       const a = agg.get(t.assessmentId)
       if (!a) continue
       if (t.reviewStatus === 'pending') a.pendingReview += 1
       if (isOpen(t.status)) {
         a.openTasks += 1
-        if (isAiType(t.taskType)) a.aiTasksOpen += 1
+        if (isAiType(t.taskType)) {
+          a.aiTasksOpen += 1
+          // #1 next action = highest-priority open AI task; coach beats question
+          // at equal priority (coach = strategic next move, question = info-gather).
+          const better =
+            !a.top ||
+            priorityRank(t.priority) < priorityRank(a.top.priority) ||
+            (priorityRank(t.priority) === priorityRank(a.top.priority) && t.taskType === 'coach' && a.top.type !== 'coach')
+          if (better) a.top = { title: t.title, priority: t.priority, type: t.taskType }
+        }
       }
       if (isAiType(t.taskType) && (!a.lastActivity || t.createdAt > a.lastActivity)) a.lastActivity = t.createdAt
     }
@@ -4040,6 +4051,7 @@ router.get('/ai-case-manager/overview', authMiddleware, async (req: any, res) =>
           aiTasksOpen: a.aiTasksOpen,
           openTasks: a.openTasks,
           demandReady: demandSet.has(id),
+          topAction: a.top,
           lastActivity: a.lastActivity ? a.lastActivity.toISOString() : null,
         }
       })
@@ -4092,6 +4104,43 @@ router.post('/ai-case-manager/run', authMiddleware, async (req: any, res) => {
   } catch (error: any) {
     logger.error('Failed to run AI Case Manager', { error: error.message })
     res.status(500).json({ error: 'Failed to run AI Case Manager' })
+  }
+})
+
+// Approve every AI task pending review across the attorney's whole caseload.
+router.post('/ai-case-manager/approve-all', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const { attorney } = auth
+
+    const byAssessment = await attorneyCaseloadByAssessment(attorney.id)
+    const assessmentIds = [...byAssessment.keys()]
+    if (assessmentIds.length === 0) return res.json({ ok: true, approved: 0 })
+
+    const pending = await prisma.caseTask.findMany({
+      where: { assessmentId: { in: assessmentIds }, reviewStatus: 'pending' },
+      select: { id: true, assessmentId: true, assignedRole: true, createdById: true, createdByName: true },
+    })
+    let approved = 0
+    for (const task of pending) {
+      await approvePendingTask(task, req.user).catch(() => undefined)
+      approved += 1
+    }
+    if (approved > 0) {
+      await writeAutomationAudit({
+        userId: req.user?.id,
+        attorneyId: attorney.id,
+        action: 'task_review_approved_bulk',
+        entityType: 'attorney',
+        entityId: attorney.id,
+        metadata: { approved, scope: 'caseload' },
+      })
+    }
+    res.json({ ok: true, approved })
+  } catch (error: any) {
+    logger.error('Failed to approve all AI Case Manager tasks', { error: error.message })
+    res.status(500).json({ error: 'Failed to approve tasks' })
   }
 })
 
