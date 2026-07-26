@@ -2793,6 +2793,12 @@ model AuditLog {
 
   @@index([userId])
   @@index([attorneyId])
+  // The admin audit viewer always sorts newest-first and filters on action /
+  // entityType. Without these the append-only table was a full scan per page.
+  @@index([createdAt])
+  @@index([action])
+  @@index([entityType])
+  @@index([entityType, entityId])
   @@map("audit_logs")
 }
 

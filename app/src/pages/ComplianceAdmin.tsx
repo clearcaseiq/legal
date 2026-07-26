@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Shield } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { ArrowRight, Shield } from 'lucide-react'
 import {
   getComplianceSettings,
   updateComplianceSettings,
@@ -56,26 +56,6 @@ export default function ComplianceAdmin() {
   const [auditLogs, setAuditLogs] = useState<any[]>([])
   const [auditMessage, setAuditMessage] = useState<Notice>(null)
   const [attorneys, setAttorneys] = useState<any[]>([])
-  const [auditFilters, setAuditFilters] = useState({
-    action: '',
-    entityType: '',
-    search: '',
-  })
-
-  const loadAuditTrail = async (filters = auditFilters) => {
-    try {
-      setAuditMessage(null)
-      const logs = await listAuditLogs({
-        limit: 50,
-        action: filters.action || undefined,
-        entityType: filters.entityType || undefined,
-        search: filters.search || undefined,
-      })
-      setAuditLogs(Array.isArray(logs) ? logs : [])
-    } catch (err: any) {
-      setAuditMessage({ text: err.response?.data?.error || 'Failed to load audit logs.', ok: false })
-    }
-  }
 
   useEffect(() => {
     const load = async () => {
@@ -86,13 +66,14 @@ export default function ComplianceAdmin() {
           getComplianceSettings(),
           listRetentionPolicies(),
           listEthicalWalls(),
-          listAuditLogs({ limit: 50 }),
+          // Only the automation slice is rendered here, so ask for just that.
+          listAuditLogs({ limit: 50, action: 'automation_' }),
           getAdminAttorneys().catch(() => ({ attorneys: [] }))
         ])
         setSettings(settingsData)
         setRetentionPolicies(Array.isArray(policies) ? policies : [])
         setEthicalWalls(Array.isArray(walls) ? walls : [])
-        setAuditLogs(Array.isArray(logs) ? logs : [])
+        setAuditLogs(Array.isArray(logs?.logs) ? logs.logs : [])
         setAttorneys(attorneysData.attorneys || [])
       } catch (err: any) {
         if (err.response?.status === 401 || err.response?.status === 403) {
@@ -362,95 +343,50 @@ export default function ComplianceAdmin() {
         </div>
       </SectionCard>
 
+      {/*
+        The full, filterable, paginated audit trail now lives at
+        /admin/audit-logs. This card keeps only the automation slice, which is
+        the part that belongs to compliance, and links out for the rest.
+      */}
       <SectionCard
-        title="Audit logs"
+        title="Automation history"
         trailing={
-          <div className="flex flex-wrap gap-2">
-            <Badge tone="neutral">{auditLogs.length} total</Badge>
-            <Badge tone="blue">{automationAuditLogs.length} automation</Badge>
-          </div>
+          <Link to="/admin/audit-logs" className="btn-outline inline-flex items-center gap-1.5 text-ui-sm">
+            View full audit trail
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
         }
       >
         <div className="space-y-4">
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Includes permanent automation reminder history alongside request-level audit events.
+            Permanent record of automated reminders and sweeps. For request-level events across the
+            whole platform, open the full audit trail.
           </p>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-            <input
-              value={auditFilters.action}
-              onChange={(e) => setAuditFilters((current) => ({ ...current, action: e.target.value }))}
-              className="input"
-              placeholder="Filter by action"
-            />
-            <input
-              value={auditFilters.entityType}
-              onChange={(e) => setAuditFilters((current) => ({ ...current, entityType: e.target.value }))}
-              className="input"
-              placeholder="Filter by entity type"
-            />
-            <input
-              value={auditFilters.search}
-              onChange={(e) => setAuditFilters((current) => ({ ...current, search: e.target.value }))}
-              className="input"
-              placeholder="Search entity ID or metadata"
-            />
-            <button onClick={() => { void loadAuditTrail() }} className="btn-primary text-ui-sm">
-              Apply filters
-            </button>
-          </div>
-          {automationAuditLogs.length > 0 ? (
-            <div className="rounded-xl border border-slate-200 bg-slate-50/90 p-4 dark:border-slate-700 dark:bg-slate-800/50">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  Recent automation history
-                </h3>
-                <span className="text-xs text-slate-500 dark:text-slate-400">Newest first</span>
-              </div>
-              <div className="mt-3 space-y-2 text-sm">
-                {automationAuditLogs.slice(0, 6).map((log) => (
-                  <div
-                    key={log.id}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900/70"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="font-medium text-slate-900 dark:text-slate-100">
-                        {String(log.action).replace(/_/g, ' ')}
-                      </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        {new Date(log.createdAt).toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                      {log.entityType || 'entity'} • {log.entityId || 'unknown'}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
           <NoticeText notice={auditMessage} />
-          <div className="space-y-2 text-sm">
-            {auditLogs.length === 0 ? (
-              <InlineMessage message="No audit logs available." />
-            ) : (
-              auditLogs.map(log => (
+          {automationAuditLogs.length === 0 ? (
+            <InlineMessage message="No automation history yet." />
+          ) : (
+            <div className="space-y-2 text-sm">
+              {automationAuditLogs.slice(0, 10).map((log) => (
                 <div
                   key={log.id}
-                  className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 dark:border-slate-700"
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900/70"
                 >
-                  <div className="min-w-0">
-                    <div className="font-medium text-slate-900 dark:text-slate-100">{log.action}</div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-medium text-slate-900 dark:text-slate-100">
+                      {String(log.action).replace(/_/g, ' ')}
+                    </div>
                     <div className="text-xs text-slate-500 dark:text-slate-400">
-                      {log.entityType || 'entity'} • {log.entityId || 'no entity'} • {log.ipAddress || 'Unknown IP'} • {log.statusCode || 'N/A'}
+                      {new Date(log.createdAt).toLocaleString()}
                     </div>
                   </div>
-                  <div className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
-                    {new Date(log.createdAt).toLocaleString()}
+                  <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    {log.entityType || 'entity'} • {log.entityId || 'unknown'}
                   </div>
                 </div>
-              ))
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </SectionCard>
     </div>

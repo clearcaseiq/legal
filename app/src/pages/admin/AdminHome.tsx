@@ -46,24 +46,25 @@ export default function AdminHome() {
       setLoading(true)
       setError(null)
       setRoutingControlError(null)
-      const [data, logs, matchingRules, alertData, failedData, leads] = await Promise.all([
+      const [data, logPage, matchingRules, alertData, failedData, leads] = await Promise.all([
         getAdminStats(),
-        listAuditLogs({ limit: 80 }).catch(() => []),
+        listAuditLogs({ limit: 80 }).catch(() => null),
         getAdminMatchingRules().catch(() => null),
         getAdminRoutingAlerts().catch(() => ({ alerts: [] })),
         getAdminFailedNotifications().catch(() => ({ notifications: [] })),
         getAdminIntakeLeads({ limit: 25 }).catch(() => []),
       ])
+      const logs = Array.isArray(logPage?.logs) ? logPage.logs : []
       setStats(data)
-      setAuditLogs(Array.isArray(logs) ? logs : [])
+      setAuditLogs(logs)
       setRoutingConfig(matchingRules)
       setRoutingAlerts(alertData?.alerts || [])
       setFailedNotifications(failedData?.notifications || failedData?.failed || [])
       setIntakeLeads(Array.isArray(leads) ? leads : [])
       setAutomationLogs(
-        (Array.isArray(logs) ? logs : []).filter((entry) =>
-          String(entry?.action || '').startsWith('automation_'),
-        ).slice(0, 12),
+        logs
+          .filter((entry) => String(entry?.action || '').startsWith('automation_'))
+          .slice(0, 12),
       )
     } catch (err: any) {
       const msg =

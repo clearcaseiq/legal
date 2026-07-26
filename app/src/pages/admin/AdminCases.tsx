@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import EmptyState from '../../components/EmptyState'
 import ErrorBanner from '../../components/ErrorBanner'
-import { PageHeader } from '../../features/shared/ui'
+import { PageHeader, Pagination } from '../../features/shared/ui'
 
 type SortField = 'createdAt' | 'claimType' | 'venueState' | 'status' | 'viability' | 'estimatedValue'
 type SortDirection = 'asc' | 'desc'
@@ -70,6 +70,9 @@ export default function AdminCases() {
   )
   const [sortField, setSortField] = useState<SortField>('createdAt')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
+  const [total, setTotal] = useState(0)
+  const [limit, setLimit] = useState(100)
+  const [offset, setOffset] = useState(0)
 
   // Bulk routing + export. These existed only in the retired AdminDashboard, so
   // rebuilding them here restores a capability admins lost when this page replaced it.
@@ -95,6 +98,25 @@ export default function AdminCases() {
     setActiveCaseTab(getCaseTabFromFilters(routingStatusFilter, createdTodayOnly))
   }, [routingStatusFilter, createdTodayOnly])
 
+  // Search runs server-side so it covers every matching case, not only the rows
+  // in the loaded page. Debounced so typing doesn't fire a request per keystroke.
+  const [appliedSearch, setAppliedSearch] = useState('')
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedSearch(searchTerm.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [searchTerm])
+
+  // Any filter change invalidates the page position. Resetting during render
+  // (rather than in an effect) means the fetch effect below never runs once
+  // with new filters and a stale offset, which would race two requests.
+  const filterKey = `${claimTypeFilter}|${stateFilter}|${routingStatusFilter}|${createdTodayOnly}|${appliedSearch}|${limit}`
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey)
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey)
+    setOffset(0)
+    setSelectedIds(new Set())
+  }
+
   const loadCases = useCallback(async () => {
     try {
       setLoading(true)
@@ -104,70 +126,68 @@ export default function AdminCases() {
         state: stateFilter || undefined,
         routingStatus: routingStatusFilter || undefined,
         createdToday: createdTodayOnly || undefined,
-        limit: 200,
+        search: appliedSearch || undefined,
+        limit,
+        offset,
       })
       setCases(data.cases || [])
+      setTotal(data.total ?? (data.cases?.length || 0))
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to load cases')
     } finally {
       setLoading(false)
     }
-  }, [claimTypeFilter, stateFilter, routingStatusFilter, createdTodayOnly])
+  }, [claimTypeFilter, stateFilter, routingStatusFilter, createdTodayOnly, appliedSearch, limit, offset])
 
   useEffect(() => {
     loadCases()
   }, [loadCases])
 
-  const filteredCases = cases.filter((c) => {
-    if (!searchTerm) return true
-    const s = searchTerm.toLowerCase()
-    const name = c.user
-      ? `${c.user.firstName || ''} ${c.user.lastName || ''}`.toLowerCase()
-      : ''
-    return (
-      c.claimType?.toLowerCase().includes(s) ||
-      c.venueState?.toLowerCase().includes(s) ||
-      c.venueCounty?.toLowerCase().includes(s) ||
-      name.includes(s) ||
-      c.user?.email?.toLowerCase().includes(s) ||
-      c.id?.toLowerCase().includes(s)
-    )
-  })
-
-  const sortedCases = [...filteredCases].sort((a, b) => {
-    let aVal: any, bVal: any
-    switch (sortField) {
-      case 'createdAt':
-        aVal = new Date(a.createdAt).getTime()
-        bVal = new Date(b.createdAt).getTime()
-        break
-      case 'claimType':
-        aVal = (a.claimType || '').toLowerCase()
-        bVal = (b.claimType || '').toLowerCase()
-        break
-      case 'venueState':
-        aVal = (a.venueState || '').toLowerCase()
-        bVal = (b.venueState || '').toLowerCase()
-        break
-      case 'status':
-        aVal = (a.status || '').toLowerCase()
-        bVal = (b.status || '').toLowerCase()
-        break
-      case 'viability':
-        aVal = a.prediction?.viability?.overall ?? 0
-        bVal = b.prediction?.viability?.overall ?? 0
-        break
-      case 'estimatedValue':
-        aVal = a.prediction?.bands?.median ?? 0
-        bVal = b.prediction?.bands?.median ?? 0
-        break
-      default:
+  // Memoized: `sortedCases` feeds a selection-reconciliation effect, so a fresh
+  // array identity on every render re-ran that effect (and re-sorted the whole
+  // page) on every keystroke.
+  const sortedCases = useMemo(
+    () =>
+      [...cases].sort((a, b) => {
+        let aVal: any, bVal: any
+        switch (sortField) {
+          case 'createdAt':
+            aVal = new Date(a.createdAt).getTime()
+            bVal = new Date(b.createdAt).getTime()
+            break
+          case 'claimType':
+            aVal = (a.claimType || '').toLowerCase()
+            bVal = (b.claimType || '').toLowerCase()
+            break
+          case 'venueState':
+            aVal = (a.venueState || '').toLowerCase()
+            bVal = (b.venueState || '').toLowerCase()
+            break
+          case 'status':
+            aVal = (a.status || '').toLowerCase()
+            bVal = (b.status || '').toLowerCase()
+            break
+          case 'viability':
+            aVal = a.prediction?.viability?.overall ?? 0
+            bVal = b.prediction?.viability?.overall ?? 0
+            break
+          case 'estimatedValue':
+            aVal = a.prediction?.bands?.median ?? 0
+            bVal = b.prediction?.bands?.median ?? 0
+            break
+          default:
+            return 0
+        }
+        if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
+        if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1
         return 0
-    }
-    if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
-    if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1
-    return 0
-  })
+      }),
+    [cases, sortField, sortDirection],
+  )
+
+  // Search and sort run over the loaded page, not the whole result set, so say
+  // so rather than letting an admin think they sorted all 1,200 cases.
+  const isPaged = total > cases.length
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -261,7 +281,8 @@ export default function AdminCases() {
   }
 
   const exportCsv = () => {
-    // Export the selection when there is one, otherwise everything currently filtered.
+    // Export the selection when there is one, otherwise the loaded page. This
+    // cannot cover rows the server hasn't sent, so the button title says so.
     const rowsSource = selectedIds.size > 0 ? sortedCases.filter((c) => selectedIds.has(c.id)) : sortedCases
     const headers = ['Case ID', 'Claim type', 'Plaintiff', 'Email', 'Location', 'Routing status', 'Viability', 'Est. value', 'Submitted']
     const rows = rowsSource.map((c) => [
@@ -324,7 +345,13 @@ export default function AdminCases() {
                 onClick={exportCsv}
                 disabled={sortedCases.length === 0}
                 className="btn-outline inline-flex items-center gap-2 text-ui-sm disabled:opacity-40"
-                title={selectedIds.size > 0 ? `Export ${selectedIds.size} selected` : 'Export the filtered list'}
+                title={
+                  selectedIds.size > 0
+                    ? `Export ${selectedIds.size} selected`
+                    : isPaged
+                    ? `Export this page (${sortedCases.length} of ${total})`
+                    : 'Export the filtered list'
+                }
               >
                 <Download className="h-4 w-4" />
                 Export CSV
@@ -368,7 +395,7 @@ export default function AdminCases() {
           <p className="mt-1 text-xs text-slate-500">Use tabs for common queues, then narrow the list without leaving the page.</p>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-          {sortedCases.length} shown
+          {isPaged ? `${sortedCases.length} of ${total.toLocaleString()}` : `${sortedCases.length} shown`}
         </span>
       </div>
       <div className="mt-4 flex flex-wrap gap-4">
@@ -495,8 +522,11 @@ export default function AdminCases() {
           </EmptyState>
         </div>
       ) : (
-        <div className="surface-panel min-h-0 flex-1 overflow-hidden p-0">
-          <div className="h-full overflow-auto">
+        // Column flex so the scrolling table takes the remaining height and the
+        // pager keeps its own row — otherwise the table's `h-full` pushes the
+        // pager past the clipped bottom edge and it can't be reached.
+        <div className="surface-panel flex min-h-0 flex-1 flex-col overflow-hidden p-0">
+          <div className="min-h-0 flex-1 overflow-auto">
             <table className="app-data-table w-full">
               <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
                 <tr>
@@ -648,6 +678,22 @@ export default function AdminCases() {
               </tbody>
             </table>
           </div>
+
+          <Pagination
+            total={total}
+            limit={limit}
+            offset={offset}
+            disabled={loading}
+            onChange={(next) => {
+              setOffset(next)
+              // Selection is page-scoped; carrying ids across pages would let a
+              // bulk route act on rows that are no longer on screen.
+              setSelectedIds(new Set())
+            }}
+            // Offset and selection reset via the filter-key check above.
+            onLimitChange={setLimit}
+            className="shrink-0 px-4 pb-3"
+          />
         </div>
       )}
 

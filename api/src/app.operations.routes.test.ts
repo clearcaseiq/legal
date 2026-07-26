@@ -726,13 +726,16 @@ describe('HTTP operations regressions', () => {
         },
       },
     ] as any)
+    // `total` is the count of rows matching the filter, not the length of this
+    // page, so a pager can tell a full last page from a truncated list.
+    vi.mocked(prisma.assessment.count).mockResolvedValue(137 as any)
 
     const res = await request(app)
       .get('/v1/admin/cases/all?status=COMPLETED&claimType=auto&state=ca&county=ora&routingStatus=accepted&limit=20&offset=10')
       .set('Authorization', 'Bearer admin')
       .expect(200)
 
-    expect(res.body.total).toBe(1)
+    expect(res.body).toMatchObject({ total: 137, limit: 20, offset: 10, hasMore: true })
     expect(res.body.cases[0]).toMatchObject({
       id: 'asm-case-all-1',
       claimType: 'auto',

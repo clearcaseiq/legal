@@ -1,9 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getAdminAttorneyDetail } from '../../lib/api'
+import {
+  getAdminAttorneyDetail,
+  updateAdminAttorneyStatus,
+  updateAdminAttorneyVerification,
+} from '../../lib/api'
 import { formatDate, formatEnumLabel, formatJurisdictions, capitalizeWords } from '../../lib/formatters'
 import { formatSpecialty } from '../../lib/constants'
-import { BackButton } from '../../features/shared/ui'
+import { BackButton, Breadcrumbs } from '../../features/shared/ui'
 import {
   RefreshCw,
   User,
@@ -12,6 +16,7 @@ import {
   BarChart3,
   FileText,
   Pause,
+  ShieldCheck,
   Star,
 } from 'lucide-react'
 
@@ -21,6 +26,8 @@ export default function AdminAttorneyDetail() {
   const [attorney, setAttorney] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [acting, setActing] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const loadAttorney = async () => {
     if (!id) return
@@ -36,14 +43,53 @@ export default function AdminAttorneyDetail() {
     }
   }
 
+  const toggleActive = async () => {
+    if (!id || !attorney) return
+    setActing(true)
+    setActionError(null)
+    try {
+      await updateAdminAttorneyStatus(id, !attorney.isActive)
+      await loadAttorney()
+    } catch (err: any) {
+      setActionError(err.response?.data?.error || 'Failed to update attorney status')
+    } finally {
+      setActing(false)
+    }
+  }
+
+  const toggleVerified = async () => {
+    if (!id || !attorney) return
+    setActing(true)
+    setActionError(null)
+    try {
+      await updateAdminAttorneyVerification(id, !attorney.isVerified)
+      await loadAttorney()
+    } catch (err: any) {
+      setActionError(err.response?.data?.error || 'Failed to update attorney verification')
+    } finally {
+      setActing(false)
+    }
+  }
+
   useEffect(() => {
     loadAttorney()
   }, [id])
 
+  // Rendered in every branch, so the trail is present while loading and on
+  // error too — the crumb label just falls back until the name arrives.
+  const crumbs = [
+    { label: 'Admin', to: '/admin' },
+    { label: 'Attorneys', to: '/admin/attorneys' },
+    { label: capitalizeWords(attorney?.name) || attorney?.email || 'Attorney' },
+  ]
+
   if (loading) {
     return (
-      <div className="flex justify-center py-12">
-        <RefreshCw className="h-8 w-8 animate-spin text-brand-600" />
+      <div className="space-y-6">
+        <Breadcrumbs items={crumbs} />
+        <div className="flex justify-center py-12">
+          <RefreshCw className="h-8 w-8 animate-spin text-brand-600" />
+        </div>
       </div>
     )
   }
@@ -51,8 +97,9 @@ export default function AdminAttorneyDetail() {
   if (error || !attorney) {
     return (
       <div className="space-y-4">
+        <Breadcrumbs items={crumbs} />
         <BackButton onClick={() => navigate('/admin/attorneys')} label="Back to attorneys" />
-        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">
+        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
           {error || 'Attorney not found'}
         </div>
       </div>
@@ -64,12 +111,37 @@ export default function AdminAttorneyDetail() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <Breadcrumbs items={crumbs} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <BackButton onClick={() => navigate('/admin/attorneys')} label="Back to attorneys" />
-        <button onClick={loadAttorney} className="p-2 text-slate-600 hover:text-slate-900">
-          <RefreshCw className="h-4 w-4" />
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => void toggleVerified()}
+            disabled={acting}
+            className="btn-outline inline-flex items-center gap-2 text-ui-sm disabled:opacity-40"
+          >
+            <ShieldCheck className="h-4 w-4" />
+            {attorney.isVerified ? 'Remove verification' : 'Mark verified'}
+          </button>
+          <button
+            onClick={() => void toggleActive()}
+            disabled={acting}
+            className="btn-outline inline-flex items-center gap-2 text-ui-sm disabled:opacity-40"
+          >
+            <Pause className="h-4 w-4" />
+            {attorney.isActive ? 'Deactivate' : 'Reactivate'}
+          </button>
+          <button onClick={loadAttorney} className="p-2 text-slate-600 hover:text-slate-900">
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        </div>
       </div>
+
+      {actionError && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+          {actionError}
+        </div>
+      )}
 
       {/* Profile */}
       <div className="bg-white rounded-xl border border-slate-200 p-6">

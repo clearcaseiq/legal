@@ -1,6 +1,14 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, Info, SlidersHorizontal, X } from 'lucide-react'
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Info,
+  SlidersHorizontal,
+  X,
+} from 'lucide-react'
 
 // `info` maps to the muted `brand` navy; `blue` is a true sky-blue matching the
 // prototype's accent tiles (e.g. "Consults today").
@@ -422,6 +430,154 @@ export function PageHeader({
         )}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
+    </div>
+  )
+}
+
+export type Crumb = {
+  label: string
+  /** Omit on the final crumb — the current page is rendered as plain text. */
+  to?: string
+}
+
+/**
+ * Trail showing where a detail page sits, e.g. Admin › Cases › PI-2401.
+ *
+ * Complements rather than replaces `BackButton`: the button is a single hop to
+ * a hardcoded parent, which is misleading when a detail page is reachable from
+ * several lists. The trail states the hierarchy explicitly.
+ */
+export function Breadcrumbs({ items, className = '' }: { items: Crumb[]; className?: string }) {
+  if (!items.length) return null
+  return (
+    <nav aria-label="Breadcrumb" className={className}>
+      <ol className="flex flex-wrap items-center gap-1 text-sm text-slate-500 dark:text-slate-400">
+        {items.map((item, i) => {
+          const isLast = i === items.length - 1
+          return (
+            <li key={`${item.label}-${i}`} className="flex items-center gap-1">
+              {item.to && !isLast ? (
+                <Link
+                  to={item.to}
+                  className="rounded transition-colors hover:text-slate-900 hover:underline dark:hover:text-slate-200"
+                >
+                  {item.label}
+                </Link>
+              ) : (
+                <span
+                  className={isLast ? 'font-medium text-slate-900 dark:text-slate-100' : undefined}
+                  aria-current={isLast ? 'page' : undefined}
+                >
+                  {item.label}
+                </span>
+              )}
+              {!isLast && <ChevronRight className="h-3.5 w-3.5 text-slate-400" aria-hidden />}
+            </li>
+          )
+        })}
+      </ol>
+    </nav>
+  )
+}
+
+/**
+ * Offset pager for server-paginated lists.
+ *
+ * Deliberately offset-based rather than "load more": admin lists are audited
+ * and cross-referenced, so a stable "showing 51-100 of 1,204" is more useful
+ * than an accumulating feed, and it makes a truncated list obvious instead of
+ * silently capping at the first N rows.
+ */
+export function Pagination({
+  total,
+  limit,
+  offset,
+  onChange,
+  disabled = false,
+  pageSizes = [25, 50, 100],
+  onLimitChange,
+  className = '',
+}: {
+  total: number
+  limit: number
+  offset: number
+  onChange: (nextOffset: number) => void
+  disabled?: boolean
+  pageSizes?: number[]
+  onLimitChange?: (nextLimit: number) => void
+  className?: string
+}) {
+  const safeLimit = Math.max(limit, 1)
+  const page = Math.floor(offset / safeLimit) + 1
+  const pageCount = Math.max(Math.ceil(total / safeLimit), 1)
+  const first = total === 0 ? 0 : offset + 1
+  const last = Math.min(offset + safeLimit, total)
+
+  // A single page of results needs no controls at all unless the caller also
+  // wants the page-size selector.
+  if (total <= safeLimit && !onLimitChange) return null
+
+  return (
+    <div
+      className={`flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3 dark:border-slate-800 ${className}`}
+    >
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        {total === 0 ? (
+          'No results'
+        ) : (
+          <>
+            Showing <span className="font-medium text-slate-700 dark:text-slate-300">{first}</span>–
+            <span className="font-medium text-slate-700 dark:text-slate-300">{last}</span> of{' '}
+            <span className="font-medium text-slate-700 dark:text-slate-300">
+              {total.toLocaleString()}
+            </span>
+          </>
+        )}
+      </p>
+
+      <div className="flex items-center gap-2">
+        {onLimitChange && (
+          <label className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
+            <span className="sr-only sm:not-sr-only">Rows</span>
+            <select
+              value={safeLimit}
+              disabled={disabled}
+              onChange={(e) => onLimitChange(Number(e.target.value))}
+              className="input w-auto py-1"
+            >
+              {pageSizes.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <button
+          type="button"
+          onClick={() => onChange(Math.max(offset - safeLimit, 0))}
+          disabled={disabled || offset === 0}
+          className="btn-outline inline-flex items-center gap-1 px-2.5 py-1.5 text-ui-sm disabled:opacity-40"
+        >
+          <ChevronLeft className="h-4 w-4" aria-hidden />
+          Previous
+        </button>
+
+        <span className="whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">
+          Page {page} of {pageCount}
+        </span>
+
+        <button
+          type="button"
+          onClick={() => onChange(offset + safeLimit)}
+          disabled={disabled || last >= total}
+          className="btn-outline inline-flex items-center gap-1 px-2.5 py-1.5 text-ui-sm disabled:opacity-40"
+        >
+          Next
+          <ChevronRight className="h-4 w-4" aria-hidden />
+        </button>
+      </div>
     </div>
   )
 }

@@ -3144,14 +3144,48 @@ export async function createEthicalWall(payload: {
   return data
 }
 
+export interface AuditLogEntry {
+  id: string
+  action: string
+  entityType: string | null
+  entityId: string | null
+  statusCode: number | null
+  ipAddress: string | null
+  userAgent: string | null
+  metadata: string | null
+  createdAt: string
+  user: { id: string; email: string; firstName: string | null; lastName: string | null } | null
+  attorney: { id: string; name: string; email: string | null } | null
+}
+
+export interface AuditLogPage {
+  logs: AuditLogEntry[]
+  total: number
+  limit: number
+  offset: number
+  hasMore: boolean
+}
+
 export async function listAuditLogs(params?: {
   limit?: number
   offset?: number
   action?: string
   entityType?: string
   search?: string
+  actorId?: string
+  /** ISO-8601 timestamps, inclusive. */
+  from?: string
+  to?: string
 }) {
-  const { data } = await api.get('/v1/compliance/audit-logs', { params })
+  const { data } = await api.get<AuditLogPage>('/v1/compliance/audit-logs', { params })
+  return data
+}
+
+export async function getAuditLogFacets() {
+  const { data } = await api.get<{
+    actions: Array<{ value: string; count: number }>
+    entityTypes: Array<{ value: string; count: number }>
+  }>('/v1/compliance/audit-logs/facets')
   return data
 }
 
@@ -3639,6 +3673,8 @@ export async function getAllAdminCases(
     routingStatus?: string
     /** ISO-8601 day or use `createdToday` for server-local midnight filter */
     createdToday?: boolean
+    /** Matches case ID, claim type, venue, or plaintiff name/email. */
+    search?: string
     limit?: number
     offset?: number
   } | string
@@ -3652,6 +3688,7 @@ export async function getAllAdminCases(
     if (paramsOrStatus.state) search.append('state', paramsOrStatus.state)
     if (paramsOrStatus.county) search.append('county', paramsOrStatus.county)
     if (paramsOrStatus.routingStatus) search.append('routingStatus', paramsOrStatus.routingStatus)
+    if (paramsOrStatus.search) search.append('search', paramsOrStatus.search)
     if (paramsOrStatus.createdToday) {
       search.append('createdToday', '1')
       // Also send the caller's local start-of-day so "today" matches the admin's
@@ -3660,8 +3697,9 @@ export async function getAllAdminCases(
       dayStart.setHours(0, 0, 0, 0)
       search.append('createdAfter', dayStart.toISOString())
     }
-    if (paramsOrStatus.limit) search.append('limit', paramsOrStatus.limit.toString())
-    if (paramsOrStatus.offset) search.append('offset', paramsOrStatus.offset.toString())
+    if (paramsOrStatus.limit != null) search.append('limit', paramsOrStatus.limit.toString())
+    // `!= null`, not truthiness: offset 0 is the first page and must be sent.
+    if (paramsOrStatus.offset != null) search.append('offset', paramsOrStatus.offset.toString())
   }
 
   const { data } = await api.get(`/v1/admin/cases/all?${search.toString()}`)
@@ -3692,9 +3730,48 @@ export async function bulkRouteCases(
   return data
 }
 
-// Get all attorneys for routing
-export async function getAdminAttorneys() {
-  const { data } = await api.get('/v1/admin/attorneys')
+/**
+ * Get attorneys for routing or for the admin list.
+ *
+ * Passing `limit` switches the endpoint into paginated mode and adds
+ * `total`/`hasMore` to the response. Callers that populate a routing dropdown
+ * should omit it so they still receive every candidate.
+ */
+export async function getAdminAttorneys(params?: {
+  limit?: number
+  offset?: number
+  search?: string
+  /** 'active' (default) | 'inactive' | 'all' | 'verified' | 'unverified' */
+  status?: string
+}) {
+  const search = new URLSearchParams()
+  if (params?.limit != null) search.append('limit', String(params.limit))
+  if (params?.offset != null) search.append('offset', String(params.offset))
+  if (params?.search) search.append('search', params.search)
+  if (params?.status) search.append('status', params.status)
+  const qs = search.toString()
+  const { data } = await api.get(`/v1/admin/attorneys${qs ? `?${qs}` : ''}`)
+  return data
+}
+
+export async function updateAdminAttorneyStatus(
+  attorneyId: string,
+  isActive: boolean,
+  reason?: string
+) {
+  const { data } = await api.patch(`/v1/admin/attorneys/${attorneyId}/status`, { isActive, reason })
+  return data
+}
+
+export async function updateAdminAttorneyVerification(
+  attorneyId: string,
+  isVerified: boolean,
+  reason?: string
+) {
+  const { data } = await api.patch(`/v1/admin/attorneys/${attorneyId}/verification`, {
+    isVerified,
+    reason,
+  })
   return data
 }
 
@@ -3725,8 +3802,19 @@ export async function getAdminAttorneyDebug(email: string) {
   return data
 }
 
-export async function getAdminUsers() {
-  const { data } = await api.get('/v1/admin/users')
+export async function getAdminUsers(params?: {
+  limit?: number
+  offset?: number
+  search?: string
+  role?: string
+}) {
+  const search = new URLSearchParams()
+  if (params?.limit != null) search.append('limit', String(params.limit))
+  if (params?.offset != null) search.append('offset', String(params.offset))
+  if (params?.search) search.append('search', params.search)
+  if (params?.role) search.append('role', params.role)
+  const qs = search.toString()
+  const { data } = await api.get(`/v1/admin/users${qs ? `?${qs}` : ''}`)
   return data
 }
 
@@ -3945,8 +4033,9 @@ export async function getAdminDocuments(params?: {
   if (params?.category) search.append('category', params.category)
   if (params?.assessmentId) search.append('assessmentId', params.assessmentId)
   if (params?.query) search.append('query', params.query)
-  if (params?.limit) search.append('limit', String(params.limit))
-  if (params?.offset) search.append('offset', String(params.offset))
+  if (params?.limit != null) search.append('limit', String(params.limit))
+  // `!= null`, not truthiness: offset 0 is the first page and must be sent.
+  if (params?.offset != null) search.append('offset', String(params.offset))
   const { data } = await api.get<{
     documents: AdminDocumentItem[]
     summary: Record<string, any>

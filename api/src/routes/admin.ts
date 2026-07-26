@@ -4,6 +4,8 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { adminMiddleware } from '../lib/admin-access'
+import { writeAdminAudit } from '../lib/admin-audit'
+import { parsePagination, paginated } from '../lib/pagination'
 import { CaseForRouting, AttorneyForRouting, routeCaseToAttorneys, filterEligibleAttorneys } from '../lib/routing'
 import { runRoutingEngine } from '../lib/routing-engine'
 import { startAssessmentRouting } from '../lib/assessment-routing'
@@ -223,34 +225,8 @@ function buildDecisionMemoryWhere(filters?: Record<string, unknown>) {
   return where
 }
 
-async function writeAdminAudit(
-  req: AuthRequest,
-  input: {
-    action: string
-    entityType: string
-    entityId?: string | null
-    statusCode?: number
-    metadata?: Record<string, unknown>
-  }
-) {
-  await prisma.auditLog.create({
-    data: {
-      userId: req.user?.id || null,
-      action: input.action,
-      entityType: input.entityType,
-      entityId: input.entityId || null,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent'] || null,
-      statusCode: input.statusCode || 200,
-      metadata: JSON.stringify({
-        ...(input.metadata || {}),
-        actorEmail: req.user?.email || null,
-        path: req.originalUrl,
-        method: req.method,
-      }),
-    },
-  })
-}
+// writeAdminAudit lives in lib/admin-audit so the compliance viewer, this
+// router, and any future admin router share one writer (and one failure mode).
 
 type LeadScores = {
   viabilityScore: number
@@ -1381,23 +1357,51 @@ const RoleUpdateSchema = z.object({
   role: z.enum(['client', 'attorney', 'staff', 'admin'])
 })
 
-router.get('/users', authMiddleware, adminMiddleware, async (_req: AuthRequest, res) => {
+// Paginated by default (not opt-in): this is the largest table in the system —
+// every plaintiff signup lands here — and the UI renders a role <select> per
+// row, so an unbounded fetch was the first thing to fall over as signups grew.
+router.get('/users', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
   try {
-    const users = await prismaAny.user.findMany({
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true
-      },
-      orderBy: { createdAt: 'desc' }
+    const { search, role } = req.query
+    const { take, skip } = parsePagination(req.query as Record<string, unknown>, {
+      defaultLimit: 50,
+      maxLimit: 200,
     })
 
-    res.json({ success: true, data: users })
+    const where: Record<string, unknown> = {}
+    const roleFilter = typeof role === 'string' ? role.trim() : ''
+    if (roleFilter) where.role = roleFilter
+
+    const searchTerm = typeof search === 'string' ? search.trim() : ''
+    if (searchTerm) {
+      where.OR = [
+        { email: { contains: searchTerm, mode: 'insensitive' } },
+        { firstName: { contains: searchTerm, mode: 'insensitive' } },
+        { lastName: { contains: searchTerm, mode: 'insensitive' } },
+      ]
+    }
+
+    const [users, total] = await Promise.all([
+      prismaAny.user.findMany({
+        where,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+      }),
+      prismaAny.user.count({ where }),
+    ])
+
+    res.json({ success: true, data: users, ...paginated(users, total, { take, skip }) })
   } catch (error) {
     logger.error('Failed to list users', { error })
     res.status(500).json({ error: 'Internal server error' })
@@ -1412,6 +1416,14 @@ router.patch('/users/:userId/role', authMiddleware, adminMiddleware, async (req:
       return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
     }
 
+    const previous = await prismaAny.user.findUnique({
+      where: { id: userId },
+      select: { role: true, email: true },
+    })
+    if (!previous) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
     const updated = await prismaAny.user.update({
       where: { id: userId },
       data: { role: parsed.data.role },
@@ -1421,6 +1433,18 @@ router.patch('/users/:userId/role', authMiddleware, adminMiddleware, async (req:
         role: true,
         isActive: true
       }
+    })
+
+    // Granting/revoking admin previously left no trace anywhere.
+    await writeAdminAudit(req, {
+      action: 'user_role_changed',
+      entityType: 'user',
+      entityId: userId,
+      metadata: {
+        targetEmail: previous.email,
+        fromRole: previous.role,
+        toRole: parsed.data.role,
+      },
     })
 
     res.json({ success: true, data: updated })
@@ -1649,18 +1673,35 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
   try {
     const {
       status,
-      limit = 100,
-      offset = 0,
       claimType,
       state,
       county,
       routingStatus,
       createdToday,
+      search,
     } = req.query
+    const { take, skip } = parsePagination(req.query as Record<string, unknown>, {
+      defaultLimit: 100,
+      maxLimit: 200,
+    })
 
     const where: any = {}
     if (status) {
       where.status = status as string
+    }
+    // Server-side so the admin list searches every matching case, not just the
+    // rows already loaded into the current page.
+    const searchTerm = typeof search === 'string' ? search.trim() : ''
+    if (searchTerm) {
+      where.OR = [
+        { id: { contains: searchTerm, mode: 'insensitive' } },
+        { claimType: { contains: searchTerm, mode: 'insensitive' } },
+        { venueState: { contains: searchTerm, mode: 'insensitive' } },
+        { venueCounty: { contains: searchTerm, mode: 'insensitive' } },
+        { user: { email: { contains: searchTerm, mode: 'insensitive' } } },
+        { user: { firstName: { contains: searchTerm, mode: 'insensitive' } } },
+        { user: { lastName: { contains: searchTerm, mode: 'insensitive' } } },
+      ]
     }
     if (claimType) {
       where.claimType = claimType as string
@@ -1766,8 +1807,8 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
         }
       },
       orderBy: { createdAt: 'desc' },
-      take: parseInt(limit as string),
-      skip: parseInt(offset as string)
+      take,
+      skip,
     })
 
     const cases = assessments.map(assessment => {
@@ -1810,10 +1851,11 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
       }
     })
 
-    res.json({
-      total: cases.length,
-      cases
-    })
+    // `total` used to be cases.length (the page size), so the client could
+    // never distinguish a full last page from a truncated list.
+    const total = await prisma.assessment.count({ where })
+
+    res.json({ cases, ...paginated(cases, total, { take, skip }) })
   } catch (error) {
     logger.error('Failed to get all admin cases', { error })
     res.status(500).json({ error: 'Internal server error' })
@@ -2725,15 +2767,44 @@ router.get('/cases/:caseId/recommendations', authMiddleware, adminMiddleware, as
 
 // Get all attorneys for routing
 // Optional: ?groupBy=firm to group attorneys under law firms
+//
+// Pagination (?limit/?offset/?search/?status) applies only to the plain list —
+// the ?caseId eligibility check and ?groupBy=firm view are used to populate
+// routing dropdowns, which need every candidate, so they stay unpaginated.
 router.get('/attorneys', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
   try {
-    const { caseId, groupBy } = req.query // Optional: filter by case eligibility and grouping
+    const { caseId, groupBy, search, status } = req.query // Optional: filter by case eligibility and grouping
     const groupByFirm = groupBy === 'firm'
+    const paginate = !caseId && !groupByFirm && req.query.limit !== undefined
+    const { take, skip } = parsePagination(req.query as Record<string, unknown>, {
+      defaultLimit: 50,
+      maxLimit: 200,
+    })
+
+    // Routing callers only ever want attorneys who can receive a case, so
+    // active-only stays the default. The admin list opts into ?status=all
+    // because otherwise a deactivated attorney is invisible and can never be
+    // reactivated from the UI.
+    const statusFilter = typeof status === 'string' ? status.trim().toLowerCase() : ''
+    const where: Record<string, unknown> = {}
+    if (statusFilter === 'inactive') where.isActive = false
+    else if (statusFilter !== 'all') where.isActive = true
+
+    if (statusFilter === 'verified') where.isVerified = true
+    else if (statusFilter === 'unverified') where.isVerified = false
+
+    const searchTerm = typeof search === 'string' ? search.trim() : ''
+    if (searchTerm) {
+      where.OR = [
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { email: { contains: searchTerm, mode: 'insensitive' } },
+        { lawFirm: { name: { contains: searchTerm, mode: 'insensitive' } } },
+      ]
+    }
 
     const attorneys = await prisma.attorney.findMany({
-      where: {
-        isActive: true
-      },
+      where,
+      ...(paginate ? { take, skip } : {}),
       select: {
         id: true,
         name: true,
@@ -2875,8 +2946,13 @@ router.get('/attorneys', authMiddleware, adminMiddleware, async (req: AuthReques
     }
 
     if (!groupByFirm) {
+      if (!paginate) {
+        return res.json({ attorneys: formattedAttorneys })
+      }
+      const total = await prisma.attorney.count({ where })
       return res.json({
-        attorneys: formattedAttorneys
+        attorneys: formattedAttorneys,
+        ...paginated(formattedAttorneys, total, { take, skip }),
       })
     }
 
@@ -2910,6 +2986,132 @@ router.get('/attorneys', authMiddleware, adminMiddleware, async (req: AuthReques
     })
   } catch (error) {
     logger.error('Failed to get attorneys', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// ===== Attorney management =====
+// Until now the admin attorney surface was entirely read-only: there was no way
+// to verify, deactivate, or reactivate an attorney from the platform side, even
+// though routing eligibility depends on both flags.
+
+const AttorneyStatusSchema = z.object({
+  isActive: z.boolean(),
+  reason: z.string().trim().max(500).optional(),
+})
+
+const AttorneyVerificationSchema = z.object({
+  isVerified: z.boolean(),
+  reason: z.string().trim().max(500).optional(),
+})
+
+/** Activate / deactivate an attorney. Deactivating removes them from routing. */
+router.patch('/attorneys/:id/status', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const parsed = AttorneyStatusSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+    }
+
+    const existing = await prisma.attorney.findUnique({
+      where: { id },
+      select: { id: true, name: true, email: true, isActive: true },
+    })
+    if (!existing) {
+      return res.status(404).json({ error: 'Attorney not found' })
+    }
+
+    const attorney = await prisma.attorney.update({
+      where: { id },
+      data: { isActive: parsed.data.isActive },
+      select: { id: true, name: true, email: true, isActive: true, isVerified: true },
+    })
+
+    await writeAdminAudit(req, {
+      action: parsed.data.isActive ? 'attorney_activated' : 'attorney_deactivated',
+      entityType: 'attorney',
+      entityId: id,
+      metadata: {
+        attorneyEmail: existing.email,
+        fromActive: existing.isActive,
+        toActive: parsed.data.isActive,
+        reason: parsed.data.reason || null,
+      },
+    })
+
+    res.json({ success: true, attorney })
+  } catch (error) {
+    logger.error('Failed to update attorney status', { error, attorneyId: req.params.id })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Mark an attorney verified / unverified.
+ *
+ * Verification state is split across two tables — `Attorney.isVerified` drives
+ * routing eligibility while `AttorneyProfile.licenseVerified` is what the
+ * profile UI shows — so both are written together to stop them drifting. The
+ * profile is upserted because placeholder attorneys created by the invite flow
+ * have no profile row yet.
+ */
+router.patch('/attorneys/:id/verification', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const parsed = AttorneyVerificationSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+    }
+
+    const existing = await prisma.attorney.findUnique({
+      where: { id },
+      select: { id: true, email: true, isVerified: true },
+    })
+    if (!existing) {
+      return res.status(404).json({ error: 'Attorney not found' })
+    }
+
+    const { isVerified } = parsed.data
+    const verifiedAt = isVerified ? new Date() : null
+
+    const [attorney] = await prisma.$transaction([
+      prisma.attorney.update({
+        where: { id },
+        data: { isVerified },
+        select: { id: true, name: true, email: true, isActive: true, isVerified: true },
+      }),
+      prisma.attorneyProfile.upsert({
+        where: { attorneyId: id },
+        create: {
+          attorneyId: id,
+          licenseVerified: isVerified,
+          licenseVerifiedAt: verifiedAt,
+          licenseVerificationMethod: isVerified ? 'admin_review' : null,
+        },
+        update: {
+          licenseVerified: isVerified,
+          licenseVerifiedAt: verifiedAt,
+          licenseVerificationMethod: isVerified ? 'admin_review' : null,
+        },
+      }),
+    ])
+
+    await writeAdminAudit(req, {
+      action: isVerified ? 'attorney_verified' : 'attorney_unverified',
+      entityType: 'attorney',
+      entityId: id,
+      metadata: {
+        attorneyEmail: existing.email,
+        fromVerified: existing.isVerified,
+        toVerified: isVerified,
+        reason: parsed.data.reason || null,
+      },
+    })
+
+    res.json({ success: true, attorney })
+  } catch (error) {
+    logger.error('Failed to update attorney verification', { error, attorneyId: req.params.id })
     res.status(500).json({ error: 'Internal server error' })
   }
 })

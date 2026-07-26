@@ -4,7 +4,7 @@ import { getAdminCaseDetail, bulkRouteCases, getAdminAttorneys, holdCaseForManua
 import { DECLINE_REASONS } from '../../components/DeclineModal'
 import { formatCurrency, formatDate, formatEnumLabel } from '../../lib/formatters'
 import { formatCaseId } from '../../lib/caseId'
-import { BackButton } from '../../features/shared/ui'
+import { BackButton, Breadcrumbs } from '../../features/shared/ui'
 import {
   RefreshCw,
   FileText,
@@ -401,10 +401,30 @@ export default function AdminCaseDetail() {
     }
   }
 
+  // Rendered in every branch so the trail is present while loading and on error
+  // too. The formatted case ID matches the one shown in the Cases list column,
+  // so the trail reads consistently with the list you came from.
+  const crumbs = [
+    { label: 'Admin', to: '/admin' },
+    { label: 'Cases', to: '/admin/cases' },
+    {
+      label: caseData
+        ? formatCaseId({
+            id: caseData.id,
+            claimType: caseData.claimType,
+            createdAt: caseData.createdAt,
+          })
+        : 'Case',
+    },
+  ]
+
   if (loading) {
     return (
-      <div className="flex justify-center py-12">
-        <RefreshCw className="h-8 w-8 animate-spin text-brand-600" />
+      <div className="space-y-6">
+        <Breadcrumbs items={crumbs} />
+        <div className="flex justify-center py-12">
+          <RefreshCw className="h-8 w-8 animate-spin text-brand-600" />
+        </div>
       </div>
     )
   }
@@ -412,8 +432,9 @@ export default function AdminCaseDetail() {
   if (error || !caseData) {
     return (
       <div className="space-y-4">
+        <Breadcrumbs items={crumbs} />
         <BackButton onClick={() => navigate('/admin/cases')} label="Back to cases" />
-        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">
+        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
           {error || 'Case not found'}
         </div>
       </div>
@@ -438,6 +459,7 @@ export default function AdminCaseDetail() {
 
   return (
     <div className="space-y-6">
+      <Breadcrumbs items={crumbs} />
       <div className="flex items-center justify-between">
         <BackButton onClick={() => navigate('/admin/cases')} label="Back to cases" />
         <div className="flex items-center gap-2">

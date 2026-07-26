@@ -20,7 +20,7 @@ import {
   TableProperties,
   AlertTriangle,
 } from 'lucide-react'
-import { PageHeader } from '../../features/shared/ui'
+import { PageHeader, Pagination } from '../../features/shared/ui'
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -70,8 +70,21 @@ export default function AdminDocuments() {
   const [actingId, setActingId] = useState<string | null>(null)
   const [editing, setEditing] = useState<AdminDocumentItem | null>(null)
   const [form, setForm] = useState<CorrectionForm | null>(null)
+  const [total, setTotal] = useState(0)
+  const [limit, setLimit] = useState(50)
+  const [offset, setOffset] = useState(0)
 
   const assessmentId = searchParams.get('case') || undefined
+
+  // Any filter change invalidates the page position. Resetting during render
+  // (rather than in an effect) means the fetch effect below never runs once with
+  // new filters and a stale offset, which would race two overlapping requests.
+  const filterKey = `${status}|${category}|${assessmentId ?? ''}`
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey)
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey)
+    setOffset(0)
+  }
 
   const loadDocuments = async () => {
     try {
@@ -82,10 +95,12 @@ export default function AdminDocuments() {
         category,
         query: query.trim() || undefined,
         assessmentId,
-        limit: 100,
+        limit,
+        offset,
       })
       setDocuments(data.documents || [])
       setSummary(data.summary || {})
+      setTotal(data.total ?? (data.documents?.length || 0))
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Failed to load documents')
     } finally {
@@ -95,7 +110,7 @@ export default function AdminDocuments() {
 
   useEffect(() => {
     void loadDocuments()
-  }, [status, category, assessmentId])
+  }, [status, category, assessmentId, limit, offset])
 
   const pipelineTotals = useMemo(() => {
     return {
@@ -377,6 +392,21 @@ export default function AdminDocuments() {
               </tbody>
             </table>
           </div>
+        )}
+
+        {!loading && documents.length > 0 && (
+          <Pagination
+            total={total}
+            limit={limit}
+            offset={offset}
+            disabled={loading}
+            onChange={setOffset}
+            onLimitChange={(next) => {
+              setLimit(next)
+              setOffset(0)
+            }}
+            className="px-5 pb-4"
+          />
         )}
       </div>
 
