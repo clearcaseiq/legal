@@ -18,6 +18,7 @@ import {
   loadSignalContext,
   deriveSignal,
 } from './workflow-signals'
+import { ensureDefaultFirmWorkflow } from './default-workflow-blueprint'
 
 function addDays(date: Date, days: number): Date {
   const d = new Date(date)
@@ -84,6 +85,21 @@ export async function applyFirmWorkflowToCase(params: {
       where: { lawFirmId: params.lawFirmId, isDefault: true },
       include,
     })
+    // Out-of-the-box: if the firm never authored a workflow, provision the
+    // standard PI blueprint as their default so this case (and every future one)
+    // gets a tracked pipeline instead of an empty tab. Opt out with
+    // AUTO_PROVISION_DEFAULT_WORKFLOW=false.
+    if (!workflow && process.env.AUTO_PROVISION_DEFAULT_WORKFLOW !== 'false') {
+      const provisionedId = await ensureDefaultFirmWorkflow(params.lawFirmId, params.appliedById).catch(
+        () => null,
+      )
+      if (provisionedId) {
+        workflow = await (prisma as any).firmWorkflow.findFirst({
+          where: { id: provisionedId },
+          include,
+        })
+      }
+    }
   }
   if (!workflow) return { created: false, reason: 'no_workflow' }
 

@@ -8760,10 +8760,32 @@ router.get('/leads/:leadId/workflow', authMiddleware, async (req: any, res) => {
     const members = await workflowMemberDirectory(attorney.lawFirmId)
     const canAssign = Boolean(attorney.lawFirmId)
 
-    const cw = await (prisma as any).caseWorkflow.findUnique({
+    let cw = await (prisma as any).caseWorkflow.findUnique({
       where: { assessmentId: lead.assessmentId },
       include: { items: true },
     })
+
+    // Lazy provision + apply: if this retained case has no workflow yet, snapshot
+    // the firm's default (auto-provisioning the standard PI blueprint if the firm
+    // never authored one). This backfills already-retained cases the first time
+    // their Workflow tab is opened, instead of leaving a dead-end empty state.
+    if (!cw && attorney.lawFirmId && process.env.AUTO_PROVISION_DEFAULT_WORKFLOW !== 'false') {
+      const applied = await applyFirmWorkflowToCase({
+        assessmentId: lead.assessmentId,
+        lawFirmId: attorney.lawFirmId,
+        appliedById: req.user?.id || null,
+      }).catch((e: any) => {
+        logger.warn('Lazy workflow apply failed', { assessmentId: lead.assessmentId, error: e?.message })
+        return null
+      })
+      if (applied?.caseWorkflowId || applied?.created) {
+        cw = await (prisma as any).caseWorkflow.findUnique({
+          where: { assessmentId: lead.assessmentId },
+          include: { items: true },
+        })
+      }
+    }
+
     if (cw) {
       return res.json({
         workflow: await serializeCaseWorkflow(cw),
