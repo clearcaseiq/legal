@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   # PostgreSQL Database
   db:
@@ -23,13 +21,26 @@ services:
       - injury-network
 
   # API Backend
+  #
+  # api/Dockerfile is a workspace-aware production build: it COPYs from the repo
+  # root (root package.json/lockfile, api/package.json, api/) and runs the built
+  # `node dist/index.js` via docker-entrypoint.sh. The build context must be the
+  # repo root, not ./api, or the `COPY api ./api` step fails with "/api: not
+  # found". We also intentionally do NOT mount ./api or an empty node_modules
+  # volume: doing so would shadow the built /app/dist and break the runtime.
   api:
     build:
-      context: ./api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: api/Dockerfile
     container_name: injury-intelligence-api
     ports:
       - "4000:4000"
+    # The production image does not bundle api/.env (dotenv previously read it via
+    # the removed source mount), so inject it here to supply runtime secrets, LLM
+    # API keys, JWT secret, CORS_ORIGINS, etc. Values in `environment:` below win
+    # over env_file, so infra wiring (DB host, ML URL) stays authoritative.
+    env_file:
+      - ./api/.env
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/injury_intelligence?schema=public
       NODE_ENV: development
@@ -45,10 +56,9 @@ services:
       ml:
         condition: service_started
     volumes:
-      - ./api:/app
-      - /app/node_modules
+      # Persist uploaded evidence/scene files across container rebuilds. The
+      # runner serves them from /app/uploads.
       - ./uploads:/app/uploads
-    command: pnpm dev
     networks:
       - injury-network
 
