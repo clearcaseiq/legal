@@ -45,6 +45,16 @@ interface ReminderClass {
  * Derive a human subject + urgency from the reminder message. The message text is the
  * canonical payload the schedulers write; we key off its well-known prefixes.
  */
+/**
+ * Strip the leading `[Category][sub]` tags the schedulers prepend (e.g.
+ * "[Readiness][demand_ready] Demand-ready: …") so the notification body reads as
+ * plain prose instead of leaking the internal routing prefix to the attorney.
+ */
+function cleanReminderBody(message: string): string {
+  const stripped = (message || '').replace(/^\s*(\[[^\]]*\]\s*)+/, '').trim()
+  return stripped || (message || '').trim()
+}
+
 function classifyReminder(message: string): ReminderClass {
   const text = (message || '').trim()
   const lower = text.toLowerCase()
@@ -132,6 +142,21 @@ export async function runCaseReminderSweep(): Promise<CaseReminderSweepResult> {
     }
   }
 
+  // Resolve the client name per case so otherwise-identical reminders (e.g. the
+  // generic "demand-ready" nudge) are distinguishable in the bell — several
+  // cases hitting the same milestone previously looked like duplicate alerts.
+  const clientByAssessment = new Map<string, string>()
+  const assessmentsForNames = await prisma.assessment
+    .findMany({
+      where: { id: { in: assessmentIds } },
+      select: { id: true, user: { select: { firstName: true, lastName: true } } },
+    })
+    .catch(() => [] as Array<{ id: string; user: { firstName: string | null; lastName: string | null } | null }>)
+  for (const a of assessmentsForNames) {
+    const name = [a.user?.firstName, a.user?.lastName].filter(Boolean).join(' ').trim()
+    if (name) clientByAssessment.set(a.id, name)
+  }
+
   const staleCutoff = new Date(now.getTime() - UNASSIGNED_STALE_DAYS * 24 * 60 * 60 * 1000)
 
   let sent = 0
@@ -160,14 +185,19 @@ export async function runCaseReminderSweep(): Promise<CaseReminderSweepResult> {
     }
 
     const info = classifyReminder(reminder.message)
+    // Name the case in the subject so multiple same-kind reminders are
+    // distinguishable, and strip the internal "[Category]" prefix from the body.
+    const client = clientByAssessment.get(reminder.assessmentId)
+    const subject = client ? `${info.subject} — ${client}` : info.subject
+    const body = cleanReminderBody(reminder.message)
     let delivered = false
     try {
       delivered = await notifyAttorneyInApp({
         attorneyId,
         assessmentId: reminder.assessmentId,
         eventType: ATTORNEY_EVENTS.case_reminder,
-        subject: info.subject,
-        body: reminder.message,
+        subject,
+        body,
         leadId: target?.leadId || null,
         link: target?.leadId ? `/attorney-dashboard/lead/${target.leadId}/overview` : null,
         payload: { reminderId: reminder.id, kind: info.kind, priority: info.priority, channel: reminder.channel },
