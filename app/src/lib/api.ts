@@ -3615,11 +3615,6 @@ export async function holdCaseForManualReview(caseId: string, reason: string, no
   return data
 }
 
-export async function getAdminQueueCases() {
-  const { data } = await api.get('/v1/admin/cases/queue')
-  return data
-}
-
 export async function getAdminRoutingQueue() {
   const { data } = await api.get('/v1/admin/routing-queue')
   return data

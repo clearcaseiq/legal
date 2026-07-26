@@ -71,7 +71,7 @@ export default function ComplianceAdmin() {
         setAttorneys(attorneysData.attorneys || [])
       } catch (err: any) {
         if (err.response?.status === 401 || err.response?.status === 403) {
-          navigate('/login?redirect=/admin/compliance')
+          navigate('/login/admin?redirect=/admin/compliance')
         }
       }
     }

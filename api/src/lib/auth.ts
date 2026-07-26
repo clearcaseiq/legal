@@ -3,6 +3,7 @@ import { Request, Response, NextFunction } from 'express'
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { ENV } from '../env'
+import { isAdminEmail } from './admin-access'
 
 export interface AuthRequest extends Request {
   user?: any
@@ -15,9 +16,13 @@ const JWT_EXPIRES_IN = ENV.JWT_EXPIRES_IN as SignOptions['expiresIn']
 // honor the stored User.role (client | attorney | staff | admin) so backend
 // RBAC can actually see firm staff instead of collapsing everyone to "user".
 // Legacy default "client" maps to "user" to preserve existing requireRole gates.
+//
+// Delegates the allowlist check to isAdminEmail so this gate and adminMiddleware
+// parse ADMIN_EMAILS identically — the old inline split() neither trimmed nor
+// lowercased its entries, so "a@x.com, b@x.com" silently failed to match
+// " b@x.com" here while admin-access matched it.
 function resolveUserRole(user: { email: string; role?: string | null }): string {
-  const adminEmails = ENV.ADMIN_EMAILS?.split(',') || ['admin@caseiq.com']
-  if (adminEmails.includes(user.email.toLowerCase())) return 'admin'
+  if (isAdminEmail(user.email)) return 'admin'
   const stored = (user.role || '').toLowerCase()
   if (stored === 'admin' || stored === 'attorney' || stored === 'staff') return stored
   return 'user'

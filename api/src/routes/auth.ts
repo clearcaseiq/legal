@@ -5,7 +5,7 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { UserRegister, UserLogin, UserUpdate, PasswordResetRequest, PasswordReset } from '../lib/validators'
 import { generateToken, authMiddleware, AuthRequest } from '../lib/auth'
-import { isAdminEmail } from '../lib/admin-access'
+import { isAdminUser } from '../lib/admin-access'
 import { sendClaimEmail } from '../lib/claims'
 import { permissionsForRole } from '../lib/firm-roles'
 
@@ -227,7 +227,7 @@ router.post('/login', async (req, res) => {
     const attorney = await prisma.attorney.findUnique({
       where: { email: user.email }
     })
-    if (attorney && !isAdminEmail(user.email)) {
+    if (attorney && !isAdminUser(user)) {
       return res.status(403).json({
         error: 'Please use the attorney login page',
         isAttorney: true
@@ -237,7 +237,7 @@ router.post('/login', async (req, res) => {
     // Non-attorney firm staff (paralegal, case manager, etc.) have a real login
     // but belong in the firm workspace, not the plaintiff dashboard. Send them
     // to the staff login page instead of silently treating them as a claimant.
-    if (!isAdminEmail(user.email)) {
+    if (!isAdminUser(user)) {
       const membership = await findActiveFirmMembership(user.id)
       if (membership) {
         return res.status(403).json({
@@ -602,9 +602,13 @@ router.post('/staff-login', async (req, res) => {
   }
 })
 
-/** Confirms the current JWT belongs to an ADMIN_EMAILS account (for admin UI login). */
+/**
+ * Confirms the current JWT may use the admin UI — either an ADMIN_EMAILS account or
+ * a user whose role was set to 'admin'. Must stay in sync with adminMiddleware, or a
+ * role-based admin would pass this login gate and then 403 on every admin API call.
+ */
 router.get('/admin-access', authMiddleware, (req: AuthRequest, res) => {
-  if (!req.user?.email || !isAdminEmail(req.user.email)) {
+  if (!isAdminUser(req.user)) {
     return res.status(403).json({ error: 'Admin access required', code: 'NOT_ADMIN' })
   }
   res.json({ ok: true })

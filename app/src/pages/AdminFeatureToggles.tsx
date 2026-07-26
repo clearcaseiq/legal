@@ -36,7 +36,7 @@ export default function AdminFeatureToggles() {
       setToggles(data.data || [])
     } catch (err: any) {
       if (err.response?.status === 401 || err.response?.status === 403) {
-        navigate('/login?redirect=/admin/feature-toggles')
+        navigate('/login/admin?redirect=/admin/feature-toggles')
         return
       }
       setError(err.response?.data?.error || 'Failed to load feature toggles')

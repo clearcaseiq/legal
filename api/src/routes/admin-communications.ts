@@ -7,19 +7,11 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { authMiddleware, AuthRequest } from '../lib/auth'
-import { isAdminEmail } from '../lib/admin-access'
+import { adminMiddleware } from '../lib/admin-access'
 import { resendNotification } from '../lib/platform-notifications'
 import { z } from 'zod'
 
 const router = Router()
-
-function adminMiddleware(req: AuthRequest, res: any, next: any) {
-  const email = req.user?.email
-  if (!email || !isAdminEmail(email)) {
-    return res.status(403).json({ error: 'Admin access required' })
-  }
-  next()
-}
 
 // ===== Notifications Center =====
 router.get(

@@ -326,14 +326,6 @@ export default function AdminAttorneyDetail() {
         )}
       </div>
 
-      {/* Admin actions placeholder */}
-      <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
-        <h3 className="font-medium text-slate-900 mb-2">Admin actions</h3>
-        <p className="text-sm text-slate-500">
-          Edit routing profile, pause routing, boost priority, assign premium access, flag for review
-          — coming in Phase 2.
-        </p>
-      </div>
     </div>
   )
 }

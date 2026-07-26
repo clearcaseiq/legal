@@ -40,7 +40,7 @@ export default function AdminFirmSettings() {
       }
     } catch (err: any) {
       if (err.response?.status === 401 || err.response?.status === 403) {
-        navigate('/login?redirect=/admin/firm-settings')
+        navigate('/login/admin?redirect=/admin/firm-settings')
         return
       }
       setError(err.response?.data?.error || 'Failed to load firms')
@@ -56,7 +56,7 @@ export default function AdminFirmSettings() {
       setError(null)
     } catch (err: any) {
       if (err.response?.status === 401 || err.response?.status === 403) {
-        navigate('/login?redirect=/admin/firm-settings')
+        navigate('/login/admin?redirect=/admin/firm-settings')
         return
       }
       setError(err.response?.data?.error || 'Failed to load firm settings')

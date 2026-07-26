@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { authMiddleware, AuthRequest } from '../lib/auth'
-import { isAdminEmail } from '../lib/admin-access'
+import { adminMiddleware } from '../lib/admin-access'
 import { CaseForRouting, AttorneyForRouting, routeCaseToAttorneys, filterEligibleAttorneys } from '../lib/routing'
 import { runRoutingEngine } from '../lib/routing-engine'
 import { startAssessmentRouting } from '../lib/assessment-routing'
@@ -309,23 +309,8 @@ async function upsertLeadSubmission(
   })
 }
 
-// Admin middleware
-async function adminMiddleware(req: AuthRequest, res: any, next: any) {
-  try {
-    if (!req.user || !req.user.email) {
-      return res.status(401).json({ error: 'Authentication required' })
-    }
-
-    if (!isAdminEmail(req.user.email)) {
-      return res.status(403).json({ error: 'Admin access required' })
-    }
-
-    next()
-  } catch (error) {
-    logger.error('Admin middleware error', { error })
-    res.status(500).json({ error: 'Internal server error' })
-  }
-}
+// Admin authorization lives in lib/admin-access so /v1/admin/*,
+// /v1/admin/communications/*, and the admin login gate share one implementation.
 
 // ===== SMS configuration + test send =====
 // Lets an admin confirm the SMS provider (SNS/Twilio) is wired up end-to-end

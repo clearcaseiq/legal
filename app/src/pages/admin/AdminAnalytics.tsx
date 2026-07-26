@@ -393,9 +393,6 @@ export default function AdminAnalytics() {
             <p className="text-xl font-bold text-slate-900">{caseQuality.casesWithPrediction ?? 0}</p>
           </div>
         </div>
-        <p className="mt-4 text-sm text-slate-500">
-          Revenue analytics (fees, settlements, ROI by case type/attorney) coming when billing data is integrated.
-        </p>
       </div>
     </div>
   )

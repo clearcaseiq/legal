@@ -519,7 +519,7 @@ export default function AdminHome() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.25fr_0.95fr]">
+      <div className="grid grid-cols-1 gap-6">
         <div className="subtle-panel p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -563,20 +563,6 @@ export default function AdminHome() {
           </div>
         </div>
 
-        <div className="subtle-panel p-6">
-          <h2 className="text-lg font-semibold text-slate-900">Ops watchlist</h2>
-          <div className="mt-4 space-y-3 text-sm text-slate-700">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              Check the automation feed after routing rule changes to make sure demand-ready and missing-doc reminders still align with ops policy.
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              Use the compliance page as the permanent event log for reminder lifecycle actions when auditing attorney workflow automation.
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              When routing is disabled, the dashboard still shows automation history so teams can verify backlog pressure before re-enabling dispatch.
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Quick links */}

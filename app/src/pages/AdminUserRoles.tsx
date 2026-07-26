@@ -32,7 +32,7 @@ export default function AdminUserRoles() {
         setUsers(data.data || [])
       } catch (err: any) {
         if (err.response?.status === 401 || err.response?.status === 403) {
-          navigate('/login?redirect=/admin/users')
+          navigate('/login/admin?redirect=/admin/users')
           return
         }
         setError(err.response?.data?.error || 'Failed to load users')

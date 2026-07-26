@@ -283,14 +283,6 @@ export default function AdminRoutingQueue() {
         </div>
       )}
 
-      {/* Quick actions placeholder */}
-      <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
-        <h3 className="font-medium text-slate-900 mb-2">Quick actions</h3>
-        <p className="text-sm text-slate-500">
-          Escalate now, pause routing, broaden matching radius, re-rank attorneys, send to manual
-          review, assign directly — coming in Phase 2.
-        </p>
-      </div>
     </div>
   )
 }
