@@ -1331,6 +1331,16 @@ async function getOrCreateTaskThread(assessmentId: string, taskId: string, req: 
 }
 
 async function createCaseReminder(assessmentId: string, channel: string, message: string, dueAt: Date) {
+  // Idempotency guard: never schedule a second identical, still-pending reminder
+  // for the same case + channel. Multiple triggers (the AI Case Manager sweep,
+  // event-driven coach runs, and the readiness endpoint) can race to create the
+  // same reminder before any is delivered; returning the existing one keeps the
+  // attorney from seeing duplicate alerts. Once a reminder is delivered (status
+  // 'sent'), a future identical reminder is still allowed to re-notify.
+  const existing = await prisma.caseReminder.findFirst({
+    where: { assessmentId, channel, message, status: 'scheduled' },
+  })
+  if (existing) return existing
   return prisma.caseReminder.create({
     data: {
       assessmentId,
