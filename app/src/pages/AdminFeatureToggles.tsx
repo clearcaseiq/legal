@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createAdminFeatureToggle, getAdminFeatureToggles, updateAdminFeatureToggle } from '../lib/api'
-import { BackButton } from '../features/shared/ui'
+import {
+  Badge,
+  DataTable,
+  PageHeader,
+  SectionCard,
+  type DataTableColumn,
+} from '../features/shared/ui'
 
 interface FeatureToggle {
   id: string
@@ -90,29 +96,90 @@ export default function AdminFeatureToggles() {
     }
   }
 
-  return (
-    <div className="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-bold text-gray-900">Feature Toggles</h1>
-        <p className="text-sm text-gray-600">Create and manage feature flags across the platform.</p>
-      </div>
+  const columns: DataTableColumn<FeatureToggle>[] = [
+    {
+      key: 'key',
+      header: 'Key',
+      cell: (toggle) => (
+        <div className="min-w-0">
+          <p className="font-mono text-[13px] font-medium text-slate-900 dark:text-slate-100">{toggle.key}</p>
+          {toggle.description && (
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{toggle.description}</p>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'scope',
+      header: 'Scope',
+      cell: (toggle) => <Badge tone={toggle.scope === 'global' ? 'blue' : 'neutral'}>{toggle.scope}</Badge>,
+    },
+    {
+      key: 'target',
+      header: 'Target',
+      cell: (toggle) => (
+        <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
+          {toggle.scope === 'firm' ? toggle.lawFirmId : toggle.scope === 'user' ? toggle.userId : '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      align: 'right',
+      cell: (toggle) => (
+        <button
+          type="button"
+          onClick={() => handleToggle(toggle)}
+          aria-pressed={toggle.enabled}
+          className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          title={toggle.enabled ? 'Click to disable' : 'Click to enable'}
+        >
+          <Badge tone={toggle.enabled ? 'success' : 'neutral'}>
+            {toggle.enabled ? 'Enabled' : 'Disabled'}
+          </Badge>
+        </button>
+      ),
+    },
+  ]
 
-      <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Feature toggles"
+        description="Flags that gate platform behavior globally, per firm, or per user."
+        actions={
+          <button type="button" onClick={() => navigate('/admin')} className="btn-outline text-ui-sm">
+            Back to dashboard
+          </button>
+        }
+      />
+
+      {error && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+          {error}
+        </div>
+      )}
+
+      <SectionCard title="Create a toggle">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           <input
             className="input"
             placeholder="Toggle key"
+            aria-label="Toggle key"
             value={form.key}
             onChange={(e) => setForm({ ...form, key: e.target.value })}
           />
           <input
             className="input"
             placeholder="Description"
+            aria-label="Description"
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
           />
           <select
             className="input"
+            aria-label="Scope"
             value={form.scope}
             onChange={(e) => setForm({ ...form, scope: e.target.value as 'global' | 'firm' | 'user' })}
           >
@@ -120,97 +187,53 @@ export default function AdminFeatureToggles() {
             <option value="firm">Firm</option>
             <option value="user">User</option>
           </select>
-          <label className="flex items-center gap-2 text-sm text-gray-700">
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
             <input
               type="checkbox"
+              className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
               checked={form.enabled}
               onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
             />
-            Enabled
+            Enabled on create
           </label>
         </div>
+
         {form.scope === 'firm' && (
           <input
-            className="input"
+            className="input mt-3"
             placeholder="Law firm ID"
+            aria-label="Law firm ID"
             value={form.lawFirmId}
             onChange={(e) => setForm({ ...form, lawFirmId: e.target.value })}
           />
         )}
         {form.scope === 'user' && (
           <input
-            className="input"
+            className="input mt-3"
             placeholder="User ID"
+            aria-label="User ID"
             value={form.userId}
             onChange={(e) => setForm({ ...form, userId: e.target.value })}
           />
         )}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleCreate}
-            className="px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700"
-          >
-            Create Toggle
+
+        <div className="mt-4">
+          <button type="button" onClick={handleCreate} className="btn-primary text-ui-sm">
+            Create toggle
           </button>
-          <BackButton onClick={() => navigate('/admin')} label="Back to Admin Dashboard" />
         </div>
-      </div>
+      </SectionCard>
 
-      {loading && <div className="text-sm text-gray-600">Loading toggles...</div>}
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      {!loading && (
-        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50 text-gray-600">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium">Key</th>
-                <th className="text-left px-4 py-3 font-medium">Scope</th>
-                <th className="text-left px-4 py-3 font-medium">Target</th>
-                <th className="text-left px-4 py-3 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {toggles.map((toggle) => (
-                <tr key={toggle.id}>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900">{toggle.key}</div>
-                    {toggle.description && (
-                      <div className="text-xs text-gray-500">{toggle.description}</div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{toggle.scope}</td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {toggle.scope === 'firm' ? toggle.lawFirmId : toggle.scope === 'user' ? toggle.userId : '—'}
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => handleToggle(toggle)}
-                      className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        toggle.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-                      }`}
-                    >
-                      {toggle.enabled ? 'Enabled' : 'Disabled'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {toggles.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-gray-500">
-                    No feature toggles yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <SectionCard title="All toggles">
+        <DataTable
+          columns={columns}
+          rows={toggles}
+          rowKey={(toggle) => toggle.id}
+          loading={loading}
+          loadingMessage="Loading toggles…"
+          emptyMessage="No feature toggles yet."
+        />
+      </SectionCard>
     </div>
   )
 }

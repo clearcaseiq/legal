@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAdminUsers, updateAdminUserRole } from '../lib/api'
-import { BackButton } from '../features/shared/ui'
+import {
+  Avatar,
+  Badge,
+  DataTable,
+  PageHeader,
+  SectionCard,
+  type DataTableColumn,
+} from '../features/shared/ui'
 
 interface AdminUser {
   id: string
@@ -67,91 +74,93 @@ export default function AdminUserRoles() {
     }
   }
 
+  const columns: DataTableColumn<AdminUser>[] = [
+    {
+      key: 'user',
+      header: 'User',
+      cell: (user) => {
+        const name = `${user.firstName || ''} ${user.lastName || ''}`.trim()
+        return (
+          <div className="flex items-center gap-3">
+            <Avatar name={name || user.email} />
+            <div className="min-w-0">
+              <p className="truncate font-medium text-slate-900 dark:text-slate-100">
+                {name || 'Unnamed user'}
+              </p>
+              <p className="truncate text-xs text-slate-500 dark:text-slate-400">{user.email}</p>
+            </div>
+          </div>
+        )
+      },
+    },
+    {
+      key: 'role',
+      header: 'Role',
+      cell: (user) => (
+        <select
+          value={user.role}
+          onChange={(e) => handleRoleChange(user.id, e.target.value)}
+          disabled={savingId === user.id}
+          aria-label={`Role for ${user.email}`}
+          className="input w-40 capitalize"
+        >
+          {ROLE_OPTIONS.map((role) => (
+            <option key={role} value={role}>
+              {role.replace(/_/g, ' ')}
+            </option>
+          ))}
+        </select>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (user) => (
+        <Badge tone={user.isActive ? 'success' : 'neutral'}>
+          {user.isActive ? 'Active' : 'Inactive'}
+        </Badge>
+      ),
+    },
+  ]
+
   return (
-    <div className="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-bold text-gray-900">User & Role Management</h1>
-        <p className="text-sm text-gray-600">Update user roles and access levels.</p>
-      </div>
-
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <input
-            className="input w-full md:w-80"
-            placeholder="Search by name, email, or role"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <BackButton onClick={() => navigate('/admin')} label="Back to Admin Dashboard" />
-        </div>
-      </div>
-
-      {loading && (
-        <div className="text-sm text-gray-600">Loading users...</div>
-      )}
+    <div className="space-y-6">
+      <PageHeader
+        title="User & role management"
+        description="Grant platform admin, attorney, or firm staff access. Admin unlocks every screen in this console."
+        actions={
+          <button type="button" onClick={() => navigate('/admin')} className="btn-outline text-ui-sm">
+            Back to dashboard
+          </button>
+        }
+      />
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
           {error}
         </div>
       )}
 
-      {!loading && (
-        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50 text-gray-600">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium">User</th>
-                <th className="text-left px-4 py-3 font-medium">Email</th>
-                <th className="text-left px-4 py-3 font-medium">Role</th>
-                <th className="text-left px-4 py-3 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredUsers.map((user) => (
-                <tr key={user.id}>
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-gray-900">
-                      {user.firstName} {user.lastName}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{user.email}</td>
-                  <td className="px-4 py-3">
-                    <select
-                      value={user.role}
-                      onChange={(e) => handleRoleChange(user.id, e.target.value)}
-                      disabled={savingId === user.id}
-                      className="input"
-                    >
-                      {ROLE_OPTIONS.map((role) => (
-                        <option key={role} value={role}>
-                          {role}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex items-center px-2 py-1 rounded-full text-xs ${
-                        user.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                      }`}
-                    >
-                      {user.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-              {filteredUsers.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-gray-500">
-                    No users found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <SectionCard
+        title="Users"
+        trailing={
+          <input
+            className="input w-full sm:w-72"
+            placeholder="Search by name, email, or role"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        }
+      >
+        <DataTable
+          columns={columns}
+          rows={filteredUsers}
+          rowKey={(user) => user.id}
+          loading={loading}
+          loadingMessage="Loading users…"
+          emptyMessage={searchTerm ? 'No users match your search.' : 'No users found.'}
+        />
+      </SectionCard>
     </div>
   )
 }

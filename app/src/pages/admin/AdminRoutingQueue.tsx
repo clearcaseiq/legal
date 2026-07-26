@@ -4,6 +4,17 @@ import { getAdminRoutingQueue } from '../../lib/api'
 import { formatCurrency, formatDate } from '../../lib/formatters'
 import { RefreshCw, ExternalLink, Power, TriangleAlert, CheckCircle } from 'lucide-react'
 import { useAdminRoutingStatus } from '../../hooks/useAdminRoutingStatus'
+import {
+  Badge,
+  EmptyState,
+  PageHeader,
+  SectionCard,
+  TableScroll,
+  THeadRow,
+  Th,
+  Tr,
+  Td,
+} from '../../features/shared/ui'
 
 export default function AdminRoutingQueue() {
   const location = useLocation()
@@ -78,31 +89,31 @@ export default function AdminRoutingQueue() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="text-2xl font-bold text-slate-900">Routing queue</h1>
-        <div className="flex items-center gap-2">
-          <select
-            value={filterWaiting}
-            onChange={(e) => setFilterWaiting(e.target.value as any)}
-            className="px-4 py-2 border border-slate-200 rounded-lg text-sm"
-          >
-            <option value="all">All cases</option>
-            <option value="1h">Waiting &gt; 1 hour</option>
-            <option value="24h">Waiting &gt; 24 hours</option>
-          </select>
-          <button
-            onClick={() => loadQueue(true)}
-            className="flex items-center gap-2 px-4 py-2 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      <p className="text-slate-600">
-        Live dispatch console — cases currently in routing, waiting for attorney response.
-      </p>
+      <PageHeader
+        title="Routing queue"
+        description="Live dispatch console — cases currently in routing, waiting for attorney response."
+        actions={
+          <>
+            <select
+              value={filterWaiting}
+              onChange={(e) => setFilterWaiting(e.target.value as any)}
+              aria-label="Filter by time waiting"
+              className="input w-auto"
+            >
+              <option value="all">All cases</option>
+              <option value="1h">Waiting &gt; 1 hour</option>
+              <option value="24h">Waiting &gt; 24 hours</option>
+            </select>
+            <button
+              onClick={() => loadQueue(true)}
+              className="btn-outline inline-flex items-center gap-2 text-ui-sm"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
+          </>
+        }
+      />
 
       {arrivalFeedback && (
         <div className="flex flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 sm:flex-row sm:items-center sm:justify-between">
@@ -167,122 +178,113 @@ export default function AdminRoutingQueue() {
         <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">{error}</div>
       )}
 
-      {loading ? (
-        <div className="flex justify-center py-12">
-          <RefreshCw className="h-8 w-8 animate-spin text-brand-600" />
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Case ID
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Claim type
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Value estimate
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Case score
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Wave
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Contacted
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Responses
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Latest attorney
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Time in queue
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Next escalation
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {filteredCases.map((c) => {
-                  const ageMin = getAgeMinutes(c.timeInQueue)
-                  const isAging = ageMin >= 60
-                  const isHighlighted = arrivalFeedback?.routedCaseId === c.id
-                  return (
-                    <tr
-                      key={c.id}
-                      className={`cursor-pointer hover:bg-slate-50 ${isHighlighted ? 'bg-emerald-50/70' : ''}`}
-                      onClick={() => navigate(`/admin/cases/${c.id}`)}
+      <SectionCard title={`${filteredCases.length} case${filteredCases.length === 1 ? '' : 's'} in queue`}>
+        {loading ? (
+          <EmptyState message="Loading routing queue…" />
+        ) : filteredCases.length === 0 ? (
+          <EmptyState
+            message={
+              filterWaiting === 'all'
+                ? 'No cases are currently in the routing queue.'
+                : 'No cases have been waiting that long.'
+            }
+          />
+        ) : (
+          // Primitives rather than <DataTable> so the just-routed case can keep its
+          // row-level highlight (DataTable rows don't take a per-row className).
+          <TableScroll>
+            <THeadRow>
+              <Th>Case ID</Th>
+              <Th>Claim type</Th>
+              <Th>Value estimate</Th>
+              <Th>Case score</Th>
+              <Th>Wave</Th>
+              <Th align="right">Contacted</Th>
+              <Th align="right">Responses</Th>
+              <Th>Latest attorney</Th>
+              <Th>Time in queue</Th>
+              <Th>Next escalation</Th>
+              <Th />
+            </THeadRow>
+            <tbody>
+              {filteredCases.map((c) => {
+                const ageMin = getAgeMinutes(c.timeInQueue)
+                const isAging = ageMin >= 60
+                const isHighlighted = arrivalFeedback?.routedCaseId === c.id
+                return (
+                  <Tr
+                    key={c.id}
+                    onClick={() => navigate(`/admin/cases/${c.id}`)}
+                    className={isHighlighted ? 'bg-emerald-50/70 dark:bg-emerald-950/30' : ''}
+                  >
+                    <Td
+                      className={`font-mono ${
+                        isHighlighted
+                          ? 'font-semibold text-emerald-900 dark:text-emerald-300'
+                          : 'text-slate-600 dark:text-slate-400'
+                      }`}
                     >
-                      <td className={`py-3 px-4 text-sm font-mono ${isHighlighted ? 'text-emerald-900 font-semibold' : 'text-slate-600'}`}>
-                        {c.id?.slice(0, 8)}...
-                      </td>
-                      <td className="py-3 px-4 text-sm capitalize">
-                        {(c.claimType || '').replace(/_/g, ' ')}
-                      </td>
-                      <td className="py-3 px-4 text-sm">
-                        {c.valueEstimate ? formatCurrency(c.valueEstimate) : '—'}
-                      </td>
-                      <td className="py-3 px-4 text-sm">
-                        {c.caseScore != null ? `${Math.round(c.caseScore * 100)}%` : '—'}
-                      </td>
-                      <td className="py-3 px-4 text-sm">Wave {c.currentWave}</td>
-                      <td className="py-3 px-4 text-sm">{c.attorneysContacted}</td>
-                      <td className="py-3 px-4 text-sm">{c.responsesReceived}</td>
-                      <td className="py-3 px-4 text-sm">
-                        {c.latestAttorneyContacted ? (
-                          <div>
-                            <div className="font-medium text-slate-900">{c.latestAttorneyContacted.name}</div>
-                            <div className="text-xs text-slate-500">
-                              {c.latestAttorneyContacted.status} • {formatDate(c.latestAttorneyContacted.contactedAt)}
-                            </div>
+                      {c.id?.slice(0, 8)}…
+                    </Td>
+                    <Td className="capitalize">{(c.claimType || '').replace(/_/g, ' ')}</Td>
+                    <Td>{c.valueEstimate ? formatCurrency(c.valueEstimate) : '—'}</Td>
+                    <Td>{c.caseScore != null ? `${Math.round(c.caseScore * 100)}%` : '—'}</Td>
+                    <Td>
+                      <Badge tone="neutral">Wave {c.currentWave}</Badge>
+                    </Td>
+                    <Td align="right" className="tabular-nums">
+                      {c.attorneysContacted}
+                    </Td>
+                    <Td align="right" className="tabular-nums">
+                      {c.responsesReceived}
+                    </Td>
+                    <Td>
+                      {c.latestAttorneyContacted ? (
+                        <div>
+                          <div className="font-medium text-slate-900 dark:text-slate-100">
+                            {c.latestAttorneyContacted.name}
                           </div>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-sm">
-                        <span className={isAging ? 'text-amber-600 font-medium' : ''}>
-                          {ageMin < 60 ? `${ageMin} min` : `${Math.floor(ageMin / 60)}h`}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-sm text-slate-600">
-                        {c.nextEscalationTime
-                          ? formatDate(c.nextEscalationTime)
-                          : '—'}
-                      </td>
-                      <td className="py-3 px-4">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            navigate(`/admin/cases/${c.id}`)
-                          }}
-                          className="text-brand-600 hover:text-brand-800"
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-          {filteredCases.length === 0 && (
-            <div className="py-12 text-center text-slate-500">No cases in routing queue</div>
-          )}
-        </div>
-      )}
-
+                          <div className="text-xs text-slate-500 dark:text-slate-400">
+                            {c.latestAttorneyContacted.status} •{' '}
+                            {formatDate(c.latestAttorneyContacted.contactedAt)}
+                          </div>
+                        </div>
+                      ) : (
+                        '—'
+                      )}
+                    </Td>
+                    <Td>
+                      <span
+                        className={
+                          isAging ? 'font-medium text-amber-600 dark:text-amber-400' : undefined
+                        }
+                      >
+                        {ageMin < 60 ? `${ageMin} min` : `${Math.floor(ageMin / 60)}h`}
+                      </span>
+                    </Td>
+                    <Td className="text-slate-600 dark:text-slate-400">
+                      {c.nextEscalationTime ? formatDate(c.nextEscalationTime) : '—'}
+                    </Td>
+                    <Td align="right">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          navigate(`/admin/cases/${c.id}`)
+                        }}
+                        aria-label="Open case"
+                        className="text-brand-600 hover:text-brand-800 dark:text-brand-400 dark:hover:text-brand-300"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </button>
+                    </Td>
+                  </Tr>
+                )
+              })}
+            </tbody>
+          </TableScroll>
+        )}
+      </SectionCard>
     </div>
   )
 }

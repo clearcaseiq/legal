@@ -416,8 +416,10 @@ export function PageHeader({
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h1 className="text-xl font-bold text-slate-900">{title}</h1>
-        {description && <p className="mt-1 max-w-2xl text-sm text-slate-500">{description}</p>}
+        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">{title}</h1>
+        {description && (
+          <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">{description}</p>
+        )}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>
@@ -434,10 +436,14 @@ export function SectionCard({
   children: ReactNode
 }) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-white">
+    <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700/80 dark:bg-slate-900/70">
       {(title || trailing) && (
-        <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-100 px-4 py-3">
-          {title && <h2 className="whitespace-nowrap text-sm font-semibold text-slate-800">{title}</h2>}
+        <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+          {title && (
+            <h2 className="whitespace-nowrap text-sm font-semibold text-slate-800 dark:text-slate-200">
+              {title}
+            </h2>
+          )}
           {trailing}
         </header>
       )}
@@ -448,7 +454,7 @@ export function SectionCard({
 
 export function EmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
       {message}
     </div>
   )
@@ -481,7 +487,7 @@ export function initials(name: string): string {
 export function Avatar({ name, className = '' }: { name: string; className?: string }) {
   return (
     <span
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-500 ring-1 ring-inset ring-slate-200 group-hover:bg-white ${className}`}
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-500 ring-1 ring-inset ring-slate-200 group-hover:bg-white dark:bg-slate-800 dark:text-slate-400 dark:ring-slate-700 dark:group-hover:bg-slate-700 ${className}`}
     >
       {initials(name)}
     </span>
@@ -491,12 +497,12 @@ export function Avatar({ name, className = '' }: { name: string; className?: str
 export type BadgeTone = 'neutral' | 'brand' | 'blue' | 'success' | 'warning' | 'danger'
 
 const BADGE_TONE: Record<BadgeTone, string> = {
-  neutral: 'bg-slate-100 text-slate-600 ring-slate-200',
-  brand: 'bg-brand-50 text-brand-700 ring-brand-200',
-  blue: 'bg-blue-50 text-blue-700 ring-blue-200',
-  success: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  warning: 'bg-amber-50 text-amber-700 ring-amber-200',
-  danger: 'bg-rose-50 text-rose-700 ring-rose-200',
+  neutral: 'bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700',
+  brand: 'bg-brand-50 text-brand-700 ring-brand-200 dark:bg-brand-950/40 dark:text-brand-300 dark:ring-brand-900',
+  blue: 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:ring-blue-900',
+  success: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900',
+  warning: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900',
+  danger: 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:ring-rose-900',
 }
 
 /** Pill badge used for statuses, counts, stages, and due dates across tables. */
@@ -608,7 +614,7 @@ export function TableScroll({
           ref={barRef}
           onScroll={() => sync('bar')}
           aria-hidden="true"
-          className="sticky bottom-0 z-20 h-4 overflow-x-auto overflow-y-hidden border-t border-slate-200 bg-white/90 backdrop-blur-sm [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:h-2.5"
+          className="sticky bottom-0 z-20 h-4 overflow-x-auto overflow-y-hidden border-t border-slate-200 bg-white/90 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/90 [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:h-2.5"
         >
           <div className="h-px" style={{ width: metrics.scrollWidth }} />
         </div>
@@ -621,13 +627,19 @@ export function TableScroll({
 export function THeadRow({ children }: { children: ReactNode }) {
   return (
     <thead>
-      <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-slate-700">{children}</tr>
+      <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+        {children}
+      </tr>
     </thead>
   )
 }
 
 export function Th({ children, align = 'left', className = '' }: { children?: ReactNode; align?: Align; className?: string }) {
-  return <th className={`border-b border-slate-200 px-3 pb-2.5 ${alignClass(align)} ${className}`}>{children}</th>
+  return (
+    <th className={`border-b border-slate-200 px-3 pb-2.5 dark:border-slate-700 ${alignClass(align)} ${className}`}>
+      {children}
+    </th>
+  )
 }
 
 /** Body row. Adds the `group` + hover treatment so cells can react on hover. */
@@ -635,7 +647,7 @@ export function Tr({ children, onClick, className = '' }: { children: ReactNode;
   return (
     <tr
       onClick={onClick}
-      className={`group transition-colors hover:bg-slate-50/70 ${onClick ? 'cursor-pointer' : ''} ${className}`}
+      className={`group transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-800/50 ${onClick ? 'cursor-pointer' : ''} ${className}`}
     >
       {children}
     </tr>
@@ -644,7 +656,9 @@ export function Tr({ children, onClick, className = '' }: { children: ReactNode;
 
 export function Td({ children, align = 'left', className = '' }: { children?: ReactNode; align?: Align; className?: string }) {
   return (
-    <td className={`border-b border-slate-100 px-3 py-3 align-middle group-last:border-0 ${alignClass(align)} ${className}`}>
+    <td
+      className={`border-b border-slate-100 px-3 py-3 align-middle group-last:border-0 dark:border-slate-800 ${alignClass(align)} ${className}`}
+    >
       {children}
     </td>
   )
@@ -690,7 +704,7 @@ export function DataTable<T>({
   if (error) return <EmptyState message={error} />
   if (!rows.length) return <EmptyState message={emptyMessage} />
   // In bounded-height mode the header must stay pinned while the body scrolls.
-  const stickyHeader = maxHeight != null ? 'sticky top-0 z-10 bg-white' : ''
+  const stickyHeader = maxHeight != null ? 'sticky top-0 z-10 bg-white dark:bg-slate-900' : ''
   return (
     <TableScroll maxHeight={maxHeight}>
       <THeadRow>

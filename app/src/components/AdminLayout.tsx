@@ -19,34 +19,71 @@ import {
   Menu,
   Power,
   X,
+  Building2,
+  ToggleLeft,
+  UserCog,
+  Moon,
+  Sun,
 } from 'lucide-react'
 import { useState } from 'react'
 import { BrandMark } from './BrandLogo'
 import { clearStoredAuth } from '../lib/auth'
 import { useAdminRoutingStatus } from '../hooks/useAdminRoutingStatus'
+import { useTheme } from '../contexts/ThemeContext'
 
-const navItems = [
-  { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/admin/cases', label: 'Cases', icon: FileText },
-  { path: '/admin/routing-queue', label: 'Routing Queue', icon: GitBranch },
-  { path: '/admin/attorneys', label: 'Attorneys', icon: Users },
-  { path: '/admin/matching-rules', label: 'Matching Rules', icon: Sliders },
-  { path: '/admin/heuristics', label: 'Heuristics', icon: SlidersHorizontal },
-  { path: '/admin/field-mappings', label: 'Field Mappings', icon: ArrowLeftRight },
-  { path: '/admin/manual-review', label: 'Manual Review', icon: ClipboardCheck },
-  { path: '/admin/routing-feedback', label: 'Routing Feedback', icon: BrainCircuit },
-  { path: '/admin/communications', label: 'Communications', icon: MessageSquare },
-  { path: '/admin/documents', label: 'Documents & OCR', icon: FileSearch },
-  { path: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
-  { path: '/admin/compliance', label: 'Compliance', icon: Shield },
-  { path: '/admin/settings', label: 'Settings', icon: Settings },
+/**
+ * Sidebar grouped by intent rather than one flat list: what you work through
+ * today (Operations), who you route to (Network), what already happened
+ * (Oversight), and what changes system behavior (Configuration). Configuration
+ * also surfaces User Roles, Feature Toggles, and Firm Settings, which were
+ * previously reachable only via link cards on the Settings page — so deep-linking
+ * to them left nothing highlighted in the nav.
+ */
+const navGroups: { label: string; items: { path: string; label: string; icon: typeof LayoutDashboard }[] }[] = [
+  {
+    label: 'Operations',
+    items: [
+      { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
+      { path: '/admin/cases', label: 'Cases', icon: FileText },
+      { path: '/admin/routing-queue', label: 'Routing Queue', icon: GitBranch },
+      { path: '/admin/manual-review', label: 'Manual Review', icon: ClipboardCheck },
+    ],
+  },
+  {
+    label: 'Network',
+    items: [{ path: '/admin/attorneys', label: 'Attorneys', icon: Users }],
+  },
+  {
+    label: 'Oversight',
+    items: [
+      { path: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
+      { path: '/admin/routing-feedback', label: 'Routing Feedback', icon: BrainCircuit },
+      { path: '/admin/communications', label: 'Communications', icon: MessageSquare },
+      { path: '/admin/documents', label: 'Documents & OCR', icon: FileSearch },
+      { path: '/admin/compliance', label: 'Compliance', icon: Shield },
+    ],
+  },
+  {
+    label: 'Configuration',
+    items: [
+      { path: '/admin/matching-rules', label: 'Matching Rules', icon: Sliders },
+      { path: '/admin/heuristics', label: 'Heuristics', icon: SlidersHorizontal },
+      { path: '/admin/field-mappings', label: 'Field Mappings', icon: ArrowLeftRight },
+      { path: '/admin/users', label: 'User Roles', icon: UserCog },
+      { path: '/admin/feature-toggles', label: 'Feature Toggles', icon: ToggleLeft },
+      { path: '/admin/firm-settings', label: 'Firm Settings', icon: Building2 },
+      { path: '/admin/settings', label: 'Settings', icon: Settings },
+    ],
+  },
 ]
+
 
 export default function AdminLayout({ children }: { children?: ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { routingEnabled, loading: routingStatusLoading } = useAdminRoutingStatus()
+  const { darkMode, toggle } = useTheme()
 
   const handleLogout = () => {
     clearStoredAuth()
@@ -87,14 +124,26 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
               {routingStatusLoading ? 'Routing status...' : routingEnabled === false ? 'Routing off' : 'Routing on'}
             </Link>
           </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 text-ui-sm pressable rounded-lg px-2 py-1 -mr-1"
-          >
-            <LogOut className="h-4 w-4" />
-            Logout
-          </button>
+          <div className="flex items-center gap-1">
+            {/* /admin is a workspace route, so the dark preference already applies
+                here — but the admin shell never shipped a way to change it. */}
+            <button
+              type="button"
+              onClick={toggle}
+              aria-label={darkMode ? 'Use light theme' : 'Use dark theme'}
+              className="pressable rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+            >
+              {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 text-ui-sm pressable rounded-lg px-2 py-1 -mr-1"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
+          </div>
         </div>
       </header>
 
@@ -105,29 +154,39 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           } lg:translate-x-0 fixed lg:static inset-y-0 left-0 z-30 w-64 border-r border-slate-200/80 bg-white/88 pt-14 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/90 lg:pt-0 transition-transform duration-200`}
         >
-          <nav className="p-4 space-y-1 overflow-y-auto h-full">
-            {navItems.map((item) => {
-              const isActive =
-                item.path === '/admin'
-                  ? location.pathname === '/admin'
-                  : location.pathname.startsWith(item.path)
-              const Icon = item.icon
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-brand-100 dark:bg-brand-950/50 text-brand-800 dark:text-brand-300'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
-                  }`}
-                >
-                  <Icon className="h-5 w-5 shrink-0" />
-                  {item.label}
-                </Link>
-              )
-            })}
+          <nav className="h-full space-y-5 overflow-y-auto p-4 pb-8">
+            {navGroups.map((group) => (
+              <div key={group.label}>
+                <p className="px-3 pb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  {group.label}
+                </p>
+                <div className="space-y-1">
+                  {group.items.map((item) => {
+                    const isActive =
+                      item.path === '/admin'
+                        ? location.pathname === '/admin'
+                        : location.pathname.startsWith(item.path)
+                    const Icon = item.icon
+                    return (
+                      <Link
+                        key={item.path}
+                        to={item.path}
+                        onClick={() => setSidebarOpen(false)}
+                        aria-current={isActive ? 'page' : undefined}
+                        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          isActive
+                            ? 'bg-brand-100 dark:bg-brand-950/50 text-brand-800 dark:text-brand-300'
+                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100'
+                        }`}
+                      >
+                        <Icon className="h-5 w-5 shrink-0" />
+                        {item.label}
+                      </Link>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </nav>
         </aside>
 

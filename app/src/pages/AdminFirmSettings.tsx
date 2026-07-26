@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAdminFirms, getAdminFirmSettings, upsertAdminFirmSetting } from '../lib/api'
-import { BackButton } from '../features/shared/ui'
+import {
+  DataTable,
+  PageHeader,
+  SectionCard,
+  type DataTableColumn,
+} from '../features/shared/ui'
 
 interface Firm {
   id: string
@@ -17,6 +22,15 @@ interface FirmSetting {
   key: string
   value: string
   updatedAt: string
+}
+
+function isParseableJson(raw: string): boolean {
+  try {
+    JSON.parse(raw)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export default function AdminFirmSettings() {
@@ -72,7 +86,12 @@ export default function AdminFirmSettings() {
   useEffect(() => {
     if (selectedFirmId) {
       loadSettings(selectedFirmId)
+      return
     }
+    // No firm selected (including "this deployment has no firms"): clear the list
+    // and stop loading, or the table would sit on "Loading…" forever.
+    setSettings([])
+    setLoading(false)
   }, [selectedFirmId])
 
   const handleSave = async () => {
@@ -109,96 +128,133 @@ export default function AdminFirmSettings() {
     }
   }
 
-  return (
-    <div className="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Firm-level Settings</h1>
-        <p className="text-sm text-gray-600">Store and manage firm-specific configuration.</p>
-      </div>
+  const columns: DataTableColumn<FirmSetting>[] = [
+    {
+      key: 'key',
+      header: 'Key',
+      cell: (setting) => (
+        <span className="font-mono text-[13px] font-medium text-slate-900 dark:text-slate-100">
+          {setting.key}
+        </span>
+      ),
+    },
+    {
+      key: 'value',
+      header: 'Value',
+      cell: (setting) => (
+        <pre className="max-w-xl overflow-x-auto whitespace-pre-wrap rounded border border-slate-100 bg-slate-50 p-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-300">
+          {setting.value}
+        </pre>
+      ),
+    },
+    {
+      key: 'updated',
+      header: 'Updated',
+      align: 'right',
+      cell: (setting) => (
+        <span className="text-xs text-slate-500 dark:text-slate-400">
+          {new Date(setting.updatedAt).toLocaleDateString()}
+        </span>
+      ),
+    },
+  ]
 
-      <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+  const selectedFirm = firms.find((f) => f.id === selectedFirmId)
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Firm-level settings"
+        description="Per-firm configuration stored as key/value pairs. Values are saved as JSON when parseable, otherwise as plain text."
+        actions={
+          <button type="button" onClick={() => navigate('/admin')} className="btn-outline text-ui-sm">
+            Back to dashboard
+          </button>
+        }
+      />
+
+      {error && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+          {error}
+        </div>
+      )}
+
+      <SectionCard
+        title="Firm"
+        trailing={
           <select
-            className="input md:w-80"
+            className="input w-full sm:w-80"
+            aria-label="Select a firm"
             value={selectedFirmId}
             onChange={(e) => setSelectedFirmId(e.target.value)}
           >
             <option value="">Select a firm</option>
             {firms.map((firm) => (
               <option key={firm.id} value={firm.id}>
-                {firm.name} {firm.city ? `• ${firm.city}` : ''} {firm.state ? `(${firm.state})` : ''}
+                {firm.name}
+                {firm.city ? ` • ${firm.city}` : ''}
+                {firm.state ? ` (${firm.state})` : ''}
               </option>
             ))}
           </select>
-          <BackButton onClick={() => navigate('/admin')} label="Back to Admin Dashboard" />
+        }
+      >
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Setting key
+            </label>
+            <input
+              className="input"
+              placeholder="e.g. demand.default_deadline_days"
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Value
+            </label>
+            <textarea
+              className="input min-h-[80px]"
+              placeholder='JSON or text — e.g. 30, "on", or {"enabled":true}'
+              value={valueInput}
+              onChange={(e) => setValueInput(e.target.value)}
+            />
+            {/* The API silently stores unparseable input as a string, so say so up
+                front rather than letting the admin discover it after saving. */}
+            {valueInput.trim().length > 0 && !isParseableJson(valueInput) && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                Not valid JSON — this will be stored as plain text.
+              </p>
+            )}
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <input
-            className="input"
-            placeholder="Setting key"
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-          />
-          <textarea
-            className="input min-h-[80px]"
-            placeholder="Value (JSON or text)"
-            value={valueInput}
-            onChange={(e) => setValueInput(e.target.value)}
-          />
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !selectedFirmId}
+            className="btn-primary text-ui-sm disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Save setting'}
+          </button>
         </div>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700 disabled:opacity-50"
-        >
-          {saving ? 'Saving...' : 'Save Setting'}
-        </button>
-      </div>
+      </SectionCard>
 
-      {loading && <div className="text-sm text-gray-600">Loading settings...</div>}
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      {!loading && (
-        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50 text-gray-600">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium">Key</th>
-                <th className="text-left px-4 py-3 font-medium">Value</th>
-                <th className="text-left px-4 py-3 font-medium">Updated</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {settings.map((setting) => (
-                <tr key={setting.id}>
-                  <td className="px-4 py-3 text-gray-900 font-medium">{setting.key}</td>
-                  <td className="px-4 py-3 text-gray-600">
-                    <pre className="whitespace-pre-wrap text-xs bg-gray-50 border border-gray-100 rounded p-2">
-                      {setting.value}
-                    </pre>
-                  </td>
-                  <td className="px-4 py-3 text-gray-500">
-                    {new Date(setting.updatedAt).toLocaleDateString()}
-                  </td>
-                </tr>
-              ))}
-              {settings.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="px-4 py-6 text-center text-gray-500">
-                    No settings found for this firm.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <SectionCard title={selectedFirm ? `Settings — ${selectedFirm.name}` : 'Settings'}>
+        <DataTable
+          columns={columns}
+          rows={settings}
+          rowKey={(setting) => setting.id}
+          loading={loading}
+          loadingMessage="Loading settings…"
+          emptyMessage={
+            selectedFirmId ? 'No settings found for this firm.' : 'Select a firm to view its settings.'
+          }
+        />
+      </SectionCard>
     </div>
   )
 }

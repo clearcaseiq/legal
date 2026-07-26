@@ -1,9 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAdminAttorneys } from '../../lib/api'
-import { RefreshCw, ExternalLink, Users, Star, CheckCircle, Clock } from 'lucide-react'
+import { RefreshCw, ExternalLink, Search, Star, CheckCircle, Clock } from 'lucide-react'
 import { formatSpecialty } from '../../lib/constants'
 import { formatEnumLabel, capitalizeWords, formatJurisdictions } from '../../lib/formatters'
+import {
+  Avatar,
+  Badge,
+  DataTable,
+  PageHeader,
+  SectionCard,
+  type DataTableColumn,
+} from '../../features/shared/ui'
 
 /** Human-readable "State (County, County)" from a venue/jurisdiction entry. */
 function formatVenue(item: any): string {
@@ -93,132 +101,139 @@ export default function AdminAttorneys() {
     )
   })
 
+  const columns: DataTableColumn<any>[] = [
+    {
+      key: 'attorney',
+      header: 'Attorney / Firm',
+      cell: (a) => {
+        const name = capitalizeWords(a.name) || a.email || '—'
+        return (
+          <div className="flex items-start gap-3">
+            <Avatar name={name} />
+            <div className="min-w-0">
+              <p className="truncate font-medium text-slate-900 dark:text-slate-100">{name}</p>
+              <p className="truncate text-sm text-slate-500 dark:text-slate-400">
+                {capitalizeWords(a.lawFirm?.name) || '—'}
+              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <span className="inline-flex items-center">
+                  <Star className="mr-1 h-3 w-3 text-amber-400" />
+                  {typeof a.averageRating === 'number' ? a.averageRating.toFixed(1) : '0.0'}
+                </span>
+                <span>{a.totalReviews || 0} reviews</span>
+                <span className="inline-flex items-center text-emerald-700 dark:text-emerald-400">
+                  <CheckCircle className="mr-1 h-3 w-3" />
+                  {a.verifiedReviewCount || 0} verified
+                </span>
+              </div>
+            </div>
+          </div>
+        )
+      },
+    },
+    {
+      key: 'coverage',
+      header: 'States / Counties',
+      cell: (a) => <span className="text-slate-700 dark:text-slate-300">{formatVenueSummary(a)}</span>,
+    },
+    {
+      key: 'caseTypes',
+      header: 'Case types',
+      cell: (a) => (
+        <span className="text-slate-700 dark:text-slate-300">{formatSpecialtiesSummary(a)}</span>
+      ),
+    },
+    {
+      key: 'tier',
+      header: 'Tier',
+      cell: (a) => (
+        <Badge tone="neutral">
+          {a.subscriptionTier || a.profile?.subscriptionTier || 'Standard'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      cell: (a) => (
+        <div>
+          <Badge tone={a.isActive ? 'success' : 'neutral'}>{a.isActive ? 'Active' : 'Inactive'}</Badge>
+          <div className="mt-2 flex items-center text-xs text-slate-500 dark:text-slate-400">
+            <Clock className="mr-1 h-3 w-3" />~{a.responseTimeHours ?? 24}h response
+          </div>
+          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Last active: {formatLastActive(a.lastActiveAt)}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      cell: (a) => (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            navigate(`/admin/attorneys/${a.id}`)
+          }}
+          aria-label={`Open ${capitalizeWords(a.name) || 'attorney'}`}
+          className="text-brand-600 hover:text-brand-800 dark:text-brand-400 dark:hover:text-brand-300"
+        >
+          <ExternalLink className="h-4 w-4" />
+        </button>
+      ),
+    },
+  ]
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="text-2xl font-bold text-slate-900">Attorneys</h1>
-        <button
-          onClick={loadAttorneys}
-          className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
-        >
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </button>
-      </div>
-
-      <div className="relative max-w-md">
-        <input
-          type="text"
-          placeholder="Search by name, email, firm..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-brand-500"
-        />
-        <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-      </div>
+      <PageHeader
+        title="Attorneys"
+        description="Every attorney in the routing network, with coverage, tier, and responsiveness."
+        actions={
+          <button
+            onClick={loadAttorneys}
+            className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </button>
+        }
+      />
 
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700">{error}</div>
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+          {error}
+        </div>
       )}
 
-      {loading ? (
-        <div className="flex justify-center py-12">
-          <RefreshCw className="h-8 w-8 animate-spin text-brand-600" />
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Attorney / Firm
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    States / Counties
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Case types
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Tier
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Status
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {filtered.map((a) => (
-                  <tr
-                    key={a.id}
-                    className="hover:bg-slate-50 cursor-pointer"
-                    onClick={() => navigate(`/admin/attorneys/${a.id}`)}
-                  >
-                    <td className="py-3 px-4">
-                      <p className="font-medium">{capitalizeWords(a.name) || '—'}</p>
-                      <p className="text-sm text-slate-500">{capitalizeWords(a.lawFirm?.name) || '—'}</p>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                        <span className="inline-flex items-center">
-                          <Star className="mr-1 h-3 w-3 text-yellow-400" />
-                          {typeof a.averageRating === 'number' ? a.averageRating.toFixed(1) : '0.0'}
-                        </span>
-                        <span>{a.totalReviews || 0} reviews</span>
-                        <span className="inline-flex items-center text-emerald-700">
-                          <CheckCircle className="mr-1 h-3 w-3" />
-                          {a.verifiedReviewCount || 0} verified
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-sm">
-                      {formatVenueSummary(a)}
-                    </td>
-                    <td className="py-3 px-4 text-sm">
-                      {formatSpecialtiesSummary(a)}
-                    </td>
-                    <td className="py-3 px-4 text-sm">
-                      {a.subscriptionTier || a.profile?.subscriptionTier || 'Standard'}
-                    </td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
-                          a.isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
-                        {a.isActive ? 'Active' : 'Inactive'}
-                      </span>
-                      <div className="mt-2 flex items-center text-xs text-slate-500">
-                        <Clock className="mr-1 h-3 w-3" />
-                        ~{a.responseTimeHours ?? 24}h response
-                      </div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        Last active: {formatLastActive(a.lastActiveAt)}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          navigate(`/admin/attorneys/${a.id}`)
-                        }}
-                        className="text-brand-600 hover:text-brand-800"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <SectionCard
+        title={`${filtered.length} attorney${filtered.length === 1 ? '' : 's'}`}
+        trailing={
+          <div className="relative w-full sm:w-72">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search by name, email, firm…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="input pl-9"
+            />
           </div>
-          {filtered.length === 0 && (
-            <div className="py-12 text-center text-slate-500">No attorneys found</div>
-          )}
-        </div>
-      )}
+        }
+      >
+        <DataTable
+          columns={columns}
+          rows={filtered}
+          rowKey={(a) => a.id}
+          onRowClick={(a) => navigate(`/admin/attorneys/${a.id}`)}
+          loading={loading}
+          loadingMessage="Loading attorneys…"
+          emptyMessage={searchTerm ? 'No attorneys match your search.' : 'No attorneys found.'}
+        />
+      </SectionCard>
     </div>
   )
 }
