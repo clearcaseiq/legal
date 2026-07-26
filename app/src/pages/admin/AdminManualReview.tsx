@@ -14,7 +14,10 @@ import {
   Shield,
   ChevronDown,
   AlertTriangle,
+  ClipboardCheck,
 } from 'lucide-react'
+import EmptyState from '../../components/EmptyState'
+import { EmptyState as InlineMessage, PageHeader } from '../../features/shared/ui'
 
 const REASON_LABELS: Record<string, string> = {
   low_confidence: 'Low confidence',
@@ -103,69 +106,70 @@ export default function AdminManualReview() {
 
   const reasons = [...new Set(cases.map((c) => c.manualReviewReason).filter(Boolean))]
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <div className="text-slate-500">Loading manual review queue…</div>
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">Manual review queue</h1>
-        <button
-          onClick={loadQueue}
-          disabled={loading}
-          className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
-      </div>
+      <PageHeader
+        title="Manual review queue"
+        description="Cases held back from routing until someone clears them."
+        actions={
+          <button
+            onClick={loadQueue}
+            disabled={loading}
+            className="btn-outline inline-flex items-center gap-2 text-ui-sm"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        }
+      />
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">{error}</div>
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+          {error}
+        </div>
       )}
 
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-        {cases.length === 0 ? (
-          <div className="p-12 text-center text-slate-500">
-            <p className="font-medium">No cases in manual review</p>
-            <p className="mt-1 text-sm">
-              Cases can be held for low confidence, duplicate, conflicting facts, suspicious
-              documents, near-SOL, unsupported jurisdiction, premium case review, or OCR failure.
-            </p>
-            <p className="mt-2 text-sm">
-              Add cases from the Case detail page: open a case → Actions → Hold for manual review.
-            </p>
-          </div>
-        ) : (
-          <>
-            {reasons.length > 0 && (
-              <div className="border-b border-slate-200 px-4 py-3">
-                <label className="mr-2 text-sm font-medium text-slate-700">Filter by reason:</label>
-                <select
-                  value={reasonFilter}
-                  onChange={(e) => setReasonFilter(e.target.value)}
-                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-                >
-                  <option value="">All</option>
-                  {reasons.map((r) => (
-                    <option key={r} value={r}>
-                      {REASON_LABELS[r] || r}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+      {loading ? (
+        <div className="surface-panel p-4">
+          <InlineMessage message="Loading manual review queue…" />
+        </div>
+      ) : cases.length === 0 ? (
+        <EmptyState
+          icon={ClipboardCheck}
+          title="No cases in manual review"
+          description="Cases can be held for low confidence, duplicates, conflicting facts, suspicious documents, near-SOL, unsupported jurisdiction, premium review, or OCR failure. To hold one, open a case and choose Actions → Hold for manual review."
+        />
+      ) : (
+        <div className="surface-panel">
+          {reasons.length > 0 && (
+            <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+              <label className="mr-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                Filter by reason:
+              </label>
+              <select
+                value={reasonFilter}
+                onChange={(e) => setReasonFilter(e.target.value)}
+                className="input w-auto py-1.5"
+              >
+                <option value="">All</option>
+                {reasons.map((r) => (
+                  <option key={r} value={r}>
+                    {REASON_LABELS[r] || r}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
-            <div className="divide-y divide-slate-100">
+          {filteredCases.length === 0 && (
+            <InlineMessage message="No cases match this reason filter." />
+          )}
+
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredCases.map((c) => (
                 <div
                   key={c.id}
-                  className="px-4 py-4 hover:bg-slate-50/50 transition-colors"
+                  className="px-4 py-4 transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-800/40"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
@@ -176,7 +180,7 @@ export default function AdminManualReview() {
                         >
                           {c.id}
                         </button>
-                        <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                        <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                           {REASON_LABELS[c.manualReviewReason] || c.manualReviewReason}
                         </span>
                         {typeof c.fraudScore === 'number' && (
@@ -189,7 +193,7 @@ export default function AdminManualReview() {
                           </span>
                         )}
                       </div>
-                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0 text-sm text-slate-600">
+                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0 text-sm text-slate-600 dark:text-slate-400">
                         <span>{c.claimType}</span>
                         <span>{c.venueState}{c.venueCounty ? `, ${c.venueCounty}` : ''}</span>
                         <span>Score: {(c.caseScore * 100).toFixed(0)}%</span>
@@ -198,12 +202,12 @@ export default function AdminManualReview() {
                         )}
                       </div>
                       {c.manualReviewHeldAt && (
-                        <div className="mt-1 text-xs text-slate-500">
+                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                           Held {formatDate(c.manualReviewHeldAt)}
                         </div>
                       )}
                       {c.manualReviewNote && (
-                        <div className="mt-2 text-sm text-slate-600 bg-slate-50 rounded p-2">
+                        <div className="mt-2 rounded bg-slate-50 p-2 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-400">
                           {c.manualReviewNote}
                         </div>
                       )}
@@ -219,9 +223,11 @@ export default function AdminManualReview() {
                               >
                                 {s.severity}
                               </span>
-                              <span className="text-slate-700">
+                              <span className="text-slate-700 dark:text-slate-300">
                                 <span className="font-medium">{s.label}.</span>{' '}
-                                <span className="text-slate-500">{s.detail}</span>
+                                <span className="text-slate-500 dark:text-slate-400">
+                                  {s.detail}
+                                </span>
                               </span>
                             </div>
                           ))}
@@ -232,7 +238,7 @@ export default function AdminManualReview() {
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={() => navigate(`/admin/cases/${c.id}`)}
-                        className="flex items-center gap-1 rounded border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                        className="btn-outline inline-flex items-center gap-1 text-ui-sm"
                       >
                         <ExternalLink className="h-4 w-4" />
                         View
@@ -241,7 +247,7 @@ export default function AdminManualReview() {
                       <div className="relative">
                         <button
                           onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
-                          className="flex items-center gap-1 rounded border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                          className="btn-outline inline-flex items-center gap-1 text-ui-sm"
                         >
                           Actions
                           <ChevronDown className={`h-4 w-4 transition-transform ${expandedId === c.id ? 'rotate-180' : ''}`} />
@@ -253,28 +259,28 @@ export default function AdminManualReview() {
                               className="fixed inset-0 z-10"
                               onClick={() => setExpandedId(null)}
                             />
-                            <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-2 shadow-lg">
-                              <div className="px-3 py-2 border-b border-slate-100">
+                            <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white py-2 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                              <div className="border-b border-slate-100 px-3 py-2 dark:border-slate-800">
                                 <input
                                   type="text"
-                                  placeholder="Optional note..."
+                                  placeholder="Optional note…"
                                   value={actionNote || ''}
                                   onChange={(e) => setActionNote(e.target.value)}
-                                  className="w-full rounded border border-slate-200 px-2 py-1 text-sm"
+                                  className="input py-1"
                                 />
                               </div>
                               <button
                                 onClick={() => handleAction(c.id, 'release')}
                                 disabled={actingId === c.id}
-                                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"
                               >
-                                <CheckCircle className="h-4 w-4 text-green-600" />
+                                <CheckCircle className="h-4 w-4 text-emerald-600" />
                                 Release to routing
                               </button>
                               <button
                                 onClick={() => handleAction(c.id, 'request_info')}
                                 disabled={actingId === c.id}
-                                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"
                               >
                                 <MessageSquare className="h-4 w-4 text-amber-600" />
                                 Request more info
@@ -282,7 +288,7 @@ export default function AdminManualReview() {
                               <button
                                 onClick={() => handleAction(c.id, 'compliance')}
                                 disabled={actingId === c.id}
-                                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"
                               >
                                 <Shield className="h-4 w-4 text-brand-600" />
                                 Send to compliance
@@ -290,7 +296,7 @@ export default function AdminManualReview() {
                               <button
                                 onClick={() => handleAction(c.id, 'reject')}
                                 disabled={actingId === c.id}
-                                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                className="flex w-full items-center gap-2 px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
                               >
                                 <XCircle className="h-4 w-4" />
                                 Reject
@@ -303,10 +309,9 @@ export default function AdminManualReview() {
                   </div>
                 </div>
               ))}
-            </div>
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

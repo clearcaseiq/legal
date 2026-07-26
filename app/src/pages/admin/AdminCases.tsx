@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import EmptyState from '../../components/EmptyState'
 import ErrorBanner from '../../components/ErrorBanner'
+import { PageHeader } from '../../features/shared/ui'
 
 type SortField = 'createdAt' | 'claimType' | 'venueState' | 'status' | 'viability' | 'estimatedValue'
 type SortDirection = 'asc' | 'desc'
@@ -314,31 +315,33 @@ export default function AdminCases() {
 
   return (
     <div className="flex h-[calc(100vh-6.5rem)] min-h-0 flex-col gap-4 overflow-hidden">
-      <div className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-ui-2xl font-bold font-display text-slate-900 dark:text-slate-100 tracking-tight">
-          Cases
-        </h1>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={exportCsv}
-            disabled={sortedCases.length === 0}
-            className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 disabled:opacity-40"
-            title={selectedIds.size > 0 ? `Export ${selectedIds.size} selected` : 'Export the filtered list'}
-          >
-            <Download className="h-4 w-4" />
-            Export CSV
-          </button>
-          <button
-            onClick={loadCases}
-            className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </button>
-        </div>
+      <div className="shrink-0">
+        <PageHeader
+          title="Cases"
+          actions={
+            <>
+              <button
+                onClick={exportCsv}
+                disabled={sortedCases.length === 0}
+                className="btn-outline inline-flex items-center gap-2 text-ui-sm disabled:opacity-40"
+                title={selectedIds.size > 0 ? `Export ${selectedIds.size} selected` : 'Export the filtered list'}
+              >
+                <Download className="h-4 w-4" />
+                Export CSV
+              </button>
+              <button
+                onClick={loadCases}
+                className="btn-outline inline-flex items-center gap-2 text-ui-sm"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Refresh
+              </button>
+            </>
+          }
+        />
       </div>
 
-      <div className="sticky top-14 z-20 shrink-0 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
+      <div className="sticky top-14 z-20 shrink-0 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
         <div className="grid gap-2 sm:grid-cols-5">
           {CASE_TABS.map((tab) => (
             <button

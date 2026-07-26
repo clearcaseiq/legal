@@ -26,6 +26,7 @@ import {
   UserPlus,
   MailWarning,
 } from 'lucide-react'
+import { PageHeader } from '../../features/shared/ui'
 
 export default function AdminHome() {
   const [stats, setStats] = useState<any>(null)
@@ -263,23 +264,17 @@ export default function AdminHome() {
   const maxIntake = Math.max(1, ...intakeVolume.map(([, v]: [string, number]) => v))
 
   return (
-    <div className="page-shell space-y-8">
-      <div className="page-header">
-        <div className="section-heading">
-          <span className="page-kicker">Operations command</span>
-          <h1 className="section-title">Admin Dashboard</h1>
-          <p className="section-copy">
-            Routing throughput, intake posture, and automation activity across the platform.
-          </p>
-        </div>
-        <button
-          onClick={loadStats}
-          className="btn-ghost inline-flex items-center gap-2"
-        >
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </button>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Admin dashboard"
+        description="Routing throughput, intake posture, and automation activity across the platform."
+        actions={
+          <button onClick={loadStats} className="btn-outline inline-flex items-center gap-2 text-ui-sm">
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </button>
+        }
+      />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <section className="premium-panel">

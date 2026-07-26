@@ -20,6 +20,7 @@ import {
   TableProperties,
   AlertTriangle,
 } from 'lucide-react'
+import { PageHeader } from '../../features/shared/ui'
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -184,29 +185,31 @@ export default function AdminDocuments() {
   }
 
   return (
-    <div className="page-shell space-y-8">
-      <div className="page-header">
-        <div className="section-heading">
-          <h1 className="section-title">Documents & OCR</h1>
-          <p className="section-copy">
-            Track ingestion, OCR, extraction, chronology readiness, and bill extraction across plaintiff evidence.
-          </p>
-        </div>
-        <button onClick={loadDocuments} className="btn-ghost inline-flex items-center gap-2" disabled={loading}>
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Documents & OCR"
+        description="Track ingestion, OCR, extraction, chronology readiness, and bill extraction across plaintiff evidence."
+        actions={
+          <button
+            onClick={loadDocuments}
+            className="btn-outline inline-flex items-center gap-2 text-ui-sm"
+            disabled={loading}
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        }
+      />
 
       {assessmentId && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">
           Showing documents for case <span className="font-mono">{assessmentId}</span>.
           <Link to="/admin/documents" className="ml-2 font-semibold underline">Clear case filter</Link>
         </div>
       )}
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
           {error}
         </div>
       )}

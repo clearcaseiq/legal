@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getAdminHeuristics, saveAdminHeuristics } from '../../lib/api'
 import { DEFAULT_HEURISTICS, type HeuristicsConfig } from '../../lib/heuristics'
+import { EmptyState as InlineMessage, PageHeader } from '../../features/shared/ui'
 
 type FieldDef = {
   path: [keyof HeuristicsConfig, string]
@@ -238,48 +239,44 @@ export default function AdminHeuristics() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24 text-slate-500">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-brand-600" />
-        <span className="ml-3 text-sm">Loading heuristics…</span>
+      <div className="mx-auto max-w-4xl space-y-6">
+        <PageHeader title="Heuristics" />
+        <div className="surface-panel p-4">
+          <InlineMessage message="Loading heuristics…" />
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Heuristics</h1>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-            Tune the scoring and labeling logic used across the attorney experience. Changes apply without a deploy.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={handleReset}
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            Reset to defaults
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving || Boolean(validationError)}
-            className="rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
-        </div>
-      </div>
+    <div className="mx-auto max-w-4xl">
+      <PageHeader
+        title="Heuristics"
+        description="Tune the scoring and labeling logic used across the attorney experience. Changes apply without a deploy."
+        actions={
+          <>
+            <button type="button" onClick={handleReset} className="btn-outline text-ui-sm">
+              Reset to defaults
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || Boolean(validationError)}
+              className="btn-primary text-ui-sm"
+            >
+              {saving ? 'Saving…' : 'Save changes'}
+            </button>
+          </>
+        }
+      />
 
       {(error || validationError) && (
-        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
           {validationError || error}
         </div>
       )}
       {savedAt && !error && !validationError && (
-        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
           Heuristics saved. New values take effect immediately.
         </div>
       )}

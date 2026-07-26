@@ -11,9 +11,22 @@ import {
   replyAdminSupportTicket,
 } from '../../lib/api'
 import { formatDate } from '../../lib/formatters'
-import { RefreshCw, AlertTriangle, Send } from 'lucide-react'
+import { RefreshCw, AlertTriangle, Send, MessageSquare } from 'lucide-react'
+import EmptyState from '../../components/EmptyState'
+import {
+  Badge,
+  DataTable,
+  EmptyState as InlineMessage,
+  PageHeader,
+} from '../../features/shared/ui'
 
 type Tab = 'notifications' | 'failed' | 'tickets' | 'routing-alerts'
+
+function notificationTone(status: string) {
+  if (status === 'sent' || status === 'delivered') return 'success' as const
+  if (status === 'failed') return 'danger' as const
+  return 'neutral' as const
+}
 
 export default function AdminCommunications() {
   const [activeTab, setActiveTab] = useState<Tab>('notifications')
@@ -151,32 +164,35 @@ export default function AdminCommunications() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="text-2xl font-bold text-slate-900">Communications</h1>
-        <button
-          onClick={() => {
-            if (activeTab === 'notifications') loadNotifications()
-            else if (activeTab === 'failed') loadFailed()
-            else if (activeTab === 'tickets') loadTickets()
-            else loadRoutingAlerts()
-          }}
-          className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
-        >
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </button>
-      </div>
+      <PageHeader
+        title="Communications"
+        description="Outbound notifications, delivery failures, support tickets, and routing alerts."
+        actions={
+          <button
+            onClick={() => {
+              if (activeTab === 'notifications') loadNotifications()
+              else if (activeTab === 'failed') loadFailed()
+              else if (activeTab === 'tickets') loadTickets()
+              else loadRoutingAlerts()
+            }}
+            className="btn-outline inline-flex items-center gap-2 text-ui-sm"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </button>
+        }
+      />
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-slate-200">
+      <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700">
         {tabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setActiveTab(t.id)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               activeTab === t.id
-                ? 'border-brand-600 text-brand-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
+                ? 'border-brand-600 text-brand-600 dark:text-brand-400'
+                : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
             {t.label}
@@ -185,7 +201,7 @@ export default function AdminCommunications() {
       </div>
 
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-red-700 flex items-center gap-2">
+        <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
           <AlertTriangle className="h-5 w-5 shrink-0" />
           {error}
         </div>
@@ -198,7 +214,7 @@ export default function AdminCommunications() {
             <select
               value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
-              className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
+              className="input w-auto"
             >
               <option value="">All roles</option>
               <option value="plaintiff">Plaintiff</option>
@@ -207,7 +223,7 @@ export default function AdminCommunications() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
+              className="input w-auto"
             >
               <option value="">All status</option>
               <option value="pending">Pending</option>
@@ -245,7 +261,7 @@ export default function AdminCommunications() {
             <select
               value={ticketStatusFilter}
               onChange={(e) => setTicketStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
+              className="input w-auto"
             >
               <option value="">All status</option>
               <option value="open">Open</option>
@@ -254,33 +270,31 @@ export default function AdminCommunications() {
               <option value="resolved">Resolved</option>
               <option value="closed">Closed</option>
             </select>
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="surface-panel overflow-hidden">
               {loading ? (
-                <div className="p-8 text-center text-slate-500">
-                  <RefreshCw className="h-8 w-8 animate-spin mx-auto inline-block" />
-                </div>
+                <InlineMessage message="Loading tickets…" />
+              ) : tickets.length === 0 ? (
+                <InlineMessage message="No tickets" />
               ) : (
-                <div className="divide-y divide-slate-200 max-h-[500px] overflow-y-auto">
+                <div className="divide-y divide-slate-200 max-h-[500px] overflow-y-auto dark:divide-slate-800">
                   {tickets.map((t) => (
-                    <div
+                    <button
                       key={t.id}
+                      type="button"
                       onClick={async () => {
                         const full = await getAdminSupportTicket(t.id)
                         setSelectedTicket(full)
                       }}
-                      className={`p-4 cursor-pointer hover:bg-slate-50 ${
-                        selectedTicket?.id === t.id ? 'bg-brand-50' : ''
+                      className={`block w-full p-4 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60 ${
+                        selectedTicket?.id === t.id ? 'bg-brand-50 dark:bg-brand-950/30' : ''
                       }`}
                     >
-                      <p className="font-medium">{t.subject}</p>
-                      <p className="text-sm text-slate-500">
+                      <p className="font-medium text-slate-900 dark:text-slate-100">{t.subject}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">
                         {t.user?.email || t.attorney?.email} • {t.status} • {t._count?.messages} msgs
                       </p>
-                    </div>
+                    </button>
                   ))}
-                  {tickets.length === 0 && (
-                    <div className="p-8 text-center text-slate-500">No tickets</div>
-                  )}
                 </div>
               )}
             </div>
@@ -295,9 +309,12 @@ export default function AdminCommunications() {
                 setReplyText={setReplyText}
               />
             ) : (
-              <div className="bg-slate-50 rounded-xl border border-slate-200 p-8 text-center text-slate-500">
-                Select a ticket
-              </div>
+              <EmptyState
+                icon={MessageSquare}
+                title="No ticket selected"
+                description="Pick a ticket from the list to read the thread and reply."
+                compact
+              />
             )}
           </div>
         </div>
@@ -305,60 +322,43 @@ export default function AdminCommunications() {
 
       {/* Routing alerts tab */}
       {activeTab === 'routing-alerts' && (
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          {loading ? (
-            <div className="p-12 text-center">
-              <RefreshCw className="h-8 w-8 animate-spin mx-auto inline-block text-brand-600" />
-            </div>
-          ) : (
-            <table className="w-full">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Case ID
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Attorney
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Event
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Sent at
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Status
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {routingAlerts.map((a) => (
-                  <tr key={a.id}>
-                    <td className="py-3 px-4 text-sm font-mono">{a.caseId?.slice(0, 8)}...</td>
-                    <td className="py-3 px-4 text-sm">
-                      {a.attorney?.name} ({a.attorney?.email})
-                    </td>
-                    <td className="py-3 px-4 text-sm">{a.eventType}</td>
-                    <td className="py-3 px-4 text-sm text-slate-600">
-                      {a.sentAt ? formatDate(a.sentAt) : '—'}
-                    </td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`inline-flex px-2 py-0.5 rounded text-xs ${
-                          a.status === 'sent' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100'
-                        }`}
-                      >
-                        {a.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          {routingAlerts.length === 0 && !loading && (
-            <div className="py-12 text-center text-slate-500">No routing alerts yet</div>
-          )}
+        <div className="surface-panel p-4">
+          <DataTable
+            rows={routingAlerts}
+            rowKey={(a) => a.id}
+            loading={loading}
+            loadingMessage="Loading routing alerts…"
+            emptyMessage="No routing alerts yet"
+            columns={[
+              {
+                key: 'caseId',
+                header: 'Case ID',
+                cell: (a: any) => <span className="font-mono">{a.caseId?.slice(0, 8)}…</span>,
+              },
+              {
+                key: 'attorney',
+                header: 'Attorney',
+                cell: (a: any) => `${a.attorney?.name} (${a.attorney?.email})`,
+              },
+              { key: 'event', header: 'Event', cell: (a: any) => a.eventType },
+              {
+                key: 'sentAt',
+                header: 'Sent at',
+                cell: (a: any) => (
+                  <span className="text-slate-600 dark:text-slate-400">
+                    {a.sentAt ? formatDate(a.sentAt) : '—'}
+                  </span>
+                ),
+              },
+              {
+                key: 'status',
+                header: 'Status',
+                cell: (a: any) => (
+                  <Badge tone={a.status === 'sent' ? 'success' : 'neutral'}>{a.status}</Badge>
+                ),
+              },
+            ]}
+          />
         </div>
       )}
     </div>
@@ -376,84 +376,58 @@ function NotificationsTable({
   onResend: (id: string) => void
   resending: string | null
 }) {
-  if (loading) {
-    return (
-      <div className="flex justify-center py-12">
-        <RefreshCw className="h-8 w-8 animate-spin text-brand-600" />
-      </div>
-    )
-  }
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <table className="w-full">
-        <thead className="bg-slate-50 border-b border-slate-200">
-          <tr>
-            <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-              Event
-            </th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-              Recipient
-            </th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-              Channel
-            </th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-              Case
-            </th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-              Status
-            </th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-              Sent
-            </th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-              Actions
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-200">
-          {notifications.map((n) => (
-            <tr key={n.id}>
-              <td className="py-3 px-4 text-sm">{n.eventType}</td>
-              <td className="py-3 px-4 text-sm">{n.recipient || n.user?.email || n.attorney?.email}</td>
-              <td className="py-3 px-4 text-sm">{n.channel}</td>
-              <td className="py-3 px-4 text-sm">
-                {n.case?.claimType ? `${n.case.claimType} (${n.case.venueState})` : '—'}
-              </td>
-              <td className="py-3 px-4">
-                <span
-                  className={`inline-flex px-2 py-0.5 rounded text-xs ${
-                    n.status === 'sent' || n.status === 'delivered'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : n.status === 'failed'
-                      ? 'bg-red-100 text-red-800'
-                      : 'bg-slate-100 text-slate-700'
-                  }`}
-                >
-                  {n.status}
-                </span>
-              </td>
-              <td className="py-3 px-4 text-sm text-slate-600">
+    <div className="surface-panel p-4">
+      <DataTable
+        rows={notifications}
+        rowKey={(n) => n.id}
+        loading={loading}
+        loadingMessage="Loading notifications…"
+        emptyMessage="No notifications"
+        columns={[
+          { key: 'event', header: 'Event', cell: (n: any) => n.eventType },
+          {
+            key: 'recipient',
+            header: 'Recipient',
+            cell: (n: any) => n.recipient || n.user?.email || n.attorney?.email,
+          },
+          { key: 'channel', header: 'Channel', cell: (n: any) => n.channel },
+          {
+            key: 'case',
+            header: 'Case',
+            cell: (n: any) =>
+              n.case?.claimType ? `${n.case.claimType} (${n.case.venueState})` : '—',
+          },
+          {
+            key: 'status',
+            header: 'Status',
+            cell: (n: any) => <Badge tone={notificationTone(n.status)}>{n.status}</Badge>,
+          },
+          {
+            key: 'sent',
+            header: 'Sent',
+            cell: (n: any) => (
+              <span className="text-slate-600 dark:text-slate-400">
                 {n.sentAt ? formatDate(n.sentAt) : '—'}
-              </td>
-              <td className="py-3 px-4">
-                {n.status === 'failed' && (
-                  <button
-                    onClick={() => onResend(n.id)}
-                    disabled={resending === n.id}
-                    className="text-sm text-brand-600 hover:text-brand-800 disabled:opacity-50"
-                  >
-                    {resending === n.id ? 'Resending...' : 'Resend'}
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {notifications.length === 0 && (
-        <div className="py-12 text-center text-slate-500">No notifications</div>
-      )}
+              </span>
+            ),
+          },
+          {
+            key: 'actions',
+            header: 'Actions',
+            cell: (n: any) =>
+              n.status === 'failed' ? (
+                <button
+                  onClick={() => onResend(n.id)}
+                  disabled={resending === n.id}
+                  className="text-sm font-medium text-brand-600 hover:text-brand-800 disabled:opacity-50 dark:text-brand-400"
+                >
+                  {resending === n.id ? 'Resending…' : 'Resend'}
+                </button>
+              ) : null,
+          },
+        ]}
+      />
     </div>
   )
 }
@@ -471,74 +445,58 @@ function FailedNotificationsTable({
   onMarkResolved: (id: string) => void
   resending: string | null
 }) {
-  if (loading) {
-    return (
-      <div className="flex justify-center py-12">
-        <RefreshCw className="h-8 w-8 animate-spin text-brand-600" />
-      </div>
-    )
-  }
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <table className="w-full">
-        <thead className="bg-slate-50 border-b border-slate-200">
-          <tr>
-            <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-              Recipient
-            </th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-              Event
-            </th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-              Channel
-            </th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-              Reason
-            </th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-              Retries
-            </th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-              Last attempt
-            </th>
-            <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-              Actions
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-200">
-          {failed.map((f) => (
-            <tr key={f.id}>
-              <td className="py-3 px-4 text-sm">{f.recipient}</td>
-              <td className="py-3 px-4 text-sm">{f.eventType}</td>
-              <td className="py-3 px-4 text-sm">{f.channel}</td>
-              <td className="py-3 px-4 text-sm text-red-600">{f.failureReason || '—'}</td>
-              <td className="py-3 px-4 text-sm">{f.retryCount}</td>
-              <td className="py-3 px-4 text-sm text-slate-600">
+    <div className="surface-panel p-4">
+      <DataTable
+        rows={failed}
+        rowKey={(f) => f.id}
+        loading={loading}
+        loadingMessage="Loading failed notifications…"
+        emptyMessage="No failed notifications"
+        columns={[
+          { key: 'recipient', header: 'Recipient', cell: (f: any) => f.recipient },
+          { key: 'event', header: 'Event', cell: (f: any) => f.eventType },
+          { key: 'channel', header: 'Channel', cell: (f: any) => f.channel },
+          {
+            key: 'reason',
+            header: 'Reason',
+            cell: (f: any) => (
+              <span className="text-rose-600 dark:text-rose-400">{f.failureReason || '—'}</span>
+            ),
+          },
+          { key: 'retries', header: 'Retries', cell: (f: any) => f.retryCount },
+          {
+            key: 'lastAttempt',
+            header: 'Last attempt',
+            cell: (f: any) => (
+              <span className="text-slate-600 dark:text-slate-400">
                 {f.lastAttemptAt ? formatDate(f.lastAttemptAt) : '—'}
-              </td>
-              <td className="py-3 px-4 flex gap-2">
+              </span>
+            ),
+          },
+          {
+            key: 'actions',
+            header: 'Actions',
+            cell: (f: any) => (
+              <div className="flex gap-2">
                 <button
                   onClick={() => onResend(f.id)}
                   disabled={resending === f.id}
-                  className="text-sm text-brand-600 hover:text-brand-800 disabled:opacity-50"
+                  className="text-sm font-medium text-brand-600 hover:text-brand-800 disabled:opacity-50 dark:text-brand-400"
                 >
-                  {resending === f.id ? 'Retrying...' : 'Retry now'}
+                  {resending === f.id ? 'Retrying…' : 'Retry now'}
                 </button>
                 <button
                   onClick={() => onMarkResolved(f.id)}
-                  className="text-sm text-slate-600 hover:text-slate-800"
+                  className="text-sm text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200"
                 >
                   Mark resolved
                 </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {failed.length === 0 && (
-        <div className="py-12 text-center text-slate-500">No failed notifications</div>
-      )}
+              </div>
+            ),
+          },
+        ]}
+      />
     </div>
   )
 }
@@ -560,20 +518,20 @@ function TicketDetail({
   const isClosed = ticket.status === 'closed' || ticket.status === 'resolved'
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+    <div className="surface-panel space-y-4 p-6">
       <div>
-        <h3 className="font-semibold text-slate-900">{ticket.subject}</h3>
-        <p className="text-sm text-slate-500 mt-1">
+        <h3 className="font-semibold text-slate-900 dark:text-slate-100">{ticket.subject}</h3>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           {ticket.user?.email || ticket.attorney?.email} • {ticket.category} • {ticket.priority}
         </p>
       </div>
-      <p className="text-sm text-slate-700">{ticket.description}</p>
+      <p className="text-sm text-slate-700 dark:text-slate-300">{ticket.description}</p>
 
       <div className="flex gap-2">
         <select
           value={ticket.status}
           onChange={(e) => onStatusChange(ticket.id, e.target.value)}
-          className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
+          className="input w-auto"
         >
           <option value="open">Open</option>
           <option value="in_progress">In progress</option>
@@ -583,20 +541,28 @@ function TicketDetail({
         </select>
       </div>
 
-      <div className="border-t border-slate-200 pt-4">
-        <h4 className="text-sm font-medium text-slate-700 mb-2">Messages</h4>
-        <div className="space-y-3 max-h-48 overflow-y-auto">
-          {messages.map((m: any) => (
-            <div
-              key={m.id}
-              className={`p-3 rounded-lg ${
-                m.senderRole === 'admin' ? 'bg-brand-50' : 'bg-slate-50'
-              }`}
-            >
-              <p className="text-xs text-slate-500">{m.senderRole} • {formatDate(m.createdAt)}</p>
-              <p className="text-sm mt-1">{m.body}</p>
-            </div>
-          ))}
+      <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+        <h4 className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">Messages</h4>
+        <div className="max-h-48 space-y-3 overflow-y-auto">
+          {messages.length === 0 ? (
+            <InlineMessage message="No messages on this ticket yet." />
+          ) : (
+            messages.map((m: any) => (
+              <div
+                key={m.id}
+                className={`rounded-lg p-3 ${
+                  m.senderRole === 'admin'
+                    ? 'bg-brand-50 dark:bg-brand-950/30'
+                    : 'bg-slate-50 dark:bg-slate-800/60'
+                }`}
+              >
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {m.senderRole} • {formatDate(m.createdAt)}
+                </p>
+                <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">{m.body}</p>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -605,14 +571,14 @@ function TicketDetail({
           <textarea
             value={replyText}
             onChange={(e) => setReplyText(e.target.value)}
-            placeholder="Reply to ticket..."
-            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm min-h-[80px]"
+            placeholder="Reply to ticket…"
+            className="input min-h-[80px] flex-1"
             rows={3}
           />
           <button
             onClick={onReply}
             disabled={!replyText.trim()}
-            className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 flex items-center gap-2 self-end"
+            className="btn-primary inline-flex items-center gap-2 self-end"
           >
             <Send className="h-4 w-4" />
             Reply

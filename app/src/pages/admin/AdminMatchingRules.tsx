@@ -4,6 +4,7 @@ import {
   saveAdminMatchingRules,
   type MatchingRulesConfig,
 } from '../../lib/api'
+import { PageHeader } from '../../features/shared/ui'
 
 // Clamp a raw input string to an integer within [min, max], falling back when
 // the value is blank or non-numeric. Prevents typed negatives / over-max values
@@ -416,27 +417,32 @@ export default function AdminMatchingRules() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">Matching rules</h1>
-        <button
-          onClick={handleSave}
-          disabled={saving || !weightValid}
-          className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saving ? 'Saving…' : 'Save changes'}
-        </button>
-      </div>
+      <PageHeader
+        title="Matching rules"
+        description="Weights, gates, and overrides that decide which attorneys a case is routed to."
+        actions={
+          <button
+            onClick={handleSave}
+            disabled={saving || !weightValid}
+            className="btn-primary text-ui-sm"
+          >
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+        }
+      />
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">{error}</div>
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+          {error}
+        </div>
       )}
       {success && (
-        <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-green-800">
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
           Matching rules saved successfully.
         </div>
       )}
 
-      <div className="sticky top-14 z-20 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
+      <div className="sticky top-14 z-20 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
         <div className="grid gap-2 sm:grid-cols-6">
           {MATCHING_RULE_TABS.map((tab) => (
             <button
@@ -446,7 +452,7 @@ export default function AdminMatchingRules() {
               className={`rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
                 activeSection === tab.id
                   ? 'bg-brand-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'
               }`}
             >
               {tab.label}

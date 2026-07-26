@@ -9,14 +9,13 @@ import {
   getAdminRoutingFeedbackSummary,
 } from '../../lib/api'
 import { formatDate, formatPercentage } from '../../lib/formatters'
+import { AlertTriangle, Download, RefreshCw, Send, Target } from 'lucide-react'
 import {
-  AlertTriangle,
-  BrainCircuit,
-  Download,
-  RefreshCw,
-  Send,
-  Target,
-} from 'lucide-react'
+  Badge,
+  DataTable,
+  EmptyState as InlineMessage,
+  PageHeader,
+} from '../../features/shared/ui'
 
 function downloadJson(filename: string, value: unknown) {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' })
@@ -46,22 +45,24 @@ function ChartList({
   const max = Math.max(1, ...rows.map((row) => row.value))
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+    <div className="surface-panel p-5">
+      <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
       <div className="mt-4 space-y-3">
-        {rows.length === 0 && <div className="text-sm text-slate-500">No data yet</div>}
+        {rows.length === 0 && <InlineMessage message="No data yet" />}
         {rows.map((row) => (
           <div key={row.label} className="flex items-center gap-3">
-            <div className="w-40 shrink-0 text-sm capitalize text-slate-600">
+            <div className="w-40 shrink-0 text-sm capitalize text-slate-600 dark:text-slate-400">
               {row.label.replace(/_/g, ' ')}
             </div>
-            <div className="h-5 flex-1 overflow-hidden rounded bg-slate-100">
+            <div className="h-5 flex-1 overflow-hidden rounded bg-slate-100 dark:bg-slate-800">
               <div
                 className="h-full rounded bg-brand-500"
                 style={{ width: `${(row.value / max) * 100}%` }}
               />
             </div>
-            <div className="w-12 text-right text-sm font-medium text-slate-900">{row.value}</div>
+            <div className="w-12 text-right text-sm font-medium text-slate-900 dark:text-slate-100">
+              {row.value}
+            </div>
           </div>
         ))}
       </div>
@@ -160,47 +161,43 @@ export default function AdminRoutingFeedback() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-            <BrainCircuit className="h-7 w-7 text-brand-600" />
-            Routing feedback
-          </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Review recommendation quality, attorney overrides, export training samples, and log retraining requests.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={days}
-            onChange={(e) => setDays(Number(e.target.value))}
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
-          >
-            <option value={7}>Last 7 days</option>
-            <option value={30}>Last 30 days</option>
-            <option value={90}>Last 90 days</option>
-            <option value={180}>Last 180 days</option>
-          </select>
-          <button
-            onClick={load}
-            disabled={loading}
-            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Routing feedback"
+        description="Review recommendation quality, attorney overrides, export training samples, and log retraining requests."
+        actions={
+          <>
+            <select
+              value={days}
+              onChange={(e) => setDays(Number(e.target.value))}
+              className="input w-auto"
+              aria-label="Reporting window"
+            >
+              <option value={7}>Last 7 days</option>
+              <option value={30}>Last 30 days</option>
+              <option value={90}>Last 90 days</option>
+              <option value={180}>Last 180 days</option>
+            </select>
+            <button
+              onClick={load}
+              disabled={loading}
+              className="btn-outline inline-flex items-center gap-2 text-ui-sm"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </>
+        }
+      />
 
       {error && (
-        <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
+        <div className="flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
           <AlertTriangle className="h-5 w-5 shrink-0" />
           {error}
         </div>
       )}
 
       {success && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
           {success}
         </div>
       )}
@@ -240,11 +237,13 @@ export default function AdminRoutingFeedback() {
         <ChartList title="Routing analytics events" rows={eventRows} />
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="surface-panel p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Reviewable candidates</h2>
-            <p className="mt-1 text-sm text-slate-600">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+              Reviewable candidates
+            </h2>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
               Focus on override-heavy rows or a specific outcome to inspect where recommendations and attorney behavior differ.
             </p>
           </div>
@@ -252,7 +251,7 @@ export default function AdminRoutingFeedback() {
             <select
               value={String(limit)}
               onChange={(e) => setLimit(Number(e.target.value))}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              className="input w-auto"
             >
               <option value={25}>25 rows</option>
               <option value={50}>50 rows</option>
@@ -262,7 +261,7 @@ export default function AdminRoutingFeedback() {
             <select
               value={outcomeStatus}
               onChange={(e) => setOutcomeStatus(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              className="input w-auto"
             >
               <option value="">All outcomes</option>
               <option value="retained">Retained</option>
@@ -270,7 +269,7 @@ export default function AdminRoutingFeedback() {
               <option value="rejected">Rejected</option>
               <option value="lost">Lost</option>
             </select>
-            <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700">
+            <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:text-slate-300">
               <input
                 type="checkbox"
                 checked={overrideOnly}
@@ -281,124 +280,149 @@ export default function AdminRoutingFeedback() {
           </div>
         </div>
 
-        <div className="mt-6 overflow-x-auto">
-          <table className="w-full">
-            <thead className="border-b border-slate-200 bg-slate-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-slate-500">Lead</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-slate-500">Case</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-slate-500">Recommendation</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-slate-500">Actual</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-slate-500">Outcome</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-slate-500">Attorney</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-slate-500">Updated</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {!loading && candidates.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-500">
-                    No routing feedback samples matched the current filter.
-                  </td>
-                </tr>
-              )}
-              {candidates.map((candidate) => (
-                <tr key={candidate.id} className="align-top">
-                  <td className="px-4 py-4 text-sm text-slate-700">
-                    <div className="font-medium text-slate-900">{candidate.leadId}</div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      Score {candidate.lead?.score ?? '—'} • {candidate.lead?.lifecycleState || '—'}
+        <div className="mt-6">
+          <DataTable
+            rows={candidates}
+            rowKey={(c: any) => c.id}
+            loading={loading}
+            loadingMessage="Loading routing feedback samples…"
+            emptyMessage="No routing feedback samples matched the current filter."
+            columns={[
+              {
+                key: 'lead',
+                header: 'Lead',
+                cell: (c: any) => (
+                  <>
+                    <div className="font-medium text-slate-900 dark:text-slate-100">{c.leadId}</div>
+                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Score {c.lead?.score ?? '—'} • {c.lead?.lifecycleState || '—'}
                     </div>
-                  </td>
-                  <td className="px-4 py-4 text-sm text-slate-700">
-                    <div className="font-medium capitalize text-slate-900">
-                      {(candidate.assessment?.claimType || 'unknown').replace(/_/g, ' ')}
+                  </>
+                ),
+              },
+              {
+                key: 'case',
+                header: 'Case',
+                cell: (c: any) => (
+                  <>
+                    <div className="font-medium capitalize text-slate-900 dark:text-slate-100">
+                      {(c.assessment?.claimType || 'unknown').replace(/_/g, ' ')}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      {candidate.assessment?.venueState}
-                      {candidate.assessment?.venueCounty ? `, ${candidate.assessment.venueCounty}` : ''}
+                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      {c.assessment?.venueState}
+                      {c.assessment?.venueCounty ? `, ${c.assessment.venueCounty}` : ''}
                     </div>
-                  </td>
-                  <td className="px-4 py-4 text-sm text-slate-700">
-                    <div className="font-medium capitalize text-slate-900">
-                      {candidate.recommendation?.decision || '—'}
+                  </>
+                ),
+              },
+              {
+                key: 'recommendation',
+                header: 'Recommendation',
+                cell: (c: any) => (
+                  <>
+                    <div className="font-medium capitalize text-slate-900 dark:text-slate-100">
+                      {c.recommendation?.decision || '—'}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      {typeof candidate.recommendation?.confidence === 'number'
-                        ? formatPercentage(candidate.recommendation.confidence)
+                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      {typeof c.recommendation?.confidence === 'number'
+                        ? formatPercentage(c.recommendation.confidence)
                         : '—'}{' '}
                       confidence
                     </div>
-                    {candidate.recommendation?.rationale && (
-                      <div className="mt-2 max-w-xs text-xs text-slate-500">
-                        {candidate.recommendation.rationale}
+                    {c.recommendation?.rationale && (
+                      <div className="mt-2 max-w-xs text-xs text-slate-500 dark:text-slate-400">
+                        {c.recommendation.rationale}
                       </div>
                     )}
-                  </td>
-                  <td className="px-4 py-4 text-sm text-slate-700">
-                    <div className="font-medium capitalize text-slate-900">
-                      {candidate.actualDecision || '—'}
+                  </>
+                ),
+              },
+              {
+                key: 'actual',
+                header: 'Actual',
+                cell: (c: any) => (
+                  <>
+                    <div className="font-medium capitalize text-slate-900 dark:text-slate-100">
+                      {c.actualDecision || '—'}
                     </div>
-                    <div className="mt-1 text-xs">
-                      {candidate.override ? (
-                        <span className="rounded bg-amber-100 px-2 py-1 font-medium text-amber-800">
-                          Override
-                        </span>
-                      ) : (
-                        <span className="rounded bg-emerald-100 px-2 py-1 font-medium text-emerald-800">
-                          Followed recommendation
-                        </span>
-                      )}
+                    <div className="mt-1">
+                      <Badge tone={c.override ? 'warning' : 'success'}>
+                        {c.override ? 'Override' : 'Followed recommendation'}
+                      </Badge>
                     </div>
-                  </td>
-                  <td className="px-4 py-4 text-sm text-slate-700">
-                    <div className="font-medium capitalize text-slate-900">
-                      {candidate.outcomeStatus || 'Pending'}
+                  </>
+                ),
+              },
+              {
+                key: 'outcome',
+                header: 'Outcome',
+                cell: (c: any) => (
+                  <>
+                    <div className="font-medium capitalize text-slate-900 dark:text-slate-100">
+                      {c.outcomeStatus || 'Pending'}
                     </div>
-                    {candidate.outcomeNotes && (
-                      <div className="mt-2 max-w-xs text-xs text-slate-500">{candidate.outcomeNotes}</div>
+                    {c.outcomeNotes && (
+                      <div className="mt-2 max-w-xs text-xs text-slate-500 dark:text-slate-400">
+                        {c.outcomeNotes}
+                      </div>
                     )}
-                  </td>
-                  <td className="px-4 py-4 text-sm text-slate-700">
-                    <div className="font-medium text-slate-900">{candidate.attorney?.name || 'Unknown'}</div>
-                    <div className="mt-1 text-xs text-slate-500">{candidate.attorney?.email || '—'}</div>
-                  </td>
-                  <td className="px-4 py-4 text-sm text-slate-700">
-                    {candidate.outcomeAt
-                      ? formatDate(candidate.outcomeAt)
-                      : candidate.decisionAt
-                        ? formatDate(candidate.decisionAt)
-                        : candidate.createdAt
-                          ? formatDate(candidate.createdAt)
+                  </>
+                ),
+              },
+              {
+                key: 'attorney',
+                header: 'Attorney',
+                cell: (c: any) => (
+                  <>
+                    <div className="font-medium text-slate-900 dark:text-slate-100">
+                      {c.attorney?.name || 'Unknown'}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      {c.attorney?.email || '—'}
+                    </div>
+                  </>
+                ),
+              },
+              {
+                key: 'updated',
+                header: 'Updated',
+                cell: (c: any) => (
+                  <span className="text-slate-700 dark:text-slate-300">
+                    {c.outcomeAt
+                      ? formatDate(c.outcomeAt)
+                      : c.decisionAt
+                        ? formatDate(c.decisionAt)
+                        : c.createdAt
+                          ? formatDate(c.createdAt)
                           : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </span>
+                ),
+              },
+            ]}
+          />
         </div>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center gap-2 text-slate-900">
+        <div className="surface-panel p-6">
+          <div className="flex items-center gap-2 text-slate-900 dark:text-slate-100">
             <Download className="h-5 w-5 text-brand-600" />
             <h2 className="text-lg font-semibold">Training export</h2>
           </div>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
             Pull a structured decision-memory dataset for offline review or model iteration.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <select
               value={String(exportLimit)}
               onChange={(e) => setExportLimit(Number(e.target.value))}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              className="input w-auto"
             >
               <option value={100}>100 rows</option>
               <option value={200}>200 rows</option>
               <option value={500}>500 rows</option>
             </select>
-            <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700">
+            <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:text-slate-300">
               <input
                 type="checkbox"
                 checked={withOutcomeOnly}
@@ -409,16 +433,18 @@ export default function AdminRoutingFeedback() {
             <button
               onClick={handleExport}
               disabled={exportLoading}
-              className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+              className="btn-primary inline-flex items-center gap-2 text-ui-sm"
             >
               <Download className="h-4 w-4" />
-              {exportLoading ? 'Exporting...' : 'Export JSON'}
+              {exportLoading ? 'Exporting…' : 'Export JSON'}
             </button>
           </div>
-          <div className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-600">
+          <div className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-400">
             {exportData ? (
               <>
-                <div className="font-medium text-slate-900">{exportData.count} records exported</div>
+                <div className="font-medium text-slate-900 dark:text-slate-100">
+                  {exportData.count} records exported
+                </div>
                 <div className="mt-1">Generated {formatDate(exportData.exportedAt)}</div>
               </>
             ) : (
@@ -427,12 +453,12 @@ export default function AdminRoutingFeedback() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center gap-2 text-slate-900">
+        <div className="surface-panel p-6">
+          <div className="flex items-center gap-2 text-slate-900 dark:text-slate-100">
             <Target className="h-5 w-5 text-brand-600" />
             <h2 className="text-lg font-semibold">Retraining request</h2>
           </div>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
             Log the next model-review request with notes and the current sampling filters.
           </p>
           <div className="mt-4 space-y-3">
@@ -441,10 +467,10 @@ export default function AdminRoutingFeedback() {
               onChange={(e) => setNotes(e.target.value)}
               rows={5}
               placeholder="Example: review override-heavy medmal leads from the last 90 days and tune against consulted vs retained outcomes."
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
+              className="input"
             />
             <div className="flex flex-wrap items-center gap-3">
-              <label className="text-sm text-slate-600">
+              <label className="text-sm text-slate-600 dark:text-slate-400">
                 Sample size
                 <input
                   type="number"
@@ -452,16 +478,16 @@ export default function AdminRoutingFeedback() {
                   max={500}
                   value={sampleSize}
                   onChange={(e) => setSampleSize(Number(e.target.value))}
-                  className="ml-2 w-24 rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  className="input ml-2 w-24"
                 />
               </label>
               <button
                 onClick={handleRetrainingRequest}
                 disabled={submitting || !notes.trim()}
-                className="flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+                className="btn-secondary inline-flex items-center gap-2 text-ui-sm"
               >
                 <Send className="h-4 w-4" />
-                {submitting ? 'Submitting...' : 'Log request'}
+                {submitting ? 'Submitting…' : 'Log request'}
               </button>
             </div>
           </div>
@@ -481,10 +507,10 @@ function MetricCard({
   helper: string
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="text-sm text-slate-500">{label}</div>
-      <div className="mt-1 text-2xl font-bold text-slate-900">{value}</div>
-      <div className="mt-1 text-xs text-slate-500">{helper}</div>
+    <div className="surface-panel p-4">
+      <div className="text-sm text-slate-500 dark:text-slate-400">{label}</div>
+      <div className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">{value}</div>
+      <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{helper}</div>
     </div>
   )
 }

@@ -431,7 +431,8 @@ export function SectionCard({
   trailing,
   children,
 }: {
-  title?: string
+  /** ReactNode (not just string) so callers can prefix the heading with an icon. */
+  title?: ReactNode
   trailing?: ReactNode
   children: ReactNode
 }) {
@@ -440,7 +441,7 @@ export function SectionCard({
       {(title || trailing) && (
         <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
           {title && (
-            <h2 className="whitespace-nowrap text-sm font-semibold text-slate-800 dark:text-slate-200">
+            <h2 className="flex items-center gap-2 whitespace-nowrap text-sm font-semibold text-slate-800 dark:text-slate-200">
               {title}
             </h2>
           )}
@@ -452,6 +453,12 @@ export function SectionCard({
   )
 }
 
+/**
+ * Inline one-line message for the empty/loading/error slot *inside* a table or
+ * panel (this is what DataTable renders). For a page-level zero-data state that
+ * needs an icon, heading, explanation, or recovery actions, use the richer
+ * `components/EmptyState` instead.
+ */
 export function EmptyState({ message }: { message: string }) {
   return (
     <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
