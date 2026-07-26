@@ -2108,18 +2108,23 @@ async function syncReadinessAutomation(leadId: string, assessmentId: string) {
   const { summary, plan, tasks } = await createReadinessTasks(leadId, assessmentId)
   const remindersCreated: any[] = []
 
+  // Don't re-nudge the same case for the same readiness category more than once per
+  // cooldown window. Exact-message dedup alone is fragile: the nextBestAction detail
+  // wording can drift slightly between runs (heuristics/label changes), which would
+  // otherwise let each case-open spawn another near-identical readiness reminder and
+  // spam the attorney's bell with look-alike alerts.
+  const READINESS_COOLDOWN_DAYS = 14
+  const cooldownCutoff = addDays(new Date(), -READINESS_COOLDOWN_DAYS)
   for (const reminder of plan.reminders) {
-    const latest = await prisma.caseReminder.findFirst({
+    const recent = await prisma.caseReminder.findFirst({
       where: {
         assessmentId,
-        channel: 'email',
-        message: {
-          startsWith: `[Readiness][${reminder.category}]`,
-        },
+        message: { startsWith: `[Readiness][${reminder.category}]` },
+        createdAt: { gte: cooldownCutoff },
       },
       orderBy: { createdAt: 'desc' },
     })
-    if (latest?.message === reminder.message) continue
+    if (recent) continue
     const record = await createCaseReminder(assessmentId, 'email', reminder.message, addDays(new Date(), reminder.dueInDays))
     remindersCreated.push(record)
   }
