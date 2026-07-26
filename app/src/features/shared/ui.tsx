@@ -346,7 +346,8 @@ export function ClientLink({
   return (
     <Link
       to={`/attorney-dashboard/lead/${leadId}/${section}`}
-      className="font-medium text-brand-700 hover:text-brand-800 hover:underline"
+      title={typeof name === 'string' ? `Open ${name}'s case` : 'Open case'}
+      className="font-semibold text-brand-700 underline decoration-brand-300 decoration-dashed underline-offset-2 transition hover:text-brand-800 hover:decoration-brand-500 hover:decoration-solid"
     >
       {name}
     </Link>
