@@ -5,24 +5,25 @@
 -- (the only stable firm key, since firm names vary by source). Also widens the
 -- staging table with the roster fields a state bar roll provides.
 --
--- The unique indexes are created as partial indexes so the existing rows, which
--- all have NULL, do not collide. Postgres already treats NULLs as distinct in a
--- unique index; the WHERE clause additionally keeps the index small while the
--- columns are mostly empty.
+-- Existing rows all have NULL in the new unique columns, and Postgres treats
+-- NULLs as distinct in a unique index, so nothing collides. The indexes are
+-- deliberately plain rather than partial: this project keeps the database in
+-- step with `prisma db push`, which creates plain unique indexes, and a partial
+-- index here would read as drift on every subsequent push.
+--
+-- Every statement is idempotent, so this file is safe to re-run.
 
 ALTER TABLE "attorneys" ADD COLUMN IF NOT EXISTS "barNumber" TEXT;
 ALTER TABLE "attorneys" ADD COLUMN IF NOT EXISTS "barState" TEXT;
 
 CREATE UNIQUE INDEX IF NOT EXISTS "attorneys_barNumber_key"
-  ON "attorneys"("barNumber")
-  WHERE "barNumber" IS NOT NULL;
+  ON "attorneys"("barNumber");
 
 ALTER TABLE "law_firms" ADD COLUMN IF NOT EXISTS "firmDomain" TEXT;
 ALTER TABLE "law_firms" ADD COLUMN IF NOT EXISTS "nameKey" TEXT;
 
 CREATE UNIQUE INDEX IF NOT EXISTS "law_firms_firmDomain_key"
-  ON "law_firms"("firmDomain")
-  WHERE "firmDomain" IS NOT NULL;
+  ON "law_firms"("firmDomain");
 
 CREATE INDEX IF NOT EXISTS "law_firms_nameKey_state_idx"
   ON "law_firms"("nameKey", "state");

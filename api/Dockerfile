@@ -35,7 +35,12 @@ COPY --from=builder /repo/api/docker-entrypoint.sh ./docker-entrypoint.sh
 # against a live container, so they have to ship in the runtime image. They are
 # TypeScript and executed via tsx, which is present because the copied
 # node_modules is a full install rather than a production-only one.
+#
+# src/ comes along because the scripts import helpers from it by source path
+# (`../src/lib/...`) rather than from the compiled dist/. tsx transpiles those on
+# demand, so only the modules a given script actually reaches get loaded.
 COPY --from=builder /repo/api/scripts ./scripts
+COPY --from=builder /repo/api/src ./src
 COPY --from=builder /repo/node_modules ../node_modules
 COPY --from=builder /repo/api/node_modules ./node_modules
 
