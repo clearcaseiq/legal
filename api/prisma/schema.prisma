@@ -779,11 +779,19 @@ model Attorney {
   name              String
   email             String?  @unique
   phone             String?
+  // State bar licence number, digits only. Issued once per person and never
+  // reused, so this is the dedup key for bulk imports — email and phone both
+  // collide across attorneys who share a firm.
+  barNumber         String?  @unique
+  barState          String? // Two-letter state that issued barNumber, e.g. "CA"
   specialties       String
   venues            String
   meta              String?  @db.Text
   profile           String?  @db.Text // Enhanced profile data (JSON)
   isActive          Boolean  @default(true)
+  // Hard routing gate: an unverified attorney is never eligible for a lead.
+  // This is a vetting decision, not a data-quality flag — bulk importers must
+  // leave it false and let a human or a bar-status lookup flip it.
   isVerified        Boolean  @default(false)
   // Yelp-style profile claiming: unclaimed | pending | claimed
   claimStatus       String   @default("unclaimed")
@@ -867,6 +875,14 @@ model LawFirm {
   primaryEmail String?
   phone        String?
   website      String?
+  // Registrable domain from `website` (or a firm email), e.g. "smithlaw.com".
+  // Firms have no public registry identifier and their names vary by source
+  // (DBAs, punctuation, entity suffixes), so this is the practical dedup key.
+  firmDomain   String? @unique
+  // Normalized `name` with entity suffixes and boilerplate stripped, for
+  // dedup when no domain is known. Not unique: distinct firms in different
+  // cities legitimately share a normalized name, so match on nameKey + state.
+  nameKey      String?
   address      String?
   city         String?
   state        String?
@@ -902,6 +918,7 @@ model LawFirm {
   billingRates    BillingRate[]
   timeEntries     TimeEntry[]
 
+  @@index([nameKey, state])
   @@map("law_firms")
 }
 
@@ -2663,7 +2680,8 @@ model AttorneyImportSource {
 model ProductionAttorney {
   id            String  @id @default(cuid())
   source        String  @default("lawyers.com")
-  // Stable dedupe key: hash of profileUrl when present, otherwise normalized name+location.
+  // Stable dedupe key: hash of barNumber when present, else profileUrl, else
+  // normalized name+location. See `buildAttorneyDedupeHash()`.
   dedupeHash    String  @db.VarChar(64)
   externalId    String?
 
@@ -2673,13 +2691,24 @@ model ProductionAttorney {
   phone         String?
   website       String? @db.VarChar(1024)
   profileUrl    String? @db.VarChar(1024)
+  // Bar licence number and issuing state, digits only. Present for roster
+  // sources (state bar roll); usually absent from directory scrapes.
+  barNumber     String?
+  barState      String?
+  licenseStatus String? // Source's licence status, e.g. "Active", "Inactive"
 
   street        String?
   city          String?
   state         String?
   zip           String?
   county        String?
+  // How `county` was determined: "county" (given by the source), "city"
+  // (derived from a city lookup), or "none" (unresolved — needs follow-up
+  // before this row can produce a routable attorney).
+  countySource  String?
   practiceAreas String? @db.Text // JSON array of practice areas
+  // Attorney count at the firm, where the source reports it.
+  firmSize      Int?
 
   rating        Float?
   reviewCount   Int?
@@ -2699,6 +2728,8 @@ model ProductionAttorney {
   @@index([source, status])
   @@index([state, city])
   @@index([phone])
+  @@index([barNumber])
+  @@index([county])
   @@map("production_attorneys")
 }
 

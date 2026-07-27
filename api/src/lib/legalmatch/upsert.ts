@@ -1,7 +1,16 @@
 import { PrismaClient } from '@prisma/client'
 import { getImportSource, upsertImportSource } from './provenance'
 import type { LegalMatchLocation, LegalMatchProfile } from './types'
-import { mergeJsonArray, parseJsonText, slugify, uniqueStrings } from './utils'
+import { mergeJsonArray, parseJsonText, uniqueStrings } from './utils'
+import { resolveExistingAttorney, resolveOrCreateLawFirm } from '../attorney-resolve'
+import { resolveCaCounty } from '../ca-counties'
+import { normalizePracticeAreas } from '../practice-area-normalize'
+import {
+  buildJurisdictions,
+  mergeSerializedJurisdictions,
+  serializeJurisdictions,
+  type Jurisdiction,
+} from '../jurisdictions'
 
 type UpsertResult = {
   attorneyId: string
@@ -9,7 +18,29 @@ type UpsertResult = {
 }
 
 const SOURCE_NAME = 'legalmatch'
-type Jurisdiction = { state?: string | null; cities?: string[] | null }
+
+/**
+ * Build the routing-visible jurisdictions for a profile.
+ *
+ * Routing matches on `counties`, so the cities LegalMatch gives us are resolved
+ * to counties here. Cities are kept alongside for display. Note that an
+ * unresolved city contributes no county: with no counties at all the attorney
+ * reads as statewide, which is the pre-existing lenient behavior, so this
+ * widens nothing that was previously narrow.
+ */
+function buildProfileJurisdictions(profile: LegalMatchProfile): Jurisdiction[] | null {
+  const cities = uniqueStrings([
+    profile.city,
+    ...profile.locations.map((location) => location.city ?? null),
+  ])
+
+  const isCalifornia = String(profile.state ?? '').trim().toUpperCase() === 'CA'
+  const counties = isCalifornia
+    ? uniqueStrings(cities.map((city) => resolveCaCounty({ city }).county))
+    : []
+
+  return buildJurisdictions({ state: profile.state, counties, cities })
+}
 
 export async function upsertLegalMatchAttorney(
   prisma: PrismaClient,
@@ -22,12 +53,21 @@ export async function upsertLegalMatchAttorney(
   const existingAttorney = await resolveAttorney(prisma, existingImportSource?.attorneyId ?? null, profile, lawFirmId)
   const sameSourceAttorney = Boolean(existingImportSource?.attorneyId && existingAttorney)
 
+  // `Attorney.specialties` is the routing gate and only understands incident
+  // types; LegalMatch gives prose. The original labels are kept on
+  // `AttorneyProfile.specialties` for display.
+  const normalized = normalizePracticeAreas(profile.specialties)
+  const routingSpecialties = normalized.incidentTypes
+
   const attorneyMetaPatch = {
     externalSources: {
       legalmatch: {
         sourceUrl: profile.sourceUrl,
         importedAt: new Date().toISOString(),
         parseWarnings: profile.parseWarnings,
+        practiceAreaLabels: profile.specialties,
+        unmatchedPracticeAreas: normalized.unmatchedLabels,
+        practiceAreasGenericOnly: normalized.genericOnly,
       },
     },
   }
@@ -41,7 +81,7 @@ export async function upsertLegalMatchAttorney(
         name: profile.fullName,
         email: profile.email ?? null,
         phone: profile.phone ?? null,
-        specialties: JSON.stringify(profile.specialties),
+        specialties: JSON.stringify(routingSpecialties),
         venues: JSON.stringify(uniqueStrings([profile.state])),
         meta: JSON.stringify(attorneyMetaPatch),
         profile: JSON.stringify({ source: SOURCE_NAME, sourcePayload: profile.sourcePayload }),
@@ -60,7 +100,7 @@ export async function upsertLegalMatchAttorney(
       data: {
         email: pickString(existingAttorney.email, profile.email, sameSourceAttorney),
         phone: pickString(existingAttorney.phone, profile.phone, sameSourceAttorney),
-        specialties: mergeJsonArray(existingAttorney.specialties, profile.specialties),
+        specialties: mergeJsonArray(existingAttorney.specialties, routingSpecialties),
         venues: mergeJsonArray(existingAttorney.venues, uniqueStrings([profile.state])),
         averageRating: pickNumber(existingAttorney.averageRating, profile.averageRating, sameSourceAttorney) ?? existingAttorney.averageRating,
         totalReviews: pickInteger(existingAttorney.totalReviews, profile.totalReviews, sameSourceAttorney) ?? existingAttorney.totalReviews,
@@ -77,9 +117,7 @@ export async function upsertLegalMatchAttorney(
   })
 
   const firmLocations = profile.locations.length > 0 ? JSON.stringify(profile.locations) : null
-  const jurisdictions = profile.state
-    ? JSON.stringify([{ state: profile.state, cities: uniqueStrings([profile.city]) }])
-    : null
+  const jurisdictions = serializeJurisdictions(buildProfileJurisdictions(profile))
 
   if (!existingProfile) {
     await prisma.attorneyProfile.create({
@@ -127,46 +165,17 @@ export async function upsertLegalMatchAttorney(
 }
 
 async function resolveLawFirm(prisma: PrismaClient, profile: LegalMatchProfile) {
-  if (!profile.firmName) return null
-
-  const existing = await prisma.lawFirm.findFirst({
-    where: { name: profile.firmName },
+  const resolved = await resolveOrCreateLawFirm(prisma, {
+    name: profile.firmName,
+    website: profile.website,
+    email: profile.email,
+    phone: profile.phone,
+    address: profile.locations[0]?.address ?? null,
+    city: profile.city,
+    state: profile.state,
+    zip: profile.zip,
   })
-
-  if (existing) {
-    return existing.id
-  }
-
-  const slugBase = slugify([profile.firmName, profile.city, profile.state].filter(Boolean).join('-')) || 'law-firm'
-  const slug = await ensureUniqueSlug(prisma, slugBase)
-
-  const created = await prisma.lawFirm.create({
-    data: {
-      name: profile.firmName,
-      slug,
-      primaryEmail: profile.email ?? null,
-      phone: profile.phone ?? null,
-      website: profile.website ?? null,
-      address: profile.locations[0]?.address ?? null,
-      city: profile.city ?? null,
-      state: profile.state ?? null,
-      zip: profile.zip ?? null,
-    },
-  })
-
-  return created.id
-}
-
-async function ensureUniqueSlug(prisma: PrismaClient, baseSlug: string) {
-  let candidate = baseSlug
-  let counter = 2
-
-  while (await prisma.lawFirm.findUnique({ where: { slug: candidate } })) {
-    candidate = `${baseSlug}-${counter}`
-    counter += 1
-  }
-
-  return candidate
+  return resolved?.id ?? null
 }
 
 async function resolveAttorney(
@@ -175,27 +184,15 @@ async function resolveAttorney(
   profile: LegalMatchProfile,
   lawFirmId: string | null
 ) {
-  if (attorneyId) {
-    const byId = await prisma.attorney.findUnique({ where: { id: attorneyId } })
-    if (byId) return byId
-  }
-
-  if (profile.email) {
-    const byEmail = await prisma.attorney.findUnique({ where: { email: profile.email } })
-    if (byEmail) return byEmail
-  }
-
-  if (profile.phone) {
-    const byPhone = await prisma.attorney.findFirst({ where: { phone: profile.phone } })
-    if (byPhone) return byPhone
-  }
-
-  return prisma.attorney.findFirst({
-    where: {
-      name: profile.fullName,
-      lawFirmId: lawFirmId ?? undefined,
-    },
+  const match = await resolveExistingAttorney(prisma, {
+    knownAttorneyId: attorneyId,
+    email: profile.email,
+    phone: profile.phone,
+    name: profile.fullName,
+    lawFirmId,
   })
+  if (!match) return null
+  return prisma.attorney.findUnique({ where: { id: match.id } })
 }
 
 function pickString(existing: string | null, incoming: string | null | undefined, overwrite: boolean) {
@@ -244,12 +241,6 @@ function mergeJsonLocations(existing: string | null, incoming: LegalMatchProfile
   return JSON.stringify(dedupeLocations([...parsed, ...incoming]))
 }
 
-function mergeJsonJurisdictions(existing: string | null, incoming: string) {
-  const parsed = parseJsonText<Jurisdiction[]>(existing) ?? []
-  const next = parseJsonText<Jurisdiction[]>(incoming) ?? []
-  return JSON.stringify(mergeJurisdictionArrays(parsed, next))
-}
-
 function resolveFirmLocations(
   existing: string | null,
   incoming: LegalMatchProfile['locations'],
@@ -262,11 +253,10 @@ function resolveFirmLocations(
 
 function resolveJurisdictions(existing: string | null, incoming: string | null, overwrite: boolean) {
   if (!incoming) return existing
-  if (overwrite) {
-    const parsed = parseJsonText<Jurisdiction[]>(incoming) ?? []
-    return JSON.stringify(mergeJurisdictionArrays([], parsed))
-  }
-  return mergeJsonJurisdictions(existing, incoming)
+  // Re-importing the same source replaces its own prior answer; a different
+  // source only ever widens coverage.
+  if (overwrite) return incoming
+  return mergeSerializedJurisdictions(existing, parseJsonText<Jurisdiction[]>(incoming) ?? [])
 }
 
 function dedupeLocations(locations: LegalMatchLocation[]) {
@@ -289,23 +279,3 @@ function dedupeLocations(locations: LegalMatchLocation[]) {
   return Array.from(seen.values())
 }
 
-function mergeJurisdictionArrays(existing: Jurisdiction[], incoming: Jurisdiction[]) {
-  const merged = new Map<string, Set<string>>()
-
-  for (const jurisdiction of [...existing, ...incoming]) {
-    const state = jurisdiction.state?.trim().toUpperCase()
-    if (!state) continue
-
-    const cities = merged.get(state) ?? new Set<string>()
-    for (const city of jurisdiction.cities ?? []) {
-      const normalizedCity = city?.trim()
-      if (normalizedCity) cities.add(normalizedCity)
-    }
-    merged.set(state, cities)
-  }
-
-  return Array.from(merged.entries(), ([state, cities]) => ({
-    state,
-    cities: Array.from(cities),
-  }))
-}
