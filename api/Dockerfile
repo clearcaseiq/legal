@@ -31,6 +31,11 @@ COPY --from=builder /repo/api/dist ./dist
 COPY --from=builder /repo/api/prisma ./prisma
 COPY --from=builder /repo/api/package.json ./package.json
 COPY --from=builder /repo/api/docker-entrypoint.sh ./docker-entrypoint.sh
+# Operational scripts (data imports, audits, backfills) are run with `docker exec`
+# against a live container, so they have to ship in the runtime image. They are
+# TypeScript and executed via tsx, which is present because the copied
+# node_modules is a full install rather than a production-only one.
+COPY --from=builder /repo/api/scripts ./scripts
 COPY --from=builder /repo/node_modules ../node_modules
 COPY --from=builder /repo/api/node_modules ./node_modules
 

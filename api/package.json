@@ -29,6 +29,7 @@
     "scrape:lawyers": "node ../node_modules/tsx/dist/cli.mjs scripts/scrape-lawyers-com.ts",
     "promote:production-attorneys": "node ../node_modules/tsx/dist/cli.mjs scripts/promote-production-attorneys.ts",
     "import:ca-bar-roll": "node ../node_modules/tsx/dist/cli.mjs scripts/import-ca-bar-roll.ts",
+    "audit:staged-attorneys": "node ../node_modules/tsx/dist/cli.mjs scripts/audit-staged-attorneys.ts",
     "create:sample-cases": "node ../node_modules/tsx/dist/cli.mjs scripts/create-sample-cases-by-type.ts",
     "create:ca-cases": "node ../node_modules/tsx/dist/cli.mjs scripts/create-100-ca-cases.ts",
     "add:apple-evidence": "node ../node_modules/tsx/dist/cli.mjs scripts/add-evidence-for-apple.ts",
