@@ -42,8 +42,6 @@
  *   --no-signals         Skip writing gbp segmentation signals.
  */
 
-import '../src/env'
-import { prisma } from '../src/lib/prisma'
 import {
   buildDiscoveryQueries,
   CA_DISCOVERY_CITIES,
@@ -64,6 +62,25 @@ import {
   type AcceptedFirmLocation,
   type RejectionReason,
 } from '../src/lib/places-firm-filter'
+
+type Db = typeof import('../src/lib/prisma')['prisma']
+
+/**
+ * Load environment and the database client on demand.
+ *
+ * Deliberately not imported at module load. A dry run is pure arithmetic over two
+ * hard-coded lists, and requiring a reachable database and a fully populated env
+ * just to print a cost estimate would mean nobody could check the bill without
+ * being inside the container.
+ */
+async function loadDb(): Promise<Db> {
+  await import('../src/env')
+  const { prisma } = await import('../src/lib/prisma')
+  return prisma
+}
+
+/** Only set once a live run has connected, so a dry run needs no teardown. */
+let dbToDisconnect: Db | null = null
 
 type Args = {
   dryRun: boolean
@@ -140,6 +157,7 @@ function emptyRejections(): Record<RejectionReason, number> {
  * update: a human's review decision must survive a re-scrape.
  */
 async function stageLocation(
+  prisma: Db,
   location: AcceptedFirmLocation,
   context: { query: string; city: string; cacheExpiresAt: Date }
 ): Promise<'created' | 'updated'> {
@@ -197,6 +215,7 @@ async function stageLocation(
  * identically — so `side` is deliberately left null rather than guessed.
  */
 async function recordGbpSignal(
+  prisma: Db,
   lawFirmId: string,
   location: AcceptedFirmLocation,
   observedAt: Date
@@ -262,6 +281,10 @@ async function main() {
     )
     return
   }
+
+  // Past this point the run is live: load env and the database.
+  const prisma = await loadDb()
+  dbToDisconnect = prisma
 
   const apiKey = process.env.GOOGLE_PLACES_API_KEY
   if (!apiKey) {
@@ -343,7 +366,7 @@ async function main() {
   let updated = 0
   for (const location of summary.kept) {
     const context = placeQuery.get(location.placeId)
-    const outcome = await stageLocation(location, {
+    const outcome = await stageLocation(prisma, location, {
       query: context?.query ?? '',
       city: context?.city ?? '',
       cacheExpiresAt,
@@ -365,7 +388,7 @@ async function main() {
     for (const firm of knownFirms) {
       const locations = firm.firmDomain ? byDomain.get(firm.firmDomain) : undefined
       if (!locations?.length) continue
-      await recordGbpSignal(firm.id, locations[0], new Date())
+      await recordGbpSignal(prisma, firm.id, locations[0], new Date())
       signalsWritten += 1
     }
   }
@@ -416,5 +439,5 @@ main()
     process.exitCode = 1
   })
   .finally(async () => {
-    await prisma.$disconnect()
+    await dbToDisconnect?.$disconnect()
   })
