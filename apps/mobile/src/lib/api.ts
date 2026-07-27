@@ -94,15 +94,10 @@ export function getApiErrorMessage(err: unknown): string {
     const e = err as AxiosError<{ error?: string }>
     const server = e.response?.data && typeof e.response.data === 'object' ? e.response.data.error : undefined
     if (typeof server === 'string' && server.trim()) {
-      if (
-        e.response?.status === 401 &&
-        /invalid credentials/i.test(server) &&
-        API_URL.includes('api.clearcaseiq.com')
-      ) {
-        return (
-          `${server} If the website works on your computer but this app does not, the site may be using a local ` +
-          'development API while this build uses production. Use production credentials or ask an admin to reset your password on production.'
-        )
+      // A rejected password is a plain validation failure — keep it short and
+      // human instead of appending API/environment diagnostics (CP-407).
+      if (e.response?.status === 401 && /invalid credentials/i.test(server)) {
+        return 'Invalid credentials. Please check your email and password, then try again.'
       }
       return server
     }

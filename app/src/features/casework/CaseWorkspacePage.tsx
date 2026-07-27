@@ -93,21 +93,10 @@ import ConsultSchedulerModal from './ConsultSchedulerModal'
 import TaskDetailModal from './TaskDetailModal'
 import { BackButton, EmptyState } from '../shared/ui'
 import { recordRecentCase } from './recentCases'
-
-const CLAIM_LABELS: Record<string, string> = {
-  auto: 'Auto',
-  slip_and_fall: 'Slip & fall',
-  dog_bite: 'Dog bite',
-  medmal: 'Med mal',
-  product: 'Product liability',
-  nursing_home_abuse: 'Nursing home',
-  wrongful_death: 'Wrongful death',
-  high_severity_surgery: 'Surgical injury',
-}
+import { formatClaimType } from '../../lib/claimTypes'
 
 function claimLabel(type?: string) {
-  if (!type) return 'Other'
-  return CLAIM_LABELS[type] || type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  return type ? formatClaimType(type) : 'Other'
 }
 
 const STATUS_LABEL: Record<string, string> = {

@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { listAssessments, getAssessment, getEvidenceFiles, associateAssessments, getRoutingStatus, createAppointment, getAttorneyAvailability, updateAppointment, cancelAppointment, joinAppointmentWaitlist, updateAppointmentPreparation, sendMessage, getOrCreateChatRoom, getPlaintiffConsentCompliance, requestEmailVerification, getPlaintiffDocumentRequests, getPlaintiffCaseTasks, createAttorneyReview, getMedicalChronology, type PlaintiffDocumentRequest, type PlaintiffCaseTask } from '../lib/api'
 import { formatCurrency } from '../lib/formatters'
 import { formatClaimTypeShort } from '../lib/constants'
+import { formatClaimType } from '../lib/claimTypes'
 import { CheckCircle, Square, Upload, FileText, TrendingUp, MessageCircle, BarChart3, FileStack, Activity, LayoutDashboard, ChevronRight, Bell, HelpCircle, Clock, Users, Calendar, Phone, Send, Star, Sparkles, ArrowRight, ShieldCheck, Scale, Lock, Plus } from 'lucide-react'
 import CaseProgressPipeline from '../components/CaseProgressPipeline'
 import { getPlaintiffCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
@@ -2334,7 +2335,7 @@ export default function Dashboard() {
                     <h3 className="text-lg font-bold text-gray-900 mb-4">My Cases</h3>
                     <div className="space-y-3">
                       {assessments.map((a) => {
-                        const claimLabel = a.claimType === 'auto' ? 'Car Accident' : a.claimType === 'slip_and_fall' ? 'Slip and Fall' : a.claimType === 'medmal' ? 'Medical Malpractice' : 'Personal Injury'
+                        const claimLabel = formatClaimType(a.claimType)
                         const location = a.venue?.state ? ` – ${a.venue.state}` : ''
                         const status = a.submittedForReview ? 'Under Attorney Review' : 'Assessment In Progress'
                         const isActive = a.id === activeAssessment?.id

@@ -15,13 +15,15 @@ import { router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import * as SecureStore from 'expo-secure-store'
 import { useAuth } from '../../src/contexts/AuthContext'
-import { getApiErrorMessage, getApiTroubleshootingMessage, normalizeAuthEmail } from '../../src/lib/api'
+import { getApiErrorMessage, getApiTroubleshootingMessage, isOfflineError, normalizeAuthEmail } from '../../src/lib/api'
 import { BrandWordmark } from '../../src/components/BrandWordmark'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { colors, radii, shadows, space } from '../../src/theme/tokens'
 import { IS_PLAINTIFF_APP } from '../../src/lib/appVariant'
 
 const FORGOT_PASSWORD_URL = 'https://www.clearcaseiq.com/forgot-password'
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const VALUE_PROPS = IS_PLAINTIFF_APP
   ? (['Track your case status in real time', 'See your settlement estimate', 'Message your legal team securely'] as const)
@@ -51,6 +53,16 @@ const SUBTITLE = IS_PLAINTIFF_APP
   : 'The AI operating system for personal injury law.'
 
 const PREVIEW_LABEL = IS_PLAINTIFF_APP ? 'Your case at a glance' : 'Case intelligence preview'
+
+/**
+ * Sign-in failures need a plain message. API-host troubleshooting only helps
+ * when the request never reached the server, so it stays out of the way of a
+ * rejected email/password (CP-407).
+ */
+function signInErrorMessage(err: unknown): string {
+  const message = getApiErrorMessage(err)
+  return isOfflineError(err) ? `${message} ${getApiTroubleshootingMessage()}` : message
+}
 
 function greetingForNow(): string {
   const hour = new Date().getHours()
@@ -96,8 +108,13 @@ export default function LoginScreen() {
   }
 
   async function handleLogin() {
-    if (!email.trim() || !password) {
+    const trimmedEmail = email.trim()
+    if (!trimmedEmail || !password) {
       setError(IS_PLAINTIFF_APP ? 'Please enter your email and password.' : 'Please enter your work email and password.')
+      return
+    }
+    if (!EMAIL_PATTERN.test(trimmedEmail)) {
+      setError(`Enter a valid email address, for example ${IS_PLAINTIFF_APP ? 'you@email.com' : 'name@firm.com'}.`)
       return
     }
     setLoading(true)
@@ -107,7 +124,7 @@ export default function LoginScreen() {
       await login(normalizeAuthEmail(email), password)
       router.replace('/(app)/(tabs)')
     } catch (err: unknown) {
-      setError(getApiErrorMessage(err))
+      setError(signInErrorMessage(err))
     } finally {
       stopStageCycle()
       setLoading(false)
@@ -208,7 +225,7 @@ export default function LoginScreen() {
 
             {error ? (
               <InlineErrorBanner
-                message={`${error} ${getApiTroubleshootingMessage()}`}
+                message={error}
                 actionLabel="Dismiss"
                 onAction={() => setError(null)}
               />

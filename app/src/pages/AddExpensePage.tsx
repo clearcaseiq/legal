@@ -13,7 +13,7 @@ const EXPENSE_TYPES = [
   { id: 'other', label: 'Other' }
 ]
 
-const claimLabel = (s: string) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+import { formatClaimType as claimLabel } from '../lib/claimTypes'
 
 export default function AddExpensePage() {
   const { leadId } = useParams<{ leadId: string }>()

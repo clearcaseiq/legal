@@ -4,6 +4,7 @@
  */
 
 import type { EventReminder } from '../../lib/api'
+import { formatClaimType } from '../../lib/claimTypes'
 
 export type CalKind = 'consult' | 'task' | 'event'
 
@@ -195,8 +196,7 @@ export const hourLabel = (h: number) => {
   return h < 12 ? `${h} AM` : `${h - 12} PM`
 }
 
-export const claimLabel = (s?: string | null) =>
-  (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || '—'
+export const claimLabel = (s?: string | null) => (s ? formatClaimType(s) : '—')
 
 /** Visible date range for a view, used to fetch consults from the API. */
 export function rangeForView(view: CalView, anchor: Date): { from: Date; to: Date } {

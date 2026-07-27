@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, CheckCircle, ChevronRight, Clock, Copy, Download, LayoutDashboard, ShieldCheck, Square, Star, TrendingUp, Upload } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
+import { formatClaimType } from '../lib/claimTypes'
 
 type TFunc = (key: string) => string
 
@@ -44,20 +45,9 @@ function formatProtectedMatchScore(attorney: RankedAttorneyCard, index: number) 
   return `${94 - index * 3}%`
 }
 
+// Lower-cased because these labels are read mid-sentence ("strong for … matters").
 function formatClaimTypeLabel(claimType?: string) {
-  if (!claimType) return 'personal injury'
-  const labels: Record<string, string> = {
-    auto: 'auto accident',
-    slip_and_fall: 'slip and fall',
-    workplace: 'workplace injury',
-    medmal: 'medical malpractice',
-    dog_bite: 'dog bite',
-    product: 'product liability',
-    assault: 'assault',
-    toxic: 'toxic exposure',
-    wrongful_death: 'wrongful death',
-  }
-  return labels[claimType] || claimType.replace(/_/g, ' ')
+  return formatClaimType(claimType).toLowerCase()
 }
 
 function formatVenueLabel(venueState?: string, venueCounty?: string) {

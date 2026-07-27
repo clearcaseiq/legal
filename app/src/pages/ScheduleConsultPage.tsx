@@ -20,7 +20,7 @@ const TIME_SLOTS = [
   '3:00 PM', '3:30 PM', '4:00 PM', '4:30 PM', '5:00 PM'
 ]
 
-const claimLabel = (s: string) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+import { formatClaimType as claimLabel } from '../lib/claimTypes'
 
 export default function ScheduleConsultPage() {
   const { leadId } = useParams<{ leadId: string }>()

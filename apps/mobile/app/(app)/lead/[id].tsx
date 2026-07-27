@@ -270,6 +270,11 @@ export default function LeadDetailScreen() {
   const status = (lead?.status || '').toLowerCase()
   const lifecycleState = (lead?.lifecycleState || '').toLowerCase()
   const canDecide = status === 'submitted'
+  const isDeclined = status === 'declined' || status === 'rejected'
+  // Case-working tools (messaging, scheduling, tasks, document requests, billing)
+  // only apply once the attorney has taken the case. Until then this screen is a
+  // review-only offer, mirroring the web pre-acceptance view.
+  const canWorkCase = !canDecide && !isDeclined
   const lifecycleLabel = formatLifecycleState(lead?.lifecycleState)
 
   // Case overview (mirrors the web workspace Overview/Info: timeline, status, tasks, case info).
@@ -594,7 +599,7 @@ export default function LeadDetailScreen() {
           {lifecycleLabel ? <Text style={styles.heroLifecycle}>{lifecycleLabel}</Text> : null}
         </View>
 
-        {suggestedNext?.title ? (
+        {canWorkCase && suggestedNext?.title ? (
           <TouchableOpacity
             style={styles.nextStepCard}
             onPress={() =>
@@ -618,6 +623,7 @@ export default function LeadDetailScreen() {
           </TouchableOpacity>
         ) : null}
 
+        {canWorkCase ? (
         <View style={styles.quickLinks}>
           <TouchableOpacity style={styles.quickLink} onPress={() => { void openInAppChat() }} activeOpacity={0.85}>
             <Ionicons name="chatbubbles-outline" size={18} color={colors.primary} />
@@ -676,6 +682,14 @@ export default function LeadDetailScreen() {
             <Text style={styles.quickLinkText}>Files</Text>
           </TouchableOpacity>
         </View>
+        ) : canDecide ? (
+          <View style={styles.lockedToolsCard}>
+            <Ionicons name="lock-closed-outline" size={18} color={colors.textSecondary} />
+            <Text style={styles.lockedToolsText}>
+              Accept this case to unlock messaging, scheduling, tasks, and document requests.
+            </Text>
+          </View>
+        ) : null}
 
         {decisionNotice ? (
           <View
@@ -722,7 +736,7 @@ export default function LeadDetailScreen() {
         <View style={styles.card}>
           <Row icon="location-outline" label="Venue" value={[assessment.venueCounty, assessment.venueState].filter(Boolean).join(', ') || '—'} />
           {plaintiff ? <Row icon="person-outline" label="Plaintiff" value={plaintiff} /> : null}
-          {plaintiffPhone || plaintiffEmail ? (
+          {canWorkCase && (plaintiffPhone || plaintiffEmail) ? (
             <View style={styles.contactActionRow}>
               {plaintiffPhone ? (
                 <>
@@ -788,6 +802,7 @@ export default function LeadDetailScreen() {
             {retainedAtRaw ? <Text style={styles.timelineMeta}>Retained {fmtFull(retainedAtRaw)}</Text> : null}
           </View>
 
+          {canWorkCase ? (
           <View style={styles.overviewBlock}>
             <View style={styles.sectionHeader}>
               <Text style={styles.overviewLabel}>Tasks (next 30 days)</Text>
@@ -828,6 +843,7 @@ export default function LeadDetailScreen() {
               <Text style={styles.emptyOverviewText}>No tasks due in the next 30 days.</Text>
             )}
           </View>
+          ) : null}
 
           <View style={styles.overviewBlock}>
             <Text style={styles.overviewLabel}>Case information</Text>
@@ -912,6 +928,7 @@ export default function LeadDetailScreen() {
           </TouchableOpacity>
         </View>
 
+        {canWorkCase ? (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Case status updates</Text>
           <Text style={styles.qualitySummary}>Update your internal pipeline or send a plaintiff-facing stage update.</Text>
@@ -932,6 +949,7 @@ export default function LeadDetailScreen() {
             <Text style={styles.inlineActionText}>Update plaintiff status</Text>
           </TouchableOpacity>
         </View>
+        ) : null}
 
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
@@ -949,11 +967,16 @@ export default function LeadDetailScreen() {
           ) : (
             <Text style={styles.emptyEvidenceText}>Open files below and mark reviewed as you finish the document pass.</Text>
           )}
-          <TouchableOpacity style={styles.inlineAction} onPress={() => id && router.push({ pathname: '/(app)/request-docs', params: { leadId: id } })} activeOpacity={0.85}>
-            <Text style={styles.inlineActionText}>Request missing documents</Text>
-          </TouchableOpacity>
+          {canWorkCase ? (
+            <TouchableOpacity style={styles.inlineAction} onPress={() => id && router.push({ pathname: '/(app)/request-docs', params: { leadId: id } })} activeOpacity={0.85}>
+              <Text style={styles.inlineActionText}>Request missing documents</Text>
+            </TouchableOpacity>
+          ) : canDecide ? (
+            <Text style={styles.lockedHintText}>Accept the case to request missing documents from the plaintiff.</Text>
+          ) : null}
         </View>
 
+        {canWorkCase ? (
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
             <Text style={styles.cardTitle}>Settlement tracker</Text>
@@ -969,6 +992,7 @@ export default function LeadDetailScreen() {
             <Text style={styles.inlineActionText}>Log offer / demand</Text>
           </TouchableOpacity>
         </View>
+        ) : null}
 
         <View style={[styles.card, isSolUrgent && styles.warningCard]}>
           <View style={styles.sectionHeader}>
@@ -978,12 +1002,16 @@ export default function LeadDetailScreen() {
           <Text style={styles.qualitySummary}>
             {isSolUrgent
               ? 'SOL timing needs immediate task tracking.'
-              : 'Create a deadline task so the SOL stays visible in the attorney workflow.'}
+              : canWorkCase
+                ? 'Create a deadline task so the SOL stays visible in the attorney workflow.'
+                : 'Factor this deadline into your accept or decline decision.'}
           </Text>
           <View style={styles.inlineActionRow}>
-            <TouchableOpacity style={styles.inlineAction} onPress={handleSolTask} disabled={actionBusy === 'sol'} activeOpacity={0.85}>
-              {actionBusy === 'sol' ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.inlineActionText}>Create SOL task</Text>}
-            </TouchableOpacity>
+            {canWorkCase ? (
+              <TouchableOpacity style={styles.inlineAction} onPress={handleSolTask} disabled={actionBusy === 'sol'} activeOpacity={0.85}>
+                {actionBusy === 'sol' ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.inlineActionText}>Create SOL task</Text>}
+              </TouchableOpacity>
+            ) : null}
             {solDeadlineDate ? (
               <TouchableOpacity style={styles.inlineActionGhost} onPress={() => { void handleAddSolToCalendar() }} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel="Add the statute of limitations deadline to your calendar">
                 <Ionicons name="calendar-outline" size={15} color={colors.primary} />
@@ -1021,14 +1049,16 @@ export default function LeadDetailScreen() {
                   </View>
                   <Ionicons name="open-outline" size={18} color={colors.primary} />
                 </TouchableOpacity>
-                <View style={styles.fileReviewActions}>
-                  <TouchableOpacity style={styles.reviewButton} onPress={() => { void handleReviewEvidence(file, 'reviewed') }} disabled={actionBusy === `review:${file.id}`}>
-                    <Text style={styles.reviewButtonText}>Mark reviewed</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.reviewButton, styles.reviewButtonWarn]} onPress={() => { void handleReviewEvidence(file, 'needs_follow_up') }} disabled={actionBusy === `review:${file.id}`}>
-                    <Text style={styles.reviewButtonText}>Needs follow-up</Text>
-                  </TouchableOpacity>
-                </View>
+                {canWorkCase ? (
+                  <View style={styles.fileReviewActions}>
+                    <TouchableOpacity style={styles.reviewButton} onPress={() => { void handleReviewEvidence(file, 'reviewed') }} disabled={actionBusy === `review:${file.id}`}>
+                      <Text style={styles.reviewButtonText}>Mark reviewed</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.reviewButton, styles.reviewButtonWarn]} onPress={() => { void handleReviewEvidence(file, 'needs_follow_up') }} disabled={actionBusy === `review:${file.id}`}>
+                      <Text style={styles.reviewButtonText}>Needs follow-up</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
               </View>
             ))
           )}
@@ -1441,6 +1471,19 @@ const styles = StyleSheet.create({
     borderColor: colors.primary + '28',
   },
   quickLinkText: { fontSize: 13, fontWeight: '700', color: colors.primaryDark },
+  lockedToolsCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    marginBottom: space.md,
+    padding: space.md,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  lockedToolsText: { flex: 1, fontSize: 13, lineHeight: 19, fontWeight: '600', color: colors.textSecondary },
+  lockedHintText: { fontSize: 13, lineHeight: 19, color: colors.textSecondary },
   contactActionRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

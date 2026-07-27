@@ -6,6 +6,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { getLead, createCaseContact } from '../lib/api'
 import { invalidateAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
 import { BackButton } from '../features/shared/ui'
+import { formatClaimType } from '../lib/claimTypes'
 
 const CONTACT_TYPES = [
   { id: 'client', label: 'Client / Plaintiff' },
@@ -49,9 +50,8 @@ export default function AddContactPage() {
       .finally(() => setLoading(false))
   }, [leadId])
 
-  const claimLabel = (s: string) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
   const caseLabel = lead
-    ? `${claimLabel(lead.assessment?.claimType || 'Case')} — ${[lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || '—'}`
+    ? `${formatClaimType(lead.assessment?.claimType || 'Case')} — ${[lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || '—'}`
     : ''
 
   const handleSubmit = async () => {

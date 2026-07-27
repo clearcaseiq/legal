@@ -4,6 +4,7 @@ import { MessageSquare, Search, PenSquare } from 'lucide-react'
 import { getAttorneyUnreadSummary, getAttorneyDashboard } from '../../lib/api'
 import LeadPickerModal from '../../components/LeadPickerModal'
 import { Avatar, Badge, ClientLink, DataTable, PageHeader, SectionCard, type DataTableColumn } from '../shared/ui'
+import { formatClaimType } from '../../lib/claimTypes'
 
 // Cases the attorney can actually message — identity is revealed once the
 // plaintiff is contacted/consulted/retained.
@@ -27,8 +28,7 @@ const FILTER_LABEL: Record<MsgFilter, string> = {
   awaiting: 'Awaiting client reply',
 }
 
-const claimLabel = (s?: string | null) =>
-  (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+const claimLabel = (s?: string | null) => (s ? formatClaimType(s) : '')
 
 function plaintiffName(room: Room) {
   const n = (room.plaintiff?.name ?? '').trim()

@@ -6,7 +6,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { BackButton } from '../features/shared/ui'
 import { getLead, createLeadInvoice } from '../lib/api'
 
-const claimLabel = (s: string) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+import { formatClaimType as claimLabel } from '../lib/claimTypes'
 
 export default function CreateInvoicePage() {
   const { leadId } = useParams<{ leadId: string }>()

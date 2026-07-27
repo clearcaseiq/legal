@@ -397,6 +397,26 @@ async function getAuthorizedLead(
   return { attorney, lead }
 }
 
+/**
+ * Client-facing case work (document requests, consult scheduling) is only valid
+ * once the attorney has taken the case. A routed offer still sitting in
+ * `submitted` is a review, and a `rejected` lead is gone — reaching out to the
+ * plaintiff in either state is out of bounds (CP-408).
+ */
+function checkLeadIsAccepted(
+  lead: { status?: string | null },
+  action: string
+): { status: number; message: string } | null {
+  const status = String(lead?.status || '').toLowerCase()
+  if (status === 'submitted') {
+    return { status: 409, message: `Accept this case before ${action}.` }
+  }
+  if (status === 'rejected' || status === 'declined') {
+    return { status: 409, message: `This case was declined, so ${action} is no longer available.` }
+  }
+  return null
+}
+
 async function computeCaseHealth(leadId: string, assessmentId: string, attorneyId?: string) {
   const now = new Date()
   let score = 100
@@ -5421,6 +5441,9 @@ router.post('/leads/:leadId/document-request', authMiddleware, async (req: any, 
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { lead, attorney } = auth
 
+    const notAccepted = checkLeadIsAccepted(lead, 'requesting documents from the plaintiff')
+    if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
+
     // Store canonical keys, not display labels — a label never matched an
     // uploaded evidence category, so the request stayed "pending" forever (CP-330).
     const docs = sendUploadLinkOnly ? [] : normalizeRequestedDocKeys(requestedDocs)
@@ -5591,6 +5614,9 @@ router.post('/leads/:leadId/opposing-document-request', authMiddleware, async (r
     const auth = await getAuthorizedLead(req, leadId)
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { lead, attorney } = auth
+
+    const notAccepted = checkLeadIsAccepted(lead, 'requesting documents on this case')
+    if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
 
     const docs = Array.isArray(requestedDocs) ? requestedDocs : []
     const secureToken = crypto.randomUUID()
@@ -5849,6 +5875,9 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
     const auth = await getAuthorizedLead(req, leadId)
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { lead, attorney } = auth
+
+    const notAccepted = checkLeadIsAccepted(lead, 'scheduling a consultation with the plaintiff')
+    if (notAccepted) return res.status(notAccepted.status).json({ error: notAccepted.message })
 
     const assessment = await prisma.assessment.findUnique({
       where: { id: lead.assessmentId },

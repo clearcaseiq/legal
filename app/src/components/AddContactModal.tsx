@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import { formatPhoneInput } from '../lib/phone'
+import { formatClaimType } from '../lib/claimTypes'
 
 const CONTACT_TYPES = [
   { id: 'client', label: 'Client / Plaintiff' },
@@ -102,9 +103,8 @@ export default function AddContactModal({
 
   if (!isOpen) return null
 
-  const claimLabel = (s: string) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
   const caseLabel = lead
-    ? `${claimLabel(lead.assessment?.claimType || 'Case')} — ${[lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || '—'}`
+    ? `${formatClaimType(lead.assessment?.claimType || 'Case')} — ${[lead.assessment?.venueCounty, lead.assessment?.venueState].filter(Boolean).join(', ') || '—'}`
     : ''
 
   return (

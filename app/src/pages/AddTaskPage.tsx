@@ -30,7 +30,7 @@ const ASSIGNEES = [
   { id: 'client', label: 'Client (Plaintiff)' },
 ]
 
-const claimLabel = (s: string) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+import { formatClaimType as claimLabel } from '../lib/claimTypes'
 
 const fieldCls =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm transition focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30'

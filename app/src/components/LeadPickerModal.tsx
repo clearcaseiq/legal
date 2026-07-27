@@ -4,6 +4,7 @@
  */
 import { useMemo, useState } from 'react'
 import { Search, X } from 'lucide-react'
+import { formatClaimType } from '../lib/claimTypes'
 
 interface Lead {
   id: string
@@ -36,7 +37,7 @@ export default function LeadPickerModal({
 }: LeadPickerModalProps) {
   const [query, setQuery] = useState('')
 
-  const claimLabel = (s: string) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+  const claimLabel = (s: string) => (s ? formatClaimType(s) : '')
   const isIdentityRevealed = (l: Lead) =>
     ['accepted', 'contacted', 'consulted', 'retained'].includes(l?.status || '')
   const caseId = (l: Lead) => l.id?.slice(-8)?.toUpperCase() || l.assessmentId?.slice(-8)?.toUpperCase() || '—'

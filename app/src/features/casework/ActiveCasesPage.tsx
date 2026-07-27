@@ -4,21 +4,10 @@ import { ArrowRight, Pin } from 'lucide-react'
 import { getAttorneyDashboard } from '../../lib/api'
 import { Avatar, Badge, ClientLink, DataTable, FilterBar, FilterStat, PageHeader, SectionCard, StatGrid, type BadgeTone, type DataTableColumn, type FilterField } from '../shared/ui'
 import { getPinnedCaseIds, getRecentCases, togglePinnedCase } from './recentCases'
-
-const CLAIM_LABELS: Record<string, string> = {
-  auto: 'Auto',
-  slip_and_fall: 'Slip & fall',
-  dog_bite: 'Dog bite',
-  medmal: 'Med mal',
-  product: 'Product liability',
-  nursing_home_abuse: 'Nursing home',
-  wrongful_death: 'Wrongful death',
-  high_severity_surgery: 'Surgical injury',
-}
+import { formatClaimType } from '../../lib/claimTypes'
 
 function claimLabel(type?: string) {
-  if (!type) return 'Other'
-  return CLAIM_LABELS[type] || type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  return type ? formatClaimType(type) : 'Other'
 }
 
 const ACCEPTED_STATUSES = ['contacted', 'consulted', 'retained']

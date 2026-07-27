@@ -9,11 +9,7 @@ import { formatCurrency } from '../lib/formatters'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { caseStrengthLabel } from '../lib/heuristics'
 import { CallPlaintiffModal, MessagePlaintiffModal, ScheduleConsultModal } from './CaseCommandModals'
-
-function formatClaimType(s: string) {
-  if (!s) return 'Personal injury'
-  return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
+import { formatClaimType } from '../lib/claimTypes'
 
 interface CollapsibleSectionProps {
   title: string

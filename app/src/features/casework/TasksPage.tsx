@@ -23,6 +23,7 @@ import {
 } from '../shared/ui'
 import TaskDetailModal from './TaskDetailModal'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import { formatClaimType } from '../../lib/claimTypes'
 
 interface TaskRow {
   id: string
@@ -140,8 +141,7 @@ function workflowTaskToRow(t: MyWorkflowTask): TaskRow {
   }
 }
 
-const claimLabel = (s?: string | null) =>
-  (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || 'Case'
+const claimLabel = (s?: string | null) => (s ? formatClaimType(s) : 'Case')
 
 const typeLabel = (t?: string | null) =>
   t === 'coach' ? 'AI Coach' : t === 'question' ? 'Intake Question' : t ? TASK_TYPE_LABEL[t] || claimLabel(t) : '—'

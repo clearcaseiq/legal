@@ -1,12 +1,39 @@
+/**
+ * Claim/incident type labels. Kept byte-identical to `shared/claim-types.ts` so
+ * a case never reads differently on mobile than on web (CP-406); the labels are
+ * inlined here because Metro only bundles files under the app root, and
+ * `formatLead.test.ts` fails if the two ever drift.
+ */
 const CLAIM_LABELS: Record<string, string> = {
   auto: 'Motor vehicle',
+  vehicle: 'Motor vehicle',
+  motor_vehicle: 'Motor vehicle',
+  car_accident: 'Motor vehicle',
+  truck_accident: 'Motor vehicle',
+  motorcycle: 'Motor vehicle',
   slip_and_fall: 'Slip & fall',
-  dog_bite: 'Dog bite',
+  slip_fall: 'Slip & fall',
+  premises: 'Premises liability',
+  premises_liability: 'Premises liability',
+  workplace: 'Workplace injury',
+  workplace_injury: 'Workplace injury',
+  workers_comp: 'Workplace injury',
   medmal: 'Medical malpractice',
+  medical_malpractice: 'Medical malpractice',
+  med_mal: 'Medical malpractice',
+  dog_bite: 'Dog bite',
   product: 'Product liability',
-  nursing_home_abuse: 'Nursing home',
+  product_liability: 'Product liability',
+  assault: 'Assault & negligent security',
+  intentional_tort: 'Assault & negligent security',
+  toxic: 'Toxic exposure',
+  toxic_exposure: 'Toxic exposure',
+  nursing_home_abuse: 'Nursing home abuse',
+  nursing_home: 'Nursing home abuse',
   wrongful_death: 'Wrongful death',
-  high_severity_surgery: 'High-severity surgery',
+  high_severity_surgery: 'Catastrophic injury',
+  other: 'Other injury',
+  other_pi: 'Other injury',
 }
 
 // 3-letter claim-type codes used in the human-meaningful case reference.
@@ -65,10 +92,17 @@ export function formatCaseId(lead: any): string {
 }
 
 export function formatClaimType(raw: string | undefined | null): string {
-  if (!raw) return 'Personal injury'
-  const k = raw.replace(/-/g, '_').toLowerCase()
-  return CLAIM_LABELS[k] || raw.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  const value = String(raw ?? '').trim()
+  if (!value) return 'Personal injury'
+  const key = value.toLowerCase().replace(/[\s-]+/g, '_')
+  const mapped = CLAIM_LABELS[key]
+  if (mapped) return mapped
+  const spaced = value.replace(/_/g, ' ').trim()
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
+
+/** Exported for the parity test against `shared/claim-types.ts`. */
+export const CLAIM_TYPE_LABELS_FOR_TEST = CLAIM_LABELS
 
 export function formatStatus(status: string | undefined | null): string {
   if (!status) return 'Unknown'
@@ -179,6 +213,17 @@ export function isExpiredMatch(lead: any, nowMs: number = Date.now()): boolean {
 /** A still-open match the attorney can act on (submitted and not expired). */
 export function isOpenMatch(lead: any, nowMs: number = Date.now()): boolean {
   return (lead?.status || '').toLowerCase() === 'submitted' && !isExpiredMatch(lead, nowMs)
+}
+
+/**
+ * Statuses where the attorney has taken the case. Client-facing work (document
+ * requests, consult scheduling, messaging) is only allowed from here on; a
+ * `submitted` lead is still just an offer under review (CP-408, CP-409).
+ */
+const ACCEPTED_CASE_STATUSES = new Set(['accepted', 'contacted', 'consulted', 'retained'])
+
+export function isAcceptedCase(lead: any): boolean {
+  return ACCEPTED_CASE_STATUSES.has(String(lead?.status || '').toLowerCase())
 }
 
 /**

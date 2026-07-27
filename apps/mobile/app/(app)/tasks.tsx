@@ -19,6 +19,7 @@ import { ScreenState } from '../../src/components/ScreenState'
 import { DomainBreadcrumb } from '../../src/components/DomainBreadcrumb'
 import { colors, radii, space, shadows } from '../../src/theme/tokens'
 import { formatClaimType, leadLabel, leadMeta } from '../../src/lib/formatLead'
+import { CalendarDatePicker, formatDateKeyLong, toDateKey } from '../../src/components/CalendarDatePicker'
 
 type Section = { title: string; data: TaskSummaryItem[] }
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
@@ -46,6 +47,7 @@ export default function TasksScreen() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [leadPickerOpen, setLeadPickerOpen] = useState(false)
+  const [duePickerOpen, setDuePickerOpen] = useState(false)
   const [leads, setLeads] = useState<any[]>([])
   const [selectedLead, setSelectedLead] = useState<any>(null)
   const [taskTitle, setTaskTitle] = useState('')
@@ -89,14 +91,13 @@ export default function TasksScreen() {
   function setQuickDate(daysFromNow: number) {
     const d = new Date()
     d.setDate(d.getDate() + daysFromNow)
-    setDueDate(d.toISOString().slice(0, 10))
+    setDueDate(toDateKey(d))
   }
 
   const dueDateValid = !dueDate.trim() || /^\d{4}-\d{2}-\d{2}$/.test(dueDate.trim())
-  const dueDatePreview =
-    dueDate.trim() && dueDateValid && !Number.isNaN(new Date(dueDate.trim()).getTime())
-      ? new Date(dueDate.trim()).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
-      : null
+  // Format from the local calendar day so a date never renders one day early in
+  // negative UTC offsets (`new Date('2026-07-15')` parses as UTC midnight).
+  const dueDatePreview = dueDate.trim() ? formatDateKeyLong(dueDate.trim()) || null : null
 
   const loadLeads = useCallback(async () => {
     try {
@@ -263,20 +264,21 @@ export default function TasksScreen() {
                 </TouchableOpacity>
               ) : null}
             </View>
-            <TextInput
-              style={[styles.input, !dueDateValid && styles.inputError]}
-              value={dueDate}
-              onChangeText={setDueDate}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={colors.muted}
-              keyboardType="numbers-and-punctuation"
-              accessibilityLabel="Due date in year-month-day format"
-            />
-            {dueDatePreview ? (
-              <Text style={styles.dueDatePreview}>{dueDatePreview}</Text>
-            ) : !dueDateValid ? (
-              <Text style={styles.dueDateError}>Use the format YYYY-MM-DD (e.g. 2026-07-15).</Text>
-            ) : null}
+            <TouchableOpacity
+              style={styles.dateField}
+              onPress={() => setDuePickerOpen(true)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={dueDate.trim() ? `Due date ${dueDatePreview || dueDate}. Tap to open the calendar.` : 'Pick a due date from the calendar'}
+            >
+              <View style={styles.dateFieldCopy}>
+                <Text style={[styles.dateFieldValue, !dueDate.trim() && styles.dateFieldPlaceholder]}>
+                  {dueDatePreview || 'No due date'}
+                </Text>
+                <Text style={styles.dateFieldHint}>Tap to open the calendar</Text>
+              </View>
+              <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+            </TouchableOpacity>
 
             <Text style={[styles.label, styles.fieldGap]}>Priority</Text>
             <View style={styles.priorityRow}>
@@ -318,6 +320,13 @@ export default function TasksScreen() {
             </TouchableOpacity>
           </View>
 
+          <CalendarDatePicker
+            visible={duePickerOpen}
+            value={dueDate.trim() || toDateKey(new Date())}
+            onSelect={setDueDate}
+            onClose={() => setDuePickerOpen(false)}
+            title="Due date"
+          />
           <Modal visible={leadPickerOpen} animationType="slide" onRequestClose={() => setLeadPickerOpen(false)}>
             <View style={styles.modalScreen}>
               <View style={styles.modalHeader}>
@@ -448,7 +457,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     backgroundColor: colors.card,
   },
-  inputError: { borderColor: colors.danger },
   quickDateRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.sm },
   quickDateChip: {
     paddingHorizontal: space.md,
@@ -459,8 +467,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   quickDateText: { fontSize: 13, fontWeight: '700', color: colors.primaryDark },
-  dueDatePreview: { marginTop: 6, fontSize: 13, color: colors.textSecondary, fontWeight: '600' },
-  dueDateError: { marginTop: 6, fontSize: 13, color: colors.danger, fontWeight: '600' },
+  dateField: {
+    marginTop: space.sm,
+    minHeight: 58,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: space.md,
+    backgroundColor: colors.card,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.sm,
+  },
+  dateFieldCopy: { flex: 1 },
+  dateFieldValue: { fontSize: 16, fontWeight: '800', color: colors.text },
+  dateFieldPlaceholder: { fontWeight: '600', color: colors.textSecondary },
+  dateFieldHint: { marginTop: 2, fontSize: 12, color: colors.textSecondary },
   priorityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.sm },
   priorityPill: {
     paddingHorizontal: space.md,

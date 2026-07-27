@@ -12,11 +12,11 @@ import {
   type BadgeTone,
   type DataTableColumn,
 } from '../shared/ui'
+import { formatClaimType } from '../../lib/claimTypes'
 
 type Bucket = 'all' | 'expired' | 'critical' | 'warning' | 'sol' | 'task'
 
-const claimLabel = (s?: string | null) =>
-  (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || 'Case'
+const claimLabel = (s?: string | null) => (s ? formatClaimType(s) : 'Case')
 
 const SEVERITY_DOT: Record<AttorneyDeadlineItem['severity'], string> = {
   expired: 'bg-rose-600',

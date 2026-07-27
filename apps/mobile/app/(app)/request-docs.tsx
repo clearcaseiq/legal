@@ -20,7 +20,7 @@ import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
 import { labelRequestedDoc } from '../../src/lib/docRequestLabels'
 import { colors, radii, shadows, space } from '../../src/theme/tokens'
-import { leadLabel, leadMeta } from '../../src/lib/formatLead'
+import { isAcceptedCase, leadLabel, leadMeta } from '../../src/lib/formatLead'
 
 const DOC_TYPES = ['police_report', 'medical_records', 'injury_photos', 'wage_loss', 'insurance', 'other']
 
@@ -46,6 +46,7 @@ export default function RequestDocsScreen() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sentMessage, setSentMessage] = useState<string | null>(null)
+  const [blockedMessage, setBlockedMessage] = useState<string | null>(null)
 
   const [recipientType, setRecipientType] = useState<'plaintiff' | 'opposing_party'>('plaintiff')
   const [recipientName, setRecipientName] = useState('')
@@ -62,10 +63,18 @@ export default function RequestDocsScreen() {
     try {
       const response = await getFilteredAttorneyLeads({ sortBy: 'newest' })
       const rows = Array.isArray(response?.leads) ? response.leads : Array.isArray(response) ? response : []
-      const activeRows = rows.filter((row: any) => !['rejected', 'declined', 'closed'].includes(String(row?.status || '').toLowerCase()))
+      // Documents can only be requested on cases the attorney has taken (CP-408).
+      const activeRows = rows.filter(isAcceptedCase)
       setLeads(activeRows)
       if (selectedLeadId) {
-        setSelectedLead(activeRows.find((row: any) => row.id === selectedLeadId) || null)
+        const match = activeRows.find((row: any) => row.id === selectedLeadId) || null
+        setSelectedLead(match)
+        if (!match) {
+          setBlockedMessage('Accept this case before requesting documents from the plaintiff.')
+          setLoading(false)
+          return
+        }
+        setBlockedMessage(null)
       } else if (activeRows[0]?.id) {
         setSelectedLeadId(activeRows[0].id)
         setSelectedLead(activeRows[0])
@@ -161,6 +170,18 @@ export default function RequestDocsScreen() {
 
   if (loading) {
     return <ScreenState title="Preparing request" message="Looking for the most useful missing documents." loading />
+  }
+
+  if (blockedMessage) {
+    return (
+      <ScreenState
+        icon="lock-closed-outline"
+        title="Case not accepted yet"
+        message={blockedMessage}
+        actionLabel="Back to case"
+        onAction={() => router.back()}
+      />
+    )
   }
 
   return (

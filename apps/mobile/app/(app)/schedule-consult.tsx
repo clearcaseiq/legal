@@ -25,8 +25,9 @@ import {
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
 import { colors, radii, shadows, space } from '../../src/theme/tokens'
-import { leadLabel, leadMeta } from '../../src/lib/formatLead'
+import { isAcceptedCase, leadLabel, leadMeta } from '../../src/lib/formatLead'
 import { addEventToCalendar } from '../../src/lib/addToCalendar'
+import { CalendarDatePicker, formatDateKeyLong } from '../../src/components/CalendarDatePicker'
 
 const TIME_SLOTS = [
   '9:00 AM',
@@ -67,9 +68,9 @@ function addDays(dateText: string, delta: number) {
 }
 
 function isSchedulableLead(lead: any) {
-  const status = String(lead?.status || '').toLowerCase()
   const lifecycle = String(lead?.lifecycleState || '').toLowerCase()
-  if (['rejected', 'declined', 'closed'].includes(status)) return false
+  // A consultation can only be booked on a case the attorney has taken (CP-409).
+  if (!isAcceptedCase(lead)) return false
   if (['routing_active', 'not_routable_yet'].includes(lifecycle)) return false
   return true
 }
@@ -89,7 +90,9 @@ export default function ScheduleConsultScreen() {
   const [saving, setSaving] = useState(false)
   const [leadPickerOpen, setLeadPickerOpen] = useState(false)
   const [timePickerOpen, setTimePickerOpen] = useState(false)
+  const [datePickerOpen, setDatePickerOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [blockedMessage, setBlockedMessage] = useState<string | null>(null)
   const [date, setDate] = useState(() => scheduledAt ? new Date(scheduledAt).toISOString().slice(0, 10) : tomorrowDate())
   const [time, setTime] = useState(() => scheduledAt ? new Date(scheduledAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '2:00 PM')
   const [manualTime, setManualTime] = useState(time)
@@ -114,7 +117,13 @@ export default function ScheduleConsultScreen() {
 
       if (selectedLeadId) {
         const detail = await getLeadDetails(selectedLeadId)
-        setSelectedLead(detail || schedulableRows.find((row: any) => row.id === selectedLeadId) || null)
+        const resolved = detail || schedulableRows.find((row: any) => row.id === selectedLeadId) || null
+        setSelectedLead(resolved)
+        if (!appointmentId && resolved && !isAcceptedCase(resolved)) {
+          setBlockedMessage('Accept this case before scheduling a consultation with the plaintiff.')
+          return
+        }
+        setBlockedMessage(null)
       } else if (schedulableRows[0]?.id) {
         setSelectedLeadId(schedulableRows[0].id)
         setSelectedLead(schedulableRows[0])
@@ -124,7 +133,7 @@ export default function ScheduleConsultScreen() {
     } finally {
       setLoading(false)
     }
-  }, [selectedLeadId])
+  }, [selectedLeadId, appointmentId])
 
   useEffect(() => {
     void load()
@@ -178,6 +187,18 @@ export default function ScheduleConsultScreen() {
     return <ScreenState title="Loading scheduler" message="Preparing your case list." loading />
   }
 
+  if (blockedMessage) {
+    return (
+      <ScreenState
+        icon="lock-closed-outline"
+        title="Case not accepted yet"
+        message={blockedMessage}
+        actionLabel="Back to case"
+        onAction={() => router.back()}
+      />
+    )
+  }
+
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -202,17 +223,33 @@ export default function ScheduleConsultScreen() {
         <View style={styles.card}>
           <Text style={styles.label}>Date</Text>
           <View style={styles.dateRow}>
-            <TouchableOpacity style={styles.smallButton} onPress={() => setDate(addDays(date, -1))}>
+            <TouchableOpacity
+              style={styles.smallButton}
+              onPress={() => setDate(addDays(date, -1))}
+              accessibilityRole="button"
+              accessibilityLabel="Previous day"
+            >
               <Ionicons name="chevron-back" size={18} color={colors.primary} />
             </TouchableOpacity>
-            <TextInput
-              style={styles.dateInput}
-              value={date}
-              onChangeText={setDate}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={colors.muted}
-            />
-            <TouchableOpacity style={styles.smallButton} onPress={() => setDate(addDays(date, 1))}>
+            <TouchableOpacity
+              style={styles.dateField}
+              onPress={() => setDatePickerOpen(true)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={`Consultation date, ${formatDateKeyLong(date) || date}. Tap to open the calendar.`}
+            >
+              <View style={styles.dateFieldCopy}>
+                <Text style={styles.dateFieldValue}>{formatDateKeyLong(date) || date}</Text>
+                <Text style={styles.dateFieldHint}>Tap to open the calendar</Text>
+              </View>
+              <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.smallButton}
+              onPress={() => setDate(addDays(date, 1))}
+              accessibilityRole="button"
+              accessibilityLabel="Next day"
+            >
               <Ionicons name="chevron-forward" size={18} color={colors.primary} />
             </TouchableOpacity>
           </View>
@@ -285,6 +322,13 @@ export default function ScheduleConsultScreen() {
         </TouchableOpacity>
       </ScrollView>
 
+      <CalendarDatePicker
+        visible={datePickerOpen}
+        value={date}
+        onSelect={setDate}
+        onClose={() => setDatePickerOpen(false)}
+        title={appointmentId ? 'Reschedule date' : 'Consultation date'}
+      />
       <Modal visible={leadPickerOpen} animationType="slide" onRequestClose={() => setLeadPickerOpen(false)}>
         <View style={styles.modalScreen}>
           <View style={styles.modalHeader}>
@@ -434,17 +478,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.surface,
   },
-  dateInput: {
+  dateField: {
     flex: 1,
-    minHeight: 44,
+    minHeight: 58,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: space.md,
-    color: colors.text,
-    fontSize: 16,
     backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.sm,
   },
+  dateFieldCopy: { flex: 1 },
+  dateFieldValue: { fontSize: 16, fontWeight: '800', color: colors.text },
+  dateFieldHint: { marginTop: 2, fontSize: 12, color: colors.textSecondary },
   optionWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.sm },
   timeSelector: {
     marginTop: space.sm,

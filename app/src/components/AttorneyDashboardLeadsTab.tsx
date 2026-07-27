@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, Clock, Info, Lock, LockOpen, MessageSquare, Phone, Sparkles, Star, Users } from 'lucide-react'
+import { formatClaimType } from '../lib/claimTypes'
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
 import { FilterStat, FilterBar, type FilterField } from '../features/shared/ui'
 
@@ -92,8 +93,7 @@ export default function AttorneyDashboardLeadsTab({
     onOpenLead(lead)
   }
 
-  const claimLabel = (value: string) =>
-    (value || '').replace(/_/g, ' ').replace(/\b\w/g, (char: string) => char.toUpperCase())
+  const claimLabel = (value: string) => (value ? formatClaimType(value) : '')
 
   const formatCountdown = (ms: number) => {
     const totalSeconds = Math.max(0, Math.floor(ms / 1000))

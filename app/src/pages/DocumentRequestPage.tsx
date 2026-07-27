@@ -25,7 +25,7 @@ import {
 import { DOC_TYPES, type DocTypeId } from '../components/DocumentRequestModal'
 import { invalidateAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
 
-const claimLabel = (s: string) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+import { formatClaimType as claimLabel } from '../lib/claimTypes'
 
 // Documents an attorney can request from the defendant / opposing party / insurer.
 const OPPOSING_DOC_TYPES = [

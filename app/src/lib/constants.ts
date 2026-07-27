@@ -1,3 +1,5 @@
+import { formatClaimType } from './claimTypes'
+
 /**
  * US States and Territories
  * Complete list of all 50 states plus DC, organized alphabetically
@@ -148,37 +150,13 @@ export function formatSpecialty(value: string): string {
 }
 
 /**
- * Concise, human-friendly labels for plaintiff-facing claim-type slugs stored on
- * assessments (e.g. `auto`, `slip_and_fall`). Used where a compact label is
- * needed such as the Messages conversation subtitle. Falls back to
- * de-underscoring + title-casing so unknown slugs never render raw.
+ * Concise, human-friendly label for a claim-type slug, used where a compact
+ * label is needed such as the Messages conversation subtitle. Delegates to the
+ * canonical shared map so web and mobile never name the same incident type
+ * differently (CP-406).
  */
-const CLAIM_TYPE_SHORT_LABELS: Record<string, string> = {
-  auto: 'Auto Accident',
-  vehicle: 'Auto Accident',
-  slip_and_fall: 'Slip and Fall',
-  slip_fall: 'Slip and Fall',
-  workplace: 'Workplace Injury',
-  workplace_injury: 'Workplace Injury',
-  medmal: 'Medical Malpractice',
-  dog_bite: 'Dog Bite',
-  product: 'Product Liability',
-  assault: 'Assault',
-  toxic: 'Toxic Exposure',
-  toxic_exposure: 'Toxic Exposure',
-  nursing_home_abuse: 'Nursing Home Abuse',
-  wrongful_death: 'Wrongful Death',
-  high_severity_surgery: 'Catastrophic Injury',
-  other: 'Other Injury',
-  other_pi: 'Other Injury',
-}
-
 export function formatClaimTypeShort(value: string | null | undefined): string {
-  const raw = String(value || '').trim()
-  if (!raw) return 'Personal Injury'
-  const key = raw.toLowerCase()
-  if (CLAIM_TYPE_SHORT_LABELS[key]) return CLAIM_TYPE_SHORT_LABELS[key]
-  return raw.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
+  return formatClaimType(value)
 }
 
 /** California counties (common PI jurisdictions) */

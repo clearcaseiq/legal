@@ -7,7 +7,7 @@ import { Send, MessageSquare, FolderOpen, Sparkles, Loader2, UserRound } from 'l
 import { BackButton } from '../features/shared/ui'
 import { getLead, getOrCreateAttorneyChatRoom, getAttorneyChatRoomMessages, sendAttorneyMessage, markAttorneyMessagesRead, getAttorneyMessageTemplates } from '../lib/api'
 
-const claimLabel = (s: string) => (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+import { formatClaimType as claimLabel } from '../lib/claimTypes'
 
 function initials(name: string): string {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean)

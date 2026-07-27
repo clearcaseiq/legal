@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react'
 import { X, Plus, Trash2, Calendar as CalendarIcon, Loader2, Bell, Users, User, Lock, MapPin } from 'lucide-react'
 import LeadPickerModal from '../../components/LeadPickerModal'
+import { formatClaimType } from '../../lib/claimTypes'
 import {
   createCalendarEvent,
   updateCalendarEvent,
@@ -113,7 +114,7 @@ function combine(dateStr: string, timeStr: string): Date {
   return new Date(`${dateStr}T${timeStr || '00:00'}`)
 }
 function claimLabel(s?: string) {
-  return (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  return s ? formatClaimType(s) : ''
 }
 
 export default function AddEventModal({

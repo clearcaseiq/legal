@@ -24,6 +24,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import Tooltip from '../components/Tooltip'
+import { formatClaimType as formatCanonicalClaimType } from '../lib/claimTypes'
 import {
   getMedicalProviderDirectory,
   getProviderReferrals,
@@ -122,7 +123,7 @@ const RECORD_STATUSES: { value: NonNullable<TreatmentRecordInput['status']>; lab
 ]
 
 const formatClaimType = (claimType?: string | null) =>
-  (claimType || 'Case').replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
+  claimType ? formatCanonicalClaimType(claimType) : 'Case'
 
 const formatCurrency = (amount: number) =>
   new Intl.NumberFormat('en-US', {

@@ -10,11 +10,7 @@ import { useHeuristics } from '../contexts/HeuristicsContext'
 import { caseStrengthLabel } from '../lib/heuristics'
 import { useStatHints, StatHintsToggle } from '../features/shared/ui'
 import { getEvidenceObjectUrl, regenerateLeadSceneImage, getLead } from '../lib/api'
-
-function formatClaimType(s: string) {
-  if (!s) return 'Personal injury'
-  return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-}
+import { formatClaimType } from '../lib/claimTypes'
 
 function escapeRegExp(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

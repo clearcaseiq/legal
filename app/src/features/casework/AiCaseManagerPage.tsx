@@ -20,9 +20,9 @@ import {
   StatGrid,
   type DataTableColumn,
 } from '../shared/ui'
+import { formatClaimType } from '../../lib/claimTypes'
 
-const claimLabel = (s?: string | null) =>
-  (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || 'Case'
+const claimLabel = (s?: string | null) => (s ? formatClaimType(s) : 'Case')
 
 const priorityDot = (p?: string | null) => {
   const v = (p || '').toLowerCase()

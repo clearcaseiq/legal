@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { getAttorneyDashboard, decideLead, updateLeadStatus, createDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, getAttorneyCalendarConnectUrl, syncAttorneyCalendar, disconnectAttorneyCalendar, getAttorneyZoomStatus, getAttorneyZoomConnectUrl, disconnectAttorneyZoom, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type AttorneyZoomStatus, type CaseCommandCenter } from '../lib/api'
 import Tooltip from '../components/Tooltip'
+import { formatClaimType as formatCanonicalClaimType } from '../lib/claimTypes'
 import ErrorBoundary from '../components/ErrorBoundary'
 import { AttorneyDashboardPanelSkeleton, AttorneyDashboardSkeleton } from '../components/PageSkeletons'
 import { clearStoredAuth, getLoginRedirect, hasValidAuthToken } from '../lib/auth'
@@ -2000,9 +2001,7 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
     }
   }
 
-  const formatClaimType = (value: string) => {
-    return value ? value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Unknown'
-  }
+  const formatClaimType = (value: string) => (value ? formatCanonicalClaimType(value) : 'Unknown')
 
   const formatRelativeDate = (dateString?: string) => {
     if (!dateString) return 'Not provided'
