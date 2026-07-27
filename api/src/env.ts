@@ -65,6 +65,12 @@ export const ENV = {
   DOCUMENSO_WEBHOOK_SECRET: process.env.DOCUMENSO_WEBHOOK_SECRET,
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+  /**
+   * Server-side key for Places API (New), used by firm discovery. Must be
+   * restricted to the Places API and to the server's IP — this key spends money
+   * per request and must never reach the browser.
+   */
+  GOOGLE_PLACES_API_KEY: process.env.GOOGLE_PLACES_API_KEY,
   GOOGLE_CALENDAR_CLIENT_ID: process.env.GOOGLE_CALENDAR_CLIENT_ID,
   GOOGLE_CALENDAR_CLIENT_SECRET: process.env.GOOGLE_CALENDAR_CLIENT_SECRET,
   GOOGLE_CALENDAR_REDIRECT_URI: process.env.GOOGLE_CALENDAR_REDIRECT_URI,

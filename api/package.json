@@ -30,6 +30,8 @@
     "promote:production-attorneys": "node ../node_modules/tsx/dist/cli.mjs scripts/promote-production-attorneys.ts",
     "import:ca-bar-roll": "node ../node_modules/tsx/dist/cli.mjs scripts/import-ca-bar-roll.ts",
     "audit:staged-attorneys": "node ../node_modules/tsx/dist/cli.mjs scripts/audit-staged-attorneys.ts",
+    "discover:places-firms": "node ../node_modules/tsx/dist/cli.mjs scripts/discover-firms-google-places.ts",
+    "purge:places-cache": "node ../node_modules/tsx/dist/cli.mjs scripts/purge-places-cache.ts",
     "derive:pi-signals": "node ../node_modules/tsx/dist/cli.mjs scripts/derive-pi-signals.ts",
     "recompute:pi-segments": "node ../node_modules/tsx/dist/cli.mjs scripts/recompute-pi-segments.ts",
     "generate:ca-county-crosswalk": "node ../node_modules/tsx/dist/cli.mjs scripts/generate-ca-county-crosswalk.ts",

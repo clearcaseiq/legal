@@ -2741,6 +2741,96 @@ model ProductionAttorney {
   @@map("production_attorneys")
 }
 
+/// A law-firm office location discovered through Google Places.
+///
+/// Places is a discovery source, not a source of record. It returns business name,
+/// address, phone, website, rating and hours, but no attorney names or emails — so
+/// its job is to find firms and hand us a website, from which attorneys are sourced
+/// independently and then verified against the State Bar.
+///
+/// ## Why the columns are split into cached and retained
+///
+/// Google's terms do not permit building a permanent standalone database out of
+/// Maps content. Place IDs are explicitly exempt and may be stored indefinitely;
+/// most other Places content may only be cached temporarily. That distinction is
+/// enforced here rather than left to a policy document:
+///
+///   - `placeId` and pipeline state are retained permanently.
+///   - Everything Google returned lives in `cached*` columns with `cacheExpiresAt`,
+///     and is purged on expiry by the refresh script.
+///   - `websiteDomain` is retained as the minimum bridge needed to reach the firm's
+///     own site, which is where the permanent record is then sourced from.
+///
+/// So the permanent firm and attorney records in `law_firms` / `attorneys` are
+/// built from the firm's own website and the State Bar, never from this table's
+/// cached columns. This table only ever answers "which firms exist and where do we
+/// go to read about them".
+model DiscoveredFirmLocation {
+  id      String @id @default(cuid())
+  /// Google's stable identifier. Exempt from Google's caching restrictions and
+  /// safe to retain, which is why it is the join key for refreshing a listing
+  /// rather than re-searching for it.
+  placeId String @unique
+
+  /// The search that surfaced this location, kept because being found by a
+  /// personal-injury query is itself weak evidence of PI practice and is fed to
+  /// segmentation as a `gbp` signal.
+  discoveryQuery String?
+  discoveryCity  String?
+
+  // ===== Retained: the bridge to independent sourcing =====
+  /// Registrable domain of the firm's own site. The one Google-derived value kept
+  /// past cache expiry, because without it the Place ID cannot be turned back into
+  /// a firm we can research.
+  websiteDomain String?
+
+  // ===== Cached Google content, purged after cacheExpiresAt =====
+  cachedName            String?
+  cachedFormattedAddress String?
+  cachedCity            String?
+  /// Google returns county as administrative_area_level_2, which is the field the
+  /// routing engine needs and the hardest one to derive from a city name alone.
+  cachedCounty          String?
+  cachedState           String?
+  cachedPostalCode      String?
+  cachedPhone           String?
+  cachedWebsiteUri      String? @db.VarChar(1024)
+  cachedRating          Float?
+  cachedReviewCount     Int?
+  cachedOpeningHours    String? @db.Text
+  cachedLatitude        Float?
+  cachedLongitude       Float?
+  cachedPrimaryType     String?
+  cachedTypes           String? @db.Text
+  cachedGoogleMapsUri   String? @db.VarChar(1024)
+  cachedAt              DateTime?
+  /// When the cached columns must be cleared or refreshed.
+  cacheExpiresAt        DateTime?
+
+  /// Pipeline state: discovered -> verified -> promoted | rejected.
+  /// `verified` means we have read the firm's own website and hold an
+  /// independently sourced record, which is the point at which it may be promoted.
+  status String @default("discovered")
+  /// Why the filter rejected it, for tuning discovery quality.
+  rejectionReason String?
+  /// Set when the firm's own site has been read, making the record independent of
+  /// Google's cache.
+  independentlySourcedAt DateTime?
+  /// The live firm this became, if promoted.
+  promotedLawFirmId String?
+
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([websiteDomain])
+  @@index([cachedCounty])
+  @@index([cacheExpiresAt])
+  @@map("discovered_firm_locations")
+}
+
 /// One piece of evidence that an attorney or firm practises personal injury.
 ///
 /// California does not certify PI as a specialty, so practice area has to be
