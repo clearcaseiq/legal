@@ -432,7 +432,11 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
       const requestedDocs = parseRequestedDocs(request.requestedDocs)
       const items = requestedDocs.map((key) => {
         const acceptedCategories = DOCUMENT_REQUEST_CATEGORY_MAP[key] || []
-        const fulfilled = acceptedCategories.length > 0 && acceptedCategories.some((category) => uploadedCategories.has(category))
+        // Mirror computeRequestStatus: the requested-docs uploader tags files
+        // with the request key itself, so accept that verbatim match too.
+        const fulfilled =
+          uploadedCategories.has(key) ||
+          acceptedCategories.some((category) => uploadedCategories.has(category))
         return {
           key,
           label: DOCUMENT_REQUEST_LABELS[key] || key.replace(/_/g, ' '),
@@ -461,7 +465,16 @@ router.get('/:id/document-requests', authMiddleware, async (req: AuthRequest, re
         items,
         fulfilledDocs: items.filter((item) => item.fulfilled).map((item) => item.key),
         remainingDocs: items.filter((item) => !item.fulfilled).map((item) => item.key),
-        customMessage: request.customMessage,
+        // The note is optional for the attorney, but a blank "Attorney note"
+        // panel reads as a broken screen to the client (CP-318). Fall back to a
+        // plain-language summary of what was actually requested.
+        customMessage: request.customMessage?.trim()
+          ? request.customMessage
+          : items.length > 0
+            ? `Please upload the following so we can move your case forward: ${items
+                .map((item) => item.label)
+                .join(', ')}.`
+            : 'Please upload the documents listed below so we can move your case forward.',
         uploadLink: request.uploadLink,
         status: displayStatus,
         rawStatus: request.status,

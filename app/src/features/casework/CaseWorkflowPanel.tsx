@@ -37,6 +37,7 @@ import {
   type FirmMemberOption,
   type WorkflowStepType,
 } from '../../lib/api'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 const ROLE_LABELS: Record<string, string> = {
   attorney: 'Attorney',
@@ -90,6 +91,8 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [members, setMembers] = useState<FirmMemberOption[]>([])
   const [canAssign, setCanAssign] = useState(false)
+  const [stepToDelete, setStepToDelete] = useState<CaseWorkflowStep | null>(null)
+  const [panelError, setPanelError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -116,7 +119,7 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
       setWorkflow(res.workflow)
       setCanApply(false)
     } catch (e: any) {
-      alert(e?.response?.data?.error || 'Failed to apply workflow')
+      setPanelError(e?.response?.data?.error || 'Failed to apply workflow')
     } finally {
       setBusy(false)
     }
@@ -143,7 +146,7 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
       const res = await assignCaseWorkflowStep(leadId, step.id, firmMemberId)
       setWorkflow(res.workflow)
     } catch (e: any) {
-      alert(e?.response?.data?.error || 'Failed to assign step')
+      setPanelError(e?.response?.data?.error || 'Failed to assign step')
       load()
     } finally {
       setPendingId(null)
@@ -155,14 +158,19 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
     setWorkflow(res.workflow)
   }
 
-  const removeTask = async (step: CaseWorkflowStep) => {
-    if (!window.confirm(`Delete task "${step.title}"?`)) return
+  const removeTask = (step: CaseWorkflowStep) => setStepToDelete(step)
+
+  const confirmRemoveTask = async () => {
+    const step = stepToDelete
+    if (!step) return
     setPendingId(step.id)
     try {
       const res = await deleteCaseWorkflowStep(leadId, step.id)
       setWorkflow(res.workflow)
+      setStepToDelete(null)
     } catch (e: any) {
-      alert(e?.response?.data?.error || 'Failed to delete task')
+      setPanelError(e?.response?.data?.error || 'Failed to delete task')
+      setStepToDelete(null)
       load()
     } finally {
       setPendingId(null)
@@ -210,6 +218,35 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
 
   return (
     <div className="space-y-4">
+      <ConfirmDialog
+        open={Boolean(stepToDelete)}
+        title="Delete task?"
+        message={
+          stepToDelete ? (
+            <>
+              This will permanently delete <span className="font-semibold">"{stepToDelete.title}"</span> from this
+              case's workflow. This can't be undone.
+            </>
+          ) : undefined
+        }
+        confirmLabel="Delete task"
+        busy={Boolean(pendingId) && pendingId === stepToDelete?.id}
+        onConfirm={() => void confirmRemoveTask()}
+        onCancel={() => setStepToDelete(null)}
+      />
+      {panelError && (
+        <div className="flex items-start justify-between gap-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          <span>{panelError}</span>
+          <button
+            type="button"
+            onClick={() => setPanelError(null)}
+            className="shrink-0 text-rose-500 transition hover:text-rose-700"
+            aria-label="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
       {/* Header + overall progress */}
       <div className="rounded-xl border border-slate-200 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -520,6 +557,7 @@ function AddTaskRow({
   const [dueDate, setDueDate] = useState('')
   const [required, setRequired] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
 
   const reset = () => {
     setTitle('')
@@ -531,6 +569,7 @@ function AddTaskRow({
   const submit = async () => {
     if (!title.trim() || saving) return
     setSaving(true)
+    setAddError(null)
     try {
       await onAdd({
         title: title.trim(),
@@ -541,7 +580,7 @@ function AddTaskRow({
       reset()
       setOpen(false)
     } catch (e: any) {
-      alert(e?.response?.data?.error || 'Failed to add task')
+      setAddError(e?.response?.data?.error || 'Failed to add task')
     } finally {
       setSaving(false)
     }
@@ -578,6 +617,9 @@ function AddTaskRow({
         </button>
       </div>
       <div className="mt-2 space-y-2">
+        {addError && (
+          <p className="rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs font-medium text-rose-700">{addError}</p>
+        )}
         <input
           autoFocus
           value={title}

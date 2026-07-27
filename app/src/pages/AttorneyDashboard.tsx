@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { 
-  BarChart3, 
-  TrendingUp, 
-  Users, 
+import {
+  AlertCircle,
+  BarChart3,
+  TrendingUp,
+  Users,
   AlertTriangle,
   ChevronRight,
   Calendar,
@@ -11,6 +12,7 @@ import {
   Upload,
   ClipboardList,
   FileText,
+  X,
 } from 'lucide-react'
 import { getAttorneyDashboard, decideLead, updateLeadStatus, createDocumentRequest, scheduleConsultation, getCaseContacts, createLeadSolTask, getAttorneyRoiAnalytics, downloadLeadCaseFile, createCaseFromLead, saveLeadDecisionOverride, getAnalyticsIntelligence, transferLeadToFirmAttorney, getLeadCommandCenter, askLeadCommandCenterCopilot, syncLeadReadinessAutomation, updateLeadReminder, getAttorneyCalendarHealth, getAttorneyCalendarConnectUrl, syncAttorneyCalendar, disconnectAttorneyCalendar, getAttorneyZoomStatus, getAttorneyZoomConnectUrl, disconnectAttorneyZoom, createRoutingFeePaymentSession, type AttorneyCalendarConnection, type AttorneyZoomStatus, type CaseCommandCenter } from '../lib/api'
 import Tooltip from '../components/Tooltip'
@@ -1639,6 +1641,11 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
     setLeadPhaseTab(isAccepted ? 'post' : 'pre')
   }, [selectedLead?.id, selectedLead?.status])
 
+  // Don't carry one lead's rejected decision over to the next lead opened.
+  useEffect(() => {
+    setLeadDecisionError(null)
+  }, [selectedLead?.id])
+
   useEffect(() => {
     if (!leadSection) return
     setWorkstreamTab(leadSection)
@@ -3063,6 +3070,26 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
 
   return (
     <div className="space-y-8">
+      {/* A rejected accept/decline (e.g. a firm admin acting on another
+          associate's lead) must be visible wherever it was triggered — the
+          pre-acceptance card alone left the overview table silent (CP-393). */}
+      {leadDecisionError && (
+        <div
+          role="alert"
+          className="fixed left-1/2 top-4 z-[60] flex w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 shadow-lg"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span className="flex-1">{leadDecisionError}</span>
+          <button
+            type="button"
+            onClick={() => setLeadDecisionError(null)}
+            className="shrink-0 text-red-500 transition hover:text-red-700"
+            aria-label="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
       {/* When on a lead URL, show only the lead detail (Pre/Post-Acceptance) */}
       {isLeadSection && selectedLead ? null : (
         <>

@@ -3867,6 +3867,26 @@ export async function getAdminFirms() {
   return data
 }
 
+export type AdminAlert = {
+  id: string
+  subject: string
+  message: string
+  eventType: string | null
+  assessmentId: string | null
+  readAt: string | null
+  createdAt: string
+}
+
+export async function getAdminAlerts(limit = 20): Promise<{ alerts: AdminAlert[]; unreadCount: number }> {
+  const { data } = await api.get('/v1/admin/alerts', { params: { limit } })
+  return { alerts: data?.alerts ?? [], unreadCount: data?.unreadCount ?? 0 }
+}
+
+export async function markAdminAlertsRead(id?: string) {
+  const { data } = await api.post('/v1/admin/alerts/read', id ? { id } : {})
+  return data
+}
+
 // Phase 2: Admin Communications
 export async function getAdminNotifications(params?: {
   role?: string

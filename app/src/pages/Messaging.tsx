@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import Tooltip from '../components/Tooltip'
 import { formatClaimTypeShort } from '../lib/constants'
+import { sortRoomsByRecency } from '../lib/messaging'
 import { linkify } from '../lib/linkify'
 import RecordedCallBar from '../components/RecordedCallBar'
 
@@ -133,7 +134,7 @@ export default function Messaging() {
             lastMessageAt: newRoom.lastMessageAt,
             createdAt: newRoom.createdAt
           }
-          setChatRooms((prev) => [...prev.filter((r: ChatRoom) => r.id !== roomData.id), roomData])
+          setChatRooms((prev) => [roomData, ...prev.filter((r: ChatRoom) => r.id !== roomData.id)])
           setSelectedRoom(roomData)
         }
       } else if (data.length > 0 && !selectedRoom) {
@@ -238,13 +239,25 @@ export default function Messaging() {
   }
 
   const formatTime = (dateString: string) => {
-    return new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const when = new Date(dateString)
+    if (Number.isNaN(when.getTime())) return ''
+    const startOfToday = new Date()
+    startOfToday.setHours(0, 0, 0, 0)
+    if (when.getTime() >= startOfToday.getTime()) {
+      return when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+    const startOfYear = new Date(startOfToday.getFullYear(), 0, 1)
+    return when.getTime() >= startOfYear.getTime()
+      ? when.toLocaleDateString([], { month: 'short', day: 'numeric' })
+      : when.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
-  const filteredChatRooms = chatRooms.filter(room =>
-    room.attorney.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    room.assessment?.claimType.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    formatClaimTypeShort(room.assessment?.claimType).toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredChatRooms = sortRoomsByRecency(
+    chatRooms.filter(room =>
+      room.attorney.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      room.assessment?.claimType.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      formatClaimTypeShort(room.assessment?.claimType).toLowerCase().includes(searchTerm.toLowerCase())
+    )
   )
 
   if (isLoading) {

@@ -82,6 +82,7 @@ import {
 import { getApiOrigin } from '../../lib/runtimeEnv'
 import SignatureRequestPanel from '../../components/SignatureRequestPanel'
 import ChatDrawer from '../../components/ChatDrawer'
+import ConfirmDialog from '../../components/ConfirmDialog'
 import InsurancePanel from './InsurancePanel'
 import SettlementPanel from './SettlementPanel'
 import CaseWorkflowPanel from './CaseWorkflowPanel'
@@ -386,7 +387,10 @@ export default function CaseWorkspacePage() {
     ;(async () => {
       try {
         const [dash, leadTasks] = await Promise.all([
-          getAttorneyDashboard(),
+          // Firm staff without an attorney profile get a 403 here; that must not
+          // abort the load, because the direct lead fetch below still works for
+          // them (CP-332).
+          getAttorneyDashboard().catch(() => null as any),
           getLeadTasks(leadId).catch(() => [] as any[]),
         ])
         if (cancelled) return
@@ -709,10 +713,10 @@ function WorkstreamPanel({
         break
       case 'request_documents': {
         const sug = cc?.suggestedDocumentRequest
-        const labels = sug?.requestedDocs?.length
+        const docKeys = sug?.requestedDocs?.length
           ? sug.requestedDocs
-          : (cc?.missingItems || []).map((m) => m.label)
-        if (labels.length) await requestDocs(labels, sug?.customMessage, 'nba', (cc?.missingItems || []).map((m) => m.key))
+          : (cc?.missingItems || []).map((m) => m.key)
+        if (docKeys.length) await requestDocs(docKeys, sug?.customMessage, 'nba', (cc?.missingItems || []).map((m) => m.key))
         else goToSection('evidence')
         break
       }
@@ -1292,7 +1296,7 @@ function WorkstreamPanel({
     const missing = cc?.missingItems || []
     const requestAllLabels = cc?.suggestedDocumentRequest?.requestedDocs?.length
       ? cc.suggestedDocumentRequest.requestedDocs
-      : missing.map((m) => m.label)
+      : missing.map((m) => m.key)
 
     // Case facts summary (timeline / status / tasks / case info) folded into Overview.
     const fmtFull = (value?: string | null) => {
@@ -1612,25 +1616,28 @@ function parseHighlights(raw: any): string[] {
   return []
 }
 
-const REQUESTABLE_DOCS = [
-  'Medical records',
-  'Medical bills',
-  'Police / incident report',
-  'Photos of injuries',
-  'Photos of property damage',
-  'Insurance information',
-  'Wage-loss documentation',
-  'Prior treatment records',
+// `id` is the canonical key persisted on the request. Sending the label instead
+// meant no uploaded evidence category ever matched it, so the request stayed
+// stuck on "pending" and the plaintiff saw a raw label (CP-330, CP-318).
+const REQUESTABLE_DOCS: { id: string; label: string }[] = [
+  { id: 'medical_records', label: 'Medical records' },
+  { id: 'bills', label: 'Medical bills' },
+  { id: 'police_report', label: 'Police / incident report' },
+  { id: 'injury_photos', label: 'Photos of injuries' },
+  { id: 'photos', label: 'Photos of property damage' },
+  { id: 'insurance', label: 'Insurance information' },
+  { id: 'wage_loss', label: 'Wage-loss documentation' },
+  { id: 'prior_treatment', label: 'Prior treatment records' },
 ]
 
 // The core documents a well-prepared PI file is expected to carry. Drives the
 // evidence-coverage strip: present categories show a check, missing ones offer a
-// one-click "request from client". `req` maps to a REQUESTABLE_DOCS label.
+// one-click "request from client". `req` is a canonical REQUESTABLE_DOCS id.
 const COVERAGE_CHECKLIST = [
-  { id: 'medical_records', label: 'Medical records', req: 'Medical records' },
-  { id: 'bills', label: 'Bills', req: 'Medical bills' },
-  { id: 'police_report', label: 'Police report', req: 'Police / incident report' },
-  { id: 'photos', label: 'Photos', req: 'Photos of injuries' },
+  { id: 'medical_records', label: 'Medical records', req: 'medical_records' },
+  { id: 'bills', label: 'Bills', req: 'bills' },
+  { id: 'police_report', label: 'Police report', req: 'police_report' },
+  { id: 'photos', label: 'Photos', req: 'injury_photos' },
 ]
 
 const STATUS_BADGE: Record<Tone, string> = {
@@ -2351,8 +2358,8 @@ function EvidencePanel({
     }
   }
 
-  const toggleReq = (label: string) =>
-    setRequested((prev) => (prev.includes(label) ? prev.filter((x) => x !== label) : [...prev, label]))
+  const toggleReq = (docId: string) =>
+    setRequested((prev) => (prev.includes(docId) ? prev.filter((x) => x !== docId) : [...prev, docId]))
 
   const submitRequest = async () => {
     if (!requested.length) {
@@ -2678,17 +2685,17 @@ function EvidencePanel({
             <div className="mt-3 space-y-3">
               <div className="flex flex-wrap gap-2">
                 {REQUESTABLE_DOCS.map((doc) => {
-                  const on = requested.includes(doc)
+                  const on = requested.includes(doc.id)
                   return (
                     <button
-                      key={doc}
+                      key={doc.id}
                       type="button"
-                      onClick={() => toggleReq(doc)}
+                      onClick={() => toggleReq(doc.id)}
                       className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
                         on ? 'border-brand-400 bg-brand-50 text-brand-700' : 'border-slate-200 text-slate-600 hover:border-brand-300'
                       }`}
                     >
-                      {doc}
+                      {doc.label}
                     </button>
                   )
                 })}
@@ -3504,6 +3511,7 @@ function TasksPanel({
   const [form, setForm] = useState<TaskFormState>(EMPTY_TASK_FORM)
   const [showDone, setShowDone] = useState(false)
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
+  const [taskToDelete, setTaskToDelete] = useState<TaskRow | null>(null)
 
   const load = async () => {
     await reload()
@@ -3569,12 +3577,16 @@ function TasksPanel({
     }
   }
 
-  const remove = async (t: TaskRow) => {
-    if (!window.confirm(`Delete task "${t.title}"? This can't be undone.`)) return
+  const remove = (t: TaskRow) => setTaskToDelete(t)
+
+  const confirmRemove = async () => {
+    const t = taskToDelete
+    if (!t) return
     setBusy(t.id)
     try {
       await deleteLeadTask(leadId, t.id)
       flash('ok', 'Task deleted.')
+      setTaskToDelete(null)
       await load()
     } catch (err: any) {
       flash('err', err?.response?.data?.error || 'Failed to delete task.')
@@ -3751,6 +3763,21 @@ function TasksPanel({
           onChanged={() => void load()}
         />
       ) : null}
+      <ConfirmDialog
+        open={Boolean(taskToDelete)}
+        title="Delete task?"
+        message={
+          taskToDelete ? (
+            <>
+              This will permanently delete <span className="font-semibold">"{taskToDelete.title}"</span>. This can't be undone.
+            </>
+          ) : undefined
+        }
+        confirmLabel="Delete task"
+        busy={Boolean(busy) && busy === taskToDelete?.id}
+        onConfirm={() => void confirmRemove()}
+        onCancel={() => setTaskToDelete(null)}
+      />
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="grid flex-1 grid-cols-3 gap-2 sm:max-w-md">

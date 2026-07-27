@@ -74,6 +74,7 @@ export default function LoginLayout({
             <Link to="/privacy-policy" className="text-brand-700 hover:text-brand-800 underline-offset-2">
               Privacy Policy
             </Link>
+            .
           </p>
         )}
       </div>

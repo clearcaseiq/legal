@@ -3227,8 +3227,20 @@ export default function IntakeWizardQuick() {
                             aria-label={tx('when_selectDate')}
                             onClick={() => {
                               const el = document.getElementById('incident-exact-date') as (HTMLInputElement & { showPicker?: () => void }) | null
-                              if (el?.showPicker) el.showPicker()
-                              else el?.focus()
+                              if (!el) return
+                              // showPicker() needs Safari 16+. On older iOS, focusing
+                              // alone never opens the wheel — a click on the field
+                              // does, so fall back to that (CP-370).
+                              try {
+                                if (typeof el.showPicker === 'function') {
+                                  el.showPicker()
+                                  return
+                                }
+                              } catch {
+                                /* showPicker can throw when not user-activated */
+                              }
+                              el.focus()
+                              el.click()
                             }}
                             className="flex h-8 w-14 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 transition-colors hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-300 dark:hover:bg-brand-500/25"
                           >
@@ -3592,7 +3604,7 @@ export default function IntakeWizardQuick() {
           other: { emoji: '🩹', label: tx('optionOther') },
         }
         const tileClass = (selected: boolean) =>
-          `flex min-h-[2.25rem] w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-xl border px-2.5 py-1 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10' : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`
+          `flex min-h-[2.25rem] w-full min-w-0 items-center gap-1 overflow-hidden rounded-xl border px-2 py-1 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 sm:gap-1.5 sm:px-2.5 ${selected ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10' : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`
         const renderCheck = (on: boolean) =>
           on ? (
             <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
@@ -3781,7 +3793,7 @@ export default function IntakeWizardQuick() {
                   const disp = bodyPartDisplay[value]
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('bodyParts', value)} className={tileClass(selected)}>
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs dark:bg-slate-800" aria-hidden>{disp?.emoji || '•'}</span>
+                      <span className="hidden h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs dark:bg-slate-800 sm:flex" aria-hidden>{disp?.emoji || '•'}</span>
                       <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{disp?.label || label}</span>
                       {renderCheck(selected)}
                     </button>
@@ -3898,7 +3910,7 @@ export default function IntakeWizardQuick() {
                   const Icon = treatmentIcons[value] || Stethoscope
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('imaging', value)} className={tileClass(selected)}>
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
+                      <span className="hidden h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800 sm:flex"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
                       <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
                       {renderCheck(selected)}
                     </button>

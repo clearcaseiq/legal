@@ -22,6 +22,7 @@ export const DOCUMENT_REQUEST_CATEGORY_MAP: Record<string, string[]> = {
   bills: ['bills', 'medical_bills', 'medical'],
   photos: ['photos', 'injury_photos', 'injury', 'injuries'],
   hipaa: ['hipaa', 'hipaa_authorization', 'authorization'],
+  prior_treatment: ['prior_treatment', 'medical_records', 'medical'],
 }
 
 /**
@@ -41,15 +42,72 @@ export const DOCUMENT_REQUEST_LABELS: Record<string, string> = {
   bills: 'Medical bills',
   photos: 'Injury/damage photos',
   hipaa: 'HIPAA authorization',
+  prior_treatment: 'Prior treatment records',
+}
+
+/**
+ * Some attorney surfaces (the case workspace Evidence tab, and the AI
+ * missing-items fallback) send the human-readable label instead of the
+ * canonical key. Stored that way, no category lookup ever matched, so a
+ * request could never advance past "pending" no matter what the client
+ * uploaded, and the plaintiff saw a raw label instead of the curated one
+ * (CP-330, CP-318). Normalizing here fixes both new and already-stored rows.
+ */
+const REQUEST_KEY_ALIASES: Record<string, string> = {
+  'medical records': 'medical_records',
+  'medical record': 'medical_records',
+  'medical bills': 'bills',
+  'medical bill': 'bills',
+  'police / incident report': 'police_report',
+  'police/incident report': 'police_report',
+  'police report': 'police_report',
+  'incident report': 'police_report',
+  'photos of injuries': 'injury_photos',
+  'injury photos': 'injury_photos',
+  'injury/damage photos': 'photos',
+  'photos of property damage': 'photos',
+  'property damage photos': 'photos',
+  'insurance information': 'insurance',
+  'insurance info': 'insurance',
+  'wage-loss documentation': 'wage_loss',
+  'wage loss documentation': 'wage_loss',
+  'lost wages': 'wage_loss',
+  'prior treatment records': 'prior_treatment',
+  'hipaa authorization': 'hipaa',
+  'other documents': 'other',
+}
+
+/** Resolve a requested-doc entry to its canonical key, tolerating labels. */
+export function normalizeRequestedDocKey(value: string): string {
+  const raw = (value || '').trim()
+  if (!raw) return raw
+  if (DOCUMENT_REQUEST_CATEGORY_MAP[raw] || DOCUMENT_REQUEST_LABELS[raw]) return raw
+  const collapsed = raw.toLowerCase().replace(/\s+/g, ' ')
+  const aliased = REQUEST_KEY_ALIASES[collapsed]
+  if (aliased) return aliased
+  const slug = collapsed.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+  return DOCUMENT_REQUEST_CATEGORY_MAP[slug] ? slug : raw
+}
+
+export function normalizeRequestedDocKeys(values: unknown): string[] {
+  if (!Array.isArray(values)) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const value of values) {
+    if (typeof value !== 'string' || !value.trim()) continue
+    const key = normalizeRequestedDocKey(value)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(key)
+  }
+  return out
 }
 
 export function parseRequestedDocs(value: string | null | undefined): string[] {
   if (!value) return []
   try {
     const parsed = JSON.parse(value) as unknown
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === 'string' && item.length > 0)
-      : []
+    return normalizeRequestedDocKeys(parsed)
   } catch {
     return []
   }

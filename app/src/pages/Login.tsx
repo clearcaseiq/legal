@@ -228,16 +228,16 @@ export default function Login() {
 
       <div className="mt-6 rounded-xl border border-brand-100 bg-brand-50 px-4 py-4">
         <h2 className="text-sm font-semibold text-brand-950">After you sign in</h2>
-        <div className="mt-3 space-y-2 text-sm text-brand-800">
-          <p>Review your case estimate</p>
-          <p>Upload medical records</p>
-          <p>Compare attorney matches</p>
-          <p>Track case progress</p>
-        </div>
+        <ul className="mt-3 grid gap-2 text-sm text-brand-800 list-disc list-inside marker:text-brand-500">
+          <li>Review your case estimate.</li>
+          <li>Upload medical records.</li>
+          <li>Compare attorney matches.</li>
+          <li>Track case progress.</li>
+        </ul>
       </div>
 
       <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-center">
-        <p className="text-sm font-semibold text-slate-800">Trusted by injury victims nationwide</p>
+        <p className="text-sm font-semibold text-slate-800">Trusted by injury victims nationwide.</p>
         <p className="mt-1 text-xs text-slate-500">Used by plaintiffs and personal injury attorneys across multiple states.</p>
       </div>
     </LoginLayout>

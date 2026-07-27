@@ -11,7 +11,7 @@ import { runAnalysisForAssessment } from './evidence'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
 import { runCaseRecalculation } from '../lib/case-recalculation'
-import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, parseRequestedDocs } from '../lib/document-request-status'
+import { syncPlaintiffDocumentRequestStatuses, computeRequestStatus, parseRequestedDocs, normalizeRequestedDocKeys } from '../lib/document-request-status'
 import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt'
 import { z } from 'zod'
 import { Document, Packer, Paragraph, TextRun } from 'docx'
@@ -276,7 +276,40 @@ async function getAttorneyFromReq(req: any) {
   return { attorney, firm }
 }
 
-async function getAuthorizedLead(req: any, leadId: string) {
+/**
+ * Non-attorney firm staff (paralegals, case managers) have a User + FirmMember
+ * but no Attorney row. When a workflow step is assigned to them they must be
+ * able to open the case, so read-only callers can opt into this fallback
+ * instead of dead-ending on "Attorney profile not found" (CP-332).
+ */
+async function getFirmMemberLeadAccess(req: any, lead: { assessmentId: string }) {
+  const userId = req.user?.id
+  if (!userId) return null
+
+  const member = await (prisma as any).firmMember.findFirst({
+    where: { userId, status: { in: ['active', 'invited'] } },
+    select: { id: true, lawFirmId: true, role: true }
+  })
+  if (!member) return null
+
+  const caseWorkflow = await (prisma as any).caseWorkflow.findUnique({
+    where: { assessmentId: lead.assessmentId },
+    select: { lawFirmId: true, items: { select: { assignedFirmMemberId: true } } }
+  })
+  if (!caseWorkflow) return null
+
+  const sameFirm = !!member.lawFirmId && caseWorkflow.lawFirmId === member.lawFirmId
+  const assignedStep = (caseWorkflow.items || []).some(
+    (item: any) => item.assignedFirmMemberId === member.id
+  )
+  return sameFirm || assignedStep ? member : null
+}
+
+async function getAuthorizedLead(
+  req: any,
+  leadId: string,
+  options: { allowFirmMember?: boolean } = {}
+) {
   if (!req.user?.email) {
     return { error: { status: 401, message: 'Authentication required' } }
   }
@@ -286,6 +319,16 @@ async function getAuthorizedLead(req: any, leadId: string) {
   })
 
   if (!attorney) {
+    if (options.allowFirmMember) {
+      const lead = await prisma.leadSubmission.findUnique({ where: { id: leadId } })
+      if (!lead) {
+        return { error: { status: 404, message: 'Lead not found' } }
+      }
+      const firmMember = await getFirmMemberLeadAccess(req, lead)
+      if (firmMember) {
+        return { attorney: null as any, firmMember, lead }
+      }
+    }
     return { error: { status: 403, message: 'Attorney profile not found' } }
   }
 
@@ -317,10 +360,21 @@ async function getAuthorizedLead(req: any, leadId: string) {
         select: { lawFirmId: true }
       })
     : null
+  // A case that reached the firm by introduction has no assignedAttorneyId, so
+  // fall back to the firm that owns the case workflow — otherwise a genuine
+  // same-firm colleague assigned a step is refused access (CP-332).
+  const workflowFirmId = attorney.lawFirmId
+    ? (
+        await (prisma as any).caseWorkflow.findUnique({
+          where: { assessmentId: lead.assessmentId },
+          select: { lawFirmId: true }
+        })
+      )?.lawFirmId ?? null
+    : null
   const sameFirm =
-    attorney.lawFirmId &&
-    assignedAttorney?.lawFirmId &&
-    attorney.lawFirmId === assignedAttorney.lawFirmId
+    !!attorney.lawFirmId &&
+    ((!!assignedAttorney?.lawFirmId && attorney.lawFirmId === assignedAttorney.lawFirmId) ||
+      (!!workflowFirmId && attorney.lawFirmId === workflowFirmId))
   const acceptedShare = await prisma.caseShare.findFirst({
     where: {
       assessmentId: lead.assessmentId,
@@ -2630,13 +2684,17 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
     let casesRequiringAttention = 0
     const consultApproachingHours = 24
     let upcomingAppointments: any[] = []
+    // Include consults from local midnight rather than "now": a consult booked
+    // for earlier today is still today's consult, and cutting it off at the
+    // current time emptied the "Consults today" tile after the slot passed (CP-394).
+    const consultWindowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     try {
       upcomingAppointments = await prisma.appointment.findMany({
         where: {
           attorneyId,
           assessmentId: { not: null },
           status: 'SCHEDULED',
-          scheduledAt: { gte: now }
+          scheduledAt: { gte: consultWindowStart }
         },
         include: {
           assessment: {
@@ -2655,7 +2713,7 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       const diff = new Date(a.scheduledAt).getTime() - now.getTime()
       return diff > 0 && diff <= consultApproachingHours * 60 * 60 * 1000
     }).length
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const todayStart = consultWindowStart
     const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)
     const consultToday = upcomingAppointments.filter((a: any) => {
       const t = new Date(a.scheduledAt).getTime()
@@ -5363,7 +5421,9 @@ router.post('/leads/:leadId/document-request', authMiddleware, async (req: any, 
     if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
     const { lead, attorney } = auth
 
-    const docs = sendUploadLinkOnly ? [] : (Array.isArray(requestedDocs) ? requestedDocs : [])
+    // Store canonical keys, not display labels — a label never matched an
+    // uploaded evidence category, so the request stayed "pending" forever (CP-330).
+    const docs = sendUploadLinkOnly ? [] : normalizeRequestedDocKeys(requestedDocs)
     const secureToken = crypto.randomUUID()
     const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000'
     const uploadLink = `${baseUrl}/evidence-upload/${lead.assessmentId}?token=${secureToken}`
@@ -12713,7 +12773,7 @@ router.post('/leads/:leadId/command-center/copilot', authMiddleware, async (req:
 // Get single lead (for mobile app)
 router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
   try {
-    const auth = await getAuthorizedLead(req, req.params.leadId)
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }

@@ -86,8 +86,17 @@ router.get('/search', async (req: Request, res: Response) => {
       const specialties = (() => { try { return JSON.parse(attorney.specialties || '[]') } catch { return [] } })()
       const venues = (() => { try { return JSON.parse(attorney.venues || '[]') } catch { return [] } })()
 
-      const rating = (attorney as any).attorneyProfile?.averageRating ?? (attorney as any).averageRating
-      const reviewsCount = (attorney as any).attorneyProfile?.totalReviews ?? (attorney as any).totalReviews
+      // Take whichever aggregate store is populated: `??` only falls back on
+      // null/undefined, so a profile row created with a default 0 masked the
+      // attorney's real rating (CP-308, CP-321, CP-326).
+      const rating = Math.max(
+        Number((attorney as any).attorneyProfile?.averageRating) || 0,
+        Number((attorney as any).averageRating) || 0
+      )
+      const reviewsCount = Math.max(
+        Number((attorney as any).attorneyProfile?.totalReviews) || 0,
+        Number((attorney as any).totalReviews) || 0
+      )
       const responseTimeHours = (attorney as any).responseTimeHours ?? 24
 
       // Deterministic fit score from admin-configurable heuristics

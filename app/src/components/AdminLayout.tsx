@@ -31,6 +31,7 @@ import { BrandMark } from './BrandLogo'
 import { clearStoredAuth } from '../lib/auth'
 import { useAdminRoutingStatus } from '../hooks/useAdminRoutingStatus'
 import { useTheme } from '../contexts/ThemeContext'
+import AdminNotificationBell from './AdminNotificationBell'
 
 /**
  * Sidebar grouped by intent rather than one flat list: what you work through
@@ -127,6 +128,7 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
             </Link>
           </div>
           <div className="flex items-center gap-1">
+            <AdminNotificationBell />
             {/* /admin is a workspace route, so the dark preference already applies
                 here — but the admin shell never shipped a way to change it. */}
             <button

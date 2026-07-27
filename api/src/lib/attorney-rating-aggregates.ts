@@ -1,5 +1,6 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { maybeVerifyAttorneyReview } from './appointment-engagement'
 
 /**
  * Recompute an attorney's stored rating aggregates from the actual reviews.
@@ -59,7 +60,41 @@ export async function reconcileAllAttorneyRatingAggregates(): Promise<void> {
       }).catch(() => undefined)
     }
     logger.info('Attorney rating aggregates reconciled', { attorneys: grouped.length })
+    await reconcileAttorneyReviewVerification()
   } catch (error: any) {
     logger.warn('Failed to reconcile attorney rating aggregates', { error: error?.message })
+  }
+}
+
+/**
+ * `isVerified` is stamped once, when the review is written. A client who rates
+ * their attorney before the consult is marked confirmed therefore stays
+ * unverified forever, leaving the admin "Verified" count permanently at 0
+ * (CP-321). Re-evaluate the unverified reviews so the count can catch up.
+ */
+export async function reconcileAttorneyReviewVerification(): Promise<void> {
+  try {
+    const pending = await prisma.attorneyReview.findMany({
+      where: { isVerified: false },
+      select: { id: true, attorneyId: true, userId: true },
+      take: 500,
+    })
+    if (pending.length === 0) return
+
+    let promoted = 0
+    for (const review of pending) {
+      const verified = await maybeVerifyAttorneyReview({
+        attorneyId: review.attorneyId,
+        userId: review.userId,
+      }).catch(() => false)
+      if (!verified) continue
+      await prisma.attorneyReview
+        .update({ where: { id: review.id }, data: { isVerified: true } })
+        .catch(() => undefined)
+      promoted += 1
+    }
+    if (promoted > 0) logger.info('Attorney review verification reconciled', { promoted })
+  } catch (error: any) {
+    logger.warn('Failed to reconcile attorney review verification', { error: error?.message })
   }
 }

@@ -12,7 +12,7 @@
  * tracking happens on the case workspace.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Workflow as WorkflowIcon,
   Plus,
@@ -47,13 +47,12 @@ import { SectionCard, EmptyState, Badge } from '../shared/ui'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { PRACTICE_AREAS, US_STATES } from '../../lib/constants'
 
-// Suggested values per condition field, offered as a <datalist> dropdown on the
-// value input so firms pick real values instead of guessing free text (CP-336).
+// Selectable values per condition field, rendered as an in-app dropdown on the
+// value control so firms pick real values instead of guessing free text (CP-336).
 // These must match the lowercased values the backend compares against
 // (see api/src/lib/workflow-signals.ts resolveConditionContext): claimType is the
 // stored assessment claim slug, state is the venue state code, status is the
-// assessment status. The input stays free-text so "is one of / none of" can still
-// take a comma-separated list.
+// assessment status.
 const CONDITION_VALUE_SUGGESTIONS: Record<string, { value: string; label: string }[]> = {
   claimType: [
     { value: 'auto', label: 'Auto / Vehicle' },
@@ -86,6 +85,134 @@ const inputCls =
 const labelCls = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500'
 const miniSelect =
   'rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:outline-none disabled:opacity-60'
+
+/** "is one of" / "is none of" take a list; the other operators take one value. */
+const MULTI_VALUE_OPS = new Set(['in', 'notin'])
+
+/**
+ * Value picker for a step's apply-time condition. A native <datalist> only
+ * renders as a browser autocomplete hint, which read as a plain text box — this
+ * is a real dropdown, with checkboxes when the operator accepts a list (CP-336).
+ */
+function ConditionValueField({
+  field,
+  op,
+  value,
+  disabled,
+  onChange,
+}: {
+  field: string
+  op: string
+  value: string
+  disabled: boolean
+  onChange: (next: string | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const options = CONDITION_VALUE_SUGGESTIONS[field]
+  const multi = MULTI_VALUE_OPS.has(op)
+
+  useEffect(() => {
+    if (!open) return
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  // A field with no known value set (or a custom signal) keeps free text.
+  if (!options) {
+    return (
+      <input
+        className="w-40 rounded-md border border-slate-200 px-2 py-1 text-xs disabled:opacity-60"
+        value={value}
+        disabled={disabled}
+        placeholder={multi ? 'value(s), comma-separated' : 'value'}
+        onChange={(e) => onChange(e.target.value || null)}
+      />
+    )
+  }
+
+  if (!multi) {
+    return (
+      <select
+        className={`${miniSelect} w-40`}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value || null)}
+      >
+        <option value="">Select a value…</option>
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    )
+  }
+
+  const selected = value
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean)
+  const toggle = (optValue: string) => {
+    const next = selected.includes(optValue)
+      ? selected.filter((v) => v !== optValue)
+      : [...selected, optValue]
+    onChange(next.length ? next.join(',') : null)
+  }
+  const summary = selected.length
+    ? options
+        .filter((o) => selected.includes(o.value))
+        .map((o) => o.label)
+        .join(', ') || `${selected.length} selected`
+    : 'Select value(s)…'
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={`${miniSelect} flex w-40 items-center justify-between gap-1 text-left`}
+      >
+        <span className={`truncate ${selected.length ? 'text-slate-700' : 'text-slate-400'}`}>{summary}</span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          className="absolute left-0 z-20 mt-1 max-h-56 w-56 overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+        >
+          {options.map((opt) => (
+            <label
+              key={opt.value}
+              className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+            >
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                checked={selected.includes(opt.value)}
+                onChange={() => toggle(opt.value)}
+              />
+              <span className="truncate">{opt.label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 const emptyStep = (): FirmWorkflowStep => ({
   title: '',
@@ -933,27 +1060,13 @@ function StepRow({
                 </option>
               ))}
             </select>
-            <input
-              className="w-40 rounded-md border border-slate-200 px-2 py-1 text-xs disabled:opacity-60"
+            <ConditionValueField
+              field={step.conditionField ?? ''}
+              op={step.conditionOp ?? ''}
               value={step.conditionValue ?? ''}
               disabled={!canManage}
-              placeholder="value(s), comma-separated"
-              list={
-                step.conditionField && CONDITION_VALUE_SUGGESTIONS[step.conditionField]
-                  ? `cond-values-${step.conditionField}`
-                  : undefined
-              }
-              onChange={(e) => onPatch({ conditionValue: e.target.value || null })}
+              onChange={(conditionValue) => onPatch({ conditionValue })}
             />
-            {step.conditionField && CONDITION_VALUE_SUGGESTIONS[step.conditionField] && (
-              <datalist id={`cond-values-${step.conditionField}`}>
-                {CONDITION_VALUE_SUGGESTIONS[step.conditionField].map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </datalist>
-            )}
           </>
         )}
       </div>

@@ -8,6 +8,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MessageSquare } from 'lucide-react'
 import { getPlaintiffMessageSummary } from '../lib/api'
+import { sortRoomsByRecency } from '../lib/messaging'
 import { formatSpecialty } from '../lib/constants'
 
 interface RoomPreview {
@@ -32,7 +33,7 @@ export default function PlaintiffNotificationBell() {
       setLoading(true)
       const res = await getPlaintiffMessageSummary()
       setUnreadCount(res?.unreadCount ?? 0)
-      setRooms(Array.isArray(res?.rooms) ? res.rooms : [])
+      setRooms(sortRoomsByRecency(Array.isArray(res?.rooms) ? res.rooms : []))
     } catch {
       setUnreadCount(0)
       setRooms([])

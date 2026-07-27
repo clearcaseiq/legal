@@ -291,6 +291,80 @@ async function upsertLeadSubmission(
 // ===== SMS configuration + test send =====
 // Lets an admin confirm the SMS provider (SNS/Twilio) is wired up end-to-end
 // without waiting for a real case-routing event.
+/**
+ * Admin alert inbox. notifyAdmins() persists a Notification row per admin, but
+ * the admin console had no surface to read them — ops never saw events like an
+ * attorney declining a routed case (CP-390). Allowlist admins have no userId on
+ * the row, so match on the recipient email too.
+ */
+function adminAlertScope(req: AuthRequest) {
+  const email = (req.user?.email || '').toLowerCase()
+  const or: any[] = []
+  if (req.user?.id) or.push({ userId: req.user.id })
+  if (email) or.push({ recipient: { equals: email, mode: 'insensitive' } })
+  return or.length ? { OR: or } : { id: '__none__' }
+}
+
+router.get('/alerts', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const { take } = parsePagination(req.query as any, { defaultLimit: 20, maxLimit: 50 })
+    const where = adminAlertScope(req)
+    const [rows, unreadCount] = await Promise.all([
+      prisma.notification.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take,
+        select: {
+          id: true,
+          subject: true,
+          message: true,
+          metadata: true,
+          readAt: true,
+          createdAt: true,
+        },
+      }),
+      prisma.notification.count({ where: { ...where, readAt: null } }),
+    ])
+
+    const alerts = rows.map((row) => {
+      let metadata: Record<string, unknown> = {}
+      try {
+        metadata = row.metadata ? JSON.parse(row.metadata) : {}
+      } catch {
+        metadata = {}
+      }
+      return {
+        id: row.id,
+        subject: row.subject,
+        message: row.message,
+        eventType: typeof metadata.eventType === 'string' ? metadata.eventType : null,
+        assessmentId: typeof metadata.assessmentId === 'string' ? metadata.assessmentId : null,
+        readAt: row.readAt,
+        createdAt: row.createdAt,
+      }
+    })
+
+    res.json({ alerts, unreadCount })
+  } catch (error: any) {
+    logger.error('Failed to load admin alerts', { error: error?.message })
+    res.status(500).json({ error: 'Failed to load alerts' })
+  }
+})
+
+router.post('/alerts/read', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const id = typeof req.body?.id === 'string' ? req.body.id : null
+    const where = id
+      ? { ...adminAlertScope(req), id, readAt: null }
+      : { ...adminAlertScope(req), readAt: null }
+    const { count } = await prisma.notification.updateMany({ where, data: { readAt: new Date() } })
+    res.json({ updated: count })
+  } catch (error: any) {
+    logger.error('Failed to mark admin alerts read', { error: error?.message })
+    res.status(500).json({ error: 'Failed to update alerts' })
+  }
+})
+
 router.get('/sms/status', authMiddleware, adminMiddleware, async (_req: AuthRequest, res) => {
   const provider = (process.env.SMS_PROVIDER || '').trim().toLowerCase() || 'auto'
   const origination = process.env.SNS_ORIGINATION_NUMBER || process.env.TWILIO_PHONE_NUMBER || ''

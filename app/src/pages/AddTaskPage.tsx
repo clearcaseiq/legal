@@ -57,6 +57,10 @@ export default function AddTaskPage() {
   const [priority, setPriority] = useState('medium')
   const [taskType, setTaskType] = useState('general')
   const [assignedRole, setAssignedRole] = useState('attorney')
+  // Picking type "Client follow-up" while the assignee silently stayed
+  // "Attorney" produced a firm-internal task the plaintiff never saw (CP-388).
+  // Mirror the intent unless the user has chosen an assignee themselves.
+  const [assigneeTouched, setAssigneeTouched] = useState(false)
   const [notes, setNotes] = useState('')
 
   useEffect(() => {
@@ -172,7 +176,15 @@ export default function AddTaskPage() {
                 <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
                   <StickyNote className="h-4 w-4 text-slate-400" /> Type
                 </label>
-                <select value={taskType} onChange={(e) => setTaskType(e.target.value)} className={fieldCls}>
+                <select
+                  value={taskType}
+                  onChange={(e) => {
+                    const next = e.target.value
+                    setTaskType(next)
+                    if (!assigneeTouched) setAssignedRole(next === 'client' ? 'client' : 'attorney')
+                  }}
+                  className={fieldCls}
+                >
                   {TASK_TYPES.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.label}
@@ -212,7 +224,14 @@ export default function AddTaskPage() {
               <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
                 <UserCog className="h-4 w-4 text-slate-400" /> Assign to
               </label>
-              <select value={assignedRole} onChange={(e) => setAssignedRole(e.target.value)} className={fieldCls}>
+              <select
+                value={assignedRole}
+                onChange={(e) => {
+                  setAssigneeTouched(true)
+                  setAssignedRole(e.target.value)
+                }}
+                className={fieldCls}
+              >
                 {ASSIGNEES.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.label}
@@ -220,11 +239,13 @@ export default function AddTaskPage() {
                 ))}
               </select>
               {assignedRole === 'client' ? (
-                <p className="mt-1.5 text-xs text-amber-600">
-                  Client tasks are visible to the plaintiff in their Tasks section.
+                <p className="mt-1.5 text-xs text-emerald-600">
+                  The plaintiff will see this in their Tasks and receive an email.
                 </p>
               ) : (
-                <p className="mt-1.5 text-xs text-slate-400">Internal — only visible to your firm.</p>
+                <p className="mt-1.5 text-xs text-amber-600">
+                  Internal — only your firm sees this. Choose “Client (Plaintiff)” to send it to the client.
+                </p>
               )}
             </div>
 

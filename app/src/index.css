@@ -43,6 +43,23 @@
     min-width: 0;
   }
 
+  /* Structural guard against horizontal overflow on narrow phones.
+     Grid and flex items default to min-width:auto and refuse to shrink below
+     their content, so one long value (a currency figure, an unbroken label)
+     pushes a card past the viewport and the panel's overflow clip cuts it off.
+     Patching individual elements kept missing new cases (CP-378), so scope this
+     to the container instead. Opt out per element with `.overflow-safe-none`. */
+  .overflow-safe {
+    max-width: 100%;
+    overflow-x: clip;
+  }
+  .overflow-safe :where(*:not(.overflow-safe-none)) {
+    min-width: 0;
+  }
+  .overflow-safe :where(p, span, h1, h2, h3, h4, li, dd, dt, td, th):not(.overflow-safe-none) {
+    overflow-wrap: anywhere;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     html {
       scroll-behavior: auto;

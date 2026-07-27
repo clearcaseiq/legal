@@ -334,6 +334,30 @@ export default function AdminCases() {
       <ChevronsUpDown className="h-4 w-4 text-slate-500" aria-hidden />
     )
 
+  /**
+   * A sortable header. The affordance is a real <button> carrying aria-sort on
+   * the cell — previously the click lived on the <th> with an aria-hidden icon,
+   * so the column read as having no sort control at all to keyboard and
+   * assistive-tech users (CP-320).
+   */
+  const SortableTh = ({ field, label }: { field: SortField; label: string }) => (
+    <th
+      scope="col"
+      aria-sort={sortField === field ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+      className="py-3 px-4 text-left text-xs font-medium uppercase text-slate-500 dark:text-slate-400"
+    >
+      <button
+        type="button"
+        onClick={() => handleSort(field)}
+        title={`Sort by ${label}`}
+        className="group -mx-1 inline-flex items-center gap-1 rounded px-1 py-0.5 font-medium uppercase transition hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:hover:text-slate-100"
+      >
+        {label}
+        <SortIcon field={field} />
+      </button>
+    </th>
+  )
+
   return (
     <div className="flex h-[calc(100vh-6.5rem)] min-h-0 flex-col gap-4 overflow-hidden">
       <div className="shrink-0">
@@ -545,57 +569,17 @@ export default function AdminCases() {
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
                     Plaintiff
                   </th>
-                  <th
-                    className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase cursor-pointer hover:bg-slate-100"
-                    onClick={() => handleSort('claimType')}
-                  >
-                    <span className="flex items-center gap-1">
-                      Claim type
-                      <SortIcon field="claimType" />
-                    </span>
-                  </th>
-                  <th
-                    className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase cursor-pointer hover:bg-slate-100"
-                    onClick={() => handleSort('venueState')}
-                  >
-                    <span className="flex items-center gap-1">
-                      State / County
-                      <SortIcon field="venueState" />
-                    </span>
-                  </th>
-                  <th
-                    className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase cursor-pointer hover:bg-slate-100"
-                    onClick={() => handleSort('viability')}
-                  >
-                    <span className="flex items-center gap-1">
-                      Score
-                      <SortIcon field="viability" />
-                    </span>
-                  </th>
-                  <th
-                    className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase cursor-pointer hover:bg-slate-100"
-                    onClick={() => handleSort('estimatedValue')}
-                  >
-                    <span className="flex items-center gap-1">
-                      Est. value
-                      <SortIcon field="estimatedValue" />
-                    </span>
-                  </th>
+                  <SortableTh field="claimType" label="Claim type" />
+                  <SortableTh field="venueState" label="State / County" />
+                  <SortableTh field="viability" label="Score" />
+                  <SortableTh field="estimatedValue" label="Est. value" />
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
                     Routing status
                   </th>
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
                     Interest
                   </th>
-                  <th
-                    className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase cursor-pointer hover:bg-slate-100"
-                    onClick={() => handleSort('createdAt')}
-                  >
-                    <span className="flex items-center gap-1">
-                      Submitted
-                      <SortIcon field="createdAt" />
-                    </span>
-                  </th>
+                  <SortableTh field="createdAt" label="Submitted" />
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
                     Actions
                   </th>

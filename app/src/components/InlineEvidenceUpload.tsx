@@ -33,6 +33,49 @@ function acceptForCategory(category?: string): string {
   return 'image/*,video/*,application/pdf,.doc,.docx,.txt'
 }
 
+/**
+ * Mirrors the server allowlist in api/src/routes/evidence.ts. Without a client
+ * check, an unsupported file (e.g. .TIF) reached the API, multer silently
+ * dropped it, and the user saw the raw server string echoed as
+ * "Failed to upload files: No files uploaded" (CP-363).
+ */
+const SUPPORTED_UPLOAD_EXTENSIONS = new Set([
+  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif',
+  '.mp4', '.mov', '.webm',
+  '.pdf', '.txt', '.doc', '.docx',
+])
+
+const SUPPORTED_UPLOAD_MIMETYPES = new Set([
+  'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif',
+  'video/mp4', 'video/quicktime', 'video/webm',
+  'application/pdf', 'text/plain',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+])
+
+export const UNSUPPORTED_FILE_MESSAGE =
+  'The selected file is not supported. Please upload a supported file.'
+
+function isSupportedUploadType(file: File): boolean {
+  if (SUPPORTED_UPLOAD_MIMETYPES.has((file.type || '').toLowerCase())) return true
+  const name = (file.name || '').toLowerCase()
+  const dot = name.lastIndexOf('.')
+  return dot >= 0 && SUPPORTED_UPLOAD_EXTENSIONS.has(name.slice(dot))
+}
+
+/**
+ * The API returns "No file received"/"No files uploaded" when multer drops a
+ * file it does not accept. Echoing that verbatim reads like a system fault, so
+ * translate it back into the unsupported-format message (CP-363).
+ */
+function uploadErrorMessage(error: any, fallbackPrefix: string): string {
+  const raw = error?.response?.data?.details || error?.response?.data?.error || error?.message || ''
+  if (/no files? (uploaded|received)|unsupported|format/i.test(String(raw))) {
+    return UNSUPPORTED_FILE_MESSAGE
+  }
+  return `${fallbackPrefix}: ${raw}`
+}
+
 /** Hard client-side type guard so a category that expects one kind of file can't
  * accept the wrong one (e.g. a PDF/video dropped into Photos) (#21). */
 function isAllowedForCategory(file: File, category?: string): boolean {
@@ -408,6 +451,13 @@ export default function InlineEvidenceUpload({
 
   // Handle file upload
   const handleFileUpload = async (file: File, uploadMethod: string = 'drag_drop') => {
+    if (!isSupportedUploadType(file)) {
+      setVisionWarnings((prev) => [
+        ...prev.filter((w) => w.fileName !== file.name),
+        { fileName: file.name, status: 'mismatch', title: file.name, message: UNSUPPORTED_FILE_MESSAGE },
+      ])
+      return
+    }
     if (!isAllowedForCategory(file, category)) {
       const expected = category === 'photos' ? 'a photo (image)' : category === 'video' ? 'a video' : 'a supported file'
       setVisionWarnings((prev) => [
@@ -494,7 +544,7 @@ export default function InlineEvidenceUpload({
       if (error.response?.status === 429) {
         flashUploadError('Server is busy. Please wait a moment and try again.')
       } else {
-        flashUploadError(`Failed to upload file: ${error.response?.data?.details || error.response?.data?.error || error.message}`)
+        flashUploadError(uploadErrorMessage(error, 'Failed to upload file'))
       }
     } finally {
       setLoading(false)
@@ -613,16 +663,25 @@ export default function InlineEvidenceUpload({
   // uploading the wrong kind of file (#21).
   const filterAllowedFiles = (fileList: File[]): File[] => {
     const allowed: File[] = []
-    const rejected: File[] = []
+    const unsupported: File[] = []
+    const wrongCategory: File[] = []
     for (const f of fileList) {
-      if (isAllowedForCategory(f, category)) allowed.push(f)
-      else rejected.push(f)
+      if (!isSupportedUploadType(f)) unsupported.push(f)
+      else if (!isAllowedForCategory(f, category)) wrongCategory.push(f)
+      else allowed.push(f)
     }
+    const rejected = [...unsupported, ...wrongCategory]
     if (rejected.length > 0) {
       const expected = category === 'photos' ? 'a photo (image)' : category === 'video' ? 'a video' : 'a supported file'
       setVisionWarnings((prev) => [
         ...prev.filter((w) => !rejected.some((r) => r.name === w.fileName)),
-        ...rejected.map((r) => ({
+        ...unsupported.map((r) => ({
+          fileName: r.name,
+          status: 'mismatch',
+          title: r.name,
+          message: UNSUPPORTED_FILE_MESSAGE,
+        })),
+        ...wrongCategory.map((r) => ({
           fileName: r.name,
           status: 'mismatch',
           title: `${r.name} can’t be added here.`,
@@ -731,7 +790,7 @@ export default function InlineEvidenceUpload({
       if (status === 429) {
         flashUploadError('Server is busy. Please wait a moment and try again.')
       } else {
-        flashUploadError(`Failed to upload files: ${error.response?.data?.details || error.response?.data?.error || error.message}`)
+        flashUploadError(uploadErrorMessage(error, 'Failed to upload files'))
       }
     } finally {
       setLoading(false)

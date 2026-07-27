@@ -182,7 +182,9 @@ router.get('/chat-rooms', authMiddleware, async (req: AuthRequest, res) => {
           take: 1
         }
       },
-      orderBy: { lastMessageAt: 'desc' }
+      // lastMessageAt is null until the first message, and Postgres sorts NULLs
+      // first on DESC — which pushed never-used rooms above active threads (CP-306).
+      orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }]
     })
 
     // Parse profile JSON for attorneys
@@ -232,7 +234,7 @@ router.get('/unread-summary', authMiddleware, async (req: AuthRequest, res) => {
         assessment: { select: { id: true, claimType: true, venueState: true } },
         messages: { orderBy: { createdAt: 'desc' }, take: 1 }
       },
-      orderBy: { lastMessageAt: 'desc' }
+      orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }]
     })
 
     const roomIds = chatRooms.map((r) => r.id)
