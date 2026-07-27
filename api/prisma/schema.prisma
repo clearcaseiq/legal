@@ -864,6 +864,10 @@ model Attorney {
   platformNotificationEvents PlatformNotificationEvent[]
   supportTickets             SupportTicket[]
 
+  // Personal-injury segmentation
+  segmentSignals             SegmentSignal[]
+  segment                    AttorneySegment?
+
   @@index([phone])
   @@map("attorneys")
 }
@@ -917,6 +921,10 @@ model LawFirm {
   workflows       FirmWorkflow[]
   billingRates    BillingRate[]
   timeEntries     TimeEntry[]
+
+  // Personal-injury segmentation
+  segmentSignals  SegmentSignal[]
+  segment         AttorneySegment?
 
   @@index([nameKey, state])
   @@map("law_firms")
@@ -2731,6 +2739,108 @@ model ProductionAttorney {
   @@index([barNumber])
   @@index([county])
   @@map("production_attorneys")
+}
+
+/// One piece of evidence that an attorney or firm practises personal injury.
+///
+/// California does not certify PI as a specialty, so practice area has to be
+/// inferred. Each inference input is stored as its own row rather than folded
+/// straight into a score, for three reasons: scores can be recomputed when the
+/// weights change without re-gathering data, a reviewer can see exactly why an
+/// entity was classified, and a bad source can be retracted by deleting its rows.
+///
+/// Exactly one of `attorneyId` / `lawFirmId` is set. Signals attach to whichever
+/// level the evidence actually describes — court filings name an attorney, a
+/// website describes a firm — and firm-level evidence is inherited down to
+/// attorneys at that firm at a discount when scoring.
+model SegmentSignal {
+  id         String   @id @default(cuid())
+  attorneyId String?
+  attorney   Attorney? @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  lawFirmId  String?
+  lawFirm    LawFirm?  @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+
+  /// court_filing | association | bar_record | gbp | paid_search | website | directory | manual
+  /// Ordered by how hard the source is to fabricate; see SIGNAL_WEIGHTS.
+  source     String
+  /// Specific evidence kind, e.g. "pi_complaint_filed", "caoc_member".
+  kind       String
+  /// plaintiff | defense | null. Null means the evidence shows PI practice but
+  /// not which side of it, which is common for websites and directory listings.
+  side       String?
+  /// Incident type from practice-area-normalize, when the evidence is specific.
+  subtype    String?
+  /// How many times observed, e.g. number of PI complaints filed. Adds weight
+  /// with diminishing returns.
+  count      Int      @default(1)
+  /// Per-signal weight override. Normally null so SIGNAL_WEIGHTS applies.
+  weight     Float?
+  /// Raw observed value, kept verbatim for auditing.
+  value      String?  @db.Text
+  /// URL, docket number or similar, so a human can verify the claim.
+  sourceRef  String?  @db.VarChar(1024)
+  /// When the evidence was dated. Signals decay with age, and an undated signal
+  /// is treated as one half-life old rather than as fresh.
+  observedAt DateTime?
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  /// Re-deriving a source must update rows rather than pile up duplicates.
+  @@unique([attorneyId, source, kind])
+  @@unique([lawFirmId, source, kind])
+  @@index([attorneyId])
+  @@index([lawFirmId])
+  @@index([source, kind])
+  @@map("segment_signals")
+}
+
+/// Derived PI classification for one attorney or firm: the output of scoring all
+/// of that entity's SegmentSignal rows.
+///
+/// Entirely derived and safe to rebuild from signals at any time. `scoreVersion`
+/// records which algorithm produced the row so a weight change can be rolled out
+/// by recomputing only stale versions.
+model AttorneySegment {
+  id         String    @id @default(cuid())
+  attorneyId String?   @unique
+  attorney   Attorney? @relation(fields: [attorneyId], references: [id], onDelete: Cascade)
+  lawFirmId  String?   @unique
+  lawFirm    LawFirm?  @relation(fields: [lawFirmId], references: [id], onDelete: Cascade)
+
+  /// 0-1 confidence that this entity practises personal injury at all.
+  piScore         Float   @default(0)
+  /// plaintiff | defense | both | unknown. The routing-critical field: defense
+  /// firms score high on PI and must never receive claimant leads.
+  piSide          String  @default("unknown")
+  /// 0-1 confidence in `piSide` specifically, which is not the same as piScore.
+  sideConfidence  Float   @default(0)
+  /// JSON array of incident types, most-supported first.
+  piSubtypes      String? @db.Text
+  /// none | low | medium | high. High requires corroboration from at least two
+  /// sources that are not the firm describing itself.
+  confidence      String  @default("none")
+  /// Whether this entity may receive claimant (plaintiff-side) PI leads, with
+  /// the reason. Denormalized from the score so routing need not re-derive it.
+  claimantEligible Boolean @default(false)
+  eligibilityReason String? @db.Text
+  /// Human-readable explanation of the score, one line per factor (JSON array).
+  rationale       String? @db.Text
+  /// Scoring diagnostics as JSON: weights per side, source counts, newest evidence.
+  breakdown       String? @db.Text
+  signalCount     Int     @default(0)
+  /// Set when the score came from the firm rather than this attorney's own evidence.
+  inheritedFromFirm Boolean @default(false)
+
+  scoreVersion String
+  scoredAt     DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([piSide, piScore])
+  @@index([claimantEligible])
+  @@index([scoreVersion])
+  @@map("attorney_segments")
 }
 
 /// Yelp-style "claim your profile" flow. Each row is one claim attempt against
