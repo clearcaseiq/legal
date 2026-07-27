@@ -93,6 +93,7 @@ async function main() {
 
   const bySourceStatus = new Map<string, number>()
   const unresolvedCities = new Map<string, number>()
+  const ambiguousCities = new Map<string, number>()
   const unmatchedLabels = new Map<string, number>()
   const incidentTypeCounts = new Map<string, number>()
   const stateCounts = new Map<string, number>()
@@ -106,6 +107,7 @@ async function main() {
 
   let countyFromSource = 0
   let countyFromCity = 0
+  let countyAmbiguous = 0
   let countyUnresolved = 0
 
   let specialtyMapped = 0
@@ -160,7 +162,12 @@ async function main() {
         const resolution = resolveCaCounty({ county: record.county, city: record.city })
         if (resolution.via === 'county') countyFromSource += 1
         else if (resolution.via === 'city') countyFromCity += 1
-        else {
+        else if (resolution.via === 'ambiguous') {
+          countyAmbiguous += 1
+          if (record.city?.trim()) {
+            bump(ambiguousCities, `${record.city.trim()} (${resolution.candidates?.join(' / ')})`)
+          }
+        } else {
           countyUnresolved += 1
           if (record.city?.trim()) bump(unresolvedCities, record.city.trim())
         }
@@ -195,7 +202,8 @@ async function main() {
   // A row becomes a routable attorney only if it has a name and at least one
   // mappable practice area. Promotion skips the rest.
   const promotable = scanned - wouldSkipNoName - specialtyUnmappable
-  const routableWithCounty = Math.max(0, promotable - countyUnresolved)
+  const withoutCounty = countyUnresolved + countyAmbiguous
+  const routableWithCounty = Math.max(0, promotable - withoutCounty)
 
   console.log('='.repeat(64))
   console.log(`Staged rows scanned: ${scanned}\n`)
@@ -213,6 +221,7 @@ async function main() {
   console.log('\n  County resolution (an unresolved county reads as statewide):')
   console.log(row('given by the source', countyFromSource, scanned))
   console.log(row('derived from city', countyFromCity, scanned))
+  console.log(row('ambiguous city name', countyAmbiguous, scanned))
   console.log(row('unresolved', countyUnresolved, scanned))
 
   console.log('\n  Practice-area mapping (unmappable rows are skipped on promote):')
@@ -224,12 +233,13 @@ async function main() {
   table('Incident types produced', incidentTypeCounts, args.top)
   table('Practice-area labels that mapped to nothing', unmatchedLabels, args.top)
   table('Cities with no county mapping', unresolvedCities, args.top)
+  table('Cities whose name spans several counties', ambiguousCities, args.top)
 
   console.log('\n' + '='.repeat(64))
   console.log('Projected outcome if these rows were promoted today:\n')
   console.log(row('would be promoted', promotable, scanned))
   console.log(row('  ...with a real county', routableWithCounty, scanned))
-  console.log(row('  ...as statewide', Math.min(promotable, countyUnresolved), scanned))
+  console.log(row('  ...as statewide', Math.min(promotable, withoutCounty), scanned))
   console.log(row('skipped: no name', wouldSkipNoName, scanned))
   console.log(row('skipped: no practice area', specialtyUnmappable, scanned))
 
@@ -240,10 +250,11 @@ async function main() {
         '  api/src/lib/practice-area-normalize.ts and re-run this audit.'
     )
   }
-  if (countyUnresolved > 0) {
+  if (withoutCounty > 0) {
     console.log(
-      `\n  ${countyUnresolved} row(s) have no county. Add the cities listed above to\n` +
-        '  api/src/lib/ca-counties.ts, or hold them back with PROMOTE_REQUIRE_COUNTY=true.'
+      `\n  ${withoutCounty} row(s) have no county and would read as statewide. Add the\n` +
+        '  cities listed above to CURATED_CITY_TO_COUNTY in api/src/lib/ca-counties.ts,\n' +
+        '  or hold them back with PROMOTE_REQUIRE_COUNTY=true.'
     )
   }
   console.log('\nPromoted attorneys are created isVerified=false and receive no leads until vetted.')

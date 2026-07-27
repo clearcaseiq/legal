@@ -7,13 +7,27 @@
  * module is the single place that turns messy inbound location text into one of
  * the 58 canonical names, or admits it cannot.
  *
- * Deliberate limitation: `CITY_TO_COUNTY` covers the cities where law offices
- * actually cluster, not all ~480 incorporated places. An unmapped city returns
- * `null` so the record gets flagged for resolution rather than silently filed
- * under the wrong county. Backfilling the long tail should come from an
- * authoritative crosswalk (Census place-to-county or USPS ZIP-to-county), not
- * from extending this list by hand.
+ * City lookups consult two layers, in order:
+ *
+ *   1. `CURATED_CITY_TO_COUNTY` — neighborhoods and colloquial names that the
+ *      Census does not list as places, plus a small number of deliberate
+ *      overrides. Takes precedence because it encodes local knowledge about
+ *      where law offices actually are.
+ *   2. `CENSUS_PLACE_TO_COUNTY` — generated from the Census Bureau's
+ *      place-by-county file, covering ~1,567 California places including
+ *      unincorporated communities.
+ *
+ * A name the Census records in more than one county resolves to `ambiguous`
+ * rather than a guess, and an unknown name resolves to `none`. Both leave
+ * `county` null so the caller flags the record instead of filing it under the
+ * wrong county — which for routing would mean sending an attorney cases from
+ * the wrong end of the state.
  */
+
+import {
+  CENSUS_AMBIGUOUS_PLACES,
+  CENSUS_PLACE_TO_COUNTY,
+} from './ca-county-crosswalk.generated'
 
 /** The 58 California counties, canonically spelled. */
 export const CA_COUNTIES = [
@@ -108,10 +122,23 @@ const COUNTY_ALIASES: Record<string, string> = {
 }
 
 /**
- * Cities and neighborhoods to counties, for the dominant California legal
- * markets. Keys are normalized the same way as county lookups.
+ * Names the Census place file does not resolve correctly for our purposes.
+ *
+ * Three kinds of entry earn a place here:
+ *
+ *   - Neighborhoods of a large city, which are not Census places at all but
+ *     appear constantly on law-office addresses: Woodland Hills, Century City,
+ *     Sherman Oaks, La Jolla and the like.
+ *   - Colloquial names for places the Census files under a formal name —
+ *     "Ventura" for San Buenaventura, "Paso Robles" for El Paso de Robles,
+ *     "Carmel" for Carmel-by-the-Sea.
+ *   - Deliberate overrides, listed in `CENSUS_OVERRIDES` below.
+ *
+ * Entries that merely duplicate the Census answer are harmless but redundant.
+ * A test asserts this map never contradicts the Census data except for the
+ * documented overrides, so a careless addition here cannot silently win.
  */
-const CITY_TO_COUNTY: Record<string, string> = {
+const CURATED_CITY_TO_COUNTY: Record<string, string> = {
   // Los Angeles County
   'los angeles': 'Los Angeles',
   'long beach': 'Los Angeles',
@@ -199,7 +226,6 @@ const CITY_TO_COUNTY: Record<string, string> = {
   tustin: 'Orange',
   westminster: 'Orange',
   brea: 'Orange',
-  yorba: 'Orange',
   'yorba linda': 'Orange',
   'buena park': 'Orange',
   'aliso viejo': 'Orange',
@@ -218,7 +244,6 @@ const CITY_TO_COUNTY: Record<string, string> = {
   carlsbad: 'San Diego',
   oceanside: 'San Diego',
   escondido: 'San Diego',
-  chula: 'San Diego',
   'chula vista': 'San Diego',
   'el cajon': 'San Diego',
   'la jolla': 'San Diego',
@@ -321,7 +346,6 @@ const CITY_TO_COUNTY: Record<string, string> = {
   temecula: 'Riverside',
   murrieta: 'Riverside',
   corona: 'Riverside',
-  moreno: 'Riverside',
   'moreno valley': 'Riverside',
   hemet: 'Riverside',
   indio: 'Riverside',
@@ -418,21 +442,58 @@ export function normalizeCaCounty(value: string | null | undefined): string | nu
 }
 
 /**
- * County for a California city or neighborhood, or `null` when the city is not
- * in the mapped set. Callers must treat `null` as "needs resolution" rather
- * than guessing.
+ * Places where the curated map intentionally disagrees with the Census file.
+ * Every entry needs a reason, because overriding authoritative data is exactly
+ * the kind of thing that should not happen by accident.
+ */
+export const CENSUS_OVERRIDES: Record<string, { curated: string; census: string; why: string }> = {
+  westwood: {
+    curated: 'Los Angeles',
+    census: 'Lassen',
+    why:
+      'Westwood Village in Los Angeles is a dense legal district near UCLA. ' +
+      'Westwood CDP in Lassen County is a village of roughly 1,600 people, so an ' +
+      'attorney address reading "Westwood" is overwhelmingly the former.',
+  },
+}
+
+/**
+ * County for a California city, neighborhood, or unincorporated community, or
+ * `null` when the name is unknown or ambiguous. Callers must treat `null` as
+ * "needs resolution" rather than guessing.
+ *
+ * Use `resolveCaCounty` when you need to distinguish unknown from ambiguous.
  */
 export function countyForCaCity(city: string | null | undefined): string | null {
   if (!city) return null
   const key = normalizeKey(city)
   if (!key) return null
-  return CITY_TO_COUNTY[key] ?? null
+  return CURATED_CITY_TO_COUNTY[key] ?? CENSUS_PLACE_TO_COUNTY[key] ?? null
+}
+
+/**
+ * Counties a place name could refer to, when the Census records it in more than
+ * one. Empty when the name is unambiguous or unknown.
+ */
+export function ambiguousCountiesForCaCity(city: string | null | undefined): string[] {
+  if (!city) return []
+  const key = normalizeKey(city)
+  if (!key) return []
+  // A curated entry settles the question, so it is not ambiguous to us.
+  if (CURATED_CITY_TO_COUNTY[key]) return []
+  return CENSUS_AMBIGUOUS_PLACES[key] ?? []
 }
 
 export type CountyResolution = {
   county: string | null
-  /** Which input produced the answer. `none` means the caller must follow up. */
-  via: 'county' | 'city' | 'none'
+  /**
+   * How the answer was reached. `ambiguous` means the name maps to several
+   * counties and we refused to pick; `none` means we do not know the name. Both
+   * leave `county` null and require the caller to follow up.
+   */
+  via: 'county' | 'city' | 'ambiguous' | 'none'
+  /** The candidate counties, when `via` is `ambiguous`. */
+  candidates?: string[]
 }
 
 /**
@@ -451,6 +512,9 @@ export function resolveCaCounty(input: {
 
   const fromCity = countyForCaCity(input.city)
   if (fromCity) return { county: fromCity, via: 'city' }
+
+  const candidates = ambiguousCountiesForCaCity(input.city)
+  if (candidates.length > 0) return { county: null, via: 'ambiguous', candidates }
 
   return { county: null, via: 'none' }
 }

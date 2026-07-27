@@ -208,6 +208,7 @@ type Stats = {
   skippedOutOfState: number
   countyFromSource: number
   countyFromCity: number
+  countyAmbiguous: number
   countyUnresolved: number
   withFirm: number
   withEmail: number
@@ -227,6 +228,7 @@ function emptyStats(): Stats {
     skippedOutOfState: 0,
     countyFromSource: 0,
     countyFromCity: 0,
+    countyAmbiguous: 0,
     countyUnresolved: 0,
     withFirm: 0,
     withEmail: 0,
@@ -388,6 +390,7 @@ async function main() {
     const countyResolution = resolveCaCounty({ county: pick(row, map.county), city })
     if (countyResolution.via === 'county') stats.countyFromSource += 1
     else if (countyResolution.via === 'city') stats.countyFromCity += 1
+    else if (countyResolution.via === 'ambiguous') stats.countyAmbiguous += 1
     else stats.countyUnresolved += 1
 
     const firmName = pick(row, map.firmName)
@@ -471,6 +474,7 @@ async function main() {
   console.log('  County resolution (routing depends on this):')
   console.log(`    from source column   ${stats.countyFromSource}`)
   console.log(`    derived from city    ${stats.countyFromCity}`)
+  console.log(`    ambiguous city name  ${stats.countyAmbiguous}`)
   console.log(`    unresolved           ${stats.countyUnresolved}`)
   console.log('')
   console.log('  Coverage of enrichment fields:')
@@ -488,9 +492,10 @@ async function main() {
     console.log('  Add patterns to practice-area-normalize.ts for any that matter.')
   }
 
-  if (stats.countyUnresolved > 0) {
+  const withoutCounty = stats.countyUnresolved + stats.countyAmbiguous
+  if (withoutCounty > 0) {
     console.log(
-      `\n  ${stats.countyUnresolved} row(s) have no county. Promoting these makes them ` +
+      `\n  ${withoutCounty} row(s) have no county. Promoting these makes them ` +
         'look statewide, so resolve the cities or promote with PROMOTE_REQUIRE_COUNTY=true.'
     )
   }

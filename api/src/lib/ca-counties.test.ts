@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ambiguousCountiesForCaCity,
   CA_COUNTIES,
+  CENSUS_OVERRIDES,
   countyForCaCity,
   isCaCounty,
   normalizeCaCounty,
   resolveCaCounty,
 } from './ca-counties'
+import {
+  CENSUS_AMBIGUOUS_PLACES,
+  CENSUS_PLACE_TO_COUNTY,
+} from './ca-county-crosswalk.generated'
 
 describe('CA_COUNTIES', () => {
   it('lists all 58 counties exactly once', () => {
@@ -88,6 +94,20 @@ describe('countyForCaCity', () => {
     expect(countyForCaCity('')).toBeNull()
   })
 
+  it('resolves the small unincorporated communities the Census file adds', () => {
+    // These are not incorporated cities, so a city-only crosswalk misses them.
+    expect(countyForCaCity('Castro Valley')).toBe('Alameda')
+    expect(countyForCaCity('Altadena')).toBe('Los Angeles')
+    expect(countyForCaCity('Isla Vista')).toBe('Santa Barbara')
+  })
+
+  it('prefers the incorporated city when a CDP shares its name', () => {
+    // Burbank is a city in LA County and a tiny CDP in Santa Clara County.
+    expect(countyForCaCity('Burbank')).toBe('Los Angeles')
+    expect(countyForCaCity('Mountain View')).toBe('Santa Clara')
+    expect(countyForCaCity('Paradise')).toBe('Butte')
+  })
+
   it('only ever returns a canonical county name', () => {
     for (const city of ['Los Angeles', 'Irvine', 'Oakland', 'Ukiah', 'Hollister']) {
       const county = countyForCaCity(city)
@@ -125,5 +145,70 @@ describe('resolveCaCounty', () => {
       via: 'none',
     })
     expect(resolveCaCounty({})).toEqual({ county: null, via: 'none' })
+  })
+
+  it('reports ambiguity instead of guessing between counties', () => {
+    // Bayview exists in both Contra Costa and Humboldt as unrelated communities.
+    const result = resolveCaCounty({ city: 'Bayview' })
+    expect(result.county).toBeNull()
+    expect(result.via).toBe('ambiguous')
+    expect(result.candidates).toEqual(['Contra Costa', 'Humboldt'])
+  })
+
+  it('distinguishes ambiguous from simply unknown', () => {
+    expect(resolveCaCounty({ city: 'Bayview' }).via).toBe('ambiguous')
+    expect(resolveCaCounty({ city: 'Nowhereville' }).via).toBe('none')
+  })
+})
+
+describe('curated map versus Census data', () => {
+  // The curated layer wins over the authoritative Census file, so it must not
+  // diverge from it by accident. Every disagreement needs a documented reason.
+  it('only contradicts the Census file where an override is documented', () => {
+    const undocumented: string[] = []
+
+    for (const [key, census] of Object.entries(CENSUS_PLACE_TO_COUNTY)) {
+      const curated = countyForCaCity(key)
+      if (!curated || curated === census) continue
+      const override = CENSUS_OVERRIDES[key]
+      if (!override || override.curated !== curated || override.census !== census) {
+        undocumented.push(`${key}: curated=${curated} census=${census}`)
+      }
+    }
+
+    expect(undocumented).toEqual([])
+  })
+
+  it('gives every documented override a reason', () => {
+    for (const [key, override] of Object.entries(CENSUS_OVERRIDES)) {
+      expect(override.why.length, `${key} needs a reason`).toBeGreaterThan(20)
+      expect(CENSUS_PLACE_TO_COUNTY[key]).toBe(override.census)
+      expect(countyForCaCity(key)).toBe(override.curated)
+    }
+  })
+
+  it('never emits a county outside the canonical 58', () => {
+    const counties = new Set([
+      ...Object.values(CENSUS_PLACE_TO_COUNTY),
+      ...Object.values(CENSUS_AMBIGUOUS_PLACES).flat(),
+    ])
+    const invalid = Array.from(counties).filter((county) => !isCaCounty(county))
+    expect(invalid).toEqual([])
+  })
+
+  it('covers all 58 counties and a meaningful share of the state', () => {
+    const covered = new Set(Object.values(CENSUS_PLACE_TO_COUNTY))
+    expect(covered.size).toBe(58)
+    expect(Object.keys(CENSUS_PLACE_TO_COUNTY).length).toBeGreaterThan(1500)
+  })
+
+  it('keeps ambiguous names out of the lookup map', () => {
+    for (const key of Object.keys(CENSUS_AMBIGUOUS_PLACES)) {
+      expect(CENSUS_PLACE_TO_COUNTY[key]).toBeUndefined()
+      // Unless a curated entry settles it, the name stays ambiguous.
+      if (!CENSUS_OVERRIDES[key]) {
+        expect(ambiguousCountiesForCaCity(key).length).toBeGreaterThan(1)
+      }
+    }
   })
 })
