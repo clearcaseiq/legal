@@ -9,6 +9,7 @@ import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { webUrl } from '../lib/app-url'
 import { taskCreatorName } from '../lib/ai-author'
+import { buildMergedSurvivor, reminderMessagesFor, validateMerge } from '../lib/task-merge'
 import { runAnalysisForAssessment } from './evidence'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
@@ -1001,6 +1002,7 @@ const caseTaskSelect = {
   createdByName: true,
   sourceTemplateId: true,
   sourceTemplateStepId: true,
+  mergedIntoId: true,
   completedAt: true,
   createdAt: true,
   updatedAt: true,
@@ -1410,6 +1412,72 @@ async function getOrCreateTaskThread(assessmentId: string, taskId: string, req: 
     })
   }
   return thread
+}
+
+/**
+ * Consolidate the comment threads of merged tasks onto the survivor.
+ *
+ * `getOrCreateTaskThread` finds a task's thread with `findFirst`, so leaving two
+ * threads pointing at one task would make one of them permanently unreachable.
+ * Comments are moved onto a single thread and the emptied ones are detached.
+ */
+async function mergeTaskCommentThreads(
+  assessmentId: string,
+  survivorId: string,
+  absorbedIds: string[],
+  survivorTitle: string,
+) {
+  if (absorbedIds.length === 0) return
+  try {
+    const absorbedThreads = await prisma.caseCommentThread.findMany({
+      where: { caseTaskId: { in: absorbedIds } } as any,
+      select: { id: true, lastCommentAt: true },
+    })
+    if (absorbedThreads.length === 0) return
+
+    let target = await prisma.caseCommentThread.findFirst({
+      where: { caseTaskId: survivorId } as any,
+      select: { id: true, lastCommentAt: true },
+    })
+
+    // With no thread on the survivor, promote one of the absorbed threads rather
+    // than creating an empty one and moving everything into it.
+    let promotedId: string | null = null
+    if (!target) {
+      const [first, ...rest] = absorbedThreads
+      promotedId = first!.id
+      target = await prisma.caseCommentThread.update({
+        where: { id: promotedId },
+        data: { caseTaskId: survivorId, title: `Task: ${survivorTitle}` } as any,
+        select: { id: true, lastCommentAt: true },
+      })
+      if (rest.length === 0) return
+    }
+
+    const sourceIds = absorbedThreads.map((t) => t.id).filter((id) => id !== promotedId && id !== target!.id)
+    if (sourceIds.length === 0) return
+
+    await prisma.caseComment.updateMany({ where: { threadId: { in: sourceIds } }, data: { threadId: target!.id } })
+
+    // Detach rather than delete: the rows are harmless once empty, and deleting
+    // them would cascade over any comment the move missed.
+    await prisma.caseCommentThread.updateMany({
+      where: { id: { in: sourceIds } },
+      data: { caseTaskId: null } as any,
+    })
+
+    const latest = [target, ...absorbedThreads]
+      .map((t) => (t?.lastCommentAt ? new Date(t.lastCommentAt).getTime() : 0))
+      .reduce((max, ts) => Math.max(max, ts), 0)
+    if (latest > 0) {
+      await prisma.caseCommentThread.update({
+        where: { id: target!.id },
+        data: { lastCommentAt: new Date(latest) },
+      })
+    }
+  } catch (error: any) {
+    logger.warn('Task merge: comment thread consolidation failed', { assessmentId, error: error?.message })
+  }
 }
 
 async function createCaseReminder(assessmentId: string, channel: string, message: string, dueAt: Date) {
@@ -3970,6 +4038,9 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
       where: {
         assessmentId: { in: assessmentIds },
         taskType: { not: 'time_entry' },
+        // Absorbed tasks are closed, so this queue already excludes them; the
+        // filter is explicit so it survives any change to the status clause.
+        mergedIntoId: null,
         NOT: { status: { in: ['completed', 'done'] } },
       },
       orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
@@ -8846,7 +8917,9 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
     const { lead } = auth
 
     const records = await prisma.caseTask.findMany({
-      where: { assessmentId: lead.assessmentId },
+      // Absorbed tasks are kept as closed rows so the AI loops do not recreate
+      // them, but they are not work anyone did, so they stay out of the list.
+      where: { assessmentId: lead.assessmentId, mergedIntoId: null },
       orderBy: { createdAt: 'desc' },
       select: caseTaskSelect
     })
@@ -10330,11 +10403,150 @@ router.delete('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) 
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
+    // Scope the delete to this case. Deleting by raw id let any caller
+    // authorized on any lead remove any task in the database.
+    const existing = await prisma.caseTask.findUnique({ where: { id }, select: { id: true, assessmentId: true } })
+    if (!existing || existing.assessmentId !== auth.lead.assessmentId) {
+      return res.status(404).json({ error: 'Task not found' })
+    }
     await prisma.caseTask.delete({ where: { id } })
     res.json({ ok: true })
   } catch (error: any) {
     logger.error('Failed to delete case task', { error: error.message })
     res.status(500).json({ error: 'Failed to delete case task' })
+  }
+})
+
+// Fold several overlapping tasks into one. The absorbed tasks are closed and
+// tagged, never deleted — see api/src/lib/task-merge.ts for why deleting them
+// would let the AI loops recreate them and would strand logged time.
+router.post('/leads/:leadId/tasks/merge', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+
+    const survivorId = String(req.body?.survivorId || '').trim()
+    const mergedIds: string[] = Array.isArray(req.body?.mergedIds)
+      ? Array.from(new Set(req.body.mergedIds.map((v: any) => String(v || '').trim()).filter(Boolean)))
+      : []
+    if (!survivorId) return res.status(400).json({ error: 'survivorId is required' })
+
+    const ids = Array.from(new Set([survivorId, ...mergedIds]))
+    const rows = await prisma.caseTask.findMany({ where: { id: { in: ids } }, select: caseTaskSelect })
+
+    // Every id must resolve, and must belong to this case. Checked per id rather
+    // than in bulk so a request mixing two clients' cases cannot slip through.
+    if (rows.length !== ids.length || rows.some((t) => t.assessmentId !== auth.lead.assessmentId)) {
+      return res.status(404).json({ error: 'Task not found' })
+    }
+
+    const toMergeable = (t: (typeof rows)[number]) => ({
+      id: t.id,
+      assessmentId: t.assessmentId,
+      title: t.title,
+      taskType: t.taskType,
+      status: t.status,
+      priority: t.priority,
+      dueDate: t.dueDate,
+      notes: t.notes,
+      estimateMinutes: t.estimateMinutes,
+      subtasks: parseSubtasks(t.subtasks),
+      mergedIntoId: t.mergedIntoId,
+    })
+
+    const survivorRow = rows.find((t) => t.id === survivorId)!
+    const survivor = toMergeable(survivorRow)
+    const absorbed = rows.filter((t) => t.id !== survivorId).map(toMergeable)
+
+    const refusal = validateMerge(survivor, absorbed)
+    if (refusal) return res.status(400).json({ error: refusal.message, code: refusal.code })
+
+    const merged = buildMergedSurvivor(survivor, absorbed)
+    const absorbedIds = absorbed.map((t) => t.id)
+
+    const record = await prisma.caseTask.update({
+      where: { id: survivorId },
+      data: {
+        // Title is deliberately untouched: renaming frees the old title for the
+        // coach to recreate on its next run.
+        dueDate: merged.dueDate,
+        priority: merged.priority,
+        estimateMinutes: merged.estimateMinutes,
+        notes: merged.notes,
+        subtasks: JSON.stringify(normalizeSubtasks(merged.subtasks)),
+      },
+      select: caseTaskSelect,
+    })
+
+    // Logged time follows the survivor. TimeEntry.caseTaskId is a bare string
+    // with no cascade, so without this the minutes stay billable on the case but
+    // vanish from every task view.
+    await prisma.timeEntry
+      .updateMany({ where: { caseTaskId: { in: absorbedIds } }, data: { caseTaskId: survivorId } })
+      .catch((e: any) => logger.warn('Task merge: time entry repoint failed', { error: e?.message }))
+
+    await mergeTaskCommentThreads(auth.lead.assessmentId, survivorId, absorbedIds, survivorRow.title)
+
+    // Absorbed tasks are closed and tagged rather than deleted, which is what
+    // makes the merge stick against the AI loops.
+    await prisma.caseTask.updateMany({
+      where: { id: { in: absorbedIds } },
+      data: {
+        status: 'done',
+        completedAt: new Date(),
+        mergedIntoId: survivorId,
+        // Clear the queue state so a merged task cannot linger in someone's
+        // pending-review count or task list.
+        reviewStatus: null,
+        assignedUserId: null,
+        assignedTo: null,
+      },
+    })
+
+    // Reminders carry no task id, so an absorbed task would keep emailing under
+    // its old title. Rebuild the exact messages it scheduled and drop the ones
+    // still waiting to go out.
+    const staleMessages = absorbed.flatMap((t) =>
+      reminderMessagesFor({
+        title: t.title,
+        dueDate: t.dueDate,
+        escalationLevel: rows.find((r) => r.id === t.id)?.escalationLevel ?? null,
+      }),
+    )
+    if (staleMessages.length > 0) {
+      await prisma.caseReminder
+        .deleteMany({
+          where: { assessmentId: auth.lead.assessmentId, status: 'scheduled', message: { in: staleMessages } },
+        })
+        .catch((e: any) => logger.warn('Task merge: reminder cleanup failed', { error: e?.message }))
+    }
+
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: auth.attorney.id,
+      action: 'tasks_merged',
+      entityType: 'case_task',
+      entityId: survivorId,
+      metadata: { mergedCount: absorbedIds.length, mergedTitles: absorbed.map((t) => t.title) },
+    })
+    for (const t of absorbed) {
+      await writeAutomationAudit({
+        userId: req.user?.id,
+        attorneyId: auth.attorney.id,
+        action: 'task_merged_away',
+        entityType: 'case_task',
+        entityId: t.id,
+        metadata: { into: survivorId, intoTitle: survivorRow.title },
+      })
+    }
+
+    res.json({ ...record, subtasks: parseSubtasks(record.subtasks), mergedCount: absorbedIds.length })
+  } catch (error: any) {
+    logger.error('Failed to merge case tasks', { error: error.message })
+    res.status(500).json({ error: 'Failed to merge tasks' })
   }
 })
 

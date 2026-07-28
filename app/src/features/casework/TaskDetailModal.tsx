@@ -117,6 +117,13 @@ function describeHistory(entry: TaskHistoryEntry): string {
       return `approved this AI task${m.assignee ? `, assigning it to ${m.assignee}` : ''}`
     case 'task_review_unapproved':
       return `sent this AI task back for review`
+    case 'tasks_merged': {
+      const count = Number(m.mergedCount ?? 0)
+      const titles = Array.isArray(m.mergedTitles) ? m.mergedTitles.join('", "') : ''
+      return `merged ${count} ${count === 1 ? 'task' : 'tasks'} into this one${titles ? `: "${titles}"` : ''}`
+    }
+    case 'task_merged_away':
+      return `merged this task into${m.intoTitle ? ` "${m.intoTitle}"` : ' another task'}`
     default:
       return entry.action.replace(/_/g, ' ')
   }

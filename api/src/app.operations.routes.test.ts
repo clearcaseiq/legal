@@ -4623,6 +4623,166 @@ describe('HTTP operations regressions', () => {
     expect(prisma.caseTask.update).not.toHaveBeenCalled()
   })
 
+  // ---- Task merge ----------------------------------------------------------
+
+  /** Lead lookup + the task rows a merge request will resolve. */
+  function mockMergeSetup(rows: any[]) {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValueOnce({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignmentType: 'shared',
+      assignedAttorneyId: null,
+    } as any)
+    vi.mocked(prisma.caseTask.findMany).mockResolvedValue(rows as any)
+    vi.mocked(prisma.caseTask.update).mockResolvedValue({
+      id: 'task-1',
+      assessmentId: 'asm-1',
+      title: 'Obtain the police report',
+      subtasks: null,
+    } as any)
+  }
+
+  const mergeRow = (overrides: Record<string, any> = {}) => ({
+    id: 'task-1',
+    assessmentId: 'asm-1',
+    title: 'Obtain the police report',
+    taskType: 'general',
+    status: 'open',
+    priority: 'medium',
+    dueDate: null,
+    notes: null,
+    estimateMinutes: null,
+    subtasks: null,
+    escalationLevel: 'none',
+    mergedIntoId: null,
+    ...overrides,
+  })
+
+  it('POST /v1/attorney-dashboard/leads/:leadId/tasks/merge closes the absorbed tasks instead of deleting them', async () => {
+    mockMergeSetup([mergeRow(), mergeRow({ id: 'task-2', title: 'Get police report' })])
+
+    await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-1/tasks/merge')
+      .set('Authorization', 'Bearer attorney')
+      .send({ survivorId: 'task-1', mergedIds: ['task-2'] })
+      .expect(200)
+
+    // Deleting them would let the coach recreate the same titles on its next
+    // sweep, silently undoing the merge.
+    expect(prisma.caseTask.delete).not.toHaveBeenCalled()
+    expect(prisma.caseTask.deleteMany).not.toHaveBeenCalled()
+    expect(vi.mocked(prisma.caseTask.updateMany).mock.calls[0]?.[0]).toMatchObject({
+      where: { id: { in: ['task-2'] } },
+      data: { status: 'done', mergedIntoId: 'task-1', reviewStatus: null, assignedUserId: null, assignedTo: null },
+    })
+  })
+
+  it('POST /v1/attorney-dashboard/leads/:leadId/tasks/merge never renames the survivor', async () => {
+    mockMergeSetup([mergeRow(), mergeRow({ id: 'task-2', title: 'Get police report' })])
+
+    await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-1/tasks/merge')
+      .set('Authorization', 'Bearer attorney')
+      .send({ survivorId: 'task-1', mergedIds: ['task-2'], title: 'Combined report task' })
+      .expect(200)
+
+    // Renaming frees the survivor's own title for the coach to recreate.
+    const data = vi.mocked(prisma.caseTask.update).mock.calls[0]?.[0]?.data as any
+    expect(data).not.toHaveProperty('title')
+  })
+
+  it('POST /v1/attorney-dashboard/leads/:leadId/tasks/merge moves logged time onto the survivor', async () => {
+    mockMergeSetup([mergeRow(), mergeRow({ id: 'task-2' })])
+
+    await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-1/tasks/merge')
+      .set('Authorization', 'Bearer attorney')
+      .send({ survivorId: 'task-1', mergedIds: ['task-2'] })
+      .expect(200)
+
+    // caseTaskId has no foreign key, so unmoved entries stay billable on the
+    // case but vanish from every task view.
+    expect(vi.mocked(prisma.timeEntry.updateMany).mock.calls[0]?.[0]).toMatchObject({
+      where: { caseTaskId: { in: ['task-2'] } },
+      data: { caseTaskId: 'task-1' },
+    })
+  })
+
+  it('POST /v1/attorney-dashboard/leads/:leadId/tasks/merge cancels the absorbed task reminders', async () => {
+    const due = new Date('2026-08-05T12:00:00Z')
+    mockMergeSetup([
+      mergeRow(),
+      mergeRow({ id: 'task-2', title: 'Get police report', dueDate: due, escalationLevel: 'critical' }),
+    ])
+
+    await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-1/tasks/merge')
+      .set('Authorization', 'Bearer attorney')
+      .send({ survivorId: 'task-1', mergedIds: ['task-2'] })
+      .expect(200)
+
+    // Reminders are matched by message text alone, so an absorbed task would
+    // keep emailing under its old title.
+    const call = vi.mocked(prisma.caseReminder.deleteMany).mock.calls[0]?.[0] as any
+    expect(call?.where?.status).toBe('scheduled')
+    expect(call?.where?.message?.in).toContain(`Task reminder: Get police report due ${due.toDateString()}.`)
+  })
+
+  it('POST /v1/attorney-dashboard/leads/:leadId/tasks/merge refuses a task from another case', async () => {
+    mockMergeSetup([mergeRow(), mergeRow({ id: 'task-2', assessmentId: 'asm-other' })])
+
+    await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-1/tasks/merge')
+      .set('Authorization', 'Bearer attorney')
+      .send({ survivorId: 'task-1', mergedIds: ['task-2'] })
+      .expect(404)
+
+    expect(prisma.caseTask.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('POST /v1/attorney-dashboard/leads/:leadId/tasks/merge refuses the plaintiff questions task', async () => {
+    mockMergeSetup([mergeRow(), mergeRow({ id: 'task-2', taskType: 'question' })])
+
+    const res = await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-1/tasks/merge')
+      .set('Authorization', 'Bearer attorney')
+      .send({ survivorId: 'task-1', mergedIds: ['task-2'] })
+      .expect(400)
+
+    expect(res.body.code).toBe('question_task')
+    expect(prisma.caseTask.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('POST /v1/attorney-dashboard/leads/:leadId/tasks/merge rejects an id that does not resolve', async () => {
+    // Only one of the two requested rows comes back.
+    mockMergeSetup([mergeRow()])
+
+    await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-1/tasks/merge')
+      .set('Authorization', 'Bearer attorney')
+      .send({ survivorId: 'task-1', mergedIds: ['task-missing'] })
+      .expect(404)
+
+    expect(prisma.caseTask.update).not.toHaveBeenCalled()
+  })
+
+  it('DELETE /v1/attorney-dashboard/leads/:leadId/tasks/:id will not delete a task on another case', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValueOnce({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignmentType: 'shared',
+      assignedAttorneyId: null,
+    } as any)
+    vi.mocked(prisma.caseTask.findUnique).mockResolvedValue({ id: 'task-1', assessmentId: 'asm-other' } as any)
+
+    await request(app)
+      .delete('/v1/attorney-dashboard/leads/lead-1/tasks/task-1')
+      .set('Authorization', 'Bearer attorney')
+      .expect(404)
+
+    expect(prisma.caseTask.delete).not.toHaveBeenCalled()
+  })
+
   it('POST /v1/attorney-dashboard/leads/:leadId/tasks/sol stores compact task payload', async () => {
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValueOnce({
       id: 'lead-1',

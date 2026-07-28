@@ -42,6 +42,7 @@ import {
   ShieldAlert,
   Sparkles,
   Stethoscope,
+  Merge,
   Trash2,
   Undo2,
   Upload,
@@ -56,6 +57,7 @@ import {
   createLeadSolTask,
   deleteLeadEvidence,
   deleteLeadTask,
+  mergeLeadTasks,
   downloadEvidenceByUrl,
   getEvidenceObjectUrl,
   getAttorneyDashboard,
@@ -94,6 +96,7 @@ import CaseCoachPanel from './CaseCoachPanel'
 import ConsultSchedulerModal from './ConsultSchedulerModal'
 import TaskDetailModal from './TaskDetailModal'
 import TaskOriginBadge, { isAiTask } from './TaskOriginBadge'
+import MergeTasksDialog from './MergeTasksDialog'
 import { BackButton, EmptyState } from '../shared/ui'
 import { recordRecentCase } from './recentCases'
 import { formatClaimType } from '../../lib/claimTypes'
@@ -3510,9 +3513,41 @@ function TasksPanel({
   const [showDone, setShowDone] = useState(false)
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null)
   const [taskToDelete, setTaskToDelete] = useState<TaskRow | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [mergeOpen, setMergeOpen] = useState(false)
+  const [merging, setMerging] = useState(false)
 
   const load = async () => {
     await reload()
+  }
+
+  const toggleSelected = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // The plaintiff-questions task is rebuilt from scratch on every AI run, so it
+  // cannot take part in a merge in either direction.
+  const mergeable = tasks.filter((t) => selected.has(t.id) && t.taskType !== 'question')
+  const excludedFromMerge = selected.size - mergeable.length
+
+  const mergeTasks = async (survivorId: string) => {
+    setMerging(true)
+    try {
+      const result = await mergeLeadTasks(leadId, survivorId, mergeable.filter((t) => t.id !== survivorId).map((t) => t.id))
+      flash('ok', `Merged ${result.mergedCount + 1} tasks into "${result.title}".`)
+      setSelected(new Set())
+      setMergeOpen(false)
+      await load()
+    } catch (e: any) {
+      flash('err', e?.response?.data?.error || 'Could not merge those tasks.')
+    } finally {
+      setMerging(false)
+    }
   }
 
   const flash = (tone: 'ok' | 'err', text: string) => {
@@ -3672,7 +3707,20 @@ function TasksPanel({
     const taskDone = isDone(t)
     const rowBusy = busy === t.id
     return (
-      <li key={t.id} className="group flex items-start gap-3 px-4 py-3">
+      <li key={t.id} className={`group flex items-start gap-3 px-4 py-3 ${selected.has(t.id) ? 'bg-brand-50/60' : ''}`}>
+        <input
+          type="checkbox"
+          checked={selected.has(t.id)}
+          onChange={() => toggleSelected(t.id)}
+          disabled={t.taskType === 'question'}
+          aria-label={`Select ${t.title}`}
+          title={
+            t.taskType === 'question'
+              ? 'The plaintiff questions task is maintained automatically and cannot be merged'
+              : 'Select to merge'
+          }
+          className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-brand-600 focus:ring-brand-400 disabled:opacity-40"
+        />
         <button
           onClick={() => toggleDone(t)}
           disabled={rowBusy}
@@ -3838,6 +3886,43 @@ function TasksPanel({
         >
           {msg.text}
         </div>
+      ) : null}
+
+      {/* Merge bar, shown once anything is selected */}
+      {selected.size > 0 ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-brand-200 bg-brand-50/60 px-4 py-2.5 text-sm">
+          <span className="font-semibold text-slate-700">{selected.size} selected</span>
+          {excludedFromMerge > 0 ? (
+            <span className="text-xs text-slate-500">
+              {excludedFromMerge} cannot be merged (the plaintiff questions task is maintained automatically)
+            </span>
+          ) : null}
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setSelected(new Set())}
+              className="rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-white"
+            >
+              Clear
+            </button>
+            <button
+              onClick={() => setMergeOpen(true)}
+              disabled={mergeable.length < 2}
+              title={mergeable.length < 2 ? 'Select at least two mergeable tasks' : 'Merge the selected tasks into one'}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-50"
+            >
+              <Merge className="h-4 w-4" /> Merge {mergeable.length > 1 ? mergeable.length : ''}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {mergeOpen ? (
+        <MergeTasksDialog
+          tasks={mergeable.map((t) => ({ id: t.id, title: t.title, dueDate: t.dueDate, priority: t.priority }))}
+          busy={merging}
+          onCancel={() => setMergeOpen(false)}
+          onConfirm={(survivorId) => void mergeTasks(survivorId)}
+        />
       ) : null}
 
       {/* Add / edit form */}

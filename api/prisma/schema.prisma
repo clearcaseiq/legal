@@ -355,10 +355,17 @@ model CaseTask {
   createdByName        String?
   sourceTemplateId     String?
   sourceTemplateStepId String?
+  // Set when this task was folded into another during a merge. The row is kept
+  // (closed) rather than deleted for two reasons: the AI loops dedupe on title
+  // across every status, so deleting one makes the coach recreate it within the
+  // sweep interval; and time entries and comment threads reference tasks by a
+  // bare string with no cascade. Absorbed rows are hidden from task lists.
+  mergedIntoId         String?
   completedAt          DateTime?
   createdAt            DateTime   @default(now())
   updatedAt            DateTime   @updatedAt
 
+  @@index([mergedIntoId])
   @@map("case_tasks")
 }
 

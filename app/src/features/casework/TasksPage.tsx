@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BadgeCheck, CheckCircle2, Circle, ListChecks, Loader2, Plus, Trash2, Undo2, X } from 'lucide-react'
+import { BadgeCheck, CheckCircle2, Circle, ListChecks, Loader2, Merge, Plus, Trash2, Undo2, X } from 'lucide-react'
 import {
   getAttorneyTaskSummary,
   getAttorneyDashboard,
@@ -8,6 +8,7 @@ import {
   deleteLeadTask,
   approveLeadTask,
   unapproveLeadTask,
+  mergeLeadTasks,
   getMyWorkflowTasks,
   type MyWorkflowTask,
 } from '../../lib/api'
@@ -24,6 +25,7 @@ import {
 } from '../shared/ui'
 import TaskDetailModal from './TaskDetailModal'
 import TaskOriginBadge, { PendingReviewBadge } from './TaskOriginBadge'
+import MergeTasksDialog from './MergeTasksDialog'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { formatClaimType } from '../../lib/claimTypes'
 
@@ -191,6 +193,9 @@ export default function TasksPage() {
   const [detail, setDetail] = useState<{ leadId: string; taskId: string; caseLabel?: string } | null>(null)
   // In-app delete confirmation (replaces window.confirm — CP-335)
   const [taskToDelete, setTaskToDelete] = useState<TaskRow | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [mergeOpen, setMergeOpen] = useState(false)
+  const [merging, setMerging] = useState(false)
 
   const flash = (tone: 'ok' | 'err', text: string) => {
     setMsg({ tone, text })
@@ -312,6 +317,47 @@ export default function TasksPage() {
     }
   }
 
+  /**
+   * Whether a row can join a merge.
+   *
+   * Workflow steps are not CaseTasks at all, and the plaintiff-questions task is
+   * rebuilt on every AI run so a merge would not survive.
+   */
+  const isMergeable = (row: TaskRow) => row.source !== 'workflow' && row.taskType !== 'question' && Boolean(row.leadId)
+
+  // This queue interleaves cases, so a merge is confined to whichever case the
+  // first selected task belongs to. The server re-checks per id regardless.
+  const selectedRows = rows.filter((r) => selected.has(r.id))
+  const mergeAnchor = selectedRows[0] ?? null
+  const mergeable = selectedRows.filter((r) => isMergeable(r) && r.leadId === mergeAnchor?.leadId)
+  const excludedFromMerge = selectedRows.length - mergeable.length
+
+  const toggleSelected = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const mergeTasks = async (survivorId: string) => {
+    const leadId = mergeAnchor?.leadId
+    if (!leadId) return
+    setMerging(true)
+    try {
+      const result = await mergeLeadTasks(leadId, survivorId, mergeable.filter((t) => t.id !== survivorId).map((t) => t.id))
+      flash('ok', `Merged ${result.mergedCount + 1} tasks into "${result.title}".`)
+      setSelected(new Set())
+      setMergeOpen(false)
+      await loadTasks()
+    } catch (err: any) {
+      flash('err', err?.response?.data?.error || 'Could not merge those tasks.')
+    } finally {
+      setMerging(false)
+    }
+  }
+
   const removeTask = (row: TaskRow) => {
     if (!row.leadId) {
       flash('err', 'Cannot delete this task — missing case reference.')
@@ -366,6 +412,36 @@ export default function TasksPage() {
   }
 
   const taskColumns: DataTableColumn<TaskRow>[] = [
+    {
+      key: 'select',
+      header: '',
+      cellClassName: 'w-8',
+      cell: (r) => {
+        // Cross-case merges are impossible, so once something is picked the rest
+        // of the queue's other cases go quiet rather than failing on submit.
+        const wrongCase = Boolean(mergeAnchor) && r.leadId !== mergeAnchor?.leadId
+        const disabled = !isMergeable(r) || wrongCase
+        return (
+          <input
+            type="checkbox"
+            checked={selected.has(r.id)}
+            onChange={() => toggleSelected(r.id)}
+            disabled={disabled && !selected.has(r.id)}
+            aria-label={`Select ${r.title}`}
+            title={
+              r.source === 'workflow'
+                ? 'Workflow steps cannot be merged'
+                : r.taskType === 'question'
+                  ? 'The plaintiff questions task is maintained automatically and cannot be merged'
+                  : wrongCase
+                    ? 'Tasks from different cases cannot be merged'
+                    : 'Select to merge'
+            }
+            className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-400 disabled:opacity-30"
+          />
+        )
+      },
+    },
     {
       key: 'done',
       header: '',
@@ -578,6 +654,40 @@ export default function TasksPage() {
         >
           {msg.text}
         </div>
+      ) : null}
+
+      {selected.size > 0 ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-brand-200 bg-brand-50/60 px-4 py-2.5 text-sm">
+          <span className="font-semibold text-slate-700">{selected.size} selected</span>
+          {excludedFromMerge > 0 ? (
+            <span className="text-xs text-slate-500">{excludedFromMerge} cannot be merged</span>
+          ) : null}
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setSelected(new Set())}
+              className="rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-white"
+            >
+              Clear
+            </button>
+            <button
+              onClick={() => setMergeOpen(true)}
+              disabled={mergeable.length < 2}
+              title={mergeable.length < 2 ? 'Select at least two mergeable tasks on the same case' : 'Merge the selected tasks into one'}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-50"
+            >
+              <Merge className="h-4 w-4" /> Merge {mergeable.length > 1 ? mergeable.length : ''}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {mergeOpen ? (
+        <MergeTasksDialog
+          tasks={mergeable.map((t) => ({ id: t.id, title: t.title, dueDate: t.dueDate, priority: t.priority }))}
+          busy={merging}
+          onCancel={() => setMergeOpen(false)}
+          onConfirm={(survivorId) => void mergeTasks(survivorId)}
+        />
       ) : null}
 
       {formOpen ? (

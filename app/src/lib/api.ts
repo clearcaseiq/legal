@@ -2521,6 +2521,18 @@ export async function deleteLeadTask(leadId: string, taskId: string) {
   return data
 }
 
+/**
+ * Fold several overlapping tasks into one.
+ *
+ * The absorbed tasks are closed and hidden rather than deleted, and the
+ * survivor keeps its own title — both are required to stop the AI loops
+ * recreating what was just merged away.
+ */
+export async function mergeLeadTasks(leadId: string, survivorId: string, mergedIds: string[]) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/tasks/merge`, { survivorId, mergedIds })
+  return data as { id: string; title: string; mergedCount: number }
+}
+
 export async function createLeadSolTask(leadId: string) {
   const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/tasks/sol`)
   return data
