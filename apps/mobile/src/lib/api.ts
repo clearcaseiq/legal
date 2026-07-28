@@ -840,6 +840,13 @@ export async function createManualIntake(payload: {
 }
 
 // Tasks (aggregate)
+/** A checklist item on a task, e.g. one question on the grouped question task. */
+export type TaskSubtask = {
+  id: string
+  title: string
+  done: boolean
+}
+
 export type TaskSummaryItem = {
   id: string
   title: string
@@ -850,6 +857,7 @@ export type TaskSummaryItem = {
   assessmentId: string
   leadId: string
   claimType?: string | null
+  subtasks?: TaskSubtask[]
 }
 
 export type TasksSummaryResponse = {
@@ -876,6 +884,7 @@ export type CaseTaskRow = {
   notes?: string | null
   reviewStatus?: string | null
   completedAt?: string | null
+  subtasks?: TaskSubtask[]
 }
 
 /**

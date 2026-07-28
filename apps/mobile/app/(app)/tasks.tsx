@@ -41,6 +41,77 @@ function sortTasksByDue(items: TaskSummaryItem[]): TaskSummaryItem[] {
   })
 }
 
+function formatDue(iso: string | null) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/**
+ * One task in the list. Tasks that carry a checklist — chiefly the grouped
+ * "Questions for the plaintiff" task — can expand it inline, since this app has
+ * no task-detail screen to open and the titles alone would hide the questions.
+ */
+function TaskCard({ item }: { item: TaskSummaryItem }) {
+  const [expanded, setExpanded] = useState(false)
+  const subtasks = item.subtasks ?? []
+  const remaining = subtasks.filter((s) => !s.done).length
+
+  return (
+    <View style={styles.card}>
+      <TouchableOpacity onPress={() => router.push(`/(app)/lead/${item.leadId}`)} activeOpacity={0.88}>
+        <Text style={styles.taskTitle}>{item.title}</Text>
+        <Text style={styles.meta}>
+          {[item.claimType ? formatClaimType(item.claimType) : null, `Due ${formatDue(item.dueDate)}`]
+            .filter(Boolean)
+            .join(' · ')}
+        </Text>
+      </TouchableOpacity>
+
+      {subtasks.length > 0 ? (
+        <>
+          <TouchableOpacity
+            style={styles.checklistToggle}
+            onPress={() => setExpanded((v) => !v)}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={expanded ? 'Hide checklist' : `Show ${subtasks.length} checklist items`}
+          >
+            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
+            <Text style={styles.checklistToggleText}>
+              {remaining > 0 ? `${remaining} of ${subtasks.length} still open` : `All ${subtasks.length} done`}
+            </Text>
+          </TouchableOpacity>
+          {expanded ? (
+            <View style={styles.checklist}>
+              {subtasks.map((s) => (
+                <View key={s.id} style={styles.checklistItem}>
+                  <Ionicons
+                    name={s.done ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={16}
+                    color={s.done ? colors.success : colors.muted}
+                    style={styles.checklistIcon}
+                  />
+                  <Text style={[styles.checklistText, s.done && styles.checklistTextDone]}>{s.title}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </>
+      ) : null}
+
+      <TouchableOpacity
+        style={styles.row}
+        onPress={() => router.push(`/(app)/lead/${item.leadId}`)}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.openCase}>Open case</Text>
+        <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+      </TouchableOpacity>
+    </View>
+  )
+}
+
 export default function TasksScreen() {
   // Opened from a case, this screen shows only that case's tasks; opened from
   // the tab bar it stays the cross-case queue (CP-428, CP-422).
@@ -90,12 +161,6 @@ export default function TasksScreen() {
       void load()
     }, [load])
   )
-
-  function formatDue(iso: string | null) {
-    if (!iso) return '—'
-    const d = new Date(iso)
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-  }
 
   function setQuickDate(daysFromNow: number) {
     const d = new Date()
@@ -208,24 +273,7 @@ export default function TasksScreen() {
           <Text style={styles.sectionTitle}>{title}</Text>
         </View>
       )}
-      renderItem={({ item }) => (
-        <TouchableOpacity
-          style={styles.card}
-          onPress={() => router.push(`/(app)/lead/${item.leadId}`)}
-          activeOpacity={0.88}
-        >
-          <Text style={styles.taskTitle}>{item.title}</Text>
-          <Text style={styles.meta}>
-            {[item.claimType ? formatClaimType(item.claimType) : null, `Due ${formatDue(item.dueDate)}`]
-              .filter(Boolean)
-              .join(' · ')}
-          </Text>
-          <View style={styles.row}>
-            <Text style={styles.openCase}>Open case</Text>
-            <Ionicons name="chevron-forward" size={18} color={colors.primary} />
-          </View>
-        </TouchableOpacity>
-      )}
+      renderItem={({ item }) => <TaskCard item={item} />}
       ListEmptyComponent={
         <View style={styles.empty}>
           <Ionicons name="checkbox-outline" size={48} color={colors.muted} />
@@ -467,6 +515,19 @@ const styles = StyleSheet.create({
   meta: { fontSize: 14, color: colors.textSecondary, marginTop: 6 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: space.md },
   openCase: { fontSize: 15, fontWeight: '700', color: colors.primary },
+  checklistToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: space.sm, minHeight: 32 },
+  checklistToggleText: { fontSize: 14, fontWeight: '700', color: colors.primary },
+  checklist: {
+    marginTop: space.sm,
+    paddingTop: space.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: space.sm,
+  },
+  checklistItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  checklistIcon: { marginTop: 2 },
+  checklistText: { flex: 1, fontSize: 14, lineHeight: 20, color: colors.text },
+  checklistTextDone: { color: colors.textSecondary, textDecorationLine: 'line-through' },
   empty: { alignItems: 'center', paddingVertical: 48 },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginTop: space.md },
   emptySub: { fontSize: 14, color: colors.textSecondary, marginTop: 8, textAlign: 'center' },

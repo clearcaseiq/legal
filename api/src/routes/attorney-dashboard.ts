@@ -4003,6 +4003,7 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
       assessmentId: string
       leadId: string
       claimType: string | null | undefined
+      subtasks: TaskSubtask[]
     }
 
     const mapTask = (t: (typeof tasks)[0]): TaskRow | null => {
@@ -4020,6 +4021,9 @@ router.get('/tasks/summary', authMiddleware, async (req: any, res) => {
         assessmentId: t.assessmentId,
         leadId: meta.leadId,
         claimType: meta.claimType,
+        // Parsed here so clients without a task-detail screen (mobile) can still
+        // show the checklist behind a grouped task.
+        subtasks: parseSubtasks(t.subtasks),
       }
     }
 
@@ -8845,7 +8849,9 @@ router.get('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
       orderBy: { createdAt: 'desc' },
       select: caseTaskSelect
     })
-    res.json(records)
+    // Subtasks are stored as a JSON string; hand clients the parsed array so
+    // list views can render a grouped task's checklist without a second fetch.
+    res.json(records.map((t) => ({ ...t, subtasks: parseSubtasks(t.subtasks) })))
   } catch (error: any) {
     logger.error('Failed to load case tasks', { error: error.message })
     res.status(500).json({ error: 'Failed to load case tasks' })

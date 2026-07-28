@@ -3247,7 +3247,13 @@ const TASK_TYPES = [
   { id: 'deadline', label: 'Deadline' },
 ]
 
-const TASK_TYPE_LABEL: Record<string, string> = Object.fromEntries(TASK_TYPES.map((t) => [t.id, t.label]))
+// Display-only labels. `coach` and `question` are system-generated, so they are
+// kept out of TASK_TYPES (the manual-create dropdown) but still need a name here.
+const TASK_TYPE_LABEL: Record<string, string> = {
+  ...Object.fromEntries(TASK_TYPES.map((t) => [t.id, t.label])),
+  coach: 'AI Coach',
+  question: 'Plaintiff questions',
+}
 
 interface TaskFormState {
   title: string

@@ -46,6 +46,7 @@ export function bucketCaseTasks(
       taskType: row.taskType,
       assessmentId: row.assessmentId,
       leadId,
+      subtasks: row.subtasks,
     }
 
     const due = row.dueDate ? new Date(row.dueDate).getTime() : NaN

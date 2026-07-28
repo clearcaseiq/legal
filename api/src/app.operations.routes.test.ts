@@ -4479,6 +4479,7 @@ describe('HTTP operations regressions', () => {
         notes: 'Review before consult',
         sourceTemplateId: null,
         sourceTemplateStepId: null,
+        subtasks: JSON.stringify([{ id: 'base:a', title: 'Question a?', done: true }]),
         completedAt: null,
         createdAt: new Date('2026-04-10T00:00:00.000Z'),
         updatedAt: new Date('2026-04-10T00:00:00.000Z'),
@@ -4496,31 +4497,27 @@ describe('HTTP operations regressions', () => {
       title: 'Review records',
       priority: 'high',
     })
-    expect(vi.mocked(prisma.caseTask.findMany).mock.calls[0]?.[0]).toEqual({
+    // Handed over parsed, not as the raw JSON string, so list views can render a
+    // grouped task's checklist without a second fetch.
+    expect(res.body[0].subtasks).toEqual([{ id: 'base:a', title: 'Question a?', done: true }])
+
+    const call = vi.mocked(prisma.caseTask.findMany).mock.calls[0]?.[0]
+    expect(call).toMatchObject({
       where: { assessmentId: 'asm-1' },
       orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        assessmentId: true,
-        title: true,
-        taskType: true,
-        milestoneType: true,
-        checkpointType: true,
-        deadlineType: true,
-        dueDate: true,
-        reminderAt: true,
-        escalationLevel: true,
-        assignedRole: true,
-        assignedTo: true,
-        status: true,
-        priority: true,
-        notes: true,
-        sourceTemplateId: true,
-        sourceTemplateStepId: true,
-        completedAt: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+    })
+    // Asserted as a subset rather than a duplicated copy of `caseTaskSelect`:
+    // an exact match just breaks every time a column is added to the model.
+    expect(call?.select).toMatchObject({
+      id: true,
+      assessmentId: true,
+      title: true,
+      taskType: true,
+      dueDate: true,
+      status: true,
+      priority: true,
+      notes: true,
+      subtasks: true,
     })
   })
 
