@@ -6,6 +6,7 @@
 import { randomBytes, randomInt } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { logger } from './logger'
+import { webUrl } from './app-url'
 
 export const CLAIM_INVITE_TTL_DAYS = 14
 export const CLAIM_CODE_TTL_MINUTES = 15
@@ -267,6 +268,5 @@ export async function sendClaimEmail(params: EmailParams): Promise<boolean> {
 export const sendTransactionalEmail = sendClaimEmail
 
 export function claimUrl(token: string): string {
-  const webUrl = process.env.WEB_URL || 'https://app.clearcaseiq.com'
-  return `${webUrl.replace(/\/$/, '')}/claim/${token}`
+  return webUrl(`/claim/${token}`)
 }

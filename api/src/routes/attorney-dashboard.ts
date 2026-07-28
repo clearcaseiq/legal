@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { prisma } from '../lib/prisma'
 import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
+import { webUrl } from '../lib/app-url'
 import { runAnalysisForAssessment } from './evidence'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
@@ -5448,8 +5449,7 @@ router.post('/leads/:leadId/document-request', authMiddleware, async (req: any, 
     // uploaded evidence category, so the request stayed "pending" forever (CP-330).
     const docs = sendUploadLinkOnly ? [] : normalizeRequestedDocKeys(requestedDocs)
     const secureToken = crypto.randomUUID()
-    const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000'
-    const uploadLink = `${baseUrl}/evidence-upload/${lead.assessmentId}?token=${secureToken}`
+    const uploadLink = webUrl(`/evidence-upload/${lead.assessmentId}?token=${secureToken}`)
 
     const docRequest = await prisma.documentRequest.create({
       data: {
@@ -5620,8 +5620,7 @@ router.post('/leads/:leadId/opposing-document-request', authMiddleware, async (r
 
     const docs = Array.isArray(requestedDocs) ? requestedDocs : []
     const secureToken = crypto.randomUUID()
-    const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000'
-    const uploadLink = `${baseUrl}/respond/documents/${secureToken}`
+    const uploadLink = webUrl(`/respond/documents/${secureToken}`)
 
     const docRequest = await prisma.documentRequest.create({
       data: {
@@ -6876,7 +6875,7 @@ router.post('/intake/manual', authMiddleware, async (req: any, res) => {
       plaintiffEmail: payload.plaintiffEmail,
       plaintiffPhone: payload.plaintiffPhone
     })
-    const inviteLink = `${process.env.APP_URL || process.env.FRONTEND_URL || process.env.WEB_URL || 'http://localhost:3000'}/evidence-upload/${assessment.id}`
+    const inviteLink = webUrl(`/evidence-upload/${assessment.id}`)
     const inviteRequested = Boolean(payload.sendInvite && payload.plaintiffEmail)
     if (inviteRequested) {
       const plaintiffName = [payload.plaintiffFirstName, payload.plaintiffLastName].filter(Boolean).join(' ') || 'there'
@@ -8488,8 +8487,7 @@ router.post('/leads/:leadId/insurance/:id/request-dec-page', authMiddleware, asy
     }
 
     const secureToken = crypto.randomUUID()
-    const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000'
-    const uploadLink = `${baseUrl}/respond/documents/${secureToken}`
+    const uploadLink = webUrl(`/respond/documents/${secureToken}`)
 
     const docRequest = await prisma.documentRequest.create({
       data: {
@@ -13979,12 +13977,11 @@ router.post('/messaging/send', authMiddleware, async (req: any, res) => {
         },
       })
       if (room?.user?.email) {
-        const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000'
         const attorneyName = auth.attorney.name || 'Your attorney'
         const plaintiffName = room.user.firstName || 'there'
         const preview =
           content.trim().length > 300 ? `${content.trim().slice(0, 297)}…` : content.trim()
-        const messagingLink = `${baseUrl}/messaging`
+        const messagingLink = webUrl('/messaging')
         await deliverDirectNotification({
           type: 'email',
           recipient: room.user.email,

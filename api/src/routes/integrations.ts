@@ -17,6 +17,7 @@ import { authMiddleware, type AuthRequest } from '../lib/auth'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { ENV } from '../env'
+import { webBaseUrl } from '../lib/app-url'
 import {
   applyInboundMatterStatus,
   createCredentialConnection,
@@ -68,7 +69,7 @@ async function getActorContext(req: AuthRequest): Promise<{
 }
 
 function frontendRedirect(provider: string, status: 'success' | 'error', error?: string) {
-  const url = new URL('/integrations', ENV.WEB_URL)
+  const url = new URL('/integrations', webBaseUrl())
   url.searchParams.set('cms_provider', provider)
   url.searchParams.set('cms_status', status)
   if (error) url.searchParams.set('cms_error', error)

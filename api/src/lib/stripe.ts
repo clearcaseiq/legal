@@ -12,9 +12,7 @@ export function getStripe() {
 }
 
 // Absolute URL into the web app for Stripe success/cancel/return redirects.
-export function webUrl(path: string) {
-  return `${ENV.WEB_URL.replace(/\/$/, '')}${path}`
-}
+export { webUrl } from './app-url'
 
 // Stripe amounts are in the smallest currency unit (cents for USD).
 export function toCents(amount: number) {

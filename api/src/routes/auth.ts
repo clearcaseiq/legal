@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
+import { webUrl } from '../lib/app-url'
 import { UserRegister, UserLogin, UserUpdate, PasswordResetRequest, PasswordReset } from '../lib/validators'
 import { generateToken, authMiddleware, AuthRequest } from '../lib/auth'
 import { isAdminUser } from '../lib/admin-access'
@@ -29,8 +30,7 @@ function hashResetToken(rawToken: string): string {
 }
 
 function passwordResetUrl(rawToken: string): string {
-  const base = (process.env.WEB_URL || 'https://www.clearcaseiq.com').replace(/\/$/, '')
-  return `${base}/reset-password?token=${encodeURIComponent(rawToken)}`
+  return webUrl(`/reset-password?token=${encodeURIComponent(rawToken)}`)
 }
 
 // Email verification tokens share the reset-token security model: single-use,
@@ -39,8 +39,7 @@ function passwordResetUrl(rawToken: string): string {
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000
 
 function emailVerificationUrl(rawToken: string): string {
-  const base = (process.env.WEB_URL || 'https://www.clearcaseiq.com').replace(/\/$/, '')
-  return `${base}/verify-email?token=${encodeURIComponent(rawToken)}`
+  return webUrl(`/verify-email?token=${encodeURIComponent(rawToken)}`)
 }
 
 // Mint a single-use, expiring email-verification token and email the link.

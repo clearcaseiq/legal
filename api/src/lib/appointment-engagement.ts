@@ -2,20 +2,12 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import { deliverDirectNotification } from './platform-notifications'
 import { parseEventReminders } from './calendar-reminders'
+import { webUrl } from './app-url'
 
 const DEFAULT_REMINDER_SCHEDULE = [
   { key: 'upcoming_24h', minutesBefore: 24 * 60, lead: 'in about 24 hours' },
   { key: 'upcoming_1h', minutesBefore: 60, lead: 'in about 1 hour' },
 ] as const
-
-function bookingWebBaseUrl(): string {
-  return (
-    process.env.APP_URL ||
-    process.env.FRONTEND_URL ||
-    process.env.WEB_URL ||
-    'http://localhost:3000'
-  ).replace(/\/$/, '')
-}
 
 type AssessmentFacts = {
   incident?: { narrative?: string; location?: string }
@@ -367,7 +359,7 @@ export async function sweepUpcomingAppointmentReminders() {
         lines.push(`Where: ${appointment.location}`)
       }
       if (appointment.manageToken) {
-        lines.push('', `Need to reschedule or cancel? ${bookingWebBaseUrl()}/booking/manage/${appointment.manageToken}`)
+        lines.push('', `Need to reschedule or cancel? ${webUrl(`/booking/manage/${appointment.manageToken}`)}`)
       }
 
       await createNotification({

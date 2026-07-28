@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import { ENV } from '../env'
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { webBaseUrl } from './app-url'
 
 export type CalendarProvider = 'google' | 'microsoft'
 
@@ -67,7 +68,7 @@ const GOOGLE_WEBHOOK_RENEWAL_BUFFER_MS = 24 * 60 * 60 * 1000
 const MICROSOFT_WEBHOOK_RENEWAL_BUFFER_MS = 6 * 60 * 60 * 1000
 
 function calendarFrontendRedirect(provider: CalendarProvider, status: 'success' | 'error', error?: string) {
-  const url = new URL('/attorney-dashboard', ENV.WEB_URL)
+  const url = new URL('/attorney-dashboard', webBaseUrl())
   url.searchParams.set('calendar_provider', provider)
   url.searchParams.set('calendar_sync', status)
   if (error) {

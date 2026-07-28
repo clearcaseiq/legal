@@ -8,6 +8,7 @@
  * raw bytes.
  */
 import { ENV } from '../../../env'
+import { webBaseUrl } from '../../app-url'
 import {
   CmsNotConfiguredError,
   type CmsAuthContext,
@@ -50,7 +51,7 @@ export const zapierConnector: CmsConnector = {
       authType: 'webhook',
       configured: true, // works for any firm that pastes a webhook URL
       notes: 'Send case data to any Zapier/Make/HTTP webhook. No API keys required.',
-      docsUrl: `${ENV.WEB_URL}`,
+      docsUrl: webBaseUrl(),
     }
   },
 

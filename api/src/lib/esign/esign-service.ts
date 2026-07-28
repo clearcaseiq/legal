@@ -9,6 +9,7 @@ import path from 'path'
 import crypto from 'crypto'
 import { prisma } from '../prisma'
 import { logger } from '../logger'
+import { webUrl } from '../app-url'
 import { getESignatureProvider } from './index'
 import { renderHipaaAuthorizationPdf } from './hipaa-authorization'
 import { renderRetainerAgreementPdf } from './retainer-agreement'
@@ -550,8 +551,7 @@ export async function createMedicalRecordsRequest(params: CreateMedicalRecordsRe
   }
 
   const secureToken = crypto.randomUUID()
-  const baseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000'
-  const uploadLink = `${baseUrl}/respond/documents/${secureToken}`
+  const uploadLink = webUrl(`/respond/documents/${secureToken}`)
   const message =
     params.customMessage ||
     `Please provide the patient's medical records${

@@ -2,6 +2,7 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import { sendClaimEmail } from './claims'
 import { sendSms } from './sms'
+import { webUrl } from './app-url'
 
 // A lead is "abandoned" once it has been idle this long without completing.
 const ABANDON_AFTER_MINUTES = 45
@@ -10,12 +11,8 @@ const ABANDON_WINDOW_HOURS = 72
 // Cap work per sweep so a backlog can't hammer the email/SMS providers.
 const BATCH_SIZE = 100
 
-function webBaseUrl(): string {
-  return (process.env.WEB_URL || 'https://www.clearcaseiq.com').replace(/\/$/, '')
-}
-
 function resumeUrl(leadId: string): string {
-  return `${webBaseUrl()}/assess?lead=${encodeURIComponent(leadId)}`
+  return webUrl(`/assess?lead=${encodeURIComponent(leadId)}`)
 }
 
 /**

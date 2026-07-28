@@ -40,6 +40,14 @@ export const ENV = {
   // Overrides data/valuation-calibration.json; defaults to identity (no change).
   VALUATION_CALIBRATION: process.env.VALUATION_CALIBRATION,
   API_URL: process.env.API_URL ?? 'http://localhost:4000',
+  /**
+   * Public base URL of the web app.
+   *
+   * Read it through `lib/app-url` rather than from here. This entry keeps a
+   * localhost default, which is correct for local work but became the source of
+   * localhost links in production email; `webBaseUrl()` refuses that default
+   * when NODE_ENV is production. Kept only for CORS, which needs the raw value.
+   */
   WEB_URL: process.env.WEB_URL ?? 'http://localhost:5174',
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
   STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY,

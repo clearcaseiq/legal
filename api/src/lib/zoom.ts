@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken'
 import { ENV } from '../env'
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { webBaseUrl } from './app-url'
 
 // Per-attorney Zoom integration (Option B).
 //
@@ -43,7 +44,7 @@ export function zoomFrontendRedirect(status: 'success' | 'error', error?: string
   // (e.g. the Schedule Consultation flow) that page notifies the opener and
   // closes itself; otherwise it forwards to the dashboard so the profile-card
   // connect flow keeps working.
-  const url = new URL('/oauth/zoom/complete', ENV.WEB_URL)
+  const url = new URL('/oauth/zoom/complete', webBaseUrl())
   url.searchParams.set('zoom_sync', status)
   if (error) {
     url.searchParams.set('zoom_error', error)

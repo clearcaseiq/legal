@@ -4,6 +4,7 @@ import { authMiddleware, type AuthRequest } from '../lib/auth'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { slugify } from '../lib/booking-slots'
+import { webBaseUrl } from '../lib/app-url'
 
 /**
  * Attorney-facing management for the public ("Calendly-style") booking page:
@@ -13,15 +14,6 @@ import { slugify } from '../lib/booking-slots'
 const router = Router()
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
-
-function webBaseUrl(): string {
-  return (
-    process.env.APP_URL ||
-    process.env.FRONTEND_URL ||
-    process.env.WEB_URL ||
-    'http://localhost:3000'
-  ).replace(/\/$/, '')
-}
 
 async function getAttorneyByUser(req: AuthRequest) {
   if (!req.user?.email) return null

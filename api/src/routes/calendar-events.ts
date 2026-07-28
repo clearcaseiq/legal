@@ -9,6 +9,7 @@ import {
   parseEventReminders,
   serializeEventReminders,
 } from '../lib/calendar-reminders'
+import { webBaseUrl } from '../lib/app-url'
 
 /**
  * MyCase-style general calendar events for attorneys: optionally linked to a
@@ -18,15 +19,6 @@ import {
  */
 
 const router = Router()
-
-function webBaseUrl(): string {
-  return (
-    process.env.APP_URL ||
-    process.env.FRONTEND_URL ||
-    process.env.WEB_URL ||
-    'http://localhost:3000'
-  ).replace(/\/$/, '')
-}
 
 async function getAttorney(req: AuthRequest) {
   if (!req.user?.email) return null

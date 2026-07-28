@@ -5,6 +5,7 @@ import multer from 'multer'
 import { Router, Request, Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
+import { webBaseUrl, webUrl } from '../lib/app-url'
 import { authMiddleware, AuthRequest } from '../lib/auth'
 import { sendTransactionalEmail } from '../lib/claims'
 import { computeMarketplacePerformance, computeMarketplacePerformanceByAttorney } from '../lib/marketplace-performance'
@@ -51,7 +52,7 @@ async function sendFirmMemberInvite(params: {
 }): Promise<boolean> {
   try {
     if (!params.to) return false
-    const base = (process.env.WEB_URL || 'https://www.clearcaseiq.com').replace(/\/$/, '')
+    const base = webBaseUrl()
     const roleLabel = params.role.replace(/_/g, ' ')
     const firm = params.firmName || 'your law firm'
 
@@ -2180,15 +2181,6 @@ router.post('/direct-messages/:userId', authMiddleware as any, async (req: any, 
 /* Team ("round-robin") booking links                                         */
 /* -------------------------------------------------------------------------- */
 
-function bookingWebBaseUrl(): string {
-  return (
-    process.env.APP_URL ||
-    process.env.FRONTEND_URL ||
-    process.env.WEB_URL ||
-    'http://localhost:3000'
-  ).replace(/\/$/, '')
-}
-
 async function uniqueFirmLinkSlug(lawFirmId: string, name: string, ignoreId?: string) {
   const base = slugify(name) || 'team'
   let candidate = base
@@ -2224,7 +2216,7 @@ function serializeBookingLink(link: any, firmSlug: string) {
       name: m.attorney?.name || 'Attorney',
       sortOrder: m.sortOrder,
     })),
-    publicUrl: `${bookingWebBaseUrl()}/book/team/${firmSlug}/${link.slug}`,
+    publicUrl: webUrl(`/book/team/${firmSlug}/${link.slug}`),
   }
 }
 

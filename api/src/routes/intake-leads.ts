@@ -5,6 +5,7 @@ import { logger } from '../lib/logger'
 import { sendClaimEmail } from '../lib/claims'
 import { sendSms } from '../lib/sms'
 import { provisionAndLinkIntakeAccount } from '../lib/intake-account'
+import { webUrl } from '../lib/app-url'
 
 const router = Router()
 
@@ -16,16 +17,12 @@ const MAX_SNAPSHOT_LENGTH = 100_000
 // re-engagement window (ABANDON_WINDOW_HOURS in intake-abandonment.ts).
 const RESUME_LINK_TTL_HOURS = 72
 
-function webBaseUrl(): string {
-  return (process.env.WEB_URL || 'https://www.clearcaseiq.com').replace(/\/$/, '')
-}
-
 function resumeUrl(leadId: string): string {
-  return `${webBaseUrl()}/assess?lead=${encodeURIComponent(leadId)}`
+  return webUrl(`/assess?lead=${encodeURIComponent(leadId)}`)
 }
 
 function resultsUrl(assessmentId: string): string {
-  return `${webBaseUrl()}/results/${encodeURIComponent(assessmentId)}`
+  return webUrl(`/results/${encodeURIComponent(assessmentId)}`)
 }
 
 /** Best-effort: email/SMS the saved "return later" link. Never throws. */

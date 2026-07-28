@@ -9,15 +9,7 @@ import { createZoomMeeting } from '../lib/zoom'
 import { notifyAppointmentEvent } from '../lib/appointment-engagement'
 import { notifyAttorneyInApp } from '../lib/case-notifications'
 import { ATTORNEY_EVENTS } from '../lib/notification-events'
-
-function webBaseUrl(): string {
-  return (
-    process.env.APP_URL ||
-    process.env.FRONTEND_URL ||
-    process.env.WEB_URL ||
-    'http://localhost:3000'
-  ).replace(/\/$/, '')
-}
+import { webBaseUrl } from '../lib/app-url'
 
 function manageUrlFor(token: string): string {
   return `${webBaseUrl()}/booking/manage/${token}`

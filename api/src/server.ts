@@ -9,6 +9,7 @@ import crypto from 'crypto'
 import path from 'path'
 import { prisma } from './lib/prisma'
 import { logger } from './lib/logger'
+import { checkWebBaseUrl } from './lib/app-url'
 
 const AUDITED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const PLACEHOLDER_SECRETS = new Set(['your-secret-key', 'development-secret', 'changeme'])
@@ -161,6 +162,17 @@ export function createServer(): Express {
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
   }))
+
+  // Validate the public base URL once the security-critical checks above have
+  // run, so a missing session secret or a placeholder CORS origin still reports
+  // itself rather than being masked by this one.
+  //
+  // It belongs at boot regardless: this is the root of every link mailed to a
+  // user, and a wrong value raises no error at all — just password resets and
+  // booking pages pointing at localhost, found when a customer complains.
+  const { baseUrl, warning } = checkWebBaseUrl()
+  if (warning) logger.warn(warning)
+  logger.info(`Web app base URL: ${baseUrl}`)
 
   // Initialize Passport
   app.use(passport.initialize())

@@ -5,6 +5,7 @@
 
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { webUrl } from './app-url'
 import { notifyAttorneyByUserEmail } from './attorney-push'
 import { createNotificationEvent } from './platform-notifications'
 import { ATTORNEY_EVENTS, PLAINTIFF_EVENTS } from './notification-events'
@@ -138,10 +139,9 @@ export async function sendCaseOfferToAttorney(
     where: { assessmentId: summary.assessmentId },
     select: { id: true },
   })
-  const webUrl = process.env.WEB_URL || 'https://app.clearcaseiq.com'
   const reviewUrl = lead?.id
-    ? `${webUrl}/attorney-dashboard/lead/${lead.id}/overview`
-    : `${webUrl}/attorney-dashboard`
+    ? webUrl(`/attorney-dashboard/lead/${lead.id}/overview`)
+    : webUrl('/attorney-dashboard')
 
   const fullMessage = [
     'New Case Match',
@@ -522,7 +522,7 @@ export async function sendAttorneyCaseMaterialUpdate(
     '',
     `New case value estimate: ${valueStr}`,
     '',
-    `Review case: ${process.env.WEB_URL || 'https://app.clearcaseiq.com'}/attorney-dashboard`
+    `Review case: ${webUrl('/attorney-dashboard')}`
   ].join('\n')
 
   let count = 0

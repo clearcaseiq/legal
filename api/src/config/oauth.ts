@@ -1,4 +1,5 @@
 import '../load-env'
+import { webBaseUrl } from '../lib/app-url'
 
 export const oauthConfig = {
   google: {
@@ -24,4 +25,7 @@ export const oauthConfig = {
   },
 }
 
-export const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
+// Resolved once at load. Passport's failureRedirect is read when routes are
+// registered, so this cannot be deferred — and resolving eagerly means a
+// missing WEB_URL stops the process at boot rather than on a failed login.
+export const frontendUrl = webBaseUrl()
