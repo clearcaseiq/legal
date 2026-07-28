@@ -126,6 +126,77 @@ describe('evaluatePlace', () => {
     }
   })
 
+  it('keeps a partner-named firm that Google failed to type as a lawyer', () => {
+    // Verbatim from a live run, where this was wrongly dropped as not a law
+    // office: nothing in the name said "law" and Google's typing was unhelpful.
+    const outcome = evaluatePlace(
+      firm({
+        displayName: { text: 'Kampf, Schiavone & Associates' },
+        primaryType: 'point_of_interest',
+        types: ['point_of_interest', 'establishment'],
+        websiteUri: 'https://kampfschiavone.example.com',
+      })
+    )
+    expect(outcome.kept).toBe(true)
+  })
+
+  it('keeps a Spanish-language firm', () => {
+    // California personal injury is heavily Spanish-language, and an English-only
+    // pattern list discards these silently.
+    for (const name of [
+      'Abogados de Accidentes Los Angeles',
+      'Bufete Jurídico Ramirez',
+      'Lesiones Personales Sanchez',
+    ]) {
+      const outcome = evaluatePlace(
+        firm({
+          displayName: { text: name },
+          primaryType: 'point_of_interest',
+          types: ['point_of_interest'],
+        })
+      )
+      expect(outcome.kept, name).toBe(true)
+    }
+  })
+
+  it('keeps a firm that stuffs search bait into its listing name', () => {
+    // Also from a live run. Keyword-stuffing a Google Business Profile breaches
+    // Google's guidelines and is rife in this practice area, so it marks an
+    // aggressive marketer rather than a directory.
+    for (const name of [
+      'Abogados de Accidentes Near Me',
+      'Best Lawyers Injury Law Firm',
+      'Top Attorneys Personal Injury Law',
+    ]) {
+      const outcome = evaluatePlace(firm({ displayName: { text: name } }))
+      expect(outcome.kept, name).toBe(true)
+    }
+  })
+
+  it('still drops search bait when nothing else says law firm', () => {
+    const outcome = evaluatePlace(
+      firm({
+        displayName: { text: 'Injured Near Me' },
+        primaryType: 'point_of_interest',
+        types: ['point_of_interest'],
+      })
+    )
+    expect(outcome.kept).toBe(false)
+    if (outcome.kept) return
+    expect(outcome.reason).toBe('directory_or_aggregator')
+  })
+
+  it('drops a known directory domain however firm-like the name', () => {
+    // The domain blocklist has to outrank the name, or a directory operating
+    // under a firm-sounding brand walks straight through.
+    const outcome = evaluatePlace(
+      firm({ displayName: { text: 'Miller Injury Law Group' }, websiteUri: 'https://www.avvo.com/x' })
+    )
+    expect(outcome.kept).toBe(false)
+    if (outcome.kept) return
+    expect(outcome.reason).toBe('directory_or_aggregator')
+  })
+
   it('drops medical and chiropractic clinics that advertise to accident victims', () => {
     // These compete for the same accident victims and show up constantly in
     // injury searches.

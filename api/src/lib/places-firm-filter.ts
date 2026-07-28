@@ -83,11 +83,13 @@ const DISQUALIFYING_TYPES: ReadonlySet<string> = new Set([
 const LAW_TYPES: ReadonlySet<string> = new Set(['lawyer', 'legal_services', 'notary_public'])
 
 /**
- * Business-name patterns that mark a lead marketplace or directory rather than a
- * practice. These often carry the `lawyer` type, so the name is what separates
- * them.
+ * Names that mean a lead marketplace or directory, not a practice. These often
+ * carry the `lawyer` type, so the name is what separates them.
+ *
+ * Strong enough to reject on their own: no working law firm calls itself a
+ * referral network or a lawyer finder.
  */
-const AGGREGATOR_NAME_PATTERNS: readonly RegExp[] = [
+const STRONG_AGGREGATOR_PATTERNS: readonly RegExp[] = [
   /\b(directory|directories)\b/i,
   /\blawyer\s*(finder|match|connect|referral)\b/i,
   /\battorney\s*(finder|match|connect|referral)\b/i,
@@ -97,17 +99,38 @@ const AGGREGATOR_NAME_PATTERNS: readonly RegExp[] = [
   /\blead\s*gen(eration)?\b/i,
   /\bmarketing\b/i,
   /\bnetwork\s+of\s+(lawyers|attorneys)\b/i,
-  /\bbest\s+(lawyers|attorneys)\b/i,
-  /\btop\s+(lawyers|attorneys)\b/i,
-  /\bnear\s+me\b/i,
 ]
 
 /**
- * Name patterns that suggest a law practice.
+ * Search-engine-bait phrases, which are only evidence when nothing else says law
+ * firm.
  *
- * Note the deliberate omission of a bare "group" or "associates": those appear in
- * plenty of non-legal business names, and `LAW_TYPES` already carries most of the
- * weight. This list is the fallback for when Google's typing is thin.
+ * Keyword-stuffing a Google Business Profile name breaches Google's guidelines and
+ * is nevertheless everywhere in personal injury. A real practice called "Abogados
+ * de Accidentes Near Me" is a firm with an aggressive marketer, not a directory,
+ * so these must not reject on their own — an early version dropped exactly that
+ * firm.
+ */
+const SEO_BAIT_PATTERNS: readonly RegExp[] = [
+  /\bnear\s+me\b/i,
+  /\bbest\s+(lawyers|attorneys)\b/i,
+  /\btop\s+(lawyers|attorneys)\b/i,
+]
+
+/**
+ * Name patterns that suggest a law practice, used when Google's typing is thin.
+ *
+ * Two lessons from real results are baked in here.
+ *
+ * "Associates" is included despite also appearing in non-legal business names.
+ * "Kampf, Schiavone & Associates" — plainly a firm — was dropped without it,
+ * because Google had not typed it as a lawyer and nothing else in the name said
+ * law. The partner-names-plus-Associates construction is too common in this
+ * profession to leave out.
+ *
+ * Spanish terms are included because California's personal-injury market is
+ * substantially Spanish-language, and an English-only pattern list quietly
+ * discards firms advertising as "Abogados de Accidentes".
  */
 const LAW_NAME_PATTERNS: readonly RegExp[] = [
   /\blaw\b/i,
@@ -122,6 +145,14 @@ const LAW_NAME_PATTERNS: readonly RegExp[] = [
   /\btrial\b/i,
   /\binjury\b/i,
   /\badvocates?\b/i,
+  /\b(and|&)\s+associates\b/i,
+  /\bassociates\b/i,
+  /\bfirm\b/i,
+  // Spanish
+  /\babogad[oa]s?\b/i,
+  /\bbufete\b/i,
+  /\blesiones\b/i,
+  /\baccidentes\b/i,
 ]
 
 function componentOfType(
@@ -179,9 +210,20 @@ export function countyFromPlace(place: PlaceResult): string | null {
   return raw.replace(/\s+county$/i, '').trim() || null
 }
 
-function looksLikeAggregator(name: string, domain: string): boolean {
+/**
+ * Whether this is a directory or lead marketplace rather than a practice.
+ *
+ * `hasLawSignal` gates the search-bait patterns: a listing that otherwise looks
+ * like a law office is treated as a firm with an aggressive marketer, not as a
+ * directory.
+ */
+function looksLikeAggregator(name: string, domain: string, hasLawSignal: boolean): boolean {
+  // The domain blocklist is authoritative — avvo.com is a directory no matter how
+  // firm-like the listing name looks.
   if (isExcludedDiscoveryDomain(domain)) return true
-  return AGGREGATOR_NAME_PATTERNS.some((pattern) => pattern.test(name))
+  if (STRONG_AGGREGATOR_PATTERNS.some((pattern) => pattern.test(name))) return true
+  if (!hasLawSignal && SEO_BAIT_PATTERNS.some((pattern) => pattern.test(name))) return true
+  return false
 }
 
 function looksLikeLawOffice(place: PlaceResult, name: string): boolean {
@@ -242,11 +284,13 @@ export function evaluatePlace(place: PlaceResult, options: { state?: string } = 
   const websiteDomain = extractFirmDomain(website)
   if (!websiteDomain) return { kept: false, reason: 'no_website', placeId, name }
 
-  if (looksLikeAggregator(name, websiteDomain)) {
+  const hasLawSignal = looksLikeLawOffice(place, name)
+
+  if (looksLikeAggregator(name, websiteDomain, hasLawSignal)) {
     return { kept: false, reason: 'directory_or_aggregator', placeId, name }
   }
 
-  if (!looksLikeLawOffice(place, name)) {
+  if (!hasLawSignal) {
     return { kept: false, reason: 'not_a_law_office', placeId, name }
   }
 

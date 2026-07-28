@@ -318,6 +318,10 @@ async function main() {
   const rejections = emptyRejections()
   const errors: string[] = []
   let queriesRun = 0
+  // Google caps a page at 20. A query that comes back full almost certainly had
+  // more to give, so the run is seeing a top slice rather than the whole city.
+  const PAGE_SIZE = 20
+  let truncatedQueries = 0
 
   console.log('')
   for (const query of queries) {
@@ -333,6 +337,7 @@ async function main() {
     try {
       const result = await client.searchText(query, { maxPages: args.pages })
       queriesRun += 1
+      if (result.places.length >= PAGE_SIZE * args.pages) truncatedQueries += 1
 
       for (const place of result.places) {
         if (place?.id && !placeQuery.has(place.id)) placeQuery.set(place.id, { query, city })
@@ -395,6 +400,10 @@ async function main() {
 
   const cost = estimateCost(client.ledger, { enterprise: args.usedThisMonth })
   const totalSeen = allPlaces.length
+  // Retention is only meaningful against distinct businesses. Measuring it against
+  // the raw count makes an accurate filter look brutal, because the same firm
+  // surfacing under three keywords is one decision, not three.
+  const uniqueSeen = totalSeen - summary.duplicatePlaceIds
 
   console.log('\n  Results')
   console.log(`    queries run           ${String(queriesRun).padStart(8)}`)
@@ -402,8 +411,9 @@ async function main() {
   console.log(`    retries               ${String(client.ledger.retries).padStart(8)}`)
   console.log(`    places returned       ${String(totalSeen).padStart(8)}`)
   console.log(`    duplicate place ids   ${String(summary.duplicatePlaceIds).padStart(8)}`)
+  console.log(`    distinct businesses   ${String(uniqueSeen).padStart(8)}`)
   console.log(
-    `    kept as law firms     ${String(summary.kept.length).padStart(8)}  ${pct(summary.kept.length, totalSeen)}`
+    `    kept as law firms     ${String(summary.kept.length).padStart(8)}  ${pct(summary.kept.length, uniqueSeen)}`
   )
   console.log(`    staged (new)          ${String(created).padStart(8)}`)
   console.log(`    staged (refreshed)    ${String(updated).padStart(8)}`)
@@ -413,9 +423,16 @@ async function main() {
   console.log('\n  Rejected')
   for (const [reason, count] of Object.entries(rejections)) {
     if (count === 0) continue
-    console.log(`    ${reason.padEnd(24)}${String(count).padStart(6)}  ${pct(count, totalSeen)}`)
+    console.log(`    ${reason.padEnd(24)}${String(count).padStart(6)}  ${pct(count, uniqueSeen)}`)
     const examples = summary.rejectedExamples[reason as RejectionReason]
     if (examples?.length) console.log(`      e.g. ${examples.slice(0, 3).join(', ')}`)
+  }
+
+  if (truncatedQueries > 0) {
+    console.log(
+      `\n  ${truncatedQueries} of ${queriesRun} queries filled every page, so those cities hold` +
+        '\n  more firms than this run retrieved. Raise --pages to reach them.'
+    )
   }
 
   const distinctFirms = groupByFirmDomain(summary.kept).size
