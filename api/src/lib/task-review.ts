@@ -10,6 +10,7 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { createNotificationEvent } from './platform-notifications'
+import { AI_AUTHOR_SHORT_NAME } from './ai-author'
 
 /** Default ON. Set AI_TASK_REVIEW_GATE to off/false/0 to let AI tasks run live. */
 export function isReviewGateEnabled(): boolean {
@@ -79,9 +80,9 @@ export async function notifyTaskReviewers(params: {
 
   const count = titles.length
   const preview = titles.slice(0, 5).map((t) => `• ${t}`).join('\n')
-  const subject = `Review ${count} AI-generated task${count > 1 ? 's' : ''}`
+  const subject = `Review ${count} task${count > 1 ? 's' : ''} from ${AI_AUTHOR_SHORT_NAME}`
   const body =
-    `The AI generated ${count} task${count > 1 ? 's' : ''} for ${params.caseLabel || 'a case'} that need your review before they go live:\n\n` +
+    `${AI_AUTHOR_SHORT_NAME}, your AI Case Manager, raised ${count} task${count > 1 ? 's' : ''} for ${params.caseLabel || 'a case'} that need your review before they go live:\n\n` +
     `${preview}${count > 5 ? `\n…and ${count - 5} more` : ''}\n\n` +
     `Open the case Tasks to approve or edit them.`
 

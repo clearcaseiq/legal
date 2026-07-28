@@ -19,7 +19,7 @@ import { ScreenState } from '../../src/components/ScreenState'
 import { DomainBreadcrumb } from '../../src/components/DomainBreadcrumb'
 import { colors, radii, space, shadows } from '../../src/theme/tokens'
 import { formatClaimType, leadLabel, leadMeta } from '../../src/lib/formatLead'
-import { bucketCaseTasks } from '../../src/lib/caseTasks'
+import { bucketCaseTasks, isAiTask } from '../../src/lib/caseTasks'
 import { CalendarDatePicker, formatDateKeyLong, toDateKey } from '../../src/components/CalendarDatePicker'
 
 type Section = { title: string; data: TaskSummaryItem[] }
@@ -48,6 +48,20 @@ function formatDue(iso: string | null) {
 }
 
 /**
+ * Marks a task Rose, the AI Case Manager, raised on her own. Wording matters
+ * here: Rose spots the next step, but the task is assigned to a real person, so
+ * the chip must not read as "Rose is handling it".
+ */
+function RoseBadge() {
+  return (
+    <View style={styles.roseBadge}>
+      <Ionicons name="sparkles" size={11} color={colors.primaryDark} />
+      <Text style={styles.roseBadgeText}>Rose</Text>
+    </View>
+  )
+}
+
+/**
  * One task in the list. Tasks that carry a checklist — chiefly the grouped
  * "Questions for the plaintiff" task — can expand it inline, since this app has
  * no task-detail screen to open and the titles alone would hide the questions.
@@ -61,11 +75,14 @@ function TaskCard({ item }: { item: TaskSummaryItem }) {
     <View style={styles.card}>
       <TouchableOpacity onPress={() => router.push(`/(app)/lead/${item.leadId}`)} activeOpacity={0.88}>
         <Text style={styles.taskTitle}>{item.title}</Text>
-        <Text style={styles.meta}>
-          {[item.claimType ? formatClaimType(item.claimType) : null, `Due ${formatDue(item.dueDate)}`]
-            .filter(Boolean)
-            .join(' · ')}
-        </Text>
+        <View style={styles.metaRow}>
+          {isAiTask(item.taskType) ? <RoseBadge /> : null}
+          <Text style={styles.meta}>
+            {[item.claimType ? formatClaimType(item.claimType) : null, `Due ${formatDue(item.dueDate)}`]
+              .filter(Boolean)
+              .join(' · ')}
+          </Text>
+        </View>
       </TouchableOpacity>
 
       {subtasks.length > 0 ? (
@@ -512,7 +529,20 @@ const styles = StyleSheet.create({
     ...shadows.soft,
   },
   taskTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
-  meta: { fontSize: 14, color: colors.textSecondary, marginTop: 6 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: 6, flexWrap: 'wrap' },
+  meta: { fontSize: 14, color: colors.textSecondary },
+  roseBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  roseBadgeText: { fontSize: 11, fontWeight: '800', color: colors.primaryDark },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: space.md },
   openCase: { fontSize: 15, fontWeight: '700', color: colors.primary },
   checklistToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: space.sm, minHeight: 32 },

@@ -4,6 +4,15 @@ import type { CaseTaskRow, TaskSummaryItem } from './api'
 const CLOSED_STATUSES = new Set(['completed', 'done'])
 
 /**
+ * Task types only the autonomous AI loop writes. Everything a person creates —
+ * including the one-click "act on this suggestion" buttons on web — is written
+ * as 'general', so these two are a reliable "Rose raised this herself" signal.
+ */
+export function isAiTask(taskType?: string | null): boolean {
+  return taskType === 'coach' || taskType === 'question'
+}
+
+/**
  * Time entries are logged against a case as tasks but are not work items, so
  * they stay out of the tasks list exactly as the summary endpoint excludes them.
  */

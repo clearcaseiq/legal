@@ -21,6 +21,7 @@ import {
   ShieldAlert,
   BadgeCheck,
   Undo2,
+  Sparkles,
 } from 'lucide-react'
 import {
   getTaskDetail,
@@ -36,6 +37,7 @@ import {
   type TaskComment,
   type TaskHistoryEntry,
 } from '../../lib/api'
+import { isAiTask } from './TaskOriginBadge'
 import ConfirmDialog from '../../components/ConfirmDialog'
 
 interface TaskDetailModalProps {
@@ -507,9 +509,22 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
-                    <UserIcon className="h-3.5 w-3.5 text-slate-400" /> Created By
+                    {isAiTask(task.taskType) ? (
+                      <Sparkles className="h-3.5 w-3.5 text-violet-500" />
+                    ) : (
+                      <UserIcon className="h-3.5 w-3.5 text-slate-400" />
+                    )}
+                    Created By
                   </div>
                   <div className="text-sm text-slate-700">{task.createdByName || '—'}</div>
+                  {isAiTask(task.taskType) ? (
+                    // Spell out the division of labour: Rose raises the task, a
+                    // person still has to do it. Without this the AI credit reads
+                    // as though Rose were handling it.
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      Rose raised this task. It is assigned to your team to action.
+                    </p>
+                  ) : null}
                 </div>
                 <div>
                   <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-slate-600">

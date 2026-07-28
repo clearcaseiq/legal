@@ -93,6 +93,7 @@ import CaseIntelligencePanel from './CaseIntelligencePanel'
 import CaseCoachPanel from './CaseCoachPanel'
 import ConsultSchedulerModal from './ConsultSchedulerModal'
 import TaskDetailModal from './TaskDetailModal'
+import TaskOriginBadge, { isAiTask } from './TaskOriginBadge'
 import { BackButton, EmptyState } from '../shared/ui'
 import { recordRecentCase } from './recentCases'
 import { formatClaimType } from '../../lib/claimTypes'
@@ -3701,6 +3702,7 @@ function TasksPanel({
                 {chip.label}
               </span>
             ) : null}
+            <TaskOriginBadge taskType={t.taskType} />
             {t.reviewStatus === 'pending' ? (
               <span
                 className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200"
@@ -3723,7 +3725,9 @@ function TasksPanel({
                 <span className={`h-1.5 w-1.5 rounded-full ${p.dot}`} /> {p.label}
               </span>
             ) : null}
-            {t.taskType && t.taskType !== 'general' ? <span>{TASK_TYPE_LABEL[t.taskType] || t.taskType}</span> : null}
+            {t.taskType && t.taskType !== 'general' && !isAiTask(t.taskType) ? (
+              <span>{TASK_TYPE_LABEL[t.taskType] || t.taskType}</span>
+            ) : null}
             {t.dueDate ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" />{formatDate(t.dueDate)}</span> : null}
             {taskDone && t.completedAt ? <span className="text-emerald-600">Done {formatDate(t.completedAt)}</span> : null}
           </div>

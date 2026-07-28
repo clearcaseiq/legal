@@ -47,6 +47,7 @@ import { navigateAttorneyQueueItem, type QueueActionType } from '../../../src/li
 import { runOrQueue } from '../../../src/lib/offlineQueue'
 import { DEFAULT_INTRO_TEMPLATE } from '../../../src/lib/quickReplies'
 import { addEventToCalendar } from '../../../src/lib/addToCalendar'
+import { isAiTask } from '../../../src/lib/caseTasks'
 import { DECLINE_REASONS, type DeclineReasonCode } from '../../../src/constants/declineReasons'
 import { colors, radii, space, shadows } from '../../../src/theme/tokens'
 import { formatClaimType, formatLifecycleState, formatStatus, leadLabel, parseFacts } from '../../../src/lib/formatLead'
@@ -838,7 +839,13 @@ export default function LeadDetailScreen() {
                     <View style={styles.taskRowBody}>
                       <Text style={styles.taskRowTitle} numberOfLines={1}>{task.title}</Text>
                       <Text style={[styles.taskRowMeta, overdue && styles.taskRowMetaOverdue]}>
-                        {overdue ? 'Overdue · ' : 'Due '}{fmtFull(task.dueDate)}
+                        {[
+                          // Rose raises these; a person still actions them.
+                          isAiTask(task.taskType) ? 'Rose' : null,
+                          `${overdue ? 'Overdue · ' : 'Due '}${fmtFull(task.dueDate)}`,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={16} color={colors.muted} />

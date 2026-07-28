@@ -216,8 +216,8 @@ export default function AiCaseManagerPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="AI Case Manager"
-        description="Your AI teammate works every retained case automatically — generating the next tasks, turning intelligent questions into work, and flagging cases that are ready for demand. It runs continuously in the background; kick it manually any time."
+        title="Rose · AI Case Manager"
+        description="Rose reviews every retained case automatically — raising the next tasks, turning intelligent questions into work, and flagging cases ready for demand. Anything she raises is badged Rose and assigned to your team to action. She runs continuously; kick her manually any time."
         actions={
           <>
             {(stats?.pendingReview ?? 0) > 0 ? (
@@ -255,29 +255,31 @@ export default function AiCaseManagerPage() {
       <div className="flex items-start gap-3 rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-3">
         <Bot className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
         <div className="text-sm text-violet-900">
-          <span className="font-semibold">How it works.</span> The AI Case Manager continuously reviews each case's
-          intake and evidence, then creates the highest-value next actions.{' '}
+          <span className="font-semibold">How it works.</span> Rose continuously reviews each case's intake and
+          evidence, then raises the highest-value next actions. She spots the work; a paralegal or attorney still does
+          it, so look for the <span className="font-semibold">Rose</span> badge on your task list to see what she put
+          there.{' '}
           {data?.gateEnabled ? (
             <>
-              New AI tasks are <span className="font-semibold">held for a case manager to approve</span> before they go
-              live (review gate is on).
+              New tasks from Rose are <span className="font-semibold">held for a case manager to approve</span> before
+              they go live (review gate is on).
             </>
           ) : (
-            <>AI tasks go live and are assigned automatically (review gate is off).</>
+            <>Rose's tasks go live and are assigned automatically (review gate is off).</>
           )}
         </div>
       </div>
 
       <StatGrid columns={4}>
-        <FilterStat value={stats?.casesManaged ?? 0} label="Cases managed" tone="neutral" hint="Retained/active cases the AI is working." />
+        <FilterStat value={stats?.casesManaged ?? 0} label="Cases managed" tone="neutral" hint="Retained/active cases Rose is watching." />
         <FilterStat
           value={stats?.pendingReview ?? 0}
           label="Tasks pending review"
           tone="warning"
           filled={(stats?.pendingReview ?? 0) > 0}
-          hint="AI-generated tasks waiting for a case manager to approve."
+          hint="Tasks Rose raised, waiting for a case manager to approve."
         />
-        <FilterStat value={stats?.aiTasksOpen ?? 0} label="AI tasks in flight" tone="info" hint="Open tasks the AI created across your caseload." />
+        <FilterStat value={stats?.aiTasksOpen ?? 0} label="Raised by Rose" tone="info" hint="Open tasks Rose raised across your caseload, assigned to your team." />
         <FilterStat
           value={stats?.demandReady ?? 0}
           label="Demand-ready"

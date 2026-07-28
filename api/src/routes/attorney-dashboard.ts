@@ -8,6 +8,7 @@ import { prisma } from '../lib/prisma'
 import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { webUrl } from '../lib/app-url'
+import { taskCreatorName } from '../lib/ai-author'
 import { runAnalysisForAssessment } from './evidence'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence } from '../lib/evidence-processing'
@@ -10522,6 +10523,10 @@ router.get('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) => 
     res.json({
       ...task,
       subtasks: parseSubtasks(task.subtasks),
+      // Credit Rose on tasks she raised herself. The stored createdByName holds
+      // whoever triggered the run (or nobody, on the sweep), which reads as if a
+      // teammate wrote the task.
+      createdByName: taskCreatorName(task),
       assigneeName,
       assigneeRole,
       assigneeRoleLabel: taskRoleLabel(assigneeRole),
