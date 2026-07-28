@@ -48,7 +48,7 @@ async function main() {
     if (!email && attorney.meta) {
       try {
         const meta = JSON.parse(attorney.meta) as { contact?: { email?: string } }
-        email = meta?.contact?.email
+        email = meta?.contact?.email ?? null
       } catch {
         // ignore parse errors
       }

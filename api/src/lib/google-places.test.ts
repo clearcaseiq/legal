@@ -6,6 +6,7 @@ import {
   estimateCost,
   GooglePlacesClient,
   MAX_PAGES_PER_QUERY,
+  PlacesQuotaExhaustedError,
   planRun,
   PRO_FIELDS,
   SKU_PRICING,
@@ -246,6 +247,83 @@ describe('GooglePlacesClient', () => {
     const result = await client.searchText('q')
     expect(result.places).toHaveLength(1)
     expect(client.ledger.retries).toBe(2)
+  })
+
+  it('does not retry a daily quota exhaustion', async () => {
+    // Google reports a spent daily allowance and a momentary rate limit with the
+    // same 429, so only the body separates them. Retrying a daily exhaustion
+    // cannot succeed, and because requests are counted before they are sent, the
+    // doomed attempts eat the spending cap. Verbatim shape from a live run.
+    const body = JSON.stringify({
+      error: {
+        code: 429,
+        message:
+          "Quota exceeded for quota metric 'SearchTextRequest' and limit " +
+          "'SearchTextRequest per day' of service 'places.googleapis.com'.",
+        status: 'RESOURCE_EXHAUSTED',
+        details: [
+          {
+            reason: 'RATE_LIMIT_EXCEEDED',
+            metadata: {
+              quota_limit: 'SearchTextRequestPerDayPerProject',
+              quota_unit: '1/d/{project}',
+            },
+          },
+        ],
+      },
+    })
+
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: async () => body,
+      json: async () => JSON.parse(body),
+      headers: { get: () => null },
+    } as unknown as Response)
+
+    const client = new GooglePlacesClient({
+      apiKey: 'k',
+      maxRequests: 10,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleepImpl: noSleep,
+    })
+
+    await expect(client.searchText('q')).rejects.toBeInstanceOf(PlacesQuotaExhaustedError)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(client.ledger.retries).toBe(0)
+  })
+
+  it('still retries a per-minute rate limit', async () => {
+    // The counterpart to the test above: a minute-scoped 429 is worth waiting out,
+    // and must not be mistaken for the daily cap.
+    const body = JSON.stringify({
+      error: {
+        message: "Quota exceeded for quota metric 'SearchTextRequest' and limit 'per minute'",
+        details: [{ metadata: { quota_unit: '1/min/{project}' } }],
+      },
+    })
+
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        text: async () => body,
+        json: async () => JSON.parse(body),
+        headers: { get: () => null },
+      } as unknown as Response)
+      .mockResolvedValueOnce(jsonResponse({ places: [place('a')] }))
+
+    const client = new GooglePlacesClient({
+      apiKey: 'k',
+      maxRequests: 10,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleepImpl: noSleep,
+    })
+
+    const result = await client.searchText('q')
+    expect(result.places).toHaveLength(1)
+    expect(client.ledger.retries).toBe(1)
   })
 
   it('does not retry a malformed request', async () => {

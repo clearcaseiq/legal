@@ -48,7 +48,7 @@ async function main() {
   console.log('Expected text  :', marker)
   console.log('Detected lines :', JSON.stringify(lines))
 
-  const matched = lines.some((l) => l.includes('Textract OK'))
+  const matched = lines.some((l) => l?.includes('Textract OK'))
   console.log(`\nAWS Textract connectivity: OK${matched ? ' (text round-tripped)' : ' (reachable, but text did not match)'}`)
 }
 

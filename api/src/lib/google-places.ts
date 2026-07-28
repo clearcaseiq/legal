@@ -254,15 +254,46 @@ export const MAX_PAGES_PER_QUERY = 3
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 /**
+ * A daily quota is spent and will not free up until Google's quota day rolls
+ * over. Distinct from a per-minute rate limit, which the same 429 status also
+ * covers, because one is worth waiting out and the other is not.
+ */
+export class PlacesQuotaExhaustedError extends Error {
+  constructor(readonly detail: string) {
+    super('Google Places daily quota exhausted; it resets at midnight Pacific')
+    this.name = 'PlacesQuotaExhaustedError'
+  }
+}
+
+/**
+ * Whether a 429 means the daily allowance is gone rather than a momentary rate
+ * limit.
+ *
+ * Google signals both with 429, so only the body separates them: a per-day limit
+ * reports a `1/d` quota unit or a limit name containing "PerDay". Backing off and
+ * retrying a per-day exhaustion cannot succeed — it just spends the attempt
+ * budget, and since requests are counted before they are sent, it eats the
+ * spending cap too.
+ */
+function isDailyQuotaExhausted(detail: string): boolean {
+  return (
+    /"quota_unit"\s*:\s*"1\/d/.test(detail) ||
+    /PerDay/.test(detail) ||
+    /limit\s+'[^']*per day/i.test(detail)
+  )
+}
+
+/**
  * Whether a failed response is worth retrying.
  *
- * 429 and 5xx are transient. A 400 means the request itself is wrong — usually a
- * malformed field mask — and retrying it just burns budget on the same error.
- * 403 usually means the key is unrestricted-wrong or the API is not enabled, which
- * also will not fix itself.
+ * 5xx and a per-minute 429 are transient. A 400 means the request itself is wrong
+ * — usually a malformed field mask — and retrying it just burns budget on the
+ * same error. 403 usually means the key is unrestricted-wrong or the API is not
+ * enabled, which also will not fix itself.
  */
-function isRetryable(status: number): boolean {
-  return status === 429 || status >= 500
+function isRetryable(status: number, detail: string): boolean {
+  if (status === 429) return !isDailyQuotaExhausted(detail)
+  return status >= 500
 }
 
 export class GooglePlacesClient {
@@ -396,9 +427,16 @@ export class GooglePlacesClient {
       }
 
       const detail = await response.text().catch(() => '')
+
+      // Thrown rather than returned so it cannot be mistaken for an ordinary
+      // query failure and swallowed by a per-query catch.
+      if (response.status === 429 && isDailyQuotaExhausted(detail)) {
+        throw new PlacesQuotaExhaustedError(detail.slice(0, 500))
+      }
+
       lastError = new Error(`Google Places ${response.status}: ${detail.slice(0, 500)}`)
 
-      if (!isRetryable(response.status) || attempt >= this.maxAttempts) throw lastError
+      if (!isRetryable(response.status, detail) || attempt >= this.maxAttempts) throw lastError
 
       this.ledger.retries += 1
       await this.sleepImpl(this.retryAfterMs(response, attempt))

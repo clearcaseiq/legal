@@ -108,6 +108,21 @@ describe('evaluatePlace', () => {
     expect(outcome.reason).toBe('no_website')
   })
 
+  it('deduplicates across batches when given a shared seen set', () => {
+    // The discovery script filters and stages one query at a time so an
+    // interrupted run keeps its work, which only holds together if a firm already
+    // staged under an earlier keyword is recognised in a later batch.
+    const seen = new Set<string>()
+    const first = filterPlaces([firm({ id: 'ChIJa' }), firm({ id: 'ChIJb' })], { seen })
+    const second = filterPlaces([firm({ id: 'ChIJb' }), firm({ id: 'ChIJc' })], { seen })
+
+    expect(first.kept).toHaveLength(2)
+    expect(first.duplicatePlaceIds).toBe(0)
+    expect(second.kept).toHaveLength(1)
+    expect(second.duplicatePlaceIds).toBe(1)
+    expect(seen.size).toBe(3)
+  })
+
   it('drops directories and lead marketplaces that pose as firms', () => {
     // These rank extremely well for exactly the queries we run, and often carry
     // the `lawyer` type, so the name and domain are what separate them.

@@ -52,9 +52,9 @@ import {
   estimateCost,
   GooglePlacesClient,
   MAX_PAGES_PER_QUERY,
+  PlacesQuotaExhaustedError,
   planRun,
   tierForFields,
-  type PlaceResult,
 } from '../src/lib/google-places'
 import {
   filterPlaces,
@@ -313,11 +313,21 @@ async function main() {
   })
 
   const cacheExpiresAt = new Date(Date.now() + args.cacheDays * 24 * 60 * 60 * 1000)
-  const allPlaces: PlaceResult[] = []
-  const placeQuery = new Map<string, { query: string; city: string }>()
+  // Results are filtered and written query by query rather than collected and
+  // written at the end. A long run gets interrupted — quota, a dropped session,
+  // an impatient operator — and buffering means every billed request in that run
+  // is thrown away. Staging as we go makes an interrupted run keep its work.
+  const seenPlaceIds = new Set<string>()
+  const keptLocations: AcceptedFirmLocation[] = []
   const rejections = emptyRejections()
+  const rejectedExamples: Partial<Record<RejectionReason, string[]>> = {}
   const errors: string[] = []
   let queriesRun = 0
+  let totalPlacesReturned = 0
+  let duplicatePlaceIds = 0
+  let created = 0
+  let updated = 0
+  let quotaExhausted = false
   // Google caps a page at 20. A query that comes back full almost certainly had
   // more to give, so the run is seeing a top slice rather than the whole city.
   const PAGE_SIZE = 20
@@ -337,19 +347,50 @@ async function main() {
     try {
       const result = await client.searchText(query, { maxPages: args.pages })
       queriesRun += 1
+      totalPlacesReturned += result.places.length
       if (result.places.length >= PAGE_SIZE * args.pages) truncatedQueries += 1
 
-      for (const place of result.places) {
-        if (place?.id && !placeQuery.has(place.id)) placeQuery.set(place.id, { query, city })
+      // `seenPlaceIds` carries across queries, so a firm already staged under an
+      // earlier keyword is counted as a duplicate rather than re-evaluated.
+      const batch = filterPlaces(result.places, { seen: seenPlaceIds })
+      duplicatePlaceIds += batch.duplicatePlaceIds
+      for (const [reason, count] of Object.entries(batch.rejectedByReason)) {
+        rejections[reason as RejectionReason] += count
       }
-      allPlaces.push(...result.places)
+      for (const [reason, examples] of Object.entries(batch.rejectedExamples)) {
+        const held = rejectedExamples[reason as RejectionReason] ?? []
+        for (const example of examples ?? []) {
+          if (held.length < 5 && !held.includes(example)) held.push(example)
+        }
+        rejectedExamples[reason as RejectionReason] = held
+      }
+
+      for (const location of batch.kept) {
+        keptLocations.push(location)
+        const outcome = await stageLocation(prisma, location, {
+          query,
+          city,
+          cacheExpiresAt,
+        })
+        if (outcome === 'created') created += 1
+        else updated += 1
+      }
 
       console.log(
         `  ${String(queriesRun).padStart(4)}/${queries.length}  ${result.places.length
           .toString()
-          .padStart(3)} places  ${query}`
+          .padStart(3)} places  ${String(batch.kept.length).padStart(3)} kept  ${query}`
       )
     } catch (error) {
+      if (error instanceof PlacesQuotaExhaustedError) {
+        console.log(
+          `\n  Daily Google quota exhausted after ${queriesRun} queries. Everything found` +
+            '\n  so far is already staged. The quota resets at midnight Pacific.'
+        )
+        quotaExhausted = true
+        break
+      }
+
       const message = error instanceof Error ? error.message : String(error)
       errors.push(`${query}: ${message}`)
       console.log(`  ERROR  ${query}: ${message}`)
@@ -362,29 +403,11 @@ async function main() {
     }
   }
 
-  const summary = filterPlaces(allPlaces)
-  for (const [reason, count] of Object.entries(summary.rejectedByReason)) {
-    rejections[reason as RejectionReason] += count
-  }
-
-  let created = 0
-  let updated = 0
-  for (const location of summary.kept) {
-    const context = placeQuery.get(location.placeId)
-    const outcome = await stageLocation(prisma, location, {
-      query: context?.query ?? '',
-      city: context?.city ?? '',
-      cacheExpiresAt,
-    })
-    if (outcome === 'created') created += 1
-    else updated += 1
-  }
-
   // Attach gbp signals to firms we already hold, matched on the domain that the
   // rest of the import pipeline also keys on.
   let signalsWritten = 0
-  if (args.writeSignals && summary.kept.length > 0) {
-    const byDomain = groupByFirmDomain(summary.kept)
+  if (args.writeSignals && keptLocations.length > 0) {
+    const byDomain = groupByFirmDomain(keptLocations)
     const knownFirms = await prisma.lawFirm.findMany({
       where: { firmDomain: { in: Array.from(byDomain.keys()) } },
       select: { id: true, firmDomain: true },
@@ -399,21 +422,20 @@ async function main() {
   }
 
   const cost = estimateCost(client.ledger, { enterprise: args.usedThisMonth })
-  const totalSeen = allPlaces.length
   // Retention is only meaningful against distinct businesses. Measuring it against
   // the raw count makes an accurate filter look brutal, because the same firm
   // surfacing under three keywords is one decision, not three.
-  const uniqueSeen = totalSeen - summary.duplicatePlaceIds
+  const uniqueSeen = totalPlacesReturned - duplicatePlaceIds
 
   console.log('\n  Results')
-  console.log(`    queries run           ${String(queriesRun).padStart(8)}`)
+  console.log(`    queries run           ${String(queriesRun).padStart(8)} of ${queries.length}`)
   console.log(`    requests billed       ${String(client.ledger.totalRequests).padStart(8)}`)
   console.log(`    retries               ${String(client.ledger.retries).padStart(8)}`)
-  console.log(`    places returned       ${String(totalSeen).padStart(8)}`)
-  console.log(`    duplicate place ids   ${String(summary.duplicatePlaceIds).padStart(8)}`)
+  console.log(`    places returned       ${String(totalPlacesReturned).padStart(8)}`)
+  console.log(`    duplicate place ids   ${String(duplicatePlaceIds).padStart(8)}`)
   console.log(`    distinct businesses   ${String(uniqueSeen).padStart(8)}`)
   console.log(
-    `    kept as law firms     ${String(summary.kept.length).padStart(8)}  ${pct(summary.kept.length, uniqueSeen)}`
+    `    kept as law firms     ${String(keptLocations.length).padStart(8)}  ${pct(keptLocations.length, uniqueSeen)}`
   )
   console.log(`    staged (new)          ${String(created).padStart(8)}`)
   console.log(`    staged (refreshed)    ${String(updated).padStart(8)}`)
@@ -424,7 +446,7 @@ async function main() {
   for (const [reason, count] of Object.entries(rejections)) {
     if (count === 0) continue
     console.log(`    ${reason.padEnd(24)}${String(count).padStart(6)}  ${pct(count, uniqueSeen)}`)
-    const examples = summary.rejectedExamples[reason as RejectionReason]
+    const examples = rejectedExamples[reason as RejectionReason]
     if (examples?.length) console.log(`      e.g. ${examples.slice(0, 3).join(', ')}`)
   }
 
@@ -435,12 +457,21 @@ async function main() {
     )
   }
 
-  const distinctFirms = groupByFirmDomain(summary.kept).size
+  const distinctFirms = groupByFirmDomain(keptLocations).size
   console.log(
-    `\n  ${summary.kept.length} offices across ${distinctFirms} distinct firm domains.` +
+    `\n  ${keptLocations.length} offices across ${distinctFirms} distinct firm domains.` +
       '\n  Places gives no attorney names; the next step is reading each firm website' +
       '\n  and verifying the attorneys found against the State Bar.'
   )
+
+  if (quotaExhausted) {
+    const remaining = queries.length - queriesRun
+    console.log(
+      `\n  Stopped early on the daily quota with ${remaining} queries left. Re-run the same` +
+        '\n  command tomorrow: staged places are matched on Place ID, so the queries already' +
+        '\n  covered will refresh rather than duplicate.'
+    )
+  }
 
   if (errors.length > 0) {
     console.log(`\n  ${errors.length} query error(s):`)

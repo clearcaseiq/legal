@@ -607,7 +607,7 @@ async function main() {
       }
       console.log(`  [${i + 1}/${firms.length}] ${firm.name}`)
       try {
-        const detail = await fetchPage(firm.profileUrl, mode, headless)
+        const detail = await fetchPage(firm.profileUrl, opts.mode, opts.headless)
         if (detail.status >= 400) {
           console.warn(`    ↳ HTTP ${detail.status}, keeping listing data only`)
           enriched.push(firm)

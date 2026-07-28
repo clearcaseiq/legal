@@ -1,0 +1,27 @@
+{
+  // The build config compiles `src` only, which left `scripts/` entirely
+  // unchecked: a missing import or renamed export surfaced as a crash on the
+  // server, after a deploy, part-way through a job. These are one-shot
+  // operational scripts that nothing else exercises, so a type error here is
+  // usually the only warning available before it costs real time or money.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["scripts/**/*", "src/**/*"],
+  // Mirrors the build config's exclusions. Test files carry their own long-standing
+  // Prisma mock typing failures, and surfacing those here would bury the script
+  // errors this config exists to find.
+  "exclude": [
+    "node_modules",
+    "dist",
+    "prisma/migrations",
+    "src/test/**/*",
+    "src/**/*.test.ts",
+    "src/**/*.api.test.ts",
+    "src/**/*.integration.test.ts",
+    "src/**/*.system.test.ts",
+    "src/**/*.smoke.test.ts"
+  ]
+}

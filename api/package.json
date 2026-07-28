@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node ../node_modules/tsx/dist/cli.mjs watch src/index.ts",
     "build": "node ../node_modules/typescript/bin/tsc -p .",
+    "typecheck:scripts": "node ../node_modules/typescript/bin/tsc --noEmit -p tsconfig.scripts.json",
     "test": "node ../node_modules/vitest/vitest.mjs run",
     "test:routing": "node ../node_modules/vitest/vitest.mjs run src/lib/solRules.test.ts src/lib/case-normalization.test.ts src/lib/pre-routing-gate.test.ts src/lib/routing-engine.test.ts src/lib/routing-lifecycle.test.ts src/case-routing.api.test.ts src/app.operations.routes.test.ts",
     "test:automation-smoke": "node ../node_modules/vitest/vitest.mjs run src/automation-feed.smoke.test.ts",

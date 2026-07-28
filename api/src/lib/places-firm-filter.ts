@@ -349,13 +349,15 @@ function emptyRejections(): Record<RejectionReason, number> {
  */
 export function filterPlaces(
   places: readonly PlaceResult[],
-  options: { state?: string; exampleLimit?: number } = {}
+  options: { state?: string; exampleLimit?: number; seen?: Set<string> } = {}
 ): FilterSummary {
   const exampleLimit = options.exampleLimit ?? 5
   const kept: AcceptedFirmLocation[] = []
   const rejectedByReason = emptyRejections()
   const rejectedExamples: Partial<Record<RejectionReason, string[]>> = {}
-  const seen = new Set<string>()
+  // A caller-supplied set lets results be filtered and persisted query by query
+  // while still deduplicating across the whole run.
+  const seen = options.seen ?? new Set<string>()
   let duplicatePlaceIds = 0
 
   for (const place of places) {
