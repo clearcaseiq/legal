@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { slugify } from '../lib/booking-slots'
 import { webBaseUrl } from '../lib/app-url'
+import { resolveSchedulingTimezone } from '../lib/scheduling-timezone'
 
 /**
  * Attorney-facing management for the public ("Calendly-style") booking page:
@@ -52,7 +53,7 @@ router.get('/settings', authMiddleware, async (req: AuthRequest, res) => {
     if (!attorney) return res.status(404).json({ error: 'Attorney profile not found' })
 
     const slug = await ensureBookingSlug(attorney.id, attorney.name, attorney.bookingSlug)
-    const timezone = attorney.schedulingTimezone || 'America/Los_Angeles'
+    const timezone = resolveSchedulingTimezone(attorney.schedulingTimezone)
 
     const [availabilityRows, eventTypes] = await Promise.all([
       prisma.attorneyAvailability.findMany({ where: { attorneyId: attorney.id } }),

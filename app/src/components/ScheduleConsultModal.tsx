@@ -3,8 +3,9 @@
  * Single case only (bulk scheduling not practical per spec).
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
+import { getAttorneyZoomStatus, type AttorneyZoomStatus } from '../lib/api'
 
 const MEETING_TYPES = [
   { id: 'phone', label: 'Phone call' },
@@ -46,6 +47,19 @@ export default function ScheduleConsultModal({
   const [time, setTime] = useState('2:00 PM')
   const [meetingType, setMeetingType] = useState<string>('phone')
   const [notes, setNotes] = useState('')
+  const [zoomStatus, setZoomStatus] = useState<AttorneyZoomStatus | null>(null)
+
+  // Selecting "Zoom" used to give no indication of whether a link would actually
+  // be created, so on a server without Zoom credentials the consult was booked
+  // with no meeting link and no explanation (CP-383).
+  useEffect(() => {
+    if (!isOpen || meetingType !== 'video' || zoomStatus) return
+    let cancelled = false
+    getAttorneyZoomStatus()
+      .then((s) => { if (!cancelled) setZoomStatus(s) })
+      .catch(() => { if (!cancelled) setZoomStatus({ configured: false, connected: false }) })
+    return () => { cancelled = true }
+  }, [isOpen, meetingType, zoomStatus])
 
   const handleSubmit = async () => {
     await onSubmit({ date, time, meetingType, notes: notes.trim() || undefined })
@@ -104,6 +118,19 @@ export default function ScheduleConsultModal({
                 </label>
               ))}
             </div>
+            {meetingType === 'video' && zoomStatus && !zoomStatus.configured && (
+              <p className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+                Zoom isn't enabled on this server yet — please paste a Google Meet or Microsoft Teams
+                meeting link in the Notes field below, and we'll send it to the plaintiff with the
+                confirmation.
+              </p>
+            )}
+            {meetingType === 'video' && zoomStatus?.configured && !zoomStatus.connected && (
+              <p className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+                Your Zoom account isn't connected yet, so no link will be created automatically.
+                Connect it under Settings → Integrations, or paste a meeting link in the Notes field.
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional):</label>

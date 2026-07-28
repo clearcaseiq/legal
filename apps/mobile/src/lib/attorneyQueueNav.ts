@@ -1,4 +1,5 @@
 import { router } from 'expo-router'
+import { zonedWallClock } from './calendar'
 
 /** Matches server `AttorneyQueueItem.actionType` */
 export type QueueActionType =
@@ -53,12 +54,19 @@ export function navigateAttorneyQueueItem(params: { actionType: QueueActionType;
   }
 }
 
-export function isSameCalendarDay(iso: string, ref: Date = new Date()) {
-  const d = new Date(iso)
+/**
+ * Whether `iso` falls on the same calendar day as `ref` — in `timeZone` when one
+ * is given, otherwise the device's. "Today" has to mean the attorney's business
+ * day: read against a device in another zone, an evening consult counted as
+ * tomorrow and dropped off the today list (CP-425).
+ */
+export function isSameCalendarDay(iso: string, timeZone?: string | null, ref: Date = new Date()) {
+  const d = zonedWallClock(iso, timeZone)
   if (Number.isNaN(d.getTime())) return false
+  const refLocal = zonedWallClock(ref, timeZone)
   return (
-    d.getFullYear() === ref.getFullYear() &&
-    d.getMonth() === ref.getMonth() &&
-    d.getDate() === ref.getDate()
+    d.getFullYear() === refLocal.getFullYear() &&
+    d.getMonth() === refLocal.getMonth() &&
+    d.getDate() === refLocal.getDate()
   )
 }

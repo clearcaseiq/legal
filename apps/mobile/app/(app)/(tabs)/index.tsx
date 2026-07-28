@@ -167,7 +167,9 @@ function AttorneyHomeDashboardScreen() {
     plaintiffName?: string
     claimType?: string
   }> = payload?.upcomingConsults || []
-  const meetingsToday = upcomingConsults.filter((c) => c.scheduledAt && isSameCalendarDay(c.scheduledAt))
+  // Consult times come from the server in the attorney's scheduling zone (CP-425).
+  const consultTimezone: string | null = payload?.timezone || null
+  const meetingsToday = upcomingConsults.filter((c) => c.scheduledAt && isSameCalendarDay(c.scheduledAt, consultTimezone))
   const qa = payload?.quickActionCounts || {}
 
   const todayCount =
@@ -207,7 +209,7 @@ function AttorneyHomeDashboardScreen() {
       return {
         icon: 'calendar-outline',
         eyebrow: 'Consult today',
-        title: `${formatMeetingType(meeting.type)} at ${formatTime(meeting.scheduledAt)}`,
+        title: `${formatMeetingType(meeting.type)} at ${formatTime(meeting.scheduledAt, consultTimezone)}`,
         detail: `${meeting.plaintiffName || 'Plaintiff'} · ${formatClaimType(meeting.claimType)}`,
         actionLabel: 'Open case',
         onPress: () => meeting.leadId ? router.push(`/(app)/lead/${meeting.leadId}`) : router.push('/(app)/(tabs)/calendar'),
@@ -453,7 +455,7 @@ function AttorneyHomeDashboardScreen() {
             >
               <Ionicons name="calendar-outline" size={22} color={colors.warning} />
               <View style={styles.todayRowBody}>
-                <Text style={styles.todayRowTitle}>{formatMeetingType(c.type)} · {formatTime(c.scheduledAt)}</Text>
+                <Text style={styles.todayRowTitle}>{formatMeetingType(c.type)} · {formatTime(c.scheduledAt, consultTimezone)}</Text>
                 <Text style={styles.todayRowMeta}>
                   {c.plaintiffName || 'Plaintiff'} · {formatClaimType(c.claimType)}
                 </Text>

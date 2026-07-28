@@ -71,6 +71,42 @@ export function zonedWallClockToUtc(
   return new Date(guess - offset * 60000)
 }
 
+/**
+ * Turn a `YYYY-MM-DD` date and a 12-hour clock label ("2:00 PM") into the UTC
+ * instant that wall-clock time falls on in `tz`.
+ *
+ * The consult create and reschedule endpoints both take the date and time the
+ * attorney literally typed. Reschedule used to accept a pre-built ISO instant
+ * from the client instead, so a phone in a different zone to the attorney's
+ * practice saved a different instant than the create path did for the same
+ * "2:00 PM" (CP-413). Both now go through here.
+ *
+ * Returns null when either half is unparseable, so callers can 400 rather than
+ * silently store an Invalid Date.
+ */
+export function wallClockToUtc(dateStr: string, timeStr: string, tz: string): Date | null {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec((dateStr || '').trim())
+  if (!dateMatch) return null
+  const y = Number(dateMatch[1])
+  const mo = Number(dateMatch[2])
+  const d = Number(dateMatch[3])
+
+  const raw = (timeStr || '').trim()
+  const timeMatch = /^(\d{1,2})(?::(\d{2}))?\s*([AaPp])\.?[Mm]\.?$/.exec(raw)
+    || /^(\d{1,2}):(\d{2})$/.exec(raw)
+  if (!timeMatch) return null
+
+  let hour = Number(timeMatch[1])
+  const minute = Number(timeMatch[2] || 0)
+  const meridiem = timeMatch[3]?.toLowerCase()
+  if (meridiem === 'p' && hour < 12) hour += 12
+  if (meridiem === 'a' && hour === 12) hour = 0
+  if (hour > 23 || minute > 59) return null
+
+  const instant = zonedWallClockToUtc(y, mo, d, hour, minute, tz)
+  return Number.isNaN(instant.getTime()) ? null : instant
+}
+
 function parseHm(value: string): { h: number; m: number } {
   const [h, m] = value.split(':').map((n) => parseInt(n, 10))
   return { h: Number.isFinite(h) ? h : 0, m: Number.isFinite(m) ? m : 0 }

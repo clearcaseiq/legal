@@ -8,7 +8,10 @@ const PREFIX = 'consult-reminder-'
 /**
  * Schedule local notifications 1 hour before upcoming consultations (next ~7 days).
  */
-export async function scheduleConsultReminders(events: AttorneyCalendarEvent[]) {
+export async function scheduleConsultReminders(
+  events: AttorneyCalendarEvent[],
+  timeZone?: string | null
+) {
   try {
     const scheduled = await Notifications.getAllScheduledNotificationsAsync()
     for (const n of scheduled) {
@@ -33,7 +36,7 @@ export async function scheduleConsultReminders(events: AttorneyCalendarEvent[]) 
         identifier: `${PREFIX}${ev.id}`,
         content: {
           title: 'Consultation soon',
-          body: `${formatMeetingType(ev.type)} with ${ev.plaintiffName || 'client'} at ${formatTime(ev.scheduledAt)}`,
+          body: `${formatMeetingType(ev.type)} with ${ev.plaintiffName || 'client'} at ${formatTime(ev.scheduledAt, timeZone)}`,
           ...(Platform.OS === 'android' ? { channelId: 'consult' } : {}),
           data: {
             type: 'consult_reminder',

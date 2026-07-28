@@ -3,6 +3,7 @@ import { logger } from './logger'
 import { deliverDirectNotification } from './platform-notifications'
 import { parseEventReminders } from './calendar-reminders'
 import { webUrl } from './app-url'
+import { formatInSchedulingTimezone, resolveSchedulingTimezone } from './scheduling-timezone'
 
 const DEFAULT_REMINDER_SCHEDULE = [
   { key: 'upcoming_24h', minutesBefore: 24 * 60, lead: 'in about 24 hours' },
@@ -200,10 +201,11 @@ export async function notifyAppointmentEvent(params: {
 
   // Format in the attorney's scheduling timezone (with a tz abbreviation) so the
   // booking time in the notification/email matches the attorney's calendar rather
-  // than the API server's local zone (CP-307 / CP-344).
-  const attorneyTz = attorney.schedulingTimezone || 'America/New_York'
+  // than the API server's local zone (CP-307 / CP-344). The zone must resolve the
+  // same way the booking page did when it offered the slot — see
+  // resolveSchedulingTimezone.
   const when = params.scheduledAt
-    ? new Date(params.scheduledAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: attorneyTz, timeZoneName: 'short' })
+    ? formatInSchedulingTimezone(params.scheduledAt, attorney.schedulingTimezone)
     : null
   const subjectMap = {
     scheduled: 'Consultation booked',
@@ -334,11 +336,11 @@ export async function sweepUpcomingAppointmentReminders() {
       if (meta?.eventType) sentKeys.add(meta.eventType)
     }
 
-    const tz = appointment.attorney?.schedulingTimezone || undefined
+    const tz = resolveSchedulingTimezone(appointment.attorney?.schedulingTimezone)
     const whenLabel = appointment.scheduledAt.toLocaleString('en-US', {
       dateStyle: 'full',
       timeStyle: 'short',
-      ...(tz ? { timeZone: tz } : {}),
+      timeZone: tz,
     })
 
     for (const reminder of DEFAULT_REMINDER_SCHEDULE) {
@@ -442,7 +444,7 @@ export async function sweepUpcomingCalendarEventReminders() {
     if (reminders.length === 0) continue
 
     const att = attMap.get(ev.attorneyId)
-    const tz = att?.schedulingTimezone || undefined
+    const tz = resolveSchedulingTimezone(att?.schedulingTimezone)
 
     // Partition potential recipients into attorney/staff vs client contacts so
     // each reminder can target the right group.
@@ -474,7 +476,7 @@ export async function sweepUpcomingCalendarEventReminders() {
       const whenLabel = occ.start.toLocaleString('en-US', {
         dateStyle: 'full',
         timeStyle: 'short',
-        ...(tz ? { timeZone: tz } : {}),
+        timeZone: tz,
       })
       for (const rem of reminders) {
         const offset = rem.offsetMinutes

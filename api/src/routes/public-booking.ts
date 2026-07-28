@@ -10,6 +10,7 @@ import { notifyAppointmentEvent } from '../lib/appointment-engagement'
 import { notifyAttorneyInApp } from '../lib/case-notifications'
 import { ATTORNEY_EVENTS } from '../lib/notification-events'
 import { webBaseUrl } from '../lib/app-url'
+import { resolveSchedulingTimezone } from '../lib/scheduling-timezone'
 
 function manageUrlFor(token: string): string {
   return `${webBaseUrl()}/booking/manage/${token}`
@@ -24,7 +25,6 @@ function manageUrlFor(token: string): string {
 
 const router = Router()
 
-const DEFAULT_TZ = 'America/Los_Angeles'
 const MAX_RANGE_DAYS = 62
 
 function busyBlocksToBusy(blocks: Array<{ startTime: Date; endTime: Date }>) {
@@ -70,7 +70,7 @@ router.get('/:slug', async (req, res) => {
       attorney: {
         name: attorney.name,
         firmName: attorney.lawFirm?.name || null,
-        timezone: attorney.schedulingTimezone || DEFAULT_TZ,
+        timezone: resolveSchedulingTimezone(attorney.schedulingTimezone),
       },
       eventTypes,
     })
@@ -101,7 +101,7 @@ router.get('/:slug/:eventSlug/slots', async (req, res) => {
       return res.status(400).json({ error: `Range must be between 0 and ${MAX_RANGE_DAYS} days` })
     }
 
-    const timezone = attorney.schedulingTimezone || DEFAULT_TZ
+    const timezone = resolveSchedulingTimezone(attorney.schedulingTimezone)
 
     // Pad the DB query by a day on each side to cover timezone offsets.
     const rangeStart = new Date(`${from}T00:00:00Z`)
@@ -170,7 +170,7 @@ router.post('/:slug/:eventSlug', async (req, res) => {
 
     const { start, name, email, phone, notes } = parsed.data
     const startDate = new Date(start)
-    const timezone = attorney.schedulingTimezone || DEFAULT_TZ
+    const timezone = resolveSchedulingTimezone(attorney.schedulingTimezone)
 
     // Re-validate the requested slot against a fresh availability computation so
     // two visitors can't grab the same time (and slugged times can't be forged).
@@ -391,7 +391,7 @@ async function loadTeamLink(firmSlug: string, linkSlug: string) {
     .map((m: any) => ({
       attorneyId: m.attorneyId,
       sortOrder: m.sortOrder,
-      timezone: m.attorney?.schedulingTimezone || DEFAULT_TZ,
+      timezone: resolveSchedulingTimezone(m.attorney?.schedulingTimezone),
       name: m.attorney?.name || 'Attorney',
     }))
   return { firm, link, members }
@@ -453,7 +453,7 @@ router.get('/team/:firmSlug/:linkSlug', async (req, res) => {
         locationType: link.locationType,
       },
       memberCount: members.length,
-      timezone: members[0]?.timezone || DEFAULT_TZ,
+      timezone: resolveSchedulingTimezone(members[0]?.timezone),
     })
   } catch (error) {
     logger.error('Failed to load team booking page', { error })
@@ -501,7 +501,7 @@ router.get('/team/:firmSlug/:linkSlug/slots', async (req, res) => {
     }
 
     res.json({
-      timezone: members[0]?.timezone || DEFAULT_TZ,
+      timezone: resolveSchedulingTimezone(members[0]?.timezone),
       durationMinutes: link.durationMinutes,
       slots: Array.from(union).sort(),
     })
@@ -684,7 +684,7 @@ router.post('/team/:firmSlug/:linkSlug', async (req, res) => {
         day: 'numeric',
         hour: 'numeric',
         minute: '2-digit',
-        timeZone: chosen.timezone || DEFAULT_TZ,
+        timeZone: resolveSchedulingTimezone(chosen.timezone),
         timeZoneName: 'short',
       })
       await notifyAttorneyInApp({
@@ -760,7 +760,7 @@ router.get('/manage/:token', async (req, res) => {
       locationType: appointment.type,
       location: appointment.location,
       meetingUrl: appointment.meetingUrl,
-      timezone: appointment.attorney.schedulingTimezone || DEFAULT_TZ,
+      timezone: resolveSchedulingTimezone(appointment.attorney.schedulingTimezone),
       attorney: { name: appointment.attorney.name, firmName: appointment.attorney.lawFirm?.name || null },
       eventName: eventType?.name || 'Consultation',
       // Enough for the client to reuse the public slot picker for reschedule.
@@ -805,7 +805,7 @@ router.post('/manage/:token/cancel', async (req, res) => {
       attorneyId: appointment.attorneyId,
       eventType: ATTORNEY_EVENTS.consult_scheduled,
       subject: 'Booking cancelled',
-      body: `A booking for ${appointment.scheduledAt.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: appointment.attorney?.schedulingTimezone || DEFAULT_TZ, timeZoneName: 'short' })} was cancelled.`,
+      body: `A booking for ${appointment.scheduledAt.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: resolveSchedulingTimezone(appointment.attorney?.schedulingTimezone), timeZoneName: 'short' })} was cancelled.`,
     }).catch(() => {})
 
     res.json({ ok: true, status: 'CANCELLED' })
@@ -832,7 +832,7 @@ router.post('/manage/:token/reschedule', async (req, res) => {
     if (!parsed.success) return res.status(400).json({ error: 'A valid start time is required' })
 
     const startDate = new Date(parsed.data.start)
-    const timezone = appointment.attorney.schedulingTimezone || DEFAULT_TZ
+    const timezone = resolveSchedulingTimezone(appointment.attorney.schedulingTimezone)
     const durationMinutes = eventType?.durationMinutes ?? appointment.duration
 
     // Validate the new slot, excluding THIS appointment from the busy set so the

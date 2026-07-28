@@ -26,6 +26,9 @@ import {
   monthBounds,
   formatMeetingType,
   formatTime,
+  tzAbbreviation,
+  zonedDateKey,
+  zonedTimeLabel,
   type AttorneyCalendarEvent,
   type DaySection,
 } from '../../../src/lib/calendar'
@@ -520,6 +523,7 @@ function AttorneyCalendarScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [events, setEvents] = useState<AttorneyCalendarEvent[]>([])
+  const [timezone, setTimezone] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   const { from, to } = useMemo(() => monthBounds(cursor.year, cursor.month), [cursor.year, cursor.month])
@@ -529,6 +533,9 @@ function AttorneyCalendarScreen() {
     try {
       const res = await getAttorneyAppointments(from, to)
       setEvents(res.events || [])
+      // The attorney's scheduling zone drives every time shown below — see
+      // src/lib/calendar.ts (CP-425).
+      setTimezone(res.timezone || null)
     } catch (err: unknown) {
       setEvents([])
       setLoadError(getApiErrorMessage(err))
@@ -556,11 +563,12 @@ function AttorneyCalendarScreen() {
 
   useEffect(() => {
     if (events.length > 0) {
-      void scheduleConsultReminders(events)
+      void scheduleConsultReminders(events, timezone)
     }
-  }, [events])
+  }, [events, timezone])
 
-  const sections = useMemo(() => groupEventsByDay(events), [events])
+  const sections = useMemo(() => groupEventsByDay(events, timezone), [events, timezone])
+  const tzLabel = useMemo(() => tzAbbreviation(timezone), [timezone])
 
   const monthLabel = new Date(cursor.year, cursor.month, 1).toLocaleDateString(undefined, {
     month: 'long',
@@ -594,6 +602,12 @@ function AttorneyCalendarScreen() {
         </View>
       </View>
 
+      {tzLabel ? (
+        <Text style={styles.tzHint} accessibilityLabel={`Times shown in ${tzLabel}`}>
+          Times shown in {tzLabel}
+        </Text>
+      ) : null}
+
       {loading && !refreshing ? (
         <ScreenState title="Loading calendar" message="Syncing upcoming consultations." loading />
       ) : (
@@ -619,7 +633,7 @@ function AttorneyCalendarScreen() {
               <Text style={styles.sectionTitle}>{section.title}</Text>
             </View>
           )}
-          renderItem={({ item }) => <MeetingRow event={item} onChanged={load} />}
+          renderItem={({ item }) => <MeetingRow event={item} onChanged={load} timezone={timezone} />}
           ListEmptyComponent={
             <View style={styles.emptyCard}>
               <Ionicons name="calendar-outline" size={44} color={colors.textSecondary} />
@@ -2006,7 +2020,15 @@ function PlaintiffDocumentsScreen() {
   )
 }
 
-function MeetingRow({ event, onChanged }: { event: AttorneyCalendarEvent; onChanged: () => void | Promise<void> }) {
+function MeetingRow({
+  event,
+  onChanged,
+  timezone,
+}: {
+  event: AttorneyCalendarEvent
+  onChanged: () => void | Promise<void>
+  timezone?: string | null
+}) {
   const claim = event.claimType ? formatClaimType(event.claimType) : 'Case'
   const canOpenLead = !!event.leadId
 
@@ -2028,7 +2050,7 @@ function MeetingRow({ event, onChanged }: { event: AttorneyCalendarEvent; onChan
   return (
     <View style={styles.card}>
       <View style={styles.cardTop}>
-        <Text style={styles.timeText}>{formatTime(event.scheduledAt)}</Text>
+        <Text style={styles.timeText}>{formatTime(event.scheduledAt, timezone)}</Text>
         <View style={styles.typePill}>
           <Text style={styles.typePillText}>{formatMeetingType(event.type)}</Text>
         </View>
@@ -2060,6 +2082,12 @@ function MeetingRow({ event, onChanged }: { event: AttorneyCalendarEvent; onChan
                 leadId: event.leadId || '',
                 appointmentId: event.id,
                 scheduledAt: event.scheduledAt,
+                // Prefill the form with the consult's wall clock in the attorney's
+                // zone. Letting the screen derive it from the device clock showed a
+                // different day/time than the calendar row above it (CP-413).
+                currentDate: zonedDateKey(event.scheduledAt, timezone),
+                currentTime: zonedTimeLabel(event.scheduledAt, timezone),
+                timezone: timezone || '',
                 currentType: event.type || 'phone',
                 currentNotes: event.notes || '',
               },
@@ -2102,6 +2130,13 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   monthTitle: { fontSize: 18, fontWeight: '800', color: colors.text },
+  tzHint: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    paddingHorizontal: space.md,
+    paddingBottom: space.xs,
+  },
   monthActions: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   addEventButton: {
     width: 34,

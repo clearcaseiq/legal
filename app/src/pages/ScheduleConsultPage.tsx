@@ -294,7 +294,9 @@ export default function ScheduleConsultPage() {
                     </p>
                   ) : !zoomStatus.configured ? (
                     <p className="text-sm text-amber-700">
-                      Zoom isn't enabled on this server yet — a Google Meet / Teams link will be created instead.
+                      Zoom isn't enabled on this server yet — please paste a Google Meet or Microsoft
+                      Teams meeting link in the Notes field below, and we'll send it to the plaintiff
+                      with the confirmation.
                     </p>
                   ) : zoomStatus.connected ? (
                     <p className="flex items-center gap-2 text-sm text-emerald-700">

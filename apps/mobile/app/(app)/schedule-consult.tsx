@@ -28,6 +28,7 @@ import { colors, radii, shadows, space } from '../../src/theme/tokens'
 import { isAcceptedCase, leadLabel, leadMeta } from '../../src/lib/formatLead'
 import { addEventToCalendar } from '../../src/lib/addToCalendar'
 import { CalendarDatePicker, formatDateKeyLong } from '../../src/components/CalendarDatePicker'
+import { tzAbbreviation, zonedDateKey, zonedTimeLabel } from '../../src/lib/calendar'
 
 const TIME_SLOTS = [
   '9:00 AM',
@@ -58,7 +59,10 @@ const MEETING_TYPES = [
 function tomorrowDate() {
   const tomorrow = new Date()
   tomorrow.setDate(tomorrow.getDate() + 1)
-  return tomorrow.toISOString().slice(0, 10)
+  // Local calendar day — toISOString() is UTC and picks the wrong day for
+  // anyone east of Greenwich in the evening.
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}`
 }
 
 function addDays(dateText: string, delta: number) {
@@ -76,10 +80,22 @@ function isSchedulableLead(lead: any) {
 }
 
 export default function ScheduleConsultScreen() {
-  const { leadId, appointmentId, scheduledAt, currentType, currentNotes } = useLocalSearchParams<{
+  const {
+    leadId,
+    appointmentId,
+    scheduledAt,
+    currentDate,
+    currentTime,
+    timezone,
+    currentType,
+    currentNotes,
+  } = useLocalSearchParams<{
     leadId?: string
     appointmentId?: string
     scheduledAt?: string
+    currentDate?: string
+    currentTime?: string
+    timezone?: string
     currentType?: string
     currentNotes?: string
   }>()
@@ -93,13 +109,21 @@ export default function ScheduleConsultScreen() {
   const [datePickerOpen, setDatePickerOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [blockedMessage, setBlockedMessage] = useState<string | null>(null)
-  const [date, setDate] = useState(() => scheduledAt ? new Date(scheduledAt).toISOString().slice(0, 10) : tomorrowDate())
-  const [time, setTime] = useState(() => scheduledAt ? new Date(scheduledAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '2:00 PM')
+  // Prefill with the consult's wall clock in the attorney's scheduling zone. The
+  // caller passes it precomputed; deriving it here from the device clock made the
+  // form disagree with the calendar row it was opened from (CP-413).
+  const [date, setDate] = useState(
+    () => currentDate || (scheduledAt ? zonedDateKey(scheduledAt, timezone) : '') || tomorrowDate()
+  )
+  const [time, setTime] = useState(
+    () => currentTime || (scheduledAt ? zonedTimeLabel(scheduledAt, timezone) : '') || '2:00 PM'
+  )
   const [manualTime, setManualTime] = useState(time)
   const [meetingType, setMeetingType] = useState(currentType || 'phone')
   const [notes, setNotes] = useState(currentNotes || '')
   const [alsoAddToCalendar, setAlsoAddToCalendar] = useState(true)
 
+  const tzLabel = useMemo(() => tzAbbreviation(timezone), [timezone])
   const selectedLeadName = useMemo(() => selectedLead ? leadLabel(selectedLead) : 'Select a case', [selectedLead])
   const selectedLeadMeta = useMemo(() => selectedLead ? leadMeta(selectedLead, { includeId: true }) : '', [selectedLead])
 
@@ -144,15 +168,20 @@ export default function ScheduleConsultScreen() {
     setSaving(true)
     setError(null)
     try {
+      let saved: any = null
       if (appointmentId) {
-        const scheduledDate = new Date(`${date} ${time}`)
-        await updateAttorneyAppointment(appointmentId, {
-          scheduledAt: Number.isNaN(scheduledDate.getTime()) ? undefined : scheduledDate.toISOString(),
+        // Send the wall-clock values, not a device-built instant: the server
+        // interprets them in the attorney's scheduling zone, matching the create
+        // path below. Building the Date here shifted the consult by the device's
+        // offset — often onto another day (CP-413).
+        saved = await updateAttorneyAppointment(appointmentId, {
+          date,
+          time,
           type: meetingType,
           notes: notes.trim() || undefined,
         })
       } else if (selectedLeadId) {
-        await scheduleConsultation(selectedLeadId, {
+        saved = await scheduleConsultation(selectedLeadId, {
           date,
           time,
           meetingType,
@@ -165,12 +194,16 @@ export default function ScheduleConsultScreen() {
         // Haptics are best-effort.
       }
       if (alsoAddToCalendar) {
-        const scheduledDate = new Date(`${date} ${time}`)
+        // Use the instant the server actually stored. Re-parsing "date time" here
+        // would read it as device-local, so an attorney whose phone is in another
+        // zone got a phone-calendar entry at the wrong hour.
+        const scheduledDate = saved?.scheduledAt ? new Date(saved.scheduledAt) : new Date(`${date} ${time}`)
+        const durationMinutes = Number(saved?.duration) > 0 ? Number(saved.duration) : 30
         if (!Number.isNaN(scheduledDate.getTime())) {
           await addEventToCalendar({
             title: `Consultation — ${selectedLeadName}`,
             start: scheduledDate,
-            end: new Date(scheduledDate.getTime() + 30 * 60_000),
+            end: new Date(scheduledDate.getTime() + durationMinutes * 60_000),
             details: notes.trim() || `${meetingType} consultation (ClearCaseIQ)`,
           })
         }
@@ -258,7 +291,9 @@ export default function ScheduleConsultScreen() {
           <TouchableOpacity style={styles.timeSelector} onPress={() => setTimePickerOpen(true)} activeOpacity={0.85}>
             <View>
               <Text style={styles.timeSelectorValue}>{time}</Text>
-              <Text style={styles.timeSelectorHint}>Tap to choose an appointment time</Text>
+              <Text style={styles.timeSelectorHint}>
+                {tzLabel ? `${tzLabel} — your scheduling timezone` : 'Tap to choose an appointment time'}
+              </Text>
             </View>
             <Ionicons name="chevron-down" size={20} color={colors.primary} />
           </TouchableOpacity>

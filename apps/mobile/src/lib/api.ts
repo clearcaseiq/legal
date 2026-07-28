@@ -615,6 +615,11 @@ export async function reviewLeadEvidenceFile(
 export type AttorneyAppointmentsResponse = {
   from: string
   to: string
+  /**
+   * IANA zone the attorney's schedule is kept in. Render consult times in this
+   * zone, not the device's, so mobile agrees with the web calendar (CP-425).
+   */
+  timezone?: string
   events: AttorneyCalendarEvent[]
 }
 
@@ -640,7 +645,21 @@ export async function scheduleConsultation(
 
 export async function updateAttorneyAppointment(
   appointmentId: string,
-  payload: { scheduledAt?: string; type?: string; duration?: number; notes?: string; status?: string }
+  /**
+   * Send `date` + `time` (the wall-clock values the attorney picked) so the server
+   * interprets them in the attorney's scheduling zone, the same way the create
+   * endpoint does. Sending a device-built `scheduledAt` instant shifts the consult
+   * by the device's offset (CP-413); it remains only for older callers.
+   */
+  payload: {
+    date?: string
+    time?: string
+    scheduledAt?: string
+    type?: string
+    duration?: number
+    notes?: string
+    status?: string
+  }
 ) {
   const { data } = await api.patch(`/v1/attorney-dashboard/appointments/${appointmentId}`, payload)
   return data

@@ -33,7 +33,8 @@ import { createZoomMeeting } from '../lib/zoom'
 import { deliverDirectNotification, createNotificationEvent, notifyAdmins } from '../lib/platform-notifications'
 import { translateToEnglish, looksNonEnglish } from '../lib/translate'
 import { isValidPhone, normalizePhone, PHONE_ERROR_MESSAGE } from '../lib/phone'
-import { zonedWallClockToUtc } from '../lib/booking-slots'
+import { wallClockToUtc, zonedWallClockToUtc } from '../lib/booking-slots'
+import { resolveSchedulingTimezone } from '../lib/scheduling-timezone'
 import { hasAppointmentConflict } from '../lib/availability-slots'
 import { answerCommandCenterCopilot, buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
 import { computeSettlement } from '../lib/settlement'
@@ -3405,6 +3406,9 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       },
       casesRequiringAttention,
       upcomingConsults,
+      // Zone the consult times above are meant to be read in, so clients don't
+      // render them against the viewer's device clock (CP-425).
+      timezone: resolveSchedulingTimezone(attorney.schedulingTimezone),
       needsActionToday: workQueueData.needsActionToday,
       dailyQueueSummary: workQueueData.dailyQueueSummary,
       automationFeed,
@@ -3599,7 +3603,7 @@ router.get('/appointments', authMiddleware, async (req: any, res) => {
       where: { id: attorney.id },
       select: { schedulingTimezone: true },
     })
-    const timezone = tzRow?.schedulingTimezone || 'America/New_York'
+    const timezone = resolveSchedulingTimezone(tzRow?.schedulingTimezone)
 
     res.json({ from: from.toISOString(), to: to.toISOString(), timezone, events })
   } catch (error: any) {
@@ -3647,7 +3651,7 @@ router.patch('/appointments/:appointmentId', authMiddleware, async (req: any, re
     }
 
     const { appointmentId } = req.params
-    const { scheduledAt, type, duration, notes, status } = req.body || {}
+    const { scheduledAt, date, time, type, duration, notes, status } = req.body || {}
     const existing = await prisma.appointment.findFirst({
       where: { id: appointmentId, attorneyId: auth.attorney.id },
       include: {
@@ -3660,7 +3664,24 @@ router.patch('/appointments/:appointmentId', authMiddleware, async (req: any, re
       return res.status(404).json({ error: 'Appointment not found' })
     }
 
-    const nextScheduledAt = scheduledAt ? new Date(String(scheduledAt)) : existing.scheduledAt
+    const attorneyTz = resolveSchedulingTimezone(auth.attorney.schedulingTimezone)
+
+    // Prefer the wall-clock date/time the attorney actually picked and interpret
+    // it in their scheduling zone, exactly as the create path does. Clients used
+    // to build the instant themselves from the device clock, so rescheduling from
+    // a phone in another zone moved the consult by that offset — often onto a
+    // different day, which read as "the reschedule didn't apply" (CP-413). The
+    // ISO `scheduledAt` form is still accepted for older clients.
+    let nextScheduledAt = existing.scheduledAt
+    if (typeof date === 'string' && typeof time === 'string') {
+      const parsed = wallClockToUtc(date, time, attorneyTz)
+      if (!parsed) {
+        return res.status(400).json({ error: 'Please choose a valid date and time.' })
+      }
+      nextScheduledAt = parsed
+    } else if (scheduledAt) {
+      nextScheduledAt = new Date(String(scheduledAt))
+    }
     if (Number.isNaN(nextScheduledAt.getTime())) {
       return res.status(400).json({ error: 'Invalid appointment time' })
     }
@@ -3678,8 +3699,10 @@ router.patch('/appointments/:appointmentId', authMiddleware, async (req: any, re
 
     if (existing.user?.email) {
       const attorneyName = auth.attorney.name || 'Your attorney'
-      const dateText = appointment.scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-      const timeText = appointment.scheduledAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      // Quote the new slot in the attorney's zone, not the API server's — an email
+      // saying 9:00 PM for a 2:00 PM consult is how CP-307 presented.
+      const dateText = appointment.scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: attorneyTz })
+      const timeText = appointment.scheduledAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: attorneyTz, timeZoneName: 'short' })
       await createNotification(
         existing.user.email,
         'Your consultation was updated',
@@ -5902,7 +5925,7 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
     // constructor previously stored e.g. "2:00 PM" as 2 PM server-local (UTC in
     // prod), so the calendar and confirmation email — rendered in the attorney's
     // zone — showed a shifted time (CP-304 / CP-307 / CP-344).
-    const attorneyTz = attorney.schedulingTimezone || 'America/New_York'
+    const attorneyTz = resolveSchedulingTimezone(attorney.schedulingTimezone)
     const scheduledAt = zonedWallClockToUtc(y, mo, d, hour, m || 0, attorneyTz)
     const CONSULT_DURATION = 30
 
