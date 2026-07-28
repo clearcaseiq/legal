@@ -43,6 +43,7 @@ import {
   Sparkles,
   Stethoscope,
   Trash2,
+  Undo2,
   Upload,
   Workflow,
   X,
@@ -72,6 +73,7 @@ import {
   nudgeDocumentRequest,
   updateLeadTask,
   approveLeadTask,
+  unapproveLeadTask,
   uploadLeadEvidenceOnBehalf,
   type AttorneyDocumentRequest,
   type CaseCommandCenter,
@@ -3590,14 +3592,20 @@ function TasksPanel({
     }
   }
 
-  const approve = async (t: TaskRow) => {
+  const setApproval = async (t: TaskRow, approved: boolean) => {
     setBusy(t.id)
     try {
-      await approveLeadTask(leadId, t.id)
-      flash('ok', 'Task approved — it is now live and assigned.')
+      if (approved) await approveLeadTask(leadId, t.id)
+      else await unapproveLeadTask(leadId, t.id)
+      flash(
+        'ok',
+        approved
+          ? 'Task approved — it is now live and assigned.'
+          : 'Approval taken back — the task is un-assigned and back in review.',
+      )
       await load()
     } catch (err: any) {
-      flash('err', err?.response?.data?.error || 'Failed to approve task.')
+      flash('err', err?.response?.data?.error || `Failed to ${approved ? 'approve' : 'unapprove'} task.`)
     } finally {
       setBusy(null)
     }
@@ -3700,6 +3708,13 @@ function TasksPanel({
               >
                 <ShieldAlert className="h-3 w-3" /> Pending review
               </span>
+            ) : t.reviewStatus === 'approved' ? (
+              <span
+                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200"
+                title="Reviewed and approved — unapprove to send it back"
+              >
+                <BadgeCheck className="h-3 w-3" /> Approved
+              </span>
             ) : null}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
@@ -3717,12 +3732,22 @@ function TasksPanel({
         <div className="flex shrink-0 items-center gap-1">
           {t.reviewStatus === 'pending' ? (
             <button
-              onClick={() => void approve(t)}
+              onClick={() => void setApproval(t, true)}
               disabled={rowBusy}
               className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
               title="Approve — assign it and make it live"
             >
               <BadgeCheck className="h-3.5 w-3.5" /> Approve
+            </button>
+          ) : t.reviewStatus === 'approved' && !taskDone ? (
+            <button
+              onClick={() => void setApproval(t, false)}
+              disabled={rowBusy}
+              className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 opacity-0 transition hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50 group-hover:opacity-100"
+              aria-label="Unapprove task"
+              title="Unapprove — un-assign it and send it back for review"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
             </button>
           ) : null}
           <button

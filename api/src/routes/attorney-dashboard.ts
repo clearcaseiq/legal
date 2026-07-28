@@ -10407,6 +10407,57 @@ router.post('/leads/:leadId/tasks/:id/approve', authMiddleware, async (req: any,
   }
 })
 
+// Undo an approval: send an AI task back to pending review. Assignment is
+// cleared so the task really is parked rather than merely relabelled — that
+// mirrors how the gate holds a task when it is first generated.
+router.post('/leads/:leadId/tasks/:id/unapprove', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, id } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const task = await prisma.caseTask.findUnique({
+      where: { id },
+      select: { id: true, assessmentId: true, reviewStatus: true, status: true },
+    })
+    if (!task || task.assessmentId !== auth.lead.assessmentId) {
+      return res.status(404).json({ error: 'Task not found' })
+    }
+    if (task.reviewStatus !== 'approved') {
+      // A task with no reviewStatus was never gated (someone created it by
+      // hand), so there is no approval to take back.
+      return res.status(400).json({ error: 'Task is not approved' })
+    }
+    if (task.status === 'done' || task.status === 'completed') {
+      return res.status(400).json({ error: 'Completed tasks cannot be sent back for review' })
+    }
+    const record = await prisma.caseTask.update({
+      where: { id },
+      data: {
+        reviewStatus: 'pending',
+        reviewedById: null,
+        reviewedByName: null,
+        reviewedAt: null,
+        assignedUserId: null,
+        assignedTo: null,
+      },
+      select: caseTaskSelect,
+    })
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: auth.attorney.id,
+      action: 'task_review_unapproved',
+      entityType: 'case_task',
+      entityId: id,
+    })
+    res.json(record)
+  } catch (error: any) {
+    logger.error('Failed to unapprove case task', { error: error.message })
+    res.status(500).json({ error: 'Failed to unapprove case task' })
+  }
+})
+
 // Approve every pending AI task on a case in one action.
 router.post('/leads/:leadId/tasks/approve-all', authMiddleware, async (req: any, res) => {
   try {

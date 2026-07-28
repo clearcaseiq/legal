@@ -20,12 +20,14 @@ import {
   Send,
   ShieldAlert,
   BadgeCheck,
+  Undo2,
 } from 'lucide-react'
 import {
   getTaskDetail,
   updateLeadTask,
   deleteLeadTask,
   approveLeadTask,
+  unapproveLeadTask,
   getTaskComments,
   addTaskComment,
   getTaskHistory,
@@ -109,6 +111,10 @@ function describeHistory(entry: TaskHistoryEntry): string {
       return m.estimateMinutes ? `set the time estimate to ${fmtMinutes(Number(m.estimateMinutes))}` : `cleared the time estimate`
     case 'task_comment_added':
       return `commented: "${String(m.snippet || '').trim()}"`
+    case 'task_review_approved':
+      return `approved this AI task${m.assignee ? `, assigning it to ${m.assignee}` : ''}`
+    case 'task_review_unapproved':
+      return `sent this AI task back for review`
     default:
       return entry.action.replace(/_/g, ' ')
   }
@@ -238,16 +244,19 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
     }
   }
 
-  const approve = async () => {
+  const setApproval = async (approved: boolean) => {
     setApproving(true)
     try {
-      await approveLeadTask(leadId, taskId)
+      if (approved) await approveLeadTask(leadId, taskId)
+      else await unapproveLeadTask(leadId, taskId)
       const d = await getTaskDetail(leadId, taskId)
       setTask(d)
       onChanged?.()
       if (tab === 'history') void loadHistory()
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'Failed to approve task.')
+      setError(
+        err?.response?.data?.error || (approved ? 'Failed to approve task.' : 'Failed to unapprove task.'),
+      )
     } finally {
       setApproving(false)
     }
@@ -352,13 +361,40 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                     </div>
                   </div>
                   <button
-                    onClick={() => void approve()}
+                    onClick={() => void setApproval(true)}
                     disabled={approving}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
                   >
                     {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}
                     Approve
                   </button>
+                </div>
+              ) : task.reviewStatus === 'approved' ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <div className="flex items-start gap-2">
+                    <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                    <div className="text-sm text-emerald-800">
+                      <div className="font-semibold">
+                        Approved{task.reviewedByName ? ` by ${task.reviewedByName}` : ''}
+                        {task.reviewedAt ? ` on ${fmtDateTime(task.reviewedAt)}` : ''}
+                      </div>
+                      <p className="text-xs text-emerald-700">
+                        {done
+                          ? 'This task is complete, so it can no longer be sent back for review.'
+                          : 'Unapprove to send it back for review — it will be un-assigned until someone approves it again.'}
+                      </p>
+                    </div>
+                  </div>
+                  {!done ? (
+                    <button
+                      onClick={() => void setApproval(false)}
+                      disabled={approving}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-50"
+                    >
+                      {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />}
+                      Unapprove
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
 

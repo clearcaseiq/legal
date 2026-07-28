@@ -4521,6 +4521,108 @@ describe('HTTP operations regressions', () => {
     })
   })
 
+  it('POST /v1/attorney-dashboard/leads/:leadId/tasks/:id/unapprove sends the task back to review un-assigned', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValueOnce({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignmentType: 'shared',
+      assignedAttorneyId: null,
+    } as any)
+    vi.mocked(prisma.caseTask.findUnique).mockResolvedValue({
+      id: 'task-1',
+      assessmentId: 'asm-1',
+      reviewStatus: 'approved',
+      status: 'open',
+    } as any)
+    vi.mocked(prisma.caseTask.update).mockResolvedValue({ id: 'task-1', reviewStatus: 'pending' } as any)
+
+    await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-1/tasks/task-1/unapprove')
+      .set('Authorization', 'Bearer attorney')
+      .expect(200)
+
+    // Un-assigned as well as relabelled, so the task is genuinely parked rather
+    // than still sitting in someone's queue.
+    expect(vi.mocked(prisma.caseTask.update).mock.calls[0]?.[0]).toMatchObject({
+      where: { id: 'task-1' },
+      data: {
+        reviewStatus: 'pending',
+        reviewedById: null,
+        reviewedByName: null,
+        reviewedAt: null,
+        assignedUserId: null,
+        assignedTo: null,
+      },
+    })
+  })
+
+  it('POST /v1/attorney-dashboard/leads/:leadId/tasks/:id/unapprove rejects a task that was never approved', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValueOnce({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignmentType: 'shared',
+      assignedAttorneyId: null,
+    } as any)
+    // No reviewStatus at all: created by hand, never gated, nothing to take back.
+    vi.mocked(prisma.caseTask.findUnique).mockResolvedValue({
+      id: 'task-1',
+      assessmentId: 'asm-1',
+      reviewStatus: null,
+      status: 'open',
+    } as any)
+
+    await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-1/tasks/task-1/unapprove')
+      .set('Authorization', 'Bearer attorney')
+      .expect(400)
+
+    expect(prisma.caseTask.update).not.toHaveBeenCalled()
+  })
+
+  it('POST /v1/attorney-dashboard/leads/:leadId/tasks/:id/unapprove refuses to reopen review on a completed task', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValueOnce({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignmentType: 'shared',
+      assignedAttorneyId: null,
+    } as any)
+    vi.mocked(prisma.caseTask.findUnique).mockResolvedValue({
+      id: 'task-1',
+      assessmentId: 'asm-1',
+      reviewStatus: 'approved',
+      status: 'done',
+    } as any)
+
+    await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-1/tasks/task-1/unapprove')
+      .set('Authorization', 'Bearer attorney')
+      .expect(400)
+
+    expect(prisma.caseTask.update).not.toHaveBeenCalled()
+  })
+
+  it('POST /v1/attorney-dashboard/leads/:leadId/tasks/:id/unapprove will not touch a task on another case', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValueOnce({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignmentType: 'shared',
+      assignedAttorneyId: null,
+    } as any)
+    vi.mocked(prisma.caseTask.findUnique).mockResolvedValue({
+      id: 'task-1',
+      assessmentId: 'asm-other',
+      reviewStatus: 'approved',
+      status: 'open',
+    } as any)
+
+    await request(app)
+      .post('/v1/attorney-dashboard/leads/lead-1/tasks/task-1/unapprove')
+      .set('Authorization', 'Bearer attorney')
+      .expect(404)
+
+    expect(prisma.caseTask.update).not.toHaveBeenCalled()
+  })
+
   it('POST /v1/attorney-dashboard/leads/:leadId/tasks/sol stores compact task payload', async () => {
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValueOnce({
       id: 'lead-1',

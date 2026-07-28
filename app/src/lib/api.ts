@@ -2538,6 +2538,12 @@ export async function approveAllLeadTasks(leadId: string) {
   return data as { ok: boolean; approved: number }
 }
 
+// Take back an approval: the task returns to pending review and is un-assigned.
+export async function unapproveLeadTask(leadId: string, taskId: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/tasks/${taskId}/unapprove`)
+  return data
+}
+
 // ---- Task detail view (MyCase-style modal) ----------------------------------
 
 export interface TaskSubtask {
@@ -2562,6 +2568,8 @@ export interface TaskDetail {
   reminderAt?: string | null
   status?: string | null
   reviewStatus?: string | null
+  reviewedByName?: string | null
+  reviewedAt?: string | null
   priority?: string | null
   notes?: string | null
   subtasks: TaskSubtask[]

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BadgeCheck, CheckCircle2, Circle, HelpCircle, ListChecks, Loader2, Plus, ShieldAlert, Sparkles, Trash2, X } from 'lucide-react'
+import { BadgeCheck, CheckCircle2, Circle, HelpCircle, ListChecks, Loader2, Plus, ShieldAlert, Sparkles, Trash2, Undo2, X } from 'lucide-react'
 import {
   getAttorneyTaskSummary,
   getAttorneyDashboard,
@@ -7,6 +7,7 @@ import {
   updateLeadTask,
   deleteLeadTask,
   approveLeadTask,
+  unapproveLeadTask,
   getMyWorkflowTasks,
   type MyWorkflowTask,
 } from '../../lib/api'
@@ -330,18 +331,24 @@ export default function TasksPage() {
     }
   }
 
-  const approveTask = async (row: TaskRow) => {
+  const setTaskApproval = async (row: TaskRow, approved: boolean) => {
     if (!row.leadId) {
-      flash('err', 'Cannot approve this task — missing case reference.')
+      flash('err', `Cannot ${approved ? 'approve' : 'unapprove'} this task — missing case reference.`)
       return
     }
     setBusyId(row.id)
     try {
-      await approveLeadTask(row.leadId, row.id)
+      if (approved) await approveLeadTask(row.leadId, row.id)
+      else await unapproveLeadTask(row.leadId, row.id)
       await loadTasks()
-      flash('ok', 'Task approved — it is now live and assigned.')
+      flash(
+        'ok',
+        approved
+          ? 'Task approved — it is now live and assigned.'
+          : 'Approval taken back — the task is un-assigned and back in review.',
+      )
     } catch (err: any) {
-      flash('err', err?.response?.data?.error || 'Failed to approve task.')
+      flash('err', err?.response?.data?.error || `Failed to ${approved ? 'approve' : 'unapprove'} task.`)
     } finally {
       setBusyId(null)
     }
@@ -494,12 +501,23 @@ export default function TasksPage() {
           <div className="flex items-center justify-end gap-1.5">
             {r.reviewStatus === 'pending' && r.leadId ? (
               <button
-                onClick={() => void approveTask(r)}
+                onClick={() => void setTaskApproval(r, true)}
                 disabled={busyId === r.id}
                 className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
                 title="Approve — assign it and make it live"
               >
                 <BadgeCheck className="h-3.5 w-3.5" /> Approve
+              </button>
+            ) : null}
+            {r.reviewStatus === 'approved' && r.leadId && !viewingCompleted ? (
+              <button
+                onClick={() => void setTaskApproval(r, false)}
+                disabled={busyId === r.id}
+                className="text-slate-300 transition hover:text-amber-600 disabled:opacity-50"
+                title="Unapprove — un-assign it and send it back for review"
+                aria-label="Unapprove task"
+              >
+                <Undo2 className="h-4 w-4" />
               </button>
             ) : null}
             <button
