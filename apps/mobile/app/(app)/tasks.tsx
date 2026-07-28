@@ -11,14 +11,15 @@ import {
   RefreshControl,
   TextInput,
 } from 'react-native'
-import { router, useFocusEffect } from 'expo-router'
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { createCaseTask, getApiErrorMessage, getFilteredAttorneyLeads, getTasksSummary, type TaskSummaryItem } from '../../src/lib/api'
+import { createCaseTask, getApiErrorMessage, getFilteredAttorneyLeads, getLeadTasks, getTasksSummary, type TaskSummaryItem } from '../../src/lib/api'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../src/components/ScreenState'
 import { DomainBreadcrumb } from '../../src/components/DomainBreadcrumb'
 import { colors, radii, space, shadows } from '../../src/theme/tokens'
 import { formatClaimType, leadLabel, leadMeta } from '../../src/lib/formatLead'
+import { bucketCaseTasks } from '../../src/lib/caseTasks'
 import { CalendarDatePicker, formatDateKeyLong, toDateKey } from '../../src/components/CalendarDatePicker'
 
 type Section = { title: string; data: TaskSummaryItem[] }
@@ -41,6 +42,12 @@ function sortTasksByDue(items: TaskSummaryItem[]): TaskSummaryItem[] {
 }
 
 export default function TasksScreen() {
+  // Opened from a case, this screen shows only that case's tasks; opened from
+  // the tab bar it stays the cross-case queue (CP-428, CP-422).
+  const { leadId, caseLabel } = useLocalSearchParams<{ leadId?: string; caseLabel?: string }>()
+  const scopedLeadId = typeof leadId === 'string' && leadId ? leadId : null
+  const scopedCaseLabel = typeof caseLabel === 'string' && caseLabel ? caseLabel : null
+
   const [sections, setSections] = useState<Section[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -60,7 +67,9 @@ export default function TasksScreen() {
   const load = useCallback(async () => {
     setLoadError(null)
     try {
-      const s = await getTasksSummary()
+      const s = scopedLeadId
+        ? bucketCaseTasks(await getLeadTasks(scopedLeadId), scopedLeadId)
+        : await getTasksSummary()
       const next: Section[] = []
       if (s.overdue?.length) next.push({ title: 'Overdue', data: sortTasksByDue(s.overdue) })
       if (s.today?.length) next.push({ title: 'Due today', data: sortTasksByDue(s.today) })
@@ -74,7 +83,7 @@ export default function TasksScreen() {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [])
+  }, [scopedLeadId])
 
   useFocusEffect(
     useCallback(() => {
@@ -114,6 +123,12 @@ export default function TasksScreen() {
   async function openCreateTask() {
     setCreateError(null)
     setCreateOpen(true)
+    if (scopedLeadId) {
+      // The case is fixed by the route, so skip the picker entirely. `leadLabel`
+      // reads `plaintiffName`, which is what the case screen passed through.
+      setSelectedLead({ id: scopedLeadId, plaintiffName: scopedCaseLabel })
+      return
+    }
     await loadLeads()
   }
 
@@ -154,7 +169,24 @@ export default function TasksScreen() {
         contentContainerStyle={sections.length === 0 ? styles.emptyContainer : styles.list}
         ListHeaderComponent={
           <View>
-            <DomainBreadcrumb domain="casework" title="Tasks" style={styles.header} />
+            <DomainBreadcrumb
+              domain="casework"
+              title={scopedLeadId ? (scopedCaseLabel ? `${scopedCaseLabel} · Tasks` : 'Case tasks') : 'Tasks'}
+              style={styles.header}
+            />
+            {scopedLeadId ? (
+              <TouchableOpacity
+                style={styles.scopeBanner}
+                onPress={() => router.replace('/(app)/tasks')}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Show tasks for all cases"
+              >
+                <Ionicons name="filter" size={16} color={colors.primaryDark} />
+                <Text style={styles.scopeBannerText}>This case only</Text>
+                <Text style={styles.scopeBannerAction}>View all cases</Text>
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               style={styles.createButton}
               onPress={() => { void openCreateTask() }}
@@ -184,7 +216,9 @@ export default function TasksScreen() {
         >
           <Text style={styles.taskTitle}>{item.title}</Text>
           <Text style={styles.meta}>
-            {item.claimType ? formatClaimType(item.claimType) : 'Case'} · Due {formatDue(item.dueDate)}
+            {[item.claimType ? formatClaimType(item.claimType) : null, `Due ${formatDue(item.dueDate)}`]
+              .filter(Boolean)
+              .join(' · ')}
           </Text>
           <View style={styles.row}>
             <Text style={styles.openCase}>Open case</Text>
@@ -196,7 +230,11 @@ export default function TasksScreen() {
         <View style={styles.empty}>
           <Ionicons name="checkbox-outline" size={48} color={colors.muted} />
           <Text style={styles.emptyTitle}>No open tasks</Text>
-          <Text style={styles.emptySub}>Tasks created on your cases will show due dates here.</Text>
+          <Text style={styles.emptySub}>
+            {scopedLeadId
+              ? 'This case has no open tasks. Create one to track the next step.'
+              : 'Tasks created on your cases will show due dates here.'}
+          </Text>
         </View>
       }
       />
@@ -217,13 +255,23 @@ export default function TasksScreen() {
           <View style={styles.form}>
             {createError ? <InlineErrorBanner message={createError} onAction={() => setCreateError(null)} actionLabel="Dismiss" /> : null}
             <Text style={styles.label}>Case</Text>
-            <TouchableOpacity style={styles.caseSelector} onPress={() => setLeadPickerOpen(true)} activeOpacity={0.85}>
-              <View style={styles.caseSelectorCopy}>
-                <Text style={styles.caseName}>{selectedLead ? leadLabel(selectedLead) : 'Select a case'}</Text>
-                {selectedLead ? <Text style={styles.caseMeta}>{leadMeta(selectedLead)}</Text> : null}
+            {scopedLeadId ? (
+              <View style={[styles.caseSelector, styles.caseSelectorFixed]}>
+                <View style={styles.caseSelectorCopy}>
+                  <Text style={styles.caseName}>{scopedCaseLabel || 'This case'}</Text>
+                  <Text style={styles.caseMeta}>Tasks you add here stay on this case</Text>
+                </View>
+                <Ionicons name="lock-closed-outline" size={18} color={colors.muted} />
               </View>
-              <Ionicons name="chevron-down" size={20} color={colors.primary} />
-            </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.caseSelector} onPress={() => setLeadPickerOpen(true)} activeOpacity={0.85}>
+                <View style={styles.caseSelectorCopy}>
+                  <Text style={styles.caseName}>{selectedLead ? leadLabel(selectedLead) : 'Select a case'}</Text>
+                  {selectedLead ? <Text style={styles.caseMeta}>{leadMeta(selectedLead)}</Text> : null}
+                </View>
+                <Ionicons name="chevron-down" size={20} color={colors.primary} />
+              </TouchableOpacity>
+            )}
 
             <Text style={[styles.label, styles.fieldGap]}>Task title</Text>
             <TextInput
@@ -384,6 +432,20 @@ const styles = StyleSheet.create({
     ...shadows.soft,
   },
   createButtonText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  scopeBanner: {
+    marginTop: space.md,
+    minHeight: 44,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+    paddingHorizontal: space.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  scopeBannerText: { flex: 1, fontSize: 13, fontWeight: '700', color: colors.textSecondary },
+  scopeBannerAction: { fontSize: 13, fontWeight: '800', color: colors.primary },
   sectionHeader: { paddingTop: space.md, paddingBottom: space.sm, backgroundColor: colors.surface },
   sectionTitle: {
     fontSize: 13,
@@ -443,6 +505,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: colors.card,
   },
+  caseSelectorFixed: { backgroundColor: colors.surface },
   caseSelectorCopy: { flex: 1 },
   caseName: { fontSize: 16, fontWeight: '800', color: colors.text },
   caseMeta: { marginTop: 3, fontSize: 13, color: colors.textSecondary },

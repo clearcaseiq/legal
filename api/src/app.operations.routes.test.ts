@@ -3249,6 +3249,8 @@ describe('HTTP operations regressions', () => {
       facts: JSON.stringify({ consents: { hipaa: true } }),
     } as any)
     vi.mocked(prisma.evidenceFile.count).mockResolvedValue(0 as any)
+    // The plaintiff has this one case, so an unattached upload is unambiguous.
+    vi.mocked(prisma.assessment.count).mockResolvedValue(1 as any)
     vi.mocked(prisma.evidenceFile.findMany).mockResolvedValue([
       {
         id: 'ef-1',
@@ -3290,36 +3292,57 @@ describe('HTTP operations regressions', () => {
       where: {
         assessmentId: null,
         userId: 'plaintiff-user-1',
-        createdAt: { gte: new Date('2026-03-25T00:00:00.000Z') },
+        createdAt: {
+          gte: new Date('2026-03-25T00:00:00.000Z'),
+          lte: new Date('2026-04-08T00:00:00.000Z'),
+        },
       },
       data: { assessmentId: 'asm-1' },
     })
-    expect(vi.mocked(prisma.evidenceFile.findMany).mock.calls[0]?.[0]).toEqual({
-      where: {
-        OR: [
-          { assessmentId: 'asm-1' },
-          { userId: 'plaintiff-user-1' },
-        ],
-      },
-      select: {
-        id: true,
-        userId: true,
-        assessmentId: true,
-        originalName: true,
-        filename: true,
-        mimetype: true,
-        size: true,
-        fileUrl: true,
-        category: true,
-        subcategory: true,
-        description: true,
-        dataType: true,
-        processingStatus: true,
-        isVerified: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+    // Strictly this case. Matching the plaintiff's userId too used to return
+    // every file they had ever uploaded, on any case (CP-431).
+    expect(vi.mocked(prisma.evidenceFile.findMany).mock.calls[0]?.[0]).toMatchObject({
+      where: { assessmentId: 'asm-1' },
       orderBy: { createdAt: 'desc' },
+    })
+    expect(vi.mocked(prisma.evidenceFile.findMany).mock.calls[0]?.[0]?.where).toEqual({
+      assessmentId: 'asm-1',
+    })
+  })
+
+  it('GET /v1/attorney-dashboard/leads/:leadId/evidence does not adopt orphan uploads when the plaintiff has several cases', async () => {
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValueOnce({
+      id: 'attorney-record-1',
+      email: 'attorney@example.com',
+      name: 'Ari Attorney',
+      lawFirmId: 'firm-1',
+    } as any)
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignmentType: 'shared',
+      assignedAttorneyId: null,
+    } as any)
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      userId: 'plaintiff-user-1',
+      createdAt: new Date('2026-04-01T00:00:00.000Z'),
+      facts: JSON.stringify({ consents: { hipaa: true } }),
+    } as any)
+    // No files on this case, but the plaintiff has three cases, so an orphan
+    // upload could belong to any of them and must not be claimed here (CP-415).
+    vi.mocked(prisma.evidenceFile.count).mockResolvedValue(0 as any)
+    vi.mocked(prisma.assessment.count).mockResolvedValue(3 as any)
+    vi.mocked(prisma.evidenceFile.findMany).mockResolvedValue([] as any)
+
+    const res = await request(app)
+      .get('/v1/attorney-dashboard/leads/lead-1/evidence')
+      .set('Authorization', 'Bearer attorney')
+      .expect(200)
+
+    expect(res.body).toEqual([])
+    expect(prisma.evidenceFile.updateMany).not.toHaveBeenCalled()
+    expect(vi.mocked(prisma.evidenceFile.findMany).mock.calls[0]?.[0]?.where).toEqual({
+      assessmentId: 'asm-1',
     })
   })
 

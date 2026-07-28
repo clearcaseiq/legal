@@ -864,6 +864,30 @@ export async function getTasksSummary(): Promise<TasksSummaryResponse> {
   return data
 }
 
+// Tasks (single case)
+export type CaseTaskRow = {
+  id: string
+  assessmentId: string
+  title: string
+  taskType: string
+  dueDate: string | null
+  status: string
+  priority: string
+  notes?: string | null
+  reviewStatus?: string | null
+  completedAt?: string | null
+}
+
+/**
+ * Tasks for one case. The cross-case summary is capped at 300 rows server-side,
+ * so a case-scoped view has to read the per-case route to be certain it shows
+ * that case's tasks and nothing else (CP-428).
+ */
+export async function getLeadTasks(leadId: string): Promise<CaseTaskRow[]> {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/tasks`)
+  return Array.isArray(data) ? data : []
+}
+
 export async function createCaseTask(
   leadId: string,
   payload: {

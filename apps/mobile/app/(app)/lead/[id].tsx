@@ -49,7 +49,7 @@ import { DEFAULT_INTRO_TEMPLATE } from '../../../src/lib/quickReplies'
 import { addEventToCalendar } from '../../../src/lib/addToCalendar'
 import { DECLINE_REASONS, type DeclineReasonCode } from '../../../src/constants/declineReasons'
 import { colors, radii, space, shadows } from '../../../src/theme/tokens'
-import { formatClaimType, formatLifecycleState, formatStatus, parseFacts } from '../../../src/lib/formatLead'
+import { formatClaimType, formatLifecycleState, formatStatus, leadLabel, parseFacts } from '../../../src/lib/formatLead'
 
 const PIPELINE_STATUSES = [
   { value: 'contacted', label: 'Contacted' },
@@ -281,6 +281,8 @@ export default function LeadDetailScreen() {
   const openedAtRaw = lead?.submittedAt || assessment?.createdAt || lead?.createdAt || null
   const retainedAtRaw = lead?.retainedAt || null
   const stageLabelText = lifecycleLabel || formatStatus(lead?.status) || 'No stage'
+  // Passed to the tasks screen so it can title itself without refetching the case.
+  const caseTasksLabel = lead ? leadLabel(lead) : ''
   const daysOpen = useMemo(() => {
     if (!openedAtRaw) return null
     const opened = new Date(openedAtRaw).getTime()
@@ -637,7 +639,11 @@ export default function LeadDetailScreen() {
             <Ionicons name="calendar-outline" size={18} color={colors.primary} />
             <Text style={styles.quickLinkText}>Schedule</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.quickLink} onPress={() => router.push('/(app)/tasks')} activeOpacity={0.85}>
+          <TouchableOpacity
+            style={styles.quickLink}
+            onPress={() => id && router.push({ pathname: '/(app)/tasks', params: { leadId: id, caseLabel: caseTasksLabel } })}
+            activeOpacity={0.85}
+          >
             <Ionicons name="checkbox-outline" size={18} color={colors.primary} />
             <Text style={styles.quickLinkText}>Tasks</Text>
           </TouchableOpacity>
@@ -807,7 +813,7 @@ export default function LeadDetailScreen() {
             <View style={styles.sectionHeader}>
               <Text style={styles.overviewLabel}>Tasks (next 30 days)</Text>
               <TouchableOpacity
-                onPress={() => router.push('/(app)/tasks')}
+                onPress={() => id && router.push({ pathname: '/(app)/tasks', params: { leadId: id, caseLabel: caseTasksLabel } })}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 activeOpacity={0.7}
               >
@@ -821,7 +827,7 @@ export default function LeadDetailScreen() {
                   <TouchableOpacity
                     key={task.id}
                     style={styles.taskRow}
-                    onPress={() => router.push('/(app)/tasks')}
+                    onPress={() => id && router.push({ pathname: '/(app)/tasks', params: { leadId: id, caseLabel: caseTasksLabel } })}
                     activeOpacity={0.85}
                   >
                     <Ionicons

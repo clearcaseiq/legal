@@ -1005,6 +1005,11 @@ const caseTaskSelect = {
   updatedAt: true,
 } as const
 
+// How far either side of intake an unattached plaintiff upload may sit and still
+// be treated as belonging to that intake. See the orphan recovery in
+// `GET /leads/:leadId/evidence`.
+const EVIDENCE_ORPHAN_WINDOW_DAYS = 7
+
 const billingInvoiceSelect = {
   id: true,
   assessmentId: true,
@@ -6502,35 +6507,39 @@ router.get('/leads/:leadId/evidence', authMiddleware, async (req: any, res) => {
       select: { userId: true, createdAt: true, facts: true }
     })
 
-    // Backfill: link unassigned plaintiff uploads to this assessment (recent window)
+    // Legacy recovery: a few early plaintiff uploads were stored without an
+    // assessmentId. Adopt those orphans onto this case only when the plaintiff
+    // has exactly one assessment, because with two or more there is no way to
+    // tell which case a file belongs to and guessing hands one case's documents
+    // to another (CP-415).
     if (assessment?.userId) {
-      const existingCount = await prisma.evidenceFile.count({
-        where: { assessmentId: lead.assessmentId }
-      })
+      const [existingCount, plaintiffAssessmentCount] = await Promise.all([
+        prisma.evidenceFile.count({ where: { assessmentId: lead.assessmentId } }),
+        prisma.assessment.count({ where: { userId: assessment.userId } }),
+      ])
 
-      if (existingCount === 0) {
-        const createdAt = assessment.createdAt
-        const windowStart = new Date(createdAt)
-        windowStart.setDate(windowStart.getDate() - 7)
+      if (existingCount === 0 && plaintiffAssessmentCount === 1) {
+        const windowStart = new Date(assessment.createdAt)
+        windowStart.setDate(windowStart.getDate() - EVIDENCE_ORPHAN_WINDOW_DAYS)
+        const windowEnd = new Date(assessment.createdAt)
+        windowEnd.setDate(windowEnd.getDate() + EVIDENCE_ORPHAN_WINDOW_DAYS)
 
         await prisma.evidenceFile.updateMany({
           where: {
             assessmentId: null,
             userId: assessment.userId,
-            createdAt: { gte: windowStart }
+            createdAt: { gte: windowStart, lte: windowEnd }
           },
           data: { assessmentId: lead.assessmentId }
         })
       }
     }
 
+    // Scope strictly to this case. Matching on the plaintiff's userId as well
+    // returned every file they had ever uploaded, across every case and every
+    // attorney (CP-431).
     const evidenceFiles = await prisma.evidenceFile.findMany({
-      where: {
-        OR: [
-          { assessmentId: lead.assessmentId },
-          ...(assessment?.userId ? [{ userId: assessment.userId }] : [])
-        ]
-      },
+      where: { assessmentId: lead.assessmentId },
       select: {
         id: true,
         userId: true,
