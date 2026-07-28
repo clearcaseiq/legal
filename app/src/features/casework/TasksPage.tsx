@@ -28,6 +28,7 @@ import TaskOriginBadge, { PendingReviewBadge } from './TaskOriginBadge'
 import MergeTasksDialog from './MergeTasksDialog'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { formatClaimType } from '../../lib/claimTypes'
+import { caseCaptionOf } from '../../lib/caseName'
 
 interface TaskRow {
   id: string
@@ -225,9 +226,8 @@ export default function TasksPage() {
         if (cancelled) return
         const opts = ((dash?.recentLeads as any[]) || [])
           .map((l) => {
-            const u = l?.assessment?.user
-            const name = u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : ''
             const venue = [l?.assessment?.venueCounty, l?.assessment?.venueState].filter(Boolean).join(', ')
+            const name = caseCaptionOf(l?.assessment)
             const label = `${claimLabel(l?.assessment?.claimType)} — ${name || venue || 'Case'}`
             return { id: l.id as string, label }
           })

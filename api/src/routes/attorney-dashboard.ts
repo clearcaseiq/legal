@@ -9,6 +9,7 @@ import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { webUrl } from '../lib/app-url'
 import { taskCreatorName } from '../lib/ai-author'
+import { MAX_CASE_NAME_LENGTH, normalizeCaseName, plaintiffNameOf, resolveCaseName } from '../lib/case-name'
 import { buildMergedSurvivor, reminderMessagesFor, validateMerge } from '../lib/task-merge'
 import { runAnalysisForAssessment } from './evidence'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
@@ -283,15 +284,24 @@ async function getAttorneyFromReq(req: any) {
 /**
  * Non-attorney firm staff (paralegals, case managers) have a User + FirmMember
  * but no Attorney row. When a workflow step is assigned to them they must be
- * able to open the case, so read-only callers can opt into this fallback
- * instead of dead-ending on "Attorney profile not found" (CP-332).
+ * able to open the case, so callers can opt into this fallback instead of
+ * dead-ending on "Attorney profile not found" (CP-332).
+ *
+ * Reads accept a pending invitation, which is deliberate: an invited colleague
+ * should be able to look at the case they were brought in for. Writes must pass
+ * `activeOnly`, so someone who was merely invited cannot change case data before
+ * accepting.
  */
-async function getFirmMemberLeadAccess(req: any, lead: { assessmentId: string }) {
+async function getFirmMemberLeadAccess(
+  req: any,
+  lead: { assessmentId: string },
+  options: { activeOnly?: boolean } = {}
+) {
   const userId = req.user?.id
   if (!userId) return null
 
   const member = await (prisma as any).firmMember.findFirst({
-    where: { userId, status: { in: ['active', 'invited'] } },
+    where: { userId, status: { in: options.activeOnly ? ['active'] : ['active', 'invited'] } },
     select: { id: true, lawFirmId: true, role: true }
   })
   if (!member) return null
@@ -312,7 +322,9 @@ async function getFirmMemberLeadAccess(req: any, lead: { assessmentId: string })
 async function getAuthorizedLead(
   req: any,
   leadId: string,
-  options: { allowFirmMember?: boolean } = {}
+  // `firmMemberWrite` narrows the non-attorney fallback to accepted members, for
+  // endpoints that change case data rather than just read it.
+  options: { allowFirmMember?: boolean; firmMemberWrite?: boolean } = {}
 ) {
   if (!req.user?.email) {
     return { error: { status: 401, message: 'Authentication required' } }
@@ -328,7 +340,7 @@ async function getAuthorizedLead(
       if (!lead) {
         return { error: { status: 404, message: 'Lead not found' } }
       }
-      const firmMember = await getFirmMemberLeadAccess(req, lead)
+      const firmMember = await getFirmMemberLeadAccess(req, lead, { activeOnly: options.firmMemberWrite })
       if (firmMember) {
         return { attorney: null as any, firmMember, lead }
       }
@@ -3920,6 +3932,7 @@ router.get('/fees/ytd', authMiddleware, async (req: any, res) => {
       assessment: {
         select: {
           claimType: true,
+          caseName: true,
           user: { select: { firstName: true, lastName: true } },
         },
       },
@@ -3945,11 +3958,8 @@ router.get('/fees/ytd', authMiddleware, async (req: any, res) => {
       string,
       { leadId: string; claimType?: string | null; clientName: string | null }
     >()
-    const nameOf = (l: (typeof assignedLeads)[number]) => {
-      const u = l.assessment?.user
-      const name = `${u?.firstName ?? ''} ${u?.lastName ?? ''}`.trim()
-      return name || null
-    }
+    const nameOf = (l: (typeof assignedLeads)[number]) =>
+      l.assessment ? resolveCaseName(l.assessment, '') || null : null
     for (const l of assignedLeads) {
       byAssessment.set(l.assessmentId, { leadId: l.id, claimType: l.assessment?.claimType, clientName: nameOf(l) })
     }
@@ -4142,6 +4152,7 @@ async function attorneyCaseloadByAssessment(attorneyId: string) {
     assessment: {
       select: {
         claimType: true,
+        caseName: true,
         venueState: true,
         venueCounty: true,
         user: { select: { firstName: true, lastName: true } },
@@ -4168,12 +4179,10 @@ async function attorneyCaseloadByAssessment(attorneyId: string) {
   >()
   const add = (l: (typeof assignedLeads)[number]) => {
     if (byAssessment.has(l.assessmentId)) return
-    const u = l.assessment?.user
-    const client = u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : ''
     const venue = [l.assessment?.venueCounty, l.assessment?.venueState].filter(Boolean).join(', ')
     byAssessment.set(l.assessmentId, {
       leadId: l.id,
-      client: client || 'Client',
+      client: l.assessment ? resolveCaseName(l.assessment, 'Client') : 'Client',
       claimType: l.assessment?.claimType ?? null,
       venue: venue || null,
     })
@@ -4383,6 +4392,7 @@ router.get('/deadlines', authMiddleware, async (req: any, res) => {
       select: {
         id: true,
         claimType: true,
+        caseName: true,
         venueState: true,
         facts: true,
         user: { select: { firstName: true, lastName: true } },
@@ -4418,8 +4428,10 @@ router.get('/deadlines', authMiddleware, async (req: any, res) => {
     }
     const items: DeadlineItem[] = []
 
-    const clientNameOf = (u?: { firstName: string; lastName: string } | null) =>
-      u ? `${u.firstName} ${u.lastName}`.trim() : 'Unknown client'
+    // Deadline rows are captions (they link into the case), so they show the
+    // case name rather than strictly the client's name.
+    const clientNameOf = (a?: (typeof assessments)[number] | null) =>
+      a ? resolveCaseName(a, 'Unknown client') : 'Unknown client'
 
     const severityFor = (days: number): DeadlineItem['severity'] => {
       if (days < 0) return 'expired'
@@ -4430,7 +4442,7 @@ router.get('/deadlines', authMiddleware, async (req: any, res) => {
     for (const a of assessments) {
       const leadId = leadByAssessment.get(a.id)
       if (!leadId) continue
-      const clientName = clientNameOf(a.user)
+      const clientName = clientNameOf(a)
       let facts: any = {}
       try {
         facts = a.facts ? JSON.parse(a.facts) : {}
@@ -4475,7 +4487,7 @@ router.get('/deadlines', authMiddleware, async (req: any, res) => {
         id: t.id,
         kind: 'task',
         leadId,
-        clientName: clientNameOf(assessment?.user),
+        clientName: clientNameOf(assessment),
         claimType: assessment?.claimType ?? null,
         title: t.title,
         dueDate: t.dueDate.toISOString(),
@@ -4526,6 +4538,7 @@ router.get('/search', authMiddleware, async (req: any, res) => {
         assessment: {
           select: {
             claimType: true,
+            caseName: true,
             venueCounty: true,
             venueState: true,
             user: { select: { firstName: true, lastName: true, email: true, phone: true } },
@@ -4554,12 +4567,17 @@ router.get('/search', authMiddleware, async (req: any, res) => {
       const client = fullName(a.user?.firstName, a.user?.lastName) || 'Client'
       const claim = humanize(a.claimType)
       const venue = [a.venueCounty, a.venueState].filter(Boolean).join(', ')
-      if (matches(client, claim, a.claimType, venue, lead.status)) {
+      // Match on the caption *and* the plaintiff name: an attorney who renamed a
+      // case to "Rivera v. Delgado" still searches for it by the client's name.
+      if (matches(a.caseName, client, claim, a.claimType, venue, lead.status)) {
         cases.push({
           id: lead.id,
           leadId: lead.id,
-          title: client,
-          subtitle: [claim, venue, humanize(lead.status)].filter(Boolean).join(' · '),
+          title: resolveCaseName(a, 'Client'),
+          // Keep the client's name visible when a caption replaced it in the title.
+          subtitle: [a.caseName && client !== 'Client' ? client : null, claim, venue, humanize(lead.status)]
+            .filter(Boolean)
+            .join(' · '),
           href: `/attorney-dashboard/cases/${lead.id}/overview`,
         })
       }
@@ -4737,6 +4755,7 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
             assessment: {
               select: {
                 claimType: true,
+                caseName: true,
                 user: { select: { firstName: true, lastName: true } },
               },
             },
@@ -4779,8 +4798,8 @@ router.get('/document-requests', authMiddleware, async (req: any, res) => {
       } catch {
         requested = []
       }
-      const u = r.lead?.assessment?.user
-      const clientName = [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || null
+      // Labels the case in the documents list, so it takes the caption.
+      const clientName = r.lead?.assessment ? resolveCaseName(r.lead.assessment, '') || null : null
 
       // For plaintiff requests, surface the greater of persisted vs freshly-computed
       // status so a client's upload is reflected immediately (never regress).
@@ -4850,6 +4869,7 @@ router.get('/document-envelopes', authMiddleware, async (req: any, res) => {
             assessment: {
               select: {
                 claimType: true,
+                caseName: true,
                 user: { select: { firstName: true, lastName: true } },
               },
             },
@@ -4861,8 +4881,9 @@ router.get('/document-envelopes', authMiddleware, async (req: any, res) => {
     })
 
     const parsed = rows.map((r) => {
-      const u = r.lead?.assessment?.user
-      const clientName = [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() || null
+      // Labels the case in the envelopes list, so it takes the caption. The
+      // signer's own name stays on `signerName`.
+      const clientName = r.lead?.assessment ? resolveCaseName(r.lead.assessment, '') || null : null
       return {
         id: r.id,
         leadId: r.leadId,
@@ -13152,6 +13173,10 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
             venueState: assessment.venueState,
             venueCounty: assessment.venueCounty,
             status: assessment.status,
+            // The attorney's caption, or null when the case has never been
+            // renamed. Clients resolve the fallback themselves so the raw value
+            // is what tells them whether a caption exists.
+            caseName: assessment.caseName ?? null,
             facts: assessment.facts,
             sceneImageUrl: assessment.sceneImageUrl,
             sceneImageStatus,
@@ -13170,6 +13195,68 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
   } catch (error: any) {
     logger.error('Failed to get lead', { error: error.message })
     res.status(500).json({ error: 'Failed to get lead' })
+  }
+})
+
+/**
+ * Rename a case.
+ *
+ * Attorneys name a matter by its caption ("Rivera v. Delgado Trucking"), which
+ * cannot be derived: no defendant name is stored anywhere, so this is free text.
+ * Sending an empty string clears the caption and the case reverts to the label
+ * it always had (plaintiff name, then claim type).
+ *
+ * `allowFirmMember` is set because case managers and paralegals are the ones who
+ * usually keep captions tidy. `firmMemberWrite` narrows that to members who have
+ * accepted their invitation, since this writes case data. The fallback returns
+ * no Attorney row, so nothing here may assume one.
+ */
+router.patch('/leads/:leadId/case-name', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    if (!('caseName' in (req.body || {}))) {
+      return res.status(400).json({ error: 'caseName is required' })
+    }
+    const raw = req.body.caseName
+    if (raw !== null && typeof raw !== 'string') {
+      return res.status(400).json({ error: 'caseName must be a string' })
+    }
+    if (typeof raw === 'string' && raw.length > MAX_CASE_NAME_LENGTH * 4) {
+      // Guard the payload itself; normalizeCaseName truncates the rest.
+      return res.status(400).json({ error: `Case name must be ${MAX_CASE_NAME_LENGTH} characters or fewer` })
+    }
+
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead, attorney } = auth
+
+    const caseName = normalizeCaseName(raw)
+    const assessment = await prisma.assessment.update({
+      where: { id: lead.assessmentId },
+      data: { caseName },
+      select: { id: true, caseName: true, claimType: true, user: { select: { firstName: true, lastName: true } } },
+    })
+
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: attorney?.id ?? null,
+      action: caseName ? 'case_renamed' : 'case_name_cleared',
+      entityType: 'assessment',
+      entityId: assessment.id,
+      metadata: { leadId, caseName },
+    })
+
+    res.json({
+      leadId,
+      assessmentId: assessment.id,
+      caseName: assessment.caseName,
+      caseDisplayName: resolveCaseName(assessment),
+    })
+  } catch (error: any) {
+    logger.error('Failed to update case name', { error: error.message, leadId: req.params.leadId })
+    res.status(500).json({ error: 'Failed to update case name' })
   }
 })
 
@@ -13343,14 +13430,16 @@ router.post('/leads/:leadId/decision', authMiddleware, async (req: any, res) => 
       try {
         const assessment = await prisma.assessment.findUnique({
           where: { id: existingLead.assessmentId },
-          select: { claimType: true, user: { select: { firstName: true, lastName: true } } },
+          select: { claimType: true, caseName: true, user: { select: { firstName: true, lastName: true } } },
         })
-        const claimantName = assessment?.user
-          ? `${assessment.user.firstName || ''} ${assessment.user.lastName || ''}`.trim()
-          : ''
-        const caseLabel = claimantName
-          ? `${claimantName}'s case`
-          : `case ${existingLead.assessmentId.slice(0, 8)}`
+        // A caption already reads as the case itself ("Rivera v. Delgado
+        // Trucking"), so only a person's name takes the possessive. The claim
+        // type is deliberately not used here — "Motor Vehicle's case" reads
+        // worse than the neutral id label.
+        const caption = assessment ? normalizeCaseName(assessment.caseName) : null
+        const claimantName = assessment ? plaintiffNameOf(assessment) : null
+        const caseLabel =
+          caption ?? (claimantName ? `${claimantName}'s case` : `case ${existingLead.assessmentId.slice(0, 8)}`)
         await notifyAdmins({
           subject: 'Attorney declined a routed case',
           message:
@@ -14572,7 +14661,12 @@ router.get('/activity', authMiddleware, async (req: any, res) => {
       allAssessmentIds.length
         ? prisma.assessment.findMany({
             where: { id: { in: allAssessmentIds } },
-            select: { id: true, claimType: true, user: { select: { firstName: true, lastName: true } } },
+            select: {
+              id: true,
+              claimType: true,
+              caseName: true,
+              user: { select: { firstName: true, lastName: true } },
+            },
           })
         : Promise.resolve([] as any[]),
     ])
@@ -14580,8 +14674,7 @@ router.get('/activity', authMiddleware, async (req: any, res) => {
     for (const l of leads) if (l.assessmentId) leadIdByAssessment.set(l.assessmentId, l.id)
     const caseInfoByAssessment = new Map<string, { name: string; claimType: string | null }>()
     for (const a of assessments) {
-      const name = `${a.user?.firstName || ''} ${a.user?.lastName || ''}`.trim() || 'Case'
-      caseInfoByAssessment.set(a.id, { name, claimType: a.claimType || null })
+      caseInfoByAssessment.set(a.id, { name: resolveCaseName(a), claimType: a.claimType || null })
     }
 
     const serialize = (c: (typeof mentionComments)[number]) => {

@@ -100,6 +100,8 @@ import MergeTasksDialog from './MergeTasksDialog'
 import { BackButton, EmptyState } from '../shared/ui'
 import { recordRecentCase } from './recentCases'
 import { formatClaimType } from '../../lib/claimTypes'
+import { resolveCaseName, suggestedCaseName } from '../../lib/caseName'
+import CaseNameEditor from './CaseNameEditor'
 
 function claimLabel(type?: string) {
   return type ? formatClaimType(type) : 'Other'
@@ -306,6 +308,11 @@ interface TaskRow {
 
 interface CaseDetailVM {
   assessmentId: string | null
+  /** The caption to display. Falls back to the client's name when none is set. */
+  caseName: string
+  /** The stored caption, or null when the case has never been renamed. */
+  customCaseName: string | null
+  /** The client's actual name. Keep using this for anything addressing them. */
   client: string
   clientEmail: string
   phone: string
@@ -448,6 +455,8 @@ export default function CaseWorkspacePage() {
     const claimType = a.claimType || ''
     return {
       assessmentId: lead.assessmentId || a.id || null,
+      caseName: resolveCaseName(a, 'Client'),
+      customCaseName: a.caseName ?? null,
       client: [user.firstName, user.lastName].filter(Boolean).join(' ') || 'Client',
       clientEmail: user.email || '',
       phone: user.phone || '—',
@@ -534,11 +543,25 @@ export default function CaseWorkspacePage() {
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h1 className="text-lg font-bold text-slate-900">
-                  {detail.client} <span className="font-normal text-slate-400">—</span>{' '}
+                <CaseNameEditor
+                  leadId={leadId}
+                  displayName={detail.caseName}
+                  customName={detail.customCaseName}
+                  suggestion={suggestedCaseName(lead?.assessment)}
+                  onSaved={({ caseName }) =>
+                    setLead((prev: any) =>
+                      prev ? { ...prev, assessment: { ...(prev.assessment || {}), caseName } } : prev,
+                    )
+                  }
+                />
+                <p className="mt-0.5 text-sm">
                   <span className="font-semibold text-slate-700">{detail.type}</span>
-                  <span className="font-normal text-slate-400"> · {detail.venue}</span>
-                </h1>
+                  <span className="text-slate-400"> · {detail.venue}</span>
+                  {/* Keep the client reachable by name once a caption replaced it above. */}
+                  {detail.customCaseName && detail.client !== 'Client' && (
+                    <span className="text-slate-400"> · {detail.client}</span>
+                  )}
+                </p>
               </div>
               <div className="flex flex-col items-end gap-2">
                 <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">

@@ -3230,6 +3230,124 @@ describe('HTTP operations regressions', () => {
     })
   })
 
+  it('PATCH /v1/attorney-dashboard/leads/:leadId/case-name stores the caption the attorney typed', async () => {
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValueOnce({
+      id: 'attorney-record-1',
+      email: 'attorney@example.com',
+      name: 'Ari Attorney',
+      lawFirmId: 'firm-1',
+    } as any)
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignmentType: 'shared',
+      assignedAttorneyId: null,
+    } as any)
+    vi.mocked(prisma.assessment.update).mockResolvedValue({
+      id: 'asm-1',
+      caseName: 'Rivera v. Delgado Trucking',
+      claimType: 'motor_vehicle',
+      user: { firstName: 'Marisol', lastName: 'Rivera' },
+    } as any)
+
+    const res = await request(app)
+      .patch('/v1/attorney-dashboard/leads/lead-1/case-name')
+      .set('Authorization', 'Bearer attorney')
+      .send({ caseName: '  Rivera   v. Delgado Trucking  ' })
+      .expect(200)
+
+    expect(res.body).toMatchObject({
+      leadId: 'lead-1',
+      assessmentId: 'asm-1',
+      caseName: 'Rivera v. Delgado Trucking',
+      caseDisplayName: 'Rivera v. Delgado Trucking',
+    })
+    expect(vi.mocked(prisma.assessment.update).mock.calls[0]?.[0]).toMatchObject({
+      where: { id: 'asm-1' },
+      data: { caseName: 'Rivera v. Delgado Trucking' },
+    })
+  })
+
+  it('PATCH /v1/attorney-dashboard/leads/:leadId/case-name clears the caption back to the client name', async () => {
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValueOnce({
+      id: 'attorney-record-1',
+      email: 'attorney@example.com',
+      name: 'Ari Attorney',
+      lawFirmId: 'firm-1',
+    } as any)
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignmentType: 'shared',
+      assignedAttorneyId: null,
+    } as any)
+    vi.mocked(prisma.assessment.update).mockResolvedValue({
+      id: 'asm-1',
+      caseName: null,
+      claimType: 'motor_vehicle',
+      user: { firstName: 'Marisol', lastName: 'Rivera' },
+    } as any)
+
+    const res = await request(app)
+      .patch('/v1/attorney-dashboard/leads/lead-1/case-name')
+      .set('Authorization', 'Bearer attorney')
+      .send({ caseName: '   ' })
+      .expect(200)
+
+    expect(res.body).toMatchObject({ caseName: null, caseDisplayName: 'Marisol Rivera' })
+    expect(vi.mocked(prisma.assessment.update).mock.calls[0]?.[0]).toMatchObject({
+      data: { caseName: null },
+    })
+  })
+
+  it('PATCH /v1/attorney-dashboard/leads/:leadId/case-name lets a case manager rename, but only once their invite is accepted', async () => {
+    // Case managers have no Attorney row, so they come through the firm-member
+    // fallback. That fallback accepts pending invitations for reads; a write
+    // must not, or an invited-but-unaccepted user could rename firm cases.
+    vi.mocked(prisma.attorney.findFirst).mockResolvedValue(null as any)
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      id: 'lead-1',
+      assessmentId: 'asm-1',
+      assignmentType: 'shared',
+      assignedAttorneyId: null,
+    } as any)
+    vi.mocked((prisma as any).firmMember.findFirst).mockResolvedValue({
+      id: 'fm-1',
+      lawFirmId: 'firm-1',
+      role: 'case_manager',
+    } as any)
+    vi.mocked((prisma as any).caseWorkflow.findUnique).mockResolvedValue({
+      lawFirmId: 'firm-1',
+      items: [],
+    } as any)
+    vi.mocked(prisma.assessment.update).mockResolvedValue({
+      id: 'asm-1',
+      caseName: 'Rivera v. Delgado Trucking',
+      claimType: 'motor_vehicle',
+      user: { firstName: 'Marisol', lastName: 'Rivera' },
+    } as any)
+
+    await request(app)
+      .patch('/v1/attorney-dashboard/leads/lead-1/case-name')
+      .set('Authorization', 'Bearer attorney')
+      .send({ caseName: 'Rivera v. Delgado Trucking' })
+      .expect(200)
+
+    expect(vi.mocked((prisma as any).firmMember.findFirst).mock.calls[0]?.[0]).toMatchObject({
+      where: { status: { in: ['active'] } },
+    })
+  })
+
+  it('PATCH /v1/attorney-dashboard/leads/:leadId/case-name rejects a request with no caseName field', async () => {
+    await request(app)
+      .patch('/v1/attorney-dashboard/leads/lead-1/case-name')
+      .set('Authorization', 'Bearer attorney')
+      .send({})
+      .expect(400)
+
+    expect(prisma.assessment.update).not.toHaveBeenCalled()
+  })
+
   it('GET /v1/attorney-dashboard/leads/:leadId/evidence returns compact evidence payload after backfill check', async () => {
     vi.mocked(prisma.attorney.findFirst).mockResolvedValueOnce({
       id: 'attorney-record-1',

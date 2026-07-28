@@ -151,9 +151,18 @@ export function parseFacts(facts: unknown): Record<string, any> | null {
   return null
 }
 
-/** Human-readable label for a lead (plaintiff name, else claim type, else short id). */
+/**
+ * Human-readable label for a lead: the case name the attorney set, else the
+ * plaintiff name, else claim type, else short id.
+ *
+ * The caption ("Rivera v. Delgado Trucking") is free text on the assessment
+ * because no defendant name is captured at intake. It comes first so a case
+ * reads the same here as it does on web.
+ */
 export function leadLabel(lead: any): string {
   const assessment = lead?.assessment || lead?.lead?.assessment || {}
+  const caseName = String(assessment.caseName ?? '').replace(/\s+/g, ' ').trim()
+  if (caseName) return caseName
   const facts = parseFacts(assessment.facts)
   const plaintiffContext = facts?.plaintiffContext || facts?.plaintiff || {}
   const plaintiff = assessment.user

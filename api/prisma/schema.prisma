@@ -145,6 +145,11 @@ model Assessment {
   venueCounty String?
   status      String  @default("DRAFT")
   facts       String  @db.Text
+  // Attorney-chosen caption, conventionally "Plaintiff v. Defendant". Free text
+  // because no defendant name is captured anywhere in intake, so the caption
+  // cannot be assembled from stored data. Null means fall back to the derived
+  // label (plaintiff name, then claim type) — see lib/case-name.ts.
+  caseName    String?
 
   // ChatGPT Analysis
   chatgptAnalysis       String?   @db.Text // JSON string of ChatGPT analysis

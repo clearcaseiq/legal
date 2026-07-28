@@ -2533,6 +2533,16 @@ export async function mergeLeadTasks(leadId: string, survivorId: string, mergedI
   return data as { id: string; title: string; mergedCount: number }
 }
 
+/**
+ * Rename a case. Attorneys caption a matter "Plaintiff v. Defendant", which is
+ * free text because no defendant name is stored anywhere. Passing an empty
+ * string clears the caption and the case reverts to the client's name.
+ */
+export async function updateCaseName(leadId: string, caseName: string) {
+  const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/case-name`, { caseName })
+  return data as { leadId: string; assessmentId: string; caseName: string | null; caseDisplayName: string }
+}
+
 export async function createLeadSolTask(leadId: string) {
   const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/tasks/sol`)
   return data

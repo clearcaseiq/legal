@@ -5,6 +5,7 @@ import { getAttorneyDashboard } from '../../lib/api'
 import { Avatar, Badge, ClientLink, DataTable, FilterBar, FilterStat, PageHeader, SectionCard, StatGrid, type BadgeTone, type DataTableColumn, type FilterField } from '../shared/ui'
 import { getPinnedCaseIds, getRecentCases, togglePinnedCase } from './recentCases'
 import { formatClaimType } from '../../lib/claimTypes'
+import { resolveLeadCaseName } from '../../lib/caseName'
 
 function claimLabel(type?: string) {
   return type ? formatClaimType(type) : 'Other'
@@ -340,8 +341,8 @@ export default function ActiveCasesPage() {
         const due = new Date(reference)
         due.setDate(due.getDate() + stage.slaDays)
         const { low, high } = readBands(lead)
-        const user = lead?.assessment?.user
-        const client = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'Client'
+        // The case's caption when the attorney set one, else the client's name.
+        const client = resolveLeadCaseName(lead, 'Client')
         const evidenceFiles = Array.isArray(lead?.assessment?.evidenceFiles) ? lead.assessment.evidenceFiles : []
         const evidenceCategories = Array.from(
           new Set(evidenceFiles.map((f: any) => String(f?.category || '')).filter(Boolean)),

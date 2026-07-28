@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { CLAIM_TYPE_LABELS, formatClaimType as sharedFormatClaimType } from '../../../../shared/claim-types'
-import { CLAIM_TYPE_LABELS_FOR_TEST, formatClaimType, isAcceptedCase } from './formatLead'
+import { CLAIM_TYPE_LABELS_FOR_TEST, formatClaimType, isAcceptedCase, leadLabel } from './formatLead'
 
 describe('claim type labels', () => {
   // Metro only bundles files under the app root, so the mobile map is a copy of
@@ -32,6 +32,28 @@ describe('claim type labels', () => {
     expect(formatClaimType('auto')).toBe('Motor vehicle')
     expect(formatClaimType('medmal')).toBe('Medical malpractice')
     expect(formatClaimType('product')).toBe('Product liability')
+  })
+})
+
+describe('leadLabel', () => {
+  const plaintiff = { firstName: 'Marisol', lastName: 'Rivera' }
+
+  it('prefers the case name the attorney set on web', () => {
+    expect(
+      leadLabel({ assessment: { caseName: 'Rivera v. Delgado Trucking', claimType: 'auto', user: plaintiff } })
+    ).toBe('Rivera v. Delgado Trucking')
+  })
+
+  it('still shows the plaintiff when no case name is set', () => {
+    expect(leadLabel({ assessment: { caseName: null, claimType: 'auto', user: plaintiff } })).toBe('Marisol Rivera')
+  })
+
+  it('ignores a case name that is only whitespace', () => {
+    expect(leadLabel({ assessment: { caseName: '   ', claimType: 'auto', user: plaintiff } })).toBe('Marisol Rivera')
+  })
+
+  it('falls back to the claim type when the case has no plaintiff', () => {
+    expect(leadLabel({ assessment: { claimType: 'auto' } })).toBe('Motor vehicle')
   })
 })
 
