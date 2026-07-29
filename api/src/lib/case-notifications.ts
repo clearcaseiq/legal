@@ -108,6 +108,86 @@ export async function notifyAttorneyInApp(input: {
   }
 }
 
+/** Every plaintiff in-app notification type carries this prefix. See below. */
+const PLAINTIFF_EVENT_PREFIX = 'plaintiff.'
+
+/**
+ * Standardized plaintiff IN-APP notification for the notifications bell.
+ *
+ * The mirror of notifyAttorneyInApp, and it exists because the plaintiff side
+ * had no equivalent: routes wrote in-app rows for plaintiffs that no endpoint
+ * could ever return, so the bell — which derived its contents from routing
+ * status and document requests — never showed them (CP-412/CP-430).
+ *
+ * `eventType` MUST be a `plaintiff.*` type, since the feed lists Notification
+ * rows whose `type` starts with `plaintiff.`. The prefix is applied here rather
+ * than trusted from the caller, because a row with the wrong type is not a
+ * visible error — it is simply a notification nobody ever sees. `templateKey`
+ * is deliberately omitted for the same reason it is on the attorney side: it
+ * would become the stored `type`.
+ */
+export async function notifyPlaintiffInApp(input: {
+  userId: string
+  recipientEmail?: string | null
+  attorneyId?: string | null
+  assessmentId?: string | null
+  eventType: string
+  subject: string
+  body: string
+  link?: string | null
+  payload?: Record<string, unknown>
+}): Promise<boolean> {
+  try {
+    let email = input.recipientEmail || null
+    if (!email) {
+      const user = await prisma.user.findUnique({
+        where: { id: input.userId },
+        select: { email: true },
+      })
+      email = user?.email || null
+    }
+    // The in-app writer drops events with no recipient, so bail loudly here
+    // instead of reporting success for a row that was never created.
+    if (!email) {
+      logger.warn('notifyPlaintiffInApp skipped: no recipient email', {
+        userId: input.userId,
+        eventType: input.eventType,
+      })
+      return false
+    }
+
+    const eventType = input.eventType.startsWith(PLAINTIFF_EVENT_PREFIX)
+      ? input.eventType
+      : `${PLAINTIFF_EVENT_PREFIX}${input.eventType}`
+
+    await createNotificationEvent({
+      userId: input.userId,
+      attorneyId: input.attorneyId || undefined,
+      assessmentId: input.assessmentId || undefined,
+      role: 'plaintiff',
+      channel: 'in_app',
+      eventType,
+      subject: input.subject,
+      body: input.body,
+      recipient: email,
+      payload: {
+        ...(input.payload || {}),
+        eventType,
+        ...(input.assessmentId ? { assessmentId: input.assessmentId } : {}),
+        ...(input.link ? { link: input.link } : {}),
+      },
+    })
+    return true
+  } catch (err) {
+    logger.warn('notifyPlaintiffInApp failed', {
+      userId: input.userId,
+      eventType: input.eventType,
+      error: (err as Error).message,
+    })
+    return false
+  }
+}
+
 /**
  * Send case offer to attorney via all channels: Email, SMS, in-platform
  */

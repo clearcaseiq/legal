@@ -30,7 +30,7 @@ import {
   recordRoutingEvent,
   syncDecisionMemoryForAssessment
 } from '../lib/routing-lifecycle'
-import { sendPlaintiffAttorneyAccepted } from '../lib/case-notifications'
+import { sendPlaintiffAttorneyAccepted, notifyPlaintiffInApp } from '../lib/case-notifications'
 import { createExternalCalendarEvent, deleteExternalCalendarEvent } from '../lib/calendar-sync'
 import { notifyWaitlistForFreedSlot } from '../lib/appointment-engagement'
 import { createZoomMeeting } from '../lib/zoom'
@@ -3910,18 +3910,21 @@ async function cancelAttorneyAppointment(params: {
     )
 
     if (existing.user.id) {
-      await createNotificationEvent({
+      // Cancelling flips the Appointment out of SCHEDULED/CONFIRMED, so the
+      // plaintiff's "upcoming consultation" bell entry silently disappears.
+      // Without this the cancellation is invisible: something they were
+      // counting on just stops being there, with no notice (CP-412).
+      await notifyPlaintiffInApp({
         userId: existing.user.id,
+        recipientEmail: existing.user.email,
         attorneyId: attorney.id,
         assessmentId: appointment.assessmentId || undefined,
-        role: 'plaintiff',
-        channel: 'in_app',
         eventType: 'consult_cancelled',
         subject: 'Your consultation was cancelled',
-        body: `${attorneyName} cancelled your consultation on ${dateText} at ${timeText}.`,
-        recipient: existing.user.email,
-        payload: { appointmentId: appointment.id, assessmentId: appointment.assessmentId },
-      }).catch((err: any) => logger.warn('In-app cancel notification failed', { error: err?.message, appointmentId }))
+        body: `${attorneyName} cancelled your consultation on ${dateText} at ${timeText}.${reason ? ` Reason: ${reason}` : ''}`,
+        link: '/dashboard',
+        payload: { appointmentId: appointment.id },
+      })
     }
   }
 
@@ -5753,6 +5756,24 @@ router.post('/leads/:leadId/document-request', authMiddleware, async (req: any, 
         logger.error('Failed to create in-app document request message', { error: (chatErr as Error).message })
       }
     }
+    // The bell already derives an entry from the pending DocumentRequest, but
+    // only while documents remain outstanding — so the request disappears from
+    // the feed the moment it is fulfilled, leaving no record that it happened.
+    // A notification row is the durable version of the same news (CP-430).
+    if (assessment?.userId) {
+      await notifyPlaintiffInApp({
+        userId: assessment.userId,
+        recipientEmail: plaintiffEmail,
+        attorneyId: attorney.id,
+        assessmentId: lead.assessmentId,
+        eventType: 'documents_requested',
+        subject: `${attorneyName} requested documents`,
+        body: docList,
+        link: '/dashboard?tab=requested-documents',
+        payload: { leadId, documentRequestId: docRequest.id },
+      })
+    }
+
     if (plaintiffEmail) {
       const subject = 'Your attorney requested additional documents'
       const message = `Hi ${plaintiffName},\n\n${attorneyName} has requested the following documents to strengthen your case:\n\n${docList}\n\n${customMessage ? `Message from your attorney: ${customMessage}\n\n` : ''}Upload here: ${uploadLink}\n\nBest regards,\nClearCaseIQ`
@@ -10161,6 +10182,20 @@ async function notifyPlaintiffOfAssignedTask(params: {
       },
     })
     await prisma.chatRoom.update({ where: { id: chatRoom.id }, data: { lastMessageAt: new Date() } })
+
+    // The chat message and email above are easy to miss; the bell is where a
+    // plaintiff looks for "what changed on my case" (CP-430).
+    await notifyPlaintiffInApp({
+      userId: assessment.userId,
+      recipientEmail: assessment.user?.email,
+      attorneyId: attorney.id,
+      assessmentId,
+      eventType: 'task_assigned',
+      subject: `${attorneyName} added a task to your case`,
+      body: `${task.title}${dueText}`,
+      link: '/dashboard',
+      payload: { leadId, taskId: task.id },
+    })
 
     const plaintiffEmail = assessment.user?.email
     if (plaintiffEmail) {

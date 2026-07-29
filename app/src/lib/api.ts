@@ -304,6 +304,35 @@ export async function getPlaintiffDocumentRequests(assessmentId: string): Promis
   return data
 }
 
+export interface PlaintiffFeedNotification {
+  id: string
+  type: string
+  title: string
+  body: string
+  link: string | null
+  assessmentId: string | null
+  read: boolean
+  createdAt: string
+}
+
+export async function getPlaintiffNotifications(limit = 30): Promise<{
+  notifications: PlaintiffFeedNotification[]
+  unreadCount: number
+}> {
+  const { data } = await api.get('/v1/plaintiff/notifications', { params: { limit } })
+  return data
+}
+
+export async function markAllPlaintiffNotificationsRead(): Promise<{ updated: number }> {
+  const { data } = await api.post('/v1/plaintiff/notifications/read-all')
+  return data
+}
+
+export async function markPlaintiffNotificationRead(id: string): Promise<{ updated: number }> {
+  const { data } = await api.post(`/v1/plaintiff/notifications/${id}/read`)
+  return data
+}
+
 export type PlaintiffCaseTask = {
   id: string
   title: string

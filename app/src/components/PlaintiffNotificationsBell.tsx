@@ -3,16 +3,34 @@
  * chat message: attorney match, scheduled consultations, attorney activity, and
  * pending document requests. Kept separate from the Messages icon so the header
  * exposes both a Message and a Notification affordance (#179).
+ *
+ * Two sources feed this. Derived items are inferred from current case state
+ * (routing status, outstanding document requests) and describe how things
+ * *are*. Server items come from the plaintiff notification feed and record
+ * things that *happened* — including events that leave no trace in current
+ * state, like a consultation being cancelled, which simply removes the
+ * appointment and would otherwise vanish without a word (CP-412/CP-430).
  */
 
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bell, CalendarClock, FileText, UserCheck, Activity } from 'lucide-react'
+import { Bell, CalendarClock, FileText, UserCheck, Activity, CalendarX, ListTodo } from 'lucide-react'
 import { listAssessments } from '../lib/api-plaintiff'
-import { getRoutingStatus, getPlaintiffDocumentRequests } from '../lib/api'
+import {
+  getRoutingStatus,
+  getPlaintiffDocumentRequests,
+  getPlaintiffNotifications,
+  markAllPlaintiffNotificationsRead,
+} from '../lib/api'
 import { formatClaimType as claimLabel } from '../lib/claimTypes'
 
-type NotificationKind = 'matched' | 'appointment' | 'activity' | 'document'
+type NotificationKind =
+  | 'matched'
+  | 'appointment'
+  | 'activity'
+  | 'document'
+  | 'cancelled'
+  | 'task'
 
 interface PlaintiffNotification {
   key: string
@@ -21,6 +39,17 @@ interface PlaintiffNotification {
   detail?: string
   timeAgo?: string
   href: string
+  /** Server-backed rows track read state in the database, not localStorage. */
+  serverUnread?: boolean
+}
+
+/** Maps a `plaintiff.*` notification type onto the icon vocabulary above. */
+function kindForServerType(type: string): NotificationKind {
+  if (type.includes('cancel')) return 'cancelled'
+  if (type.includes('task')) return 'task'
+  if (type.includes('document')) return 'document'
+  if (type.includes('appointment') || type.includes('consult')) return 'appointment'
+  return 'activity'
 }
 
 const SEEN_STORAGE_KEY = 'plaintiff_seen_notifications'
@@ -67,10 +96,24 @@ export default function PlaintiffNotificationsBell() {
   const loadData = async () => {
     try {
       setLoading(true)
+
+      // Independent of any assessment, so a cancellation or task still lands
+      // even when the derived sources below have nothing to say.
+      const feed = await getPlaintiffNotifications().catch(() => null)
+      const serverItems: PlaintiffNotification[] = (feed?.notifications || []).map((n) => ({
+        key: `n:${n.id}`,
+        kind: kindForServerType(n.type),
+        title: n.title,
+        detail: n.body || undefined,
+        timeAgo: formatDate(n.createdAt),
+        href: n.link || '/dashboard',
+        serverUnread: !n.read,
+      }))
+
       const assessments = await listAssessments()
       const assessmentId = Array.isArray(assessments) && assessments.length > 0 ? assessments[0]?.id : null
       if (!assessmentId) {
-        setNotifications([])
+        setNotifications(serverItems)
         return
       }
 
@@ -79,7 +122,7 @@ export default function PlaintiffNotificationsBell() {
         getPlaintiffDocumentRequests(assessmentId).catch(() => null),
       ])
 
-      const next: PlaintiffNotification[] = []
+      const next: PlaintiffNotification[] = [...serverItems]
 
       if (routing?.attorneyMatched) {
         const matched = routing.attorneyMatched as typeof routing.attorneyMatched & {
@@ -163,13 +206,25 @@ export default function PlaintiffNotificationsBell() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const unseenCount = notifications.filter((n) => !seenKeys.has(n.key)).length
+  // Server rows carry their own read state so the badge survives a new device
+  // or a cleared browser; derived items have no row to mark, so they keep using
+  // the local seen-set.
+  const unseenCount = notifications.filter((n) =>
+    n.serverUnread === undefined ? !seenKeys.has(n.key) : n.serverUnread
+  ).length
 
   const markAllSeen = () => {
     const nextSeen = new Set(seenKeys)
     notifications.forEach((n) => nextSeen.add(n.key))
     setSeenKeys(nextSeen)
     persistSeenKeys(nextSeen)
+
+    if (notifications.some((n) => n.serverUnread)) {
+      setNotifications((current) => current.map((n) => (n.serverUnread ? { ...n, serverUnread: false } : n)))
+      void markAllPlaintiffNotificationsRead().catch(() => {
+        /* the next poll re-reads the truth from the server */
+      })
+    }
   }
 
   const toggleOpen = () => {
@@ -192,6 +247,10 @@ export default function PlaintiffNotificationsBell() {
         return <UserCheck className="h-4 w-4 text-emerald-600" />
       case 'appointment':
         return <CalendarClock className="h-4 w-4 text-brand-600" />
+      case 'cancelled':
+        return <CalendarX className="h-4 w-4 text-rose-600" />
+      case 'task':
+        return <ListTodo className="h-4 w-4 text-brand-600" />
       case 'document':
         return <FileText className="h-4 w-4 text-amber-600" />
       default:

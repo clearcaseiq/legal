@@ -9,6 +9,7 @@ import intros from './routes/intros'
 import demands from './routes/demands'
 import sol from './routes/sol'
 import notifications from './routes/notifications'
+import plaintiffNotifications from './routes/plaintiff-notifications'
 import auth from './routes/auth'
 import favorites from './routes/favorites'
 import appointments from './routes/appointments'
@@ -99,6 +100,7 @@ export function buildApp(): Express {
   app.use('/v1/demands', demands)
   app.use('/v1/sol', sol)
   app.use('/v1/notify', notifications)
+  app.use('/v1/plaintiff/notifications', plaintiffNotifications)
   app.use('/v1/sms', smsWebhook)
   app.use('/v1/sms/sns', snsWebhook)
   app.use('/v1/admin', admin)
