@@ -329,8 +329,15 @@
     @apply pressable rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800;
   }
 
+  /*
+    text-ellipsis: an input's text is clipped hard at the border by default, so
+    a placeholder longer than the field ends mid-word flush against the edge and
+    reads as text escaping the box (CP-448). Several admin filters have
+    placeholders that don't fit a narrow column; truncating them with an
+    ellipsis degrades gracefully instead.
+  */
   .input {
-    @apply w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:border-brand-500;
+    @apply w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 text-ellipsis focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:border-brand-500;
   }
 
   .textarea {

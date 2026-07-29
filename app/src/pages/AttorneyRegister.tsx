@@ -5,6 +5,7 @@ import { US_STATES, CA_COUNTIES, ATTORNEY_CASE_TYPES } from '../lib/constants'
 import { useLanguage } from '../contexts/LanguageContext'
 import {
   ATTORNEY_REGISTER_DEFAULTS,
+  ATTORNEY_REGISTER_STEP_FIELDS,
   validateAttorneyRegisterInput,
   type AttorneyRegisterFieldErrors,
   type AttorneyRegisterFormInput,
@@ -99,10 +100,8 @@ export default function AttorneyRegister() {
     const validation = validateAttorneyRegisterInput(form)
     const errors = validation.fieldErrors
 
-    if (currentStep === 1 && setStepError(errors, ['email', 'password', 'firstName', 'lastName'])) return
-    if (currentStep === 2 && setStepError(errors, ['specialties', 'venues'])) return
-    if (currentStep === 3 && setStepError(errors, ['preferredCounties'])) return
-    if (currentStep === 4 && setStepError(errors, ['maxCasesPerMonth'])) return
+    const gatedFields = ATTORNEY_REGISTER_STEP_FIELDS[currentStep]
+    if (gatedFields && setStepError(errors, gatedFields)) return
 
     // Surface an already-registered email at step 1 rather than after the whole
     // multi-step form is filled out and finally submitted (#63).

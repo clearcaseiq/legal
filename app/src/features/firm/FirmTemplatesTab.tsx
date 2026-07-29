@@ -33,6 +33,7 @@ import {
   type FirmTemplate,
   type FirmTemplatesResponse,
 } from '../../lib/api'
+import { getEsignProviders } from '../../lib/api-esign'
 import { SectionCard, EmptyState, Badge } from '../shared/ui'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import ModalPortal from '../../components/ModalPortal'
@@ -63,7 +64,16 @@ export function FirmTemplatesTab() {
   const [importStatus, setImportStatus] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  // null until the probe answers, so rows don't flash "not connected" (CP-436).
+  const [esignConfigured, setEsignConfigured] = useState<boolean | null>(null)
   const importInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    getEsignProviders()
+      .then((providers) => setEsignConfigured(providers.some((p) => p.configured)))
+      // A failed probe shouldn't block sending; the server still enforces it.
+      .catch(() => setEsignConfigured(true))
+  }, [])
 
   const load = useCallback(() => {
     setLoading(true)
@@ -243,6 +253,7 @@ export function FirmTemplatesTab() {
                       template={t}
                       canManage={canManage}
                       hasRecipients={(data.recipients?.length ?? 0) > 0}
+                      esignConfigured={esignConfigured}
                       onEdit={() => setEditing(t)}
                       onSend={() => setSending(t)}
                       onChanged={load}
@@ -271,6 +282,7 @@ function TemplateRow({
   template,
   canManage,
   hasRecipients,
+  esignConfigured,
   onEdit,
   onSend,
   onChanged,
@@ -278,6 +290,8 @@ function TemplateRow({
   template: FirmTemplate
   canManage: boolean
   hasRecipients: boolean
+  /** null while the provider probe is still in flight. */
+  esignConfigured: boolean | null
   onEdit: () => void
   onSend: () => void
   onChanged: () => void
@@ -285,6 +299,22 @@ function TemplateRow({
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [viewError, setViewError] = useState<string | null>(null)
+
+  // A template with neither a PDF nor body text has nothing to render into a
+  // signable document, and there's nothing to send to without an accepted case
+  // or a connected provider. The button used to simply vanish, which QA read as
+  // a missing feature (CP-438), and sending with no provider connected returned
+  // a raw vendor error (CP-436). Say which of those it is, in the row.
+  const signable = template.isPdf || Boolean(template.body && template.body.trim())
+  const blockedReason = !signable
+    ? template.hasFile
+      ? 'Only PDF attachments can be sent for signature — re-upload this template as a PDF or add body text.'
+      : 'Add body text or attach a PDF before this template can be sent for signature.'
+    : esignConfigured === false
+      ? 'E-signature isn’t connected yet. A firm admin can connect Dropbox Sign or Documenso under Firm Settings → Integrations.'
+      : !hasRecipients
+        ? 'No accepted cases to send to yet — accept a case first.'
+        : null
 
   const view = async () => {
     setViewError(null)
@@ -337,30 +367,17 @@ function TemplateRow({
               <Eye className="h-3.5 w-3.5" /> View
             </button>
           )}
-          {canManage && (() => {
-            // A template with neither a PDF nor body text has nothing to render
-            // into a signable document. Previously the button just disappeared,
-            // which read as a bug; keep it visible and say why (CP-438).
-            const signable = template.isPdf || Boolean(template.body && template.body.trim())
-            const blockedReason = !signable
-              ? template.hasFile
-                ? 'Only PDF attachments can be sent for signature — re-upload this template as a PDF or add body text.'
-                : 'Add body text or attach a PDF before this template can be sent for signature.'
-              : !hasRecipients
-                ? 'No signable clients on active cases yet'
-                : null
-            return (
-              <button
-                type="button"
-                className={btnGhost}
-                onClick={onSend}
-                disabled={!!blockedReason}
-                title={blockedReason ?? 'Send for signature'}
-              >
-                <Send className="h-3.5 w-3.5" /> Send for signature
-              </button>
-            )
-          })()}
+          {canManage && (
+            <button
+              type="button"
+              className={btnGhost}
+              onClick={onSend}
+              disabled={!!blockedReason}
+              title={blockedReason ?? 'Send for signature'}
+            >
+              <Send className="h-3.5 w-3.5" /> Send for signature
+            </button>
+          )}
           {canManage && (
             <>
               <button type="button" className={btnGhost} onClick={onEdit}>
@@ -378,6 +395,7 @@ function TemplateRow({
           )}
         </div>
       </div>
+      {blockedReason && canManage && <p className="mt-2 text-xs text-slate-500">{blockedReason}</p>}
       {viewError && <p className="mt-2 text-xs text-rose-600">{viewError}</p>}
       <ConfirmDialog
         open={confirmDelete}

@@ -30,6 +30,7 @@ import {
 import { renderHipaaAuthorizationPdf } from '../lib/esign/hipaa-authorization'
 import { renderRetainerAgreementPdf } from '../lib/esign/retainer-agreement'
 import { listESignatureProviders } from '../lib/esign'
+import { respondESignError } from '../lib/esign/http'
 
 const router = Router()
 
@@ -156,8 +157,7 @@ router.post('/leads/:leadId/envelopes', authMiddleware, async (req: AuthRequest,
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     logger.error('Create envelope failed', { message })
-    // An unconfigured / not-yet-implemented provider surfaces here.
-    res.status(502).json({ error: 'E-signature provider error', detail: message })
+    respondESignError(res, error)
   }
 })
 
@@ -203,7 +203,7 @@ router.post('/leads/:leadId/hipaa-authorization', authMiddleware, async (req: Au
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     logger.error('Create HIPAA authorization failed', { message })
-    res.status(502).json({ error: 'E-signature provider error', detail: message })
+    respondESignError(res, error)
   }
 })
 
@@ -254,7 +254,7 @@ router.post('/leads/:leadId/retainer', authMiddleware, async (req: AuthRequest, 
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     logger.error('Create retainer agreement failed', { message })
-    res.status(502).json({ error: 'E-signature provider error', detail: message })
+    respondESignError(res, error)
   }
 })
 
@@ -525,7 +525,7 @@ router.post('/leads/:leadId/onboarding-packet', authMiddleware, async (req: Auth
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     logger.error('Create onboarding packet failed', { message })
-    res.status(502).json({ error: 'E-signature provider error', detail: message })
+    respondESignError(res, error)
   }
 })
 
@@ -570,7 +570,7 @@ router.post(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       logger.error('Fee agreement upload failed', { message })
-      res.status(502).json({ error: 'E-signature provider error', detail: message })
+      respondESignError(res, error)
     }
   }
 )

@@ -13,6 +13,7 @@ import { createNotificationEvent } from '../lib/platform-notifications'
 import { slugify } from '../lib/booking-slots'
 import { createEnvelopeForLead } from '../lib/esign/esign-service'
 import { listESignatureProviders } from '../lib/esign'
+import { respondESignError } from '../lib/esign/http'
 import { resolveTemplateTokens, fillTemplateTokens, renderTemplateBodyPdf } from '../lib/esign/firm-template-doc'
 import { applyFirmWorkflowToCase } from '../lib/case-workflow'
 import { AI_SIGNALS, CONDITION_FIELDS, CONDITION_OPS, isValidAiSignal } from '../lib/workflow-signals'
@@ -2953,7 +2954,7 @@ router.post('/templates/:id/send', authMiddleware as any, async (req: any, res: 
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     logger.error('Failed to send template for signature', { message })
-    res.status(502).json({ error: 'E-signature provider error', detail: message })
+    respondESignError(res, error)
   }
 })
 

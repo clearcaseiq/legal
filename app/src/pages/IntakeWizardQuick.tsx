@@ -2530,9 +2530,18 @@ export default function IntakeWizardQuick() {
         </div>
       </div>
       <div className="mt-2 space-y-2 sm:pl-[2.375rem]">
-          <div className="grid gap-2 sm:max-w-2xl sm:grid-cols-2 sm:gap-5">
+          {/*
+            Each row is a grid item, and grid items default to min-width:auto —
+            the column can't shrink below the row's min-content. With the label
+            marked shrink-0, that min-content is radio + icon + full label +
+            input, which at two columns on a phone-width screen overflowed the
+            step and pushed the fields off the right edge (CP-457). min-w-0 lets
+            the column shrink, the label truncates instead of forcing width, and
+            the side-by-side layout waits for md where there's actually room.
+          */}
+          <div className="grid gap-2 sm:max-w-2xl md:grid-cols-2 md:gap-5">
           {/* Email */}
-          <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${contactMethod === 'email' ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
+          <div className={`flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${contactMethod === 'email' ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
             <input
               type="radio"
               name="contact-method"
@@ -2542,7 +2551,7 @@ export default function IntakeWizardQuick() {
               className="!h-4 !w-4 !min-h-0 shrink-0 accent-brand-600"
             />
             <Mail className={`h-4 w-4 shrink-0 ${contactMethod === 'email' ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
-            <span className="shrink-0 text-sm font-medium text-gray-700 dark:text-slate-200">{tx('contact_emailShort')}</span>
+            <span className="truncate text-sm font-medium text-gray-700 dark:text-slate-200">{tx('contact_emailShort')}</span>
             <input
               id="contact-email"
               type="email"
@@ -2559,7 +2568,7 @@ export default function IntakeWizardQuick() {
             />
           </div>
           {/* Phone */}
-          <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${contactMethod === 'phone' ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
+          <div className={`flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-1.5 transition-colors ${contactMethod === 'phone' ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-slate-200 dark:border-slate-700'}`}>
             <input
               type="radio"
               name="contact-method"
@@ -2569,7 +2578,7 @@ export default function IntakeWizardQuick() {
               className="!h-4 !w-4 !min-h-0 shrink-0 accent-brand-600"
             />
             <Phone className={`h-4 w-4 shrink-0 ${contactMethod === 'phone' ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
-            <span className="shrink-0 text-sm font-medium text-gray-700 dark:text-slate-200">{tx('contact_phoneShort')}</span>
+            <span className="truncate text-sm font-medium text-gray-700 dark:text-slate-200">{tx('contact_phoneShort')}</span>
             <input
               id="contact-phone"
               type="tel"
@@ -3728,17 +3737,30 @@ export default function IntakeWizardQuick() {
 
             {/* Case Snapshot metric bar */}
             <div className={`grid grid-cols-2 gap-2 ${snapshotCards.length >= 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
-              {snapshotCards.map(({ key, icon: Icon, label, value, sub, tone, tip }) => (
-                <div key={key} className="group relative cursor-help rounded-lg border border-slate-200 bg-white px-2.5 py-1 dark:border-slate-700 dark:bg-slate-900/40" tabIndex={0}>
+              {snapshotCards.map(({ key, icon: Icon, label, value, sub, tone, tip }, i) => (
+                <div key={key} className="group relative min-w-0 cursor-help rounded-lg border border-slate-200 bg-white px-2.5 py-1 dark:border-slate-700 dark:bg-slate-900/40" tabIndex={0}>
                   <div className="flex items-center gap-1 text-[9px] font-semibold uppercase leading-none tracking-wide text-gray-600 dark:text-slate-300">
                     <Icon className="h-3 w-3 shrink-0" aria-hidden />
                     <span className="truncate">{label}</span>
                     {tip && <Info className="ml-auto h-3 w-3 shrink-0 text-slate-400" aria-hidden />}
                   </div>
-                  <p className={`mt-0.5 font-display text-[13px] font-bold leading-none ${tone}`}>{value}</p>
+                  <p className={`mt-0.5 truncate font-display text-[13px] font-bold leading-none ${tone}`}>{value}</p>
                   <p className="mt-0.5 truncate text-[9px] font-medium leading-none text-gray-600 dark:text-slate-400">{sub}</p>
                   {tip && (
-                    <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-60 max-w-[80vw] -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus:opacity-100 dark:bg-slate-700">
+                    /*
+                      The tooltip is 15rem wide but the card it hangs off is half
+                      a phone screen, so centring it pushed roughly half the
+                      tooltip past the edge of the viewport (CP-378). Anchor it
+                      to whichever side of the two-column grid the card is on so
+                      it can only grow inwards; from lg the row is wide enough
+                      that centring is safe again.
+                    */
+                    <span
+                      role="tooltip"
+                      className={`pointer-events-none absolute bottom-full z-50 mb-2 w-60 max-w-[80vw] rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-medium leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus:opacity-100 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 dark:bg-slate-700 ${
+                        i % 2 === 0 ? 'left-0' : 'right-0'
+                      }`}
+                    >
                       {tip}
                     </span>
                   )}

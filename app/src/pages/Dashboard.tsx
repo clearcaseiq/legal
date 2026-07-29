@@ -236,6 +236,7 @@ export default function Dashboard() {
   const [latestNotification, setLatestNotification] = useState<string | null>(null)
   const [documentRequests, setDocumentRequests] = useState<PlaintiffDocumentRequest[]>([])
   const [attorneyTasks, setAttorneyTasks] = useState<PlaintiffCaseTask[]>([])
+  const [attorneyTasksFailed, setAttorneyTasksFailed] = useState(false)
   const [verifyNotice, setVerifyNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [verifySending, setVerifySending] = useState(false)
   const navigate = useNavigate()
@@ -311,10 +312,17 @@ export default function Dashboard() {
     let cancelled = false
     getPlaintiffCaseTasks(assessmentId)
       .then((data) => {
-        if (!cancelled) setAttorneyTasks(Array.isArray(data?.tasks) ? data.tasks : [])
+        if (cancelled) return
+        setAttorneyTasks(Array.isArray(data?.tasks) ? data.tasks : [])
+        setAttorneyTasksFailed(false)
       })
+      // A failed fetch used to leave an empty list, which is exactly what "your
+      // attorney hasn't assigned you anything" looks like. That ambiguity is
+      // what made CP-388 hard to pin down, so say when we couldn't load them.
       .catch(() => {
-        if (!cancelled) setAttorneyTasks([])
+        if (cancelled) return
+        setAttorneyTasks([])
+        setAttorneyTasksFailed(true)
       })
     return () => { cancelled = true }
   }, [activeAssessment?.id])
@@ -903,16 +911,23 @@ export default function Dashboard() {
       }
   // Tasks the attorney assigned to the plaintiff come first — these are explicit
   // requests from the legal team, so they take priority over generated tips (#157).
-  const attorneyTaskItems = attorneyTasks.map((task) => ({
-    label: task.title,
-    detail: task.notes?.trim()
-      ? task.notes.trim()
-      : task.dueDate
-      ? `Requested by your attorney — due ${new Date(task.dueDate).toLocaleDateString()}.`
-      : 'Requested by your attorney.',
-    done: task.status === 'done',
-    href: '/messaging',
-  }))
+  const attorneyTaskItems = attorneyTasksFailed
+    ? [{
+        label: 'We couldn’t load requests from your legal team',
+        detail: 'Refresh the page to try again. If it keeps happening, message your attorney.',
+        done: false,
+        href: '/messaging',
+      }]
+    : attorneyTasks.map((task) => ({
+        label: task.title,
+        detail: task.notes?.trim()
+          ? task.notes.trim()
+          : task.dueDate
+          ? `Requested by your attorney — due ${new Date(task.dueDate).toLocaleDateString()}.`
+          : 'Requested by your attorney.',
+        done: task.status === 'done',
+        href: '/messaging',
+      }))
   const dashboardTasks = [...attorneyTaskItems, reviewTask, ...evidenceGapTasks, ...scoreImprovementTasks].slice(0, 6 + attorneyTaskItems.length)
   const actionItemsCount = dashboardTasks.filter((task) => !task.done).length
 

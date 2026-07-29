@@ -2651,6 +2651,11 @@ describe('HTTP operations regressions', () => {
       assessmentId: 'asm-1',
       assignmentType: 'shared',
       assignedAttorneyId: null,
+      // The route reads the whole lead row, so status is always set in
+      // production. Omitting it here made the fixture describe a state that
+      // can't exist, and once acceptance became an allowlist the request was
+      // correctly refused as "not yet accepted" (CP-426).
+      status: 'accepted',
     } as any)
     vi.mocked(prisma.documentRequest.create).mockResolvedValue({
       id: 'docreq-1',

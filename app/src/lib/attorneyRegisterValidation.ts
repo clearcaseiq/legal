@@ -42,6 +42,24 @@ export type AttorneyRegisterFormInput = {
 
 export type AttorneyRegisterFieldErrors = Partial<Record<keyof AttorneyRegisterFormInput, string>>
 
+/**
+ * Which validated fields each step of the registration wizard is responsible
+ * for gating on "Next".
+ *
+ * This lived inline in AttorneyRegister as an ad-hoc list per step, and phone
+ * and firmWebsite were simply left out of step 1: both were validated and both
+ * rendered an error under the input, but "Next" advanced regardless, so an
+ * invalid phone number wasn't rejected until the final submit five steps later
+ * (CP-454). Keeping the mapping here lets a test assert that every field
+ * validateAttorneyRegisterInput can reject is gated by some step.
+ */
+export const ATTORNEY_REGISTER_STEP_FIELDS: Record<number, Array<keyof AttorneyRegisterFormInput>> = {
+  1: ['email', 'password', 'firstName', 'lastName', 'phone', 'firmWebsite'],
+  2: ['specialties', 'venues'],
+  3: ['preferredCounties'],
+  4: ['maxCasesPerWeek', 'maxCasesPerMonth', 'minInjurySeverity', 'minDamagesRange', 'maxDamagesRange'],
+}
+
 export type AttorneyRegisterSubmission = {
   email: string
   password: string
