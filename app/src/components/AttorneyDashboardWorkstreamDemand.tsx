@@ -6,18 +6,12 @@ import type {
 } from './attorneyDashboardShared'
 import { formatCurrency } from '../lib/formatters'
 import { getLeadTreatmentSummary } from '../lib/api'
+import DemandLetterWorkspace from '../features/casework/DemandLetterWorkspace'
 
 type AttorneyDashboardWorkstreamDemandProps = {
   selectedLead: AttorneyDashboardLead
   selectedLeadFacts: AttorneyDashboardLeadFacts
   selectedLeadAnalysis: AttorneyDashboardLeadAnalysis
-  handleDraftDemandLetter: any
-  handleViewLatestDraft: any
-  handleDownloadDemandDocx: any
-  demandDraftLoading: boolean
-  demandDraftId: string | null
-  demandDraftMessage: string | null
-  demandDraftContent: string | null
   leadCommandCenter?: any
 }
 
@@ -25,13 +19,6 @@ export default function AttorneyDashboardWorkstreamDemand({
   selectedLead,
   selectedLeadFacts,
   selectedLeadAnalysis,
-  handleDraftDemandLetter,
-  handleViewLatestDraft,
-  handleDownloadDemandDocx,
-  demandDraftLoading,
-  demandDraftId,
-  demandDraftMessage,
-  demandDraftContent,
   leadCommandCenter,
 }: AttorneyDashboardWorkstreamDemandProps) {
   const analysis = (selectedLeadAnalysis || {}) as any
@@ -76,50 +63,19 @@ export default function AttorneyDashboardWorkstreamDemand({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           <div>
             <div className="text-gray-500">Availability</div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-gray-900">{demandReady ? 'Demand-ready' : 'Needs docs'}</span>
-              {demandReady && assessmentId ? (
-                <>
-                  <button
-                    onClick={() => handleDraftDemandLetter(assessmentId)}
-                    disabled={demandDraftLoading}
-                    className="px-2 py-1 text-xs font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700 disabled:opacity-50"
-                  >
-                    {demandDraftLoading ? 'Drafting…' : 'Draft demand letter'}
-                  </button>
-                  <button
-                    onClick={() => handleViewLatestDraft(assessmentId)}
-                    disabled={demandDraftLoading}
-                    className="px-2 py-1 text-xs font-medium text-brand-700 border border-brand-200 rounded-md hover:bg-brand-50 disabled:opacity-50"
-                  >
-                    View draft
-                  </button>
-                  {demandDraftId ? (
-                    <button
-                      onClick={handleDownloadDemandDocx}
-                      disabled={demandDraftLoading}
-                      className="px-2 py-1 text-xs font-medium text-emerald-700 border border-emerald-200 rounded-md hover:bg-emerald-50 disabled:opacity-50"
-                    >
-                      Download Word
-                    </button>
-                  ) : null}
-                </>
-              ) : null}
-            </div>
-            {demandDraftMessage ? (
-              <div className="mt-1 text-xs text-gray-500">{demandDraftMessage}</div>
-            ) : null}
-            {demandDraftContent ? (
-              <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3 text-xs whitespace-pre-wrap text-gray-700">
-                {demandDraftContent}
-              </div>
-            ) : null}
+            <div className="text-gray-900">{demandReady ? 'Demand-ready' : 'Needs docs'}</div>
           </div>
           <div>
             <div className="text-gray-500">Estimated Strength Score</div>
             <div className="text-gray-900">{selectedLead ? `${Math.round((selectedLead.viabilityScore ?? 0) * 100)}%` : 'N/A'}</div>
           </div>
         </div>
+
+        {selectedLead?.id ? (
+          <div className="mt-4">
+            <DemandLetterWorkspace leadId={selectedLead.id} />
+          </div>
+        ) : null}
         {leadCommandCenter ? (
           <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
             <div className="rounded-md border border-gray-100 bg-slate-50 p-3">

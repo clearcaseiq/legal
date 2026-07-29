@@ -122,11 +122,48 @@ describe('HTTP API route coverage (mocked prisma)', () => {
     expect(res.body.content).not.toContain('We represent')
   })
 
-  it('GET /v1/demands/assessment/x (list)', async () => {
+  // Attorney work product. Anonymous callers used to be able to enumerate every
+  // letter on a case by assessment id.
+  it('GET /v1/demands/assessment/x without token → 401', async () => {
     const res = await request(app).get('/v1/demands/assessment/x')
     expectHandledStatus(res.status)
+    expect(res.status).toBe(401)
+  })
+
+  it('GET /v1/demands/:id without token → 403 for an attorney-drafted letter', async () => {
+    prisma.demandLetter.findUnique.mockResolvedValueOnce({
+      id: 'demand-1',
+      assessmentId: 'assess-1',
+      origin: 'attorney',
+      content: 'DEMAND LETTER',
+      recipient: JSON.stringify({ name: 'Ins Co', address: '1 Main' }),
+      status: 'DRAFT',
+      targetAmount: 30000,
+    })
+
+    const res = await request(app).get('/v1/demands/demand-1')
+    expectHandledStatus(res.status)
+    expect(res.status).toBe(403)
+  })
+
+  // The self-help builder is a public page, so a claimant who is not logged in
+  // still has to be able to read back the letter they just generated.
+  it('GET /v1/demands/:id without token → 200 for a pro-se letter', async () => {
+    prisma.demandLetter.findUnique.mockResolvedValueOnce({
+      id: 'demand-2',
+      assessmentId: 'assess-1',
+      origin: 'pro_se',
+      content: 'SETTLEMENT DEMAND',
+      recipient: JSON.stringify({ name: 'Ins Co', address: '1 Main' }),
+      status: 'DRAFT',
+      targetAmount: 30000,
+      createdAt: new Date(),
+      sentAt: null,
+    })
+
+    const res = await request(app).get('/v1/demands/demand-2')
     expect(res.status).toBe(200)
-    expect(Array.isArray(res.body)).toBe(true)
+    expect(res.body.content).toContain('SETTLEMENT DEMAND')
   })
 
   it('GET /v1/files/assessment/x', async () => {

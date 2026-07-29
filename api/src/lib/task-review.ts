@@ -49,6 +49,48 @@ async function firmCaseManagers(lawFirmId: string | null): Promise<Reviewer[]> {
 }
 
 /**
+ * Who can sign off on AI work for this case: the firm's case managers, falling
+ * back to the acting attorney so pending work always has an approver.
+ */
+async function resolveReviewers(lawFirmId: string | null, actor?: ReviewActor | null): Promise<Reviewer[]> {
+  const reviewers = await firmCaseManagers(lawFirmId)
+  if (reviewers.length > 0) return reviewers
+  if (!actor?.id) return []
+  return [
+    {
+      userId: actor.id,
+      name: `${actor.firstName || ''} ${actor.lastName || ''}`.trim() || actor.email || 'Reviewer',
+      email: actor.email || null,
+    },
+  ]
+}
+
+/** In-app plus email to each reviewer, never failing the caller. */
+async function fanOutToReviewers(
+  reviewers: Reviewer[],
+  message: { assessmentId: string; eventType: string; subject: string; body: string },
+): Promise<void> {
+  for (const r of reviewers) {
+    const base = {
+      userId: r.userId,
+      assessmentId: message.assessmentId,
+      role: 'attorney' as const,
+      eventType: message.eventType,
+      subject: message.subject,
+      body: message.body,
+    }
+    try {
+      await createNotificationEvent({ ...base, channel: 'in_app', recipient: r.email || `user:${r.userId}` })
+      if (r.email) {
+        await createNotificationEvent({ ...base, channel: 'email', recipient: r.email })
+      }
+    } catch (e: any) {
+      logger.warn('Failed to notify reviewer', { assessmentId: message.assessmentId, userId: r.userId, error: e?.message })
+    }
+  }
+}
+
+/**
  * Notify the case's firm case managers that the AI created tasks awaiting review.
  * Falls back to the acting attorney when the lead has no firm case manager, so
  * pending tasks always have someone who can approve them.
@@ -63,16 +105,7 @@ export async function notifyTaskReviewers(params: {
   const titles = params.taskTitles.filter(Boolean)
   if (titles.length === 0) return
 
-  let reviewers = await firmCaseManagers(params.lawFirmId)
-  if (reviewers.length === 0 && params.actor?.id) {
-    reviewers = [
-      {
-        userId: params.actor.id,
-        name: `${params.actor.firstName || ''} ${params.actor.lastName || ''}`.trim() || params.actor.email || 'Reviewer',
-        email: params.actor.email || null,
-      },
-    ]
-  }
+  const reviewers = await resolveReviewers(params.lawFirmId, params.actor)
   if (reviewers.length === 0) {
     logger.warn('No reviewer found for AI-generated tasks', { assessmentId: params.assessmentId })
     return
@@ -86,35 +119,44 @@ export async function notifyTaskReviewers(params: {
     `${preview}${count > 5 ? `\n…and ${count - 5} more` : ''}\n\n` +
     `Open the case Tasks to approve or edit them.`
 
-  for (const r of reviewers) {
-    const recipient = r.email || `user:${r.userId}`
-    try {
-      await createNotificationEvent({
-        userId: r.userId,
-        assessmentId: params.assessmentId,
-        role: 'attorney',
-        channel: 'in_app',
-        eventType: 'ai_tasks.review',
-        subject,
-        body,
-        recipient,
-      })
-      if (r.email) {
-        await createNotificationEvent({
-          userId: r.userId,
-          assessmentId: params.assessmentId,
-          role: 'attorney',
-          channel: 'email',
-          eventType: 'ai_tasks.review',
-          subject,
-          body,
-          recipient: r.email,
-        })
-      }
-    } catch (e: any) {
-      logger.warn('Failed to notify task reviewer', { assessmentId: params.assessmentId, userId: r.userId, error: e?.message })
-    }
-  }
+  await fanOutToReviewers(reviewers, { assessmentId: params.assessmentId, eventType: 'ai_tasks.review', subject, body })
 
   logger.info('Notified reviewers of AI tasks', { assessmentId: params.assessmentId, reviewers: reviewers.length, count })
+}
+
+/**
+ * Notify reviewers that the AI drafted a demand letter on its own.
+ *
+ * Separate from the task notification on purpose: a drafted demand is a single,
+ * heavier item that someone should actually read, not another line on a
+ * to-approve list, and it links to the editor rather than the task board.
+ */
+export async function notifyDemandDraftReviewers(params: {
+  assessmentId: string
+  lawFirmId: string | null
+  caseLabel?: string | null
+  actor?: ReviewActor | null
+}): Promise<void> {
+  const reviewers = await resolveReviewers(params.lawFirmId, params.actor)
+  if (reviewers.length === 0) {
+    logger.warn('No reviewer found for AI demand draft', { assessmentId: params.assessmentId })
+    return
+  }
+
+  const subject = `Review the demand letter ${AI_AUTHOR_SHORT_NAME} drafted`
+  const body =
+    `${AI_AUTHOR_SHORT_NAME}, your AI Case Manager, drafted a demand letter for ${params.caseLabel || 'a case'} that reached demand-ready.\n\n` +
+    `It is held as a draft and will not be finalized until someone approves it. Open the case Demand tab to read, edit, and approve it.`
+
+  await fanOutToReviewers(reviewers, {
+    assessmentId: params.assessmentId,
+    eventType: 'ai_demand.review',
+    subject,
+    body,
+  })
+
+  logger.info('Notified reviewers of AI demand draft', {
+    assessmentId: params.assessmentId,
+    reviewers: reviewers.length,
+  })
 }

@@ -2126,7 +2126,95 @@ export async function getLeadCommandCenter(leadId: string) {
 
 export async function askLeadCommandCenterCopilot(leadId: string, question: string) {
   const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/command-center/copilot`, { question })
-  return data as { question: string; answer: string; sources: Array<{ label: string; detail: string }> }
+  return data as {
+    question: string
+    answer: string
+    sources: Array<{ label: string; detail: string }>
+    source?: 'ai' | 'deterministic'
+    // Present when the question asked the assistant to write the demand letter.
+    demandLetter?: DemandLetter
+  }
+}
+
+export interface DemandLetterVersion {
+  id: string
+  version: number
+  source: 'ai' | 'deterministic' | 'human'
+  authorName: string | null
+  createdAt: string
+  content: string
+}
+
+export interface DemandLetter {
+  id: string
+  assessmentId: string
+  title: string | null
+  targetAmount: number
+  recipient: { name: string; address: string; email?: string }
+  content: string
+  status: 'DRAFT' | 'FINAL' | 'SENT'
+  origin: 'attorney' | 'ai' | 'pro_se'
+  contentSource: 'ai' | 'deterministic' | null
+  reviewStatus: 'pending' | 'approved' | null
+  reviewedByName: string | null
+  reviewedAt: string | null
+  createdByName: string | null
+  updatedByName: string | null
+  currentVersion: number
+  finalizedAt: string | null
+  finalizedByName: string | null
+  sentAt: string | null
+  createdAt: string
+  updatedAt: string
+  versions?: DemandLetterVersion[]
+}
+
+const demandLettersPath = (leadId: string) => `/v1/attorney-dashboard/leads/${leadId}/demand-letters`
+
+export async function listLeadDemandLetters(leadId: string) {
+  const { data } = await api.get(demandLettersPath(leadId))
+  return (data as { letters: DemandLetter[] }).letters
+}
+
+export async function getLeadDemandLetter(leadId: string, demandId: string) {
+  const { data } = await api.get(`${demandLettersPath(leadId)}/${demandId}`)
+  return data as DemandLetter
+}
+
+export async function draftLeadDemandLetter(
+  leadId: string,
+  options: { guidance?: string | null; useAi?: boolean; title?: string } = {},
+) {
+  const { data } = await api.post(demandLettersPath(leadId), options)
+  return data as DemandLetter
+}
+
+export async function regenerateLeadDemandLetter(
+  leadId: string,
+  demandId: string,
+  options: { guidance?: string | null; useAi?: boolean } = {},
+) {
+  const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/regenerate`, options)
+  return data as DemandLetter
+}
+
+export async function saveLeadDemandLetter(
+  leadId: string,
+  demandId: string,
+  payload: { content?: string; title?: string },
+) {
+  const { data } = await api.patch(`${demandLettersPath(leadId)}/${demandId}`, payload)
+  return data as DemandLetter
+}
+
+export async function approveLeadDemandLetter(leadId: string, demandId: string) {
+  const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/approve`)
+  return data as DemandLetter
+}
+
+export async function finalizeLeadDemandLetter(leadId: string, demandId: string) {
+  const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/finalize`)
+  return data as DemandLetter
 }
 
 export async function syncLeadReadinessAutomation(leadId: string) {

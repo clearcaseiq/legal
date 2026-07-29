@@ -17,7 +17,8 @@ import { logger } from './logger'
 import { buildCaseCoach, type CaseCoachResult, type CoachPriority } from './case-coach'
 import type { GapAction } from './case-intelligence'
 import { deliverDirectNotification } from './platform-notifications'
-import { isReviewGateEnabled, notifyTaskReviewers } from './task-review'
+import { isReviewGateEnabled, notifyDemandDraftReviewers, notifyTaskReviewers } from './task-review'
+import { AI_AUTHOR_NAME } from './ai-author'
 
 const COACH_AUTO_TASK_LIMIT = 3
 const COACH_AUTO_TASK_PRIORITIES: CoachPriority[] = ['critical', 'high']
@@ -358,6 +359,87 @@ async function announceDemandReadyOnce(
   return true
 }
 
+/** Default ON. Set AI_DEMAND_AUTODRAFT to off/false/0 to stop drafting demands. */
+export function isDemandAutodraftEnabled(): boolean {
+  const v = String(process.env.AI_DEMAND_AUTODRAFT ?? '').trim().toLowerCase()
+  return !(v === 'off' || v === 'false' || v === '0' || v === 'no')
+}
+
+/**
+ * When a case reaches demand-ready, have Rose write the first draft so the
+ * attorney opens a letter instead of a blank page.
+ *
+ * Drafts once and only once. The cheap `count` below just avoids a pointless
+ * LLM call; the guarantee comes from the unique `autoDraftKey`, because this
+ * function runs concurrently (per evidence upload, on case open, and on the
+ * sweep) with an LLM round-trip in the middle, so a read-then-write check would
+ * let several runs all see zero letters and all insert one. A losing race is a
+ * no-op: no second letter, and no second review notification.
+ *
+ * It also never touches a case that already has a letter, so human work is
+ * never overwritten and a deleted draft is never resurrected.
+ *
+ * The draft is held as `reviewStatus: pending` under the same gate as AI tasks,
+ * so nothing Rose wrote can be finalized until a person has read it.
+ */
+async function autoDraftDemandOnce(
+  assessmentId: string,
+  coach: CaseCoachResult,
+  assignees: CaseAssignees,
+  actor?: CoachActor | null,
+): Promise<boolean> {
+  if (!isDemandAutodraftEnabled()) return false
+  if (!coach.insights.some((i) => i.key === 'demand_ready')) return false
+
+  const existing = await prisma.demandLetter.count({ where: { assessmentId } }).catch(() => 1)
+  if (existing > 0) return false
+
+  const { draftDemandForAssessment } = await import('./demand-drafting')
+  const drafted = await draftDemandForAssessment({ assessmentId, useAi: true })
+  if (!drafted) return false
+
+  const gate = isReviewGateEnabled()
+  try {
+    await prisma.demandLetter.create({
+      data: {
+        assessmentId,
+        autoDraftKey: assessmentId,
+        targetAmount: drafted.targetAmount,
+        recipient: JSON.stringify(drafted.recipient),
+        content: drafted.content,
+        status: 'DRAFT',
+        origin: 'ai',
+        contentSource: drafted.source,
+        reviewStatus: gate ? 'pending' : null,
+        createdByName: AI_AUTHOR_NAME,
+        updatedByName: AI_AUTHOR_NAME,
+        versions: {
+          create: { version: 1, content: drafted.content, source: drafted.source, authorName: AI_AUTHOR_NAME },
+        },
+      },
+    })
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      logger.info('Demand auto-draft already claimed by a concurrent run', { assessmentId })
+      return false
+    }
+    throw error
+  }
+
+  if (gate) {
+    const caseLabel = await caseLabelFor(assessmentId)
+    await notifyDemandDraftReviewers({
+      assessmentId,
+      lawFirmId: assignees.lawFirmId,
+      caseLabel,
+      actor,
+    }).catch((e: any) => logger.warn('Demand draft reviewer notify failed', { assessmentId, error: e?.message }))
+  }
+
+  logger.info('Auto-drafted demand letter', { assessmentId, source: drafted.source, held: gate })
+  return true
+}
+
 /**
  * One loop iteration: rebuild the coach and auto-assign the next tasks. Returns
  * the (task-flagged) coach so callers can also render it. No-ops task creation
@@ -398,6 +480,10 @@ export async function syncCaseCoachTasks(
 
   await announceDemandReadyOnce(assessmentId, coach, assignees).catch((e: any) =>
     logger.warn('Demand-ready announce failed', { assessmentId, error: e?.message }),
+  )
+
+  await autoDraftDemandOnce(assessmentId, coach, assignees, opts?.actor).catch((e: any) =>
+    logger.warn('Demand auto-draft failed', { assessmentId, error: e?.message }),
   )
 
   // Also (re)materialize baseline Intelligent Questions as tasks so they appear

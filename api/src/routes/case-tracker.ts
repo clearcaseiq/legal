@@ -205,6 +205,18 @@ const caseTrackerDemandLetterSelect = {
   title: true
 } as const
 
+/**
+ * Hide demand letters the AI drafted that nobody has reviewed yet.
+ *
+ * This tracker is the claimant's view of their own case. A letter Rose wrote
+ * unprompted is a starting point for the legal team, not a milestone — showing
+ * it would tell the client a demand exists, and show its dollar figure on the
+ * timeline, before an attorney has read a word of it.
+ */
+const claimantVisibleDemandLetters = {
+  OR: [{ reviewStatus: null }, { reviewStatus: 'approved' }]
+}
+
 const caseTrackerFileSelect = {
   id: true,
   name: true,
@@ -302,6 +314,7 @@ router.get('/dashboard', authMiddleware, async (req: AuthRequest, res) => {
           select: caseTrackerChatRoomPreviewSelect
         },
         demandLetters: {
+          where: claimantVisibleDemandLetters,
           orderBy: { createdAt: 'desc' },
           select: caseTrackerDemandLetterSelect
         },
@@ -532,6 +545,7 @@ router.get('/case/:caseId', authMiddleware, async (req: AuthRequest, res) => {
           select: caseTrackerChatRoomDetailSelect
         },
         demandLetters: {
+          where: claimantVisibleDemandLetters,
           orderBy: { createdAt: 'desc' },
           select: caseTrackerDemandLetterSelect
         },
@@ -723,7 +737,7 @@ router.get('/case/:caseId/timeline', authMiddleware, async (req: AuthRequest, re
         orderBy: { createdAt: 'desc' }
       }),
       prisma.demandLetter.findMany({
-        where: { assessmentId: caseId },
+        where: { assessmentId: caseId, ...claimantVisibleDemandLetters },
         select: caseTrackerTimelineDemandLetterSelect,
         orderBy: { createdAt: 'desc' }
       }),

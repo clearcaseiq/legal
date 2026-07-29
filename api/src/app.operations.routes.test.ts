@@ -6581,6 +6581,8 @@ describe('HTTP operations regressions', () => {
           },
         },
         demandLetters: {
+          // A draft the AI wrote that nobody has reviewed is not shown to the claimant.
+          where: { OR: [{ reviewStatus: null }, { reviewStatus: 'approved' }] },
           orderBy: { createdAt: 'desc' },
           select: {
             id: true,
@@ -6760,6 +6762,8 @@ describe('HTTP operations regressions', () => {
           },
         },
         demandLetters: {
+          // A draft the AI wrote that nobody has reviewed is not shown to the claimant.
+          where: { OR: [{ reviewStatus: null }, { reviewStatus: 'approved' }] },
           orderBy: { createdAt: 'desc' },
           select: {
             id: true,
@@ -6894,7 +6898,10 @@ describe('HTTP operations regressions', () => {
       orderBy: { createdAt: 'desc' },
     })
     expect(vi.mocked(prisma.demandLetter.findMany).mock.calls[0]?.[0]).toEqual({
-      where: { assessmentId: 'asm-1' },
+      // An unreviewed AI draft must not surface on the claimant's timeline,
+      // which would announce a demand — and its dollar figure — before anyone
+      // on the legal team has read it.
+      where: { assessmentId: 'asm-1', OR: [{ reviewStatus: null }, { reviewStatus: 'approved' }] },
       select: {
         id: true,
         targetAmount: true,

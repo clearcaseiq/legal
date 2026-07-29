@@ -67,6 +67,7 @@ export default function AttorneyCaseIntelligenceSuite({
   copilotLoading,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('timeline')
+  const [copilotQuestion, setCopilotQuestion] = useState('')
   const facts: any = selectedLeadFacts || {}
   const treatments = Array.isArray(facts.treatment) ? facts.treatment : []
   const files = [...(Array.isArray(selectedLead.assessment?.files) ? selectedLead.assessment.files : []), ...leadEvidenceFiles]
@@ -260,6 +261,31 @@ export default function AttorneyCaseIntelligenceSuite({
           <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
             <div className="subtle-panel p-4">
               <h4 className="font-semibold text-slate-900">Ask Case Companion</h4>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  const q = copilotQuestion.trim()
+                  if (!q || copilotLoading) return
+                  setCopilotQuestion('')
+                  void onAskCopilot(q)
+                }}
+                className="mt-3 flex gap-2"
+              >
+                <input
+                  value={copilotQuestion}
+                  onChange={(e) => setCopilotQuestion(e.target.value)}
+                  disabled={copilotLoading}
+                  placeholder="Ask anything about this case, or say “draft the demand letter”"
+                  className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none disabled:opacity-60"
+                />
+                <button
+                  type="submit"
+                  disabled={copilotLoading || !copilotQuestion.trim()}
+                  className="shrink-0 rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-40"
+                >
+                  {copilotLoading ? 'Asking…' : 'Ask'}
+                </button>
+              </form>
               <div className="mt-3 flex flex-wrap gap-2">
                 {suggestedPrompts.slice(0, 5).map((prompt) => (
                   <button

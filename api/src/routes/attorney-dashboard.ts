@@ -39,7 +39,7 @@ import { isValidPhone, normalizePhone, PHONE_ERROR_MESSAGE } from '../lib/phone'
 import { wallClockToUtc, zonedWallClockToUtc } from '../lib/booking-slots'
 import { resolveSchedulingTimezone } from '../lib/scheduling-timezone'
 import { hasAppointmentConflict } from '../lib/availability-slots'
-import { answerCommandCenterCopilot, buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
+import { buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
 import { computeSettlement } from '../lib/settlement'
 import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
@@ -50,6 +50,9 @@ import { buildBaselineQuestions, BASELINE_QUESTION_GAP_KEYS } from '../lib/intak
 import { generateIntelligentQuestions } from '../services/intelligent-questions'
 import { syncCaseCoachTasks, resolveCaseAssignees } from '../lib/case-coach-loop'
 import { isReviewGateEnabled } from '../lib/task-review'
+import { AI_AUTHOR_NAME } from '../lib/ai-author'
+import { DEFAULT_DEMAND_RECIPIENT, draftDemandForAssessment, saveDemandVersion } from '../lib/demand-drafting'
+import { askCaseAssistant } from '../services/case-assistant'
 import { isAiCaseManagerEnabled } from '../lib/ai-case-manager-sweep'
 import { syncQuestionTasks, syncSingleQuestionTask } from '../lib/question-tasks'
 import { narrateCaseCoach } from '../services/case-coach-narrator'
@@ -13095,9 +13098,17 @@ router.get('/leads/:leadId/command-center', authMiddleware, async (req: any, res
   }
 })
 
+/**
+ * Ask the case assistant a free-text question.
+ *
+ * Answers are grounded in the deterministic command center and fall back to it
+ * whenever the model is unavailable. Asking it to draft the demand letter
+ * actually drafts one and returns the new letter, which is the one thing here
+ * that writes to the case — so that path takes the write-level authorization.
+ */
 router.post('/leads/:leadId/command-center/copilot', authMiddleware, async (req: any, res) => {
   try {
-    const auth = await getAuthorizedLead(req, req.params.leadId)
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
     if (auth.error) {
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
@@ -13111,12 +13122,81 @@ router.post('/leads/:leadId/command-center/copilot', authMiddleware, async (req:
       assessmentId: auth.lead.assessmentId,
       leadId: auth.lead.id,
     })
-    const result = answerCommandCenterCopilot(summary, question)
+    const result = await askCaseAssistant(summary, question)
+
+    if (result.action?.type === 'draft_demand') {
+      const writeAuth = await getAuthorizedLead(req, req.params.leadId, {
+        allowFirmMember: true,
+        firmMemberWrite: true,
+      })
+      if (writeAuth.error) {
+        return res.json({
+          question,
+          answer: 'You do not have permission to draft a demand letter on this case.',
+          sources: result.sources,
+          source: 'deterministic',
+        })
+      }
+
+      const drafted = await draftDemandForAssessment({
+        assessmentId: auth.lead.assessmentId,
+        useAi: true,
+        guidance: result.action.guidance,
+      })
+      if (!drafted) {
+        return res.status(404).json({ error: 'Case not found' })
+      }
+
+      const actorName = requestActorName(req.user)
+      const byAi = drafted.source === 'ai'
+      const letter = await prisma.demandLetter.create({
+        data: {
+          assessmentId: auth.lead.assessmentId,
+          targetAmount: drafted.targetAmount,
+          recipient: JSON.stringify(drafted.recipient),
+          content: drafted.content,
+          status: 'DRAFT',
+          origin: byAi ? 'ai' : 'attorney',
+          contentSource: drafted.source,
+          createdById: req.user?.id || null,
+          createdByName: byAi ? AI_AUTHOR_NAME : actorName,
+          updatedByName: byAi ? AI_AUTHOR_NAME : actorName,
+          versions: {
+            create: {
+              version: 1,
+              content: drafted.content,
+              source: drafted.source,
+              authorName: byAi ? AI_AUTHOR_NAME : actorName,
+              authorId: byAi ? null : req.user?.id || null,
+            },
+          },
+        },
+        select: demandLetterSelect,
+      })
+
+      await writeAutomationAudit({
+        userId: req.user?.id,
+        attorneyId: writeAuth.attorney?.id ?? null,
+        action: 'demand_letter_drafted',
+        entityType: 'demand_letter',
+        entityId: letter.id,
+        metadata: { leadId: auth.lead.id, source: drafted.source, via: 'assistant' },
+      })
+
+      return res.json({
+        question,
+        answer: `I drafted the demand letter and saved it to this case. Open the Demand tab to read and edit it before it goes out.`,
+        sources: result.sources,
+        source: drafted.source,
+        demandLetter: serializeDemandLetter(letter),
+      })
+    }
 
     res.json({
       question,
       answer: result.answer,
       sources: result.sources,
+      source: result.source,
     })
   } catch (error: any) {
     logger.error('Failed to answer command center copilot', { error: error.message, leadId: req.params.leadId })
@@ -13195,6 +13275,420 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
   } catch (error: any) {
     logger.error('Failed to get lead', { error: error.message })
     res.status(500).json({ error: 'Failed to get lead' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Demand letters
+//
+// Rose drafts, a person edits, and every change is a version. `allowFirmMember`
+// with `firmMemberWrite` throughout, because case managers and paralegals do
+// most of the demand assembly; that fallback returns no Attorney row, so
+// nothing below may assume one.
+// ---------------------------------------------------------------------------
+
+const demandLetterSelect = {
+  id: true,
+  assessmentId: true,
+  title: true,
+  targetAmount: true,
+  recipient: true,
+  content: true,
+  status: true,
+  origin: true,
+  contentSource: true,
+  reviewStatus: true,
+  reviewedByName: true,
+  reviewedAt: true,
+  createdByName: true,
+  updatedByName: true,
+  currentVersion: true,
+  finalizedAt: true,
+  finalizedByName: true,
+  sentAt: true,
+  createdAt: true,
+  updatedAt: true,
+} as const
+
+function parseDemandRecipient(raw: string | null | undefined) {
+  if (!raw) return DEFAULT_DEMAND_RECIPIENT
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return DEFAULT_DEMAND_RECIPIENT
+  }
+}
+
+function serializeDemandLetter(letter: any, versions?: any[]) {
+  return {
+    id: letter.id,
+    assessmentId: letter.assessmentId,
+    title: letter.title || null,
+    targetAmount: letter.targetAmount,
+    recipient: parseDemandRecipient(letter.recipient),
+    content: letter.content,
+    status: letter.status,
+    origin: letter.origin,
+    contentSource: letter.contentSource || null,
+    reviewStatus: letter.reviewStatus || null,
+    reviewedByName: letter.reviewedByName || null,
+    reviewedAt: letter.reviewedAt || null,
+    createdByName: letter.createdByName || null,
+    updatedByName: letter.updatedByName || null,
+    currentVersion: letter.currentVersion,
+    finalizedAt: letter.finalizedAt || null,
+    finalizedByName: letter.finalizedByName || null,
+    sentAt: letter.sentAt || null,
+    createdAt: letter.createdAt,
+    updatedAt: letter.updatedAt,
+    ...(versions
+      ? {
+          versions: versions.map((v: any) => ({
+            id: v.id,
+            version: v.version,
+            source: v.source,
+            authorName: v.authorName || null,
+            createdAt: v.createdAt,
+            content: v.content,
+          })),
+        }
+      : {}),
+  }
+}
+
+function requestActorName(reqUser: any): string | null {
+  return `${reqUser?.firstName || ''} ${reqUser?.lastName || ''}`.trim() || reqUser?.email || null
+}
+
+/** Letters on a case, newest first. Content is included so the editor can open instantly. */
+router.get('/leads/:leadId/demand-letters', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+
+    const letters = await prisma.demandLetter.findMany({
+      where: { assessmentId: auth.lead.assessmentId },
+      orderBy: { createdAt: 'desc' },
+      select: demandLetterSelect,
+    })
+
+    res.json({ letters: letters.map((l) => serializeDemandLetter(l)) })
+  } catch (error: any) {
+    logger.error('Failed to list demand letters', { error: error.message, leadId: req.params.leadId })
+    res.status(500).json({ error: 'Failed to list demand letters' })
+  }
+})
+
+/** One letter with its full version history. */
+router.get('/leads/:leadId/demand-letters/:demandId', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+
+    const letter = await prisma.demandLetter.findFirst({
+      where: { id: req.params.demandId, assessmentId: auth.lead.assessmentId },
+      select: demandLetterSelect,
+    })
+    if (!letter) {
+      return res.status(404).json({ error: 'Demand letter not found' })
+    }
+
+    const versions = await prisma.demandLetterVersion.findMany({
+      where: { demandLetterId: letter.id },
+      orderBy: { version: 'desc' },
+    })
+
+    res.json(serializeDemandLetter(letter, versions))
+  } catch (error: any) {
+    logger.error('Failed to load demand letter', { error: error.message, demandId: req.params.demandId })
+    res.status(500).json({ error: 'Failed to load demand letter' })
+  }
+})
+
+/**
+ * Draft a new demand letter for the case.
+ *
+ * `guidance` is the free-text steer from whoever asked ("lead with the delayed
+ * MRI"), which is how the case assistant hands a request down to the drafter.
+ */
+router.post('/leads/:leadId/demand-letters', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead, attorney } = auth
+
+    const guidance = typeof req.body?.guidance === 'string' ? req.body.guidance.trim().slice(0, 2000) : null
+    const useAi = req.body?.useAi !== false
+    const targetAmount = Number.isFinite(Number(req.body?.targetAmount)) ? Number(req.body.targetAmount) : undefined
+    const recipient =
+      req.body?.recipient && typeof req.body.recipient === 'object'
+        ? {
+            name: String(req.body.recipient.name || DEFAULT_DEMAND_RECIPIENT.name),
+            address: String(req.body.recipient.address || DEFAULT_DEMAND_RECIPIENT.address),
+            email: String(req.body.recipient.email || ''),
+          }
+        : undefined
+
+    const drafted = await draftDemandForAssessment({
+      assessmentId: lead.assessmentId,
+      useAi,
+      targetAmount,
+      recipient,
+      guidance,
+    })
+    if (!drafted) {
+      return res.status(404).json({ error: 'Case not found' })
+    }
+
+    const actorName = requestActorName(req.user)
+    const byAi = drafted.source === 'ai'
+    const letter = await prisma.demandLetter.create({
+      data: {
+        assessmentId: lead.assessmentId,
+        title: typeof req.body?.title === 'string' ? req.body.title.trim().slice(0, 200) || null : null,
+        targetAmount: drafted.targetAmount,
+        recipient: JSON.stringify(drafted.recipient),
+        content: drafted.content,
+        status: 'DRAFT',
+        origin: byAi ? 'ai' : 'attorney',
+        contentSource: drafted.source,
+        createdById: req.user?.id || null,
+        // Rose gets the credit when she wrote the prose, so the case workspace
+        // shows AI work as AI work rather than crediting whoever clicked.
+        createdByName: byAi ? AI_AUTHOR_NAME : actorName,
+        updatedByName: byAi ? AI_AUTHOR_NAME : actorName,
+        versions: {
+          create: {
+            version: 1,
+            content: drafted.content,
+            source: drafted.source,
+            authorName: byAi ? AI_AUTHOR_NAME : actorName,
+            authorId: byAi ? null : req.user?.id || null,
+          },
+        },
+      },
+      select: demandLetterSelect,
+    })
+
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: attorney?.id ?? null,
+      action: 'demand_letter_drafted',
+      entityType: 'demand_letter',
+      entityId: letter.id,
+      metadata: { leadId: lead.id, source: drafted.source, guidance: guidance || undefined },
+    })
+
+    res.status(201).json(serializeDemandLetter(letter))
+  } catch (error: any) {
+    logger.error('Failed to draft demand letter', { error: error.message, leadId: req.params.leadId })
+    res.status(500).json({ error: 'Failed to draft demand letter' })
+  }
+})
+
+/** Re-draft an existing letter, keeping its history. */
+router.post('/leads/:leadId/demand-letters/:demandId/regenerate', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead } = auth
+
+    const existing = await prisma.demandLetter.findFirst({
+      where: { id: req.params.demandId, assessmentId: lead.assessmentId },
+      select: { id: true, status: true, targetAmount: true, recipient: true },
+    })
+    if (!existing) {
+      return res.status(404).json({ error: 'Demand letter not found' })
+    }
+    if (existing.status !== 'DRAFT') {
+      return res.status(400).json({ error: 'Only a draft can be regenerated' })
+    }
+
+    const guidance = typeof req.body?.guidance === 'string' ? req.body.guidance.trim().slice(0, 2000) : null
+    const drafted = await draftDemandForAssessment({
+      assessmentId: lead.assessmentId,
+      useAi: req.body?.useAi !== false,
+      targetAmount: existing.targetAmount,
+      recipient: parseDemandRecipient(existing.recipient),
+      guidance,
+    })
+    if (!drafted) {
+      return res.status(404).json({ error: 'Case not found' })
+    }
+
+    await saveDemandVersion({ demandLetterId: existing.id, content: drafted.content, source: drafted.source })
+
+    const letter = await prisma.demandLetter.findUnique({ where: { id: existing.id }, select: demandLetterSelect })
+    res.json(serializeDemandLetter(letter))
+  } catch (error: any) {
+    logger.error('Failed to regenerate demand letter', { error: error.message, demandId: req.params.demandId })
+    res.status(500).json({ error: 'Failed to regenerate demand letter' })
+  }
+})
+
+/** Save a human edit as the next version. */
+router.patch('/leads/:leadId/demand-letters/:demandId', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead, attorney } = auth
+
+    const existing = await prisma.demandLetter.findFirst({
+      where: { id: req.params.demandId, assessmentId: lead.assessmentId },
+      select: { id: true, status: true, content: true },
+    })
+    if (!existing) {
+      return res.status(404).json({ error: 'Demand letter not found' })
+    }
+    if (existing.status !== 'DRAFT') {
+      return res.status(400).json({ error: 'This letter is finalized and can no longer be edited' })
+    }
+
+    const hasContent = typeof req.body?.content === 'string'
+    const hasTitle = typeof req.body?.title === 'string'
+    if (!hasContent && !hasTitle) {
+      return res.status(400).json({ error: 'Nothing to update' })
+    }
+
+    if (hasTitle) {
+      await prisma.demandLetter.update({
+        where: { id: existing.id },
+        data: { title: req.body.title.trim().slice(0, 200) || null },
+      })
+    }
+
+    if (hasContent) {
+      const content = req.body.content
+      if (!content.trim()) {
+        return res.status(400).json({ error: 'Letter content cannot be empty' })
+      }
+      // An unchanged save should not manufacture a version.
+      if (content !== existing.content) {
+        await saveDemandVersion({
+          demandLetterId: existing.id,
+          content,
+          source: 'human',
+          actor: { id: req.user?.id, name: requestActorName(req.user) },
+        })
+        await writeAutomationAudit({
+          userId: req.user?.id,
+          attorneyId: attorney?.id ?? null,
+          action: 'demand_letter_edited',
+          entityType: 'demand_letter',
+          entityId: existing.id,
+          metadata: { leadId: lead.id },
+        })
+      }
+    }
+
+    const letter = await prisma.demandLetter.findUnique({ where: { id: existing.id }, select: demandLetterSelect })
+    res.json(serializeDemandLetter(letter))
+  } catch (error: any) {
+    logger.error('Failed to save demand letter', { error: error.message, demandId: req.params.demandId })
+    res.status(500).json({ error: 'Failed to save demand letter' })
+  }
+})
+
+/** Clear the review hold on a letter Rose drafted on her own. */
+router.post('/leads/:leadId/demand-letters/:demandId/approve', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead, attorney } = auth
+
+    const existing = await prisma.demandLetter.findFirst({
+      where: { id: req.params.demandId, assessmentId: lead.assessmentId },
+      select: { id: true, reviewStatus: true },
+    })
+    if (!existing) {
+      return res.status(404).json({ error: 'Demand letter not found' })
+    }
+    if (existing.reviewStatus !== 'pending') {
+      return res.status(400).json({ error: 'This letter is not awaiting review' })
+    }
+
+    const letter = await prisma.demandLetter.update({
+      where: { id: existing.id },
+      data: {
+        reviewStatus: 'approved',
+        reviewedById: req.user?.id || null,
+        reviewedByName: requestActorName(req.user),
+        reviewedAt: new Date(),
+      },
+      select: demandLetterSelect,
+    })
+
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: attorney?.id ?? null,
+      action: 'demand_letter_review_approved',
+      entityType: 'demand_letter',
+      entityId: letter.id,
+      metadata: { leadId: lead.id },
+    })
+
+    res.json(serializeDemandLetter(letter))
+  } catch (error: any) {
+    logger.error('Failed to approve demand letter', { error: error.message, demandId: req.params.demandId })
+    res.status(500).json({ error: 'Failed to approve demand letter' })
+  }
+})
+
+/** Lock the letter. Finalized text is no longer editable. */
+router.post('/leads/:leadId/demand-letters/:demandId/finalize', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead, attorney } = auth
+
+    const existing = await prisma.demandLetter.findFirst({
+      where: { id: req.params.demandId, assessmentId: lead.assessmentId },
+      select: { id: true, status: true, reviewStatus: true },
+    })
+    if (!existing) {
+      return res.status(404).json({ error: 'Demand letter not found' })
+    }
+    if (existing.status !== 'DRAFT') {
+      return res.status(400).json({ error: 'This letter is already finalized' })
+    }
+    // A letter Rose wrote unprompted must be looked at before it can be locked.
+    if (existing.reviewStatus === 'pending') {
+      return res.status(400).json({ error: 'Approve the AI draft before finalizing it' })
+    }
+
+    const letter = await prisma.demandLetter.update({
+      where: { id: existing.id },
+      data: { status: 'FINAL', finalizedAt: new Date(), finalizedByName: requestActorName(req.user) },
+      select: demandLetterSelect,
+    })
+
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: attorney?.id ?? null,
+      action: 'demand_letter_finalized',
+      entityType: 'demand_letter',
+      entityId: letter.id,
+      metadata: { leadId: lead.id },
+    })
+
+    res.json(serializeDemandLetter(letter))
+  } catch (error: any) {
+    logger.error('Failed to finalize demand letter', { error: error.message, demandId: req.params.demandId })
+    res.status(500).json({ error: 'Failed to finalize demand letter' })
   }
 })
 

@@ -1582,15 +1582,10 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
     decisionBenchmark,
     decisionProfileLoading,
     decisionSummary,
-    demandDraftContent,
-    demandDraftId,
     demandDraftLoading,
-    demandDraftMessage,
-    handleDownloadDemandDocx,
     handleDraftDemandLetter,
     handleRegenerateAnalysis,
     handleSaveDecisionProfile,
-    handleViewLatestDraft,
     negotiationStyle,
     riskTolerance,
     setNegotiationStyle,
@@ -2691,13 +2686,6 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
               selectedLead={selectedLead}
               selectedLeadFacts={selectedLeadFacts}
               selectedLeadAnalysis={selectedLeadAnalysis}
-              handleDraftDemandLetter={handleDraftDemandLetter}
-              handleViewLatestDraft={handleViewLatestDraft}
-              handleDownloadDemandDocx={handleDownloadDemandDocx}
-              demandDraftLoading={demandDraftLoading}
-              demandDraftId={demandDraftId}
-              demandDraftMessage={demandDraftMessage}
-              demandDraftContent={demandDraftContent}
               leadCommandCenter={leadCommandCenter}
             />
           </Suspense>

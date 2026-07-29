@@ -102,6 +102,7 @@ import { recordRecentCase } from './recentCases'
 import { formatClaimType } from '../../lib/claimTypes'
 import { resolveCaseName, suggestedCaseName } from '../../lib/caseName'
 import CaseNameEditor from './CaseNameEditor'
+import DemandLetterWorkspace from './DemandLetterWorkspace'
 
 function claimLabel(type?: string) {
   return type ? formatClaimType(type) : 'Other'
@@ -900,8 +901,15 @@ function WorkstreamPanel({
     const latestDemand = n?.latestDemand ?? 0
     const medSpecials = bm?.medCharges ?? bm?.benchmarkTypicalTotal ?? 0
 
+    // The letter itself renders even with no valuation yet, since a case can be
+    // worth drafting before the value model has anything to say.
     if (!v && latestDemand === 0 && median === 0) {
-      return <Note>Demand not started. A demand package is prepared once treatment stabilizes and evidence is complete.</Note>
+      return (
+        <div className="space-y-4">
+          <Note>Demand not started. A demand package is prepared once treatment stabilizes and evidence is complete.</Note>
+          <DemandLetterWorkspace leadId={lead.id} />
+        </div>
+      )
     }
 
     // Suggested opening demand: anchor above the modeled high to leave negotiating
@@ -931,6 +939,8 @@ function WorkstreamPanel({
             </p>
           </div>
         </div>
+
+        <DemandLetterWorkspace leadId={lead.id} />
 
         {cc?.readiness ? (
           <MeterCard
