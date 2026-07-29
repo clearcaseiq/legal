@@ -66,21 +66,37 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod build
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
-Run Prisma setup after the API image is built and DB is healthy:
+No manual Prisma step is needed. The API entrypoint runs `prisma db push` on
+every start and **exits** if it fails, so the container will not serve traffic
+against a schema it could not verify. The client is generated during the image
+build. Set `ALLOW_SCHEMA_DRIFT=true` only as break-glass, to get a shell on a
+box whose schema you are part-way through repairing.
+
+If the container exits on boot, read the push output for the reason:
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.prod exec api pnpm prisma:generate
-docker compose -f docker-compose.prod.yml --env-file .env.prod exec api node ../node_modules/prisma/build/index.js db push
+docker compose -f docker-compose.prod.yml --env-file .env.prod logs api | grep -A20 entrypoint
 ```
+
+## Database
+
+Production uses managed Postgres (RDS). `DATABASE_URL` in `.env.prod` is
+required — there is no local `db` service and no fallback, so a missing value
+fails the stack immediately instead of silently pointing the API at an empty
+database.
 
 ## Verify
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.prod ps
+curl -s https://api.clearcaseiq.com/health/ready
 curl -I https://www.clearcaseiq.com
 curl -I https://clearcaseiq.com
-curl -I https://api.clearcaseiq.com
 ```
+
+`ps` must show `(healthy)` for both `api` and `web`. `/health/ready` runs real
+queries and returns 503 listing the failing checks, unlike `/health`, which only
+reports that the process is alive.
 
 ## Logs
 

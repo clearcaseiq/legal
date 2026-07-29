@@ -1,23 +1,14 @@
+# Production runs against managed Postgres (RDS), set via DATABASE_URL in
+# .env.prod. There is deliberately no `db` service here: one used to run
+# alongside, serving nothing, and having two databases on the box caused real
+# damage — migrations were applied to the wrong one, a seed run landed in it
+# instead of production, and its volume consumed disk on a host that has hit
+# ENOSPC during builds.
+#
+# The pgvector tables it held (legal_document_chunks, llm_groundings) belong to
+# apps/ml-service, which only runs in the dev compose file. Restore a pgvector
+# service here if that service is ever deployed to production.
 services:
-  db:
-    image: pgvector/pgvector:pg16
-    container_name: clearcaseiq-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-clearcaseiq}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: ${POSTGRES_DB:-clearcaseiq}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./apps/ml-service/sql/init_pgvector.sql:/docker-entrypoint-initdb.d/010-init-pgvector.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clearcaseiq} -d ${POSTGRES_DB:-clearcaseiq}"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    networks:
-      - clearcaseiq
-
   api:
     build:
       context: .
@@ -30,8 +21,11 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 4000
-      # Set DATABASE_URL in .env.prod to use Supabase; default is the local db container.
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-clearcaseiq}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-clearcaseiq}?schema=public}
+      # Required, not defaulted. This previously fell back to a local db
+      # container, so losing the variable silently pointed the API at an empty
+      # database instead of failing — the same quiet-failure pattern that let a
+      # schema mismatch run unnoticed for three days.
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required (managed Postgres connection string)}
       API_URL: https://api.clearcaseiq.com
       WEB_URL: https://www.clearcaseiq.com
       CORS_ORIGINS: https://www.clearcaseiq.com,https://clearcaseiq.com
@@ -41,9 +35,6 @@ services:
       ENABLE_OCR: "true"
       PDF_TEXTRACT_FALLBACK: "true"
       AWS_REGION: ${AWS_REGION:-us-east-1}
-    depends_on:
-      db:
-        condition: service_healthy
     volumes:
       - api_uploads:/app/uploads
     expose:
@@ -115,7 +106,6 @@ services:
       - clearcaseiq
 
 volumes:
-  postgres_data:
   api_uploads:
 
 networks:
