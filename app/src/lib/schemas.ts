@@ -67,7 +67,22 @@ export const ExpectationCheckSchema = z.object({
 
 export const AssessmentWriteSchema = z.object({
   userId: z.string().optional(),
-  claimType: z.enum(['auto', 'slip_and_fall', 'dog_bite', 'medmal', 'product', 'nursing_home_abuse', 'wrongful_death', 'high_severity_surgery']),
+  // Mirrors CLAIM_TYPES in api/src/lib/validators.ts. Keep the two in step.
+  claimType: z.enum([
+    'auto',
+    'slip_and_fall',
+    'premises_liability',
+    'workplace_injury',
+    'intentional_tort',
+    'toxic_exposure',
+    'other_pi',
+    'dog_bite',
+    'medmal',
+    'product',
+    'nursing_home_abuse',
+    'wrongful_death',
+    'high_severity_surgery',
+  ]),
   venue: VenueSchema,
   incident: IncidentSchema,
   liability: z.record(z.any()).optional(),

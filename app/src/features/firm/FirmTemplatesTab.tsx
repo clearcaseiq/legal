@@ -35,6 +35,8 @@ import {
 } from '../../lib/api'
 import { SectionCard, EmptyState, Badge } from '../shared/ui'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import ModalPortal from '../../components/ModalPortal'
+import { formatClaimType } from '../../lib/claimTypes'
 
 const btnPrimary =
   'inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60'
@@ -648,6 +650,7 @@ function SendModal({
     // taller than a laptop viewport. Centring it without a height cap pushed the
     // top and the action buttons off screen with nothing to scroll (CP-435), so
     // the overlay scrolls and the body gets its own scroll region.
+    <ModalPortal>
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 p-4" onClick={onClose}>
       <div className="flex min-h-full items-center justify-center">
       <div
@@ -663,7 +666,14 @@ function SendModal({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        {/*
+          flex-auto, not flex-1. The card's height is capped but not definite, so
+          flex-1's `flex-basis: 0%` has no definite main size to resolve against
+          and collapses the body to nothing — a white card with only a header,
+          reported as blank white space (CP-451). flex-auto sizes from content
+          and still shrinks to fit the cap.
+        */}
+        <div className="min-h-0 flex-auto overflow-y-auto p-5">
         {done ? (
           <div className="space-y-4">
             <div className="rounded-lg bg-emerald-50 px-3 py-3 text-sm text-emerald-800 ring-1 ring-emerald-200">
@@ -688,15 +698,34 @@ function SendModal({
 
             <div>
               <label className={labelCls}>Client / case</label>
-              <select className={inputCls} value={leadId} onChange={(e) => pickRecipient(e.target.value)}>
-                <option value="">Select a client…</option>
+              {/*
+                The option text used to be "Name — email (slip_and_fall)": a raw
+                database slug, and an email address that pushed the name out of
+                view on a narrow select (CP-455). Lead with the name and the
+                readable case type; the email is confirmed in the Signer email
+                field directly below anyway.
+              */}
+              <select
+                className={inputCls}
+                value={leadId}
+                onChange={(e) => pickRecipient(e.target.value)}
+                disabled={recipients.length === 0}
+              >
+                <option value="">
+                  {recipients.length === 0 ? 'No active cases to send to' : 'Select a client…'}
+                </option>
                 {recipients.map((r) => (
                   <option key={r.leadId} value={r.leadId}>
-                    {r.name} — {r.email}
-                    {r.claimType ? ` (${r.claimType})` : ''}
+                    {r.name}
+                    {r.claimType ? ` — ${formatClaimType(r.claimType)}` : ''}
                   </option>
                 ))}
               </select>
+              {recipients.length === 0 ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  Documents are sent against an accepted case. Accept a case first, then send it from here.
+                </p>
+              ) : null}
             </div>
 
             {willRenderFromBody && leadId && (
@@ -773,5 +802,6 @@ function SendModal({
       </div>
       </div>
     </div>
+    </ModalPortal>
   )
 }

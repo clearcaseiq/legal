@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { getAdminRoutingQueue } from '../../lib/api'
 import { formatCurrency, formatDate } from '../../lib/formatters'
+import { formatClaimType } from '../../lib/claimTypes'
 import { RefreshCw, ExternalLink, Power, TriangleAlert, CheckCircle } from 'lucide-react'
 import { useAdminRoutingStatus } from '../../hooks/useAdminRoutingStatus'
 import {
@@ -226,7 +227,7 @@ export default function AdminRoutingQueue() {
                     >
                       {c.id?.slice(0, 8)}…
                     </Td>
-                    <Td className="capitalize">{(c.claimType || '').replace(/_/g, ' ')}</Td>
+                    <Td>{formatClaimType(c.claimType)}</Td>
                     <Td>{c.valueEstimate ? formatCurrency(c.valueEstimate) : '—'}</Td>
                     <Td>{c.caseScore != null ? `${Math.round(c.caseScore * 100)}%` : '—'}</Td>
                     <Td>

@@ -4,27 +4,32 @@
 import { getCountiesForState } from './usLocationData'
 
 /**
- * Maps intake injury types to the API claimType enum
- * ('auto' | 'slip_and_fall' | 'dog_bite' | 'medmal' | 'product' |
- *  'nursing_home_abuse' | 'wrongful_death' | 'high_severity_surgery').
+ * Maps the incident type the plaintiff picked in intake onto the claimType
+ * stored on the assessment.
  *
- * Types without an exact enum match map to the closest general
- * personal-injury category so SOL deadlines and routing stay correct:
- * - workplace → slip_and_fall (premises/general PI; workers'-comp tagged separately)
- * - assault → slip_and_fall (negligent security is premises liability)
- * - toxic → product (toxic torts route like product liability; same SOL rule)
- * - other → slip_and_fall (general personal-injury SOL)
+ * This map used to collapse four incident types onto other categories that had
+ * an exact match in a narrower enum — workplace and assault and "other" all
+ * became slip_and_fall, and toxic became product. That was destructive: the
+ * plaintiff's actual answer was gone by the time the request left the browser,
+ * so someone who reported a workplace injury was shown to the admin and the
+ * attorney as a slip & fall (CP-406). Every incident type now round-trips to a
+ * distinct claim type. SOL and routing are unaffected — both normalise these
+ * slugs back to the same underlying rules (see solRules CLAIM_TYPE_ALIASES and
+ * case-type-match).
  */
 export const INJURY_TO_CLAIM: Record<string, string> = {
   vehicle: 'auto',
   slip_fall: 'slip_and_fall',
-  workplace: 'slip_and_fall',
+  workplace: 'workplace_injury',
   medmal: 'medmal',
   dog_bite: 'dog_bite',
   product: 'product',
-  assault: 'slip_and_fall',
-  toxic: 'product',
-  other: 'slip_and_fall',
+  assault: 'intentional_tort',
+  toxic: 'toxic_exposure',
+  nursing_home_abuse: 'nursing_home_abuse',
+  wrongful_death: 'wrongful_death',
+  high_severity_surgery: 'high_severity_surgery',
+  other: 'other_pi',
 }
 
 export type CaseTaxonomy = {
@@ -190,7 +195,9 @@ export function sanitizeDetectedCounty(state: string, county: string): string {
 }
 
 export function injuryTypeToClaimType(injuryType: string): string {
-  return INJURY_TO_CLAIM[injuryType] ?? 'product'
+  // An unrecognised incident type is by definition not a product claim; the
+  // old 'product' fallback mislabelled anything unmapped.
+  return INJURY_TO_CLAIM[injuryType] ?? 'other_pi'
 }
 
 /**

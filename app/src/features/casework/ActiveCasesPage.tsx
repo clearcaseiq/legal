@@ -4,7 +4,7 @@ import { ArrowRight, Pin } from 'lucide-react'
 import { getAttorneyDashboard } from '../../lib/api'
 import { Avatar, Badge, ClientLink, DataTable, FilterBar, FilterStat, PageHeader, SectionCard, StatGrid, type BadgeTone, type DataTableColumn, type FilterField } from '../shared/ui'
 import { getPinnedCaseIds, getRecentCases, togglePinnedCase } from './recentCases'
-import { formatClaimType } from '../../lib/claimTypes'
+import { CLAIM_TYPE_OPTIONS, canonicalClaimType, formatClaimType } from '../../lib/claimTypes'
 import { resolveLeadCaseName } from '../../lib/caseName'
 
 function claimLabel(type?: string) {
@@ -445,7 +445,9 @@ export default function ActiveCasesPage() {
   }
 
   const passesFilters = (r: CaseRow) => {
-    if (filters.type && r.claimType !== filters.type) return false
+    // Compared canonically so "Motor vehicle" matches rows stored as auto,
+    // vehicle or car_accident alike.
+    if (filters.type && canonicalClaimType(r.claimType) !== canonicalClaimType(filters.type)) return false
     if (filters.stage && r.stageKey !== filters.stage) return false
     if (filters.value === 'low' && r.valueHigh >= 10_000) return false
     if (filters.value === 'mid' && (r.valueHigh < 10_000 || r.valueHigh >= 50_000)) return false
@@ -471,12 +473,14 @@ export default function ActiveCasesPage() {
   )
 
   const filterFields: FilterField[] = useMemo(() => {
-    const types = Array.from(new Set(rows.map((r) => r.claimType).filter(Boolean)))
     return [
       {
         key: 'type',
+        // Built from the canonical list rather than from the claim types present
+        // in the loaded rows, which made the menu short and unstable and hid
+        // most incident types entirely (CP-453).
         label: 'Type',
-        options: [{ value: '', label: 'All types' }, ...types.map((t) => ({ value: t, label: claimLabel(t) }))],
+        options: [{ value: '', label: 'All types' }, ...CLAIM_TYPE_OPTIONS.map((o) => ({ ...o }))],
       },
       {
         key: 'stage',

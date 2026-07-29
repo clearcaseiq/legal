@@ -38,6 +38,7 @@ import {
   type TaskHistoryEntry,
 } from '../../lib/api'
 import { isAiTask } from './TaskOriginBadge'
+import ModalPortal from '../../components/ModalPortal'
 import ConfirmDialog from '../../components/ConfirmDialog'
 
 interface TaskDetailModalProps {
@@ -286,10 +287,16 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
   }
 
   const done = task?.status === 'done'
-  const subtaskDone = task ? task.subtasks.filter((s) => s.done).length : 0
-  const subtaskTotal = task ? task.subtasks.length : 0
+  // Server-generated tasks (the grouped "Questions for the plaintiff" task in
+  // particular) can arrive without these collections. Reading them unguarded
+  // threw during render and left an empty modal (CP-452).
+  const subtasks = task?.subtasks ?? []
+  const members = task?.members ?? []
+  const subtaskDone = subtasks.filter((s) => s.done).length
+  const subtaskTotal = subtasks.length
 
   return (
+    <ModalPortal>
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4">
       <ConfirmDialog
         open={confirmingDelete}
@@ -457,7 +464,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                   </span>
                 </div>
                 <ul className="space-y-1">
-                  {task.subtasks.map((s) => (
+                  {subtasks.map((s) => (
                     <li key={s.id} className="group flex items-center gap-2 rounded-lg px-1 py-1 hover:bg-slate-50">
                       <button
                         onClick={() => toggleSubtask(s.id)}
@@ -543,7 +550,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                     className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
                   >
                     <option value="">Unassigned</option>
-                    {task.members.map((m) => (
+                    {members.map((m) => (
                       <option key={m.userId} value={m.userId}>
                         {m.name}
                         {m.roleLabel ? ` (${m.roleLabel})` : ''}
@@ -680,5 +687,6 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
         )}
       </div>
     </div>
+    </ModalPortal>
   )
 }

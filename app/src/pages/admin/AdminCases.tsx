@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { getAllAdminCases, bulkRouteCases, getAdminAttorneys } from '../../lib/api'
 import { formatCurrency, formatDate } from '../../lib/formatters'
 import { formatCaseId } from '../../lib/caseId'
+import { CLAIM_TYPE_OPTIONS, claimTypeSynonyms, formatClaimType } from '../../lib/claimTypes'
 import {
   Search,
   RefreshCw,
@@ -139,7 +140,9 @@ export default function AdminCases() {
       setLoading(true)
       setError(null)
       const data = await getAllAdminCases({
-        claimType: claimTypeFilter || undefined,
+        // Sent as every equivalent slug so the filter also matches rows written
+        // under an older spelling of the same type.
+        claimType: claimTypeFilter ? claimTypeSynonyms(claimTypeFilter).join(',') : undefined,
         state: stateFilter || undefined,
         routingStatus: routingStatusFilter || undefined,
         createdToday: createdTodayOnly || undefined,
@@ -320,7 +323,7 @@ export default function AdminCases() {
     const headers = ['Case ID', 'Claim type', 'Plaintiff', 'Email', 'Location', 'Routing status', 'Viability', 'Est. value', 'Submitted']
     const rows = rowsSource.map((c) => [
       formatCaseId({ id: c.id, claimType: c.claimType, createdAt: c.createdAt }),
-      (c.claimType || '').replace(/_/g, ' '),
+      formatClaimType(c.claimType),
       c.user ? `${c.user.firstName || ''} ${c.user.lastName || ''}`.trim() || 'Anonymous' : 'Anonymous',
       c.user?.email || '',
       `${c.venueCounty ? `${c.venueCounty}, ` : ''}${c.venueState || ''}`,
@@ -471,13 +474,14 @@ export default function AdminCases() {
           onChange={(e) => setClaimTypeFilter(e.target.value)}
           className="px-4 py-2 border border-slate-200 rounded-lg text-sm"
         >
+          {/* Was a hand-written list of six, missing most claim types and using
+              its own names for them (CP-406 / CP-453). */}
           <option value="">All claim types</option>
-          <option value="auto">Auto</option>
-          <option value="slip_and_fall">Slip and fall</option>
-          <option value="dog_bite">Dog bite</option>
-          <option value="medmal">Med mal</option>
-          <option value="product">Product</option>
-          <option value="wrongful_death">Wrongful death</option>
+          {CLAIM_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
         </select>
         <select
           value={stateFilter}
@@ -635,8 +639,8 @@ export default function AdminCases() {
                         ? `${c.user.firstName || ''} ${c.user.lastName || ''}`.trim() || '—'
                         : '—'}
                     </td>
-                    <td className="py-3 px-4 text-sm capitalize">
-                      {(c.claimType || '').replace(/_/g, ' ')}
+                    <td className="py-3 px-4 text-sm">
+                      {formatClaimType(c.claimType)}
                     </td>
                     <td className="py-3 px-4 text-sm">
                       {c.venueCounty ? `${c.venueCounty}, ` : ''}

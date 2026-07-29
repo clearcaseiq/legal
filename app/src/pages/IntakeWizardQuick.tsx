@@ -36,6 +36,9 @@ type Step =
   | 'review'
   | 'consent'
 
+// Nursing home abuse, wrongful death and catastrophic injury were translated in
+// every locale and carried their own claim type and SOL rule, but had no option
+// here, so a plaintiff had to file them under "Other injury" (CP-453).
 const INJURY_TYPES = [
   { value: 'vehicle', labelKey: 'injuryType_vehicle', icon: Car },
   { value: 'slip_fall', labelKey: 'injuryType_slip_fall', icon: Footprints },
@@ -45,6 +48,9 @@ const INJURY_TYPES = [
   { value: 'product', labelKey: 'injuryType_product', icon: Package },
   { value: 'assault', labelKey: 'injuryType_assault', icon: AlertTriangle },
   { value: 'toxic', labelKey: 'injuryType_toxic', icon: Droplets },
+  { value: 'nursing_home_abuse', labelKey: 'injuryType_nursing_home_abuse', icon: BedDouble },
+  { value: 'wrongful_death', labelKey: 'injuryType_wrongful_death', icon: HeartPulse },
+  { value: 'high_severity_surgery', labelKey: 'injuryType_high_severity_surgery', icon: Ambulance },
   { value: 'other', labelKey: 'injuryType_other', icon: HelpCircle }
 ]
 

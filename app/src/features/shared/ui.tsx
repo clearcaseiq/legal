@@ -680,7 +680,10 @@ export function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${BADGE_TONE[tone]} ${className}`}
+      // whitespace-nowrap: a pill that breaks across two lines reads as two
+      // separate badges. "Wave 1" in the routing queue was splitting into
+      // "Wave" / "1" in its narrow column (CP-456).
+      className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${BADGE_TONE[tone]} ${className}`}
     >
       {children}
     </span>

@@ -9,9 +9,15 @@ type IntakeValidationResult =
   | { success: true; data: AssessmentWrite }
   | { success: false; errors: IntakeValidationIssue[] }
 
+// Mirrors CLAIM_TYPES in api/src/lib/validators.ts. Keep the two in step.
 const CLAIM_TYPES = new Set<AssessmentWrite['claimType']>([
   'auto',
   'slip_and_fall',
+  'premises_liability',
+  'workplace_injury',
+  'intentional_tort',
+  'toxic_exposure',
+  'other_pi',
   'dog_bite',
   'medmal',
   'product',

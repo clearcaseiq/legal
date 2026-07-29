@@ -17,12 +17,25 @@ const STATE_CODES = [
 
 type StateCode = typeof STATE_CODES[number]
 
+/**
+ * Claim types that share another type's limitation period.
+ *
+ * These became live traffic with CP-406 (intake now stores the plaintiff's
+ * actual incident type instead of collapsing it), so every alias here decides a
+ * real deadline. workplace_injury resolves to the general personal-injury
+ * period, not the workers-comp one: this platform routes the third-party
+ * liability claim arising from a workplace incident, and workers-comp filing is
+ * a separate administrative track with its own much shorter clock. Quoting the
+ * comp deadline on a PI claim would understate the time available.
+ */
 const CLAIM_TYPE_ALIASES: Record<string, string> = {
   auto_accident: 'auto',
   premises: 'slip_and_fall',
+  premises_liability: 'slip_and_fall',
   pi: 'slip_and_fall',
   personal_injury: 'slip_and_fall',
-  workplace_injury: 'workers',
+  workplace_injury: 'slip_and_fall',
+  workers_comp: 'workers',
   intentional_tort: 'slip_and_fall',
   toxic_exposure: 'slip_and_fall',
   other_pi: 'slip_and_fall',

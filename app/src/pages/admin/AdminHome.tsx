@@ -27,6 +27,7 @@ import {
   MailWarning,
 } from 'lucide-react'
 import { PageHeader } from '../../features/shared/ui'
+import { formatClaimType } from '../../lib/claimTypes'
 
 export default function AdminHome() {
   const [stats, setStats] = useState<any>(null)
@@ -424,9 +425,7 @@ export default function AdminHome() {
           <div className="space-y-2">
             {byClaimType.map((c: { claimType: string; count: number }) => (
               <div key={c.claimType} className="flex justify-between text-sm">
-                <span className="text-slate-600 capitalize">
-                  {c.claimType.replace(/_/g, ' ')}
-                </span>
+                <span className="text-slate-600">{formatClaimType(c.claimType)}</span>
                 <span className="font-medium text-slate-900">{c.count}</span>
               </div>
             ))}

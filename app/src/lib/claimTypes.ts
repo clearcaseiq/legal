@@ -5,6 +5,9 @@
  */
 export {
   CLAIM_TYPE_LABELS,
+  CLAIM_TYPE_OPTIONS,
   DEFAULT_CLAIM_TYPE_LABEL,
+  canonicalClaimType,
+  claimTypeSynonyms,
   formatClaimType,
 } from '../../../shared/claim-types'

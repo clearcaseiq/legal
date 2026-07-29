@@ -7,6 +7,8 @@ import {
   normalizeCounty,
   sanitizeDetectedCounty,
 } from './intakeQuickHelpers'
+import { CLAIM_TYPE_OPTIONS, canonicalClaimType, claimTypeSynonyms, formatClaimType } from './claimTypes'
+import { SOL_RULES, normalizeClaimTypeForSOL } from '../../../api/src/lib/solRules'
 
 describe('normalizeCounty', () => {
   it('strips County suffix and canonicalizes CA names', () => {
@@ -44,8 +46,64 @@ describe('injuryTypeToClaimType', () => {
     }
   })
 
-  it('defaults unknown types to product', () => {
-    expect(injuryTypeToClaimType('not_a_real_type')).toBe('product')
+  it('defaults unknown types to other injury rather than a product claim', () => {
+    expect(injuryTypeToClaimType('not_a_real_type')).toBe('other_pi')
+  })
+
+  // CP-406: these four used to be rewritten to slip_and_fall or product, so a
+  // plaintiff reporting a workplace injury was shown to staff as a slip & fall.
+  it('keeps every incident type distinct', () => {
+    expect(injuryTypeToClaimType('workplace')).toBe('workplace_injury')
+    expect(injuryTypeToClaimType('assault')).toBe('intentional_tort')
+    expect(injuryTypeToClaimType('toxic')).toBe('toxic_exposure')
+    expect(injuryTypeToClaimType('other')).toBe('other_pi')
+
+    const claimTypes = Object.values(INJURY_TO_CLAIM)
+    expect(new Set(claimTypes).size).toBe(claimTypes.length)
+  })
+
+  it('round-trips every incident type back to its own label', () => {
+    const labels = Object.entries(INJURY_TO_CLAIM).map(([, claimType]) => formatClaimType(claimType))
+    expect(new Set(labels).size).toBe(labels.length)
+    expect(formatClaimType(injuryTypeToClaimType('workplace'))).toBe('Workplace injury')
+    expect(formatClaimType(injuryTypeToClaimType('assault'))).toBe('Assault & negligent security')
+    expect(formatClaimType(injuryTypeToClaimType('toxic'))).toBe('Toxic exposure')
+  })
+
+  it('resolves to a statute-of-limitations rule for every incident type', () => {
+    // Widening the stored claim types is only safe while SOL still recognises
+    // each one; an unmapped type makes deriveSOLStatus return "unknown".
+    for (const claimType of Object.values(INJURY_TO_CLAIM)) {
+      const normalized = normalizeClaimTypeForSOL(claimType)
+      expect(SOL_RULES.CA[normalized], `no CA SOL rule for ${claimType}`).toBeDefined()
+    }
+  })
+})
+
+describe('claim type filter options', () => {
+  it('offers one option per distinct label, covering every stored type', () => {
+    const labels = CLAIM_TYPE_OPTIONS.map((o) => o.label)
+    expect(new Set(labels).size).toBe(labels.length)
+    expect(labels).toContain('Workplace injury')
+    expect(labels).toContain('Assault & negligent security')
+    expect(labels).toContain('Toxic exposure')
+    expect(labels).toContain('Nursing home abuse')
+    expect(labels).toContain('Catastrophic injury')
+  })
+
+  it('groups historical spellings so one option matches them all', () => {
+    expect(canonicalClaimType('vehicle')).toBe(canonicalClaimType('auto'))
+    expect(canonicalClaimType('car_accident')).toBe(canonicalClaimType('motor_vehicle'))
+    expect(canonicalClaimType('slip_fall')).toBe(canonicalClaimType('slip_and_fall'))
+    expect(canonicalClaimType('workplace')).toBe(canonicalClaimType('workplace_injury'))
+    expect(canonicalClaimType('auto')).not.toBe(canonicalClaimType('slip_and_fall'))
+  })
+
+  it('expands a selection to every equivalent slug for database filtering', () => {
+    expect(claimTypeSynonyms('auto')).toEqual(
+      expect.arrayContaining(['auto', 'vehicle', 'motor_vehicle', 'car_accident']),
+    )
+    expect(claimTypeSynonyms('')).toEqual([])
   })
 })
 

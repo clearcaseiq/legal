@@ -1795,7 +1795,15 @@ router.get('/cases/all', authMiddleware, adminMiddleware, async (req: AuthReques
       ]
     }
     if (claimType) {
-      where.claimType = claimType as string
+      // The UI sends every slug that reads as the chosen label (auto, vehicle,
+      // car_accident … are all "Motor vehicle"), so one menu entry matches rows
+      // stored under any of its historical spellings.
+      const values = String(claimType)
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+      if (values.length === 1) where.claimType = values[0]
+      else if (values.length > 1) where.claimType = { in: values }
     }
     if (state) {
       where.venueState = (state as string).toUpperCase()

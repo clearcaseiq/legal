@@ -101,9 +101,35 @@ export const CaseTaxonomy = z.object({
   taxonomyPath: z.array(z.string()).optional()
 }).partial()
 
+/**
+ * Claim types an assessment may be stored as.
+ *
+ * The four canonical types after slip_and_fall were added for CP-406: the web
+ * intake used to collapse workplace / assault / toxic / other onto whichever of
+ * the older values was closest, which silently changed what the plaintiff said
+ * happened to them. Statute-of-limitations and routing normalise all of these
+ * back to the same rules, so widening the enum affects display and filtering
+ * only.
+ */
+export const CLAIM_TYPES = [
+  'auto',
+  'slip_and_fall',
+  'premises_liability',
+  'workplace_injury',
+  'intentional_tort',
+  'toxic_exposure',
+  'other_pi',
+  'dog_bite',
+  'medmal',
+  'product',
+  'nursing_home_abuse',
+  'wrongful_death',
+  'high_severity_surgery',
+] as const
+
 export const AssessmentWrite = z.object({
   userId: z.string().optional(),
-  claimType: z.enum(['auto','slip_and_fall','dog_bite','medmal','product','nursing_home_abuse','wrongful_death','high_severity_surgery']),
+  claimType: z.enum(CLAIM_TYPES),
   caseSubtype: z.string().optional(),
   incidentTags: z.array(z.string()).optional(),
   taxonomyPath: z.array(z.string()).optional(),
@@ -124,7 +150,7 @@ export const AssessmentWrite = z.object({
 })
 
 export const AssessmentUpdate = z.object({
-  claimType: z.enum(['auto', 'slip_and_fall', 'dog_bite', 'medmal', 'product', 'nursing_home_abuse', 'wrongful_death', 'high_severity_surgery']).optional(),
+  claimType: z.enum(CLAIM_TYPES).optional(),
   caseSubtype: z.string().optional(),
   incidentTags: z.array(z.string()).optional(),
   taxonomyPath: z.array(z.string()).optional(),

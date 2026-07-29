@@ -5,6 +5,7 @@ import {
   manualReviewAction,
 } from '../../lib/api'
 import { formatDate } from '../../lib/formatters'
+import { formatClaimType } from '../../lib/claimTypes'
 import {
   RefreshCw,
   ExternalLink,
@@ -194,7 +195,7 @@ export default function AdminManualReview() {
                         )}
                       </div>
                       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0 text-sm text-slate-600 dark:text-slate-400">
-                        <span>{c.claimType}</span>
+                        <span>{formatClaimType(c.claimType)}</span>
                         <span>{c.venueState}{c.venueCounty ? `, ${c.venueCounty}` : ''}</span>
                         <span>Score: {(c.caseScore * 100).toFixed(0)}%</span>
                         {c.valueEstimate != null && (

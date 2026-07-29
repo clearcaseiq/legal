@@ -4,6 +4,7 @@ import { getAdminCaseDetail, bulkRouteCases, getAdminAttorneys, holdCaseForManua
 import { DECLINE_REASONS } from '../../components/DeclineModal'
 import { formatCurrency, formatDate, formatEnumLabel } from '../../lib/formatters'
 import { formatCaseId } from '../../lib/caseId'
+import { formatClaimType } from '../../lib/claimTypes'
 import { BackButton, Breadcrumbs } from '../../features/shared/ui'
 import {
   RefreshCw,
@@ -517,7 +518,7 @@ export default function AdminCaseDetail() {
           </div>
           <div>
             <p className="text-xs text-slate-500">Claim type</p>
-            <p className="capitalize">{(caseData.claimType || '').replace(/_/g, ' ')}</p>
+            <p>{formatClaimType(caseData.claimType)}</p>
           </div>
           <div>
             <p className="text-xs text-slate-500">Location</p>

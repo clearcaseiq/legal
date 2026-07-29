@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, Clock, Info, Lock, LockOpen, MessageSquare, Phone, Sparkles, Star, Users } from 'lucide-react'
-import { formatClaimType } from '../lib/claimTypes'
+import { CLAIM_TYPE_OPTIONS, canonicalClaimType, formatClaimType } from '../lib/claimTypes'
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
 import { FilterStat, FilterBar, type FilterField } from '../features/shared/ui'
 
@@ -344,7 +344,7 @@ export default function AttorneyDashboardLeadsTab({
 
       if (
         caseLeadsFilter.caseType &&
-        (lead.assessment?.claimType || '').toLowerCase() !== caseLeadsFilter.caseType.toLowerCase()
+        canonicalClaimType(lead.assessment?.claimType) !== canonicalClaimType(caseLeadsFilter.caseType)
       ) {
         return false
       }
@@ -458,13 +458,6 @@ export default function AttorneyDashboardLeadsTab({
     setActivePipelineTile(pipelineTile)
     window.setTimeout(() => document.getElementById('cases-filters')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
   }
-  const caseTypes = [
-    ...new Set<string>(
-      (dashboardData?.recentLeads || [])
-        .map((lead: any) => lead.assessment?.claimType)
-        .filter((value: unknown): value is string => Boolean(value)),
-    ),
-  ]
   const jurisdictions = [
     ...new Set<string>(
       (dashboardData?.recentLeads || [])
@@ -476,8 +469,10 @@ export default function AttorneyDashboardLeadsTab({
   const leadsFilterFields: FilterField[] = [
     {
       key: 'caseType',
+      // Canonical list rather than the types present in the loaded leads, which
+      // left most incident types unselectable (CP-453).
       label: 'Type',
-      options: [{ value: '', label: 'All types' }, ...caseTypes.map((type) => ({ value: type, label: claimLabel(type) }))],
+      options: [{ value: '', label: 'All types' }, ...CLAIM_TYPE_OPTIONS.map((o) => ({ ...o }))],
     },
     {
       key: 'valueRange',

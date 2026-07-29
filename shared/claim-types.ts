@@ -56,3 +56,52 @@ export function formatClaimType(value: string | null | undefined): string {
   const spaced = raw.replace(/_/g, ' ').trim()
   return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
+
+/**
+ * The one incident type a filter should offer for each label, in the order the
+ * options should appear. Several slugs share a label (auto/vehicle/car_accident
+ * are all "Motor vehicle"), so listing raw slugs would show the same option
+ * several times.
+ */
+export const CLAIM_TYPE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = (() => {
+  const seen = new Set<string>()
+  const options: Array<{ value: string; label: string }> = []
+  for (const [value, label] of Object.entries(CLAIM_TYPE_LABELS)) {
+    if (seen.has(label)) continue
+    seen.add(label)
+    options.push({ value, label })
+  }
+  return options
+})()
+
+/**
+ * Collapses any slug onto the single value used to represent its label, so a
+ * filter matches every case that reads the same to the user regardless of which
+ * historical slug the row was stored with.
+ *
+ * Case-type filters used to be built from the slugs present in the loaded rows,
+ * which meant the list was short, unstable, and missing most types (CP-453).
+ * They are now built from CLAIM_TYPE_OPTIONS and compared through this.
+ */
+export function canonicalClaimType(value: string | null | undefined): string {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  const label = formatClaimType(raw)
+  const option = CLAIM_TYPE_OPTIONS.find((o) => o.label === label)
+  return option ? option.value : raw.toLowerCase().replace(/[\s-]+/g, '_')
+}
+
+/**
+ * Every slug that reads as the same label as `value`, for filters that have to
+ * be evaluated in the database (admin case search) rather than over rows already
+ * in memory.
+ */
+export function claimTypeSynonyms(value: string | null | undefined): string[] {
+  const raw = String(value ?? '').trim()
+  if (!raw) return []
+  const label = formatClaimType(raw)
+  const matches = Object.entries(CLAIM_TYPE_LABELS)
+    .filter(([, l]) => l === label)
+    .map(([slug]) => slug)
+  return matches.length > 0 ? matches : [raw.toLowerCase().replace(/[\s-]+/g, '_')]
+}
