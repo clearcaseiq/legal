@@ -126,9 +126,16 @@ export interface ESignatureProvider {
 }
 
 export class ESignNotConfiguredError extends Error {
+  /** Provider that was attempted, kept separate so logs stay specific. */
+  readonly provider: string
+
   constructor(provider: string) {
-    super(`E-signature provider "${provider}" is not configured on this server`)
+    super(
+      'E-signature is not set up yet. A firm admin can connect Dropbox Sign or Documenso ' +
+        'under Firm Settings → Integrations, or you can download the document and send it manually.'
+    )
     this.name = 'ESignNotConfiguredError'
+    this.provider = provider
   }
 }
 

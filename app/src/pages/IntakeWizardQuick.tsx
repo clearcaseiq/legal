@@ -3603,8 +3603,11 @@ export default function IntakeWizardQuick() {
           hip: { emoji: '🦴', label: tx('bodyShort_hip') },
           other: { emoji: '🩹', label: tx('optionOther') },
         }
+        // `overflow-hidden` only clipped a too-long label at the border, which still
+        // reads as text escaping the tile. Let the label wrap instead, and break
+        // mid-word if a single word is wider than the track (CP-374).
         const tileClass = (selected: boolean) =>
-          `flex min-h-[2.25rem] w-full min-w-0 items-center gap-1 overflow-hidden rounded-xl border px-2 py-1 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 sm:gap-1.5 sm:px-2.5 ${selected ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10' : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`
+          `flex min-h-[2.25rem] w-full min-w-0 items-center gap-1 rounded-xl border px-2 py-1 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 sm:gap-1.5 sm:px-2.5 ${selected ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10' : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`
         const renderCheck = (on: boolean) =>
           on ? (
             <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
@@ -3794,7 +3797,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('bodyParts', value)} className={tileClass(selected)}>
                       <span className="hidden h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs dark:bg-slate-800 sm:flex" aria-hidden>{disp?.emoji || '•'}</span>
-                      <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{disp?.label || label}</span>
+                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{disp?.label || label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -3826,7 +3829,7 @@ export default function IntakeWizardQuick() {
                       const selected = formData.injuryDetails.concussionSymptoms.includes(value)
                       return (
                         <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('concussionSymptoms', value)} className={tileClass(selected)}>
-                          <span className="min-w-0 flex-1 break-words text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                          <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
                           {renderCheck(selected)}
                         </button>
                       )
@@ -3843,7 +3846,7 @@ export default function IntakeWizardQuick() {
                       const selected = formData.injuryDetails.shoulderFindings.includes(value)
                       return (
                         <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('shoulderFindings', value)} className={tileClass(selected)}>
-                          <span className="min-w-0 flex-1 break-words text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                          <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
                           {renderCheck(selected)}
                         </button>
                       )
@@ -3860,7 +3863,7 @@ export default function IntakeWizardQuick() {
                       const selected = formData.injuryDetails.backFindings.includes(value)
                       return (
                         <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('backFindings', value)} className={tileClass(selected)}>
-                          <span className="min-w-0 flex-1 break-words text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                          <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
                           {renderCheck(selected)}
                         </button>
                       )
@@ -3892,8 +3895,9 @@ export default function IntakeWizardQuick() {
                     {picked.map(o => {
                       const Icon = treatmentIcons[o.value] || Stethoscope
                       return (
-                        <span key={o.value} className="inline-flex items-center gap-1 rounded-full border border-brand-200 bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300">
-                          <Icon className="h-3 w-3" aria-hidden />{o.label}
+                        <span key={o.value} className="inline-flex max-w-full items-center gap-1 rounded-full border border-brand-200 bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300">
+                          <Icon className="h-3 w-3 shrink-0" aria-hidden />
+                          <span className="min-w-0 [overflow-wrap:anywhere]">{o.label}</span>
                         </span>
                       )
                     })}
@@ -3911,7 +3915,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('imaging', value)} className={tileClass(selected)}>
                       <span className="hidden h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800 sm:flex"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -3929,7 +3933,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('diagnoses', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -3958,7 +3962,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('currentSymptoms', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -3976,7 +3980,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, recoveryStatus: selected ? '' : value } })} className={radioCardClass(selected)}>
                       {radioDot(selected)}
-                      <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
                     </button>
                   )
                 })}
@@ -3993,7 +3997,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('lifestyleImpact', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -4067,7 +4071,7 @@ export default function IntakeWizardQuick() {
                       return (
                         <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, priorInjury: selected ? '' : value } })} className={radioCardClass(selected)}>
                           {radioDot(selected)}
-                          <span className="min-w-0 flex-1 break-words text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                          <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
                         </button>
                       )
                     })}
@@ -4086,7 +4090,7 @@ export default function IntakeWizardQuick() {
                       return (
                         <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('futureTreatment', value, value === 'none')} className={tileClass(selected)}>
                           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                          <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                          <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
                           {renderCheck(selected)}
                         </button>
                       )
@@ -4103,7 +4107,7 @@ export default function IntakeWizardQuick() {
                         const selected = formData.injuryDetails.procedures.includes(value)
                         return (
                           <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('procedures', value)} className={tileClass(selected)}>
-                            <span className="min-w-0 flex-1 break-words text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
+                            <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
                             {renderCheck(selected)}
                           </button>
                         )
@@ -5108,7 +5112,7 @@ export default function IntakeWizardQuick() {
                         ) : (
                           <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
                         )}
-                        <p className="min-w-0 flex-1 break-words leading-snug">
+                        <p className="min-w-0 flex-1 [overflow-wrap:anywhere] leading-snug">
                           <span className="font-semibold">{warning.title || warning.fileName}</span>
                           <span className="opacity-90"> {warning.message}</span>
                         </p>
@@ -5141,7 +5145,7 @@ export default function IntakeWizardQuick() {
                         className="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[12px] leading-none text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
                       >
                         <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
-                        <p className="min-w-0 flex-1 break-words leading-snug">{warning.message}</p>
+                        <p className="min-w-0 flex-1 [overflow-wrap:anywhere] leading-snug">{warning.message}</p>
                         <button type="button" onClick={() => dismissNameWarning(item.category, warning.fileName)} className="shrink-0 rounded px-1.5 py-0 !text-[12px] !leading-none font-semibold text-slate-600 hover:text-slate-800 dark:text-slate-300">
                           Dismiss
                         </button>

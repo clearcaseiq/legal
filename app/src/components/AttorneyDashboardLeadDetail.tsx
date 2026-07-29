@@ -168,6 +168,18 @@ export default function AttorneyDashboardLeadDetail({
 }: AttorneyDashboardLeadDetailProps) {
   const heuristics = useHeuristics()
 
+  // The header only said "Lead Details", so an attorney reviewing a match had no
+  // idea whose case they were looking at — the mobile app already shows this
+  // (CP-414). Pre-acceptance the API withholds the user record, so we fall back
+  // to the case reference rather than inventing a name.
+  const headerFirstName = selectedLead?.assessment?.user?.firstName || ''
+  const headerLastName = selectedLead?.assessment?.user?.lastName || ''
+  const headerPlaintiff = isPostAcceptance
+    ? [headerFirstName, headerLastName].filter(Boolean).join(' ')
+    : [headerFirstName, headerLastName ? `${headerLastName.charAt(0)}.` : ''].filter(Boolean).join(' ')
+  const headerCaseRef = `#${(selectedLead?.id || selectedLead?.assessment?.id || '').slice(-8).toUpperCase()}`
+  const headerSubject = headerPlaintiff || (headerCaseRef.length > 1 ? `Case ${headerCaseRef}` : '')
+
   return (
     <div className={leadWrapperClass}>
       <div className={leadContainerClass}>
@@ -180,7 +192,9 @@ export default function AttorneyDashboardLeadDetail({
               <BackButton onClick={onBackToOverview} label="New matches" className="mb-4" />
               <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h1 className="text-xl font-bold text-slate-900">Lead Details</h1>
+                  <h1 className="text-xl font-bold text-slate-900">
+                    {headerSubject ? `Lead Details — ${headerSubject}` : 'Lead Details'}
+                  </h1>
                   <p className="mt-1 max-w-2xl text-sm text-slate-500">
                     {isPostAcceptance ? 'Full case details.' : 'Read-only review of this routed match.'}
                   </p>
@@ -200,8 +214,10 @@ export default function AttorneyDashboardLeadDetail({
             </>
           ) : (
             <div className="premium-panel mb-4 flex items-center justify-between p-4">
-              <div className="flex items-center gap-3">
-                <h3 className="font-display text-ui-xl font-semibold text-slate-950">Lead Details</h3>
+              <div className="flex min-w-0 items-center gap-3">
+                <h3 className="truncate font-display text-ui-xl font-semibold text-slate-950">
+                  {headerSubject ? `Lead Details — ${headerSubject}` : 'Lead Details'}
+                </h3>
               </div>
               <div className="flex items-center gap-2">
                 {isPostAcceptance ? (

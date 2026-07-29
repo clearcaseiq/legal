@@ -21,6 +21,7 @@ import ErrorBoundary from '../components/ErrorBoundary'
 import { AttorneyDashboardPanelSkeleton, AttorneyDashboardSkeleton } from '../components/PageSkeletons'
 import { clearStoredAuth, getLoginRedirect, hasValidAuthToken } from '../lib/auth'
 import { getAttorneyCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
+import { engagedLeadsOnly } from '../lib/leadStatus'
 import { formatPhoneInput } from '../lib/phone'
 import { useAttorneyCommunications } from '../hooks/useAttorneyCommunications'
 import { useAttorneyCaseActivity } from '../hooks/useAttorneyCaseActivity'
@@ -4185,7 +4186,10 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
         <LeadPickerModal
           isOpen={leadPickerOpen}
           onClose={() => { setLeadPickerOpen(false); setLeadPickerAction(null) }}
-          leads={dashboardData?.recentLeads ?? []}
+          // Every action behind this picker (scheduling, documents, messaging,
+          // billing…) acts on a real matter, so unaccepted leads don't belong
+          // here — they're still anonymised (CP-426).
+          leads={engagedLeadsOnly(dashboardData?.recentLeads ?? [])}
           title={leadPickerAction?.action === 'addEvent' ? 'Select case to add event'
             : leadPickerAction?.action === 'scheduleConsult' ? 'Select case to schedule consultation'
             : leadPickerAction?.action === 'documents' ? 'Select case to view documents'

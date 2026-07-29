@@ -23,6 +23,7 @@ import {
   User as UserIcon,
 } from 'lucide-react'
 import LeadPickerModal from '../components/LeadPickerModal'
+import { engagedLeadsOnly } from '../lib/leadStatus'
 import { useAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
 import {
   getAttorneyTaskSummary,
@@ -88,7 +89,12 @@ export default function CalendarPage() {
     loadPickerLeads()
   }, [loadPickerLeads])
 
-  const caseLeads = pickerLeads.length ? pickerLeads : recentLeads
+  // Only cases the attorney has taken can be scheduled against — an unaccepted
+  // lead is still anonymised and has no matter to attach an event to (CP-426).
+  const caseLeads = useMemo<any[]>(
+    () => engagedLeadsOnly<any>(pickerLeads.length ? pickerLeads : recentLeads),
+    [pickerLeads, recentLeads],
+  )
 
   const [view, setView] = useState<CalView>('week')
   const [anchor, setAnchor] = useState(() => new Date())

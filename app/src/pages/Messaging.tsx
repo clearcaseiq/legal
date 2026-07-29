@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { 
   getChatRooms, 
@@ -68,10 +68,38 @@ export default function Messaging() {
   const [showChatBot, setShowChatBot] = useState(false)
   const [chatBotMessages, setChatBotMessages] = useState<any[]>([])
   const [chatBotInput, setChatBotInput] = useState('')
+  const messageScrollRef = useRef<HTMLDivElement | null>(null)
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
 
   useEffect(() => {
     loadChatRooms()
   }, [])
+
+  // A conversation opens on the oldest message otherwise, which buries the reply
+  // the user came to read (CP-429). Jump instantly when switching rooms, and
+  // animate for messages that arrive while the user is already at the bottom.
+  const lastRoomIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    const el = messageScrollRef.current
+    if (!el) return
+    const roomChanged = lastRoomIdRef.current !== (selectedRoom?.id ?? null)
+    lastRoomIdRef.current = selectedRoom?.id ?? null
+    if (roomChanged) {
+      el.scrollTop = el.scrollHeight
+      return
+    }
+    // Don't yank the viewport away from someone scrolled up reading history.
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160
+    if (nearBottom) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }, [messages, selectedRoom?.id])
+
+  // Grow the composer with its content up to the CSS max-height (CP-423).
+  useEffect(() => {
+    const el = composerRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [newMessage, selectedRoom?.id])
 
   // Load the selected conversation and poll it so replies from the attorney
   // appear without the user having to refresh the page.
@@ -250,6 +278,21 @@ export default function Messaging() {
     return when.getTime() >= startOfYear.getTime()
       ? when.toLocaleDateString([], { month: 'short', day: 'numeric' })
       : when.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  // The conversation list wants the compact "today shows a time, older shows a
+  // date" form above. On the message itself that is ambiguous — a bare "2:14 PM"
+  // never says which day — so a bubble always carries both (CP-424).
+  const formatMessageStamp = (dateString: string) => {
+    const when = new Date(dateString)
+    if (Number.isNaN(when.getTime())) return ''
+    const startOfYear = new Date(new Date().getFullYear(), 0, 1)
+    const datePart = when.toLocaleDateString([], {
+      month: 'short',
+      day: 'numeric',
+      ...(when.getTime() >= startOfYear.getTime() ? {} : { year: 'numeric' }),
+    })
+    return `${datePart}, ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
   }
 
   const filteredChatRooms = sortRoomsByRecency(
@@ -432,7 +475,7 @@ export default function Messaging() {
               />
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div ref={messageScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.length === 0 ? (
                   <div className="text-center text-gray-500 py-8">
                     <MessageSquare className="h-12 w-12 mx-auto mb-4 text-gray-300" />
@@ -468,7 +511,7 @@ export default function Messaging() {
                           <p className={`text-xs mt-1 ${
                             message.senderType === 'user' ? 'text-primary-100' : 'text-gray-500'
                           }`}>
-                            {formatTime(message.createdAt)}
+                            {formatMessageStamp(message.createdAt)}
                           </p>
                         </div>
                       </div>
@@ -479,15 +522,22 @@ export default function Messaging() {
 
               {/* Message Input */}
               <div className="p-4 border-t border-gray-200">
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
+                <div className="flex items-end space-x-2">
+                  <textarea
+                    ref={composerRef}
+                    rows={1}
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                    placeholder="Type a message..."
+                    onKeyDown={(e) => {
+                      // Enter sends; Shift/Ctrl/Cmd+Enter inserts a newline (CP-423).
+                      if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                        e.preventDefault()
+                        handleSendMessage()
+                      }
+                    }}
+                    placeholder="Type a message… (Shift+Enter for a new line)"
                     maxLength={5000}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    className="flex-1 resize-none max-h-40 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     disabled={isSending}
                   />
                   <button

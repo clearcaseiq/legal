@@ -5216,7 +5216,9 @@ Checklist:
                 </div>
                 <div className="flex h-full flex-col rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3 text-center">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">{t('results.headings.estimatedSettlement')}</p>
-                  <p className="mt-1 whitespace-nowrap text-base font-bold text-emerald-600 tabular-nums">{formatCurrency(settlementLow)} – {formatCurrency(settlementHigh)}</p>
+                  {/* Two-column on phones, so a range like "$45,000 – $120,000"
+                      cannot fit on one line — nowrap pushed it off screen (CP-378). */}
+                  <p className="mt-1 text-base font-bold text-emerald-600 tabular-nums [overflow-wrap:anywhere]">{formatCurrency(settlementLow)} – {formatCurrency(settlementHigh)}</p>
                   <p className="text-[11px] text-slate-400">{t('results.next.rangeMostLikely')}</p>
                   <div className="mt-auto flex h-8 items-center justify-center pt-2">
                     <div className="relative h-2 w-24 rounded-full bg-slate-200"><div className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-500" /></div>

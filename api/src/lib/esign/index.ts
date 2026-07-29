@@ -19,12 +19,34 @@ const PROVIDERS: Partial<Record<ESignProviderId, ESignatureProvider>> = {
   documenso: documensoProvider,
 }
 
-/** Resolve a provider by id, falling back to ESIGN_PROVIDER / dropbox_sign. */
+/**
+ * Resolve a provider by id.
+ *
+ * An explicit id (e.g. the provider recorded on an existing envelope) is always
+ * honoured — a envelope created on Dropbox Sign can only be voided there. When
+ * the caller has no preference we take ESIGN_PROVIDER, but fall back to any
+ * provider that actually has credentials, so a server configured for Documenso
+ * alone doesn't fail against the `dropbox_sign` default (CP-436).
+ */
 export function getESignatureProvider(id?: string): ESignatureProvider {
-  const key = (id || process.env.ESIGN_PROVIDER || 'dropbox_sign') as ESignProviderId
-  const provider = PROVIDERS[key]
-  if (!provider) throw new ESignNotConfiguredError(String(key))
-  return provider
+  if (id) {
+    const explicit = PROVIDERS[id as ESignProviderId]
+    if (!explicit) throw new ESignNotConfiguredError(String(id))
+    return explicit
+  }
+
+  const preferred = PROVIDERS[(process.env.ESIGN_PROVIDER || 'dropbox_sign') as ESignProviderId]
+  if (preferred?.meta().configured) return preferred
+
+  const configured = Object.values(PROVIDERS).find((p) => p?.meta().configured)
+  if (configured) return configured
+
+  throw new ESignNotConfiguredError(preferred?.id || process.env.ESIGN_PROVIDER || 'dropbox_sign')
+}
+
+/** True when at least one provider has usable credentials on this server. */
+export function isESignatureConfigured(): boolean {
+  return Object.values(PROVIDERS).some((p) => p?.meta().configured)
 }
 
 /** Metadata for every known provider (drives a settings/connect UI). */

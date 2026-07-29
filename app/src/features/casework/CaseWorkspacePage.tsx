@@ -1388,7 +1388,10 @@ function WorkstreamPanel({
           {/* Status */}
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <h4 className="text-sm font-semibold text-slate-800">Status</h4>
-            <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
+            {/* Both of these were inline-flex, so they shared a line and the
+                vertical margins were ignored — w-fit keeps the pill hugging its
+                text while making each a block-level box again (CP-432). */}
+            <div className="mt-2 flex w-fit items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
               {stageLabel}
             </div>
             {retainedAt ? (
@@ -1397,7 +1400,7 @@ function WorkstreamPanel({
             <button
               type="button"
               onClick={() => goToSection('timeline')}
-              className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-brand-600 transition hover:text-brand-700"
+              className="mt-3 flex w-fit items-center gap-1 text-xs font-semibold text-brand-600 transition hover:text-brand-700"
             >
               View activity &amp; timeline →
             </button>
@@ -2227,8 +2230,13 @@ function EvidencePanel({
     setRequestOpen(true)
   }
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this document?')) return
+  // Deleting evidence is destructive, so it gets the branded in-app dialog
+  // rather than a native browser confirm() (CP-434).
+  const [pendingDelete, setPendingDelete] = useState<
+    { kind: 'one'; id: string; name: string } | { kind: 'bulk'; count: number } | null
+  >(null)
+
+  const performDelete = async (id: string) => {
     try {
       await deleteLeadEvidence(leadId, id)
       setDocs((prev) => prev.filter((d) => d.id !== id))
@@ -2242,6 +2250,11 @@ function EvidencePanel({
     } catch {
       setBanner({ tone: 'err', text: 'Could not delete the document.' })
     }
+  }
+
+  const handleDelete = (id: string) => {
+    const doc = docs.find((d) => d.id === id)
+    setPendingDelete({ kind: 'one', id, name: doc?.originalName || doc?.filename || 'this document' })
   }
 
   const toggleSelect = (id: string) =>
@@ -2291,10 +2304,14 @@ function EvidencePanel({
     )
   }
 
-  const bulkDelete = async () => {
+  const bulkDelete = () => {
+    if (!selected.size) return
+    setPendingDelete({ kind: 'bulk', count: selected.size })
+  }
+
+  const performBulkDelete = async () => {
     const ids = [...selected]
     if (!ids.length) return
-    if (!window.confirm(`Delete ${ids.length} document(s)? This cannot be undone.`)) return
     setBulkBusy(true)
     setBanner(null)
     let failures = 0
@@ -2989,6 +3006,28 @@ function EvidencePanel({
           onDownload={() => handleDownload(previewDoc)}
         />
       ) : null}
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        busy={bulkBusy}
+        title={pendingDelete?.kind === 'bulk' ? 'Delete selected documents?' : 'Delete this document?'}
+        message={
+          pendingDelete?.kind === 'bulk'
+            ? `${pendingDelete.count} document${pendingDelete.count === 1 ? '' : 's'} will be removed from this case. This cannot be undone.`
+            : pendingDelete
+              ? `“${pendingDelete.name}” will be removed from this case. This cannot be undone.`
+              : undefined
+        }
+        confirmLabel={pendingDelete?.kind === 'bulk' ? 'Delete documents' : 'Delete document'}
+        onConfirm={() => {
+          const target = pendingDelete
+          setPendingDelete(null)
+          if (!target) return
+          if (target.kind === 'bulk') void performBulkDelete()
+          else void performDelete(target.id)
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   )
 }

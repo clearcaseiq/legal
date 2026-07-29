@@ -1985,14 +1985,21 @@ export default function Dashboard() {
                       </div>
                       {routingStatus?.caseChatRoomId && routingStatus?.attorneyMatched?.id && (
                         <div className="mt-4 pt-4 border-t border-gray-200">
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
+                          <div className="flex items-end gap-2">
+                            {/* Textarea rather than an input so Shift+Enter can add a
+                                line break instead of being swallowed (CP-423). */}
+                            <textarea
+                              rows={1}
                               value={caseMessageInput}
                               onChange={(e) => setCaseMessageInput(e.target.value)}
-                              onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSendCaseMessage())}
-                              placeholder="Type a message..."
-                              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 text-sm"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                                  e.preventDefault()
+                                  handleSendCaseMessage()
+                                }
+                              }}
+                              placeholder="Type a message… (Shift+Enter for a new line)"
+                              className="flex-1 resize-none max-h-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 text-sm"
                               disabled={caseMessageSending}
                             />
                             <button

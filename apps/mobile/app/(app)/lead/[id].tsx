@@ -964,6 +964,10 @@ export default function LeadDetailScreen() {
         </View>
         ) : null}
 
+        {/* Working the document pass is post-acceptance casework. Before that
+            this is a review-only offer, and the Evidence files card below still
+            shows what was uploaded so the accept/decline call is informed (CP-416). */}
+        {canWorkCase ? (
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
             <Text style={styles.cardTitle}>Document review checklist</Text>
@@ -980,14 +984,11 @@ export default function LeadDetailScreen() {
           ) : (
             <Text style={styles.emptyEvidenceText}>Open files below and mark reviewed as you finish the document pass.</Text>
           )}
-          {canWorkCase ? (
-            <TouchableOpacity style={styles.inlineAction} onPress={() => id && router.push({ pathname: '/(app)/request-docs', params: { leadId: id } })} activeOpacity={0.85}>
-              <Text style={styles.inlineActionText}>Request missing documents</Text>
-            </TouchableOpacity>
-          ) : canDecide ? (
-            <Text style={styles.lockedHintText}>Accept the case to request missing documents from the plaintiff.</Text>
-          ) : null}
+          <TouchableOpacity style={styles.inlineAction} onPress={() => id && router.push({ pathname: '/(app)/request-docs', params: { leadId: id } })} activeOpacity={0.85}>
+            <Text style={styles.inlineActionText}>Request missing documents</Text>
+          </TouchableOpacity>
         </View>
+        ) : null}
 
         {canWorkCase ? (
         <View style={styles.card}>
@@ -1012,11 +1013,25 @@ export default function LeadDetailScreen() {
             <Text style={styles.cardTitle}>Statute of limitations alert</Text>
             <Text style={[styles.badgeText, isSolUrgent && styles.badgeDanger]}>{Number.isFinite(solDays) ? `${solDays} days` : 'Check'}</Text>
           </View>
+          {/* "SOL" on its own meant nothing to people new to the product, so
+              spell out what the deadline is and show the actual date (CP-417). */}
+          <Text style={styles.qualitySummary}>
+            The statute of limitations is the legal deadline to file this claim in court. Miss it and the
+            claim is barred, no matter how strong it is.
+          </Text>
+          {solDeadlineDate ? (
+            <Text style={styles.signalText}>
+              Deadline: {solDeadlineDate.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
+              {Number.isFinite(solDays) ? ` · ${solDays} days left` : ''}
+            </Text>
+          ) : (
+            <Text style={styles.signalText}>Deadline not confirmed yet — verify the incident date.</Text>
+          )}
           <Text style={styles.qualitySummary}>
             {isSolUrgent
-              ? 'SOL timing needs immediate task tracking.'
+              ? 'This deadline is close. Track it as a task now so it does not slip.'
               : canWorkCase
-                ? 'Create a deadline task so the SOL stays visible in the attorney workflow.'
+                ? 'Create a deadline task so it stays visible in your workflow.'
                 : 'Factor this deadline into your accept or decline decision.'}
           </Text>
           <View style={styles.inlineActionRow}>

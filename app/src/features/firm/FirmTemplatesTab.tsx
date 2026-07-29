@@ -34,6 +34,7 @@ import {
   type FirmTemplatesResponse,
 } from '../../lib/api'
 import { SectionCard, EmptyState, Badge } from '../shared/ui'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 const btnPrimary =
   'inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-60'
@@ -280,21 +281,24 @@ function TemplateRow({
   onChanged: () => void
 }) {
   const [busy, setBusy] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [viewError, setViewError] = useState<string | null>(null)
 
   const view = async () => {
+    setViewError(null)
     try {
       const url = await getFirmTemplateFileObjectUrl(template.id)
       window.open(url, '_blank', 'noreferrer')
     } catch {
-      alert('Unable to open the attached file.')
+      setViewError('Unable to open the attached file.')
     }
   }
 
   const remove = async () => {
-    if (!confirm(`Delete the "${template.name}" template? This cannot be undone.`)) return
     setBusy(true)
     try {
       await deleteFirmTemplate(template.id)
+      setConfirmDelete(false)
       onChanged()
     } finally {
       setBusy(false)
@@ -331,17 +335,30 @@ function TemplateRow({
               <Eye className="h-3.5 w-3.5" /> View
             </button>
           )}
-          {canManage && (template.isPdf || Boolean(template.body && template.body.trim())) && (
-            <button
-              type="button"
-              className={btnGhost}
-              onClick={onSend}
-              disabled={!hasRecipients}
-              title={hasRecipients ? 'Send for signature' : 'No signable clients on active cases yet'}
-            >
-              <Send className="h-3.5 w-3.5" /> Send for signature
-            </button>
-          )}
+          {canManage && (() => {
+            // A template with neither a PDF nor body text has nothing to render
+            // into a signable document. Previously the button just disappeared,
+            // which read as a bug; keep it visible and say why (CP-438).
+            const signable = template.isPdf || Boolean(template.body && template.body.trim())
+            const blockedReason = !signable
+              ? template.hasFile
+                ? 'Only PDF attachments can be sent for signature — re-upload this template as a PDF or add body text.'
+                : 'Add body text or attach a PDF before this template can be sent for signature.'
+              : !hasRecipients
+                ? 'No signable clients on active cases yet'
+                : null
+            return (
+              <button
+                type="button"
+                className={btnGhost}
+                onClick={onSend}
+                disabled={!!blockedReason}
+                title={blockedReason ?? 'Send for signature'}
+              >
+                <Send className="h-3.5 w-3.5" /> Send for signature
+              </button>
+            )
+          })()}
           {canManage && (
             <>
               <button type="button" className={btnGhost} onClick={onEdit}>
@@ -350,7 +367,7 @@ function TemplateRow({
               <button
                 type="button"
                 className={`${btnGhost} text-rose-600 hover:bg-rose-50`}
-                onClick={remove}
+                onClick={() => setConfirmDelete(true)}
                 disabled={busy}
               >
                 <Trash2 className="h-3.5 w-3.5" /> Delete
@@ -359,6 +376,16 @@ function TemplateRow({
           )}
         </div>
       </div>
+      {viewError && <p className="mt-2 text-xs text-rose-600">{viewError}</p>}
+      <ConfirmDialog
+        open={confirmDelete}
+        busy={busy}
+        title="Delete this template?"
+        message={<>“{template.name}” will be removed for everyone at your firm. This cannot be undone.</>}
+        confirmLabel="Delete template"
+        onConfirm={remove}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   )
 }
@@ -617,9 +644,17 @@ function SendModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-3 flex items-center justify-between">
+    // With the document preview and provider picker expanded this dialog is
+    // taller than a laptop viewport. Centring it without a height cap pushed the
+    // top and the action buttons off screen with nothing to scroll (CP-435), so
+    // the overlay scrolls and the body gets its own scroll region.
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 p-4" onClick={onClose}>
+      <div className="flex min-h-full items-center justify-center">
+      <div
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col rounded-2xl bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4">
           <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900">
             <Send className="h-4 w-4 text-indigo-600" /> Send for signature
           </h3>
@@ -628,6 +663,7 @@ function SendModal({
           </button>
         </div>
 
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
         {done ? (
           <div className="space-y-4">
             <div className="rounded-lg bg-emerald-50 px-3 py-3 text-sm text-emerald-800 ring-1 ring-emerald-200">
@@ -710,7 +746,8 @@ function SendModal({
               </div>
             ) : (
               <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">
-                No e-signature provider is configured on the server yet. Sending will fail until one is connected.
+                No e-signature provider is connected yet. Ask a firm admin to connect Dropbox Sign or
+                Documenso under Firm Settings → Integrations, or download the document and send it manually.
               </div>
             )}
 
@@ -718,12 +755,22 @@ function SendModal({
               <button type="button" className={btnGhost} onClick={onClose}>
                 Cancel
               </button>
-              <button type="button" className={btnPrimary} onClick={send} disabled={busy}>
+              <button
+                type="button"
+                className={btnPrimary}
+                onClick={send}
+                // Without a provider the request can only come back as a server
+                // error, so block it here rather than surfacing that (CP-436).
+                disabled={busy || configured.length === 0}
+                title={configured.length === 0 ? 'Connect an e-signature provider first' : undefined}
+              >
                 {busy ? 'Sending…' : 'Send for signature'}
               </button>
             </div>
           </div>
         )}
+        </div>
+      </div>
       </div>
     </div>
   )

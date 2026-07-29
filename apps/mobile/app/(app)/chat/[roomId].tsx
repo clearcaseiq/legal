@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
   quickRow: {
     backgroundColor: colors.card,
   },
-  quickContent: { paddingHorizontal: space.md, paddingTop: space.sm, gap: space.sm, alignItems: 'center' },
+  quickContent: { paddingHorizontal: space.md, paddingTop: space.sm, paddingBottom: space.sm, gap: space.sm, alignItems: 'center' },
   quickChip: {
     maxWidth: 150,
     paddingHorizontal: space.md,
