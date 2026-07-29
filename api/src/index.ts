@@ -12,6 +12,7 @@ import { runRoutingEscalationSweep } from './lib/routing-escalation-sweep'
 import { runOfferExpirySweep } from './lib/offer-expiry-sweep'
 import { runCaseReminderSweep } from './lib/case-reminder-sweep'
 import { runAiCaseManagerSweep, isAiCaseManagerEnabled } from './lib/ai-case-manager-sweep'
+import { runActivityCanarySweep, isActivityCanaryEnabled } from './lib/activity-canary-sweep'
 import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggregates'
 
 const app = buildApp()
@@ -24,6 +25,7 @@ let routingEscalationTimer: NodeJS.Timeout | null = null
 let offerExpiryTimer: NodeJS.Timeout | null = null
 let caseReminderTimer: NodeJS.Timeout | null = null
 let aiCaseManagerTimer: NodeJS.Timeout | null = null
+let activityCanaryTimer: NodeJS.Timeout | null = null
 
 async function runCalendarWebhookRenewalSweep(trigger: 'startup' | 'interval') {
   try {
@@ -211,6 +213,31 @@ function startAiCaseManagerLoop() {
   }, intervalMs)
 }
 
+async function runActivityCanaryLoop(trigger: 'startup' | 'interval') {
+  try {
+    const result = await runActivityCanarySweep()
+    if (result.alerted || trigger === 'startup') {
+      logger.info('Activity canary sweep completed', { trigger, ...result })
+    }
+  } catch (error) {
+    logger.error('Activity canary sweep failed', { error, trigger })
+  }
+}
+
+function startActivityCanaryLoop() {
+  if (!isActivityCanaryEnabled()) {
+    logger.info('Activity canary loop disabled')
+    return
+  }
+  // The canary detects hours-long silence, so sweeping more often than this
+  // buys nothing but repeated counts.
+  const intervalMs = 30 * 60 * 1000
+  void runActivityCanaryLoop('startup')
+  activityCanaryTimer = setInterval(() => {
+    void runActivityCanaryLoop('interval')
+  }, intervalMs)
+}
+
 const server = app.listen(ENV.PORT, ENV.HOST, () => {
   logger.info(`API server listening on http://${ENV.HOST}:${ENV.PORT}`)
   // Heal any stale attorney rating aggregates left by reviews created before
@@ -224,6 +251,7 @@ const server = app.listen(ENV.PORT, ENV.HOST, () => {
   startOfferExpiryLoop()
   startCaseReminderLoop()
   startAiCaseManagerLoop()
+  startActivityCanaryLoop()
 })
 
 function stopBackgroundLoops() {
@@ -235,6 +263,7 @@ function stopBackgroundLoops() {
   if (offerExpiryTimer) clearInterval(offerExpiryTimer)
   if (caseReminderTimer) clearInterval(caseReminderTimer)
   if (aiCaseManagerTimer) clearInterval(aiCaseManagerTimer)
+  if (activityCanaryTimer) clearInterval(activityCanaryTimer)
   calendarWebhookRenewalTimer = null
   appointmentEngagementTimer = null
   notificationRetryTimer = null
@@ -243,6 +272,7 @@ function stopBackgroundLoops() {
   offerExpiryTimer = null
   caseReminderTimer = null
   aiCaseManagerTimer = null
+  activityCanaryTimer = null
 }
 
 function closeHttpServer() {

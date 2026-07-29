@@ -9,8 +9,14 @@
 # Notes:
 #   - No `--accept-data-loss`: push applies additive changes (new tables/columns/
 #     indexes) but ABORTS rather than dropping data, so it is safe to run on prod.
-#   - Push failure is non-fatal: we log a warning and still start the API so a
-#     transient sync issue never takes the service down.
+#   - Push failure is FATAL. This used to warn and start anyway, on the theory
+#     that a transient sync issue should not take the service down. In practice
+#     the opposite happened: a failed push left the API serving traffic with a
+#     generated client that selected columns the database did not have, so every
+#     case query threw for three days while the container looked healthy. A
+#     container that refuses to start is far easier to notice than one that
+#     quietly 500s. Set ALLOW_SCHEMA_DRIFT=true to boot anyway (break-glass, e.g.
+#     to reach a shell on a box whose schema you are mid-way through repairing).
 #   - The Prisma CLI location varies with the pnpm layout (hoisted to
 #     ../node_modules, api-local ./node_modules, or under .pnpm), so we probe a
 #     few candidates and fall back to a search instead of hard-coding one path.
@@ -33,17 +39,29 @@ if [ -z "$PRISMA_CLI" ]; then
     -maxdepth 3 -path "*prisma*/build/index.js" 2>/dev/null | head -n1)
 fi
 
+fail_or_continue() {
+  if [ "$ALLOW_SCHEMA_DRIFT" = "true" ]; then
+    echo "[entrypoint] ALLOW_SCHEMA_DRIFT=true — starting API despite the failure above."
+    return 0
+  fi
+  echo "[entrypoint] Refusing to start against an unverified schema."
+  echo "[entrypoint] Fix the schema, or set ALLOW_SCHEMA_DRIFT=true to override."
+  exit 1
+}
+
 if [ -z "$PRISMA_CLI" ]; then
-  echo "[entrypoint] WARNING: could not locate the prisma CLI; skipping schema sync. Starting API anyway."
+  echo "[entrypoint] ERROR: could not locate the prisma CLI, so the schema cannot be verified."
+  fail_or_continue
 else
   echo "[entrypoint] using prisma CLI: $PRISMA_CLI"
   echo "[entrypoint] syncing database schema (prisma db push)..."
   # Run WITHOUT swallowing output so any drift/connectivity failure is visible in
-  # the container logs. Non-fatal: never let a sync hiccup take the API down.
+  # the container logs.
   if node "$PRISMA_CLI" db push --schema=prisma/schema.prisma --skip-generate; then
     echo "[entrypoint] schema in sync."
   else
-    echo "[entrypoint] WARNING: prisma db push failed (possible destructive change or DB connectivity). Starting API anyway."
+    echo "[entrypoint] ERROR: prisma db push failed (possible destructive change or DB connectivity)."
+    fail_or_continue
   fi
 fi
 

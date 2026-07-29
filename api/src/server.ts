@@ -90,6 +90,53 @@ export function createServer(): Express {
   app.get('/health', (req, res) => {
     res.json({ ok: true, timestamp: new Date().toISOString() })
   })
+
+  // Deep readiness probe. /health answers "is the process alive"; this answers
+  // "can it actually serve", which is the question nobody was asking while the
+  // API ran for three days against a database missing a column that the
+  // generated client selected on every case query. /health stayed green
+  // throughout.
+  //
+  // The bare findFirst() calls are deliberate: with no `select`, Prisma emits
+  // every scalar field of the model, so a column that exists in schema.prisma
+  // but not in the database fails here rather than only in real traffic.
+  app.get('/health/ready', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+
+    const probes: [string, () => Promise<unknown>][] = [
+      ['connection', () => prisma.$queryRaw`SELECT 1`],
+      ['assessment', () => prisma.assessment.findFirst()],
+      ['leadSubmission', () => prisma.leadSubmission.findFirst()],
+      ['caseTask', () => prisma.caseTask.findFirst()],
+      ['user', () => prisma.user.findFirst()],
+    ]
+
+    const failed: string[] = []
+    const details: Record<string, string> = {}
+    for (const [check, run] of probes) {
+      try {
+        await run()
+      } catch (error) {
+        failed.push(check)
+        details[check] = error instanceof Error ? error.message : String(error)
+      }
+    }
+
+    if (failed.length > 0) {
+      // Always log the full reason; the response withholds it in production
+      // because this endpoint is publicly reachable via api.clearcaseiq.com.
+      logger.error('Readiness probe failed', { failed, details })
+      return res.status(503).json({
+        ok: false,
+        failed,
+        ...(isProduction ? {} : { details }),
+        timestamp: new Date().toISOString(),
+      })
+    }
+
+    res.json({ ok: true, timestamp: new Date().toISOString() })
+  })
+
   
   // Security middleware
   app.use(helmet())

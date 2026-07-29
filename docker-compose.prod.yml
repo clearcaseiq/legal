@@ -48,6 +48,20 @@ services:
       - api_uploads:/app/uploads
     expose:
       - "4000"
+    # /health/ready runs real queries, so an API serving 500s on every case
+    # route shows up as unhealthy here instead of looking fine. Uses node
+    # rather than curl/wget, which the slim runtime image does not carry.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "require('http').get('http://127.0.0.1:4000/health/ready',
+          r => process.exit(r.statusCode === 200 ? 0 : 1))
+          .on('error', () => process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     networks:
       - clearcaseiq
 
@@ -67,6 +81,19 @@ services:
       - api
     expose:
       - "3000"
+    # Catches the "sh: next: not found" class of failure, where the container
+    # exists but never serves.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "require('http').get('http://127.0.0.1:3000/',
+          r => process.exit(r.statusCode < 500 ? 0 : 1))
+          .on('error', () => process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
     networks:
       - clearcaseiq
 
