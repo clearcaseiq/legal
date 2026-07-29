@@ -21,7 +21,7 @@ const VARIANTS = {
     version: '1.0.3',
     bundleIdentifier: 'com.caseiq.attorney',
     androidPackage: 'com.caseiq.attorney',
-    buildNumber: '21',
+    buildNumber: '22',
     versionCode: 5,
     fallbackProjectId: '01675e85-c537-4222-b5f1-1483b73f3591',
     notificationColor: '#0c1929',
