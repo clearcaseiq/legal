@@ -126,11 +126,11 @@ const ROW_TONE: Record<Tone, string> = {
   danger: 'text-rose-700',
 }
 
-const TABS = ['Overview', 'Workflow', 'Evidence', 'Signatures', 'Medical', 'Insurance', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Tasks', 'Time'] as const
+const TABS = ['Info', 'Overview', 'Workflow', 'Evidence', 'Signatures', 'Medical', 'Insurance', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Tasks', 'Time'] as const
 type Tab = (typeof TABS)[number]
 
 const SECTION_TO_TAB: Record<string, Tab> = {
-  info: 'Overview',
+  info: 'Info',
   overview: 'Overview',
   workflow: 'Workflow',
   evidence: 'Evidence',
@@ -153,6 +153,7 @@ const SECTION_TO_TAB: Record<string, Tab> = {
 }
 
 const TAB_TO_SECTION: Record<Tab, string> = {
+  Info: 'info',
   Overview: 'overview',
   Workflow: 'workflow',
   Evidence: 'evidence',
@@ -171,7 +172,8 @@ const TAB_TO_SECTION: Record<Tab, string> = {
 type TabMeta = { icon: ComponentType<{ className?: string }>; blurb: string }
 
 const TAB_META: Record<Tab, TabMeta> = {
-  Overview: { icon: LayoutDashboard, blurb: 'Case status, timeline, tasks, next action, and readiness at a glance.' },
+  Info: { icon: Info, blurb: 'Case facts, stage timeline, and what is due in the next 30 days.' },
+  Overview: { icon: LayoutDashboard, blurb: 'AI coach, case posture, valuation, and readiness at a glance.' },
   Workflow: { icon: ListChecks, blurb: 'Your firm’s standard workflow, tracked stage by stage on this case.' },
   Evidence: { icon: FolderOpen, blurb: 'Upload documents, request records, and track the case file.' },
   Signatures: { icon: PenLine, blurb: 'Send retainers and authorizations for e-signature.' },
@@ -1306,6 +1308,10 @@ function WorkstreamPanel({
     return <TasksPanel leadId={lead.id} tasks={tasks} reload={reloadTasks} caseLabel={`${detail.client} · ${detail.type}`} />
   }
 
+  if (tab === 'Info') {
+    return <CaseInfoPanel lead={lead} detail={detail} tasks={tasks} goToSection={goToSection} />
+  }
+
   // Overview — a case-at-a-glance summary built from the command center (cc).
   {
     const v = cc?.valueStory
@@ -1326,35 +1332,6 @@ function WorkstreamPanel({
       ? cc.suggestedDocumentRequest.requestedDocs
       : missing.map((m) => m.key)
 
-    // Case facts summary (timeline / status / tasks / case info) folded into Overview.
-    const fmtFull = (value?: string | null) => {
-      if (!value) return '—'
-      const d = new Date(value)
-      return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { month: '2-digit', day: '2-digit', year: 'numeric' })
-    }
-    const openedAt = lead?.submittedAt || lead?.assessment?.createdAt || null
-    const retainedAt = lead?.retainedAt || null
-    const nowMs = Date.now()
-    const isTaskDone = (t: TaskRow) => String(t.status || '').toLowerCase() === 'done'
-    const openTasks = tasks.filter((t) => !isTaskDone(t))
-    const completedCount = tasks.length - openTasks.length
-    const withDue = openTasks
-      .filter((t) => t.dueDate && !Number.isNaN(Date.parse(t.dueDate)))
-      .map((t) => ({ t, ts: Date.parse(t.dueDate as string) }))
-    const overdue = withDue.filter((x) => x.ts < nowMs).sort((a, b) => a.ts - b.ts)
-    const upcoming = withDue
-      .filter((x) => x.ts >= nowMs && x.ts <= nowMs + 30 * 86_400_000)
-      .sort((a, b) => a.ts - b.ts)
-    const next30Count = overdue.length + upcoming.length
-    const stageLabel = detail.stage || 'No stage'
-
-    const InfoRow = ({ label, value }: { label: string; value: ReactNode }) => (
-      <div className="flex items-start justify-between gap-4 border-b border-slate-100 py-2.5 last:border-0">
-        <dt className="shrink-0 text-xs font-medium uppercase tracking-wide text-slate-400">{label}</dt>
-        <dd className="min-w-0 text-right text-sm font-medium text-slate-800">{value}</dd>
-      </div>
-    )
-
     return (
       <div className="space-y-4">
         {/* AI Case Coach — ranked next-best actions (Phase 2) */}
@@ -1366,105 +1343,6 @@ function WorkstreamPanel({
         <p className="text-sm text-slate-600">
           {cc?.stage?.detail || cc?.readiness?.detail || 'Retained case in progress. Work the tabs above to advance the file.'}
         </p>
-
-        {/* Case timeline by stage */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="flex items-center justify-between gap-3">
-            <h4 className="text-sm font-semibold text-slate-800">Case Timeline by Stage</h4>
-            <span className="text-xs font-semibold text-slate-500">Days open: {detail.daysOpen}</span>
-          </div>
-          <div className="mt-3 flex items-center justify-between text-[11px] font-medium text-slate-400">
-            <span>Opened {fmtFull(openedAt)}</span>
-            <span>Today</span>
-          </div>
-          <div className="mt-1 h-6 w-full overflow-hidden rounded-md bg-slate-100">
-            <div className="flex h-full items-center rounded-md bg-gradient-to-r from-brand-600 to-brand-500 px-2" style={{ width: '100%' }}>
-              <span className="truncate text-[11px] font-semibold text-white">{stageLabel} · {detail.daysOpen} days</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          {/* Status */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <h4 className="text-sm font-semibold text-slate-800">Status</h4>
-            {/* Both of these were inline-flex, so they shared a line and the
-                vertical margins were ignored — w-fit keeps the pill hugging its
-                text while making each a block-level box again (CP-432). */}
-            <div className="mt-2 flex w-fit items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
-              {stageLabel}
-            </div>
-            {retainedAt ? (
-              <p className="mt-2 text-xs text-slate-500">Retained {fmtFull(retainedAt)}</p>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => goToSection('timeline')}
-              className="mt-3 flex w-fit items-center gap-1 text-xs font-semibold text-brand-600 transition hover:text-brand-700"
-            >
-              View activity &amp; timeline →
-            </button>
-          </div>
-
-          {/* Tasks (next 30 days) */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="flex items-baseline justify-between gap-3">
-              <h4 className="text-sm font-semibold text-slate-800">Tasks (next 30 days)</h4>
-              <button
-                type="button"
-                onClick={() => goToSection('tasks')}
-                className="text-xs font-semibold text-brand-600 transition hover:text-brand-700"
-              >
-                View all →
-              </button>
-            </div>
-            <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-2xl font-bold text-slate-900">{next30Count}</span>
-              <span className="text-xs text-slate-500">{completedCount} completed</span>
-            </div>
-            {overdue.length ? (
-              <div className="mt-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-600">Overdue</p>
-                <ul className="mt-1 space-y-0.5">
-                  {overdue.slice(0, 3).map((x) => (
-                    <li key={x.t.id}>
-                      <button
-                        type="button"
-                        onClick={() => goToSection('tasks')}
-                        className="flex w-full items-center justify-between gap-2 rounded-md px-1.5 py-1 text-left text-sm transition hover:bg-slate-50"
-                      >
-                        <span className="min-w-0 truncate text-slate-700">{x.t.title}</span>
-                        <span className="shrink-0 text-xs font-medium text-rose-600">{fmtFull(x.t.dueDate)}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {upcoming.length ? (
-              <div className="mt-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Upcoming</p>
-                <ul className="mt-1 space-y-0.5">
-                  {upcoming.slice(0, 3).map((x) => (
-                    <li key={x.t.id}>
-                      <button
-                        type="button"
-                        onClick={() => goToSection('tasks')}
-                        className="flex w-full items-center justify-between gap-2 rounded-md px-1.5 py-1 text-left text-sm transition hover:bg-slate-50"
-                      >
-                        <span className="min-w-0 truncate text-slate-700">{x.t.title}</span>
-                        <span className="shrink-0 text-xs font-medium text-slate-500">{fmtFull(x.t.dueDate)}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {!overdue.length && !upcoming.length ? (
-              <p className="mt-2 text-sm text-slate-500">No tasks due in the next 30 days.</p>
-            ) : null}
-          </div>
-        </div>
 
         {nba ? (
           <div className="rounded-xl border border-brand-200 bg-brand-50/60 p-4">
@@ -1576,24 +1454,177 @@ function WorkstreamPanel({
             </ul>
           </div>
         ) : null}
-
-        {/* Case information */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <h4 className="text-sm font-semibold text-slate-800">Case Information</h4>
-          <dl className="mt-2">
-            <InfoRow label="Name" value={detail.client} />
-            <InfoRow label="Case type" value={detail.type} />
-            <InfoRow label="Venue" value={detail.venue} />
-            <InfoRow label="Stage" value={stageLabel} />
-            <InfoRow label="Date opened" value={fmtFull(openedAt)} />
-            {retainedAt ? <InfoRow label="Date retained" value={fmtFull(retainedAt)} /> : null}
-            <InfoRow label="Days open" value={detail.daysOpen} />
-            <InfoRow label="Case reference" value={<span className="font-mono text-xs">{lead.id}</span>} />
-          </dl>
-        </div>
       </div>
     )
   }
+}
+
+/**
+ * Info — the case's own facts: how long it has been open, where it sits in the
+ * firm's stages, what is due in the next 30 days, and the identifying details.
+ *
+ * These four cards used to be stacked inside Overview alongside the AI coach,
+ * valuation and posture. That made Overview a scroll and left an attorney with
+ * nowhere to look up a plain fact like the venue or the date retained, so they
+ * live on their own tab now (CP-356). Overview keeps the analysis; Info keeps
+ * the record.
+ */
+function CaseInfoPanel({
+  lead,
+  detail,
+  tasks,
+  goToSection,
+}: {
+  lead: any
+  detail: CaseDetailVM
+  tasks: TaskRow[]
+  goToSection: (section: string) => void
+}) {
+  const fmtFull = (value?: string | null) => {
+    if (!value) return '—'
+    const d = new Date(value)
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { month: '2-digit', day: '2-digit', year: 'numeric' })
+  }
+  const openedAt = lead?.submittedAt || lead?.assessment?.createdAt || null
+  const retainedAt = lead?.retainedAt || null
+  const nowMs = Date.now()
+  const isTaskDone = (t: TaskRow) => String(t.status || '').toLowerCase() === 'done'
+  const openTasks = tasks.filter((t) => !isTaskDone(t))
+  const completedCount = tasks.length - openTasks.length
+  const withDue = openTasks
+    .filter((t) => t.dueDate && !Number.isNaN(Date.parse(t.dueDate)))
+    .map((t) => ({ t, ts: Date.parse(t.dueDate as string) }))
+  const overdue = withDue.filter((x) => x.ts < nowMs).sort((a, b) => a.ts - b.ts)
+  const upcoming = withDue
+    .filter((x) => x.ts >= nowMs && x.ts <= nowMs + 30 * 86_400_000)
+    .sort((a, b) => a.ts - b.ts)
+  const next30Count = overdue.length + upcoming.length
+  const stageLabel = detail.stage || 'No stage'
+
+  const InfoRow = ({ label, value }: { label: string; value: ReactNode }) => (
+    <div className="flex items-start justify-between gap-4 border-b border-slate-100 py-2.5 last:border-0">
+      <dt className="shrink-0 text-xs font-medium uppercase tracking-wide text-slate-400">{label}</dt>
+      <dd className="min-w-0 text-right text-sm font-medium text-slate-800">{value}</dd>
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      {/* Case timeline by stage */}
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-sm font-semibold text-slate-800">Case Timeline by Stage</h4>
+          <span className="text-xs font-semibold text-slate-500">Days open: {detail.daysOpen}</span>
+        </div>
+        <div className="mt-3 flex items-center justify-between text-[11px] font-medium text-slate-400">
+          <span>Opened {fmtFull(openedAt)}</span>
+          <span>Today</span>
+        </div>
+        <div className="mt-1 h-6 w-full overflow-hidden rounded-md bg-slate-100">
+          <div className="flex h-full items-center rounded-md bg-gradient-to-r from-brand-600 to-brand-500 px-2" style={{ width: '100%' }}>
+            <span className="truncate text-[11px] font-semibold text-white">{stageLabel} · {detail.daysOpen} days</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* Status */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <h4 className="text-sm font-semibold text-slate-800">Status</h4>
+          {/* Both of these were inline-flex, so they shared a line and the
+              vertical margins were ignored — w-fit keeps the pill hugging its
+              text while making each a block-level box again (CP-432). */}
+          <div className="mt-2 flex w-fit items-center gap-2 rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-700 ring-1 ring-inset ring-brand-200">
+            {stageLabel}
+          </div>
+          {retainedAt ? (
+            <p className="mt-2 text-xs text-slate-500">Retained {fmtFull(retainedAt)}</p>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => goToSection('timeline')}
+            className="mt-3 flex w-fit items-center gap-1 text-xs font-semibold text-brand-600 transition hover:text-brand-700"
+          >
+            View activity &amp; timeline →
+          </button>
+        </div>
+
+        {/* Tasks (next 30 days) */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex items-baseline justify-between gap-3">
+            <h4 className="text-sm font-semibold text-slate-800">Tasks (next 30 days)</h4>
+            <button
+              type="button"
+              onClick={() => goToSection('tasks')}
+              className="text-xs font-semibold text-brand-600 transition hover:text-brand-700"
+            >
+              View all →
+            </button>
+          </div>
+          <div className="mt-1 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900">{next30Count}</span>
+            <span className="text-xs text-slate-500">{completedCount} completed</span>
+          </div>
+          {overdue.length ? (
+            <div className="mt-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-600">Overdue</p>
+              <ul className="mt-1 space-y-0.5">
+                {overdue.slice(0, 3).map((x) => (
+                  <li key={x.t.id}>
+                    <button
+                      type="button"
+                      onClick={() => goToSection('tasks')}
+                      className="flex w-full items-center justify-between gap-2 rounded-md px-1.5 py-1 text-left text-sm transition hover:bg-slate-50"
+                    >
+                      <span className="min-w-0 truncate text-slate-700">{x.t.title}</span>
+                      <span className="shrink-0 text-xs font-medium text-rose-600">{fmtFull(x.t.dueDate)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {upcoming.length ? (
+            <div className="mt-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Upcoming</p>
+              <ul className="mt-1 space-y-0.5">
+                {upcoming.slice(0, 3).map((x) => (
+                  <li key={x.t.id}>
+                    <button
+                      type="button"
+                      onClick={() => goToSection('tasks')}
+                      className="flex w-full items-center justify-between gap-2 rounded-md px-1.5 py-1 text-left text-sm transition hover:bg-slate-50"
+                    >
+                      <span className="min-w-0 truncate text-slate-700">{x.t.title}</span>
+                      <span className="shrink-0 text-xs font-medium text-slate-500">{fmtFull(x.t.dueDate)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {!overdue.length && !upcoming.length ? (
+            <p className="mt-2 text-sm text-slate-500">No tasks due in the next 30 days.</p>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Case information */}
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <h4 className="text-sm font-semibold text-slate-800">Case Information</h4>
+        <dl className="mt-2">
+          <InfoRow label="Name" value={detail.client} />
+          <InfoRow label="Case type" value={detail.type} />
+          <InfoRow label="Venue" value={detail.venue} />
+          <InfoRow label="Stage" value={stageLabel} />
+          <InfoRow label="Date opened" value={fmtFull(openedAt)} />
+          {retainedAt ? <InfoRow label="Date retained" value={fmtFull(retainedAt)} /> : null}
+          <InfoRow label="Days open" value={detail.daysOpen} />
+          <InfoRow label="Case reference" value={<span className="font-mono text-xs">{lead.id}</span>} />
+        </dl>
+      </div>
+    </div>
+  )
 }
 
 const UPLOAD_CATEGORIES = [
