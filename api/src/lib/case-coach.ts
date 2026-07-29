@@ -145,7 +145,23 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
   // 1) SOL urgency — the highest-stakes clock on the case.
   if (s.sol.daysRemaining != null) {
     const d = s.sol.daysRemaining
-    if (d <= 365) {
+    const expiresOn = s.sol.expiresAt ? new Date(s.sol.expiresAt).toLocaleDateString() : null
+    if (d < 0) {
+      // Already lapsed. Counting down past zero would render as "leaves -412 days",
+      // which reads as a distant deadline rather than the emergency it is.
+      const elapsed = Math.abs(d)
+      insights.push({
+        key: 'sol_expired',
+        title: 'Filing deadline has passed — confirm status immediately',
+        category: 'deadline',
+        priority: PRIORITY_FROM_SCORE(100),
+        priorityScore: 100,
+        why: `The statute of limitations ran ${elapsed} day${elapsed === 1 ? '' : 's'} ago${expiresOn ? ` (${expiresOn})` : ''}. Confirm whether suit was filed, or whether a tolling or delayed-discovery argument applies, before any further work or client communication.`,
+        impact: 'Claim is time-barred unless suit was already filed or the period is tolled',
+        valueImpact: 'high',
+        actions: ['schedule_followup', 'assign_paralegal'],
+      })
+    } else if (d <= 365) {
       const score = d <= 30 ? 100 : d <= 90 ? 92 : d <= 180 ? 78 : 60
       insights.push({
         key: 'sol_urgency',
@@ -154,7 +170,7 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
         priority: PRIORITY_FROM_SCORE(score),
         priorityScore: score,
         why: `The statute of limitations leaves ${d} day${d === 1 ? '' : 's'}. Missing it forfeits the entire claim regardless of merits.`,
-        impact: `SOL expires in ${d} days${s.sol.expiresAt ? ` (${new Date(s.sol.expiresAt).toLocaleDateString()})` : ''}`,
+        impact: `SOL expires in ${d} days${expiresOn ? ` (${expiresOn})` : ''}`,
         valueImpact: 'high',
         actions: d <= 90 ? ['schedule_followup', 'assign_paralegal'] : ['schedule_followup'],
       })

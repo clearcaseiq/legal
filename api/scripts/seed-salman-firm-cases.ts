@@ -26,8 +26,16 @@ import path from 'path'
 import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import { buildPredictionRecord } from '../src/lib/prediction-materializer'
+import { SOL_RULES, deriveSOLStatusFromFacts, normalizeClaimTypeForSOL } from '../src/lib/solRules'
 
 const prisma = new PrismaClient()
+
+/**
+ * How much of the limitation period to keep in reserve when dating an incident.
+ * A year clears the "expiring soon" threshold (daysRemaining <= 365), so seeded
+ * cases read as healthy rather than as deadline emergencies.
+ */
+const SOL_MARGIN_DAYS = 400
 
 // ---- Optional heavy deps (real image / pdf generation). Fall back to text. ----
 let sharp: any = null
@@ -107,10 +115,26 @@ const HEALTH_PLANS = ['Aetna', 'Blue Cross Blue Shield', 'Cigna', 'Kaiser Perman
 
 function rand<T>(arr: readonly T[]): T { return arr[Math.floor(Math.random() * arr.length)] }
 function randInt(min: number, max: number): number { return Math.floor(Math.random() * (max - min + 1)) + min }
-function randDate(startYear: number): Date {
-  const start = new Date(startYear, 0, 1).getTime()
-  const end = new Date().getTime() - 30 * 24 * 3600 * 1000
-  return new Date(start + Math.random() * (end - start))
+/**
+ * Pick an incident date that is still inside the claim's statute of limitations.
+ *
+ * This used to draw from a hardcoded start year, which quietly rotted: the year
+ * stayed put while the calendar moved, so most of the sampling window fell
+ * outside the two-year California PI period and the demo book filled with
+ * time-barred cases. Anchoring to the live SOL rule instead keeps every seeded
+ * case routable no matter when the script is run.
+ *
+ * The window ends 30 days back (so nothing is dated today) and starts far enough
+ * inside the period to leave a comfortable margin, keeping cases clear of both
+ * "expired" and "expiring soon".
+ */
+function randIncidentDate(claimType: CaseType): Date {
+  const rule = SOL_RULES.CA?.[normalizeClaimTypeForSOL(claimType)]
+  const solDays = (rule?.years ?? 2) * 365.25
+  const minAgeDays = 30
+  const maxAgeDays = Math.max(minAgeDays + 1, solDays - SOL_MARGIN_DAYS)
+  const ageDays = minAgeDays + Math.random() * (maxAgeDays - minAgeDays)
+  return new Date(Date.now() - ageDays * 24 * 3600 * 1000)
 }
 function money(n: number): string { return `$${n.toLocaleString('en-US')}` }
 function addDays(d: Date, days: number): Date { return new Date(d.getTime() + days * 24 * 3600 * 1000) }
@@ -685,8 +709,19 @@ async function attachEvidence(params: {
   }
 }
 
-async function routeToFirm(params: { assessmentId: string; firmId: string; officeId: string; attorneyId: string; adminUserId: string; facts: any; pending?: boolean }) {
-  const { assessmentId, firmId, officeId, attorneyId, adminUserId, facts, pending } = params
+async function routeToFirm(params: { assessmentId: string; firmId: string; officeId: string; attorneyId: string; adminUserId: string; claimType: CaseType; county: string; facts: any; pending?: boolean }) {
+  const { assessmentId, firmId, officeId, attorneyId, adminUserId, claimType, county, facts, pending } = params
+
+  // This script writes introductions and lead submissions straight to the
+  // database, so it never passes through runPreRoutingGate. Re-check the one
+  // gate condition that makes a case unrouteable no matter how good it looks,
+  // rather than trusting the date generator above to stay correct forever.
+  const sol = deriveSOLStatusFromFacts({ facts, claimType, venueState: 'CA', venueCounty: county })
+  if (sol.status === 'expired') {
+    throw new Error(
+      `Refusing to route assessment ${assessmentId}: statute of limitations expired ${sol.expiresAt?.toISOString().split('T')[0]}`,
+    )
+  }
 
   // Pending = a "New Match" awaiting the attorney's accept/decline decision
   // (status submitted, PENDING introduction with a fresh timer, routing unlocked).
@@ -788,7 +823,7 @@ async function main() {
     const last = rand(LAST_NAMES)
     const county = rand(CA_COUNTIES)
     const city = rand(CA_CITIES[county])
-    const incidentDate = randDate(2022)
+    const incidentDate = randIncidentDate(claimType)
     const plaintiff = `${first} ${last}`
     const seq = (summary[claimType] || 0) + 1
     const caseLabel = `${TEMPLATES[claimType].label} #${seq}`
@@ -837,7 +872,7 @@ async function main() {
 
     // Leave the first NEW_MATCHES cases as pre-acceptance "New Matches".
     const pending = n < NEW_MATCHES
-    await routeToFirm({ assessmentId: assessment.id, firmId: firm.id, officeId: office.id, attorneyId: attorney.id, adminUserId: adminUser.id, facts, pending })
+    await routeToFirm({ assessmentId: assessment.id, firmId: firm.id, officeId: office.id, attorneyId: attorney.id, adminUserId: adminUser.id, claimType, county, facts, pending })
 
     summary[claimType] = seq
     totalCreated++

@@ -271,6 +271,44 @@ export function deriveSOLStatus(params: {
   }
 }
 
+/**
+ * Derive SOL status straight from a case's stored facts.
+ *
+ * The incident, discovery and date-of-birth fields have accumulated several
+ * spellings across intake versions, and the deadline is wrong the moment two
+ * call sites disagree about which one to read. Both the pre-routing gate (via
+ * normalizeCaseForRouting) and the SOL expiry sweep resolve them here so a case
+ * cannot be "ok" on one path and "expired" on another.
+ */
+export function deriveSOLStatusFromFacts(params: {
+  facts: Record<string, unknown>
+  claimType: string
+  venueState?: string | null
+  venueCounty?: string | null
+}): ReturnType<typeof deriveSOLStatus> {
+  const facts = params.facts || {}
+  const incident = (facts.incident as Record<string, unknown>) || {}
+  const venue = (facts.venue as Record<string, string>) || {}
+  const plaintiffContext = (facts.plaintiffContext as Record<string, unknown>) || {}
+
+  return deriveSOLStatus({
+    incidentDate: incident.date as string | undefined,
+    discoveryDate:
+      (incident.discoveryDate as string | undefined) ||
+      (incident.discoveredDate as string | undefined) ||
+      (facts.discoveryDate as string | undefined),
+    birthDate:
+      (plaintiffContext.dateOfBirth as string | undefined) ||
+      (plaintiffContext.birthDate as string | undefined) ||
+      (plaintiffContext.dob as string | undefined),
+    venue: {
+      state: (params.venueState || venue.state || 'CA') as string,
+      county: (params.venueCounty || venue.county) as string | undefined,
+    },
+    claimType: params.claimType,
+  })
+}
+
 export function getSOLStatus(daysRemaining: number): 'safe' | 'warning' | 'critical' {
   if (daysRemaining > 365) return 'safe'
   if (daysRemaining > 90) return 'warning'

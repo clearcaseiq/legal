@@ -6,7 +6,7 @@
 
 import { prisma } from './prisma'
 import { logger } from './logger'
-import { deriveSOLStatus } from './solRules'
+import { deriveSOLStatusFromFacts } from './solRules'
 import type { CaseTypeValidation } from './case-type-validation'
 
 export interface NormalizedCase {
@@ -185,21 +185,11 @@ export async function normalizeCaseForRouting(assessment: {
   else if (viabilityOverall >= 0.7 && daysSinceIncident < 90) urgency_level = 'high'
   else if (viabilityOverall < 0.4) urgency_level = 'low'
 
-  const sol = deriveSOLStatus({
-    incidentDate,
-    discoveryDate:
-      (incident.discoveryDate as string | undefined) ||
-      (incident.discoveredDate as string | undefined) ||
-      (facts.discoveryDate as string | undefined),
-    birthDate:
-      (plaintiffContext.dateOfBirth as string | undefined) ||
-      (plaintiffContext.birthDate as string | undefined) ||
-      (plaintiffContext.dob as string | undefined),
-    venue: {
-      state: (assessment.venueState || venue.state || 'CA') as string,
-      county: (assessment.venueCounty || venue.county) as string | undefined
-    },
-    claimType: normalizedClaimType
+  const sol = deriveSOLStatusFromFacts({
+    facts,
+    claimType: normalizedClaimType,
+    venueState: assessment.venueState,
+    venueCounty: assessment.venueCounty,
   })
 
   return {

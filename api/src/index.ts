@@ -11,6 +11,7 @@ import { runIntakeAbandonmentSweep } from './lib/intake-abandonment'
 import { runRoutingEscalationSweep } from './lib/routing-escalation-sweep'
 import { runOfferExpirySweep } from './lib/offer-expiry-sweep'
 import { runCaseReminderSweep } from './lib/case-reminder-sweep'
+import { runSolExpirySweep } from './lib/sol-expiry-sweep'
 import { runAiCaseManagerSweep, isAiCaseManagerEnabled } from './lib/ai-case-manager-sweep'
 import { runActivityCanarySweep, isActivityCanaryEnabled } from './lib/activity-canary-sweep'
 import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggregates'
@@ -25,6 +26,7 @@ let intakeAbandonmentTimer: NodeJS.Timeout | null = null
 let routingEscalationTimer: NodeJS.Timeout | null = null
 let offerExpiryTimer: NodeJS.Timeout | null = null
 let caseReminderTimer: NodeJS.Timeout | null = null
+let solExpiryTimer: NodeJS.Timeout | null = null
 let aiCaseManagerTimer: NodeJS.Timeout | null = null
 let activityCanaryTimer: NodeJS.Timeout | null = null
 
@@ -211,6 +213,30 @@ function startOfferExpiryLoop() {
   }, intervalMs)
 }
 
+async function runSolExpiryLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('sol-expiry')
+  try {
+    const result = await runSolExpirySweep()
+    sweep.succeed()
+    if (result.held > 0 || result.notified > 0 || trigger === 'startup') {
+      logger.info('SOL expiry sweep completed', { trigger, ...result })
+    }
+  } catch (error) {
+    sweep.fail(error)
+    logger.error('SOL expiry sweep failed', { error, trigger })
+  }
+}
+
+function startSolExpiryLoop() {
+  // The SOL moves a day at a time, so hourly is ample and keeps the scan cheap.
+  const intervalMs = 60 * 60 * 1000
+  registerSweep('sol-expiry', { label: 'Statute of limitations expiry', enabled: true, intervalMs })
+  void runSolExpiryLoop('startup')
+  solExpiryTimer = setInterval(() => {
+    void runSolExpiryLoop('interval')
+  }, intervalMs)
+}
+
 async function runCaseReminderLoop(trigger: 'startup' | 'interval') {
   const sweep = beginSweep('case-reminder')
   try {
@@ -313,6 +339,7 @@ const server = app.listen(ENV.PORT, ENV.HOST, () => {
   startIntakeAbandonmentLoop()
   startRoutingEscalationLoop()
   startOfferExpiryLoop()
+  startSolExpiryLoop()
   startCaseReminderLoop()
   startAiCaseManagerLoop()
   startActivityCanaryLoop()
@@ -325,6 +352,7 @@ function stopBackgroundLoops() {
   if (intakeAbandonmentTimer) clearInterval(intakeAbandonmentTimer)
   if (routingEscalationTimer) clearInterval(routingEscalationTimer)
   if (offerExpiryTimer) clearInterval(offerExpiryTimer)
+  if (solExpiryTimer) clearInterval(solExpiryTimer)
   if (caseReminderTimer) clearInterval(caseReminderTimer)
   if (aiCaseManagerTimer) clearInterval(aiCaseManagerTimer)
   if (activityCanaryTimer) clearInterval(activityCanaryTimer)
@@ -334,6 +362,7 @@ function stopBackgroundLoops() {
   intakeAbandonmentTimer = null
   routingEscalationTimer = null
   offerExpiryTimer = null
+  solExpiryTimer = null
   caseReminderTimer = null
   aiCaseManagerTimer = null
   activityCanaryTimer = null

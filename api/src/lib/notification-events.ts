@@ -26,6 +26,7 @@ export const ATTORNEY_EVENTS = {
   doc_uploaded: 'attorney.doc_uploaded',
   case_expiring: 'attorney.case_expiring',
   case_expired: 'attorney.case_expired',
+  sol_expired: 'attorney.sol_expired',
   consult_scheduled: 'attorney.consult_scheduled',
   new_message: 'attorney.new_message',
   wave2_route: 'attorney.wave2_route',
