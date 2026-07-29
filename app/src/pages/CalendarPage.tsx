@@ -79,7 +79,9 @@ export default function CalendarPage() {
   const [pickerLeads, setPickerLeads] = useState<any[]>([])
   const loadPickerLeads = useCallback(async () => {
     try {
-      const res = await getAttorneyFilteredLeads({ limit: 500 })
+      // engagedOnly is enforced server-side; the client filter below stays as a
+      // second line of defence for the fallback list (CP-426).
+      const res = await getAttorneyFilteredLeads({ limit: 500, engagedOnly: true })
       setPickerLeads(res?.leads ?? [])
     } catch {
       /* keep whatever we have */
