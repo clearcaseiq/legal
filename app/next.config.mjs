@@ -13,6 +13,12 @@ const nextConfig = {
   // The app lives in a pnpm workspace; trace from the repo root so workspace
   // dependencies are bundled into the standalone output.
   outputFileTracingRoot: path.resolve(__dirname, '..'),
+  experimental: {
+    // src/lib/claimTypes.ts re-exports runtime values from ../../../shared, which
+    // sits outside the Next root. Without this the SWC loader is never applied to
+    // those files and webpack tries to parse raw TypeScript as JavaScript.
+    externalDir: true,
+  },
   webpack: (config) => {
     // Force the web app to use the same React runtime that Next resolves from the workspace root.
     config.resolve.alias = {
