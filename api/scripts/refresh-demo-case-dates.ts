@@ -1,27 +1,30 @@
 /**
- * Re-date time-barred demo cases so a seeded book stays usable.
+ * Move demo cases to a recent, still-filable incident date.
  *
  * The case seeder used to draw incident dates from a hardcoded start year, which
- * meant the demo book aged out of the statute of limitations on its own: by 2026
+ * meant a demo book aged out of the statute of limitations on its own: by 2026
  * most cases seeded against a 2022 anchor were past California's two-year
  * personal-injury period, and they were routed to attorneys anyway because the
  * seeder writes introductions directly and never runs the pre-routing gate.
  *
- * This repairs books created by the old seeder. Every date in the case moves by
- * the same offset, so the incident/treatment chronology stays internally
- * consistent — only the calendar position changes.
+ * Every date in a case moves by the same offset, so the incident/treatment
+ * chronology stays internally consistent — only the calendar position changes.
  *
  * DEMO DATA ONLY. FIRM_SLUG is required and there is no "all firms" mode, because
  * rewriting the incident date on a real case would falsify the record and destroy
  * the very deadline this is meant to protect.
  *
  * Usage (inside the api container):
- *   docker exec -w /app clearcaseiq-api node ../node_modules/tsx/dist/cli.mjs \
- *     scripts/refresh-expired-demo-case-dates.ts
+ *   docker exec -w /app -e FIRM_SLUG=musk-law-firm clearcaseiq-api \
+ *     node ../node_modules/tsx/dist/cli.mjs scripts/refresh-demo-case-dates.ts
  *
  * Config:
- *   FIRM_SLUG   required, e.g. "musk-law-firm"
- *   DRY_RUN     "1" to report without writing
+ *   FIRM_SLUG      required, e.g. "musk-law-firm"
+ *   SCOPE          "expired" (default) re-dates only time-barred cases;
+ *                  "all" re-dates every case in the book
+ *   MAX_AGE_DAYS   oldest incident date to produce, in days (default 330).
+ *                  Clamped per claim type so the result is never near its SOL.
+ *   DRY_RUN        "1" to report without writing
  */
 import { PrismaClient } from '@prisma/client'
 import { SOL_RULES, deriveSOLStatusFromFacts, normalizeClaimTypeForSOL } from '../src/lib/solRules'
@@ -29,10 +32,15 @@ import { SOL_RULES, deriveSOLStatusFromFacts, normalizeClaimTypeForSOL } from '.
 const prisma = new PrismaClient()
 
 const FIRM_SLUG = process.env.FIRM_SLUG || ''
+const SCOPE = process.env.SCOPE === 'all' ? 'all' : 'expired'
 const DRY_RUN = process.env.DRY_RUN === '1'
-
-/** Matches the margin the seeder now leaves, clearing the "expiring soon" band. */
-const SOL_MARGIN_DAYS = 400
+/**
+ * 330 days rather than a flat 365: it still reads as "within the last year" but
+ * keeps a two-year claim above the 365-days-remaining threshold, so a repaired
+ * book does not come back as a wall of "deadline approaching" warnings.
+ */
+const MAX_AGE_DAYS = Number(process.env.MAX_AGE_DAYS || 330)
+const MIN_AGE_DAYS = 30
 const DAY_MS = 24 * 3600 * 1000
 
 function parseFacts(raw: string | null | undefined): Record<string, any> {
@@ -43,6 +51,20 @@ function parseFacts(raw: string | null | undefined): Record<string, any> {
   } catch {
     return {}
   }
+}
+
+/**
+ * How old the incident may be for this claim type.
+ *
+ * Capped by the requested window and by the claim's own limitation period, so a
+ * short-SOL type (California med-mal runs one year) still lands with room to
+ * spare instead of being dated right up against its deadline.
+ */
+function maxAgeDaysFor(claimType: string): number {
+  const rule = SOL_RULES.CA?.[normalizeClaimTypeForSOL(claimType)]
+  const solDays = (rule?.years ?? 2) * 365.25
+  const safetyDays = Math.max(60, solDays * 0.15)
+  return Math.max(MIN_AGE_DAYS + 1, Math.min(MAX_AGE_DAYS, solDays - safetyDays))
 }
 
 function shiftIsoDate(value: unknown, shiftDays: number): unknown {
@@ -89,7 +111,9 @@ async function main() {
     where: { lawFirmId: firm.id },
     select: { id: true, claimType: true, venueState: true, venueCounty: true, facts: true },
   })
-  console.log(`${firm.name}: ${assessments.length} cases${DRY_RUN ? ' (dry run)' : ''}\n`)
+  console.log(
+    `${firm.name}: ${assessments.length} cases | scope=${SCOPE} | window=${MIN_AGE_DAYS}-${MAX_AGE_DAYS} days${DRY_RUN ? ' | dry run' : ''}\n`,
+  )
 
   let expired = 0
   let repaired = 0
@@ -102,8 +126,8 @@ async function main() {
       venueState: assessment.venueState,
       venueCounty: assessment.venueCounty,
     })
-    if (sol.status !== 'expired') continue
-    expired += 1
+    if (sol.status === 'expired') expired += 1
+    if (SCOPE === 'expired' && sol.status !== 'expired') continue
 
     const incidentDate = facts.incident?.date ? new Date(facts.incident.date) : null
     if (!incidentDate || Number.isNaN(incidentDate.getTime())) {
@@ -111,19 +135,18 @@ async function main() {
       continue
     }
 
-    // Land the incident somewhere inside the live SOL window, keeping the same
-    // spread the seeder produces so the repaired book is not uniformly dated.
-    const rule = SOL_RULES.CA?.[normalizeClaimTypeForSOL(assessment.claimType)]
-    const solDays = (rule?.years ?? 2) * 365.25
-    const minAgeDays = 30
-    const maxAgeDays = Math.max(minAgeDays + 1, solDays - SOL_MARGIN_DAYS)
-    const targetAgeDays = minAgeDays + Math.random() * (maxAgeDays - minAgeDays)
+    // Spread the book across the window rather than stacking every case on one
+    // date, so the repaired caseload still looks like a real intake pipeline.
+    const maxAge = maxAgeDaysFor(assessment.claimType)
+    const targetAgeDays = MIN_AGE_DAYS + Math.random() * (maxAge - MIN_AGE_DAYS)
     const targetIncident = new Date(Date.now() - targetAgeDays * DAY_MS)
     const shiftDays = Math.round((targetIncident.getTime() - incidentDate.getTime()) / DAY_MS)
+    if (shiftDays === 0) continue
 
     const nextFacts = shiftFactDates(facts, shiftDays)
+    const direction = shiftDays > 0 ? '+' : ''
     console.log(
-      `  ${assessment.id} ${assessment.claimType}: ${facts.incident.date} -> ${nextFacts.incident.date} (+${shiftDays}d)`,
+      `  ${assessment.id} ${assessment.claimType}: ${facts.incident.date} -> ${nextFacts.incident.date} (${direction}${shiftDays}d)`,
     )
     if (DRY_RUN) {
       repaired += 1
@@ -158,7 +181,9 @@ async function main() {
     repaired += 1
   }
 
-  console.log(`\n=== ${expired} expired case(s) found, ${repaired} ${DRY_RUN ? 'would be' : ''} repaired. ===`)
+  console.log(
+    `\n=== ${expired} of ${assessments.length} case(s) were time-barred. ${repaired} ${DRY_RUN ? 'would be' : ''} re-dated. ===`,
+  )
 }
 
 main()
