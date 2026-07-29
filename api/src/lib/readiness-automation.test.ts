@@ -1,6 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import { buildReadinessAutomationPlan } from './readiness-automation'
 import type { CaseCommandCenter } from './case-command-center'
+import { evaluateDemandGate, type TreatmentPostureResult } from './demand-readiness'
+
+const COMPLETE_TREATMENT: TreatmentPostureResult = {
+  posture: 'complete',
+  daysSinceLastTreatment: 12,
+  largestGapDays: 5,
+  entryCount: 6,
+  detail: 'Treatment is marked complete (discharge / MMI recorded on the file).',
+}
+
+const OPEN_TREATMENT_GAP: TreatmentPostureResult = {
+  posture: 'gap',
+  daysSinceLastTreatment: 255,
+  largestGapDays: 255,
+  entryCount: 3,
+  detail: 'No treatment recorded for 255 days and no discharge or MMI note on file.',
+}
+
+const READY_GATE = evaluateDemandGate({
+  treatment: COMPLETE_TREATMENT,
+  documentedMedicalBills: 18_400,
+  hasMedicalRecords: true,
+})
 
 function buildSummary(overrides: Partial<CaseCommandCenter> = {}): CaseCommandCenter {
   return {
@@ -53,7 +76,10 @@ function buildSummary(overrides: Partial<CaseCommandCenter> = {}): CaseCommandCe
       largestGapDays: 0,
       status: 'Treatment flow is still thin',
       recommendedAction: 'Pull records.',
+      posture: COMPLETE_TREATMENT.posture,
+      postureDetail: COMPLETE_TREATMENT.detail,
     },
+    demandGate: READY_GATE,
     strengths: [],
     weaknesses: [],
     defenseRisks: [],
@@ -93,6 +119,8 @@ describe('buildReadinessAutomationPlan', () => {
         largestGapDays: 61,
         status: 'Treatment continuity risk: 61-day gap',
         recommendedAction: 'Close the continuity story.',
+        posture: 'gap',
+        postureDetail: 'No discharge or MMI note on file.',
       },
       nextBestAction: {
         actionType: 'request_documents',
@@ -135,5 +163,46 @@ describe('buildReadinessAutomationPlan', () => {
     expect(plan.tasks.map((item) => item.title)).toContain('Move file into demand drafting')
     expect(plan.reminders.map((item) => item.category)).toContain('negotiation')
     expect(plan.reminders.map((item) => item.category)).toContain('demand_ready')
+  })
+
+  // Regression: a well-organized file with a live treatment gap used to be told
+  // to draft a demand purely because readiness cleared 85.
+  it('does not raise demand drafting while the client may still be treating', () => {
+    const plan = buildReadinessAutomationPlan(buildSummary({
+      readiness: { score: 92, label: 'Demand-ready', detail: 'Ready for demand.' },
+      demandGate: evaluateDemandGate({
+        treatment: OPEN_TREATMENT_GAP,
+        documentedMedicalBills: 18_400,
+        hasMedicalRecords: true,
+      }),
+      nextBestAction: {
+        actionType: 'prepare_demand',
+        title: 'Prepare demand',
+        detail: 'Move into drafting.',
+      },
+    }))
+
+    const titles = plan.tasks.map((item) => item.title)
+    expect(titles).not.toContain('Move file into demand drafting')
+    expect(titles).toContain('Confirm treatment is complete before demand drafting')
+    expect(plan.reminders.map((item) => item.category)).not.toContain('demand_ready')
+  })
+
+  it('blocks demand drafting when there are no documented specials', () => {
+    const plan = buildReadinessAutomationPlan(buildSummary({
+      readiness: { score: 92, label: 'Demand-ready', detail: 'Ready for demand.' },
+      demandGate: evaluateDemandGate({
+        treatment: COMPLETE_TREATMENT,
+        documentedMedicalBills: 0,
+        hasMedicalRecords: true,
+      }),
+      nextBestAction: {
+        actionType: 'prepare_demand',
+        title: 'Prepare demand',
+        detail: 'Move into drafting.',
+      },
+    }))
+
+    expect(plan.tasks.map((item) => item.title)).not.toContain('Move file into demand drafting')
   })
 })

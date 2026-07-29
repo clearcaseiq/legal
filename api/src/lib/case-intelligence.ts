@@ -169,6 +169,48 @@ function defendantCarrierKnown(facts: Record<string, any>, insuranceDetails: Arr
   return insuranceDetails.some((d) => (String(d?.insuredParty || '').toLowerCase() === 'defendant') && d?.carrierName)
 }
 
+/** Claim types where the client's own auto policy is a live recovery source. */
+const FIRST_PARTY_COVERAGE_CLAIM_TYPES = new Set(['auto', 'vehicle', 'motorcycle', 'truck', 'rideshare', 'pedestrian', 'bicycle'])
+
+/**
+ * True when the client's own first-party coverage has not been pinned down.
+ *
+ * "Confirmed" means an actual client-side insurance record with the coverage
+ * verified — an intake checkbox is a claim, not a declarations page, so it
+ * lowers urgency but does not close the gap.
+ */
+function firstPartyCoverageUnconfirmed(
+  facts: Record<string, any>,
+  insuranceDetails: Array<any>,
+  claimType: string,
+): boolean {
+  const normalizedClaim = String(claimType || '').trim().toLowerCase()
+  if (!FIRST_PARTY_COVERAGE_CLAIM_TYPES.has(normalizedClaim)) return false
+
+  const confirmed = insuranceDetails.some((d) => {
+    const party = String(d?.insuredParty || '').toLowerCase()
+    const coverage = String(d?.coverageType || '').toLowerCase()
+    return party === 'client' && ['um', 'uim', 'medpay'].includes(coverage) && Boolean(d?.coverageConfirmed)
+  })
+  return !confirmed
+}
+
+/** Defendant limits low enough that a UIM claim is likely to matter. */
+function defendantLimitsThin(facts: Record<string, any>, insuranceDetails: Array<any>): boolean {
+  const ins = facts?.insurance || {}
+  const limits: number[] = []
+  const raw = ins.policy_limit ?? ins.policyLimit ?? ins.defendant_coverage_limits
+  if (typeof raw === 'number' && raw > 0) limits.push(raw)
+  for (const d of insuranceDetails) {
+    if (String(d?.insuredParty || '').toLowerCase() !== 'defendant') continue
+    const limit = Number(d?.policyLimit)
+    if (Number.isFinite(limit) && limit > 0) limits.push(limit)
+  }
+  if (limits.length === 0) return false
+  // California's minimum auto liability limit; at or near it, UIM usually carries the claim.
+  return Math.max(...limits) <= 50_000
+}
+
 function imagingKnown(facts: Record<string, any>, evidence: Set<string>): boolean {
   if (hasAny(evidence, ['mri', 'imaging', 'x-ray', 'xray', 'ct'])) return true
   const details = facts?.injuryDetails || {}
@@ -195,14 +237,15 @@ function wageLossClaimed(facts: Record<string, any>): boolean {
  * injuries, witnesses, employer) that attorneys otherwise spend the first
  * consultation chasing.
  */
-function buildGaps(params: {
+export function buildGaps(params: {
   documentationMissing: string[]
   facts: Record<string, any>
   evidence: Set<string>
   insuranceDetails: Array<any>
   primaryInjury: string
+  claimType: string
 }): CaseGap[] {
-  const { documentationMissing, facts, evidence, insuranceDetails, primaryInjury } = params
+  const { documentationMissing, facts, evidence, insuranceDetails, primaryInjury, claimType } = params
   const gaps: CaseGap[] = []
   const missingLower = documentationMissing.map((m) => m.toLowerCase())
   const missingHas = (needle: string) => missingLower.some((m) => m.includes(needle))
@@ -262,6 +305,36 @@ function buildGaps(params: {
       key: 'defendant_carrier', label: 'Defendant insurance carrier / claim number', category: 'insurance', severity: 4, valueImpact: 'medium',
       rationale: 'Needed to open the claim and direct the demand to the right adjuster.',
       actions: ['assign_paralegal', 'request_from_client'], requestedDoc: 'insurance',
+    })
+  }
+
+  // First-party coverage. Distinct from the defendant gaps above and easy to
+  // forget precisely because it is the client's own policy rather than the
+  // opposing carrier — but UM/UIM is the entire recovery when the defendant is
+  // uninsured or underinsured, and PIP/MedPay pays medical bills regardless of
+  // fault, which keeps the client treating while liability is contested. Both
+  // carry short notice deadlines, so this is a day-one task, not a demand-time
+  // one.
+  if (firstPartyCoverageUnconfirmed(facts, insuranceDetails, claimType)) {
+    const otherPartyInsured = String(facts?.insurance?.other_party_insured ?? '').toLowerCase()
+    const defendantUninsured = otherPartyInsured === 'no'
+    const coverageUnclear = otherPartyInsured !== 'yes'
+    const thinDefendantLimits = defendantLimitsThin(facts, insuranceDetails)
+    gaps.push({
+      key: 'first_party_coverage',
+      label: "Client's own coverage (UM/UIM, PIP/MedPay)",
+      category: 'insurance',
+      severity: defendantUninsured || coverageUnclear || thinDefendantLimits ? 5 : 4,
+      valueImpact: 'high',
+      rationale: defendantUninsured
+        ? "The at-fault party is reported uninsured, so the client's own UM coverage is the only realistic source of recovery. Confirm the policy and open the claim before the notice deadline."
+        : coverageUnclear
+          ? "It is not yet confirmed whether the at-fault party is insured. Pull the client's own declarations page now so UM/UIM and PIP/MedPay are available if the liability claim falls short."
+          : thinDefendantLimits
+            ? "The defendant's limits look thin against this claim, which puts recovery on the client's UIM coverage. Confirm those limits and preserve the UIM claim."
+            : "The client's own UM/UIM and PIP/MedPay coverage has not been confirmed. MedPay/PIP pays treatment regardless of fault and UIM backstops a low defendant limit.",
+      actions: ['assign_paralegal', 'generate_doc_request', 'request_from_client'],
+      requestedDoc: 'insurance',
     })
   }
 
@@ -386,6 +459,7 @@ export async function buildCaseIntelligence(assessmentId: string): Promise<CaseI
     evidence,
     insuranceDetails,
     primaryInjury,
+    claimType: assessment.claimType,
   })
 
   return {

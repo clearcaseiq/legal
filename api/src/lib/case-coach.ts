@@ -16,6 +16,7 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { buildCaseIntelligence, type CaseGap, type GapAction, type GapCategory, type ValueImpact } from './case-intelligence'
+import { deriveTreatmentPosture, evaluateDemandGate, hasTreatmentCompletionSignal } from './demand-readiness'
 
 export type CoachPriority = 'critical' | 'high' | 'medium' | 'low'
 export type CoachCategory = GapCategory | 'deadline' | 'strategy'
@@ -70,28 +71,6 @@ function formatMoney(value: number): string {
   return `$${Math.round(value)}`
 }
 
-/** Best-effort extraction of the most recent treatment date from the raw facts. */
-function lastTreatmentDate(facts: Record<string, any>): Date | null {
-  const candidates: string[] = []
-  const treatment = Array.isArray(facts?.treatment) ? facts.treatment : []
-  for (const t of treatment) {
-    for (const k of ['endDate', 'lastDate', 'date', 'startDate']) {
-      if (t && t[k]) candidates.push(String(t[k]))
-    }
-  }
-  const med = facts?.medical || {}
-  for (const k of ['lastTreatmentDate', 'treatmentEndDate', 'lastVisit']) {
-    if (med[k]) candidates.push(String(med[k]))
-    if (facts?.[k]) candidates.push(String(facts[k]))
-  }
-  let latest: Date | null = null
-  for (const c of candidates) {
-    const d = new Date(c)
-    if (!Number.isNaN(d.getTime()) && (!latest || d > latest)) latest = d
-  }
-  return latest
-}
-
 /** Detect a plaintiff-side government/health payer that creates a lien/subrogation exposure. */
 function lienExposure(facts: Record<string, any>, insuranceDetails: Array<any>): boolean {
   const ins = facts?.insurance || {}
@@ -108,6 +87,9 @@ function lienExposure(facts: Record<string, any>, insuranceDetails: Array<any>):
     return party === 'plaintiff' && /health|medicare|medicaid|med\s?pay/.test(type)
   })
 }
+
+/** Gap key for the client's own first-party coverage; scored on its own clock. */
+const FIRST_PARTY_COVERAGE_GAP_KEY = 'first_party_coverage'
 
 /** Coach action set for a gap, folded down to the universal task primitives. */
 function gapToInsight(gap: CaseGap): CoachInsight {
@@ -150,6 +132,13 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
   const openTaskText = openTasks.map((t) => String(t.title || '').toLowerCase())
   const hasOpenTaskFor = (needle: string) => openTaskText.some((t) => t.includes(needle.toLowerCase()))
 
+  // Where the client sits in their course of care. Drives both the treatment-gap
+  // action and the demand gate, so the two can no longer contradict each other.
+  const treatmentPosture = deriveTreatmentPosture({
+    facts,
+    completionSignal: await hasTreatmentCompletionSignal(prisma, assessmentId),
+  })
+
   const insights: CoachInsight[] = []
   const s = intel.summary
 
@@ -175,14 +164,37 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
   // 2) Top gaps → coach actions (deduped against open tasks).
   for (const gap of intel.gaps) {
     if (gap.severity < 3) continue
+    if (gap.key === FIRST_PARTY_COVERAGE_GAP_KEY) continue // handled below, on its own clock
     if (hasOpenTaskFor(gap.label.split('(')[0].trim())) continue
     insights.push(gapToInsight(gap))
   }
 
+  // 2b) The client's own coverage. Scored above the routine document gaps rather
+  // than alongside them, because it is the one investigation item on a day-one
+  // file that can be forfeited by waiting: UM/UIM and MedPay/PIP policies
+  // condition coverage on prompt notice to the client's own carrier. Records and
+  // bills can be chased in any order; a blown notice window cannot be reopened.
+  // Only the auto-generated task's position changes — the gap itself still
+  // appears in the Missing Information registry either way.
+  const coverageGap = intel.gaps.find((g) => g.key === FIRST_PARTY_COVERAGE_GAP_KEY)
+  if (coverageGap && !hasOpenTaskFor('own coverage') && !hasOpenTaskFor('um/uim')) {
+    const score = coverageGap.severity >= 5 ? 94 : 88
+    insights.push({
+      key: 'first_party_coverage',
+      title: "Confirm the client's own coverage (UM/UIM, PIP/MedPay)",
+      category: 'insurance',
+      priority: PRIORITY_FROM_SCORE(score),
+      priorityScore: score,
+      why: `${coverageGap.rationale} Most first-party policies require prompt notice as a condition of coverage, so this is a day-one item rather than something to pick up at demand time.`,
+      impact: 'Preserves a recovery source that can exceed the defendant’s limits',
+      valueImpact: 'high',
+      actions: ['assign_paralegal', 'generate_doc_request', 'request_from_client'],
+    })
+  }
+
   // 3) Treatment gap — a classic value-killer if left unexplained.
-  const lastTx = lastTreatmentDate(facts)
-  if (lastTx) {
-    const gapDays = Math.floor((Date.now() - lastTx.getTime()) / 86_400_000)
+  const gapDays = treatmentPosture.daysSinceLastTreatment
+  if (gapDays != null) {
     if (gapDays >= 30 && !hasOpenTaskFor('treatment')) {
       const score = gapDays >= 60 ? 74 : 58
       insights.push({
@@ -229,20 +241,48 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
     })
   }
 
-  // 6) Demand readiness — when the file is strong enough to move.
+  // 6) Demand readiness — only once the file is strong enough AND treatment has
+  // finished. The documentation score alone used to be enough, which meant a
+  // well-organized file with a live treatment gap was told to draft a demand
+  // while the specials were still moving. A demand cannot be withdrawn once it
+  // is with the carrier, so the gate is deliberately conservative; when it fails
+  // the coach raises the thing that would unblock it instead.
   const highGapsRemaining = intel.gaps.filter((g) => g.severity >= 4).length
-  if (s.documentation.score >= 60 && highGapsRemaining === 0 && !hasOpenTaskFor('demand')) {
-    insights.push({
-      key: 'demand_ready',
-      title: 'Move toward the demand package',
-      category: 'strategy',
-      priority: 'high',
-      priorityScore: 70,
-      why: `Documentation is ${s.documentation.grade.toLowerCase()} (${s.documentation.score}/100) with no critical gaps outstanding. The file is ready to assemble the demand.`,
-      impact: `Targets settlement around ${formatMoney(s.estimatedValue.expected)}`,
-      valueImpact: 'high',
-      actions: ['assign_paralegal', 'schedule_followup'],
+  const fileIsOtherwiseStrong = s.documentation.score >= 60 && highGapsRemaining === 0
+  if (fileIsOtherwiseStrong) {
+    const demandGate = evaluateDemandGate({
+      treatment: treatmentPosture,
+      documentedMedicalBills: s.economic.medicalBills,
+      hasMedicalRecords: !intel.gaps.some((g) => g.key === 'medical_records'),
     })
+
+    if (demandGate.ready && !hasOpenTaskFor('demand')) {
+      insights.push({
+        key: 'demand_ready',
+        title: 'Move toward the demand package',
+        category: 'strategy',
+        priority: 'high',
+        priorityScore: 70,
+        why: `Documentation is ${s.documentation.grade.toLowerCase()} (${s.documentation.score}/100) with no critical gaps outstanding, and treatment is complete. The file is ready to assemble the demand.`,
+        impact: `Targets settlement around ${formatMoney(s.estimatedValue.expected)}`,
+        valueImpact: 'high',
+        actions: ['assign_paralegal', 'schedule_followup'],
+      })
+    } else if (!demandGate.ready && treatmentPosture.posture !== 'complete' && !hasOpenTaskFor('treatment status')) {
+      // The file is organized enough that demand work would otherwise start, so
+      // the binding constraint is documenting where care ended.
+      insights.push({
+        key: 'confirm_treatment_status',
+        title: 'Confirm treatment status and obtain the discharge / MMI note',
+        category: 'medical',
+        priority: 'high',
+        priorityScore: 76,
+        why: `${treatmentPosture.detail} The rest of the file is organized enough for demand work, so this is the one thing holding the demand back. Demanding before maximum medical improvement locks in a number while the specials are still growing.`,
+        impact: 'Unblocks the demand and prevents under-valuing the claim',
+        valueImpact: 'high',
+        actions: ['request_from_client', 'assign_paralegal'],
+      })
+    }
   }
 
   // Rank: priorityScore desc, then value-impact.

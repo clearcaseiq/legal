@@ -1,3 +1,9 @@
+import {
+  deriveTreatmentPosture,
+  evaluateDemandGate,
+  loadTreatmentCompletionSignals,
+} from './demand-readiness'
+
 type Severity = 'high' | 'medium' | 'low'
 type ActionType =
   | 'request_documents'
@@ -124,6 +130,10 @@ export async function buildAttorneyWorkQueue(params: {
 }) {
   const leadIds = params.leads.map((lead) => lead.id)
   const assessmentIds = params.leads.map((lead) => lead.assessmentId).filter(Boolean)
+
+  // Which cases have an affirmative treatment-complete / MMI signal. Batched for
+  // the whole caseload because the demand gate consults it per lead below.
+  const treatmentCompleteIds = await loadTreatmentCompletionSignals(params.prisma, assessmentIds)
 
   const [openTasks, pendingDocumentRequests, latestContacts, demandLetters, negotiationEvents] = await Promise.all([
     assessmentIds.length > 0
@@ -292,25 +302,33 @@ export async function buildAttorneyWorkQueue(params: {
       })
     }
 
-    const treatment = Array.isArray(facts?.treatment) ? facts.treatment : []
-    if (treatment.length === 0) {
+    // Treatment posture, not just the largest gap between two recorded visits.
+    // A client who treated regularly and then stopped 255 days ago has a
+    // between-visit gap of zero, so the old check saw nothing wrong.
+    const treatmentPosture = deriveTreatmentPosture({
+      facts,
+      completionSignal: treatmentCompleteIds.has(lead.assessmentId),
+    })
+    const liveGapDays = treatmentPosture.daysSinceLastTreatment
+    if (treatmentPosture.entryCount === 0) {
       addBlocker({
         key: 'treatment',
         title: 'No treatment documented',
         detail: 'There is no treatment history on file yet, which weakens damages and timeline clarity.',
         severity: 'high',
       })
-    } else if (treatmentGapDays >= 45) {
+    } else if (treatmentPosture.posture === 'gap') {
+      const gap = Math.max(liveGapDays ?? 0, treatmentGapDays)
       addBlocker({
         key: 'treatment_gap',
-        title: `${treatmentGapDays}-day treatment gap`,
+        title: `${gap}-day treatment gap`,
         detail: 'A meaningful treatment gap may become a defense talking point unless it is explained.',
         severity: 'high',
       })
-    } else if (treatmentGapDays >= 30) {
+    } else if (treatmentGapDays >= 30 || (liveGapDays ?? 0) >= 30) {
       addBlocker({
         key: 'treatment_gap',
-        title: `${treatmentGapDays}-day treatment gap`,
+        title: `${Math.max(liveGapDays ?? 0, treatmentGapDays)}-day treatment gap`,
         detail: 'A treatment gap is starting to weaken continuity and should be reviewed.',
         severity: 'medium',
       })
@@ -375,6 +393,11 @@ export async function buildAttorneyWorkQueue(params: {
     const negotiation = latestNegotiationByAssessmentId[lead.assessmentId]
     const hasDemand = Boolean(demand)
     const negotiationAgingDays = daysAgo(negotiation?.eventDate)
+    const demandGate = evaluateDemandGate({
+      treatment: treatmentPosture,
+      documentedMedicalBills: (facts?.damages?.med_charges as number | undefined) ?? null,
+      hasMedicalRecords: evidenceCategories.has('medical_records') || evidenceCategories.has('bills'),
+    })
 
     let score = 100
     score -= blockers.reduce((total, blocker) => total + (blocker.severity === 'high' ? 18 : blocker.severity === 'medium' ? 10 : 5), 0)
@@ -438,12 +461,26 @@ export async function buildAttorneyWorkQueue(params: {
         targetSection: 'overview',
         messageDraft: 'Just checking in on your case. We are still moving through the next review step, and I wanted to make sure you know what we still need and what comes next.',
       }
-    } else if (score >= 75 && ['consulted', 'retained'].includes(lead.status || '') && !hasDemand) {
+    } else if (score >= 75 && ['consulted', 'retained'].includes(lead.status || '') && !hasDemand && demandGate.ready) {
       nextAction = {
         actionType: 'open_demand',
         title: 'Move this file into demand drafting',
-        detail: 'The file is strong enough that the next leverage move is demand preparation.',
+        detail: 'The file is strong enough and treatment is complete, so the next leverage move is demand preparation.',
         targetSection: 'demand',
+      }
+    } else if (
+      score >= 75 &&
+      ['consulted', 'retained'].includes(lead.status || '') &&
+      !hasDemand &&
+      treatmentPosture.posture !== 'complete'
+    ) {
+      nextAction = {
+        actionType: 'send_message',
+        title: 'Confirm the client has finished treating',
+        detail: `${treatmentPosture.detail} Demand work should wait until the discharge or MMI note is on file.`,
+        targetSection: 'medical',
+        messageDraft:
+          'Checking in on your treatment. Are you still seeing any doctors or therapists for your injuries, or has your provider released you from care? Knowing where treatment stands lets us put the strongest possible number in front of the insurer.',
       }
     } else if (negotiation && negotiationAgingDays != null && negotiationAgingDays >= 7) {
       nextAction = {
@@ -466,7 +503,7 @@ export async function buildAttorneyWorkQueue(params: {
       assessmentId: lead.assessmentId,
       score,
       label,
-      isDemandReady: score >= 85 && !hasDemand,
+      isDemandReady: score >= 85 && !hasDemand && demandGate.ready,
       blockerCount: sortedBlockers.length,
       blockers: sortedBlockers.slice(0, 4),
       nextAction,

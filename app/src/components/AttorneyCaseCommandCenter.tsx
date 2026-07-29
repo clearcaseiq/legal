@@ -143,6 +143,18 @@ export default function AttorneyCaseCommandCenter({
             <div className="mt-2 text-xs text-slate-500">Providers: {summary.treatmentMonitor.providers.join(', ')}</div>
           ) : null}
           <div className="mt-2 text-sm text-slate-700">{summary.treatmentMonitor.recommendedAction}</div>
+          {summary.demandGate && !summary.demandGate.ready ? (
+            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-amber-900">Demand on hold</div>
+              <ul className="mt-1 space-y-1 text-xs text-amber-900">
+                {summary.demandGate.blockers.map((blocker) => (
+                  <li key={blocker.key}>
+                    <span className="font-semibold">{blocker.title}.</span> {blocker.detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"

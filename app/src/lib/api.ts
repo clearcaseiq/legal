@@ -1024,6 +1024,14 @@ export type CaseCommandCenter = {
     largestGapDays: number
     status: string
     recommendedAction: string
+    posture?: 'complete' | 'active' | 'gap' | 'unknown'
+    postureDetail?: string
+  }
+  /** Whether the file may move toward a demand, and what is holding it back. */
+  demandGate?: {
+    ready: boolean
+    detail: string
+    blockers: Array<{ key: string; title: string; detail: string }>
   }
   medicalCostBenchmark: {
     status: 'available' | 'limited' | 'unavailable'

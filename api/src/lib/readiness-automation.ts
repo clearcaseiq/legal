@@ -90,11 +90,17 @@ export function buildReadinessAutomationPlan(summary: CaseCommandCenter): Readin
     })
   }
 
-  if (summary.readiness.score >= 85 || summary.nextBestAction.actionType === 'prepare_demand') {
+  // Demand drafting is gated on the shared demand gate, never on the readiness
+  // score alone. A high score only says the file is well organized; it says
+  // nothing about whether the client has finished treating, and a demand sent
+  // before maximum medical improvement anchors the negotiation at a number that
+  // excludes care the client has not received yet. That cannot be undone.
+  const demandGate = summary.demandGate
+  if (demandGate?.ready && (summary.readiness.score >= 85 || summary.nextBestAction.actionType === 'prepare_demand')) {
     tasks.push({
       title: 'Move file into demand drafting',
       priority: 'medium',
-      notes: `${summary.readiness.detail} ${summary.nextBestAction.detail}`,
+      notes: `${summary.readiness.detail} ${demandGate.detail}`,
       taskType: 'demand_deadline',
       checkpointType: null,
       escalationLevel: 'warning',
@@ -104,6 +110,25 @@ export function buildReadinessAutomationPlan(summary: CaseCommandCenter): Readin
     reminders.push({
       category: 'demand_ready',
       message: `[Readiness][demand_ready] ${summary.readiness.label}: ${summary.nextBestAction.detail}`,
+      dueInDays: 0,
+    })
+  } else if (demandGate && !demandGate.ready && summary.readiness.score >= 85) {
+    // The file reads as demand-ready on organization alone, so name the one
+    // thing actually holding it back rather than staying silent.
+    const blocker = demandGate.blockers[0]
+    tasks.push({
+      title: 'Confirm treatment is complete before demand drafting',
+      priority: 'high',
+      notes: `The file is organized enough for demand work, but it is not clear to demand yet. ${demandGate.blockers.map((b) => b.detail).join(' ')}`,
+      taskType: 'checkpoint',
+      checkpointType: 'medical_checkpoint',
+      escalationLevel: 'warning',
+      dueInDays: 3,
+      remindInDays: 1,
+    })
+    reminders.push({
+      category: 'treatment_gap',
+      message: `[Readiness][treatment_gap] Demand blocked: ${blocker?.title || 'treatment status unconfirmed'}. ${blocker?.detail || ''}`.trim(),
       dueInDays: 0,
     })
   }

@@ -2,6 +2,13 @@ import { prisma } from './prisma'
 import { buildMedicalChronology, computeCasePreparation, type ReadinessFactor } from './case-insights'
 import { buildMedicalCostBenchmarkSummary, type MedicalCostBenchmarkSummary } from './medical-cost-benchmarks'
 import { getHeuristics, getReadinessLabel, DEFAULT_HEURISTICS, type HeuristicsConfig } from './heuristics-config'
+import {
+  deriveTreatmentPosture,
+  evaluateDemandGate,
+  hasTreatmentCompletionSignal,
+  type DemandGate,
+  type TreatmentPosture,
+} from './demand-readiness'
 
 type Priority = 'high' | 'medium' | 'low'
 
@@ -73,7 +80,15 @@ export type CaseCommandCenter = {
     largestGapDays: number
     status: string
     recommendedAction: string
+    /** Where the client sits in their course of care — gates demand work. */
+    posture: TreatmentPosture
+    postureDetail: string
   }
+  /**
+   * Whether the file may move toward a demand. Every demand suggestion on the
+   * case must consult this rather than a bare readiness score.
+   */
+  demandGate: DemandGate
   medicalCostBenchmark: MedicalCostBenchmarkSummary
   strengths: CaseCommandCenterListItem[]
   weaknesses: CaseCommandCenterListItem[]
@@ -388,7 +403,14 @@ export function answerCommandCenterCopilot(summary: CaseCommandCenter, question:
 
   if (normalized.includes('demand') || normalized.includes('ready') || normalized.includes('readiness')) {
     return {
-      answer: `Readiness is ${summary.readiness.score}% (${summary.readiness.label}). ${summary.readiness.detail} ${summary.nextBestAction.detail}`,
+      answer: [
+        `Readiness is ${summary.readiness.score}% (${summary.readiness.label}).`,
+        summary.readiness.detail,
+        summary.demandGate?.detail,
+        summary.nextBestAction.detail,
+      ]
+        .filter(Boolean)
+        .join(' '),
       sources: summary.sources.slice(0, 4),
     }
   }
@@ -574,7 +596,23 @@ export async function buildCaseCommandCenter(params: {
   const liabilityStory = buildLiabilityStory(liabilityScore, facts)
   const coverageStory = buildCoverageStory(policyLimit, insuranceDetails.length > 0, latestDemand)
   const negotiationSummary = buildNegotiationSummary({ negotiationEvents, policyLimit })
-  const treatmentMonitor = buildTreatmentMonitor({ chronology, treatmentGaps: casePreparation.treatmentGaps })
+  const treatmentPosture = deriveTreatmentPosture({
+    facts,
+    chronologyDates: chronology.map((item) => item.date),
+    completionSignal: await hasTreatmentCompletionSignal(prisma, assessment.id),
+  })
+  const treatmentMonitor = {
+    ...buildTreatmentMonitor({ chronology, treatmentGaps: casePreparation.treatmentGaps }),
+    posture: treatmentPosture.posture,
+    postureDetail: treatmentPosture.detail,
+  }
+  const demandGate = evaluateDemandGate({
+    treatment: treatmentPosture,
+    documentedMedicalBills: (facts?.damages?.med_charges as number | undefined) ?? null,
+    hasMedicalRecords: evidenceFiles.some((file) =>
+      ['medical_records', 'medical', 'bills', 'medical_bills'].includes(String(file.category || '')),
+    ),
+  })
   const medicalCostBenchmark = buildMedicalCostBenchmarkSummary({
     chronology,
     medCharges: facts?.damages?.med_charges as number | undefined,
@@ -673,11 +711,19 @@ export async function buildCaseCommandCenter(params: {
       title: 'Get the consult on the calendar',
       detail: 'The file is organized enough for the next attorney conversation, and scheduling that touchpoint should keep momentum up.',
     }
-  } else if (readinessScore >= 75 && negotiationEvents.length === 0) {
+  } else if (readinessScore >= 75 && negotiationEvents.length === 0 && demandGate.ready) {
     nextBestAction = {
       actionType: 'prepare_demand',
       title: 'Move the file toward demand preparation',
-      detail: 'The case looks organized enough that the next leverage move is to tighten the damages narrative and prepare the demand package.',
+      detail: 'The case looks organized enough and treatment is complete, so the next leverage move is to tighten the damages narrative and prepare the demand package.',
+    }
+  } else if (readinessScore >= 75 && negotiationEvents.length === 0 && treatmentPosture.posture !== 'complete') {
+    // Organized enough that demand prep would otherwise be next, but the course
+    // of care is not documented as finished. Point at the blocker, not the demand.
+    nextBestAction = {
+      actionType: 'client_follow_up',
+      title: 'Confirm the client has finished treating',
+      detail: `${treatmentPosture.detail} Confirm whether care is continuing and get the discharge or MMI note on file before demand work begins.`,
     }
   } else if (negotiationEvents.length > 0) {
     nextBestAction = {
@@ -725,6 +771,10 @@ export async function buildCaseCommandCenter(params: {
       detail: `${treatmentMonitor.status}. ${treatmentMonitor.recommendedAction}`,
     },
     {
+      label: 'Demand gate',
+      detail: demandGate.detail,
+    },
+    {
       label: 'Medical cost benchmark',
       detail: medicalCostBenchmark.detail,
     },
@@ -754,6 +804,7 @@ export async function buildCaseCommandCenter(params: {
     coverageStory,
     negotiationSummary,
     treatmentMonitor,
+    demandGate,
     medicalCostBenchmark,
     strengths: strengths.slice(0, 4),
     weaknesses: weaknesses.slice(0, 4),
