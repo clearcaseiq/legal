@@ -3545,6 +3545,66 @@ export async function sendAdminTestSms(phone: string, message?: string): Promise
   return data
 }
 
+export type SystemStatusLevel = 'ok' | 'degraded' | 'down'
+
+export interface AdminSystemStatus {
+  status: SystemStatusLevel
+  issues: string[]
+  checkedAt: string
+  readiness: {
+    ok: boolean
+    failed: string[]
+    probes: { name: string; ok: boolean; durationMs: number; error?: string }[]
+  }
+  schema: {
+    ok: boolean
+    checkedTables: number
+    missingTables: string[]
+    missingColumns: { table: string; column: string }[]
+    unexpectedTables: string[]
+    error?: string
+  }
+  sweeps: {
+    name: string
+    label: string
+    enabled: boolean
+    intervalMs: number | null
+    status: 'ok' | 'failed' | 'running' | 'never' | 'disabled'
+    stale: boolean
+    lastStartedAt: string | null
+    lastFinishedAt: string | null
+    lastDurationMs: number | null
+    lastError: string | null
+    runs: number
+    failures: number
+  }[]
+  activity: {
+    lastEventAt: string | null
+    eventsLastHour: number
+    eventsLast24h: number
+    activeUsersLast24h: number
+    daily: { date: string; events: number; users: number }[]
+    canary: { enabled: boolean; windowHours: number; silent: boolean }
+    error?: string
+  }
+  runtime: {
+    environment: string
+    version: string | null
+    commit: string | null
+    buildTime: string | null
+    nodeVersion: string
+    startedAt: string
+    uptimeSeconds: number
+    database: string | null
+  }
+  integrations: { key: string; label: string; configured: boolean; detail: string | null }[]
+}
+
+export async function getAdminSystemStatus(): Promise<AdminSystemStatus> {
+  const { data } = await api.get<AdminSystemStatus>('/v1/admin/system-status')
+  return data
+}
+
 export interface AdminIntakeLead {
   id: string
   email: string | null

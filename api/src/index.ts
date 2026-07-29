@@ -14,6 +14,7 @@ import { runCaseReminderSweep } from './lib/case-reminder-sweep'
 import { runAiCaseManagerSweep, isAiCaseManagerEnabled } from './lib/ai-case-manager-sweep'
 import { runActivityCanarySweep, isActivityCanaryEnabled } from './lib/activity-canary-sweep'
 import { reconcileAllAttorneyRatingAggregates } from './lib/attorney-rating-aggregates'
+import { beginSweep, registerSweep } from './lib/ops-status'
 
 const app = buildApp()
 
@@ -28,8 +29,10 @@ let aiCaseManagerTimer: NodeJS.Timeout | null = null
 let activityCanaryTimer: NodeJS.Timeout | null = null
 
 async function runCalendarWebhookRenewalSweep(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('calendar-webhook-renewal')
   try {
     const result = await renewCalendarWebhookSubscriptions()
+    sweep.succeed()
     if (result.processedCount > 0 || trigger === 'startup') {
       logger.info('Calendar webhook renewal sweep completed', {
         trigger,
@@ -37,17 +40,24 @@ async function runCalendarWebhookRenewalSweep(trigger: 'startup' | 'interval') {
       })
     }
   } catch (error) {
+    sweep.fail(error)
     logger.error('Calendar webhook renewal sweep failed', { error, trigger })
   }
 }
 
 function startCalendarWebhookRenewalLoop() {
   if (!ENV.CALENDAR_WEBHOOK_RENEWAL_ENABLED) {
+    registerSweep('calendar-webhook-renewal', { label: 'Calendar webhook renewal', enabled: false })
     logger.info('Calendar webhook renewal loop disabled')
     return
   }
 
   const intervalMs = Math.max(60_000, ENV.CALENDAR_WEBHOOK_RENEWAL_INTERVAL_MS)
+  registerSweep('calendar-webhook-renewal', {
+    label: 'Calendar webhook renewal',
+    enabled: true,
+    intervalMs,
+  })
   void runCalendarWebhookRenewalSweep('startup')
   calendarWebhookRenewalTimer = setInterval(() => {
     void runCalendarWebhookRenewalSweep('interval')
@@ -55,8 +65,10 @@ function startCalendarWebhookRenewalLoop() {
 }
 
 async function runAppointmentEngagementLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('appointment-engagement')
   try {
     const result = await runAppointmentEngagementSweep()
+    sweep.succeed()
     if (result.sentCount > 0 || trigger === 'startup') {
       logger.info('Appointment engagement sweep completed', {
         trigger,
@@ -64,12 +76,18 @@ async function runAppointmentEngagementLoop(trigger: 'startup' | 'interval') {
       })
     }
   } catch (error) {
+    sweep.fail(error)
     logger.error('Appointment engagement sweep failed', { error, trigger })
   }
 }
 
 function startAppointmentEngagementLoop() {
   const intervalMs = 5 * 60 * 1000
+  registerSweep('appointment-engagement', {
+    label: 'Appointment engagement',
+    enabled: true,
+    intervalMs,
+  })
   void runAppointmentEngagementLoop('startup')
   appointmentEngagementTimer = setInterval(() => {
     void runAppointmentEngagementLoop('interval')
@@ -77,8 +95,10 @@ function startAppointmentEngagementLoop() {
 }
 
 async function runNotificationRetryLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('notification-retry')
   try {
     const result = await retryPendingPlatformNotifications()
+    sweep.succeed()
     if (result.attemptedCount > 0 || trigger === 'startup') {
       logger.info('Notification retry sweep completed', {
         trigger,
@@ -86,12 +106,18 @@ async function runNotificationRetryLoop(trigger: 'startup' | 'interval') {
       })
     }
   } catch (error) {
+    sweep.fail(error)
     logger.error('Notification retry sweep failed', { error, trigger })
   }
 }
 
 function startNotificationRetryLoop() {
   const intervalMs = 60 * 1000
+  registerSweep('notification-retry', {
+    label: 'Notification retry',
+    enabled: true,
+    intervalMs,
+  })
   void runNotificationRetryLoop('startup')
   notificationRetryTimer = setInterval(() => {
     void runNotificationRetryLoop('interval')
@@ -99,8 +125,10 @@ function startNotificationRetryLoop() {
 }
 
 async function runIntakeAbandonmentLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('intake-abandonment')
   try {
     const result = await runIntakeAbandonmentSweep()
+    sweep.succeed()
     if (result.sent > 0 || trigger === 'startup') {
       logger.info('Intake abandonment sweep completed', {
         trigger,
@@ -108,12 +136,18 @@ async function runIntakeAbandonmentLoop(trigger: 'startup' | 'interval') {
       })
     }
   } catch (error) {
+    sweep.fail(error)
     logger.error('Intake abandonment sweep failed', { error, trigger })
   }
 }
 
 function startIntakeAbandonmentLoop() {
   const intervalMs = 10 * 60 * 1000
+  registerSweep('intake-abandonment', {
+    label: 'Intake abandonment',
+    enabled: true,
+    intervalMs,
+  })
   void runIntakeAbandonmentLoop('startup')
   intakeAbandonmentTimer = setInterval(() => {
     void runIntakeAbandonmentLoop('interval')
@@ -121,8 +155,10 @@ function startIntakeAbandonmentLoop() {
 }
 
 async function runRoutingEscalationLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('routing-escalation')
   try {
     const result = await runRoutingEscalationSweep()
+    sweep.succeed()
     if (result.processed > 0 || trigger === 'startup') {
       logger.info('Routing escalation sweep completed', {
         trigger,
@@ -130,12 +166,18 @@ async function runRoutingEscalationLoop(trigger: 'startup' | 'interval') {
       })
     }
   } catch (error) {
+    sweep.fail(error)
     logger.error('Routing escalation sweep failed', { error, trigger })
   }
 }
 
 function startRoutingEscalationLoop() {
   const intervalMs = 10 * 60 * 1000
+  registerSweep('routing-escalation', {
+    label: 'Routing escalation',
+    enabled: true,
+    intervalMs,
+  })
   void runRoutingEscalationLoop('startup')
   routingEscalationTimer = setInterval(() => {
     void runRoutingEscalationLoop('interval')
@@ -143,8 +185,10 @@ function startRoutingEscalationLoop() {
 }
 
 async function runOfferExpiryLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('offer-expiry')
   try {
     const result = await runOfferExpirySweep()
+    sweep.succeed()
     if (result.expired > 0 || trigger === 'startup') {
       logger.info('Offer expiry sweep completed', {
         trigger,
@@ -152,6 +196,7 @@ async function runOfferExpiryLoop(trigger: 'startup' | 'interval') {
       })
     }
   } catch (error) {
+    sweep.fail(error)
     logger.error('Offer expiry sweep failed', { error, trigger })
   }
 }
@@ -159,6 +204,7 @@ async function runOfferExpiryLoop(trigger: 'startup' | 'interval') {
 function startOfferExpiryLoop() {
   // Attorney response windows are short (minutes), so sweep frequently.
   const intervalMs = 60 * 1000
+  registerSweep('offer-expiry', { label: 'Offer expiry', enabled: true, intervalMs })
   void runOfferExpiryLoop('startup')
   offerExpiryTimer = setInterval(() => {
     void runOfferExpiryLoop('interval')
@@ -166,8 +212,10 @@ function startOfferExpiryLoop() {
 }
 
 async function runCaseReminderLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('case-reminder')
   try {
     const result = await runCaseReminderSweep()
+    sweep.succeed()
     if (result.sent > 0 || result.failed > 0 || trigger === 'startup') {
       logger.info('Case reminder sweep completed', {
         trigger,
@@ -175,12 +223,14 @@ async function runCaseReminderLoop(trigger: 'startup' | 'interval') {
       })
     }
   } catch (error) {
+    sweep.fail(error)
     logger.error('Case reminder sweep failed', { error, trigger })
   }
 }
 
 function startCaseReminderLoop() {
   const intervalMs = 5 * 60 * 1000
+  registerSweep('case-reminder', { label: 'Case reminders', enabled: true, intervalMs })
   void runCaseReminderLoop('startup')
   caseReminderTimer = setInterval(() => {
     void runCaseReminderLoop('interval')
@@ -188,18 +238,22 @@ function startCaseReminderLoop() {
 }
 
 async function runAiCaseManagerLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('ai-case-manager')
   try {
     const result = await runAiCaseManagerSweep()
+    sweep.succeed()
     if (result.processed > 0 || trigger === 'startup') {
       logger.info('AI Case Manager sweep completed', { trigger, ...result })
     }
   } catch (error) {
+    sweep.fail(error)
     logger.error('AI Case Manager sweep failed', { error, trigger })
   }
 }
 
 function startAiCaseManagerLoop() {
   if (!isAiCaseManagerEnabled()) {
+    registerSweep('ai-case-manager', { label: 'AI Case Manager (Rose)', enabled: false })
     logger.info('AI Case Manager loop disabled')
     return
   }
@@ -207,6 +261,11 @@ function startAiCaseManagerLoop() {
   // immediate reactions; this catches cases with no recent activity.
   const raw = Number(process.env.AI_CASE_MANAGER_SWEEP_INTERVAL_MS)
   const intervalMs = Number.isFinite(raw) && raw >= 60_000 ? raw : 30 * 60 * 1000
+  registerSweep('ai-case-manager', {
+    label: 'AI Case Manager (Rose)',
+    enabled: true,
+    intervalMs,
+  })
   void runAiCaseManagerLoop('startup')
   aiCaseManagerTimer = setInterval(() => {
     void runAiCaseManagerLoop('interval')
@@ -214,24 +273,29 @@ function startAiCaseManagerLoop() {
 }
 
 async function runActivityCanaryLoop(trigger: 'startup' | 'interval') {
+  const sweep = beginSweep('activity-canary')
   try {
     const result = await runActivityCanarySweep()
+    sweep.succeed()
     if (result.alerted || trigger === 'startup') {
       logger.info('Activity canary sweep completed', { trigger, ...result })
     }
   } catch (error) {
+    sweep.fail(error)
     logger.error('Activity canary sweep failed', { error, trigger })
   }
 }
 
 function startActivityCanaryLoop() {
   if (!isActivityCanaryEnabled()) {
+    registerSweep('activity-canary', { label: 'Activity canary', enabled: false })
     logger.info('Activity canary loop disabled')
     return
   }
   // The canary detects hours-long silence, so sweeping more often than this
   // buys nothing but repeated counts.
   const intervalMs = 30 * 60 * 1000
+  registerSweep('activity-canary', { label: 'Activity canary', enabled: true, intervalMs })
   void runActivityCanaryLoop('startup')
   activityCanaryTimer = setInterval(() => {
     void runActivityCanaryLoop('interval')

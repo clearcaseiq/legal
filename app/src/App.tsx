@@ -117,6 +117,7 @@ const AdminCommunications = lazy(() => import('./pages/admin/AdminCommunications
 const AdminDocuments = lazy(() => import('./pages/admin/AdminDocuments'))
 const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics'))
 const AdminAuditLogs = lazy(() => import('./pages/admin/AdminAuditLogs'))
+const AdminSystemStatus = lazy(() => import('./pages/admin/AdminSystemStatus'))
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings'))
 const CompleteConsent = lazy(() => import('./pages/CompleteConsent'))
 const ConsentManagement = lazy(() => import('./pages/ConsentManagement'))
@@ -339,6 +340,7 @@ function App() {
                 <Route path="documents" element={<AdminDocuments />} />
                 <Route path="analytics" element={<AdminAnalytics />} />
                 <Route path="audit-logs" element={<AdminAuditLogs />} />
+                <Route path="system-status" element={<AdminSystemStatus />} />
                 <Route path="compliance" element={<ComplianceAdmin />} />
                 <Route path="settings" element={<AdminSettings />} />
                 <Route path="users" element={<AdminUserRoles />} />

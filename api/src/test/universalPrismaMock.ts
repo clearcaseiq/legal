@@ -31,11 +31,19 @@ function makeModel() {
   }
 }
 
+/**
+ * Raw-query escape hatches. Without these the proxy below hands back a model
+ * stub, so calling prisma.$queryRaw throws "not a function" rather than
+ * returning rows.
+ */
+const rawQueryFns = ['$queryRaw', '$queryRawUnsafe', '$executeRaw', '$executeRawUnsafe'] as const
+
 export const prisma: any = (() => {
   const base: Record<string, unknown> = {
     $connect: vi.fn().mockResolvedValue(undefined),
     $disconnect: vi.fn().mockResolvedValue(undefined),
   }
+  for (const name of rawQueryFns) base[name] = vi.fn().mockResolvedValue([])
 
   const proxy = new Proxy(base, {
     get(_target, prop: string | symbol) {
@@ -57,4 +65,11 @@ export const prisma: any = (() => {
 /** Clears cached model mocks so each test gets fresh vi.fn instances. */
 export function resetUniversalPrismaMock() {
   modelCache.clear()
+  // The raw helpers live on the base object rather than the cache, so clearing
+  // the cache alone would leak a previous test's rows into the next one.
+  for (const name of rawQueryFns) {
+    const fn = prisma[name] as ReturnType<typeof vi.fn>
+    fn.mockReset()
+    fn.mockResolvedValue([])
+  }
 }

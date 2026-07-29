@@ -10,6 +10,7 @@ import path from 'path'
 import { prisma } from './lib/prisma'
 import { logger } from './lib/logger'
 import { checkWebBaseUrl } from './lib/app-url'
+import { runReadinessProbes } from './lib/ops-status'
 
 const AUDITED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const PLACEHOLDER_SECRETS = new Set(['your-secret-key', 'development-secret', 'changeme'])
@@ -97,32 +98,17 @@ export function createServer(): Express {
   // generated client selected on every case query. /health stayed green
   // throughout.
   //
-  // The bare findFirst() calls are deliberate: with no `select`, Prisma emits
-  // every scalar field of the model, so a column that exists in schema.prisma
-  // but not in the database fails here rather than only in real traffic.
+  // The probes themselves live in lib/ops-status so the admin System Status
+  // page reports on exactly what the container healthcheck acts on.
   app.get('/health/ready', async (_req, res) => {
     res.setHeader('Cache-Control', 'no-store')
 
-    const probes: [string, () => Promise<unknown>][] = [
-      ['connection', () => prisma.$queryRaw`SELECT 1`],
-      ['assessment', () => prisma.assessment.findFirst()],
-      ['leadSubmission', () => prisma.leadSubmission.findFirst()],
-      ['caseTask', () => prisma.caseTask.findFirst()],
-      ['user', () => prisma.user.findFirst()],
-    ]
+    const { ok, probes, failed } = await runReadinessProbes()
 
-    const failed: string[] = []
-    const details: Record<string, string> = {}
-    for (const [check, run] of probes) {
-      try {
-        await run()
-      } catch (error) {
-        failed.push(check)
-        details[check] = error instanceof Error ? error.message : String(error)
-      }
-    }
-
-    if (failed.length > 0) {
+    if (!ok) {
+      const details = Object.fromEntries(
+        probes.filter((p) => !p.ok).map((p) => [p.name, p.error || 'unknown error'])
+      )
       // Always log the full reason; the response withholds it in production
       // because this endpoint is publicly reachable via api.clearcaseiq.com.
       logger.error('Readiness probe failed', { failed, details })

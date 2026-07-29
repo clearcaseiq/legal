@@ -4,8 +4,9 @@ This deployment runs ClearCaseIQ on one EC2 host with Docker Compose:
 
 - `web`: Next.js frontend on internal port `3000`
 - `api`: Express API on internal port `4000`
-- `db`: PostgreSQL + pgvector
 - `nginx`: public reverse proxy for SSL and routing
+
+Postgres is managed (RDS), not a container. See [Database](#database).
 
 Public hosts:
 
@@ -62,9 +63,16 @@ Certificates will be stored under:
 ## Build and Start
 
 ```bash
+export GIT_COMMIT=$(git rev-parse --short HEAD)
+export BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 docker compose -f docker-compose.prod.yml --env-file .env.prod build
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
+
+The two exports stamp the API image with what it was built from, which the admin
+System Status page then displays. They are optional, but without them that page
+cannot tell you whether a running container predates the commit you just pulled
+— a stale image has been mistaken for a code bug more than once.
 
 No manual Prisma step is needed. The API entrypoint runs `prisma db push` on
 every start and **exits** if it fails, so the container will not serve traffic
@@ -98,6 +106,13 @@ curl -I https://clearcaseiq.com
 queries and returns 503 listing the failing checks, unlike `/health`, which only
 reports that the process is alive.
 
+For the fuller picture, sign in as an admin and open **Admin → System Status**
+(`/admin/system-status`). It reports the same readiness probes plus schema drift
+against every model, the last run of each background job, recorded activity, the
+running commit, and which integrations are configured. Since it is served by the
+app, it cannot tell you the app is down — check `/health/ready` first when
+nothing loads.
+
 ## Logs
 
 ```bash
@@ -110,9 +125,14 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod logs -f api
 
 ```bash
 git pull
+export GIT_COMMIT=$(git rev-parse --short HEAD)
+export BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 docker compose -f docker-compose.prod.yml --env-file .env.prod build
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
+
+Confirm the new build is live on **Admin → System Status**: the commit shown
+there should match `git rev-parse --short HEAD`.
 
 ## AWS S3/Textract
 

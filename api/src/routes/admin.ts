@@ -18,6 +18,7 @@ import { getMatchingRules, saveMatchingRules } from '../lib/matching-rules-confi
 import { getHeuristics, saveHeuristics } from '../lib/heuristics-config'
 import { getFieldMappings, saveFieldMappings } from '../lib/field-mappings-config'
 import { getAdminCalendarHealth } from '../lib/calendar-sync'
+import { getSystemStatus } from '../lib/ops-status'
 import { CLAIM_INVITE_TTL_DAYS, claimUrl, generateClaimToken, sendClaimEmail } from '../lib/claims'
 
 const router: ExpressRouter = Router()
@@ -402,6 +403,22 @@ router.post('/sms/test', authMiddleware, adminMiddleware, async (req: AuthReques
   } catch (error: any) {
     logger.error('Admin test SMS failed', { error: error?.message })
     res.status(500).json({ error: 'Failed to send test SMS.' })
+  }
+})
+
+/**
+ * Everything the ops surfaces know, in one payload: readiness, schema drift,
+ * background sweeps, recorded activity, what build is running, and which
+ * integrations are configured. Admin-only because it names the database host
+ * and reports internal failure messages.
+ */
+router.get('/system-status', authMiddleware, adminMiddleware, async (_req: AuthRequest, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store')
+    res.json(await getSystemStatus())
+  } catch (error: any) {
+    logger.error('Failed to build system status', { error: error?.message, stack: error?.stack })
+    res.status(500).json({ error: 'Failed to read system status' })
   }
 })
 

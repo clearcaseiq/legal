@@ -24,6 +24,14 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=4000
 
+# Build provenance, surfaced on the admin System Status page. Declared in the
+# runner stage only so changing it does not invalidate the dependency or build
+# layers. Both are optional; unset just reads as "unknown".
+ARG GIT_COMMIT=""
+ARG BUILD_TIME=""
+ENV GIT_COMMIT=$GIT_COMMIT
+ENV BUILD_TIME=$BUILD_TIME
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nodejs
 

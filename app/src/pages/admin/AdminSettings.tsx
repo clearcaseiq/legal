@@ -114,12 +114,13 @@ function SmsTestPanel() {
 export default function AdminSettings() {
   // The link cards that used to live here were the only way to reach User Roles,
   // Feature Toggles, and Firm Settings. Those are now first-class sidebar items,
-  // so this page holds real platform diagnostics instead of duplicating the nav.
+  // so this page holds hands-on tests instead of duplicating the nav. Read-only
+  // health lives on System Status; what stays here actually sends something.
   return (
     <div className="space-y-6">
       <PageHeader
         title="Settings"
-        description="Platform-level diagnostics. Roles, feature flags, and firm configuration live under Configuration in the sidebar."
+        description="Hands-on delivery tests. Read-only health is under Oversight → System Status; roles, feature flags, and firm configuration are under Configuration."
       />
       <SmsTestPanel />
     </div>

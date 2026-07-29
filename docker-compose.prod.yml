@@ -13,6 +13,12 @@ services:
     build:
       context: .
       dockerfile: api/Dockerfile
+      # Stamps the running image so admin System Status can answer "is this
+      # actually my code?" — a stale API image has been mistaken for a code bug
+      # more than once. Empty when unset, which the page reports as unknown.
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-}
+        BUILD_TIME: ${BUILD_TIME:-}
     container_name: clearcaseiq-api
     restart: unless-stopped
     env_file:

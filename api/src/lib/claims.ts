@@ -146,7 +146,7 @@ function wrapBrandedEmail(contentHtml: string): string {
  * - `EMAIL_PROVIDER=ses|resend` forces a provider.
  * - Otherwise auto-detect: SES when SES_FROM_EMAIL is set, else Resend.
  */
-function resolveEmailProvider(): 'ses' | 'resend' | 'none' {
+export function resolveEmailProvider(): 'ses' | 'resend' | 'none' {
   const explicit = (process.env.EMAIL_PROVIDER || '').trim().toLowerCase()
   if (explicit === 'ses') return 'ses'
   if (explicit === 'resend') return 'resend'
