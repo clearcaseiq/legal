@@ -134,7 +134,9 @@ export default function PostAcceptanceView({
   const treatment = treatments.length > 0 ? 'Yes' : 'No'
   const evidenceCount = filesCount + leadEvidenceFiles.length
 
-  const medicalCount = leadEvidenceFiles.filter((f: any) => f?.category === 'medical').length + (treatments.length > 0 ? 1 : 0)
+  // Counts documents only. Adding 1 for self-reported treatment fabricated a
+  // medical record on cases with no uploads (CP-415).
+  const medicalCount = leadEvidenceFiles.filter((f: any) => f?.category === 'medical').length
   const photosCount = leadEvidenceFiles.filter((f: any) => f?.category === 'photos').length
   const policeCount = leadEvidenceFiles.filter((f: any) => f?.category === 'police').length
   const wageLossCount = leadEvidenceFiles.filter((f: any) => f?.category === 'wage' || f?.category === 'wage_loss').length

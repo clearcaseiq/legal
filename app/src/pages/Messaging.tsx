@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { 
   getChatRooms, 
@@ -76,21 +76,40 @@ export default function Messaging() {
   }, [])
 
   // A conversation opens on the oldest message otherwise, which buries the reply
-  // the user came to read (CP-429). Jump instantly when switching rooms, and
-  // animate for messages that arrive while the user is already at the bottom.
-  const lastRoomIdRef = useRef<string | null>(null)
+  // the user came to read (CP-429).
+  //
+  // The previous attempt tracked the last room id and jumped once when it
+  // changed. That flag was spent on the render where the room was selected but
+  // the messages had not arrived yet, so it scrolled an empty container, and by
+  // the time the thread rendered the jump was no longer considered a room
+  // change — the near-bottom guard below then declined to move. The intent to
+  // scroll now persists until there is actually something to scroll to.
+  const pendingJumpRef = useRef(true)
   useEffect(() => {
+    pendingJumpRef.current = true
+  }, [selectedRoom?.id])
+
+  useLayoutEffect(() => {
     const el = messageScrollRef.current
     if (!el) return
-    const roomChanged = lastRoomIdRef.current !== (selectedRoom?.id ?? null)
-    lastRoomIdRef.current = selectedRoom?.id ?? null
-    if (roomChanged) {
-      el.scrollTop = el.scrollHeight
-      return
+
+    const toBottom = (smooth: boolean) => {
+      el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
     }
+
+    if (pendingJumpRef.current) {
+      if (messages.length === 0) return
+      pendingJumpRef.current = false
+      toBottom(false)
+      // The recorded-call bar above the thread mounts asynchronously and images
+      // settle late, both of which change the scroll height after this frame.
+      const frame = requestAnimationFrame(() => toBottom(false))
+      return () => cancelAnimationFrame(frame)
+    }
+
     // Don't yank the viewport away from someone scrolled up reading history.
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160
-    if (nearBottom) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    if (nearBottom) toBottom(true)
   }, [messages, selectedRoom?.id])
 
   // Grow the composer with its content up to the CSS max-height (CP-423).
@@ -109,6 +128,10 @@ export default function Messaging() {
       return
     }
     const roomId = selectedRoom.id
+    // Drop the previous thread before fetching. Leaving it mounted meant the
+    // pending scroll-to-bottom landed on the old conversation's height, and the
+    // change-detection in loadMessages could then decide nothing had changed.
+    setMessages([])
     void loadMessages(roomId)
     const interval = setInterval(() => {
       void loadMessages(roomId, { silent: true })

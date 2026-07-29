@@ -233,6 +233,8 @@ export type FilteredLeadParams = {
   claimType?: string
   state?: string
   sortBy?: 'score' | 'newest' | 'deadline' | 'value'
+  /** Restrict to cases the attorney has accepted, for case pickers (CP-426). */
+  engagedOnly?: boolean
 }
 
 export async function getFilteredAttorneyLeads(params: FilteredLeadParams = {}) {

@@ -130,7 +130,9 @@ export default function ScheduleConsultScreen() {
   const load = useCallback(async () => {
     setError(null)
     try {
-      const leadListResponse = await getFilteredAttorneyLeads({ sortBy: 'newest' })
+      // engagedOnly keeps unaccepted cases out of the picker server-side; the
+      // isSchedulableLead filter below still applies the lifecycle rules (CP-426).
+      const leadListResponse = await getFilteredAttorneyLeads({ sortBy: 'newest', engagedOnly: true })
       const rows = Array.isArray(leadListResponse?.leads)
         ? leadListResponse.leads
         : Array.isArray(leadListResponse)

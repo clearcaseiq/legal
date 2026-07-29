@@ -10,6 +10,7 @@ import {
   serializeEventReminders,
 } from '../lib/calendar-reminders'
 import { webBaseUrl } from '../lib/app-url'
+import { isEngagedLeadStatus } from '../lib/lead-status'
 
 /**
  * MyCase-style general calendar events for attorneys: optionally linked to a
@@ -398,6 +399,27 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
     const endAt = new Date(d.endAt)
     if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime()) || endAt <= startAt) {
       return res.status(400).json({ error: 'End time must be after start time' })
+    }
+
+    // An event may only be attached to a case the attorney has taken. The route
+    // previously accepted any assessmentId, so an unaccepted case reaching the
+    // picker could still be written against (CP-426).
+    if (d.assessmentId) {
+      const lead = await prisma.leadSubmission.findFirst({
+        where: {
+          assessmentId: d.assessmentId,
+          // Shared leads carry no assignedAttorneyId until they're claimed, so
+          // an accepted introduction counts as the attorney's case too.
+          OR: [
+            { assignedAttorneyId: attorney.id },
+            { assessment: { introductions: { some: { attorneyId: attorney.id } } } },
+          ],
+        },
+        select: { status: true },
+      })
+      if (!lead || !isEngagedLeadStatus(lead.status)) {
+        return res.status(409).json({ error: 'Accept this case before adding events to it.' })
+      }
     }
 
     const event = await prisma.calendarEvent.create({

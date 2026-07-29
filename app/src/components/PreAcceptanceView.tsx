@@ -205,16 +205,28 @@ export default function PreAcceptanceView({
   const medicalSharing = selectedLead?.assessment?.medicalSharing
   const medicalSharingPending = medicalSharing && medicalSharing.canShareMedicalData === false
   const medicalPendingMessage = medicalSharing?.message || DEFAULT_MEDICAL_PENDING_MESSAGE
-  const hasMedical = !medicalSharingPending && (
-    treatments.length > 0
-    || leadEvidenceFiles.some((f: any) => ['medical', 'medical_records', 'bills', 'medical_bill'].includes(String(f?.category || f?.subcategory || '')))
-  )
-  const hasPolice = leadEvidenceFiles.some((f: any) => ['police', 'police_report'].includes(String(f?.category || f?.subcategory || ''))) || filesCount > 0
+  // Every row here reports whether a DOCUMENT exists. Medical Records used to
+  // also count `treatments.length > 0` — an intake checkbox answer, not a file —
+  // so a case with no uploads at all read "Uploaded" (CP-415). Police Report had
+  // the same flaw via `filesCount > 0`, where any file of any kind counted.
+  // Self-reported treatment now gets its own honest status instead.
+  const hasMedical = !medicalSharingPending
+    && leadEvidenceFiles.some((f: any) => ['medical', 'medical_records', 'bills', 'medical_bill'].includes(String(f?.category || f?.subcategory || '')))
+  const treatmentReported = treatments.length > 0
+  const hasPolice = leadEvidenceFiles.some((f: any) => ['police', 'police_report'].includes(String(f?.category || f?.subcategory || '')))
   const hasPhotos = leadEvidenceFiles.some((f: any) => f?.category === 'photos')
   const hasWageLoss = leadEvidenceFiles.some((f: any) => ['wage', 'wage_loss'].includes(String(f?.category || f?.subcategory || '')))
 
+  const medicalStatus = medicalSharingPending
+    ? 'Pending authorization'
+    : hasMedical
+      ? 'Uploaded'
+      : treatmentReported
+        ? 'Reported, not uploaded'
+        : 'Missing'
+
   const evidenceList = [
-    { label: 'Medical Records', status: medicalSharingPending ? 'Pending authorization' : hasMedical ? 'Uploaded' : 'Missing' },
+    { label: 'Medical Records', status: medicalStatus },
     { label: 'Injury Photos', status: hasPhotos ? 'Uploaded' : 'Missing' },
     { label: 'Police Report', status: hasPolice ? 'Uploaded' : 'Missing' },
     { label: 'Wage Loss Docs', status: hasWageLoss ? 'Uploaded' : 'Missing' }

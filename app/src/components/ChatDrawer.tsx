@@ -125,11 +125,26 @@ export default function ChatDrawer({
     })
   }
 
+  // Held until the thread has actually rendered, so opening the drawer lands on
+  // the newest message rather than scrolling an empty container.
+  const pendingJumpRef = useRef(true)
+  useEffect(() => {
+    pendingJumpRef.current = true
+  }, [open, chatRoomId])
+
   useEffect(() => {
     const thread = messageThreadRef.current
-    if (thread) {
+    if (!thread) return
+    if (pendingJumpRef.current) {
+      if (messages.length === 0) return
+      pendingJumpRef.current = false
       thread.scrollTop = thread.scrollHeight
+      return
     }
+    // Follow the conversation, but not while the attorney is scrolled up reading
+    // history — the 5s poll used to drag them back down every cycle.
+    const nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 160
+    if (nearBottom) thread.scrollTop = thread.scrollHeight
   }, [messages])
 
   // Poll the open conversation so the attorney sees new plaintiff messages

@@ -93,7 +93,11 @@ export default function ScheduleConsultPage() {
   useEffect(() => {
     getAttorneyZoomStatus()
       .then(setZoomStatus)
-      .catch(() => setZoomStatus(null))
+      // Leaving this null pinned the panel on "Checking your Zoom connection…"
+      // forever whenever the probe failed. Treat an unreadable status the same
+      // as unconfigured so the attorney gets the explanation and the fallback
+      // instructions instead of an endless spinner (CP-383).
+      .catch(() => setZoomStatus({ configured: false, connected: false }))
   }, [])
 
   const refreshZoomStatus = useCallback(async () => {
@@ -102,6 +106,7 @@ export default function ScheduleConsultPage() {
       setZoomStatus(status)
       return status
     } catch {
+      setZoomStatus({ configured: false, connected: false })
       return null
     }
   }, [])
@@ -161,7 +166,17 @@ export default function ScheduleConsultPage() {
       }, 1000)
     } catch (err: any) {
       popup.close()
-      setError(err?.response?.data?.error || 'Failed to start Zoom connection.')
+      if (err?.response?.status === 503) {
+        // The server has no Zoom credentials. Correct the panel rather than
+        // repeating a server-side message the attorney can do nothing about,
+        // and tell them what to do instead (CP-383).
+        setZoomStatus({ configured: false, connected: false })
+        setError(
+          "Zoom isn't enabled on this server yet — paste a Google Meet or Microsoft Teams meeting link in the Notes field and we'll send it to the plaintiff with the confirmation.",
+        )
+      } else {
+        setError(err?.response?.data?.error || 'Failed to start Zoom connection.')
+      }
       setZoomConnecting(false)
     }
   }, [zoomConnecting, refreshZoomStatus])

@@ -91,9 +91,26 @@ export default function TeamMessagesPage() {
     return () => window.clearInterval(id)
   }, [activeId, loadThread])
 
+  // Held until the thread has rendered, so opening a conversation lands on the
+  // newest message rather than scrolling an empty container.
+  const pendingJumpRef = useRef(true)
   useEffect(() => {
-    // Auto-scroll to the newest message when the thread changes/grows.
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    pendingJumpRef.current = true
+  }, [activeId])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    if (pendingJumpRef.current) {
+      if (messages.length === 0) return
+      pendingJumpRef.current = false
+      el.scrollTop = el.scrollHeight
+      return
+    }
+    // Follow the newest message, unless the reader has scrolled up into history
+    // — the poll would otherwise drag them back down every few seconds.
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160
+    if (nearBottom) el.scrollTop = el.scrollHeight
   }, [messages])
 
   const openConversation = (userId: string) => {

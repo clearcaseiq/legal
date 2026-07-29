@@ -61,7 +61,9 @@ export default function AttorneyDashboardWorkstreamOverview({
       const cat = fileCategory(f)
       return keywords.some((k) => cat.includes(k))
     })
-  const hasMedical = treatments.length > 0 || hasCategory('medical', 'med_record', 'bill')
+  // Documents only — self-reported treatment is a case fact, not a record on
+  // file, and counting it marked cases with zero uploads as documented (CP-415).
+  const hasMedical = hasCategory('medical', 'med_record', 'bill')
   const hasPolice = hasCategory('police')
   const hasPhotos = hasCategory('photo')
   const hasWageLoss = hasCategory('wage', 'employ', 'paystub', 'pay_stub', 'income')
@@ -86,7 +88,12 @@ export default function AttorneyDashboardWorkstreamOverview({
   if (['contacted', 'consulted', 'retained'].includes(selectedLead?.status || '')) {
     activityItems.push({ time: submittedAt ? formatShortDate(String(submittedAt)) : '—', label: 'Case accepted' })
   }
-  if (leadEvidenceFiles.length > 0) activityItems.push({ time: '—', label: 'Medical records uploaded' })
+  if (leadEvidenceFiles.length > 0) {
+    activityItems.push({
+      time: '—',
+      label: `${leadEvidenceFiles.length} document${leadEvidenceFiles.length === 1 ? '' : 's'} uploaded`,
+    })
+  }
   activityItems.reverse()
   const timelineEntries: { date: string; label: string }[] = []
   const incidentDateStr = facts?.incident?.date ? new Date(facts.incident.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null

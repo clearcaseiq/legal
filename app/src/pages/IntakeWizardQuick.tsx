@@ -2053,7 +2053,10 @@ export default function IntakeWizardQuick() {
           }
         ],
         treatment: [
-          ...formData.medicalTreatment.map(t => ({ type: t, notes: '' })),
+          // 'none' is the "I haven't had treatment" answer. Recording it as a
+          // treatment entry made downstream code that tests `treatment.length`
+          // read an untreated plaintiff as treated (CP-415).
+          ...formData.medicalTreatment.filter(t => t !== 'none').map(t => ({ type: t, notes: '' })),
           ...formData.injuryDetails.imaging.map(imaging => ({ type: 'imaging', imaging })),
           ...(formData.injuryDetails.surgeryStatus ? [{ type: 'surgery_status', status: formData.injuryDetails.surgeryStatus }] : []),
           ...formData.injuryDetails.procedures.map(procedure => ({ type: 'procedure', procedure })),

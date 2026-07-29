@@ -10,6 +10,7 @@ import { logger } from '../lib/logger'
 import { webUrl } from '../lib/app-url'
 import { taskCreatorName } from '../lib/ai-author'
 import { MAX_CASE_NAME_LENGTH, normalizeCaseName, plaintiffNameOf, resolveCaseName } from '../lib/case-name'
+import { ENGAGED_LEAD_STATUSES, isEngagedLeadStatus } from '../lib/lead-status'
 import { buildMergedSurvivor, reminderMessagesFor, validateMerge } from '../lib/task-merge'
 import { runAnalysisForAssessment } from './evidence'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
@@ -427,14 +428,15 @@ function checkLeadIsAccepted(
   lead: { status?: string | null },
   action: string
 ): { status: number; message: string } | null {
-  const status = String(lead?.status || '').toLowerCase()
-  if (status === 'submitted') {
-    return { status: 409, message: `Accept this case before ${action}.` }
-  }
+  const status = String(lead?.status || '').trim().toLowerCase()
+  if (isEngagedLeadStatus(status)) return null
   if (status === 'rejected' || status === 'declined') {
     return { status: 409, message: `This case was declined, so ${action} is no longer available.` }
   }
-  return null
+  // An allowlist rather than a denylist: this used to reject only 'submitted'
+  // and 'rejected', so a lead in any other lifecycle state was actionable
+  // (CP-426).
+  return { status: 409, message: `Accept this case before ${action}.` }
 }
 
 async function computeCaseHealth(leadId: string, assessmentId: string, attorneyId?: string) {
@@ -5337,6 +5339,7 @@ router.get('/leads/filtered', authMiddleware, async (req: any, res) => {
       sourceType,
       hotnessLevel,
       isExclusive,
+      engagedOnly,
       page = 1,
       limit = 20
     } = req.query
@@ -5373,6 +5376,12 @@ router.get('/leads/filtered', authMiddleware, async (req: any, res) => {
         : requestedStatuses
       if (statusValues.length === 1) whereClause.status = statusValues[0]
       else if (statusValues.length > 1) whereClause.status = { in: statusValues }
+    } else if (engagedOnly === 'true') {
+      // Case pickers for scheduling, messaging and documents must only offer
+      // cases the attorney has actually taken. They used to request every lead
+      // and filter in the client, so an offered-but-unaccepted case could still
+      // be selected (CP-426).
+      whereClause.status = { in: [...ENGAGED_LEAD_STATUSES] }
     }
 
     const leads = await prisma.leadSubmission.findMany({
@@ -6152,28 +6161,32 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
       return res.status(400).json({ error: 'Please choose a time in the future — you cannot schedule a consultation in the past.' })
     }
 
-    // Reuse an existing upcoming consult for this case instead of stacking a new
-    // one on every click. Without this, repeated "Schedule Consultation" presses
-    // created multiple SCHEDULED appointments, so the case's appointment card
-    // rendered many times across the dashboard/calendar/events views.
-    const existingUpcoming = await prisma.appointment.findFirst({
+    // This used to reuse *any* upcoming consult on the case, to stop repeated
+    // "Schedule Consultation" presses stacking duplicate appointment cards. That
+    // over-reached: booking a genuine second consult overwrote the first one's
+    // date, type and notes, so the case only ever held one and the earlier
+    // consult was silently destroyed (CP-427). The duplicate-click guard now
+    // keys on the exact slot, which is what a repeated submit produces, leaving
+    // a consult at a different time to be created as its own appointment.
+    const duplicateSubmit = await prisma.appointment.findFirst({
       where: {
         userId,
         attorneyId: attorney.id,
         assessmentId: lead.assessmentId,
         status: 'SCHEDULED',
+        scheduledAt,
       },
-      orderBy: { scheduledAt: 'desc' },
     })
 
     // Prevent double-booking the attorney at the same date/time. Look at this
-    // attorney's other SCHEDULED appointments (excluding the one we're about to
-    // reschedule for this same case) and reject overlapping slots (CP-303).
+    // attorney's other SCHEDULED appointments and reject overlapping slots
+    // (CP-303). A repeated submit of the same slot is excluded so it stays
+    // idempotent rather than colliding with itself.
     const otherAppointments = await prisma.appointment.findMany({
       where: {
         attorneyId: attorney.id,
         status: 'SCHEDULED',
-        id: existingUpcoming ? { not: existingUpcoming.id } : undefined,
+        id: duplicateSubmit ? { not: duplicateSubmit.id } : undefined,
       },
       select: { scheduledAt: true, duration: true },
     })
@@ -6181,14 +6194,13 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
       return res.status(409).json({ error: 'A consultation is already scheduled for this date and time.' })
     }
 
-    const appointment = existingUpcoming
+    const appointment = duplicateSubmit
       ? await prisma.appointment.update({
-          where: { id: existingUpcoming.id },
+          where: { id: duplicateSubmit.id },
           data: {
             type: meetingType || 'phone',
             status: 'SCHEDULED',
-            scheduledAt,
-            duration: 30,
+            duration: CONSULT_DURATION,
             notes: notes || null,
           },
         })
@@ -6200,7 +6212,7 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
             type: meetingType || 'phone',
             status: 'SCHEDULED',
             scheduledAt,
-            duration: 30,
+            duration: CONSULT_DURATION,
             notes: notes || null
           }
         })
