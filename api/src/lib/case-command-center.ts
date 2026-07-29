@@ -9,6 +9,7 @@ import {
   type DemandGate,
   type TreatmentPosture,
 } from './demand-readiness'
+import { ensureAssessmentPrediction } from './prediction-materializer'
 
 type Priority = 'high' | 'medium' | 'low'
 
@@ -505,6 +506,10 @@ export async function buildCaseCommandCenter(params: {
   leadId?: string | null
 }): Promise<CaseCommandCenter> {
   const heuristics = await getHeuristics()
+  // Awaited rather than fired-and-forgotten: the value story is read a few lines
+  // below, so a case that has never been valued would otherwise render at $0 on
+  // the very load that fixes it.
+  await ensureAssessmentPrediction(params.assessmentId)
   const assessment = await prisma.assessment.findUnique({
     where: { id: params.assessmentId },
     select: {

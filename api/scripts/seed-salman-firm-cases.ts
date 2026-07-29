@@ -25,6 +25,7 @@ import bcrypt from 'bcryptjs'
 import path from 'path'
 import fs from 'fs'
 import { v4 as uuidv4 } from 'uuid'
+import { buildPredictionRecord } from '../src/lib/prediction-materializer'
 
 const prisma = new PrismaClient()
 
@@ -815,6 +816,25 @@ async function main() {
     })
 
     await attachEvidence({ userId: user.id, assessmentId: assessment.id, claimType, uploadDir, plaintiff, incidentDate, facts, caseLabel })
+
+    // A real intake gets its valuation from POST /v1/predict. This script writes
+    // assessments straight to the database, so without this every seeded case
+    // shows a blank case value on every attorney surface.
+    const valuation = buildPredictionRecord({
+      id: assessment.id,
+      claimType,
+      venueState: 'CA',
+      venueCounty: county,
+      facts,
+      evidenceFiles: await prisma.evidenceFile.findMany({
+        where: { assessmentId: assessment.id },
+        select: { category: true, originalName: true, aiClassification: true },
+      }),
+    })
+    if (valuation) {
+      await prisma.prediction.create({ data: { assessmentId: assessment.id, ...valuation } })
+    }
+
     // Leave the first NEW_MATCHES cases as pre-acceptance "New Matches".
     const pending = n < NEW_MATCHES
     await routeToFirm({ assessmentId: assessment.id, firmId: firm.id, officeId: office.id, attorneyId: attorney.id, adminUserId: adminUser.id, facts, pending })

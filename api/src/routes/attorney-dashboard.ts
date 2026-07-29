@@ -42,6 +42,7 @@ import { wallClockToUtc, zonedWallClockToUtc } from '../lib/booking-slots'
 import { resolveSchedulingTimezone } from '../lib/scheduling-timezone'
 import { hasAppointmentConflict } from '../lib/availability-slots'
 import { buildCaseAwareMessageTemplates, buildCaseCommandCenter } from '../lib/case-command-center'
+import { ensurePredictionsForAssessments } from '../lib/prediction-materializer'
 import { computeSettlement } from '../lib/settlement'
 import { buildAttorneyWorkQueue } from '../lib/attorney-work-queue'
 import { buildReadinessAutomationPlan } from '../lib/readiness-automation'
@@ -2558,6 +2559,15 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
     }
 
     logger.info('Recent leads fetched', { count: recentLeads.length, attorneyId })
+
+    // Backfill valuations for any case that never got one (non-blocking). Every
+    // money figure on this dashboard reads the Prediction table, so an unvalued
+    // case renders as $0 rather than as missing data. Fire-and-forget means the
+    // numbers appear on the next load rather than this one, which is the right
+    // trade against blocking the dashboard on a repair.
+    void ensurePredictionsForAssessments(
+      (recentLeads || []).map((lead: any) => lead.assessmentId).filter(Boolean),
+    )
 
     // Kick off analysis generation for leads missing ChatGPT analysis (non-blocking)
     const leadsNeedingAnalysis = (recentLeads || [])
