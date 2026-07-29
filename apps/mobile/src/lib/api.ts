@@ -899,6 +899,13 @@ export async function getLeadTasks(leadId: string): Promise<CaseTaskRow[]> {
   return Array.isArray(data) ? data : []
 }
 
+/**
+ * `assignedRole` decides who the task is for. Omitting it stores the task with
+ * no role, which the server reads as firm-internal: it never reaches the
+ * plaintiff's next steps, their notification bell, or their email. Mobile used
+ * to leave it out entirely, so a task created here could not be given to the
+ * client at all (CP-430).
+ */
 export async function createCaseTask(
   leadId: string,
   payload: {
@@ -907,6 +914,7 @@ export async function createCaseTask(
     priority?: 'low' | 'medium' | 'high' | 'urgent'
     notes?: string
     taskType?: string
+    assignedRole?: 'client' | 'attorney'
   }
 ) {
   const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/tasks`, payload)

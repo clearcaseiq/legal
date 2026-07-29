@@ -25,6 +25,16 @@ import { CalendarDatePicker, formatDateKeyLong, toDateKey } from '../../src/comp
 type Section = { title: string; data: TaskSummaryItem[] }
 const PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const
 
+/**
+ * Who a new task is for. This has to be sent explicitly: a task with no role is
+ * stored as firm-internal, and the plaintiff is never told about it (CP-430).
+ */
+type AssigneeChoice = 'attorney' | 'client'
+const ASSIGNEES: { value: AssigneeChoice; label: string; hint: string }[] = [
+  { value: 'attorney', label: 'My firm', hint: 'Stays internal to your team.' },
+  { value: 'client', label: 'Client', hint: 'Sent to the plaintiff with an email and a notification.' },
+]
+
 const PRIORITY_RANK: Record<string, number> = { urgent: 3, high: 2, medium: 1, low: 0 }
 
 // Mirror the web workspace ordering: due date (soonest/overdue first, undated last),
@@ -148,6 +158,7 @@ export default function TasksScreen() {
   const [taskTitle, setTaskTitle] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [priority, setPriority] = useState<(typeof PRIORITIES)[number]>('medium')
+  const [assignee, setAssignee] = useState<AssigneeChoice>('attorney')
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -225,10 +236,12 @@ export default function TasksScreen() {
         priority,
         notes: notes.trim() || undefined,
         taskType: 'mobile',
+        assignedRole: assignee,
       })
       setTaskTitle('')
       setDueDate('')
       setPriority('medium')
+      setAssignee('attorney')
       setNotes('')
       setCreateOpen(false)
       await load()
@@ -409,6 +422,28 @@ export default function TasksScreen() {
                 </TouchableOpacity>
               ))}
             </View>
+
+            <Text style={[styles.label, styles.fieldGap]}>Assign to</Text>
+            <View style={styles.assigneeRow}>
+              {ASSIGNEES.map((item) => (
+                <TouchableOpacity
+                  key={item.value}
+                  style={[styles.assigneePill, assignee === item.value && styles.assigneePillOn]}
+                  onPress={() => setAssignee(item.value)}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: assignee === item.value }}
+                  accessibilityLabel={`Assign to ${item.label}. ${item.hint}`}
+                >
+                  <Text style={[styles.assigneeText, assignee === item.value && styles.assigneeTextOn]}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.assigneeHint}>
+              {ASSIGNEES.find((item) => item.value === assignee)?.hint}
+            </Text>
 
             <Text style={[styles.label, styles.fieldGap]}>Notes</Text>
             <TextInput
@@ -650,6 +685,19 @@ const styles = StyleSheet.create({
   priorityPillOn: { backgroundColor: colors.primary, borderColor: colors.primary },
   priorityText: { fontSize: 13, fontWeight: '800', color: colors.text, textTransform: 'capitalize' },
   priorityTextOn: { color: '#fff' },
+  assigneeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.sm },
+  assigneePill: {
+    paddingHorizontal: space.md,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  assigneePillOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  assigneeText: { fontSize: 13, fontWeight: '800', color: colors.text },
+  assigneeTextOn: { color: '#fff' },
+  assigneeHint: { marginTop: space.xs, fontSize: 12, color: colors.textSecondary },
   notesInput: {
     marginTop: space.sm,
     minHeight: 96,
