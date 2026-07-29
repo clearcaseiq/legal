@@ -279,11 +279,19 @@ export async function sendPlaintiffAttorneyAccepted(
   const experienceText = yearsExperience ? `${yearsExperience} years of experience` : 'an experienced attorney'
   const firmText = firmName ? ` at ${firmName}` : ''
   const greetingName = assessment.user.firstName ? ` ${assessment.user.firstName}` : ''
+  // Which case, and when — the notification named neither, so a plaintiff with
+  // more than one claim could not tell what had just been accepted (CP-437).
+  const acceptedAt = new Date()
+  const caseTypeLabel = assessment.claimType ? formatClaimType(assessment.claimType) : 'Personal injury'
+  const acceptedDate = acceptedAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  const acceptedTime = acceptedAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
   const message = [
     `Hello${greetingName},`,
     '',
     `Good news — ${attorneyName}${firmText} has reviewed and accepted your case and would like to help.`,
     '',
+    `Case type: ${caseTypeLabel}`,
+    `Accepted: ${acceptedDate} at ${acceptedTime}`,
     `Your attorney: ${attorneyName}${firmName ? `, ${firmName}` : ''}`,
     `Experience: ${experienceText}`,
     '',

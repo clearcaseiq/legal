@@ -190,6 +190,8 @@ export default function Dashboard() {
       specialties?: string
       yearsExperience?: number
       responseTimeHours?: number
+      claimType?: string | null
+      acceptedAt?: string | null
     }
     attorneyActivity?: { type: string; message: string; timeAgo?: string }[]
     caseMessages?: { subject: string; message: string; createdAt: string; from?: 'attorney' | 'plaintiff' }[]
@@ -206,6 +208,9 @@ export default function Dashboard() {
       } | null
       reviewEligible?: boolean
     }
+    // Top-level so the review prompt survives the consult it refers to.
+    reviewEligible?: boolean
+    existingReview?: { rating: number; title?: string | null; review?: string | null; createdAt: string } | null
     caseChatRoomId?: string | null
   } | null>(null)
   const responseDeadlineLabel = routingStatus?.responseDeadlineLabel || '24 hours'
@@ -1881,7 +1886,7 @@ export default function Dashboard() {
                         <Link to="/messaging" state={{ attorneyId: routingStatus?.attorneyMatched?.id, assessmentId: activeAssessment?.id }} className="inline-flex items-center gap-1 px-3 py-1.5 border border-emerald-600 text-emerald-700 rounded-lg text-sm font-medium hover:bg-emerald-50">Message</Link>
                         <button onClick={openScheduleModal} className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200">Schedule Consultation</button>
                       </div>
-                      {routingStatus?.upcomingAppointment?.reviewEligible && (
+                      {(routingStatus?.reviewEligible || routingStatus?.upcomingAppointment?.reviewEligible) && (
                         <div className="mt-4 border-t border-gray-100 pt-4">
                           {reviewOpen ? (
                             <div className="space-y-3">
@@ -1913,6 +1918,32 @@ export default function Dashboard() {
                                   Close
                                 </button>
                               </div>
+                            </div>
+                          ) : routingStatus?.existingReview ? (
+                            <div className="space-y-1.5">
+                              <div className="flex items-center gap-1">
+                                {[1, 2, 3, 4, 5].map((value) => (
+                                  <Star
+                                    key={value}
+                                    className={`h-4 w-4 ${value <= (routingStatus.existingReview?.rating || 0) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
+                                  />
+                                ))}
+                                <span className="ml-1 text-xs text-gray-500">Your review</span>
+                              </div>
+                              {routingStatus.existingReview.title ? (
+                                <p className="text-sm font-medium text-gray-800">{routingStatus.existingReview.title}</p>
+                              ) : null}
+                              <button
+                                onClick={() => {
+                                  setReviewRating(routingStatus.existingReview?.rating || 5)
+                                  setReviewTitle(routingStatus.existingReview?.title || '')
+                                  setReviewText(routingStatus.existingReview?.review || '')
+                                  setReviewOpen(true)
+                                }}
+                                className="text-sm font-medium text-brand-600 hover:underline"
+                              >
+                                Edit your review
+                              </button>
                             </div>
                           ) : (
                             <button onClick={() => setReviewOpen(true)} className="text-sm font-medium text-brand-600 hover:underline">

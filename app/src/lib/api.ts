@@ -1743,6 +1743,11 @@ export async function getAttorneyCalendarAppointments(
   return data
 }
 
+export async function cancelAttorneyAppointment(appointmentId: string, reason?: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/appointments/${appointmentId}/cancel`, { reason })
+  return data
+}
+
 /* ------------------------------------------------------------------ */
 /* General calendar events (MyCase-style "Add event")                 */
 /* ------------------------------------------------------------------ */

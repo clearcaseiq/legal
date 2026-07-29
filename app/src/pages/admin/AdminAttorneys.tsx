@@ -232,12 +232,17 @@ export default function AdminAttorneys() {
     },
     {
       key: 'actions',
-      header: '',
+      header: 'Actions',
       align: 'right',
       cell: (a) => {
         const busy = pendingAction === a.id
+        // Icon-only 14px buttons read as decoration and gave no clue what they
+        // did; these are destructive-ish admin actions, so they get real labels
+        // and a proper hit area (CP-440).
+        const btn =
+          'inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40'
         return (
-          <div className="flex items-center justify-end gap-1">
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
             <button
               type="button"
               disabled={busy}
@@ -245,15 +250,15 @@ export default function AdminAttorneys() {
                 e.stopPropagation()
                 void setVerified(a, !a.isVerified)
               }}
-              title={a.isVerified ? 'Remove verification' : 'Mark verified'}
-              aria-label={a.isVerified ? 'Remove verification' : 'Mark verified'}
-              className={`rounded p-1.5 transition-colors disabled:opacity-40 ${
+              title={a.isVerified ? 'Remove verification' : 'Mark verified — allows routing'}
+              className={`${btn} ${
                 a.isVerified
-                  ? 'text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40'
-                  : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200'
+                  ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:text-emerald-400 dark:hover:bg-emerald-950/40'
+                  : 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
               }`}
             >
-              <ShieldCheck className="h-4 w-4" />
+              <ShieldCheck className="h-3.5 w-3.5" />
+              {a.isVerified ? 'Unverify' : 'Mark verified'}
             </button>
             <button
               type="button"
@@ -262,15 +267,15 @@ export default function AdminAttorneys() {
                 e.stopPropagation()
                 void setActive(a, !a.isActive)
               }}
-              title={a.isActive ? 'Deactivate (removes from routing)' : 'Reactivate'}
-              aria-label={a.isActive ? 'Deactivate attorney' : 'Reactivate attorney'}
-              className={`rounded p-1.5 transition-colors disabled:opacity-40 ${
+              title={a.isActive ? 'Deactivate — removes from routing' : 'Reactivate'}
+              className={`${btn} ${
                 a.isActive
-                  ? 'text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400'
-                  : 'text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40'
+                  ? 'border-slate-200 text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-rose-950/40 dark:hover:text-rose-400'
+                  : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:text-emerald-400 dark:hover:bg-emerald-950/40'
               }`}
             >
-              {a.isActive ? <Ban className="h-4 w-4" /> : <Power className="h-4 w-4" />}
+              {a.isActive ? <Ban className="h-3.5 w-3.5" /> : <Power className="h-3.5 w-3.5" />}
+              {a.isActive ? 'Deactivate' : 'Reactivate'}
             </button>
             <button
               type="button"
@@ -278,10 +283,11 @@ export default function AdminAttorneys() {
                 e.stopPropagation()
                 navigate(`/admin/attorneys/${a.id}`)
               }}
-              aria-label={`Open ${capitalizeWords(a.name) || 'attorney'}`}
-              className="rounded p-1.5 text-brand-600 hover:bg-brand-50 hover:text-brand-800 dark:text-brand-400 dark:hover:bg-brand-950/40 dark:hover:text-brand-300"
+              title={`Open ${capitalizeWords(a.name) || 'attorney'}`}
+              className={`${btn} border-brand-200 text-brand-700 hover:bg-brand-50 dark:border-brand-900 dark:text-brand-400 dark:hover:bg-brand-950/40`}
             >
-              <ExternalLink className="h-4 w-4" />
+              <ExternalLink className="h-3.5 w-3.5" />
+              Details
             </button>
           </div>
         )

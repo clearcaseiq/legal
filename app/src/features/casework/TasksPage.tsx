@@ -177,7 +177,15 @@ function priorityBadgeTone(priority?: string | null): BadgeTone {
   return 'neutral'
 }
 
-const EMPTY_FORM = { leadId: '', title: '', dueDate: '', priority: 'medium', taskType: 'general' }
+const EMPTY_FORM = { leadId: '', title: '', dueDate: '', priority: 'medium', taskType: 'general', assignedRole: 'attorney' }
+
+// Only "client" reaches the plaintiff's Tasks list and triggers their email.
+const ASSIGNEES = [
+  { id: 'attorney', label: 'Attorney' },
+  { id: 'paralegal', label: 'Paralegal' },
+  { id: 'case_manager', label: 'Case manager' },
+  { id: 'client', label: 'Client (Plaintiff)' },
+]
 
 export default function TasksPage() {
   const [summary, setSummary] = useState<TaskSummary | null>(null)
@@ -398,6 +406,7 @@ export default function TasksPage() {
         dueDate: form.dueDate || null,
         priority: form.priority,
         taskType: form.taskType,
+        assignedRole: form.assignedRole,
         status: 'open',
       })
       setForm(EMPTY_FORM)
@@ -761,7 +770,14 @@ export default function TasksPage() {
                 <label className="mb-1 block text-xs font-semibold text-slate-600">Type</label>
                 <select
                   value={form.taskType}
-                  onChange={(e) => setForm((f) => ({ ...f, taskType: e.target.value }))}
+                  onChange={(e) => {
+                    const next = e.target.value
+                    setForm((f) => ({
+                      ...f,
+                      taskType: next,
+                      assignedRole: next === 'client' ? 'client' : f.assignedRole,
+                    }))
+                  }}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
                 >
                   {TASK_TYPES.map((t) => (
@@ -771,6 +787,25 @@ export default function TasksPage() {
                   ))}
                 </select>
               </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Assign to</label>
+              <select
+                value={form.assignedRole}
+                onChange={(e) => setForm((f) => ({ ...f, assignedRole: e.target.value }))}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+              >
+                {ASSIGNEES.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+              <p className={`mt-1 text-[11px] ${form.assignedRole === 'client' ? 'text-emerald-600' : 'text-slate-500'}`}>
+                {form.assignedRole === 'client'
+                  ? 'The plaintiff will see this in their Tasks and get an email.'
+                  : 'Internal — only your firm sees this.'}
+              </p>
             </div>
           </div>
           <div className="mt-3 flex justify-end gap-2">

@@ -31,7 +31,8 @@ import {
   syncDecisionMemoryForAssessment
 } from '../lib/routing-lifecycle'
 import { sendPlaintiffAttorneyAccepted } from '../lib/case-notifications'
-import { createExternalCalendarEvent } from '../lib/calendar-sync'
+import { createExternalCalendarEvent, deleteExternalCalendarEvent } from '../lib/calendar-sync'
+import { notifyWaitlistForFreedSlot } from '../lib/appointment-engagement'
 import { createZoomMeeting } from '../lib/zoom'
 import { deliverDirectNotification, createNotificationEvent, notifyAdmins } from '../lib/platform-notifications'
 import { translateToEnglish, looksNonEnglish } from '../lib/translate'
@@ -1348,9 +1349,24 @@ const TASK_ROLE_LABELS: Record<string, string> = {
   billing_admin: 'Billing',
   legal_assistant: 'Legal Assistant',
   demand_writer: 'Demand Writer',
+  client: 'Client (Plaintiff)',
   medical_records: 'Medical Records',
 }
 const taskRoleLabel = (r?: string | null) => (r ? TASK_ROLE_LABELS[r] || r.replace(/_/g, ' ') : '')
+
+// assignedRole is free text, and whether the plaintiff ever sees a task hinges on
+// an exact string match against it. Casing or spacing drift from any caller
+// silently produces a task the client is never told about, so every write funnels
+// through here and settles on one spelling.
+function normalizeTaskRole(role?: string | null): string | null {
+  if (typeof role !== 'string') return null
+  const trimmed = role.trim().toLowerCase().replace(/[\s-]+/g, '_')
+  if (!trimmed) return null
+  if (trimmed === 'plaintiff' || trimmed === 'client') return 'client'
+  return trimmed
+}
+
+const isClientTaskRole = (role?: string | null) => normalizeTaskRole(role) === 'client'
 
 function genSubtaskId(seed: number): string {
   try {
@@ -3753,6 +3769,18 @@ router.patch('/appointments/:appointmentId', authMiddleware, async (req: any, re
       return res.status(404).json({ error: 'Appointment not found' })
     }
 
+    // A PATCH that only flips the status to CANCELLED is a cancellation, not an
+    // edit: taking the update path below emailed "your consultation was updated"
+    // with the old time and skipped the calendar/waitlist cleanup entirely.
+    if (typeof status === 'string' && status.toUpperCase() === 'CANCELLED') {
+      const cancelled = await cancelAttorneyAppointment({
+        attorney: auth.attorney,
+        appointmentId,
+        reason: typeof notes === 'string' ? notes : null,
+      })
+      return res.json(cancelled)
+    }
+
     const attorneyTz = resolveSchedulingTimezone(auth.attorney.schedulingTimezone)
 
     // Prefer the wall-clock date/time the attorney actually picked and interpret
@@ -3817,6 +3845,95 @@ router.patch('/appointments/:appointmentId', authMiddleware, async (req: any, re
   }
 })
 
+// Cancelling on the attorney's behalf: flip the status, release the external
+// calendar hold and the freed slot, and tell the plaintiff — by email and in the
+// notification bell — which consult went away (CP-412).
+async function cancelAttorneyAppointment(params: {
+  attorney: { id: string; name?: string | null; email?: string | null; schedulingTimezone?: string | null }
+  appointmentId: string
+  reason?: string | null
+}) {
+  const { attorney, appointmentId } = params
+  const reason = typeof params.reason === 'string' && params.reason.trim() ? params.reason.trim() : null
+
+  const existing = await prisma.appointment.findFirst({
+    where: { id: appointmentId, attorneyId: attorney.id },
+    include: { user: { select: { id: true, email: true, firstName: true } } },
+  })
+  if (!existing) return null
+
+  await deleteExternalCalendarEvent({
+    attorneyId: attorney.id,
+    provider: existing.externalCalendarProvider,
+    eventId: existing.externalCalendarEventId,
+  }).catch((calendarError) => {
+    logger.warn('External calendar event deletion failed during attorney cancel', { calendarError, appointmentId })
+  })
+
+  const appointment = await prisma.appointment.update({
+    where: { id: appointmentId },
+    data: {
+      status: 'CANCELLED',
+      notes: reason ? `${existing.notes ? `${existing.notes}\n\n` : ''}Cancelled: ${reason}` : existing.notes,
+      externalCalendarEventId: null,
+      externalCalendarSyncedAt: new Date(),
+    },
+  })
+
+  const attorneyTz = resolveSchedulingTimezone(attorney.schedulingTimezone)
+  const dateText = existing.scheduledAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: attorneyTz })
+  const timeText = existing.scheduledAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: attorneyTz, timeZoneName: 'short' })
+  const attorneyName = attorney.name || 'Your attorney'
+  const body = `Hi${existing.user?.firstName ? ` ${existing.user.firstName}` : ''},\n\n${attorneyName} cancelled your consultation scheduled for ${dateText} at ${timeText}.${reason ? `\n\nReason: ${reason}` : ''}\n\nYou can book a new time from your ClearCaseIQ dashboard.\n\nBest regards,\nClearCaseIQ`
+
+  if (existing.user?.email) {
+    await createNotification(
+      existing.user.email,
+      'Your consultation was cancelled',
+      body,
+      {
+        eventType: 'consult_cancelled',
+        appointmentId: appointment.id,
+        assessmentId: appointment.assessmentId,
+        scheduledAt: existing.scheduledAt.toISOString(),
+        status: 'CANCELLED',
+      },
+      {
+        replyTo: attorney.email || null,
+        fromName: attorney.name || null,
+        // Without the userId the row is orphaned and never reaches the
+        // plaintiff's in-app notification list.
+        userId: existing.user.id || null,
+        assessmentId: appointment.assessmentId,
+        role: 'plaintiff',
+      }
+    )
+
+    if (existing.user.id) {
+      await createNotificationEvent({
+        userId: existing.user.id,
+        attorneyId: attorney.id,
+        assessmentId: appointment.assessmentId || undefined,
+        role: 'plaintiff',
+        channel: 'in_app',
+        eventType: 'consult_cancelled',
+        subject: 'Your consultation was cancelled',
+        body: `${attorneyName} cancelled your consultation on ${dateText} at ${timeText}.`,
+        recipient: existing.user.email,
+        payload: { appointmentId: appointment.id, assessmentId: appointment.assessmentId },
+      }).catch((err: any) => logger.warn('In-app cancel notification failed', { error: err?.message, appointmentId }))
+    }
+  }
+
+  await notifyWaitlistForFreedSlot({
+    attorneyId: attorney.id,
+    slotStart: existing.scheduledAt,
+    appointmentId: appointment.id,
+  }).catch((err: any) => logger.warn('Waitlist notify failed after cancel', { error: err?.message, appointmentId }))
+
+  return appointment
+}
+
 router.post('/appointments/:appointmentId/cancel', authMiddleware, async (req: any, res) => {
   try {
     const auth = await getAttorneyFromReq(req)
@@ -3824,42 +3941,13 @@ router.post('/appointments/:appointmentId/cancel', authMiddleware, async (req: a
       return res.status(auth.error.status).json({ error: auth.error.message })
     }
 
-    const { appointmentId } = req.params
-    const { reason } = req.body || {}
-    const existing = await prisma.appointment.findFirst({
-      where: { id: appointmentId, attorneyId: auth.attorney.id },
-      include: { user: { select: { email: true, firstName: true } } }
+    const appointment = await cancelAttorneyAppointment({
+      attorney: auth.attorney,
+      appointmentId: req.params.appointmentId,
+      reason: req.body?.reason,
     })
-
-    if (!existing) {
+    if (!appointment) {
       return res.status(404).json({ error: 'Appointment not found' })
-    }
-
-    const appointment = await prisma.appointment.update({
-      where: { id: appointmentId },
-      data: {
-        status: 'CANCELLED',
-        notes: reason ? `${existing.notes ? `${existing.notes}\n\n` : ''}Cancelled: ${reason}` : existing.notes
-      }
-    })
-
-    if (existing.user?.email) {
-      await createNotification(
-        existing.user.email,
-        'Your consultation was cancelled',
-        `Hi${existing.user.firstName ? ` ${existing.user.firstName}` : ''},\n\n${auth.attorney.name || 'Your attorney'} cancelled your consultation.${reason ? `\n\nReason: ${reason}` : ''}\n\nBest regards,\nClearCaseIQ`,
-        {
-          appointmentId: appointment.id,
-          assessmentId: appointment.assessmentId,
-          status: 'CANCELLED'
-        },
-        {
-          replyTo: auth.attorney.email || null,
-          fromName: auth.attorney.name || null,
-          assessmentId: appointment.assessmentId,
-          role: 'plaintiff',
-        }
-      )
     }
 
     res.json(appointment)
@@ -10031,6 +10119,72 @@ router.delete('/leads/:leadId/time/:id', authMiddleware, async (req: any, res) =
   }
 })
 
+// A task assigned to the client only reaches them if we tell them: it shows in
+// their Tasks list, and we mirror it into the case chat plus an email. Shared by
+// task creation and by reassigning an existing task onto the client (CP-388/CP-430).
+async function notifyPlaintiffOfAssignedTask(params: {
+  leadId: string
+  assessmentId: string
+  attorney: { id: string; name?: string | null; email?: string | null }
+  task: { id: string; title: string; dueDate?: Date | null; notes?: string | null }
+}): Promise<void> {
+  const { leadId, assessmentId, attorney, task } = params
+  try {
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: { userId: true, user: { select: { firstName: true, lastName: true, email: true } } },
+    })
+    if (!assessment?.userId) return
+
+    const attorneyName = attorney.name || 'Your attorney'
+    const dueText = task.dueDate ? ` (due ${new Date(task.dueDate).toLocaleDateString()})` : ''
+    const notesText = task.notes ? `\n\n${task.notes}` : ''
+    const inAppMsg = `${attorneyName} added a task for you: ${task.title}${dueText}.${notesText}`
+
+    let chatRoom = await prisma.chatRoom.findUnique({
+      where: { userId_attorneyId: { userId: assessment.userId, attorneyId: attorney.id } },
+      select: { id: true },
+    })
+    if (!chatRoom) {
+      chatRoom = await prisma.chatRoom.create({
+        data: { userId: assessment.userId, attorneyId: attorney.id, assessmentId },
+        select: { id: true },
+      })
+    }
+    await prisma.message.create({
+      data: {
+        chatRoomId: chatRoom.id,
+        senderId: attorney.id,
+        senderType: 'attorney',
+        content: inAppMsg,
+        messageType: 'text',
+      },
+    })
+    await prisma.chatRoom.update({ where: { id: chatRoom.id }, data: { lastMessageAt: new Date() } })
+
+    const plaintiffEmail = assessment.user?.email
+    if (plaintiffEmail) {
+      const plaintiffName = assessment.user?.firstName
+        ? `${assessment.user.firstName} ${assessment.user.lastName || ''}`.trim()
+        : 'there'
+      await deliverDirectNotification({
+        type: 'email',
+        recipient: plaintiffEmail,
+        subject: `${attorneyName} added a new task to your case`,
+        message: `Hi ${plaintiffName},\n\n${attorneyName} added a task for you to complete${dueText}:\n\n• ${task.title}${notesText}\n\nSign in to your ClearCaseIQ dashboard to view it under "Your next steps".\n\nBest regards,\nClearCaseIQ`,
+        userId: assessment.userId,
+        assessmentId,
+        role: 'plaintiff',
+        replyTo: attorney.email || null,
+        fromName: attorney.name || null,
+        metadata: { eventType: 'client_task_assigned', leadId, assessmentId, taskId: task.id },
+      })
+    }
+  } catch (notifyErr: any) {
+    logger.error('Failed to notify plaintiff of assigned task', { error: notifyErr?.message, taskId: task.id })
+  }
+}
+
 router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
   try {
     const { leadId } = req.params
@@ -10065,14 +10219,17 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
     }
 
     // When a specific person is chosen, denormalize their name/role for display.
+    // The directory only holds firm staff, so letting it win would quietly
+    // downgrade an explicit "client" assignment into an internal task.
     let assigneeName = assignedTo || null
-    let assigneeRole = assignedRole || null
-    if (assignedUserId) {
+    let assigneeRole = normalizeTaskRole(assignedRole)
+    const clientRequested = isClientTaskRole(assignedRole)
+    if (assignedUserId && !clientRequested) {
       const dir = await taskAssigneeDirectory(attorney.lawFirmId)
       const found = dir.find((m) => m.userId === assignedUserId)
       if (found) {
         assigneeName = found.name
-        assigneeRole = found.role
+        assigneeRole = normalizeTaskRole(found.role)
       }
     }
 
@@ -10091,7 +10248,7 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
         deadlineType: deadlineType || null,
         assignedRole: assigneeRole,
         assignedTo: assigneeName,
-        assignedUserId: assignedUserId || null,
+        assignedUserId: clientRequested ? null : assignedUserId || null,
         estimateMinutes:
           estimateMinutes === undefined || estimateMinutes === null || estimateMinutes === ''
             ? null
@@ -10124,64 +10281,13 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
       escalationLevel: record.escalationLevel
     })
 
-    // When a task is assigned to the client/plaintiff, surface it to them: it
-    // shows in their Tasks list AND we send an in-app message + email so they
-    // actually know about it (CP-388).
-    if (assigneeRole === 'client' || assigneeRole === 'plaintiff') {
-      try {
-        const assessment = await prisma.assessment.findUnique({
-          where: { id: lead.assessmentId },
-          select: { userId: true, user: { select: { firstName: true, lastName: true, email: true } } },
-        })
-        if (assessment?.userId) {
-          const attorneyName = attorney.name || 'Your attorney'
-          const dueText = record.dueDate ? ` (due ${new Date(record.dueDate).toLocaleDateString()})` : ''
-          const notesText = record.notes ? `\n\n${record.notes}` : ''
-          const inAppMsg = `${attorneyName} added a task for you: ${record.title}${dueText}.${notesText}`
-
-          let chatRoom = await prisma.chatRoom.findUnique({
-            where: { userId_attorneyId: { userId: assessment.userId, attorneyId: attorney.id } },
-            select: { id: true },
-          })
-          if (!chatRoom) {
-            chatRoom = await prisma.chatRoom.create({
-              data: { userId: assessment.userId, attorneyId: attorney.id, assessmentId: lead.assessmentId },
-              select: { id: true },
-            })
-          }
-          await prisma.message.create({
-            data: {
-              chatRoomId: chatRoom.id,
-              senderId: attorney.id,
-              senderType: 'attorney',
-              content: inAppMsg,
-              messageType: 'text',
-            },
-          })
-          await prisma.chatRoom.update({ where: { id: chatRoom.id }, data: { lastMessageAt: new Date() } })
-
-          const plaintiffEmail = assessment.user?.email
-          if (plaintiffEmail) {
-            const plaintiffName = assessment.user?.firstName
-              ? `${assessment.user.firstName} ${assessment.user.lastName || ''}`.trim()
-              : 'there'
-            await deliverDirectNotification({
-              type: 'email',
-              recipient: plaintiffEmail,
-              subject: `${attorneyName} added a new task to your case`,
-              message: `Hi ${plaintiffName},\n\n${attorneyName} added a task for you to complete${dueText}:\n\n• ${record.title}${notesText}\n\nSign in to your ClearCaseIQ dashboard to view it under "Your next steps".\n\nBest regards,\nClearCaseIQ`,
-              userId: assessment.userId,
-              assessmentId: lead.assessmentId,
-              role: 'plaintiff',
-              replyTo: attorney.email || null,
-              fromName: attorney.name || null,
-              metadata: { eventType: 'client_task_assigned', leadId, assessmentId: lead.assessmentId, taskId: record.id },
-            })
-          }
-        }
-      } catch (notifyErr: any) {
-        logger.error('Failed to notify plaintiff of assigned task', { error: notifyErr?.message, taskId: record.id })
-      }
+    if (isClientTaskRole(assigneeRole)) {
+      await notifyPlaintiffOfAssignedTask({
+        leadId,
+        assessmentId: lead.assessmentId,
+        attorney,
+        task: record,
+      })
     }
 
     res.json(record)
@@ -10313,22 +10419,26 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
     }
 
     // Resolve/denormalize assignee when a person is (re)selected or cleared.
+    // As on create, an explicit "client" assignment outranks the staff directory.
     let assigneeUpdate: Record<string, any> = {}
-    if (assignedUserId !== undefined) {
+    const clientRequested = isClientTaskRole(assignedRole)
+    if (clientRequested) {
+      assigneeUpdate = { assignedUserId: null, assignedTo: assignedTo ?? null, assignedRole: 'client' }
+    } else if (assignedUserId !== undefined) {
       if (assignedUserId) {
         const dir = await taskAssigneeDirectory(auth.attorney.lawFirmId)
         const found = dir.find((m) => m.userId === assignedUserId)
         assigneeUpdate = {
           assignedUserId,
           assignedTo: found?.name ?? assignedTo ?? existing.assignedTo ?? null,
-          assignedRole: found?.role ?? assignedRole ?? existing.assignedRole ?? null,
+          assignedRole: normalizeTaskRole(found?.role ?? assignedRole ?? existing.assignedRole),
         }
       } else {
         assigneeUpdate = { assignedUserId: null, assignedTo: null, assignedRole: null }
       }
     } else {
       if (assignedTo !== undefined) assigneeUpdate.assignedTo = assignedTo
-      if (assignedRole !== undefined) assigneeUpdate.assignedRole = assignedRole
+      if (assignedRole !== undefined) assigneeUpdate.assignedRole = normalizeTaskRole(assignedRole)
     }
 
     const record = await prisma.caseTask.update({
@@ -10355,6 +10465,17 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
       },
       select: caseTaskSelect
     })
+
+    // Handing an existing internal task to the client is the same event as
+    // creating one for them, so it earns the same chat message and email.
+    if (isClientTaskRole(record.assignedRole) && !isClientTaskRole(existing.assignedRole)) {
+      await notifyPlaintiffOfAssignedTask({
+        leadId,
+        assessmentId: auth.lead.assessmentId,
+        attorney: auth.attorney,
+        task: record,
+      })
+    }
 
     // Record meaningful changes for the task History tab.
     const audits: { action: string; metadata: Record<string, unknown> }[] = []

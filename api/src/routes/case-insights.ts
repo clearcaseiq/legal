@@ -15,6 +15,8 @@ import {
 } from '../lib/case-insights'
 import { optionalAuthMiddleware, AuthRequest } from '../lib/auth'
 import { logger } from '../lib/logger'
+import { maybeVerifyAttorneyReview } from '../lib/appointment-engagement'
+import { recomputeAttorneyRatingAggregates } from '../lib/attorney-rating-aggregates'
 
 const router = Router()
 
@@ -282,6 +284,33 @@ router.post('/assessments/:assessmentId/satisfaction', optionalAuthMiddleware, a
       })
     } else {
       return res.status(409).json({ error: 'No matched attorney yet — satisfaction can be recorded once a case is engaged.' })
+    }
+
+    // This widget asks the plaintiff to rate their attorney, so it has to count as
+    // one. It previously only wrote DecisionMemory, which no admin or firm screen
+    // reads — so a submitted rating appeared nowhere (CP-308/321/326). Mirror the
+    // stars onto the attorney's review record, leaving any written review intact.
+    if (userId && lead?.assignedAttorneyId) {
+      try {
+        const isVerified = await maybeVerifyAttorneyReview({ attorneyId: lead.assignedAttorneyId, userId })
+        await prisma.attorneyReview.upsert({
+          where: { attorneyId_userId: { attorneyId: lead.assignedAttorneyId, userId } },
+          create: {
+            attorneyId: lead.assignedAttorneyId,
+            userId,
+            rating: parsed.data.satisfaction,
+            review: parsed.data.notes ?? null,
+            isVerified,
+          },
+          update: { rating: parsed.data.satisfaction, isVerified },
+        })
+        await recomputeAttorneyRatingAggregates(lead.assignedAttorneyId)
+      } catch (reviewError: any) {
+        logger.warn('Failed to mirror satisfaction onto attorney rating', {
+          error: reviewError?.message,
+          attorneyId: lead.assignedAttorneyId,
+        })
+      }
     }
 
     res.json({ ok: true, ...satisfactionData })

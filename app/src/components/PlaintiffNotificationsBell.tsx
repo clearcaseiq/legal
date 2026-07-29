@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom'
 import { Bell, CalendarClock, FileText, UserCheck, Activity } from 'lucide-react'
 import { listAssessments } from '../lib/api-plaintiff'
 import { getRoutingStatus, getPlaintiffDocumentRequests } from '../lib/api'
+import { formatClaimType as claimLabel } from '../lib/claimTypes'
 
 type NotificationKind = 'matched' | 'appointment' | 'activity' | 'document'
 
@@ -81,12 +82,22 @@ export default function PlaintiffNotificationsBell() {
       const next: PlaintiffNotification[] = []
 
       if (routing?.attorneyMatched) {
-        const name = routing.attorneyMatched.name || 'An attorney'
+        const matched = routing.attorneyMatched as typeof routing.attorneyMatched & {
+          claimType?: string | null
+          acceptedAt?: string | null
+        }
+        const name = matched.name || 'An attorney'
+        // Name the case and say when, so a plaintiff with more than one claim can
+        // tell which acceptance this is (CP-437).
+        const detail = [matched.claimType ? claimLabel(matched.claimType) : null, matched.firmName]
+          .filter(Boolean)
+          .join(' · ')
         next.push({
-          key: `matched:${routing.attorneyMatched.id}`,
+          key: `matched:${matched.id}`,
           kind: 'matched',
           title: `${name} accepted your case`,
-          detail: routing.attorneyMatched.firmName || undefined,
+          detail: detail || undefined,
+          timeAgo: formatDate(matched.acceptedAt || undefined),
           href: '/dashboard',
         })
       }

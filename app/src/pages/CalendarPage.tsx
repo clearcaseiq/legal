@@ -27,6 +27,7 @@ import { useAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummar
 import {
   getAttorneyTaskSummary,
   getAttorneyCalendarAppointments,
+  cancelAttorneyAppointment,
   getCalendarEvents,
   getAttorneyFilteredLeads,
   type CalendarEventDto,
@@ -107,6 +108,7 @@ export default function CalendarPage() {
   const [addChoiceOpen, setAddChoiceOpen] = useState(false)
   const [leadPickerOpen, setLeadPickerOpen] = useState(false)
   const [selectedConsult, setSelectedConsult] = useState<CalItem | null>(null)
+  const [consultsRefresh, setConsultsRefresh] = useState(0)
 
   // General calendar events (MyCase-style "Add event").
   const [addEventOpen, setAddEventOpen] = useState(false)
@@ -160,7 +162,7 @@ export default function CalendarPage() {
     return () => {
       cancelled = true
     }
-  }, [view, anchor])
+  }, [view, anchor, consultsRefresh])
 
   // Tasks (cross-case queue) — near-term, shown as all-day items.
   useEffect(() => {
@@ -612,7 +614,15 @@ export default function CalendarPage() {
       />
 
       {selectedConsult && (
-        <ConsultDetailPanel item={selectedConsult} onClose={() => setSelectedConsult(null)} navigate={navigate} />
+        <ConsultDetailPanel
+          item={selectedConsult}
+          onClose={() => setSelectedConsult(null)}
+          onCancelled={() => {
+            setSelectedConsult(null)
+            setConsultsRefresh((n) => n + 1)
+          }}
+          navigate={navigate}
+        />
       )}
 
       <AddEventModal
@@ -784,10 +794,12 @@ function DetailRow({ icon: Icon, label, children }: { icon: typeof Video; label:
 function ConsultDetailPanel({
   item,
   onClose,
+  onCancelled,
   navigate,
 }: {
   item: CalItem
   onClose: () => void
+  onCancelled: () => void
   navigate: (to: string) => void
 }) {
   const c = item.consult || {}
@@ -799,10 +811,29 @@ function ConsultDetailPanel({
   const dateStr = item.date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
   const timeStr = item.date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
   const dateKey = dateKeyOf(item.date)
+  const appointmentId = item.id.startsWith('c-') ? item.id.slice(2) : item.id
+  const alreadyCancelled = status.toUpperCase() === 'CANCELLED'
+
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
 
   const go = (path: string) => {
     onClose()
     navigate(path)
+  }
+
+  const doCancel = async () => {
+    setCancelling(true)
+    setCancelError(null)
+    try {
+      await cancelAttorneyAppointment(appointmentId, cancelReason.trim() || undefined)
+      onCancelled()
+    } catch (err: any) {
+      setCancelError(err?.response?.data?.error || 'Could not cancel this consultation.')
+      setCancelling(false)
+    }
   }
 
   return (
@@ -954,6 +985,43 @@ function ConsultDetailPanel({
               </button>
             ) : null}
           </div>
+          {alreadyCancelled ? null : confirmCancel ? (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">
+              <p className="text-sm font-semibold text-rose-800">Cancel this consultation?</p>
+              <p className="mt-0.5 text-xs text-rose-700">The plaintiff will be emailed and notified in their dashboard.</p>
+              <input
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="Reason (optional, shared with the plaintiff)"
+                className="mt-2 w-full rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-300/40"
+              />
+              {cancelError ? <p className="mt-2 text-xs font-medium text-rose-700">{cancelError}</p> : null}
+              <div className="mt-2.5 flex gap-2">
+                <button
+                  onClick={() => setConfirmCancel(false)}
+                  disabled={cancelling}
+                  className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+                >
+                  Keep it
+                </button>
+                <button
+                  onClick={doCancel}
+                  disabled={cancelling}
+                  className="flex-1 rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:opacity-60"
+                >
+                  {cancelling ? 'Cancelling…' : 'Cancel consult'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmCancel(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 shadow-sm transition hover:border-rose-300 hover:bg-rose-50"
+            >
+              <X className="h-4 w-4" />
+              Cancel consultation
+            </button>
+          )}
         </div>
       </div>
     </div>

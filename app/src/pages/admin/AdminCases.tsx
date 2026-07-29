@@ -19,8 +19,25 @@ import EmptyState from '../../components/EmptyState'
 import ErrorBanner from '../../components/ErrorBanner'
 import { PageHeader, Pagination } from '../../features/shared/ui'
 
-type SortField = 'createdAt' | 'claimType' | 'venueState' | 'status' | 'viability' | 'estimatedValue'
+type SortField =
+  | 'createdAt'
+  | 'caseId'
+  | 'plaintiff'
+  | 'claimType'
+  | 'venueState'
+  | 'status'
+  | 'routingStatus'
+  | 'interest'
+  | 'viability'
+  | 'estimatedValue'
 type SortDirection = 'asc' | 'desc'
+
+// Sort unnamed plaintiffs last regardless of direction rather than letting an
+// empty string float to the top of an A-Z sort.
+const plaintiffSortKey = (c: any) => {
+  const name = c.user ? `${c.user.firstName || ''} ${c.user.lastName || ''}`.trim() : ''
+  return name ? name.toLowerCase() : '\uffff'
+}
 
 const CASE_TABS = [
   { id: 'all', label: 'All cases' },
@@ -154,6 +171,22 @@ export default function AdminCases() {
           case 'createdAt':
             aVal = new Date(a.createdAt).getTime()
             bVal = new Date(b.createdAt).getTime()
+            break
+          case 'caseId':
+            aVal = formatCaseId({ id: a.id, claimType: a.claimType, createdAt: a.createdAt }).toLowerCase()
+            bVal = formatCaseId({ id: b.id, claimType: b.claimType, createdAt: b.createdAt }).toLowerCase()
+            break
+          case 'plaintiff':
+            aVal = plaintiffSortKey(a)
+            bVal = plaintiffSortKey(b)
+            break
+          case 'routingStatus':
+            aVal = getRoutingStatus(a).toLowerCase()
+            bVal = getRoutingStatus(b).toLowerCase()
+            break
+          case 'interest':
+            aVal = a.introductions?.length ?? a.counts?.introductions ?? 0
+            bVal = b.introductions?.length ?? b.counts?.introductions ?? 0
             break
           case 'claimType':
             aVal = (a.claimType || '').toLowerCase()
@@ -563,22 +596,14 @@ export default function AdminCases() {
                       className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                     />
                   </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Case ID
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Plaintiff
-                  </th>
+                  <SortableTh field="caseId" label="Case ID" />
+                  <SortableTh field="plaintiff" label="Plaintiff" />
                   <SortableTh field="claimType" label="Claim type" />
                   <SortableTh field="venueState" label="State / County" />
                   <SortableTh field="viability" label="Score" />
                   <SortableTh field="estimatedValue" label="Est. value" />
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Routing status
-                  </th>
-                  <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
-                    Interest
-                  </th>
+                  <SortableTh field="routingStatus" label="Routing status" />
+                  <SortableTh field="interest" label="Interest" />
                   <SortableTh field="createdAt" label="Submitted" />
                   <th className="text-left py-3 px-4 text-xs font-medium text-slate-500 uppercase">
                     Actions

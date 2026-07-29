@@ -172,6 +172,7 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
         id: true,
         userId: true,
         facts: true,
+        claimType: true,
         user: { select: { email: true } },
         leadSubmission: {
           select: {
@@ -181,6 +182,8 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
         introductions: {
           select: {
             status: true,
+            respondedAt: true,
+            updatedAt: true,
             attorney: {
               select: {
                 id: true,
@@ -263,6 +266,15 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
           select: { id: true }
         }).catch(() => null))
       : false
+    // The flag used to live only inside upcomingAppointment, which is null once
+    // the consult is over — so the review prompt vanished exactly when a plaintiff
+    // finally had something to review (CP-308/321/326). Surface it on its own.
+    const existingReview = reviewEligible && accepted && req.user?.id
+      ? await prisma.attorneyReview.findUnique({
+          where: { attorneyId_userId: { attorneyId: accepted.attorney.id, userId: req.user.id } },
+          select: { rating: true, title: true, review: true, createdAt: true }
+        }).catch(() => null)
+      : null
     const upcomingAppointment = appointmentRecord
       ? {
           id: appointmentRecord.id,
@@ -419,12 +431,25 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
             firmName: accepted.attorney.lawFirm?.name,
             specialties: accepted.attorney.specialties,
             yearsExperience,
-            responseTimeHours: accepted.attorney.responseTimeHours ?? 24
+            responseTimeHours: accepted.attorney.responseTimeHours ?? 24,
+            // The notification bell renders the acceptance from this object, so
+            // it needs to know which case was accepted and when (CP-437).
+            claimType: assessment.claimType ?? null,
+            acceptedAt: (accepted.respondedAt ?? accepted.updatedAt ?? null)?.toISOString?.() ?? null
           }
         : null,
       attorneyActivity,
       caseMessages,
       upcomingAppointment,
+      reviewEligible,
+      existingReview: existingReview
+        ? {
+            rating: existingReview.rating,
+            title: existingReview.title,
+            review: existingReview.review,
+            createdAt: existingReview.createdAt.toISOString()
+          }
+        : null,
       caseChatRoomId
     })
   } catch (error: unknown) {

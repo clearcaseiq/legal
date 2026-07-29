@@ -536,15 +536,26 @@ router.post('/members', authMiddleware as any, async (req: any, res: Response) =
       }
     })
 
-    // Look up the firm name for a friendlier invite, then send best-effort.
+    // Look up the firm name for a friendlier invite, then send it. This used to be
+    // fire-and-forget, so a firm with no email provider configured saw "Invitation
+    // sent" for a message that was never delivered (CP-418). Await it and report
+    // the outcome so the admin knows to resend or share the link manually.
     let firmName: string | null = null
     try {
       const firm = await prisma.lawFirm.findUnique({ where: { id: context.lawFirmId }, select: { name: true } })
       firmName = firm?.name ?? null
     } catch { /* non-fatal */ }
-    void sendFirmMemberInvite({ userId: user.id, to: normalizedEmail, firstName: user.firstName, firmName, role, needsPassword })
+    let emailSent = false
+    try {
+      emailSent = await sendFirmMemberInvite({ userId: user.id, to: normalizedEmail, firstName: user.firstName, firmName, role, needsPassword })
+    } catch (inviteError: any) {
+      logger.error('Firm member invite email failed', { error: inviteError?.message, email: normalizedEmail })
+    }
+    if (!emailSent) {
+      logger.warn('Firm member created but invite email was not delivered', { email: normalizedEmail, lawFirmId: context.lawFirmId })
+    }
 
-    res.status(201).json({ member, user, attorney })
+    res.status(201).json({ member, user, attorney, emailSent })
   } catch (error: any) {
     logger.error('Failed to add firm member', { error: error?.message || String(error), stack: error?.stack })
     res.status(500).json({
@@ -1267,22 +1278,28 @@ router.post('/attorneys', authMiddleware as any, async (req: any, res: Response)
       })
     })
 
-    // Best-effort invite email (tokenized set-password link for new accounts).
+    // Invite email (tokenized set-password link for new accounts). Awaited so the
+    // caller can tell the admin when delivery failed rather than claiming success.
     let attorneyFirmName: string | null = null
     try {
       const firm = await prisma.lawFirm.findUnique({ where: { id: currentAttorney.lawFirmId }, select: { name: true } })
       attorneyFirmName = firm?.name ?? null
     } catch { /* non-fatal */ }
-    void sendFirmMemberInvite({
-      userId: memberUser.id,
-      to: normalizedEmail,
-      firstName: memberUser.firstName,
-      firmName: attorneyFirmName,
-      role: 'attorney',
-      needsPassword: attorneyNeedsPassword
-    })
+    let emailSent = false
+    try {
+      emailSent = await sendFirmMemberInvite({
+        userId: memberUser.id,
+        to: normalizedEmail,
+        firstName: memberUser.firstName,
+        firmName: attorneyFirmName,
+        role: 'attorney',
+        needsPassword: attorneyNeedsPassword
+      })
+    } catch (inviteError: any) {
+      logger.error('Attorney invite email failed', { error: inviteError?.message, email: normalizedEmail })
+    }
 
-    res.json({ attorney })
+    res.json({ attorney, emailSent })
   } catch (error: any) {
     logger.error('Failed to add attorney to firm', {
       error: error?.message || String(error),
@@ -1483,7 +1500,10 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
 
     const [members, offices, teams, firmCases] = await Promise.all([
       (prisma as any).firmMember.findMany({
-        where: { lawFirmId: firm.id, status: 'active' },
+        // Invited members are people the admin just added and expects to see in
+        // the roster (marked "Pending" until they set a password). Excluding them
+        // made the invite look like it silently failed (CP-326/CP-418).
+        where: { lawFirmId: firm.id, status: { in: ['active', 'invited'] } },
         include: {
           user: true,
           attorney: true,

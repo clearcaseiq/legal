@@ -396,7 +396,7 @@ export default function FirmDashboard() {
     if (newAttorney.jurisdictions.length === 0) return setAddError('Please select at least one jurisdiction.')
     try {
       setAdding(true)
-      await addFirmAttorney({
+      const added: any = await addFirmAttorney({
         email: newAttorney.email.trim(),
         firstName: newAttorney.firstName.trim() || undefined,
         middleName: newAttorney.middleName.trim() || undefined,
@@ -406,7 +406,11 @@ export default function FirmDashboard() {
         jurisdictions: newAttorney.jurisdictions.map((state) => ({ state })),
         officeId: newAttorney.officeId || undefined,
       })
-      setAddSuccess('Attorney added to firm.')
+      setAddSuccess(
+        added?.emailSent === false
+          ? 'Attorney added, but the invitation email could not be delivered. Ask them to use “Forgot password” to set their password.'
+          : 'Attorney added to firm — an invitation email is on its way.',
+      )
       setNewAttorney({ firstName: '', middleName: '', lastName: '', email: '', specialties: [], jurisdictions: [], officeId: '' })
       invalidateFirmDashboardSummary()
     } catch (err: any) {
@@ -424,7 +428,7 @@ export default function FirmDashboard() {
     if (!isValidEmail(newMember.email)) return setMemberError('Please enter a valid email address.')
     try {
       setMemberSaving(true)
-      await addFirmMember({
+      const created: any = await addFirmMember({
         email: newMember.email.trim(),
         firstName: newMember.firstName.trim() || undefined,
         lastName: newMember.lastName.trim() || undefined,
@@ -432,7 +436,11 @@ export default function FirmDashboard() {
         title: newMember.title.trim() || undefined,
         officeId: newMember.officeId || undefined,
       })
-      setMemberSuccess('Invitation sent — they\'ll get an email to verify and set their password.')
+      setMemberSuccess(
+        created?.emailSent === false
+          ? 'Team member added, but the invitation email could not be delivered. Use “Resend invite”, or ask them to use “Forgot password” to set their password.'
+          : 'Invitation sent — they’ll get an email to verify and set their password.',
+      )
       setNewMember({ firstName: '', lastName: '', email: '', role: 'case_manager', title: '', officeId: '' })
       invalidateFirmDashboardSummary()
     } catch (err: any) {
