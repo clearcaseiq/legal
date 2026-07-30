@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma'
 import { AssessmentWrite, AssessmentUpdate, SubmitCaseForReview } from '../lib/validators'
 import { logger } from '../lib/logger'
 import { optionalAuthMiddleware, authMiddleware, AuthRequest } from '../lib/auth'
+import { enforceAssessmentReadAccess } from '../lib/assessment-access'
 import {
   requireClientConsentsMiddleware,
   requireVerifiedEmailMiddleware,
@@ -291,9 +292,17 @@ router.patch(
 })
 
 // Get assessment
-router.get('/:id', async (req, res) => {
+router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
     const id = req.params.id
+    const permitted = await enforceAssessmentReadAccess({
+      assessmentId: id,
+      user: req.user,
+      res,
+      route: 'GET /assessments/:id',
+    })
+    if (!permitted) return
+
     const assessment = await prisma.assessment.findUnique({ 
       where: { id },
       include: {
@@ -360,8 +369,16 @@ router.get('/:id', async (req, res) => {
   }
 })
 
-router.get('/:id/command-center', async (req, res) => {
+router.get('/:id/command-center', optionalAuthMiddleware, async (req: AuthRequest, res) => {
   try {
+    const permitted = await enforceAssessmentReadAccess({
+      assessmentId: req.params.id,
+      user: req.user,
+      res,
+      route: 'GET /assessments/:id/command-center',
+    })
+    if (!permitted) return
+
     const summary = await buildCaseCommandCenter({ assessmentId: req.params.id })
     res.json(summary)
   } catch (error: any) {

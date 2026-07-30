@@ -145,6 +145,15 @@ async function runIntakeAbandonmentLoop(trigger: 'startup' | 'interval') {
 
 function startIntakeAbandonmentLoop() {
   const intervalMs = 10 * 60 * 1000
+  // Off by default pending SB 37 review of the outreach copy; the sweep still
+  // registers so the admin ops view shows it as disabled rather than missing.
+  if (process.env.INTAKE_ABANDONMENT_OUTREACH_ENABLED !== 'true') {
+    registerSweep('intake-abandonment', { label: 'Intake abandonment', enabled: false })
+    logger.warn('Intake abandonment outreach is disabled', {
+      reason: 'SB 37 advertising review — set INTAKE_ABANDONMENT_OUTREACH_ENABLED=true to re-enable',
+    })
+    return
+  }
   registerSweep('intake-abandonment', {
     label: 'Intake abandonment',
     enabled: true,
