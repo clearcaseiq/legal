@@ -69,10 +69,25 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod build
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
-The two exports stamp the API image with what it was built from, which the admin
-System Status page then displays. They are optional, but without them that page
-cannot tell you whether a running container predates the commit you just pulled
-— a stale image has been mistaken for a code bug more than once.
+The two exports stamp both images with what they were built from, which the admin
+System Status page then displays for the API. They are optional, but without them
+that page cannot tell you whether a running container predates the commit you
+just pulled — a stale image has been mistaken for a code bug more than once.
+
+Build both services together, or check afterwards that they agree:
+
+```bash
+for s in api web; do
+  echo "$s: $(docker compose -f docker-compose.prod.yml --env-file .env.prod \
+    exec -T $s printenv GIT_COMMIT)"
+done
+```
+
+A web image older than the API is the worst of the two to miss, because it does
+not look like a deploy problem at all. When the API began requiring a share
+authorization the older bundle did not render its checkbox, so submitted cases
+were held at the routing gate and simply never reached an attorney, with no error
+on either side.
 
 No manual Prisma step is needed. The API entrypoint runs `prisma db push` on
 every start and **exits** if it fails, so the container will not serve traffic

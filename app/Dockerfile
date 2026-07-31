@@ -32,6 +32,16 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
+# Stamps the running image, as the API image already does. A web image older than
+# the API is invisible from the outside and produces symptoms that look nothing
+# like a stale build: a consent checkbox the API had begun requiring was simply
+# not rendered, so every case submitted was held back at the routing gate with no
+# error anywhere. Read with `docker inspect` or `exec web env`.
+ARG GIT_COMMIT=""
+ARG BUILD_TIME=""
+ENV GIT_COMMIT=$GIT_COMMIT
+ENV BUILD_TIME=$BUILD_TIME
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 

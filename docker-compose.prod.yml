@@ -68,6 +68,8 @@ services:
       dockerfile: app/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: https://api.clearcaseiq.com
+        GIT_COMMIT: ${GIT_COMMIT:-}
+        BUILD_TIME: ${BUILD_TIME:-}
     container_name: clearcaseiq-web
     restart: unless-stopped
     environment:
