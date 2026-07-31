@@ -1,22 +1,31 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight,
   BarChart3,
+  Bot,
+  Briefcase,
   Building2,
+  CalendarClock,
   Check,
   CheckCircle2,
   Clock,
   FileSearch,
+  FileSignature,
   Gauge,
   MapPin,
   Scale,
   ScrollText,
   ShieldCheck,
+  Smartphone,
   Sparkles,
   Stethoscope,
   TrendingUp,
   Users,
+  Wallet,
 } from 'lucide-react'
+import AttorneyProductTour from '../components/AttorneyProductTour'
+import { getPlatformPricing } from '../lib/api'
 
 const trustChips = [
   'No pay-per-lead',
@@ -59,17 +68,120 @@ const benefits = [
   },
   {
     icon: TrendingUp,
-    title: 'Better intake ROI',
-    detail: 'Increase retained cases and cut hours of manual review per matter.',
+    title: 'No cost to say no',
+    detail: 'Reviewing and declining cases is free, so you can hold a high bar without paying for it.',
   },
 ]
 
-const howItWorks = [
-  { title: 'Plaintiff submits a case', detail: 'Injury cases come in with structured intake details and documents.' },
-  { title: 'AI builds an assessment', detail: 'ClearCaseIQ scores viability, liability, damages, and evidence.' },
-  { title: 'You receive matched cases', detail: 'Cases are routed by practice area, jurisdiction, and fit.' },
-  { title: 'Review and accept', detail: 'Open the case package, review intelligence, accept selectively.' },
-  { title: 'Work it end to end', detail: 'Accepted cases move into your firm workflow and dashboard.' },
+const includedFree = [
+  {
+    icon: Wallet,
+    title: 'No subscription to join',
+    detail: 'No setup fee, no monthly minimum, and no seat or per-user charges. Bring your whole firm on at no cost.',
+  },
+  {
+    icon: FileSearch,
+    title: 'Every case review is free',
+    detail:
+      'Open the full assessment — viability, settlement range, medical chronology, evidence — before you decide, and decline as many as you like.',
+  },
+  {
+    icon: Briefcase,
+    title: 'The whole platform is included',
+    detail:
+      'Case workspace, AI case manager, e-signature, scheduling, messaging, documents, and invoicing all come with the cases you accept.',
+  },
+  {
+    icon: Users,
+    title: 'Logins for your whole team',
+    detail:
+      'Attorneys, paralegals, case managers, and intake staff each get their own account on web and mobile, with permissions you control.',
+  },
+]
+
+const capabilityGroups = [
+  {
+    icon: FileSearch,
+    title: 'Before you accept',
+    items: [
+      'A de-identified case package built for a 10–20 second decision',
+      'Viability broken out into liability, causation, and damages',
+      'An estimated settlement range with a confidence level',
+      'Medical chronology and treatment gaps extracted from records',
+      'Insurance carrier, coverage type, and policy limits',
+      'An evidence checklist showing what is actually uploaded',
+      'Why the case matched your practice area and venue',
+      'A live countdown to your response deadline',
+    ],
+  },
+  {
+    icon: Bot,
+    title: 'AI case work',
+    items: [
+      'Rose, an AI case manager, reviews every active case and raises the next action',
+      'Every task she raises waits for a human to approve it before it is assigned',
+      'Ranked next-best-actions, each with the reason and the impact',
+      'A first-draft demand letter written as soon as a case is demand-ready',
+      'Case-specific questions to ask your client, with answers captured inline',
+      'Case values and scores come from a deterministic engine, not a language model',
+    ],
+  },
+  {
+    icon: ScrollText,
+    title: 'Your case workspace',
+    items: [
+      'Evidence, medical, insurance, negotiation, and demand tabs on every case',
+      'A full case timeline and deadline tracking',
+      'A statute-of-limitations radar across your whole caseload',
+      'A settlement waterfall from gross recovery to net-to-client',
+      'A task queue that routes work by role',
+      'Time tracking with billable value, approved at the firm level',
+    ],
+  },
+  {
+    icon: CalendarClock,
+    title: 'Clients and scheduling',
+    items: [
+      'A calendar with day, week, and month views',
+      'Public booking pages for you and for your team',
+      'Two-way sync with Google Calendar and Outlook',
+      'Zoom links created automatically on booked consults',
+      'Client and adjuster messaging across every case',
+      'Internal team chat, case notes, and @mentions',
+    ],
+  },
+  {
+    icon: FileSignature,
+    title: 'Documents and signatures',
+    items: [
+      'E-signature for retainers and HIPAA authorizations',
+      'Records requests with a client-facing upload portal',
+      'Text extraction and OCR on uploaded records',
+      'Reusable firm document templates with merge fields',
+      'Invoicing with PDF and DOCX export',
+    ],
+  },
+  {
+    icon: Building2,
+    title: 'Firm operations',
+    items: [
+      'Nine staff roles governed by a permission matrix',
+      'Offices and teams, with caseload assignment across attorneys',
+      'Firm workflow phases and stages applied to every case',
+      'Team workload, capacity, and attorney performance analytics',
+      'Match quality and marketplace performance reporting',
+    ],
+  },
+  {
+    icon: Smartphone,
+    title: 'On your phone',
+    items: [
+      'Review and accept or decline matches from anywhere',
+      'Cases, tasks, messages, calendar, and contacts',
+      'Push notifications for new matches and deadlines',
+      'Face ID and Touch ID unlock',
+    ],
+  },
 ]
 
 const differentiators = [
@@ -96,10 +208,56 @@ const faqs = [
   { q: 'How are cases matched?', a: 'Cases are routed based on jurisdiction, practice area, and case attributes so you only see relevant matters.' },
   { q: 'Do I have to accept every case?', a: 'No. You review each case and its AI assessment, then accept selectively — there is no obligation.' },
   { q: 'Is this pay-per-lead?', a: 'No. Reviewing matched cases is free. You only commit once you choose to accept a case.' },
+  {
+    q: 'Does the fee change with the size of the case?',
+    a: 'No. Every accepted case costs exactly the same. The fee never varies by claim type, injury severity, case score, or expected recovery, and it is never a percentage of a settlement.',
+  },
+  {
+    q: 'Do I need a subscription?',
+    a: 'No. Optional monthly plans bundle case fees for higher-volume firms, but a subscription is never required to receive or accept cases.',
+  },
+  {
+    q: 'Are there charges for the case management tools?',
+    a: 'No. The case workspace, AI case manager, e-signature, scheduling, messaging, and document storage are included, and there are no per-user or per-seat fees.',
+  },
   { q: 'How quickly do I receive case details?', a: 'Immediately after a match is made, with the full case package and intelligence ready to review.' },
 ]
 
+function formatFee(priceCents: number): string {
+  return (priceCents / 100).toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  })
+}
+
+/**
+ * The case fee is administrator-editable, so the page quotes the live value.
+ * While it loads — or if the request fails — the surrounding copy still reads
+ * correctly without a number, which is the safe way for a page making pricing
+ * claims to degrade.
+ */
+function useCaseFee(): string | null {
+  const [fee, setFee] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    getPlatformPricing()
+      .then(({ caseFee }) => {
+        if (active && caseFee) setFee(formatFee(caseFee.priceCents))
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [])
+
+  return fee
+}
+
 export default function AttorneyNetwork() {
+  const caseFee = useCaseFee()
+
   return (
     <div className="space-y-14 pb-6 sm:space-y-20">
       {/* HERO */}
@@ -211,6 +369,67 @@ export default function AttorneyNetwork() {
         ))}
       </section>
 
+      {/* WHAT'S FREE + PRICING */}
+      <section>
+        <div className="mx-auto max-w-2xl text-center">
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">Pricing</p>
+          <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+            Free to join. Free to review. One fee when you accept.
+          </h2>
+          <p className="mt-3 text-lg text-slate-600">
+            You can run your entire firm on ClearCaseIQ without paying anything until you take a case.
+          </p>
+        </div>
+
+        <div className="mt-10 grid gap-5 md:grid-cols-2">
+          {includedFree.map(({ icon: Icon, title, detail }) => (
+            <div key={title} className="flex gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
+                <Icon className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-lg font-bold text-slate-900">{title}</h3>
+                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-emerald-700">
+                    Free
+                  </span>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{detail}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-6 overflow-hidden rounded-3xl border border-brand-200 bg-brand-50/60">
+          <div className="grid gap-6 p-6 sm:p-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-700">The only fee</p>
+              <p className="mt-3 flex items-baseline gap-2">
+                <span className="text-5xl font-extrabold tracking-tight text-slate-900">{caseFee ?? 'One flat fee'}</span>
+                {caseFee && <span className="text-lg font-semibold text-slate-500">per accepted case</span>}
+              </p>
+              <p className="mt-3 text-sm leading-6 text-slate-700">
+                Charged only when you accept a case. Nothing is charged when a case is offered to you, when you open
+                it, or when you decline it.
+              </p>
+            </div>
+            <ul className="space-y-3">
+              {[
+                'The same amount for every case — it never varies by claim type, injury severity, case score, or expected recovery',
+                'Never a percentage of a settlement, and never a share of your fee',
+                'No setup fee, no seat or per-user charges, and no charge for e-signature, messaging, or storage',
+                'Optional monthly plans bundle case fees for higher-volume firms, but are never required',
+              ].map((line) => (
+                <li key={line} className="flex gap-3 text-sm leading-6 text-slate-700">
+                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-brand-600" />
+                  <span>{line}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </section>
+
       {/* BENEFITS */}
       <section>
         <div className="mx-auto max-w-2xl text-center">
@@ -238,23 +457,46 @@ export default function AttorneyNetwork() {
         </div>
       </section>
 
-      {/* HOW IT WORKS */}
-      <section className="rounded-3xl border border-slate-200 bg-slate-50 px-6 py-10 sm:px-10">
+      {/* WHAT YOU GET — CAPABILITY INVENTORY */}
+      <section>
         <div className="mx-auto max-w-2xl text-center">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">How it works</p>
-          <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">From plaintiff case to your workflow</h2>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">What&rsquo;s included</p>
+          <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+            Everything your firm needs, in one place
+          </h2>
+          <p className="mt-3 text-lg text-slate-600">
+            Every capability below is included — there is nothing else to buy and no add-on tier.
+          </p>
         </div>
-        <ol className="mt-10 grid gap-5 md:grid-cols-3 lg:grid-cols-5">
-          {howItWorks.map((step, index) => (
-            <li key={step.title} className="relative rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-sm font-bold text-white">
-                {index + 1}
+        <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+          {capabilityGroups.map(({ icon: Icon, title, items }) => (
+            <div key={title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600">
+                  <Icon className="h-5 w-5" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">{title}</h3>
               </div>
-              <h3 className="mt-4 text-sm font-bold leading-5 text-slate-900">{step.title}</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600">{step.detail}</p>
-            </li>
+              <ul className="mt-5 space-y-2.5">
+                {items.map((item) => (
+                  <li key={item} className="flex gap-2.5 text-sm leading-6 text-slate-600">
+                    <Check className="mt-1 h-4 w-4 shrink-0 text-brand-600" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
-        </ol>
+        </div>
+        <p className="mx-auto mt-8 max-w-3xl text-center text-sm leading-6 text-slate-500">
+          ClearCaseIQ is a technology platform, not a law firm, and does not provide legal advice. AI-generated
+          assessments, values, and drafts are informational and always require review by a licensed attorney.
+        </p>
+      </section>
+
+      {/* HOW IT WORKS — INTERACTIVE WALKTHROUGH */}
+      <section className="rounded-3xl border border-slate-200 bg-slate-50 px-6 py-10 sm:px-10">
+        <AttorneyProductTour caseFee={caseFee} />
       </section>
 
       {/* COMPARISON */}
