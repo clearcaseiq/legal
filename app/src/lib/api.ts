@@ -386,6 +386,8 @@ export async function submitCaseForReview(
     preferredContactMethod?: 'phone' | 'text' | 'email'
     hipaa?: boolean
     rankedAttorneyIds?: string[]
+    dismissedAttorneyIds?: string[]
+    attorneyShareAuthorized?: boolean
   }
 ) {
   const { data } = await api.post(`/v1/assessments/${assessmentId}/submit-for-review`, contactInfo || {})
@@ -395,6 +397,39 @@ export async function submitCaseForReview(
 /** Step 18: Plaintiff dashboard - routing status (attorneys reviewing, matched, etc.) */
 export async function getRoutingStatus(assessmentId: string) {
   const { data } = await api.get(`/v1/case-routing/assessment/${assessmentId}/status`)
+  return data
+}
+
+export interface PendingAttorneyBatch {
+  batchNumber: number
+  proposedAt: string
+  attorneys: Array<{
+    id: string
+    name: string
+    firmName: string | null
+    city: string | null
+    state: string | null
+  }>
+}
+
+/**
+ * Attorneys we would contact next, held until the plaintiff approves them. Nobody
+ * beyond the plaintiff's own picks is contacted without this step.
+ */
+export async function getPendingAttorneyBatch(assessmentId: string): Promise<PendingAttorneyBatch | null> {
+  const { data } = await api.get(`/v1/assessments/${assessmentId}/routing/pending-batch`)
+  return data?.pending ?? null
+}
+
+export async function approvePendingAttorneyBatch(assessmentId: string, approvedAttorneyIds: string[]) {
+  const { data } = await api.post(`/v1/assessments/${assessmentId}/routing/pending-batch/approve`, {
+    approvedAttorneyIds,
+  })
+  return data
+}
+
+export async function declinePendingAttorneyBatch(assessmentId: string) {
+  const { data } = await api.post(`/v1/assessments/${assessmentId}/routing/pending-batch/decline`, {})
   return data
 }
 
@@ -2915,6 +2950,16 @@ export async function getStripeConfig() {
   return data as { publishableKey: string | null; enabled: boolean }
 }
 
+export type PlatformPricing = {
+  caseFee: { priceCents: number; label: string; description: string } | null
+}
+
+// Public: no auth required. Used by the attorney network page.
+export async function getPlatformPricing() {
+  const { data } = await api.get('/v1/payments/pricing')
+  return data as PlatformPricing
+}
+
 // Creates a SetupIntent for in-app card entry via the Stripe Payment Element.
 export async function createStripeSetupIntent() {
   const { data } = await api.post('/v1/payments/payment-methods/setup-intent', {})
@@ -3149,6 +3194,16 @@ export async function getMedicalProviderDirectory(params?: {
   const query = qs.toString()
   const { data } = await api.get(`/v1/medical-providers/providers${query ? `?${query}` : ''}`)
   return data
+}
+
+/**
+ * Whether attorney-to-provider referrals are turned on. Off by default while
+ * referral-service certification requirements under B&P § 6155(f) are reviewed,
+ * so the page explains that rather than showing an empty directory or a 403.
+ */
+export async function getProviderReferralConfig() {
+  const { data } = await api.get('/v1/medical-providers/config')
+  return data as { referralsEnabled: boolean; disabledReason: string | null }
 }
 
 export async function createProviderReferral(payload: {
@@ -3795,14 +3850,9 @@ export interface MatchingRulesConfig {
   minValueThreshold: number
   geographicExpansionRadiusMiles: number
   routingFeePaymentsEnabled: boolean
-  caseRoutingPricingTiers: Array<{
-    id: string
-    label: string
-    priceCents: number
-    caseTypes: string[]
-    description: string
-    enabled: boolean
-  }>
+  // One flat fee for every accepted case. Deliberately a single number rather
+  // than a per-claim-type schedule so the fee cannot vary with case value.
+  caseRoutingFeeCents: number
   jurisdiction_fit: number
   case_type_fit: number
   economic_fit: number

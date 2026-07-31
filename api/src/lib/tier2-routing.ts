@@ -3,6 +3,7 @@ import { logger } from './logger'
 import { CaseFacts } from './case-tier-classifier'
 import { sendCaseOfferSms } from './sms'
 import { coversClaimType } from './case-type-match'
+import { getCaseRoutingFeeDollars } from './matching-rules-config'
 
 /**
  * Tier 2 Case Routing Engine (Production-ready)
@@ -12,6 +13,9 @@ import { coversClaimType } from './case-type-match'
  * - Subscription-first routing, then fast fixed-price group, then optional auction
  * - Fairness guardrails to avoid monopolies and explore new firms
  * - Progressive disclosure (no PII in offers)
+ *
+ * Tier affects who is offered the case and how, never what it costs: firms pay the
+ * same flat case fee here as in every other tier.
  */
 
 // Configuration constants
@@ -22,12 +26,6 @@ const MAX_SUBSCRIPTION_ATTEMPTS = 3
 const FIXED_GROUP_K = 8
 const AUCTION_GROUP_M = 15
 const MIN_ELIGIBLE_FIRMS = 5
-
-const TIER_2_BASE_PRICE = 300
-const DOCS_BONUS = 50
-const LIABILITY_BONUS = 50
-const STALE_DISCOUNT = 50
-const STALE_DAYS = 180
 
 const DEFAULT_AVG_ACCEPT_SECONDS = 90
 const NEW_FIRM_MAX_OFFERS_30D = 5
@@ -229,26 +227,6 @@ function liabilityBand(score: number): string {
   if (score >= 0.65) return 'Med-High'
   if (score >= 0.5) return 'Med'
   return 'Low'
-}
-
-function computeTier2Price(caseData: Tier2CaseData): number {
-  let price = TIER_2_BASE_PRICE
-
-  if (caseData.docsAvailable) {
-    price += DOCS_BONUS
-  }
-
-  if (caseData.liabilityScore > 0.7) {
-    price += LIABILITY_BONUS
-  }
-
-  if (caseData.timeSinceIncidentDays !== null && caseData.timeSinceIncidentDays !== undefined) {
-    if (caseData.timeSinceIncidentDays > STALE_DAYS) {
-      price -= STALE_DISCOUNT
-    }
-  }
-
-  return Math.max(0, price)
 }
 
 function toFiniteCap(value: number | null | undefined): number {
@@ -979,7 +957,7 @@ export async function routeTier2Case(caseId: string): Promise<Tier2RoutingResult
       ...tier2Check.data!
     }
 
-    const price = computeTier2Price(caseData)
+    const price = await getCaseRoutingFeeDollars()
 
     // STEP 0: Build Eligible Firm Pool
     const { eligible, ineligible } = await buildEligibleFirmPool(caseData, price)

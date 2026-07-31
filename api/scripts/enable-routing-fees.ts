@@ -1,5 +1,5 @@
 /**
- * Enable routing-fee payments locally and apply small Stripe test prices so the
+ * Enable routing-fee payments locally and apply a small Stripe test price so the
  * "pay when you accept a case" flow can be exercised end-to-end without real
  * (production-sized) charges.
  *
@@ -14,16 +14,8 @@ import '../src/env'
 import { saveMatchingRules, DEFAULT_MATCHING_RULES } from '../src/lib/matching-rules-config'
 import { prisma } from '../src/lib/prisma'
 
-// Small, distinct test prices (in cents) keyed by pricing-tier id. Chosen to be
-// clearly non-production while still varying by tier so you can tell which tier
-// a case mapped to during testing.
-const TEST_PRICES_CENTS: Record<string, number> = {
-  qualified_lead: 200, // $2.00
-  attorney_ready: 500, // $5.00
-  high_value: 1000, // $10.00
-  premium: 2000, // $20.00
-  catastrophic_death: 5000, // $50.00
-}
+// Clearly non-production so a stray charge in a test environment is obvious.
+const TEST_CASE_FEE_CENTS = 500 // $5.00
 
 function summarizeDatabaseTarget(): string {
   const raw = process.env.DATABASE_URL
@@ -44,29 +36,21 @@ async function main() {
   if (revert) {
     const updated = await saveMatchingRules({
       routingFeePaymentsEnabled: false,
-      caseRoutingPricingTiers: DEFAULT_MATCHING_RULES.caseRoutingPricingTiers,
+      caseRoutingFeeCents: DEFAULT_MATCHING_RULES.caseRoutingFeeCents,
     })
-    console.log('Routing-fee payments DISABLED; pricing restored to defaults.')
+    console.log('Routing-fee payments DISABLED; case fee restored to the default.')
     console.log(`routingFeePaymentsEnabled = ${updated.routingFeePaymentsEnabled}`)
+    console.log(`caseRoutingFeeCents = ${updated.caseRoutingFeeCents}`)
     return
   }
 
-  const testTiers = DEFAULT_MATCHING_RULES.caseRoutingPricingTiers.map((tier) => ({
-    ...tier,
-    priceCents: TEST_PRICES_CENTS[tier.id] ?? tier.priceCents,
-  }))
-
   const updated = await saveMatchingRules({
     routingFeePaymentsEnabled: true,
-    caseRoutingPricingTiers: testTiers,
+    caseRoutingFeeCents: TEST_CASE_FEE_CENTS,
   })
 
-  console.log('Routing-fee payments ENABLED with test prices:')
-  for (const tier of updated.caseRoutingPricingTiers) {
-    console.log(
-      `  - ${tier.label.padEnd(22)} $${(tier.priceCents / 100).toFixed(2)}  [${tier.caseTypes.join(', ')}]`
-    )
-  }
+  console.log('Routing-fee payments ENABLED with a test price:')
+  console.log(`  - Case fee (all cases)  $${(updated.caseRoutingFeeCents / 100).toFixed(2)}`)
   console.log('\nNote: Stripe must also be configured (STRIPE_SECRET_KEY/STRIPE_PUBLISHABLE_KEY)')
   console.log('for a real charge; otherwise the fee is recorded as "skipped".')
 }

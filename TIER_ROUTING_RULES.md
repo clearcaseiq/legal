@@ -4,6 +4,24 @@ This document provides the exact rules for Tier 1-4 case routing as implemented 
 
 ---
 
+## Case fee
+
+Every accepted case costs the same flat fee, currently **$750**, set once in
+`caseRoutingFeeCents` (Admin → Matching Rules → Pricing) and read by all four tier
+engines through `getCaseRoutingFeeDollars()`.
+
+Tier determines **who** is offered a case, in what order, with what exclusivity, and
+for how long. It never determines **what the case costs**. There are no base prices per
+tier, no modifiers for documents, liability strength, surgery, or catastrophic flags,
+and no discount for stale incidents. Scoring cannot move a file into a more expensive
+price, because there is only one price.
+
+This is deliberate: pricing a referral by the anticipated value of the claim is the
+conduct California Business & Professions Code § 6155(a)(2) is concerned with, so the
+fee is held flat and independent of case value.
+
+---
+
 ## TIER 1 ROUTING RULES
 
 ### Tier 1 Case Definition
@@ -40,7 +58,7 @@ A case qualifies as **Tier 1** if **ALL** of the following conditions are met:
 - **Max Subscription Attempts**: 3
 - **Max Fixed-Price Attempts**: 5
 - **Max Simultaneous Offers**: 1 (Critical safeguard - no mass blasting)
-- **Fixed Price**: $200 (configurable)
+- **Case Fee**: the platform-wide flat fee (see [Case fee](#case-fee))
 
 ---
 
@@ -103,7 +121,7 @@ where normalizedRemainingCases = min(subscriptionRemainingCases / 100, 1)
 #### STEP 2: Fixed-Price Routing
 
 **Fixed-Price Rules:**
-- Fixed price: $200 per case
+- Price: the flat case fee
 - Max exposure: 5 firms
 - Sequential routing (one at a time)
 
@@ -158,9 +176,8 @@ Then:
    - If `firm.accepts > X but converts < Y` → downgrade ranking
    - Currently implemented via ranking metrics
 
-4. **Price Protection**: (Structure in place)
-   - If Tier 1 acceptance rate < threshold → auto-adjust price
-   - Currently uses fixed $200 price
+4. **Price Protection**: not applicable
+   - The fee is flat platform-wide and is not auto-adjusted per tier
 
 ---
 
@@ -197,16 +214,11 @@ A case qualifies as **Tier 2** if **ALL** of the following conditions are met:
 
 ---
 
-### Tier 2 Pricing (single model)
+### Tier 2 Pricing
 
-Base price: **$300** (configurable)
+The platform-wide flat fee (see [Case fee](#case-fee)). No tier modifiers.
 
-Modifiers:
-- **+ $50** if docs included (police report / med bills / photos)
-- **+ $50** if liability score > 0.70
-- **- $50** if timeSinceIncidentDays > 180
-
-Auctions are only a fallback (Phase C).
+Auctions are only a fallback (Phase C), and they clear at the flat fee.
 
 ---
 
@@ -278,9 +290,9 @@ Rules:
 
 Rules:
 - Invite top **M (10–20)** auction-enabled firms
-- Floor price = Tier 2 base price
+- Price = the flat case fee (no bidding above it)
 - Window: **120s**
-- Winning bid = highest bid; tie-break by score
+- Winner = first acceptance; tie-break by score
 
 #### Phase D — Fallback
 
@@ -321,7 +333,7 @@ If not placed:
 - fixedWaitSeconds = 90
 - auctionM = 15
 - auctionSeconds = 120
-- tier2BasePrice = $300
+- price = flat case fee
 
 Quick sanity check:
 Tier 2 should mostly clear in Phase A or B. If Phase C is frequent, pricing is likely too high, eligibility too strict, or firm supply is too low.
@@ -333,8 +345,8 @@ Tier 2 should mostly clear in Phase A or B. If Phase C is frequent, pricing is l
 ### Tier 3 Objectives (High Severity / High Value)
 
 Goal: route high-severity, high-value cases to the best-qualified firms with
-the right expertise and a premium price, while keeping response time fast and
-avoiding winner-take-all dynamics.
+the right expertise, while keeping response time fast and avoiding
+winner-take-all dynamics. The fee is the same flat amount as every other tier.
 
 Primary constraints:
 - Correct jurisdiction + practice fit
@@ -357,17 +369,12 @@ A case qualifies as **Tier 3** if **ALL** of the following conditions are met:
 
 ---
 
-### Tier 3 Pricing (single model)
+### Tier 3 Pricing
 
-Base price: **$1,500** (configurable)
+The platform-wide flat fee (see [Case fee](#case-fee)). No tier modifiers.
 
-Modifiers:
-- **+ $250** if docs included
-- **+ $250** if liability score > 0.70
-- **+ $250** if surgery present
-- **- $200** if timeSinceIncidentDays > 365
-
-Auctions are common for Tier 3 and are treated as the primary fallback.
+Auctions are common for Tier 3 and are treated as the primary fallback. They clear at
+the flat fee.
 
 ---
 
@@ -420,9 +427,9 @@ Rules:
 
 Rules:
 - Invite top **M=10–20** firms
-- Floor price = Tier 3 base price
+- Price = the flat case fee (no bidding above it)
 - Auction window **180s**
-- Winning bid = highest bid (tie-break by score)
+- Winner = first acceptance (tie-break by score)
 
 #### Phase C — Concierge / Manual Review
 
@@ -438,7 +445,7 @@ If no acceptance:
 - exclusiveWaitSeconds = 90
 - auctionM = 15
 - auctionSeconds = 180
-- tier3BasePrice = $1,500
+- price = flat case fee
 
 ---
 
@@ -489,17 +496,11 @@ Tier 4 cases do **not** auto-route without these gates.
 
 ---
 
-### Tier 4 Pricing (premium)
+### Tier 4 Pricing
 
-Base price: **$3,000** (configurable)
-
-Modifiers:
-- **+ $500** if docs included
-- **+ $500** if liability score > 0.70
-- **+ $500** if surgery present
-- **+ $1,000** if catastrophic flags present
-
-Pricing is premium and value-based (no CPC-style race to the bottom).
+The platform-wide flat fee (see [Case fee](#case-fee)). No tier modifiers, and no
+premium for catastrophic damages: a wrongful-death file costs a firm exactly what a
+minor soft-tissue file costs.
 
 ---
 
@@ -558,7 +559,7 @@ Guardrails:
 - exclusiveWaitSeconds = 2700 (45 minutes)
 - auctionM = 5
 - auctionSeconds = 5400 (90 minutes)
-- tier4BasePrice = $3,000
+- price = flat case fee
 
 ## KEY DIFFERENCES: Tier 1 vs Tier 2 vs Tier 3 vs Tier 4
 
@@ -569,7 +570,7 @@ Guardrails:
 | **Surgery** | ❌ Not allowed | ✅ Allowed (minor) | ✅ Common | ✅ Often |
 | **Medical Paid** | < $10,000 | ≤ $50,000 | Higher / variable | High / long-term |
 | **Catastrophic Threshold** | $50k med charges | $100k med charges | Allowed (Tier 4 handles $250k+) | Core requirement |
-| **Pricing Model** | Fixed | Fixed + modifiers | Fixed + auction | Premium + concierge |
+| **Fee** | Flat case fee | Flat case fee | Flat case fee | Flat case fee |
 | **Primary Flow** | Sequential | Subscription → Group fixed | Exclusive → Auction | Concierge → Limited auction |
 | **Exclusive Wait** | 45 seconds | 45 seconds | 90 seconds | 30–60 minutes |
 

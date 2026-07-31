@@ -343,68 +343,7 @@ export default function AdminMatchingRules() {
       jurisdictionGateOverrides: (config.jurisdictionGateOverrides || []).filter((_, itemIndex) => itemIndex !== index),
     })
   }
-  const updatePricingTier = (
-    index: number,
-    updates: Partial<MatchingRulesConfig['caseRoutingPricingTiers'][number]>
-  ) => {
-    const tiers = [...(config.caseRoutingPricingTiers || [])]
-    tiers[index] = { ...tiers[index], ...updates }
-    update({ caseRoutingPricingTiers: tiers })
-  }
-  const addPricingTier = () => {
-    const nextIndex = (config.caseRoutingPricingTiers || []).length + 1
-    update({
-      caseRoutingPricingTiers: [
-        ...(config.caseRoutingPricingTiers || []),
-        {
-          id: `custom_tier_${nextIndex}`,
-          label: `Custom Tier ${nextIndex}`,
-          priceCents: 100000,
-          caseTypes: [],
-          description: 'Custom per-case routing fee tier.',
-          enabled: true,
-        },
-      ],
-    })
-  }
-  const removePricingTier = (index: number) => {
-    update({
-      caseRoutingPricingTiers: (config.caseRoutingPricingTiers || []).filter((_, itemIndex) => itemIndex !== index),
-    })
-  }
-  const normalizeCaseTypeKey = (value: string) => value.trim().toLowerCase().replace(/\s+/g, '_')
   const claimTypeLabel = (claimType: string) => CLAIM_TYPE_LABELS[claimType] || claimType.replace(/_/g, ' ')
-  const moveCaseTypeToPricingTier = (caseType: string, targetIndex: number) => {
-    const normalized = normalizeCaseTypeKey(caseType)
-    if (!normalized) return
-    const tiers = (config.caseRoutingPricingTiers || []).map((tier, index) => {
-      const withoutCaseType = (tier.caseTypes || []).filter((item) => item !== normalized)
-      return {
-        ...tier,
-        caseTypes: index === targetIndex ? [...new Set([...withoutCaseType, normalized])] : withoutCaseType,
-      }
-    })
-    update({ caseRoutingPricingTiers: tiers })
-  }
-  const removeCaseTypeFromPricingTier = (index: number, caseType: string) => {
-    const tiers = [...(config.caseRoutingPricingTiers || [])]
-    tiers[index] = {
-      ...tiers[index],
-      caseTypes: (tiers[index].caseTypes || []).filter((item) => item !== caseType),
-    }
-    update({ caseRoutingPricingTiers: tiers })
-  }
-  const assignedPricingCaseTypes = new Set(
-    (config.caseRoutingPricingTiers || []).flatMap((tier) => tier.caseTypes || [])
-  )
-  const knownPricingCaseTypes = [
-    ...new Set([
-      ...CLAIM_TYPE_OPTIONS.map(([value]) => value),
-      ...(config.supportedClaimTypes || []),
-      ...(config.caseRoutingPricingTiers || []).flatMap((tier) => tier.caseTypes || []),
-    ]),
-  ].sort((a, b) => claimTypeLabel(a).localeCompare(claimTypeLabel(b)))
-  const unassignedPricingCaseTypes = knownPricingCaseTypes.filter((claimType) => !assignedPricingCaseTypes.has(claimType))
   const formatCurrency = (priceCents: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format((priceCents || 0) / 100)
   const supportedJurisdictionCount = config.supportedJurisdictions?.length || 0
@@ -1200,9 +1139,10 @@ export default function AdminMatchingRules() {
       <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-800">Per-case routing fees</h2>
+            <h2 className="text-lg font-semibold text-slate-800">Per-case fee</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Launch pricing tiers for exclusive PI case routing. Admins can change prices, descriptions, and case-type mappings anytime.
+              One flat fee for every accepted case. There is intentionally no way to set a different
+              price by claim type, injury severity, or expected recovery.
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:items-end">
@@ -1222,13 +1162,6 @@ export default function AdminMatchingRules() {
               />
               {config.routingFeePaymentsEnabled ? 'Stripe payments on' : 'Stripe payments off'}
             </button>
-            <button
-              type="button"
-              onClick={addPricingTier}
-              className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-            >
-              Add tier
-            </button>
           </div>
         </div>
 
@@ -1238,202 +1171,43 @@ export default function AdminMatchingRules() {
             : 'border-amber-200 bg-amber-50 text-amber-900'
         }`}>
           {config.routingFeePaymentsEnabled
-            ? 'Stripe checkout is enabled for case acceptance when a pricing tier applies.'
-            : 'Stripe checkout is currently bypassed. Attorneys can accept cases without payment while pricing tiers remain saved.'}
+            ? 'Stripe checkout is enabled for case acceptance.'
+            : 'Stripe checkout is currently bypassed. Attorneys can accept cases without payment while the fee amount remains saved.'}
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {(config.caseRoutingPricingTiers || []).map((tier) => (
-            <button
-              key={tier.id}
-              type="button"
-              onClick={() => document.getElementById(`pricing-tier-${tier.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-              className={`rounded-lg border px-4 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${
-                tier.enabled ? 'border-brand-200 bg-brand-50' : 'border-slate-200 bg-slate-50'
-              }`}
-            >
-              <p className="text-xs font-medium text-slate-500">{tier.label}</p>
-              <p className="mt-1 text-lg font-bold text-slate-900">{formatCurrency(tier.priceCents)}</p>
-              <p className="mt-1 text-xs text-slate-600">{tier.caseTypes.length} case types</p>
-              <p className="mt-2 text-xs font-medium text-brand-700">Edit tier</p>
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-800">Unassigned case types</h3>
-              <p className="mt-1 text-xs text-slate-500">
-                Add these to a tier below. Moving a case type into a tier removes it from any other tier automatically.
-              </p>
-            </div>
-            <span className="text-xs font-medium text-slate-500">{unassignedPricingCaseTypes.length} unassigned</span>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {unassignedPricingCaseTypes.length === 0 ? (
-              <span className="text-sm text-slate-500">All known case types are assigned to pricing tiers.</span>
-            ) : (
-              unassignedPricingCaseTypes.map((claimType) => (
-                <span key={claimType} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700">
-                  {claimTypeLabel(claimType)}
-                </span>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="mt-6 space-y-5">
-          {(config.caseRoutingPricingTiers || []).length === 0 ? (
-            <div className="rounded-xl border border-slate-200 px-4 py-5 text-sm text-slate-500">No pricing tiers configured.</div>
-          ) : (
-            (config.caseRoutingPricingTiers || []).map((tier, index) => (
-              <div id={`pricing-tier-${tier.id}`} key={`${tier.id}-${index}`} className="scroll-mt-28 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="mb-5 flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-900">{tier.label || 'Untitled tier'}</h3>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {formatCurrency(tier.priceCents)} · {(tier.caseTypes || []).length} case type{(tier.caseTypes || []).length === 1 ? '' : 's'}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removePricingTier(index)}
-                    aria-label={`Remove tier ${tier.label}`}
-                    className="w-full rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 sm:w-auto"
-                  >
-                    Remove tier
-                  </button>
-                </div>
-
-                <div className="grid gap-4 lg:grid-cols-12">
-                <div className="lg:col-span-4">
-                  <label className="block">
-                    <span className="text-xs font-medium text-slate-600">Tier name</span>
-                    <input
-                      type="text"
-                      value={tier.label}
-                      onChange={(e) => updatePricingTier(index, { label: e.target.value })}
-                      className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    />
-                  </label>
-                  <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={tier.enabled}
-                      onChange={(e) => updatePricingTier(index, { enabled: e.target.checked })}
-                      className="h-4 w-4 rounded border-slate-300"
-                    />
-                    Enabled
-                  </label>
-                </div>
-
-                <div className="lg:col-span-3">
-                  <label className="block">
-                    <span className="text-xs font-medium text-slate-600">Routing fee</span>
-                    <div className="mt-1 flex items-center rounded-md border border-slate-300 bg-white">
-                      <span className="px-3 text-sm text-slate-500">$</span>
-                      <input
-                        type="number"
-                        min={0}
-                        step={50}
-                        value={Math.round((tier.priceCents || 0) / 100)}
-                        onChange={(e) => updatePricingTier(index, { priceCents: Math.max(0, parseInt(e.target.value, 10) || 0) * 100 })}
-                        className="block w-full border-0 px-0 py-2 pr-3 text-sm focus:ring-0"
-                      />
-                    </div>
-                  </label>
-                </div>
-
-                <div className="lg:col-span-5">
-                  <label className="block">
-                    <span className="text-xs font-medium text-slate-600">Description / when to use</span>
-                    <textarea
-                      value={tier.description}
-                      onChange={(e) => updatePricingTier(index, { description: e.target.value })}
-                      rows={3}
-                      className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    />
-                  </label>
-                </div>
-                </div>
-
-                <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h4 className="text-sm font-semibold text-slate-800">Case types in this tier</h4>
-                      <p className="text-xs text-slate-500">Move case types here with the chooser below, or remove them from this tier.</p>
-                    </div>
-                    <span className="text-xs font-medium text-slate-500">{(tier.caseTypes || []).length} assigned</span>
-                  </div>
-
-                  <div className="mt-3 min-h-16 rounded-lg border border-slate-200 bg-white p-3">
-                    {(tier.caseTypes || []).length === 0 ? (
-                      <p className="px-2 py-2 text-xs text-slate-500">No case types assigned.</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {(tier.caseTypes || []).map((claimType) => (
-                          <span key={claimType} className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-xs font-medium text-emerald-800">
-                            {claimTypeLabel(claimType)}
-                            <button
-                              type="button"
-                              onClick={() => removeCaseTypeFromPricingTier(index, claimType)}
-                              className="ml-1 rounded-full border border-emerald-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 hover:bg-emerald-50"
-                              aria-label={`Remove ${claimTypeLabel(claimType)} from ${tier.label}`}
-                            >
-                              Remove
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <label className="block">
-                      <span className="text-xs font-medium text-slate-600">Choose case type</span>
-                      <select
-                        value=""
-                        aria-label="Choose case type"
-                        onChange={(e) => {
-                          moveCaseTypeToPricingTier(e.target.value, index)
-                          e.currentTarget.value = ''
-                        }}
-                        className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                      >
-                        <option value="">Choose a case type...</option>
-                        {knownPricingCaseTypes
-                          .filter((claimType) => !(tier.caseTypes || []).includes(claimType))
-                          .map((claimType) => (
-                            <option key={claimType} value={claimType}>
-                              {claimTypeLabel(claimType)}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                    <label className="block">
-                      <span className="text-xs font-medium text-slate-600">Add custom case type</span>
-                      <input
-                        type="text"
-                        placeholder="custom_case_type"
-                        onKeyDown={(e) => {
-                          if (e.key !== 'Enter') return
-                          e.preventDefault()
-                          moveCaseTypeToPricingTier(e.currentTarget.value, index)
-                          e.currentTarget.value = ''
-                        }}
-                        className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                      />
-                    </label>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">Choosing a case type moves it into this tier and removes it from any other tier. Type a custom key and press Enter to add it.</p>
-                </div>
+        <div className="mt-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">Fee per accepted case</span>
+              <div className="mt-1 flex items-center rounded-md border border-slate-300 bg-white">
+                <span className="px-3 text-sm text-slate-500">$</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={50}
+                  value={Math.round((config.caseRoutingFeeCents || 0) / 100)}
+                  onChange={(e) =>
+                    update({ caseRoutingFeeCents: Math.max(0, parseInt(e.target.value, 10) || 0) * 100 })
+                  }
+                  className="block w-full border-0 px-0 py-2 pr-3 text-sm focus:ring-0"
+                />
               </div>
-            ))
-          )}
+              <span className="mt-2 block text-xs text-slate-500">
+                Set to $0 to let attorneys accept cases without a fee.
+              </span>
+            </label>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-xs font-medium text-slate-500">Every accepted case</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900">{formatCurrency(config.caseRoutingFeeCents)}</p>
+              <p className="mt-1 text-xs text-slate-600">Same amount for all claim types</p>
+            </div>
+          </div>
         </div>
 
         <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          These are routing fees, not fee shares. Case type is the baseline tier; severe injuries, surgery, clear liability, or death can later upgrade a case into a higher tier through scoring.
+          This is a flat fee for platform and marketing services, not a share of any recovery. It does not
+          change with claim type, injury severity, case score, or expected settlement value, and case
+          scoring cannot move a file into a more expensive price.
         </div>
       </section>
       </>

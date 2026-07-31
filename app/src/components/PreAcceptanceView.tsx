@@ -193,7 +193,6 @@ export default function PreAcceptanceView({
   const routingFee = typeof routingPricing?.priceCents === 'number'
     ? formatCurrency(routingPricing.priceCents / 100)
     : null
-  const routingTierLabel = routingPricing?.tierLabel || 'Pricing tier not assigned'
   const rawCaseScore = Number(selectedLead?.viabilityScore ?? viability?.overall ?? 0)
   const caseScore = rawCaseScore <= 1 ? Math.round(rawCaseScore * 100) : Math.min(100, Math.round(rawCaseScore))
   const hasCaseScore = caseScore > 0

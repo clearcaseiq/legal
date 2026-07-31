@@ -29,6 +29,7 @@ import MergeTasksDialog from './MergeTasksDialog'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { formatClaimType } from '../../lib/claimTypes'
 import { caseCaptionOf } from '../../lib/caseName'
+import { todayDateKey } from '../../lib/taskDueDate'
 
 interface TaskRow {
   id: string
@@ -747,6 +748,7 @@ export default function TasksPage() {
               <input
                 type="date"
                 value={form.dueDate}
+                min={todayDateKey()}
                 onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
               />

@@ -32,17 +32,29 @@ export interface JurisdictionGateOverride {
   action?: GateHoldAction
 }
 
-export interface CaseRoutingPricingTier {
+/**
+ * One flat fee for every accepted case, regardless of claim type, severity or
+ * expected recovery.
+ *
+ * This replaced a five-band schedule that ran from $250 for a "qualified lead" to
+ * $7,500 for catastrophic injury and wrongful death. Even though it was never a
+ * percentage of recovery, pricing the fee by anticipated case value is the feature
+ * B&P § 6155(a)(2) is concerned with, and case scoring could promote a file into a
+ * more expensive band. A single amount removes the question entirely: what the
+ * attorney pays cannot vary with what the case is thought to be worth.
+ *
+ * The amount stays administrator-editable, but it is one number for all cases —
+ * there is deliberately no way to configure it per claim type.
+ */
+export const FLAT_CASE_ROUTING_FEE_CENTS = 75_000
+
+/** Descriptor for the flat fee, in the shape the checkout and lead views expect. */
+export interface CaseRoutingFee {
   id: string
   label: string
   priceCents: number
-  caseTypes: string[]
   description: string
   enabled: boolean
-  // When no tier's caseTypes match a case's claim type, the tier flagged as
-  // default is used so a routable case is never left unpriced. If no tier is
-  // flagged, the lowest-priced enabled tier is used as the fallback.
-  isDefault?: boolean
 }
 
 export interface AttorneySubscriptionTier {
@@ -86,7 +98,7 @@ export interface MatchingRulesConfig {
   minValueThreshold: number
   geographicExpansionRadiusMiles: number
   routingFeePaymentsEnabled: boolean
-  caseRoutingPricingTiers: CaseRoutingPricingTier[]
+  caseRoutingFeeCents: number
   attorneySubscriptionTiers: AttorneySubscriptionTier[]
 
   // Ranking weights (0-1, must sum to 1)
@@ -150,64 +162,7 @@ export const DEFAULT_MATCHING_RULES: MatchingRulesConfig = {
   minValueThreshold: 0,
   geographicExpansionRadiusMiles: 50,
   routingFeePaymentsEnabled: false,
-  caseRoutingPricingTiers: [
-    {
-      id: 'qualified_lead',
-      label: 'Qualified Lead',
-      priceCents: 25000,
-      caseTypes: ['pi', 'other_pi', 'product', 'mass_tort'],
-      description: 'Low-value or early intake PI opportunities that need more development before premium routing.',
-      enabled: true,
-    },
-    {
-      id: 'attorney_ready',
-      label: 'Attorney-Ready Case',
-      priceCents: 75000,
-      caseTypes: [
-        'auto',
-        'auto_accident',
-        'slip_and_fall',
-        'premises',
-        'personal_injury',
-        'car_accident',
-        'motor_vehicle',
-        'motor_vehicle_accident',
-        'truck_accident',
-        'motorcycle_accident',
-        'pedestrian_accident',
-        'bicycle_accident',
-        'rideshare_accident',
-      ],
-      description: 'Standard routable PI cases with enough facts for attorney review, but no major value enhancer yet.',
-      enabled: true,
-      // Fallback tier for any routable claim type not explicitly priced above.
-      isDefault: true,
-    },
-    {
-      id: 'high_value',
-      label: 'High-Value Case',
-      priceCents: 150000,
-      caseTypes: ['dog_bite', 'workplace_injury'],
-      description: 'Clearer liability, stronger damages, scarring, third-party workplace exposure, or meaningful treatment.',
-      enabled: true,
-    },
-    {
-      id: 'premium',
-      label: 'Premium Case',
-      priceCents: 350000,
-      caseTypes: ['medmal', 'nursing_home_abuse', 'elder_abuse', 'high_severity_surgery'],
-      description: 'Complex or serious injury cases with higher expected value and higher attorney diligence burden.',
-      enabled: true,
-    },
-    {
-      id: 'catastrophic_death',
-      label: 'Catastrophic / Death',
-      priceCents: 750000,
-      caseTypes: ['wrongful_death', 'catastrophic_injury'],
-      description: 'Wrongful death, paralysis, TBI, amputation, severe burns, or other catastrophic damages.',
-      enabled: true,
-    },
-  ],
+  caseRoutingFeeCents: FLAT_CASE_ROUTING_FEE_CENTS,
   attorneySubscriptionTiers: [
     {
       id: 'starter',
@@ -363,31 +318,36 @@ export function getAttorneyResponseDeadlineMinutes(config: MatchingRulesConfig):
   )
 }
 
-function normalizeClaimType(value: unknown): string {
-  return String(value || '').trim().toLowerCase().replace(/\s+/g, '_')
+/**
+ * The flat case fee in whole dollars, for the tier-routing modules that quote a
+ * price to firms in dollars rather than cents.
+ */
+export async function getCaseRoutingFeeDollars(): Promise<number> {
+  const config = await getMatchingRules()
+  return Math.round(getCaseRoutingFeeCents(config) / 100)
 }
 
-export function getCaseRoutingPricingForClaimType(
-  config: MatchingRulesConfig,
-  claimType: unknown
-): CaseRoutingPricingTier | null {
-  const enabledTiers = (config.caseRoutingPricingTiers || []).filter((tier) => tier.enabled !== false)
-  if (enabledTiers.length === 0) return null
+export function getCaseRoutingFeeCents(config: MatchingRulesConfig): number {
+  const configured = Number(config.caseRoutingFeeCents)
+  if (!Number.isFinite(configured) || configured < 0) return FLAT_CASE_ROUTING_FEE_CENTS
+  return Math.round(configured)
+}
 
-  const normalizedClaimType = normalizeClaimType(claimType)
-  if (normalizedClaimType) {
-    const exact = enabledTiers.find((tier) =>
-      (tier.caseTypes || []).map(normalizeClaimType).includes(normalizedClaimType)
-    )
-    if (exact) return exact
+/**
+ * The fee for accepting a case. Takes no case argument by design: the same amount
+ * applies to every case, so there is nothing about the case to look up.
+ */
+export function getCaseRoutingFee(config: MatchingRulesConfig): CaseRoutingFee | null {
+  const priceCents = getCaseRoutingFeeCents(config)
+  if (priceCents <= 0) return null
+  return {
+    id: 'flat_case_fee',
+    label: 'Case fee',
+    priceCents,
+    description:
+      'A single flat fee for every accepted case. It does not vary by claim type, injury severity, or expected recovery.',
+    enabled: true,
   }
-
-  // No tier explicitly prices this claim type. Fall back so a routable case is
-  // never left "unpriced": prefer a tier flagged isDefault, otherwise the
-  // lowest-priced enabled tier.
-  const explicitDefault = enabledTiers.find((tier) => tier.isDefault)
-  if (explicitDefault) return explicitDefault
-  return [...enabledTiers].sort((a, b) => (a.priceCents ?? 0) - (b.priceCents ?? 0))[0] || null
 }
 
 export function getAttorneySubscriptionTier(

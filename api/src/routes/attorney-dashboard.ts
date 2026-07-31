@@ -11,6 +11,7 @@ import { webUrl } from '../lib/app-url'
 import { taskCreatorName } from '../lib/ai-author'
 import { MAX_CASE_NAME_LENGTH, normalizeCaseName, plaintiffNameOf, resolveCaseName } from '../lib/case-name'
 import { ENGAGED_LEAD_STATUSES, isEngagedLeadStatus } from '../lib/lead-status'
+import { parseTaskDueDate } from '../lib/task-due-date'
 import { buildMergedSurvivor, reminderMessagesFor, validateMerge } from '../lib/task-merge'
 import { runAnalysisForAssessment } from './evidence'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
@@ -69,7 +70,7 @@ import {
 import {
   formatAttorneyResponseDeadline,
   getAttorneyResponseDeadlineMinutes,
-  getCaseRoutingPricingForClaimType,
+  getCaseRoutingFee,
   getMatchingRules,
 } from '../lib/matching-rules-config'
 
@@ -264,6 +265,40 @@ function buildLeadVisibilityOr(attorneyId: string, firm: FirmVisibility, extra: 
       { assignedAttorney: { lawFirmId: firm.lawFirmId } },
       { assessment: { lawFirmId: firm.lawFirmId } },
       { assessment: { introductions: { some: { attorney: { lawFirmId: firm.lawFirmId }, status: { notIn: [...TERMINAL_INTRO_STATUSES] } } } } },
+    )
+  }
+  return or
+}
+
+/**
+ * Visibility for surfaces that may only offer cases the attorney actually holds
+ * — the scheduling, task, messaging and document pickers.
+ *
+ * Deliberately narrower than `buildLeadVisibilityOr` in two ways. It drops the
+ * blanket `assignmentType: 'shared'` term, which carries no attorney predicate
+ * at all and therefore matches every unassigned lead in the table for every
+ * caller; and it requires an ACCEPTED introduction rather than merely a
+ * non-terminal one, so a pending offer does not count as a case in hand.
+ *
+ * Accepting a case sets `assignedAttorneyId`, so the first term covers the
+ * normal path. The second covers a case engaged through the introduction
+ * lifecycle without the lead row being reassigned.
+ *
+ * Filtering by engaged *status* alone was not enough: status describes the row's
+ * lifecycle, never the caller's relationship to it, so a newly registered
+ * attorney who had accepted nothing was still offered other people's cases
+ * (CP-481).
+ */
+function buildEngagedLeadVisibilityOr(attorneyId: string, firm: FirmVisibility): any[] {
+  const or: any[] = [
+    { assignedAttorneyId: attorneyId },
+    { assessment: { introductions: { some: { attorneyId, status: 'ACCEPTED' } } } },
+  ]
+  if (firm.canViewAllCases && firm.lawFirmId) {
+    or.push(
+      { assignedAttorney: { lawFirmId: firm.lawFirmId } },
+      { assessment: { lawFirmId: firm.lawFirmId } },
+      { assessment: { introductions: { some: { attorney: { lawFirmId: firm.lawFirmId }, status: 'ACCEPTED' } } } },
     )
   }
   return or
@@ -1667,13 +1702,6 @@ function sanitizeLeadForAttorney(lead: any) {
     : lead
 }
 
-function getPricingClaimType(assessment: any) {
-  const facts = typeof assessment?.facts === 'string'
-    ? safeJsonParse<Record<string, any>>(assessment.facts, {})
-    : (assessment?.facts || {})
-  return facts?.caseTypeValidation?.validatedClaimType || assessment?.claimType
-}
-
 function pickLatestPrediction(predictions: any[] | undefined) {
   if (!Array.isArray(predictions) || predictions.length === 0) return null
   return [...predictions].sort((a, b) => {
@@ -2952,6 +2980,7 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
     }
 
     const matchingRules = await getMatchingRules()
+    const caseFee = getCaseRoutingFee(matchingRules)
     const responseDeadlineMinutes = getAttorneyResponseDeadlineMinutes(matchingRules)
     const responseDeadlineLabel = formatAttorneyResponseDeadline(responseDeadlineMinutes)
 
@@ -2978,18 +3007,14 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       const expiresAt = requestedAt
         ? new Date(requestedAt.getTime() + responseDeadlineMinutes * 60 * 1000)
         : null
-      const pricingClaimType = getPricingClaimType(l.assessment)
-      const pricingTier = getCaseRoutingPricingForClaimType(matchingRules, pricingClaimType)
       return sanitizeLeadForAttorney({
         ...l,
         messaging: msg,
-        routingPricing: pricingTier
+        routingPricing: caseFee
           ? {
-              tierId: pricingTier.id,
-              tierLabel: pricingTier.label,
-              priceCents: pricingTier.priceCents,
-              claimType: pricingClaimType,
-              description: pricingTier.description,
+              label: caseFee.label,
+              priceCents: caseFee.priceCents,
+              description: caseFee.description,
             }
           : null,
         responseDeadlineMinutes,
@@ -5354,9 +5379,16 @@ router.get('/leads/filtered', authMiddleware, async (req: any, res) => {
       limit = 20
     } = req.query
 
+    // An explicit `status` filter takes precedence over `engagedOnly` below, so
+    // the narrower visibility only applies when `engagedOnly` is actually in
+    // force.
+    const engagedCaseloadOnly = engagedOnly === 'true' && !status
+
     // Build query filters. Firm admins see cases routed to any firm attorney (CP-299).
     const whereClause: any = {
-      OR: buildLeadVisibilityOr(attorneyId, firmVisibility, [{ assignmentType: 'shared' }])
+      OR: engagedCaseloadOnly
+        ? buildEngagedLeadVisibilityOr(attorneyId, firmVisibility)
+        : buildLeadVisibilityOr(attorneyId, firmVisibility, [{ assignmentType: 'shared' }])
     }
 
     if (caseType) whereClause.assessment = { claimType: caseType }
@@ -5386,11 +5418,13 @@ router.get('/leads/filtered', authMiddleware, async (req: any, res) => {
         : requestedStatuses
       if (statusValues.length === 1) whereClause.status = statusValues[0]
       else if (statusValues.length > 1) whereClause.status = { in: statusValues }
-    } else if (engagedOnly === 'true') {
+    } else if (engagedCaseloadOnly) {
       // Case pickers for scheduling, messaging and documents must only offer
       // cases the attorney has actually taken. They used to request every lead
       // and filter in the client, so an offered-but-unaccepted case could still
-      // be selected (CP-426).
+      // be selected (CP-426). The status filter pairs with the narrowed
+      // visibility clause above — status alone let another attorney's engaged
+      // case through (CP-481).
       whereClause.status = { in: [...ENGAGED_LEAD_STATUSES] }
     }
 
@@ -10275,6 +10309,15 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
       return res.status(400).json({ error: 'title is required' })
     }
 
+    // A person is typing this one, so a due date that has already passed is a
+    // mistake rather than a historical fact (CP-479). Automated writers that
+    // legitimately backdate — the SOL task, case import, task merge — do not
+    // come through here.
+    const parsedDueDate = parseTaskDueDate(dueDate)
+    if (!parsedDueDate.ok) {
+      return res.status(400).json({ error: parsedDueDate.error })
+    }
+
     // When a specific person is chosen, denormalize their name/role for display.
     // The directory only holds firm staff, so letting it win would quietly
     // downgrade an explicit "client" assignment into an internal task.
@@ -10294,7 +10337,7 @@ router.post('/leads/:leadId/tasks', authMiddleware, async (req: any, res) => {
       data: {
         assessmentId: lead.assessmentId,
         title,
-        dueDate: dueDate ? new Date(dueDate) : null,
+        dueDate: parsedDueDate.dueDate,
         reminderAt: reminderAt ? new Date(reminderAt) : null,
         priority: priority || 'medium',
         status: status || 'open',
@@ -10475,6 +10518,13 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
       return res.status(404).json({ error: 'Task not found' })
     }
 
+    // Only when the caller is actually changing the date. An already-overdue task
+    // — an expired SOL, say — stays editable in every other respect (CP-479).
+    const parsedDueDate = dueDate !== undefined ? parseTaskDueDate(dueDate) : null
+    if (parsedDueDate && !parsedDueDate.ok) {
+      return res.status(400).json({ error: parsedDueDate.error })
+    }
+
     // Resolve/denormalize assignee when a person is (re)selected or cleared.
     // As on create, an explicit "client" assignment outranks the staff directory.
     let assigneeUpdate: Record<string, any> = {}
@@ -10502,7 +10552,7 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
       where: { id },
       data: {
         ...(title !== undefined ? { title } : {}),
-        ...(dueDate !== undefined ? { dueDate: dueDate ? new Date(dueDate) : null } : {}),
+        ...(parsedDueDate?.ok ? { dueDate: parsedDueDate.dueDate } : {}),
         ...(priority !== undefined ? { priority } : {}),
         ...(status !== undefined ? { status } : {}),
         ...(notes !== undefined ? { notes } : {}),
@@ -13402,8 +13452,7 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
       }
     })
     const matchingRules = await getMatchingRules()
-    const pricingClaimType = getPricingClaimType(assessment)
-    const pricingTier = getCaseRoutingPricingForClaimType(matchingRules, pricingClaimType)
+    const caseFee = getCaseRoutingFee(matchingRules)
 
     // Backfill: older leads created before the scene feature (or with no image yet)
     // get one generated on first open (non-blocking). Reflect that as "pending".
@@ -13415,13 +13464,11 @@ router.get('/leads/:leadId', authMiddleware, async (req: any, res) => {
 
     res.json({
       ...lead,
-      routingPricing: pricingTier
+      routingPricing: caseFee
         ? {
-            tierId: pricingTier.id,
-            tierLabel: pricingTier.label,
-            priceCents: pricingTier.priceCents,
-            claimType: pricingClaimType,
-            description: pricingTier.description,
+            label: caseFee.label,
+            priceCents: caseFee.priceCents,
+            description: caseFee.description,
           }
         : null,
       assessment: assessment

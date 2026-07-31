@@ -196,7 +196,12 @@ export default function TasksScreen() {
     setDueDate(toDateKey(d))
   }
 
-  const dueDateValid = !dueDate.trim() || /^\d{4}-\d{2}-\d{2}$/.test(dueDate.trim())
+  // The server rejects a past due date, so the picker greys those days out
+  // rather than letting the form be filled in and then refused (CP-479).
+  const earliestDueDate = toDateKey(new Date())
+  const dueDateValid =
+    !dueDate.trim() ||
+    (/^\d{4}-\d{2}-\d{2}$/.test(dueDate.trim()) && dueDate.trim() >= earliestDueDate)
   // Format from the local calendar day so a date never renders one day early in
   // negative UTC offsets (`new Date('2026-07-15')` parses as UTC midnight).
   const dueDatePreview = dueDate.trim() ? formatDateKeyLong(dueDate.trim()) || null : null
@@ -401,7 +406,9 @@ export default function TasksScreen() {
                 <Text style={[styles.dateFieldValue, !dueDate.trim() && styles.dateFieldPlaceholder]}>
                   {dueDatePreview || 'No due date'}
                 </Text>
-                <Text style={styles.dateFieldHint}>Tap to open the calendar</Text>
+                <Text style={styles.dateFieldHint}>
+                  {dueDateValid ? 'Tap to open the calendar' : 'Pick today or a later date'}
+                </Text>
               </View>
               <Ionicons name="calendar-outline" size={20} color={colors.primary} />
             </TouchableOpacity>
@@ -470,7 +477,8 @@ export default function TasksScreen() {
 
           <CalendarDatePicker
             visible={duePickerOpen}
-            value={dueDate.trim() || toDateKey(new Date())}
+            value={dueDate.trim() || earliestDueDate}
+            minDate={earliestDueDate}
             onSelect={setDueDate}
             onClose={() => setDuePickerOpen(false)}
             title="Due date"

@@ -101,6 +101,7 @@ import { BackButton, EmptyState } from '../shared/ui'
 import { recordRecentCase } from './recentCases'
 import { formatClaimType } from '../../lib/claimTypes'
 import { resolveCaseName, suggestedCaseName } from '../../lib/caseName'
+import { todayDateKey } from '../../lib/taskDueDate'
 import CaseNameEditor from './CaseNameEditor'
 import DemandLetterWorkspace from './DemandLetterWorkspace'
 
@@ -4066,6 +4067,7 @@ function TasksPanel({
                 <input
                   type="date"
                   value={form.dueDate}
+                  min={todayDateKey()}
                   onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
                 />

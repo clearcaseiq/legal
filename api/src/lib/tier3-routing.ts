@@ -3,6 +3,7 @@ import { logger } from './logger'
 import { CaseFacts } from './case-tier-classifier'
 import { sendCaseOfferSms } from './sms'
 import { coversClaimType } from './case-type-match'
+import { getCaseRoutingFeeDollars } from './matching-rules-config'
 
 /**
  * Tier 3 Case Routing Engine (High Severity / High Value)
@@ -12,6 +13,9 @@ import { coversClaimType } from './case-type-match'
  * - Use exclusive matching first, then a high-signal auction fallback
  * - Maintain fairness without sacrificing outcomes
  * - Progressive disclosure: no PII before acceptance
+ *
+ * Tier affects who is offered the case and how, never what it costs: firms pay the
+ * same flat case fee here as in every other tier.
  */
 
 const TIER_3_EXCLUSIVE_TIMEOUT_SECONDS = 90
@@ -19,13 +23,6 @@ const TIER_3_AUCTION_TIMEOUT_SECONDS = 180
 const MAX_EXCLUSIVE_ATTEMPTS = 2
 const AUCTION_GROUP_M = 15
 const MIN_ELIGIBLE_FIRMS = 5
-
-const TIER_3_BASE_PRICE = 1500
-const DOCS_BONUS = 250
-const LIABILITY_BONUS = 250
-const SURGERY_BONUS = 250
-const STALE_DISCOUNT = 200
-const STALE_DAYS = 365
 
 const DEFAULT_AVG_ACCEPT_SECONDS = 180
 const ANTI_MONOPOLY_WIN_SHARE_THRESHOLD = 0.4
@@ -214,30 +211,6 @@ function liabilityBand(score: number): string {
   if (score >= 0.65) return 'Med-High'
   if (score >= 0.5) return 'Med'
   return 'Low'
-}
-
-function computeTier3Price(caseData: Tier3CaseData): number {
-  let price = TIER_3_BASE_PRICE
-
-  if (caseData.docsAvailable) {
-    price += DOCS_BONUS
-  }
-
-  if (caseData.liabilityScore > 0.7) {
-    price += LIABILITY_BONUS
-  }
-
-  if (caseData.hasSurgery) {
-    price += SURGERY_BONUS
-  }
-
-  if (caseData.timeSinceIncidentDays !== null && caseData.timeSinceIncidentDays !== undefined) {
-    if (caseData.timeSinceIncidentDays > STALE_DAYS) {
-      price -= STALE_DISCOUNT
-    }
-  }
-
-  return Math.max(0, price)
 }
 
 function toFiniteCap(value: number | null | undefined): number {
@@ -944,7 +917,7 @@ export async function routeTier3Case(caseId: string): Promise<Tier3RoutingResult
       ...tier3Check.data!
     }
 
-    const price = computeTier3Price(caseData)
+    const price = await getCaseRoutingFeeDollars()
 
     const { eligible, ineligible } = await buildEligibleFirmPool(caseData, price)
 

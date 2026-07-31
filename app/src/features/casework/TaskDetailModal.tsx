@@ -23,6 +23,7 @@ import {
   Undo2,
   Sparkles,
 } from 'lucide-react'
+import { todayDateKey } from '../../lib/taskDueDate'
 import {
   getTaskDetail,
   updateLeadTask,
@@ -432,6 +433,9 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                   <input
                     type="date"
                     value={toDateInput(task.dueDate)}
+                    // An already-overdue task (an expired SOL, say) still shows
+                    // its real date; this only stops it being moved further back.
+                    min={todayDateKey()}
                     onChange={(e) => patch({ dueDate: e.target.value || null })}
                     className="mt-1.5 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
                   />

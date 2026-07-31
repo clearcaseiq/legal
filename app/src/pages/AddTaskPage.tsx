@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { ClipboardList, Check, Loader2, CalendarClock, Flag, UserCog, StickyNote } from 'lucide-react'
 import { getLead, createLeadTask } from '../lib/api'
+import { isPastDateKey, todayDateKey } from '../lib/taskDueDate'
 import { BackButton } from '../features/shared/ui'
 
 const PRIORITIES = [
@@ -52,8 +53,13 @@ export default function AddTaskPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Clicking a past day in the calendar and choosing "Add to-do task" used to
+  // hand over a pre-filled date the form would then be unable to save (CP-479).
+  const minDueDate = todayDateKey()
+  const prefillDueDate = dateFromUrl && !isPastDateKey(dateFromUrl) ? dateFromUrl : ''
+
   const [title, setTitle] = useState('')
-  const [dueDate, setDueDate] = useState(dateFromUrl || '')
+  const [dueDate, setDueDate] = useState(prefillDueDate)
   const [priority, setPriority] = useState('medium')
   const [taskType, setTaskType] = useState('general')
   const [assignedRole, setAssignedRole] = useState('attorney')
@@ -64,8 +70,8 @@ export default function AddTaskPage() {
   const [notes, setNotes] = useState('')
 
   useEffect(() => {
-    if (dateFromUrl) setDueDate(dateFromUrl)
-  }, [dateFromUrl])
+    if (prefillDueDate) setDueDate(prefillDueDate)
+  }, [prefillDueDate])
 
   useEffect(() => {
     if (!leadId) {
@@ -170,7 +176,13 @@ export default function AddTaskPage() {
                 <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
                   <CalendarClock className="h-4 w-4 text-slate-400" /> Due date
                 </label>
-                <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className={fieldCls} />
+                <input
+                  type="date"
+                  value={dueDate}
+                  min={minDueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  className={fieldCls}
+                />
               </div>
               <div>
                 <label className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-slate-700">

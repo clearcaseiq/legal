@@ -1,3 +1,5 @@
+import { todayDateKey } from '../lib/taskDueDate'
+
 type AttorneyDashboardWorkstreamTasksProps = {
   taskForm: any
   setTaskForm: any
@@ -115,12 +117,14 @@ export default function AttorneyDashboardWorkstreamTasks({
         <input
           type="date"
           value={taskForm.dueDate}
+          min={todayDateKey()}
           onChange={(e) => setTaskForm((prev: any) => ({ ...prev, dueDate: e.target.value }))}
           className="input"
         />
         <input
           type="date"
           value={taskForm.reminderAt}
+          min={todayDateKey()}
           onChange={(e) => setTaskForm((prev: any) => ({ ...prev, reminderAt: e.target.value }))}
           className="input"
           placeholder="Reminder date"

@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma'
 import { authMiddleware, type AuthRequest } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { ENV } from '../env'
-import { getAttorneySubscriptionTier, getCaseRoutingPricingForClaimType, getMatchingRules } from '../lib/matching-rules-config'
+import { getAttorneySubscriptionTier, getCaseRoutingFee, getMatchingRules } from '../lib/matching-rules-config'
 import {
   getStripe,
   webUrl,
@@ -16,21 +16,6 @@ import {
 
 const router = Router()
 const db = prisma as any
-
-function getPricingClaimType(assessment: any) {
-  const facts = parseJsonMaybe(assessment?.facts) || {}
-  const prediction = parseJsonMaybe(assessment?.prediction) || {}
-  return (
-    assessment?.validatedClaimType ||
-    assessment?.claimType ||
-    facts?.validatedClaimType ||
-    facts?.caseType ||
-    facts?.incident?.type ||
-    prediction?.claimType ||
-    prediction?.caseType ||
-    null
-  )
-}
 
 function stripeError(res: any, error: any, fallback = 'Stripe request failed') {
   const status = error?.statusCode || 500
@@ -432,9 +417,8 @@ router.post('/platform/routing-fee-session', authMiddleware, async (req: AuthReq
     const { attorney, lead } = auth
 
     const matchingRules = await getMatchingRules()
-    const claimType = getPricingClaimType(lead.assessment)
-    const pricingTier = getCaseRoutingPricingForClaimType(matchingRules, claimType)
-    if (!pricingTier || !pricingTier.enabled || pricingTier.priceCents <= 0) {
+    const caseFee = getCaseRoutingFee(matchingRules)
+    if (!caseFee) {
       return res.json({ status: 'not_required', amount: 0 })
     }
 
@@ -446,15 +430,13 @@ router.post('/platform/routing-fee-session', authMiddleware, async (req: AuthReq
       attorneyId: attorney.id,
       leadId: lead.id,
       assessmentId: lead.assessmentId,
-      tierId: pricingTier.id,
-      tierLabel: pricingTier.label,
+      feeLabel: caseFee.label,
     }
-    const amount = fromCents(pricingTier.priceCents)
+    const amount = fromCents(caseFee.priceCents)
     if (!matchingRules.routingFeePaymentsEnabled || !ENV.STRIPE_SECRET_KEY) {
       logger.warn('Routing fee payment bypassed', {
         attorneyId: attorney.id,
         leadId: lead.id,
-        tierId: pricingTier.id,
         reason: !matchingRules.routingFeePaymentsEnabled ? 'routing_fee_payments_disabled' : 'stripe_not_configured',
       })
       await db.platformPayment.create({
@@ -507,10 +489,10 @@ router.post('/platform/routing-fee-session', authMiddleware, async (req: AuthReq
           quantity: 1,
           price_data: {
             currency: 'usd',
-            unit_amount: pricingTier.priceCents,
+            unit_amount: caseFee.priceCents,
             product_data: {
-              name: `CaseIQ routing fee - ${pricingTier.label}`,
-              description: pricingTier.description || 'Due when accepting this case.',
+              name: `CaseIQ ${caseFee.label.toLowerCase()}`,
+              description: caseFee.description || 'Due when accepting this case.',
             },
           },
         },
@@ -613,6 +595,27 @@ router.get('/config', (_req, res) => {
     publishableKey: ENV.STRIPE_PUBLISHABLE_KEY || null,
     enabled: Boolean(ENV.STRIPE_SECRET_KEY && ENV.STRIPE_PUBLISHABLE_KEY),
   })
+})
+
+// Public, unauthenticated. The attorney network page quotes the case fee to
+// prospective firms, and the amount is administrator-editable, so it reads the
+// configured value rather than repeating a number that silently goes stale.
+// Degrades to null instead of failing: a marketing page with no price is far
+// better than a marketing page with the wrong one.
+router.get('/pricing', async (_req, res) => {
+  try {
+    const caseFee = getCaseRoutingFee(await getMatchingRules())
+    res.json({
+      caseFee: caseFee && {
+        priceCents: caseFee.priceCents,
+        label: caseFee.label,
+        description: caseFee.description,
+      },
+    })
+  } catch (error) {
+    console.error('Failed to load public pricing', error)
+    res.json({ caseFee: null })
+  }
 })
 
 // Creates a SetupIntent so the attorney can enter a card directly in-app with
@@ -782,7 +785,9 @@ router.get('/platform/history', authMiddleware, async (req: AuthRequest, res) =>
         id: r.id,
         type: r.type,
         typeLabel: TYPE_LABELS[r.type] || String(r.type || 'Charge'),
-        description: meta.tierLabel || meta.description || null,
+        // tierLabel appears on records written before the flat case fee replaced
+        // the per-tier price schedule.
+        description: meta.feeLabel || meta.tierLabel || meta.description || null,
         leadId: meta.leadId || null,
         assessmentId: meta.assessmentId || null,
         amount: Number(r.amount || 0),

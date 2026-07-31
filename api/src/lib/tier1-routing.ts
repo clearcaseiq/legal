@@ -4,6 +4,7 @@ import { CaseFacts } from './case-tier-classifier'
 import { CaseForRouting } from './routing'
 import { sendCaseOfferSms } from './sms'
 import { coversClaimType } from './case-type-match'
+import { getCaseRoutingFeeDollars } from './matching-rules-config'
 
 /**
  * Tier 1 Case Routing Engine
@@ -13,6 +14,9 @@ import { coversClaimType } from './case-type-match'
  * - Fixed-price routing (30s timeout, max 5 attempts)
  * - Sequential offers (no mass blasting)
  * - Inventory hold on failure
+ *
+ * Tier affects who is offered the case and how, never what it costs: firms pay the
+ * same flat case fee here as in every other tier.
  */
 
 // Configuration constants
@@ -21,7 +25,6 @@ const TIER_1_FIXED_TIMEOUT_MS = 30 * 1000 // 30 seconds
 const MAX_SUBSCRIPTION_ATTEMPTS = 3
 const MAX_FIXED_PRICE_ATTEMPTS = 5
 const MAX_SIMULTANEOUS_OFFERS = 1 // Critical safeguard
-const TIER_1_FIXED_PRICE = 200 // $200 default (configurable)
 
 // Tier 1 claim types
 const TIER_1_CLAIM_TYPES = ['auto_minor', 'premises_minor', 'dog_bite_minor']
@@ -552,7 +555,7 @@ async function routeFixedPrice(
           caseId: caseData.id,
           firmId: firm.id,
           introductionId,
-          price: TIER_1_FIXED_PRICE
+          price: await getCaseRoutingFeeDollars()
         })
 
         return {

@@ -2475,7 +2475,19 @@ describe('HTTP operations regressions', () => {
       where: {
         OR: [
           { assignedAttorneyId: 'attorney-record-1' },
+          {
+            assessment: {
+              introductions: { some: { attorneyId: 'attorney-record-1', status: { notIn: ['EXPIRED', 'DECLINED'] } } },
+            },
+          },
           { assignmentType: 'shared' },
+          { assignedAttorney: { lawFirmId: 'firm-1' } },
+          { assessment: { lawFirmId: 'firm-1' } },
+          {
+            assessment: {
+              introductions: { some: { attorney: { lawFirmId: 'firm-1' }, status: { notIn: ['EXPIRED', 'DECLINED'] } } },
+            },
+          },
         ],
         assessment: { claimType: 'auto' },
       },
@@ -2504,6 +2516,12 @@ describe('HTTP operations regressions', () => {
             venueState: true,
             venueCounty: true,
             facts: true,
+            user: {
+              select: {
+                firstName: true,
+                lastName: true,
+              },
+            },
             files: {
               select: {
                 originalName: true,
@@ -2529,6 +2547,32 @@ describe('HTTP operations regressions', () => {
       skip: 0,
       take: 20,
     })
+  })
+
+  it('GET /v1/attorney-dashboard/leads/filtered?engagedOnly=true offers only cases the attorney holds', async () => {
+    vi.mocked(prisma.leadSubmission.findMany).mockResolvedValue([] as any)
+
+    await request(app)
+      .get('/v1/attorney-dashboard/leads/filtered?engagedOnly=true&limit=500')
+      .set('Authorization', 'Bearer attorney')
+      .expect(200)
+
+    const where = vi.mocked(prisma.leadSubmission.findMany).mock.calls[0]?.[0]?.where as any
+
+    // The blanket shared-assignment term carries no attorney predicate, so it
+    // matched every unassigned lead in the table and put other people's cases in
+    // a brand-new attorney's scheduling picker (CP-481).
+    expect(JSON.stringify(where.OR)).not.toContain('assignmentType')
+
+    // A pending offer is not a case in hand.
+    expect(JSON.stringify(where.OR)).not.toContain('notIn')
+    expect(where.OR).toContainEqual({
+      assessment: { introductions: { some: { attorneyId: 'attorney-record-1', status: 'ACCEPTED' } } },
+    })
+    expect(where.OR).toContainEqual({ assignedAttorneyId: 'attorney-record-1' })
+
+    // Status still narrows to the engaged caseload (CP-426).
+    expect(where.status).toEqual({ in: ['accepted', 'contacted', 'consulted', 'retained'] })
   })
 
   it('POST /v1/attorney-dashboard/leads/:leadId/contact uses compact lookups for sms contact notifications', async () => {

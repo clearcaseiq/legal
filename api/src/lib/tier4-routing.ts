@@ -3,15 +3,19 @@ import { logger } from './logger'
 import { CaseFacts } from './case-tier-classifier'
 import { sendCaseOfferSms } from './sms'
 import { coversClaimType } from './case-type-match'
+import { getCaseRoutingFeeDollars } from './matching-rules-config'
 
 /**
  * Tier 4 Case Routing Engine (Catastrophic / Premium)
  *
  * Goals:
  * - Concierge exclusivity for elite firms
- * - Premium pricing, minimal blasting
+ * - Minimal blasting
  * - Strict gating before any routing
  * - Progressive disclosure (no PII before acceptance)
+ *
+ * Tier affects who is offered the case and how, never what it costs: firms pay the
+ * same flat case fee here as in every other tier.
  */
 
 const TIER_4_EXCLUSIVE_TIMEOUT_SECONDS = 45 * 60
@@ -19,12 +23,6 @@ const TIER_4_AUCTION_TIMEOUT_SECONDS = 90 * 60
 const MAX_EXCLUSIVE_ATTEMPTS = 3
 const AUCTION_GROUP_M = 5
 const MIN_ELIGIBLE_FIRMS = 3
-
-const TIER_4_BASE_PRICE = 3000
-const DOCS_BONUS = 500
-const LIABILITY_BONUS = 500
-const SURGERY_BONUS = 500
-const CATASTROPHIC_BONUS = 1000
 
 const DEFAULT_AVG_ACCEPT_SECONDS = 600
 const ANTI_MONOPOLY_WIN_SHARE_THRESHOLD = 0.5
@@ -223,28 +221,6 @@ function liabilityBand(score: number): string {
   if (score >= 0.65) return 'Med-High'
   if (score >= 0.5) return 'Med'
   return 'Low'
-}
-
-function computeTier4Price(caseData: Tier4CaseData): number {
-  let price = TIER_4_BASE_PRICE
-
-  if (caseData.docsAvailable) {
-    price += DOCS_BONUS
-  }
-
-  if (caseData.liabilityScore > 0.7) {
-    price += LIABILITY_BONUS
-  }
-
-  if (caseData.hasSurgery) {
-    price += SURGERY_BONUS
-  }
-
-  if (caseData.hasCatastrophicFlags) {
-    price += CATASTROPHIC_BONUS
-  }
-
-  return Math.max(0, price)
 }
 
 function toFiniteCap(value: number | null | undefined): number {
@@ -1006,7 +982,7 @@ export async function routeTier4Case(caseId: string): Promise<Tier4RoutingResult
       ...tier4Check.data!
     }
 
-    const price = computeTier4Price(caseData)
+    const price = await getCaseRoutingFeeDollars()
 
     const { eligible, ineligible } = await buildEligibleFirmPool(caseData, price)
 
