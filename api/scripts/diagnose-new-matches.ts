@@ -58,14 +58,40 @@ async function main() {
   // would be comparing rows that were never meant to be the same person.
   let email = ATTORNEY_EMAIL
   if (!email) {
+    // Email as well as name: the display name is often the firm rather than the
+    // person, so a search on the person's name alone misses them.
     const byName = await prisma.attorney.findMany({
-      where: { name: { contains: ATTORNEY_NAME, mode: 'insensitive' } },
+      where: {
+        OR: [
+          { name: { contains: ATTORNEY_NAME, mode: 'insensitive' } },
+          { email: { contains: ATTORNEY_NAME, mode: 'insensitive' } },
+        ],
+      },
       select,
       orderBy: { createdAt: 'asc' },
     })
     const emails = [...new Set(byName.map((a) => a.email))]
     if (emails.length === 0) {
-      console.error(`\nNo attorney whose name contains "${ATTORNEY_NAME}".`)
+      console.error(`\nNo attorney whose name or email contains "${ATTORNEY_NAME}".`)
+      const users = await prisma.user.findMany({
+        where: {
+          OR: [
+            { firstName: { contains: ATTORNEY_NAME, mode: 'insensitive' } },
+            { lastName: { contains: ATTORNEY_NAME, mode: 'insensitive' } },
+            { email: { contains: ATTORNEY_NAME, mode: 'insensitive' } },
+          ],
+        },
+        select: { email: true, firstName: true, lastName: true, role: true },
+        take: 20,
+      })
+      if (users.length > 0) {
+        // A User with no Attorney row is itself the answer: the dashboard resolves
+        // the attorney by email and returns 403 when there is no row to find, so
+        // the caseload renders empty no matter how the case was routed.
+        console.error('\nMatching User accounts (no Attorney row resolves for these):')
+        for (const u of users) console.error(`  ${u.email}   ${u.firstName} ${u.lastName}   role=${u.role}`)
+        console.error('\nIf the attorney signs in with one of these, that missing Attorney row is the bug.')
+      }
       process.exit(1)
     }
     if (emails.length > 1) {
