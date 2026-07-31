@@ -86,6 +86,28 @@ If the container exits on boot, read the push output for the reason:
 docker compose -f docker-compose.prod.yml --env-file .env.prod logs api | grep -A20 entrypoint
 ```
 
+### When push refuses a change
+
+`db push` classes a few safe changes as possibly destructive and stops rather
+than guessing — most often **adding a unique constraint**, which it warns about
+whether or not duplicates actually exist. The entrypoint does not pass
+`--accept-data-loss`, because that flag would also wave through changes that
+really do drop data on every future deploy.
+
+Those changes live in `api/prisma/migrations/` as idempotent SQL files, applied
+by hand once. Afterwards `db push` sees no difference and the container boots
+normally. To apply one:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod run --rm -T \
+  --entrypoint sh api \
+  -c 'node ../node_modules/prisma/build/index.js db execute --schema=prisma/schema.prisma --stdin' \
+  < api/prisma/migrations/<folder>/migration.sql
+```
+
+Each file contains exactly what `schema.prisma` implies and nothing more. An
+extra index added there would be dropped again by the next push.
+
 ## Database
 
 Production uses managed Postgres (RDS). `DATABASE_URL` in `.env.prod` is
