@@ -48,7 +48,7 @@ const categories = [
     description: 'How we protect your information.',
     articles: [
       { title: 'Is my information secure?', content: 'Yes. We use industry-standard encryption and security practices. Your data is stored securely and only shared with attorneys when you approve.' },
-      { title: 'Who can see my case?', content: 'Only you and attorneys you choose to share with. We do not sell or share your information with third parties for marketing.' },
+      { title: 'Who can see my case?', content: 'Only you, until you authorize us to send your case. Then it goes to the participating law firms you selected, one at a time in the order you set, so they can decide whether to offer to represent you. Medical records are included only if you have signed a HIPAA authorization. Participating firms have commercial agreements with ClearCaseIQ for technology and marketing services; you never pay us. See our Privacy Policy for exactly what is shared and when.' },
     ],
   },
   {

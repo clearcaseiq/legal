@@ -14,6 +14,7 @@ import { useAttorneyDashboardData } from '../../../src/contexts/AttorneyDashboar
 import { AttorneyHomeSkeleton } from '../../../src/components/AttorneyHomeSkeleton'
 import { InlineErrorBanner } from '../../../src/components/InlineErrorBanner'
 import { ScreenState } from '../../../src/components/ScreenState'
+import { SettlementEstimateCard } from '../../../src/components/SettlementEstimateCard'
 import { isSameCalendarDay, navigateAttorneyQueueItem, type QueueActionType } from '../../../src/lib/attorneyQueueNav'
 import { colors, radii, space, shadows, domains, type DomainId } from '../../../src/theme/tokens'
 import { currencyFromMedian, formatClaimType, isOpenMatch } from '../../../src/lib/formatLead'
@@ -662,9 +663,8 @@ function PlaintiffHomeScreen() {
       </View>
 
       <View style={styles.plaintiffGrid}>
-        <PlaintiffMetricCard
-          label="Likely settlement range"
-          value={rangeLow && rangeHigh ? `${currencyFromMedian(rangeLow) || '$0'} - ${currencyFromMedian(rangeHigh) || '$0'}` : 'Need more data'}
+        <SettlementEstimateCard
+          range={rangeLow && rangeHigh ? `${currencyFromMedian(rangeLow) || '$0'} - ${currencyFromMedian(rangeHigh) || '$0'}` : null}
           detail={benchmarkMedian ? `Comparable cases often center around ${benchmarkMedian}.` : 'This estimate sharpens as records come in.'}
         />
         <PlaintiffMetricCard

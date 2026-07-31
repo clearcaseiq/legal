@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { AlertTriangle, CheckCircle, ChevronRight, Clock, Copy, Download, LayoutDashboard, ShieldCheck, Square, Star, TrendingUp, Upload } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import { formatClaimType } from '../lib/claimTypes'
+import { formatAttorneyLicensure } from '../lib/attorneyLicensure'
 
 type TFunc = (key: string) => string
 
@@ -16,7 +17,9 @@ type RankedAttorneyCard = {
   id?: string
   attorney_id?: string
   name: string
-  law_firm?: { name?: string; state?: string }
+  bar_number?: string | null
+  bar_state?: string | null
+  law_firm?: { name?: string; city?: string; state?: string }
   fit_score?: number
   responseBadge?: string
   responseTimeHours?: number
@@ -277,6 +280,11 @@ export function ResultsSubmittedView({
                         venueState,
                       })}
                     </p>
+                    {formatAttorneyLicensure(attorney) && (
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        {t('results.submitted.responsibleAttorney')} {formatAttorneyLicensure(attorney)}
+                      </p>
+                    )}
                     <div className="mt-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">{t('results.submitted.whyRecommend')}</p>
                       <ul className="mt-1 space-y-1 text-[11px] text-brand-900">

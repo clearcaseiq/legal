@@ -59,7 +59,11 @@ router.get('/search', async (req: Request, res: Response) => {
         isActive: true
       },
       include: {
-        lawFirm: true
+        lawFirm: true,
+        // The response reads firmName, subscriptionTier, yearsExperience and
+        // languages off this relation, so it has to be loaded — without it every
+        // one of those silently fell back to a default.
+        attorneyProfile: true
       } as any
     })
 
@@ -121,6 +125,13 @@ router.get('/search', async (req: Request, res: Response) => {
         name: attorney.name,
         email: (attorney as any).email ?? null,
         phone: (attorney as any).phone ?? null,
+        // Licensure, so the surface that presents attorneys to a consumer can name a
+        // licensed attorney and the state that licensed them (B&P § 6157.2(b)(1)).
+        // Falls back to the profile's own licence fields when the roster row has none.
+        bar_number:
+          (attorney as any).barNumber ?? (attorney as any).attorneyProfile?.licenseNumber ?? null,
+        bar_state:
+          (attorney as any).barState ?? (attorney as any).attorneyProfile?.licenseState ?? null,
         specialties: specialties || [],
         venues: venues || [],
         profile: (attorney as any).profile ?? null,

@@ -202,6 +202,12 @@ export const SubmitCaseForReview = z.object({
   preferredContactMethod: z.enum(['phone', 'text', 'email']).optional(),
   hipaa: z.boolean().optional(),
   rankedAttorneyIds: z.array(z.string().trim().min(1)).max(3).optional(),
+  // Attorneys the plaintiff removed from the proposed slate. Persisted so routing
+  // never re-proposes them.
+  dismissedAttorneyIds: z.array(z.string().trim().min(1)).max(50).optional(),
+  // The plaintiff's authorization to disclose the case to the firms they selected,
+  // captured at the moment the case is transmitted.
+  attorneyShareAuthorized: z.boolean().optional(),
 })
 
 // Authentication schemas

@@ -104,12 +104,23 @@ model AttorneyPushDevice {
 }
 
 model Consent {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id String @id @default(cuid())
+
+  // Nullable because intake is deliberately anonymous: a visitor authorizes
+  // disclosure of their case on /results before any account exists. Keying
+  // consent solely to a User meant a guest's authorization could only ever be a
+  // boolean in assessment JSON — no version, hash, IP or timestamp — which is
+  // the one artifact that has to be provable.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Set for consents scoped to a single case rather than to the person, i.e.
+  // the authorization to disclose *this* case to *these* firms.
+  assessmentId String?
+  assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
 
   // Consent type and version
-  consentType String // 'hipaa', 'terms', 'privacy', 'marketing'
+  consentType String // 'hipaa', 'terms', 'privacy', 'marketing', 'call_recording', 'attorney_share'
   version     String // Version of the consent document
   documentId  String // Reference to the consent document
 
@@ -129,10 +140,17 @@ model Consent {
   consentText String @db.Text // The actual consent text that was shown
   consentHash String // Hash of the consent text for verification
 
+  // JSON. For 'attorney_share' this carries the attorney IDs the authorization
+  // covers, so the record shows which firms the consumer named — an
+  // authorization to disclose to three firms is not one to disclose to any firm.
+  metadata String? @db.Text
+
   // Audit trail
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([userId])
+  @@index([assessmentId, consentType])
   @@map("consents")
 }
 
@@ -175,11 +193,13 @@ model Assessment {
   files         File[]
   introductions Introduction[]
   attorneyCaseReviews AttorneyCaseReview[]
+  attorneyReviews AttorneyReview[]
   demandLetters DemandLetter[]
   appointments  Appointment[]
   chatRooms     ChatRoom[]
   evidenceFiles EvidenceFile[]
   ethicalWalls  EthicalWall[]
+  consents      Consent[]
 
   // Lead Management
   leadSubmission LeadSubmission?
@@ -1623,6 +1643,23 @@ model AttorneyReview {
   userId     String
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  /// The case the review is about.
+  ///
+  /// A plaintiff who works with the same attorney on two matters holds a separate
+  /// opinion of each, so a review is identified by (attorney, plaintiff, case).
+  /// The constraint used to be the (attorney, plaintiff) pair, which meant a
+  /// second review silently overwrote the first and the attorney's rating showed
+  /// only the most recent case (CP-480).
+  ///
+  /// Nullable only to carry rows written before this column existed. Every write
+  /// path now supplies it, and the API rejects a review with no case, so nulls
+  /// are historical rather than something new code can produce. Note that
+  /// Postgres treats nulls as distinct in a unique index, so the constraint below
+  /// does not bound those legacy rows — it does not need to, since there is at
+  /// most one of them per pair by construction.
+  assessmentId String?
+  assessment   Assessment? @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
   rating     Int // 1-5 stars
   title      String?
   review     String?
@@ -1631,7 +1668,7 @@ model AttorneyReview {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([attorneyId, userId])
+  @@unique([attorneyId, userId, assessmentId])
   @@map("attorney_reviews")
 }
 

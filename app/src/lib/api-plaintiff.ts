@@ -227,9 +227,44 @@ export async function submitCaseForReview(
     preferredContactMethod?: 'phone' | 'text' | 'email'
     hipaa?: boolean
     rankedAttorneyIds?: string[]
+    dismissedAttorneyIds?: string[]
+    attorneyShareAuthorized?: boolean
   }
 ) {
   const { data } = await api.post(`/v1/assessments/${assessmentId}/submit-for-review`, contactInfo || {})
+  return data
+}
+
+export interface PendingAttorneyBatch {
+  batchNumber: number
+  proposedAt: string
+  attorneys: Array<{
+    id: string
+    name: string
+    firmName: string | null
+    city: string | null
+    state: string | null
+  }>
+}
+
+/**
+ * Attorneys we would contact next, held until the plaintiff approves them. Nobody
+ * beyond the plaintiff's own picks is contacted without this step.
+ */
+export async function getPendingAttorneyBatch(assessmentId: string): Promise<PendingAttorneyBatch | null> {
+  const { data } = await api.get(`/v1/assessments/${assessmentId}/routing/pending-batch`)
+  return data?.pending ?? null
+}
+
+export async function approvePendingAttorneyBatch(assessmentId: string, approvedAttorneyIds: string[]) {
+  const { data } = await api.post(`/v1/assessments/${assessmentId}/routing/pending-batch/approve`, {
+    approvedAttorneyIds,
+  })
+  return data
+}
+
+export async function declinePendingAttorneyBatch(assessmentId: string) {
+  const { data } = await api.post(`/v1/assessments/${assessmentId}/routing/pending-batch/decline`, {})
   return data
 }
 

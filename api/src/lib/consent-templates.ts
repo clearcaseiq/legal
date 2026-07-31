@@ -3,7 +3,13 @@
  * (modal + public pages). Bump version when content changes to trigger re-consent.
  */
 
-export type ConsentTemplateKey = 'hipaa' | 'terms' | 'privacy' | 'marketing' | 'call_recording'
+export type ConsentTemplateKey =
+  | 'hipaa'
+  | 'terms'
+  | 'privacy'
+  | 'marketing'
+  | 'call_recording'
+  | 'attorney_share'
 
 export type ConsentTemplateRecord = {
   version: string
@@ -19,19 +25,30 @@ export type ConsentTemplateRecord = {
 export const PLAINTIFF_REQUIRED_CONSENT_TYPES = ['hipaa', 'terms', 'privacy'] as const
 export type PlaintiffRequiredConsentType = (typeof PLAINTIFF_REQUIRED_CONSENT_TYPES)[number]
 
+/**
+ * The consent that authorizes disclosing a case to a law firm.
+ *
+ * Separate from terms/privacy on purpose: those gate use of the platform and are
+ * accepted before the consumer has seen a single attorney, so accepting them
+ * cannot stand in for permission to hand an identified person's injury facts to
+ * a third party. This one is granted per case, names the firms it covers, and is
+ * the record the routing gate checks.
+ */
+export const SHARE_AUTHORIZATION_CONSENT_TYPE = 'attorney_share'
+
 export const CONSENT_TEMPLATES: Record<ConsentTemplateKey, ConsentTemplateRecord> = {
   hipaa: {
-    version: '1.0',
-    documentId: 'hipaa-v1.0',
+    version: '1.1',
+    documentId: 'hipaa-v1.1',
     title: 'HIPAA authorization',
-    effectiveDate: '2026-03-01',
-    plainLanguageSummary: `This authorization lets us request, use, and share health information that is relevant to your injury case—typically with your lawyers, providers, insurers, and others involved in evaluating or pursuing your claim. You can revoke it in writing; it lasts until you revoke it, your case ends, or the expiration in the full document—whichever comes first. Signing is voluntary and is not a condition of receiving medical treatment or benefits.`,
+    effectiveDate: '2026-07-30',
+    plainLanguageSummary: `This authorization lets ClearCaseIQ Corp. request, use, and share health information that is relevant to your injury case—typically with your lawyers, providers, insurers, and others involved in evaluating or pursuing your claim. You can revoke it in writing at legal@clearcaseiq.com; it lasts until you revoke it, your case ends, or the expiration in the full document—whichever comes first. Signing is voluntary and is not a condition of receiving medical treatment or benefits.`,
     content: `
 # HIPAA authorization
 
 ## Authorization for use and disclosure of protected health information
 
-I authorize ClearCaseIQ / Injury Intelligence and legal professionals I choose to work with to use and disclose my protected health information (PHI) as described below.
+I authorize **ClearCaseIQ Corp.**, a California company operating the ClearCaseIQ platform, and legal professionals I choose to work with, to use and disclose my protected health information (PHI) as described below. ClearCaseIQ Corp. is not a law firm and does not provide legal advice or medical care.
 
 ### Information that may be disclosed
 - Medical records and treatment history
@@ -59,26 +76,31 @@ I authorize ClearCaseIQ / Injury Intelligence and legal professionals I choose t
 This authorization remains valid until my case is resolved, I revoke it in writing, or two (2) years from the date of signature, whichever occurs first—unless a shorter period is required by law.
 
 ### Right to revoke
-I may revoke this authorization in writing. Revocation does not undo actions already taken in good faith before revocation.
+I may revoke this authorization in writing at any time by emailing legal@clearcaseiq.com. Revocation does not undo actions already taken in good faith before revocation.
 
 ### Acknowledgment
 I have had the opportunity to read this authorization. Information disclosed may be redisclosed by a recipient and may no longer be protected by HIPAA. I understand I may refuse to sign; refusal does not bar treatment, payment, enrollment, or eligibility for benefits solely on that basis, as described in applicable law.
     `.trim(),
   },
   terms: {
-    version: '1.0',
-    documentId: 'terms-v1.0',
+    version: '1.3',
+    documentId: 'terms-v1.3',
     title: 'Terms of Service',
-    effectiveDate: '2026-03-01',
-    plainLanguageSummary: `These Terms are the rules for using the platform: you’ll provide accurate information, use the service lawfully, and keep your login private. The platform helps with intake and connections—it is not your own lawyer and does not guarantee outcomes. Liability limits and governing law apply as described in the full Terms.`,
+    effectiveDate: '2026-07-30',
+    plainLanguageSummary: `You are contracting with ClearCaseIQ Corp., a technology company in Los Angeles, California. ClearCaseIQ is not a law firm, is not your lawyer, and does not give legal advice. These Terms are the rules for using the platform: you’ll provide accurate information, use the service lawfully, and keep your login private. Participating law firms pay ClearCaseIQ for technology and marketing services; you never do. When you pick your own firms, paying to participate does not improve a firm’s position. The Terms also explain the separate situation where a case arrives without anyone having picked firms, and how firms are ordered then. California law governs, and liability limits apply as described in the full Terms.`,
     content: `
 # Terms of Service
+
+## Who you are contracting with
+These Terms are an agreement between you and **ClearCaseIQ Corp.**, a technology company with its principal place of business in Los Angeles, California ("ClearCaseIQ," "we," or "us"). You can reach us at legal@clearcaseiq.com.
+
+**ClearCaseIQ is not a law firm.** We do not practice law, we do not provide legal advice, and no employee of ClearCaseIQ is acting as your attorney. We are a software platform. Any attorney or law firm you encounter through the platform is an independent business that we neither own nor control, and each is solely responsible for the legal services it provides.
 
 ## Agreement
 By using this service, you agree to these Terms. If you do not agree, do not use the service.
 
 ## Description of service
-This legal technology platform may provide case intake, assessment tools, attorney matching or introductions, document or evidence organization, and communications between you and professionals you engage. Features vary by product configuration.
+ClearCaseIQ may provide case intake, assessment tools, attorney matching or introductions, document or evidence organization, and communications between you and professionals you engage. Features vary by product configuration.
 
 ## Your responsibilities
 - Provide accurate information to the best of your knowledge
@@ -87,26 +109,41 @@ This legal technology platform may provide case intake, assessment tools, attorn
 - Not interfere with security or availability of the service
 
 ## Not legal advice; no attorney–client relationship
-Using the platform does not create an attorney–client relationship with the platform operator. A relationship is formed only with an attorney you separately engage.
+ClearCaseIQ is not a law firm and nothing on the platform is legal advice. Using the platform does not create an attorney–client relationship with ClearCaseIQ. That relationship is formed only with an attorney you separately engage, on the terms of the engagement agreement you sign with that attorney. Information you give ClearCaseIQ is not protected by the attorney–client privilege until an attorney you have engaged holds it.
+
+## Attorney participation
+Some attorneys and law firms participate in the ClearCaseIQ platform under commercial agreements with ClearCaseIQ. Those agreements may include payments for technology, marketing, or lead-generation services. What a firm pays is a flat fee per case: the same amount for every case, regardless of claim type, injury severity, or expected settlement value, and never a percentage or other share of any recovery. Consumers never pay ClearCaseIQ to use the platform.
+
+ClearCaseIQ does not guarantee representation and does not recommend or endorse any attorney. You are free to choose any attorney, whether or not they participate on the platform.
+
+### How firms are identified when you choose them
+If you complete an assessment and ask for attorney review, you see the participating firms before any of them is contacted. They are identified using objective criteria — the state and county of your matter, the type of claim, whether the firm handles that claim type, and how quickly the firm typically responds. You set the order, you may remove any of them, and firms are contacted one at a time in the order you set. Paying to participate does not improve a firm's position in that list. If the firms you chose cannot take your case, we ask you to approve a new set before contacting anyone else.
+
+### How firms are identified when nobody has chosen them
+A case can also reach the platform without a consumer having named any firm — for example a case referred to us by a partner, or a case released by our team after a manual review. On those paths ClearCaseIQ decides which participating firms are offered the case and in what order, and a firm's commercial arrangement with us can affect that: a firm with an active subscription may be offered a case before other firms, and a firm's account standing is one input among several into the order. This is disclosed because it is a real difference between the two paths, not because it applies to a consumer who chose their own firms — it does not.
 
 ## Disclaimers and limitation of liability
-The service is provided “as available.” To the maximum extent permitted by law, the operator is not liable for indirect or consequential damages arising from use of the service.
+The service is provided “as available.” To the maximum extent permitted by law, ClearCaseIQ is not liable for indirect or consequential damages arising from use of the service.
 
 ## Changes
 We may update these Terms. Material changes may be communicated through the service. Continued use after changes may constitute acceptance.
 
-## Governing law
-These Terms are governed by applicable law in the jurisdiction specified in your agreement with us, or where none is specified, the laws of the state in which the operator principally provides the service.
+## Governing law and venue
+These Terms are governed by the laws of the State of California, without regard to its conflict-of-laws rules. Any dispute arising out of these Terms or your use of the service is subject to the exclusive jurisdiction of the state and federal courts located in Los Angeles County, California, and you and ClearCaseIQ each consent to venue there.
+
+Nothing in this section waives any right you have under California law that cannot be waived by agreement, and nothing here limits your ability to bring a complaint before a government agency or the State Bar of California.
     `.trim(),
   },
   privacy: {
-    version: '1.0',
-    documentId: 'privacy-v1.0',
+    version: '1.3',
+    documentId: 'privacy-v1.3',
     title: 'Privacy Policy',
-    effectiveDate: '2026-03-01',
-    plainLanguageSummary: `We collect what you give us (contact, case details, files you upload) and some technical data to run and secure the service. We use it to deliver features you request. We do not sell your personal information. Sharing with attorneys or vendors happens only as described here and to operate the service, or when required by law. You may have rights to access, correct, or delete data depending on where you live.`,
+    effectiveDate: '2026-07-30',
+    plainLanguageSummary: `ClearCaseIQ Corp., in Los Angeles, California, operates this platform. We collect what you give us (contact, case details, files you upload) and some technical data to run and secure the service. We use it to deliver the features you ask for. Your case information reaches a law firm only when you choose to send it, and only the firms you selected or authorized us to contact. The policy also describes the separate situation where a case arrives without anyone having selected firms, and how firms are ordered then. Participating law firms have commercial agreements with ClearCaseIQ for technology and platform services; you never pay us. California residents have specific rights under the CCPA/CPRA, including the right to opt out of the sale or sharing of personal information, described in full below.`,
     content: `
 # Privacy Policy
+
+This policy describes how **ClearCaseIQ Corp.**, a technology company with its principal place of business in Los Angeles, California, handles personal information. ClearCaseIQ is not a law firm and does not provide legal advice.
 
 ## Information we collect
 - Contact and account details you provide (name, email, phone)
@@ -119,9 +156,38 @@ These Terms are governed by applicable law in the jurisdiction specified in your
 - Meet legal and security obligations
 
 ## Sharing
-- With attorneys and professionals you choose to involve
+- With participating law firms, as described in the next section — which also explains the one situation in which the firms are not ones you named
 - With service providers under contract who assist our operations
 - When required by law or to protect rights and safety
+
+## Sharing your information with law firms
+
+**What is shared.** Your contact details, the case information you provided, and the assessment built from it. Medical records, extracted treatment details, and your medical chronology are shared only if you have separately signed a HIPAA authorization. Without that authorization, a firm sees your non-medical case summary and contact details only.
+
+**When it is shared.** Only after you ask for attorney review and confirm that you want your case sent. Starting an assessment, uploading documents, saving a draft, or reading your own results does not send anything to a law firm.
+
+**With whom.** Only the participating law firms you selected, or firms you separately approved after we proposed them to you. Before sending, you can reorder that list and remove any firm from it. We contact firms one at a time, in the order you set. If the firms you chose cannot take your case, we ask you to approve a new set before contacting anyone else.
+
+**When the firms are not ones you named.** A case can reach the platform without a consumer having selected any firm — for example a case referred to us by a partner, or one released by our team after a manual review. On those paths ClearCaseIQ decides which participating firms are offered the case and in what order, and a firm's commercial arrangement with us can affect that order: a firm with an active subscription may be offered a case before other firms, and a firm's account standing is one input among several. We describe this so that the two paths are not conflated. It does not apply to a case where you chose the firms yourself.
+
+**Why.** So that a firm can review your case and decide whether to offer to represent you. You decide whether to speak with any of them and whether to retain anyone.
+
+**Commercial relationship.** Participating law firms have commercial agreements with ClearCaseIQ for technology and platform services. Those agreements may include payments for technology, marketing, or lead-generation services. What a firm pays is a flat fee per case — the same for every case, regardless of claim type, injury severity, or what the case may be worth, and never a share of any recovery. You never pay ClearCaseIQ to use the platform. Participating does not improve a firm's position in the list you are shown.
+
+**Your control.** We do not disclose your information to participating law firms unless you authorize us to do so. You may decline to send your case, remove firms before sending, or contact any attorney directly outside the platform, whether or not that attorney participates here.
+
+## California privacy rights (CCPA/CPRA)
+If you are a California resident, the California Consumer Privacy Act as amended by the California Privacy Rights Act (Civil Code § 1798.100 et seq.) gives you the right to know what personal information we collect and how we use it, to request a copy of it, to correct it, to delete it, to limit our use and disclosure of sensitive personal information, and not to be discriminated against for exercising any of those rights.
+
+**Categories we collect.** Identifiers (name, email, phone), commercial information about your matter, internet activity from your use of the service, geolocation to the level of state and county, and — as sensitive personal information — health information you or your providers give us.
+
+**Right to opt out of sale or sharing.** Sending your case to a participating law firm is a disclosure you authorize, and participating firms pay ClearCaseIQ a flat fee per case. Rather than argue about whether that meets the statutory definition of a "sale," we treat it as a disclosure you can decline and withdraw: you may decline to send your case at all, remove any firm before it is contacted, or withdraw your authorization afterward, at which point we stop contacting firms about your case. You may also opt out in writing at the address below with the subject line "California privacy request."
+
+**Sensitive personal information.** We use health information only to build and evaluate your case and, if you have signed a HIPAA authorization, to share it with the firms you authorized. We do not use it to infer characteristics about you for any other purpose.
+
+**Exercising a right.** We verify your identity before acting on a request about your own information, respond within the time the statute allows, and accept requests from an authorized agent. Exercising these rights does not change the price or quality of anything we provide, because consumers never pay ClearCaseIQ.
+
+The section above describes how information actually moves through the platform, when it moves, and the role your authorization plays, so that you can evaluate those flows directly rather than relying on a summary label.
 
 ## Security
 We implement administrative, technical, and organizational measures designed to protect personal data, including encryption in transit where appropriate and access controls.
@@ -133,7 +199,7 @@ We retain information as long as needed to provide the service and comply with l
 Depending on your location, you may have rights to access, correct, delete, or export your data, or to opt out of certain processing. Contact us using the details below.
 
 ## Contact
-For privacy questions: privacy@injuryintelligence.com (placeholder—update before production).
+For privacy questions, including California privacy rights requests: legal@clearcaseiq.com
 
 ## Updates
 We may update this policy and will post changes with an updated effective date.
@@ -184,7 +250,42 @@ Some states require all parties to a call to consent to recording. By continuing
 Providing this consent is voluntary. If you decline, we will not place a recorded call—you can still reach your legal team by other means. You may withdraw consent for future calls at any time by contacting your legal team or support.
     `.trim(),
   },
+  attorney_share: {
+    version: '1.0',
+    documentId: 'attorney-share-v1.0',
+    title: 'Authorization to share your case with law firms',
+    effectiveDate: '2026-07-30',
+    plainLanguageSummary: `You decide whether your case is sent to a law firm, and to which firms. This authorization covers only the firms named in it. Nothing is sent until you give it, and you can withdraw it at any time before a firm takes your case — if you do, we stop contacting firms.`,
+    content: `
+# Authorization to share your case with law firms
+
+I authorize ClearCaseIQ to share my case information with the law firms I selected so that they can review my case and decide whether to offer to represent me.
+
+## What this authorization covers
+- **The firms I named.** This authorization applies only to the specific law firms listed with it. It is not permission to send my case to any other firm. If those firms cannot take my case, ClearCaseIQ will ask me to approve a new set before contacting anyone else.
+- **My contact details and case information**, including the assessment built from what I provided.
+- **Medical records, extracted treatment details, and my medical chronology only if I have separately signed a HIPAA authorization.** Without that authorization, a firm sees my non-medical case summary and contact details only.
+
+## What I understand
+- Participating law firms have commercial agreements with ClearCaseIQ and may pay for technology, marketing, or lead-generation services. What a firm pays is a flat fee per case — the same for every case, regardless of claim type, injury severity, or what the case may be worth, and never a share of any recovery. I never pay ClearCaseIQ.
+- Paying to participate does not improve a firm's position in the list I was shown, and ClearCaseIQ does not recommend or endorse any attorney.
+- ClearCaseIQ is not a law firm and does not provide legal advice. Sending my case does not create an attorney–client relationship. That is formed only if I separately engage an attorney.
+- I am free to contact any attorney directly, whether or not they participate on this platform.
+
+## Withdrawing this authorization
+I may withdraw this authorization at any time. Withdrawal stops further firms from being contacted about my case. It does not undo a disclosure already made to a firm in reliance on it before I withdrew.
+    `.trim(),
+  },
 }
+
+/**
+ * Version of the paid-participation disclosure shown on the attorney selection
+ * screen, which is the same document the stored authorization points at. Bump the
+ * template version when that wording changes so an existing record still says
+ * which text the plaintiff actually agreed to.
+ */
+export const ATTORNEY_PARTICIPATION_DISCLOSURE_VERSION =
+  CONSENT_TEMPLATES.attorney_share.version
 
 export function getConsentTemplate(type: string): ConsentTemplateRecord | null {
   return CONSENT_TEMPLATES[type as ConsentTemplateKey] ?? null

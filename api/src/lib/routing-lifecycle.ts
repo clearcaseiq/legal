@@ -7,9 +7,11 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import {
   sendPlaintiffAttorneyAccepted,
+  sendPlaintiffBatchApprovalRequest,
   sendPlaintiffManualReviewNeeded
 } from './case-notifications'
 import { getAttorneyResponseDeadlineMinutes, getConfiguredWaveSize, getConfiguredWaveWaitHours, getMatchingRules } from './matching-rules-config'
+import { assertShareAuthorization, recordShareAuthorization } from './share-authorization'
 
 const PROJECTED_CONTINGENCY_RATE = 0.33
 const PROJECTED_PLATFORM_FEE_RATE = 0.1
@@ -31,6 +33,7 @@ type LeadLifecycleState =
   | 'closed'
   | 'needs_more_info'
   | 'not_routable_yet'
+  | 'awaiting_plaintiff_batch_approval'
 
 function parseLeadSourceDetails(sourceDetails?: string | null): Record<string, unknown> {
   if (!sourceDetails) return {}
@@ -49,6 +52,22 @@ function getRankedAttorneyIdsFromLead(lead: { sourceDetails?: string | null } | 
   const rankedAttorneyIds = (preferences as Record<string, unknown>).rankedAttorneyIds
   return Array.isArray(rankedAttorneyIds)
     ? rankedAttorneyIds.filter((value): value is string => typeof value === 'string' && value.length > 0)
+    : []
+}
+
+/**
+ * Attorneys the consumer explicitly took off their slate.
+ *
+ * A removal is a standing instruction, not a one-time reorder: we must never
+ * re-propose someone the consumer already rejected, or the "you choose who is
+ * contacted" representation on the results page stops being true.
+ */
+function getDismissedAttorneyIdsFromLead(lead: { sourceDetails?: string | null } | null | undefined): string[] {
+  const preferences = parseLeadSourceDetails(lead?.sourceDetails).plaintiffAttorneyPreferences
+  if (!preferences || typeof preferences !== 'object') return []
+  const dismissed = (preferences as Record<string, unknown>).dismissedAttorneyIds
+  return Array.isArray(dismissed)
+    ? dismissed.filter((value): value is string => typeof value === 'string' && value.length > 0)
     : []
 }
 
@@ -77,15 +96,88 @@ function buildUpdatedLeadSourceDetails(params: {
   })
 }
 
-async function generateNextRankedBatch(
+export interface PendingRankedBatch {
+  candidateAttorneyIds: string[]
+  batchNumber: number
+  proposedAt: string
+}
+
+function getPendingBatchFromLead(lead: { sourceDetails?: string | null } | null | undefined): PendingRankedBatch | null {
+  const preferences = parseLeadSourceDetails(lead?.sourceDetails).plaintiffAttorneyPreferences
+  if (!preferences || typeof preferences !== 'object') return null
+  const pending = (preferences as Record<string, unknown>).pendingBatch
+  if (!pending || typeof pending !== 'object') return null
+  const candidateAttorneyIds = (pending as Record<string, unknown>).candidateAttorneyIds
+  if (!Array.isArray(candidateAttorneyIds) || candidateAttorneyIds.length === 0) return null
+  return {
+    candidateAttorneyIds: candidateAttorneyIds.filter((v): v is string => typeof v === 'string' && v.length > 0),
+    batchNumber: Number((pending as Record<string, unknown>).batchNumber ?? 2),
+    proposedAt: String((pending as Record<string, unknown>).proposedAt ?? new Date().toISOString())
+  }
+}
+
+function writePendingBatchIntoSourceDetails(params: {
+  currentSourceDetails?: string | null
+  pendingBatch: PendingRankedBatch | null
+}): string {
+  const parsed = parseLeadSourceDetails(params.currentSourceDetails)
+  const existing = parsed.plaintiffAttorneyPreferences
+  const preferences = {
+    ...(existing && typeof existing === 'object' ? (existing as Record<string, unknown>) : {})
+  }
+  if (params.pendingBatch) {
+    preferences.pendingBatch = params.pendingBatch
+  } else {
+    delete preferences.pendingBatch
+  }
+  return JSON.stringify({ ...parsed, plaintiffAttorneyPreferences: preferences })
+}
+
+function addDismissedAttorneyIdsToSourceDetails(params: {
+  currentSourceDetails?: string | null
+  dismissedAttorneyIds: string[]
+}): string {
+  const parsed = parseLeadSourceDetails(params.currentSourceDetails)
+  const existing = parsed.plaintiffAttorneyPreferences
+  const preferences = {
+    ...(existing && typeof existing === 'object' ? (existing as Record<string, unknown>) : {})
+  }
+  const merged = new Set([
+    ...getDismissedAttorneyIdsFromLead({ sourceDetails: params.currentSourceDetails }),
+    ...params.dismissedAttorneyIds.filter((id) => typeof id === 'string' && id.length > 0)
+  ])
+  preferences.dismissedAttorneyIds = [...merged]
+  return JSON.stringify({ ...parsed, plaintiffAttorneyPreferences: preferences })
+}
+
+/**
+ * Propose — but do not contact — a further set of attorneys.
+ *
+ * SB 37 / Bus. & Prof. Code § 6155(g)(2) treats referring a consumer to an
+ * attorney "not identified in the advertising" as certifiable referral activity.
+ * The consumer only ever saw and ordered their own batch, so when that queue is
+ * exhausted routing halts here and waits for an explicit approval rather than
+ * silently promoting a system-picked batch into the queue.
+ */
+async function proposeNextRankedBatch(
   assessmentId: string,
   lead: { sourceDetails?: string | null }
-): Promise<{ generated: boolean; lead?: { sourceDetails?: string | null }; attorneyIds?: string[]; error?: string }> {
+): Promise<{ proposed: boolean; attorneyIds?: string[]; error?: string }> {
+  const existingPending = getPendingBatchFromLead(lead)
+  if (existingPending) {
+    return { proposed: true, attorneyIds: existingPending.candidateAttorneyIds }
+  }
+
   const existingIntroductions = await prisma.introduction.findMany({
     where: { assessmentId },
     select: { attorneyId: true }
   })
-  const excludeAttorneyIds = [...new Set(existingIntroductions.map((intro) => intro.attorneyId))]
+  const excludeAttorneyIds = [
+    ...new Set([
+      ...existingIntroductions.map((intro) => intro.attorneyId),
+      ...getDismissedAttorneyIdsFromLead(lead)
+    ])
+  ]
   const { runRoutingEngine } = await import('./routing-engine')
   const matchingRules = await getMatchingRules()
   const dryRunResult = await runRoutingEngine(assessmentId, {
@@ -97,16 +189,187 @@ async function generateNextRankedBatch(
 
   if (!dryRunResult.success || !dryRunResult.routedTo?.length) {
     return {
-      generated: false,
+      proposed: false,
       error: dryRunResult.errors?.[0] || 'No additional attorneys available for a fresh batch'
     }
   }
 
-  const attorneyIds = dryRunResult.routedTo.slice(0, 3)
-  const sourceDetails = buildUpdatedLeadSourceDetails({
+  const candidateAttorneyIds = dryRunResult.routedTo.slice(0, 3)
+  const previousBatchNumber = getPlaintiffPreferenceBatchNumber(lead)
+  const sourceDetails = writePendingBatchIntoSourceDetails({
     currentSourceDetails: lead.sourceDetails,
-    rankedAttorneyIds: attorneyIds,
-    source: 'system_generated'
+    pendingBatch: {
+      candidateAttorneyIds,
+      batchNumber: previousBatchNumber + 1,
+      proposedAt: new Date().toISOString()
+    }
+  })
+
+  await prisma.leadSubmission.update({
+    where: { assessmentId },
+    data: {
+      sourceDetails,
+      lifecycleState: 'awaiting_plaintiff_batch_approval',
+      routingLocked: false
+    }
+  })
+
+  await recordRoutingEvent(assessmentId, null, null, 'plaintiff_batch_approval_requested', {
+    attorneyCount: candidateAttorneyIds.length,
+    batchNumber: previousBatchNumber + 1
+  })
+
+  const attorneys = await prisma.attorney.findMany({
+    where: { id: { in: candidateAttorneyIds } },
+    select: { id: true, name: true }
+  })
+  const orderedNames = candidateAttorneyIds
+    .map((id) => attorneys.find((a) => a.id === id)?.name)
+    .filter((name): name is string => Boolean(name))
+  await sendPlaintiffBatchApprovalRequest(assessmentId, orderedNames)
+
+  return { proposed: true, attorneyIds: candidateAttorneyIds }
+}
+
+function getPlaintiffPreferenceBatchNumber(lead: { sourceDetails?: string | null }): number {
+  const preferences = parseLeadSourceDetails(lead.sourceDetails).plaintiffAttorneyPreferences
+  if (preferences && typeof preferences === 'object') {
+    const value = (preferences as Record<string, unknown>).batchNumber
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
+  return 1
+}
+
+async function advanceRankedRouting(
+  assessmentId: string,
+  lead: { sourceDetails?: string | null },
+  reason: 'declined' | 'timeout'
+): Promise<{
+  routed: boolean
+  exhausted: boolean
+  awaitingApproval: boolean
+  waveNumber?: number
+  attorneyId?: string
+  proposedAttorneyIds?: string[]
+  error?: string
+}> {
+  const initialAttempt = await routeNextRankedAttorney(assessmentId, lead, reason)
+  if (initialAttempt.routed || !initialAttempt.exhausted) {
+    return { ...initialAttempt, awaitingApproval: false }
+  }
+
+  const proposal = await proposeNextRankedBatch(assessmentId, lead)
+  if (!proposal.proposed) {
+    return {
+      routed: false,
+      exhausted: true,
+      awaitingApproval: false,
+      error: proposal.error || initialAttempt.error
+    }
+  }
+
+  return {
+    routed: false,
+    exhausted: true,
+    awaitingApproval: true,
+    proposedAttorneyIds: proposal.attorneyIds
+  }
+}
+
+/**
+ * The attorneys awaiting the plaintiff's approval, with enough profile detail to
+ * render them for a decision. Returns null when nothing is pending.
+ */
+export async function getPendingRankedBatch(assessmentId: string): Promise<{
+  batchNumber: number
+  proposedAt: string
+  attorneys: Array<{ id: string; name: string; firmName: string | null; city: string | null; state: string | null }>
+} | null> {
+  const lead = await prisma.leadSubmission.findUnique({
+    where: { assessmentId },
+    select: { sourceDetails: true, routingLocked: true }
+  })
+  if (!lead || lead.routingLocked) return null
+  const pending = getPendingBatchFromLead(lead)
+  if (!pending) return null
+
+  const attorneys = await prisma.attorney.findMany({
+    where: { id: { in: pending.candidateAttorneyIds }, isActive: true },
+    select: {
+      id: true,
+      name: true,
+      lawFirm: { select: { name: true, city: true, state: true } }
+    }
+  })
+
+  return {
+    batchNumber: pending.batchNumber,
+    proposedAt: pending.proposedAt,
+    attorneys: pending.candidateAttorneyIds
+      .map((id) => attorneys.find((a) => a.id === id))
+      .filter((a): a is NonNullable<typeof a> => Boolean(a))
+      .map((a) => ({
+        id: a.id,
+        name: a.name,
+        firmName: a.lawFirm?.name ?? null,
+        city: a.lawFirm?.city ?? null,
+        state: a.lawFirm?.state ?? null
+      }))
+  }
+}
+
+/**
+ * The plaintiff approved some or all of the proposed attorneys, in their own
+ * order. Promote them into the ranked queue as a plaintiff-sourced batch and
+ * contact the first one.
+ */
+export async function approvePendingRankedBatch(
+  assessmentId: string,
+  approvedAttorneyIds: string[],
+  actor?: { userId?: string | null; ipAddress?: string | null; userAgent?: string | null }
+): Promise<{ success: boolean; routed?: boolean; attorneyId?: string; error?: string }> {
+  const lead = await prisma.leadSubmission.findUnique({
+    where: { assessmentId },
+    select: { sourceDetails: true, routingLocked: true }
+  })
+  if (!lead) return { success: false, error: 'Case not found' }
+  if (lead.routingLocked) return { success: false, error: 'This case has already been matched' }
+
+  const pending = getPendingBatchFromLead(lead)
+  if (!pending) return { success: false, error: 'No attorneys are awaiting your approval' }
+
+  const allowed = new Set(pending.candidateAttorneyIds)
+  const ordered = [...new Set(approvedAttorneyIds)].filter((id) => allowed.has(id))
+  if (ordered.length === 0) {
+    return { success: false, error: 'Select at least one attorney to continue' }
+  }
+
+  const active = await prisma.attorney.findMany({
+    where: { id: { in: ordered }, isActive: true },
+    select: { id: true }
+  })
+  const activeIds = new Set(active.map((a) => a.id))
+  const routableIds = ordered.filter((id) => activeIds.has(id))
+  if (routableIds.length === 0) {
+    return { success: false, error: 'Those attorneys are no longer available' }
+  }
+
+  // Record the approved set as the plaintiff's own selection, then drop the
+  // proposal so it cannot be replayed.
+  const withQueue = buildUpdatedLeadSourceDetails({
+    currentSourceDetails: lead.sourceDetails,
+    rankedAttorneyIds: routableIds,
+    source: 'plaintiff'
+  })
+  const withoutPending = writePendingBatchIntoSourceDetails({
+    currentSourceDetails: withQueue,
+    pendingBatch: null
+  })
+  // Anyone the plaintiff left unchecked was a deliberate rejection, so record it
+  // and never propose them again.
+  const sourceDetails = addDismissedAttorneyIdsToSourceDetails({
+    currentSourceDetails: withoutPending,
+    dismissedAttorneyIds: pending.candidateAttorneyIds.filter((id) => !routableIds.includes(id))
   })
 
   await prisma.leadSubmission.update({
@@ -117,48 +380,88 @@ async function generateNextRankedBatch(
       lastContactAt: new Date()
     }
   })
-
-  await recordRoutingEvent(assessmentId, null, null, 'plaintiff_rank_batch_generated', {
-    attorneyCount: attorneyIds.length
+  await recordRoutingEvent(assessmentId, null, null, 'plaintiff_batch_approved', {
+    batchNumber: pending.batchNumber,
+    approvedCount: routableIds.length,
+    declinedCount: pending.candidateAttorneyIds.length - routableIds.length
   })
 
-  return {
-    generated: true,
-    lead: { sourceDetails },
-    attorneyIds
+  // These firms are new: the authorization taken at submission named the original
+  // slate and does not reach them. Approving the proposal is the authorizing act,
+  // so it gets its own record naming who it covers — otherwise the per-attorney
+  // check below would correctly refuse to contact them.
+  await recordShareAuthorization({
+    assessmentId,
+    userId: actor?.userId ?? null,
+    attorneyIds: routableIds,
+    context: 'batch_approval',
+    signatureMethod: 'clicked',
+    ipAddress: actor?.ipAddress ?? null,
+    userAgent: actor?.userAgent ?? null,
+    metadata: { batchNumber: pending.batchNumber }
+  })
+
+  const routeResult = await routeNextRankedAttorney(assessmentId, { sourceDetails }, 'timeout')
+  if (!routeResult.routed) {
+    await placeAssessmentInManualReview(
+      assessmentId,
+      'plaintiff_approved_batch_not_routable',
+      'The attorneys you approved could not be contacted. Our team will follow up.'
+    )
+    return { success: true, routed: false, error: routeResult.error }
   }
+
+  return { success: true, routed: true, attorneyId: routeResult.attorneyId }
 }
 
-async function advanceRankedRouting(
-  assessmentId: string,
-  lead: { sourceDetails?: string | null },
-  reason: 'declined' | 'timeout'
-): Promise<{ routed: boolean; exhausted: boolean; generatedBatch: boolean; waveNumber?: number; attorneyId?: string; error?: string }> {
-  const initialAttempt = await routeNextRankedAttorney(assessmentId, lead, reason)
-  if (initialAttempt.routed) {
-    return { ...initialAttempt, generatedBatch: false }
+/**
+ * The plaintiff does not want the proposed attorneys contacted. Stop routing and
+ * hand the case to a human rather than continuing down the list.
+ */
+export async function declinePendingRankedBatch(
+  assessmentId: string
+): Promise<{ success: boolean; error?: string }> {
+  const lead = await prisma.leadSubmission.findUnique({
+    where: { assessmentId },
+    select: { sourceDetails: true, routingLocked: true }
+  })
+  if (!lead) return { success: false, error: 'Case not found' }
+  if (lead.routingLocked) return { success: false, error: 'This case has already been matched' }
+  if (!getPendingBatchFromLead(lead)) {
+    return { success: false, error: 'No attorneys are awaiting your approval' }
   }
 
-  if (!initialAttempt.exhausted) {
-    return { ...initialAttempt, generatedBatch: false }
-  }
-
-  const generatedBatch = await generateNextRankedBatch(assessmentId, lead)
-  if (!generatedBatch.generated || !generatedBatch.lead) {
-    return {
-      routed: false,
-      exhausted: true,
-      generatedBatch: false,
-      error: generatedBatch.error || initialAttempt.error
+  await prisma.leadSubmission.update({
+    where: { assessmentId },
+    data: {
+      sourceDetails: writePendingBatchIntoSourceDetails({
+        currentSourceDetails: lead.sourceDetails,
+        pendingBatch: null
+      })
     }
-  }
+  })
+  await recordRoutingEvent(assessmentId, null, null, 'plaintiff_batch_declined', {})
+  await placeAssessmentInManualReview(
+    assessmentId,
+    'plaintiff_declined_further_attorneys',
+    'The plaintiff asked us not to contact the attorneys we proposed.'
+  )
+  return { success: true }
+}
 
-  const generatedAttempt = await routeNextRankedAttorney(assessmentId, generatedBatch.lead, reason)
-  return {
-    ...generatedAttempt,
-    generatedBatch: true,
-    error: generatedAttempt.error || generatedBatch.error
-  }
+/**
+ * Hold a submission that carries no plaintiff selection at all, rather than
+ * letting it fall through to tier routing, where offer priority is influenced by
+ * what the attorney pays.
+ */
+export async function proposeInitialBatchForApproval(
+  assessmentId: string
+): Promise<{ proposed: boolean; attorneyIds?: string[]; error?: string }> {
+  const lead = await prisma.leadSubmission.findUnique({
+    where: { assessmentId },
+    select: { sourceDetails: true }
+  })
+  return proposeNextRankedBatch(assessmentId, lead ?? {})
 }
 
 async function routeNextRankedAttorney(
@@ -194,6 +497,24 @@ async function routeNextRankedAttorney(
   const errors: string[] = []
 
   for (const attorneyId of remainingAttorneyIds) {
+    // Re-read the authorization per attorney rather than once per queue. The
+    // queue was authorized when it was built, but a withdrawal can land between
+    // waves — and before this check that had no effect at all, because consent
+    // was verified once, before wave 1.
+    const authorized = await assertShareAuthorization(assessmentId, [attorneyId])
+    if (!authorized.ok) {
+      logger.warn('Skipped ranked attorney without live share authorization', {
+        assessmentId,
+        attorneyId,
+        reason: authorized.reason
+      })
+      errors.push(authorized.reason)
+      // A withdrawal covers the whole case, so there is no point walking the
+      // rest of the queue.
+      if (authorized.authorization.withdrawnAt) break
+      continue
+    }
+
     const result = await runRoutingEngine(assessmentId, {
       maxAttorneysPerWave: 1,
       skipPreRoutingGate: true,
@@ -587,8 +908,16 @@ export async function attorneyDeclineCase(
         assessmentId: intro.assessmentId,
         declinedAttorneyId: attorneyId,
         nextAttorneyId: nextRankedRoute.attorneyId,
-        waveNumber: nextRankedRoute.waveNumber,
-        generatedBatch: nextRankedRoute.generatedBatch
+        waveNumber: nextRankedRoute.waveNumber
+      })
+      return { success: true }
+    }
+
+    if (nextRankedRoute.awaitingApproval) {
+      logger.info('Holding routing for plaintiff approval after decline', {
+        assessmentId: intro.assessmentId,
+        declinedAttorneyId: attorneyId,
+        proposedAttorneyIds: nextRankedRoute.proposedAttorneyIds
       })
       return { success: true }
     }
@@ -681,13 +1010,20 @@ export async function runEscalationWave(assessmentId: string): Promise<{
       logger.info('Advanced to next ranked attorney after timeout', {
         assessmentId,
         nextAttorneyId: nextRankedRoute.attorneyId,
-        waveNumber: nextRankedRoute.waveNumber,
-        generatedBatch: nextRankedRoute.generatedBatch
+        waveNumber: nextRankedRoute.waveNumber
       })
       return {
         escalated: true,
         waveNumber: nextRankedRoute.waveNumber
       }
+    }
+
+    if (nextRankedRoute.awaitingApproval) {
+      logger.info('Holding routing for plaintiff approval after timeout', {
+        assessmentId,
+        proposedAttorneyIds: nextRankedRoute.proposedAttorneyIds
+      })
+      return { escalated: false, waveNumber: nextRankedRoute.waveNumber }
     }
 
     await placeAssessmentInManualReview(
@@ -782,7 +1118,18 @@ export async function runEscalationWave(assessmentId: string): Promise<{
     return { escalated: false, waveNumber: 3 }
   }
 
-  // Run routing engine for next wave (will add more attorneys, excluding already-routed)
+  // Reached only by cases with no plaintiff-ranked queue, so there is no named
+  // firm set to check against — but there must still be a live authorization to
+  // disclose the case at all, and a withdrawal has to stop the next wave.
+  const waveAuthorization = await assertShareAuthorization(assessmentId)
+  if (!waveAuthorization.ok) {
+    await moveEscalationToManualReview(waveAuthorization.reason, nextWave)
+    return { escalated: false, waveNumber: nextWave, error: waveAuthorization.reason }
+  }
+
+  // Run routing engine for next wave (will add more attorneys, excluding already-routed).
+  // The gate itself was cleared on wave 1; the disclosure check above is not part
+  // of what "already passed" covers, because consent can be withdrawn.
   const { runRoutingEngine } = await import('./routing-engine')
   const result = await runRoutingEngine(assessmentId, {
     maxAttorneysPerWave: getConfiguredWaveSize(matchingRules, nextWave),

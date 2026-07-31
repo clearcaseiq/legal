@@ -3,8 +3,10 @@ type DashboardReportInput = {
   medicalChronologyCount: number
   damagesDocumented: boolean
   evidenceCount: number
-  caseScore: number
-  caseScoreLabel: string
+  /** Band describing how complete the case file is, e.g. "High". Never a number. */
+  caseReadinessLabel: string
+  /** Case details supplied out of those tracked, e.g. "4/5". */
+  caseReadinessProgress: string
   estimatedValueText: string
   documentationPercent: number
   assessmentId?: string | null
@@ -18,10 +20,10 @@ type ResultsReportInput = {
   claimLabel: string
   jurisdiction: string
   incidentDate: string
-  caseStrengthScore: number
-  successProbability: number
-  overallQualityScore?: string
-  overallQualityLabel?: string
+  /** Band describing how complete the case file is, e.g. "High". Never a number. */
+  caseReadinessLabel: string
+  /** Case details supplied out of those tracked, e.g. "4/6". */
+  caseReadinessProgress: string
   evidenceCompletionPercent: number
   solRemaining: string
   solDeadline?: string | null
@@ -312,7 +314,7 @@ export async function downloadDashboardCaseReportPdf(input: DashboardReportInput
   drawLine(`Medical Chronology: ${input.medicalChronologyCount > 0 ? `${input.medicalChronologyCount} entries` : 'Pending'}`)
   drawLine(`Damages Summary: ${input.damagesDocumented ? 'Documented' : 'Pending'}`)
   drawLine(`Evidence: ${input.evidenceCount} files`)
-  drawLine(`Case Score: ${input.caseScore}/100 (${input.caseScoreLabel})`)
+  drawLine(`Case Readiness: ${input.caseReadinessLabel} (${input.caseReadinessProgress} case details complete)`)
   drawLine(`Estimated Value: ${input.estimatedValueText}`)
   drawLine(`Documentation: ${input.documentationPercent}% complete`)
 
@@ -586,10 +588,16 @@ export async function downloadResultsCaseReportPdf(input: ResultsReportInput) {
 
   // ---- Key metric cards ----
   drawStatCards(doc, [
-    { label: 'Case Strength', value: `${input.caseStrengthScore}/100`, color: COLORS.brand },
-    input.overallQualityScore
-      ? { label: `Overall Quality${input.overallQualityLabel ? ` (${input.overallQualityLabel})` : ''}`, value: `${input.overallQualityScore}/10`, color: COLORS.emerald }
-      : { label: 'Success Probability', value: `${input.successProbability}%`, color: COLORS.emerald },
+    {
+      label: 'Case Readiness',
+      value: input.caseReadinessLabel,
+      color: COLORS.brand
+    },
+    {
+      label: 'Case Details Complete',
+      value: input.caseReadinessProgress,
+      color: COLORS.emerald
+    },
     { label: 'Documentation', value: `${input.evidenceCompletionPercent}%`, color: COLORS.ink },
     { label: 'Time to File', value: input.solRemaining, color: COLORS.amber },
   ])
@@ -618,6 +626,11 @@ export async function downloadResultsCaseReportPdf(input: ResultsReportInput) {
   drawSectionTitle(doc, 'Settlement Estimate')
   const settle = makeBlock()
   settle.row('Most likely range', input.settlementRangeText, { rightColor: COLORS.emerald, size: 12 })
+  settle.wrapped('Based on the information you provided. Not a guarantee of outcome.', {
+    size: 9,
+    color: COLORS.muted,
+  })
+  settle.gap(2)
   settle.row('Most likely amount', input.settlementExpectedText, { rightColor: COLORS.ink })
   settle.row('Confidence', input.estimateConfidenceLevel, { rightColor: COLORS.ink })
   if (input.valuationMissingInputs && input.valuationMissingInputs.length) {
@@ -631,7 +644,7 @@ export async function downloadResultsCaseReportPdf(input: ResultsReportInput) {
   settle.text('IF YOUR CASE GOES TO TRIAL', { font: 'F2', size: 8, color: COLORS.muted })
   settle.row('Trial range', input.trialValueText, { rightColor: COLORS.ink })
   settle.row('Trial most likely', input.trialExpectedText, { rightColor: COLORS.ink })
-  settle.wrapped('Trials can result in higher awards, but carry more time, risk, and uncertainty, and may be limited by collectability or policy limits.', { size: 9, color: COLORS.muted })
+  settle.wrapped('Not a guarantee of outcome. Trials can result in higher awards, but carry more time, risk, and uncertainty, and may be limited by collectability or policy limits.', { size: 9, color: COLORS.muted })
   drawPanel(doc, settle, { accent: COLORS.emerald })
 
   // ---- Estimated net recovery ("take-home") ----

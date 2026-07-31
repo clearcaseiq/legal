@@ -17,6 +17,7 @@ import {
   type AttorneyCalendarConnection,
 } from '../../../src/lib/api'
 import { brand, colors, radii, space, shadows } from '../../../src/theme/tokens'
+import { LEGAL_LINKS, NOT_A_LAW_FIRM, NOT_A_LAW_FIRM_PLAINTIFF } from '../../../src/lib/legalLinks'
 
 export default function AccountScreen() {
   const { user, logout, hasBiometrics, startupError, retryAuthCheck } = useAuth()
@@ -63,6 +64,14 @@ export default function AccountScreen() {
     } finally {
       setLoggingOut(false)
       setConfirmLogoutOpen(false)
+    }
+  }
+
+  async function openLegalPage(url: string) {
+    try {
+      await Linking.openURL(url)
+    } catch {
+      setLogoutError('Unable to open that page. Visit clearcaseiq.com in your browser.')
     }
   }
 
@@ -286,6 +295,43 @@ export default function AccountScreen() {
         ) : null}
       </View>
 
+      {/* Legal. The store builds previously shipped with no Terms, no Privacy,
+          and no statement of what ClearCaseIQ is — this is the app's equivalent
+          of the web footer (T4). */}
+      <View style={styles.list}>
+        <Text style={styles.section}>Legal</Text>
+        <View style={styles.row}>
+          <Ionicons name="document-text-outline" size={22} color={colors.textSecondary} />
+          <View style={styles.rowText}>
+            <Text style={styles.rowTitle}>About ClearCaseIQ</Text>
+            <Text style={styles.rowSub}>{isAttorney ? NOT_A_LAW_FIRM : NOT_A_LAW_FIRM_PLAINTIFF}</Text>
+          </View>
+        </View>
+        {(
+          [
+            { key: 'terms', label: 'Terms of Service', url: LEGAL_LINKS.terms, icon: 'reader-outline' },
+            { key: 'privacy', label: 'Privacy Policy', url: LEGAL_LINKS.privacy, icon: 'lock-closed-outline' },
+            { key: 'disclosures', label: 'Disclosures', url: LEGAL_LINKS.disclosures, icon: 'information-circle-outline' },
+            { key: 'ai', label: 'AI Disclosure', url: LEGAL_LINKS.aiDisclosure, icon: 'sparkles-outline' },
+          ] as const
+        ).map((item) => (
+          <TouchableOpacity
+            key={item.key}
+            style={[styles.row, styles.rowSpacing, styles.rowCenter]}
+            onPress={() => { void openLegalPage(item.url) }}
+            activeOpacity={0.8}
+            accessibilityRole="link"
+            accessibilityLabel={`${item.label}, opens in your browser`}
+          >
+            <Ionicons name={item.icon} size={22} color={colors.textSecondary} />
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>{item.label}</Text>
+            </View>
+            <Ionicons name="open-outline" size={18} color={colors.muted} />
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <TouchableOpacity
         style={[styles.logout, loggingOut && styles.logoutDisabled]}
         onPress={() => {
@@ -378,6 +424,7 @@ const styles = StyleSheet.create({
   section: { fontSize: 13, fontWeight: '700', color: colors.textSecondary, marginBottom: space.md, textTransform: 'uppercase' },
   row: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md, backgroundColor: colors.card, padding: space.lg, borderRadius: radii.lg, borderWidth: 1, borderColor: colors.border },
   rowSpacing: { marginTop: space.md },
+  rowCenter: { alignItems: 'center' },
   rowText: { flex: 1 },
   rowTitle: { fontSize: 16, fontWeight: '600', color: colors.text },
   rowStatus: { fontSize: 13, fontWeight: '700', color: colors.primary, marginTop: 6 },

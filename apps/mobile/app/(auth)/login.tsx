@@ -20,13 +20,12 @@ import { BrandWordmark } from '../../src/components/BrandWordmark'
 import { InlineErrorBanner } from '../../src/components/InlineErrorBanner'
 import { colors, radii, shadows, space } from '../../src/theme/tokens'
 import { IS_PLAINTIFF_APP } from '../../src/lib/appVariant'
-
-const FORGOT_PASSWORD_URL = 'https://www.clearcaseiq.com/forgot-password'
+import { LEGAL_LINKS, NOT_A_LAW_FIRM, NOT_A_LAW_FIRM_PLAINTIFF } from '../../src/lib/legalLinks'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const VALUE_PROPS = IS_PLAINTIFF_APP
-  ? (['Track your case status in real time', 'See your settlement estimate', 'Message your legal team securely'] as const)
+  ? (['Track your case status in real time', 'Estimate your potential case value', 'Message your legal team securely'] as const)
   : (['AI medical chronologies', 'Settlement valuations', 'Demand letters & case intelligence'] as const)
 
 // Ambient, illustrative preview of what the app delivers (not live data).
@@ -52,7 +51,13 @@ const SUBTITLE = IS_PLAINTIFF_APP
   ? 'Your personal injury case, clear and always up to date.'
   : 'The AI operating system for personal injury law.'
 
-const PREVIEW_LABEL = IS_PLAINTIFF_APP ? 'Your case at a glance' : 'Case intelligence preview'
+const PREVIEW_LABEL = IS_PLAINTIFF_APP ? 'Example case at a glance' : 'Case intelligence preview'
+
+// The preview carries a dollar figure before anyone has signed in, so it says
+// plainly that the numbers are a sample and that estimates promise nothing (C4).
+const PREVIEW_NOTE = IS_PLAINTIFF_APP
+  ? 'Sample figures. Estimates are informational only, not legal advice, and not a guarantee of outcome.'
+  : 'Sample figures shown for illustration.'
 
 /**
  * Sign-in failures need a plain message. API-host troubleshooting only helps
@@ -204,6 +209,7 @@ export default function LoginScreen() {
                 </View>
               ))}
             </View>
+            <Text style={styles.previewNote}>{PREVIEW_NOTE}</Text>
           </View>
 
           <View style={styles.formPanel}>
@@ -274,7 +280,7 @@ export default function LoginScreen() {
               <View style={styles.fieldLabelRow}>
                 <Text style={styles.fieldLabel}>Password</Text>
                 <TouchableOpacity
-                  onPress={() => Linking.openURL(FORGOT_PASSWORD_URL)}
+                  onPress={() => Linking.openURL(LEGAL_LINKS.forgotPassword)}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
                   <Text style={styles.forgotText}>Forgot password?</Text>
@@ -335,6 +341,25 @@ export default function LoginScreen() {
                   <Text style={styles.trustChipText}>{label}</Text>
                 </View>
               ))}
+            </View>
+          </View>
+
+          {/* The only screen a consumer can reach without signing in, so it
+              carries the platform statement and the policy links (T4). */}
+          <View style={styles.legalBlock}>
+            <Text style={styles.legalText}>{IS_PLAINTIFF_APP ? NOT_A_LAW_FIRM_PLAINTIFF : NOT_A_LAW_FIRM}</Text>
+            <View style={styles.legalLinks}>
+              <TouchableOpacity onPress={() => Linking.openURL(LEGAL_LINKS.terms)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={styles.legalLink}>Terms</Text>
+              </TouchableOpacity>
+              <Text style={styles.legalDot}>·</Text>
+              <TouchableOpacity onPress={() => Linking.openURL(LEGAL_LINKS.privacy)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={styles.legalLink}>Privacy</Text>
+              </TouchableOpacity>
+              <Text style={styles.legalDot}>·</Text>
+              <TouchableOpacity onPress={() => Linking.openURL(LEGAL_LINKS.disclosures)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={styles.legalLink}>Disclosures</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -500,6 +525,34 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -0.3,
   },
+  previewNote: {
+    fontSize: 11,
+    lineHeight: 15,
+    color: 'rgba(148,163,184,0.9)',
+    marginTop: space.md,
+  },
+  legalBlock: {
+    marginTop: space.lg,
+    alignItems: 'center',
+  },
+  legalText: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: 'rgba(148,163,184,0.85)',
+    textAlign: 'center',
+  },
+  legalLinks: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginTop: space.sm,
+  },
+  legalLink: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(203,213,225,0.9)',
+  },
+  legalDot: { fontSize: 12, color: 'rgba(148,163,184,0.6)' },
   tone_accent: { color: colors.brandAccent },
   tone_success: { color: '#4ade80' },
   tone_warning: { color: '#fbbf24' },

@@ -10,8 +10,12 @@
  * badge answers "who put this on my board", not "who is doing it".
  */
 
-/** Shown wherever a task's creator is displayed. */
-export const AI_AUTHOR_NAME = 'Rose (AI Case Manager)'
+/**
+ * Shown wherever a task's creator is displayed. Kept in the same "Rose — AI ..."
+ * shape as the claimant-facing "Rose — AI Intake Assistant" so both audiences see
+ * one assistant, named as AI, rather than two differently-branded personas.
+ */
+export const AI_AUTHOR_NAME = 'Rose — AI Case Manager'
 
 /** Short form, for badges and other tight spaces. */
 export const AI_AUTHOR_SHORT_NAME = 'Rose'

@@ -269,9 +269,11 @@ router.get('/assessment/:id/status', authMiddleware, async (req: AuthRequest, re
     // The flag used to live only inside upcomingAppointment, which is null once
     // the consult is over — so the review prompt vanished exactly when a plaintiff
     // finally had something to review (CP-308/321/326). Surface it on its own.
+    // Scoped to this case: a review the plaintiff left for the same attorney on a
+    // different matter must not pre-fill or suppress the prompt here (CP-480).
     const existingReview = reviewEligible && accepted && req.user?.id
-      ? await prisma.attorneyReview.findUnique({
-          where: { attorneyId_userId: { attorneyId: accepted.attorney.id, userId: req.user.id } },
+      ? await prisma.attorneyReview.findFirst({
+          where: { attorneyId: accepted.attorney.id, userId: req.user.id, assessmentId },
           select: { rating: true, title: true, review: true, createdAt: true }
         }).catch(() => null)
       : null

@@ -277,11 +277,11 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
     try {
       setManualBusy(true)
       setIntakeMessage('Creating draft case…')
-      const data = await createManualIntake({ template: intakeTemplate })
+                  const data = await createManualIntake({ template: intakeTemplate })
       setIntakeMessage('Draft case created. Opening intake…')
-      navigate(`/edit-assessment/${data.assessmentId}`)
-    } catch (err: any) {
-      setIntakeMessage(err.response?.data?.error || 'Failed to create draft case')
+                  navigate(`/edit-assessment/${data.assessmentId}`)
+                } catch (err: any) {
+                  setIntakeMessage(err.response?.data?.error || 'Failed to create draft case')
     } finally {
       setManualBusy(false)
     }
@@ -291,10 +291,10 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
     try {
       setCloneBusy(true)
       setIntakeMessage(`Cloning ${intakeTemplate} template…`)
-      const data = await cloneCaseTemplate({ template: intakeTemplate })
-      navigate(`/edit-assessment/${data.assessmentId}`)
-    } catch (err: any) {
-      setIntakeMessage(err.response?.data?.error || 'Failed to clone template')
+                    const data = await cloneCaseTemplate({ template: intakeTemplate })
+                    navigate(`/edit-assessment/${data.assessmentId}`)
+                  } catch (err: any) {
+                    setIntakeMessage(err.response?.data?.error || 'Failed to clone template')
     } finally {
       setCloneBusy(false)
     }
@@ -309,24 +309,24 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
       setImporting(true)
       setImportMessage('Submitting import request…')
       const cleanMapping = Object.fromEntries(Object.entries(mapping).filter(([, v]) => v))
-      const data = await importCase({
-        source: importForm.source,
-        includeDocuments: importForm.includeDocuments,
-        includeHistory: importForm.includeHistory,
-        includeTasks: importForm.includeTasks,
-        includeMedical: importForm.includeMedical,
-        notes: importForm.notes,
+                  const data = await importCase({
+                    source: importForm.source,
+                    includeDocuments: importForm.includeDocuments,
+                    includeHistory: importForm.includeHistory,
+                    includeTasks: importForm.includeTasks,
+                    includeMedical: importForm.includeMedical,
+                    notes: importForm.notes,
         mapping: Object.keys(cleanMapping).length ? cleanMapping : undefined,
-        files: importForm.files,
-      })
-      const createdCount = data.createdCount ?? data.assessmentIds?.length ?? 0
-      setImportMessage(
-        createdCount > 0
-          ? `Imported ${createdCount} case${createdCount === 1 ? '' : 's'} from ${importForm.source}.`
-          : 'Import queued. We will hydrate the case once files are processed.',
-      )
-    } catch (err: any) {
-      setImportMessage(err.response?.data?.error || 'Failed to import case')
+                    files: importForm.files,
+                  })
+                  const createdCount = data.createdCount ?? data.assessmentIds?.length ?? 0
+                  setImportMessage(
+                    createdCount > 0
+                      ? `Imported ${createdCount} case${createdCount === 1 ? '' : 's'} from ${importForm.source}.`
+                      : 'Import queued. We will hydrate the case once files are processed.',
+                  )
+                } catch (err: any) {
+                  setImportMessage(err.response?.data?.error || 'Failed to import case')
     } finally {
       setImporting(false)
     }
@@ -458,7 +458,7 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
               Drag &amp; drop files here, or <span className="text-brand-600">browse</span>
             </p>
             <p className="mt-0.5 text-xs text-slate-400">CSV, TSV, JSON, Excel, TXT</p>
-            <input
+              <input
               ref={fileInputRef}
               type="file"
               multiple
@@ -525,7 +525,7 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
                           <option key={h} value={h}>{h}</option>
                         ))}
                       </select>
-                    </label>
+            </label>
                   ))}
                 </div>
 
@@ -579,8 +579,8 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
                 key={opt.key}
                 className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 transition ${checked ? 'border-brand-300 bg-brand-50/50' : 'border-slate-200 bg-white hover:border-slate-300'}`}
               >
-                <input
-                  type="checkbox"
+              <input
+                type="checkbox"
                   checked={checked}
                   onChange={(e) => setImportForm((prev) => ({ ...prev, [opt.key]: e.target.checked }))}
                   className="mt-0.5 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
@@ -589,12 +589,12 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
                   <span className="block text-sm font-semibold text-slate-800">{opt.label}</span>
                   <span className="block text-xs text-slate-500">{opt.desc}</span>
                 </span>
-              </label>
+            </label>
             )
           })}
         </div>
 
-        <input
+              <input
           value={importForm.notes}
           onChange={(e) => setImportForm((prev) => ({ ...prev, notes: e.target.value }))}
           className={inputCls + ' mt-3'}
@@ -630,8 +630,8 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
                 key={opt.key}
                 className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 transition ${checked ? 'border-brand-300 bg-brand-50/50' : 'border-slate-200 bg-white hover:border-slate-300'}`}
               >
-                <input
-                  type="checkbox"
+              <input
+                type="checkbox"
                   checked={checked}
                   onChange={(e) => setSmartIntakeConfig((prev) => ({ ...prev, [opt.key]: e.target.checked }))}
                   className="mt-0.5 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
@@ -640,15 +640,15 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
                   <span className="block text-sm font-semibold text-slate-800">{opt.label}</span>
                   <span className="block text-xs text-slate-500">{opt.desc}</span>
                 </span>
-              </label>
+            </label>
             )
           })}
-        </div>
+          </div>
         <div className="mt-4">
           <button onClick={handleSaveSmart} disabled={smartSaving} className={btnPrimary}>
             {smartSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
             {smartSaving ? 'Saving…' : 'Save smart intake settings'}
-          </button>
+            </button>
         </div>
         {smartIntakeMessage && <Banner message={smartIntakeMessage} />}
       </div>

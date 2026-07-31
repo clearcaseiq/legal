@@ -293,17 +293,31 @@ router.post('/assessments/:assessmentId/satisfaction', optionalAuthMiddleware, a
     if (userId && lead?.assignedAttorneyId) {
       try {
         const isVerified = await maybeVerifyAttorneyReview({ attorneyId: lead.assignedAttorneyId, userId })
-        await prisma.attorneyReview.upsert({
-          where: { attorneyId_userId: { attorneyId: lead.assignedAttorneyId, userId } },
-          create: {
-            attorneyId: lead.assignedAttorneyId,
-            userId,
-            rating: parsed.data.satisfaction,
-            review: parsed.data.notes ?? null,
-            isVerified,
-          },
-          update: { rating: parsed.data.satisfaction, isVerified },
+        // Scoped to this case, so satisfaction recorded on a second matter with
+        // the same attorney does not overwrite the rating from the first
+        // (CP-480). findFirst rather than upsert because the unique key now
+        // includes a nullable column, which Postgres will not match on.
+        const existingReview = await prisma.attorneyReview.findFirst({
+          where: { attorneyId: lead.assignedAttorneyId, userId, assessmentId },
+          select: { id: true },
         })
+        if (existingReview) {
+          await prisma.attorneyReview.update({
+            where: { id: existingReview.id },
+            data: { rating: parsed.data.satisfaction, isVerified },
+          })
+        } else {
+          await prisma.attorneyReview.create({
+            data: {
+              attorneyId: lead.assignedAttorneyId,
+              userId,
+              assessmentId,
+              rating: parsed.data.satisfaction,
+              review: parsed.data.notes ?? null,
+              isVerified,
+            },
+          })
+        }
         await recomputeAttorneyRatingAggregates(lead.assignedAttorneyId)
       } catch (reviewError: any) {
         logger.warn('Failed to mirror satisfaction onto attorney rating', {

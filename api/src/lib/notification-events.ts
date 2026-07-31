@@ -15,6 +15,7 @@ export const PLAINTIFF_EVENTS = {
   attorney_match_found: 'plaintiff.attorney_match_found',
   consultation_ready: 'plaintiff.consultation_ready',
   attorneys_reviewing: 'plaintiff.attorneys_reviewing',
+  batch_approval_requested: 'plaintiff.batch_approval_requested',
   more_info_requested: 'plaintiff.more_info_requested',
   no_attorney_response: 'plaintiff.no_attorney_response',
   case_closed: 'plaintiff.case_closed',

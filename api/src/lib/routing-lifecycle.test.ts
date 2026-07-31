@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('./case-notifications', () => ({
   sendPlaintiffAttorneyAccepted: vi.fn().mockResolvedValue(undefined),
   sendPlaintiffManualReviewNeeded: vi.fn().mockResolvedValue(undefined),
+  sendPlaintiffBatchApprovalRequest: vi.fn().mockResolvedValue(true),
 }))
 
 vi.mock('./prisma', () => import('../test/universalPrismaMock'))
@@ -14,6 +15,11 @@ vi.mock('./routing-engine', () => ({
   }),
 }))
 
+vi.mock('./share-authorization', () => ({
+  assertShareAuthorization: vi.fn(),
+  recordShareAuthorization: vi.fn().mockResolvedValue({ recorded: true, consentId: 'consent-1' }),
+}))
+
 import {
   attorneyAcceptCase,
   recordRoutingEvent,
@@ -21,14 +27,53 @@ import {
   isRoutingLocked,
   runEscalationWave,
   calculateAttorneyReputationScore,
+  approvePendingRankedBatch,
+  declinePendingRankedBatch,
+  getPendingRankedBatch,
 } from './routing-lifecycle'
 import { prisma } from './prisma'
 import { resetUniversalPrismaMock } from '../test/universalPrismaMock'
 import { runRoutingEngine } from './routing-engine'
+import { assertShareAuthorization, recordShareAuthorization } from './share-authorization'
 import {
   sendPlaintiffAttorneyAccepted,
-  sendPlaintiffManualReviewNeeded
+  sendPlaintiffManualReviewNeeded,
+  sendPlaintiffBatchApprovalRequest
 } from './case-notifications'
+
+/**
+ * Every contact path now re-reads the plaintiff's authorization before an
+ * attorney is introduced, so a suite that does not grant one is testing the
+ * hold rather than the routing.
+ */
+function authorizeShare(attorneyIds: string[] = []) {
+  vi.mocked(assertShareAuthorization).mockResolvedValue({
+    ok: true,
+    authorization: {
+      authorized: true,
+      reason: 'authorized',
+      basis: 'consent_record',
+      authorizedAttorneyIds: attorneyIds,
+      authorizedAt: new Date(),
+      withdrawnAt: null,
+    },
+  })
+}
+
+function withholdShare(reason: string, withdrawnAt: Date | null = null) {
+  vi.mocked(assertShareAuthorization).mockResolvedValue({
+    ok: false,
+    reason,
+    authorization: {
+      authorized: false,
+      reason,
+      basis: withdrawnAt ? 'consent_record' : 'none',
+      authorizedAttorneyIds: [],
+      authorizedAt: null,
+      withdrawnAt,
+    },
+  })
+}
 
 function pendingIntro(attorneyId: string, withLead: boolean) {
   return {
@@ -109,6 +154,7 @@ describe('attorneyAcceptCase', () => {
 describe('attorneyDeclineCase', () => {
   beforeEach(() => {
     resetUniversalPrismaMock()
+    authorizeShare()
   })
 
   it('declines pending intro with reason', async () => {
@@ -214,6 +260,7 @@ describe('runEscalationWave', () => {
   beforeEach(() => {
     resetUniversalPrismaMock()
     vi.clearAllMocks()
+    authorizeShare()
   })
 
   it('returns error when no lead', async () => {
@@ -295,7 +342,9 @@ describe('runEscalationWave', () => {
     }))
   })
 
-  it('generates a fresh ranked batch when the plaintiff queue is exhausted', async () => {
+  // SB 37 / § 6155(g)(2): once the attorneys the plaintiff chose are used up we may
+  // not quietly continue to a batch they never saw.
+  it('holds for plaintiff approval instead of routing to a fresh batch', async () => {
     vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
       routingLocked: false,
       sourceDetails: JSON.stringify({
@@ -305,49 +354,74 @@ describe('runEscalationWave', () => {
         },
       }),
     } as any)
-    vi.mocked(prisma.introduction.findMany)
-      .mockResolvedValueOnce([
-        { attorneyId: 'att-1' },
-        { attorneyId: 'att-2' },
-        { attorneyId: 'att-3' },
-      ] as any)
-      .mockResolvedValueOnce([
-        { attorneyId: 'att-1' },
-        { attorneyId: 'att-2' },
-        { attorneyId: 'att-3' },
-      ] as any)
-    vi.mocked(prisma.routingWave.findFirst)
-      .mockResolvedValueOnce({ waveNumber: 3 } as any)
-      .mockResolvedValueOnce({ waveNumber: 3 } as any)
-    vi.mocked(runRoutingEngine)
-      .mockResolvedValueOnce({
-        success: true,
-        routedTo: ['att-4', 'att-5', 'att-6'],
-      } as any)
-      .mockResolvedValueOnce({
-        success: true,
-        routedTo: ['att-4'],
-        introductionIds: ['intro-4'],
-      } as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([
+      { attorneyId: 'att-1' },
+      { attorneyId: 'att-2' },
+      { attorneyId: 'att-3' },
+    ] as any)
+    vi.mocked(prisma.routingWave.findFirst).mockResolvedValue({ waveNumber: 3 } as any)
+    vi.mocked(prisma.attorney.findMany).mockResolvedValue([
+      { id: 'att-4', name: 'Dana Reyes' },
+      { id: 'att-5', name: 'Sam Ortiz' },
+      { id: 'att-6', name: 'Lee Chan' },
+    ] as any)
+    vi.mocked(runRoutingEngine).mockResolvedValueOnce({
+      success: true,
+      routedTo: ['att-4', 'att-5', 'att-6'],
+    } as any)
 
     const r = await runEscalationWave('asm-1')
 
-    expect(r.escalated).toBe(true)
-    expect(prisma.leadSubmission.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { assessmentId: 'asm-1' },
-      data: expect.objectContaining({
-        sourceDetails: expect.stringContaining('"rankedAttorneyIds":["att-4","att-5","att-6"]'),
-      }),
-    }))
+    expect(r.escalated).toBe(false)
+
+    const update = vi.mocked(prisma.leadSubmission.update).mock.calls.at(-1)?.[0] as any
+    expect(update.data.lifecycleState).toBe('awaiting_plaintiff_batch_approval')
+    // Proposed, not promoted: the plaintiff's own queue is left untouched.
+    expect(update.data.sourceDetails).toContain('"pendingBatch"')
+    expect(update.data.sourceDetails).toContain('"rankedAttorneyIds":["att-1","att-2","att-3"]')
+    expect(update.data.sourceDetails).not.toContain('system_generated')
+
+    expect(sendPlaintiffBatchApprovalRequest).toHaveBeenCalledWith('asm-1', [
+      'Dana Reyes',
+      'Sam Ortiz',
+      'Lee Chan',
+    ])
+    // Only the dry run — nobody was contacted.
+    expect(runRoutingEngine).toHaveBeenCalledTimes(1)
     expect(runRoutingEngine).toHaveBeenNthCalledWith(1, 'asm-1', expect.objectContaining({
       dryRun: true,
       maxAttorneysPerWave: 3,
       excludeAttorneyIds: ['att-1', 'att-2', 'att-3'],
     }))
-    expect(runRoutingEngine).toHaveBeenNthCalledWith(2, 'asm-1', expect.objectContaining({
-      preferredAttorneyIds: ['att-4'],
-      maxAttorneysPerWave: 1,
-      waveNumber: 4,
+    expect(prisma.assessment.update).not.toHaveBeenCalled()
+  })
+
+  // A removal is a standing instruction: an attorney the plaintiff took off their
+  // slate must not come back in a later proposal.
+  it('never re-proposes an attorney the plaintiff removed', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      routingLocked: false,
+      sourceDetails: JSON.stringify({
+        plaintiffAttorneyPreferences: {
+          rankedAttorneyIds: ['att-1'],
+          dismissedAttorneyIds: ['att-9'],
+          batchNumber: 1,
+        },
+      }),
+    } as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([{ attorneyId: 'att-1' }] as any)
+    vi.mocked(prisma.routingWave.findFirst).mockResolvedValue({ waveNumber: 3 } as any)
+    vi.mocked(prisma.attorney.findMany).mockResolvedValue([{ id: 'att-4', name: 'Dana Reyes' }] as any)
+    vi.mocked(runRoutingEngine).mockResolvedValueOnce({
+      success: true,
+      routedTo: ['att-4'],
+    } as any)
+
+    await runEscalationWave('asm-1')
+
+    expect(runRoutingEngine).toHaveBeenNthCalledWith(1, 'asm-1', expect.objectContaining({
+      dryRun: true,
+      excludeAttorneyIds: expect.arrayContaining(['att-1', 'att-9']),
     }))
   })
 
@@ -378,6 +452,120 @@ describe('runEscalationWave', () => {
       data: expect.objectContaining({ manualReviewStatus: 'pending' }),
     }))
     expect(sendPlaintiffManualReviewNeeded).toHaveBeenCalled()
+  })
+})
+
+describe('plaintiff approval of a further attorney batch', () => {
+  const pendingLead = {
+    routingLocked: false,
+    sourceDetails: JSON.stringify({
+      plaintiffAttorneyPreferences: {
+        rankedAttorneyIds: ['att-1', 'att-2', 'att-3'],
+        batchNumber: 1,
+        pendingBatch: {
+          candidateAttorneyIds: ['att-4', 'att-5', 'att-6'],
+          batchNumber: 2,
+          proposedAt: '2026-07-29T00:00:00.000Z',
+        },
+      },
+    }),
+  }
+
+  beforeEach(() => {
+    resetUniversalPrismaMock()
+    vi.clearAllMocks()
+    authorizeShare()
+  })
+
+  it('lists the proposed attorneys in the order they were proposed', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue(pendingLead as any)
+    vi.mocked(prisma.attorney.findMany).mockResolvedValue([
+      { id: 'att-5', name: 'Sam Ortiz', lawFirm: { name: 'Ortiz Law', city: 'Fresno', state: 'CA' } },
+      { id: 'att-4', name: 'Dana Reyes', lawFirm: { name: 'Reyes LLP', city: 'Oakland', state: 'CA' } },
+    ] as any)
+
+    const pending = await getPendingRankedBatch('asm-1')
+
+    expect(pending?.batchNumber).toBe(2)
+    expect(pending?.attorneys.map((a) => a.id)).toEqual(['att-4', 'att-5'])
+    expect(pending?.attorneys[0]).toMatchObject({ name: 'Dana Reyes', firmName: 'Reyes LLP', city: 'Oakland' })
+  })
+
+  it('nothing is pending once the case is locked to an attorney', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      ...pendingLead,
+      routingLocked: true,
+    } as any)
+    expect(await getPendingRankedBatch('asm-1')).toBeNull()
+  })
+
+  it('routes only to the approved attorneys, in the plaintiff order', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue(pendingLead as any)
+    vi.mocked(prisma.attorney.findMany).mockResolvedValue([
+      { id: 'att-5' },
+      { id: 'att-6' },
+    ] as any)
+    vi.mocked(prisma.introduction.findMany).mockResolvedValue([] as any)
+    vi.mocked(prisma.routingWave.findFirst).mockResolvedValue({ waveNumber: 3 } as any)
+    vi.mocked(runRoutingEngine).mockResolvedValue({
+      success: true,
+      routedTo: ['att-6'],
+      introductionIds: ['intro-6'],
+    } as any)
+
+    const result = await approvePendingRankedBatch('asm-1', ['att-6', 'att-5'])
+
+    expect(result).toMatchObject({ success: true, routed: true, attorneyId: 'att-6' })
+    const update = vi.mocked(prisma.leadSubmission.update).mock.calls[0]?.[0] as any
+    expect(update.data.sourceDetails).toContain('"rankedAttorneyIds":["att-6","att-5"]')
+    expect(update.data.sourceDetails).toContain('"source":"plaintiff"')
+    // Proposal is consumed so it cannot be replayed.
+    expect(update.data.sourceDetails).not.toContain('pendingBatch')
+    // att-4 was proposed and left unchecked, which is a rejection — record it so it
+    // is never proposed again.
+    expect(update.data.sourceDetails).toContain('"dismissedAttorneyIds":["att-4"]')
+    expect(runRoutingEngine).toHaveBeenCalledWith('asm-1', expect.objectContaining({
+      preferredAttorneyIds: ['att-6'],
+      maxAttorneysPerWave: 1,
+    }))
+  })
+
+  it('refuses attorneys that were never proposed', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue(pendingLead as any)
+
+    const result = await approvePendingRankedBatch('asm-1', ['att-99'])
+
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/select at least one/i)
+    expect(runRoutingEngine).not.toHaveBeenCalled()
+    expect(prisma.leadSubmission.update).not.toHaveBeenCalled()
+  })
+
+  it('declining stops routing and hands the case to a human', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue(pendingLead as any)
+
+    const result = await declinePendingRankedBatch('asm-1')
+
+    expect(result.success).toBe(true)
+    expect(runRoutingEngine).not.toHaveBeenCalled()
+    expect(prisma.assessment.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        manualReviewStatus: 'pending',
+        manualReviewReason: 'plaintiff_declined_further_attorneys',
+      }),
+    }))
+  })
+
+  it('will not approve a batch that is no longer pending', async () => {
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      routingLocked: false,
+      sourceDetails: JSON.stringify({ plaintiffAttorneyPreferences: { rankedAttorneyIds: ['att-1'] } }),
+    } as any)
+
+    const result = await approvePendingRankedBatch('asm-1', ['att-4'])
+
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/awaiting your approval/i)
   })
 })
 

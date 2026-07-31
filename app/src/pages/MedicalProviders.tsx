@@ -27,6 +27,7 @@ import Tooltip from '../components/Tooltip'
 import { formatClaimType as formatCanonicalClaimType } from '../lib/claimTypes'
 import {
   getMedicalProviderDirectory,
+  getProviderReferralConfig,
   getProviderReferrals,
   createProviderReferral,
   updateProviderReferral,
@@ -154,6 +155,10 @@ export default function MedicalProviders() {
     minRating: 0,
   })
 
+  // Null until the server answers, so the notice does not flash on a page that
+  // has referrals enabled.
+  const [referralsDisabledReason, setReferralsDisabledReason] = useState<string | null>(null)
+
   // Refer-patient modal state
   const [referProvider, setReferProvider] = useState<MedicalProvider | null>(null)
   const [leadOptions, setLeadOptions] = useState<LeadOption[]>([])
@@ -162,18 +167,32 @@ export default function MedicalProviders() {
   const [referSubmitting, setReferSubmitting] = useState(false)
 
   useEffect(() => {
+    loadConfig()
     loadProviders()
     loadReferrals()
   }, [])
+
+  const loadConfig = async () => {
+    try {
+      const config = await getProviderReferralConfig()
+      setReferralsDisabledReason(config.referralsEnabled ? null : config.disabledReason)
+    } catch (err) {
+      console.error('Failed to load provider referral config:', err)
+    }
+  }
 
   const loadProviders = async () => {
     try {
       setLoading(true)
       const data = await getMedicalProviderDirectory({ limit: 100 })
       setProviders((data?.providers ?? []) as MedicalProvider[])
-    } catch (err) {
-      console.error('Failed to load providers:', err)
-      setError('Failed to load medical providers.')
+    } catch (err: any) {
+      // A 403 here is the compliance gate, not a failure — the notice above
+      // already explains it, so don't stack a red error banner on top.
+      if (err?.response?.data?.code !== 'PROVIDER_REFERRALS_DISABLED') {
+        console.error('Failed to load providers:', err)
+        setError('Failed to load medical providers.')
+      }
     } finally {
       setLoading(false)
     }
@@ -280,6 +299,13 @@ export default function MedicalProviders() {
           </button>
         </div>
       </div>
+
+      {referralsDisabledReason && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">Provider referrals are turned off</p>
+          <p className="mt-1">{referralsDisabledReason}</p>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>

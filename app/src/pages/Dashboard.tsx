@@ -621,13 +621,24 @@ export default function Dashboard() {
 
   const viability = activeAssessment?.latest_prediction?.viability
   const valueBands = activeAssessment?.latest_prediction?.value_bands
-  const caseScore = Math.round((viability?.overall ?? 0.5) * 100)
-  const caseScoreLabel = caseScore >= 75 ? 'Strong' : caseScore >= 50 ? 'Moderately Strong' : caseScore >= 25 ? 'Moderate' : 'Needs Work'
+  // A case with no prediction behind it has no score. Defaulting to 0.5 showed a
+  // confident 50% for cases that were never analysed.
+  const overallViability = typeof viability?.overall === 'number' ? viability.overall : null
+  const liabilityViability = typeof viability?.liability === 'number' ? viability.liability : null
+  // A consumer reading "82" reads it as an 82% chance of winning, whatever heading sits
+  // above it. Readiness reports how complete the case file is instead — the checklist
+  // above accounts for all of it — and is shown as a band so there is no number to
+  // mistake for a probability.
+  const caseReadinessComplete = checklist.filter((c) => c.done).length
+  const caseReadinessTotal = checklist.length
+  const caseReadinessLabel = docPercent >= 80 ? 'High' : docPercent >= 50 ? 'Moderate' : 'Building'
   const settlementLow = valueBands?.p25 ?? 15000
   const settlementHigh = valueBands?.p75 ?? 75000
   const settlementMedian = valueBands?.median ?? Math.round((settlementLow + settlementHigh) / 2)
 
-  const liabilityLabel = (viability?.liability ?? 0.5) >= 0.7 ? 'Strong' : (viability?.liability ?? 0.5) >= 0.4 ? 'Moderate' : 'Weak'
+  const liabilityLabel = liabilityViability == null
+    ? 'Not assessed'
+    : liabilityViability >= 0.7 ? 'Strong' : liabilityViability >= 0.4 ? 'Moderate' : 'Weak'
   const injuryLabel = injuries.length > 0 ? 'Strong' : 'Missing'
   const docLabel = evidenceCount > 0 ? 'Improving' : 'Missing'
   const damagesLabel = damages.med_charges || damages.med_paid || damages.wage_loss ? 'Documented' : 'Not documented'
@@ -688,35 +699,40 @@ export default function Dashboard() {
     : null
   const pendingDocumentRequests = documentRequests.filter((request) => request.status !== 'completed')
   const nextDocumentRequest = pendingDocumentRequests[0] || null
+  // The supporting line says what the step accomplishes. It used to carry invented
+  // dollar figures — "+$2,000 – $5,000" for typing an accident description, "+$1,000 –
+  // $3,000" for a location — which are quantified promises about a legal outcome and
+  // were not computed from anything. What these steps actually do is make the file
+  // complete enough to evaluate, so that is what they say.
   const dailyAction = attorneyMatched && !hasUpcomingConsult
-    ? { action: 'Next Step: Schedule Consultation', valueIncrease: 'Book a call with your attorney to discuss your case', cta: 'Schedule Consultation', href: '#schedule', isSchedule: true }
+    ? { action: 'Next Step: Schedule Consultation', detail: 'Book a call with your attorney to discuss your case', cta: 'Schedule Consultation', href: '#schedule', isSchedule: true }
     : nextDocumentRequest
     ? {
         action: 'Upload the documents your attorney requested',
-        valueIncrease: `${nextDocumentRequest.remainingDocs.length || nextDocumentRequest.items.length || 1} item${(nextDocumentRequest.remainingDocs.length || nextDocumentRequest.items.length || 1) === 1 ? '' : 's'} still missing`,
+        detail: `${nextDocumentRequest.remainingDocs.length || nextDocumentRequest.items.length || 1} item${(nextDocumentRequest.remainingDocs.length || nextDocumentRequest.items.length || 1) === 1 ? '' : 's'} still missing`,
         cta: 'Upload Documents',
         href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start',
         isSchedule: false
       }
     : attorneyMatched && hasUpcomingConsult
-    ? { action: 'Consultation scheduled', valueIncrease: 'Prepare for your call with your attorney', cta: 'View Details', href: '#consultation', isSchedule: false }
+    ? { action: 'Consultation scheduled', detail: 'Prepare for your call with your attorney', cta: 'View Details', href: '#consultation', isSchedule: false }
     : inManualReview
-    ? { action: 'Our team is reviewing your case', valueIncrease: 'You do not need to do anything urgent unless we request more information.', cta: 'Upload Evidence', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    ? { action: 'Our team is reviewing your case', detail: 'You do not need to do anything urgent unless we request more information.', cta: 'Upload Evidence', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
     : needsMoreInfo
-    ? { action: 'Add the requested information', valueIncrease: 'Responding quickly helps attorneys continue reviewing your case', cta: 'Upload Evidence', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    ? { action: 'Add the requested information', detail: 'Responding quickly helps attorneys continue reviewing your case', cta: 'Upload Evidence', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
     : notRoutableYet
-    ? { action: 'Strengthen your case details', valueIncrease: 'More evidence and complete facts can make your case routable', cta: 'Improve Case', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    ? { action: 'Strengthen your case details', detail: 'More evidence and complete facts can make your case routable', cta: 'Improve Case', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
     : !hasNarrative
-    ? { action: 'Complete your accident description', valueIncrease: '+$2,000 – $5,000', cta: 'Edit case', href: `/edit-assessment/${activeAssessment?.id}`, isSchedule: false }
+    ? { action: 'Complete your accident description', detail: 'How the accident happened is the first thing an attorney reads', cta: 'Edit case', href: `/edit-assessment/${activeAssessment?.id}`, isSchedule: false }
     : !hasLocation
-    ? { action: 'Add incident location', valueIncrease: '+$1,000 – $3,000', cta: 'Edit case', href: `/edit-assessment/${activeAssessment?.id}`, isSchedule: false }
+    ? { action: 'Add incident location', detail: 'Where it happened determines which attorneys can take the case', cta: 'Edit case', href: `/edit-assessment/${activeAssessment?.id}`, isSchedule: false }
     : evidenceCount === 0
-    ? { action: 'Upload your urgent care or hospital bill', valueIncrease: '+$3,000 – $8,000', cta: 'Upload Document', href: `/evidence-upload/${activeAssessment?.id}`, isSchedule: false }
+    ? { action: 'Upload your urgent care or hospital bill', detail: 'Your treatment costs cannot be counted until they are documented', cta: 'Upload Document', href: `/evidence-upload/${activeAssessment?.id}`, isSchedule: false }
     : !hasWageLoss
-    ? { action: 'Document wage loss if you missed work', valueIncrease: 'This could increase your case value by $1,000–$5,000', cta: 'Add wage loss', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    ? { action: 'Document wage loss if you missed work', detail: 'Time you already missed is recoverable, but only if it is documented', cta: 'Add wage loss', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
     : submittedForReview
-    ? { action: 'Your case has been submitted for attorney review', valueIncrease: `Attorneys typically respond within ${responseDeadlineLabel}`, cta: 'View Case Report', href: activeAssessment ? `/results/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
-    : { action: 'Submit your case for attorney review', valueIncrease: 'Get matched with attorneys', cta: 'Send for review', href: activeAssessment ? `/results/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    ? { action: 'Your case has been submitted for attorney review', detail: `Attorneys typically respond within ${responseDeadlineLabel}`, cta: 'View Case Report', href: activeAssessment ? `/results/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    : { action: 'Submit your case for attorney review', detail: 'Get matched with attorneys', cta: 'Send for review', href: activeAssessment ? `/results/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
   const routingTimelineItems = [
     submittedForReview
       ? {
@@ -770,7 +786,6 @@ export default function Dashboard() {
   const latestAttorneyActivity = attorneyActivity[0]
   const latestAttorneyActivityTime = latestAttorneyActivity?.timeAgo || (submittedForReview ? '10 minutes ago' : 'No attorney activity yet')
   const reviewStageLabel = attorneyMatched ? 'Matched' : submittedForReview ? 'Attorney Review' : 'Assessment'
-  const caseStrengthFriendly = caseScore >= 70 ? 'Strong' : caseScore >= 45 ? 'Good' : 'Developing'
   const strengthOpportunities = [
     !hasMedicalRecords && { label: 'Upload medical records', impact: 'Highest Impact' },
     !hasHospitalBill && { label: 'Upload hospital bill', impact: 'Medium Impact' },
@@ -793,10 +808,13 @@ export default function Dashboard() {
   const commonSimilarFactors = similarCaseFactors.length > 0 ? similarCaseFactors : ['ER Treatment', 'MRI', 'Rear-End Collision']
 
   // --- Derived values for the redesigned dashboard ---
-  const attorneyInterest = Math.max(0, Math.min(99, Math.round(((viability?.overall ?? 0.5) * 0.6 + (viability?.liability ?? 0.5) * 0.4) * 100)))
-  const attorneyInterestLabel = attorneyInterest >= 70 ? 'High' : attorneyInterest >= 45 ? 'Moderate' : 'Building'
-  const settlementLikelihood = Math.max(40, Math.min(97, caseScore + 10))
-  const liabilityPercent = Math.round((viability?.liability ?? 0.5) * 100)
+  const attorneyInterest = overallViability == null && liabilityViability == null
+    ? null
+    : Math.max(0, Math.min(99, Math.round(((overallViability ?? 0) * 0.6 + (liabilityViability ?? 0) * 0.4) * 100)))
+  const attorneyInterestLabel = attorneyInterest == null
+    ? 'Not assessed'
+    : attorneyInterest >= 70 ? 'High' : attorneyInterest >= 45 ? 'Moderate' : 'Building'
+  const liabilityPercent = liabilityViability != null ? Math.round(liabilityViability * 100) : null
   const liabilityHelps = [
     hasMedicalRecords && 'Medical treatment documented',
     liabilityLabel === 'Strong' && 'Clear liability',
@@ -943,7 +961,7 @@ export default function Dashboard() {
   const recentActivity = [
     { label: 'Case created', done: true },
     { label: 'Incident description completed', done: hasNarrative },
-    { label: `Case score updated to ${caseScore}`, done: true },
+    { label: `Case readiness: ${caseReadinessLabel}`, done: caseReadinessComplete > 0 },
     { label: 'Evidence uploaded', done: evidenceCount > 0 },
     { label: 'Attorney review submitted', done: submittedForReview }
   ]
@@ -1000,7 +1018,7 @@ export default function Dashboard() {
   const notification = evidenceCount > 0
     ? 'Your case score increased after evidence upload.'
     : docPercent >= 40
-    ? 'Two more documents could significantly increase your estimated value.'
+    ? 'A couple more documents and your file will be complete enough for attorneys to evaluate.'
     : null
 
   const openScheduleModal = () => {
@@ -1240,6 +1258,9 @@ export default function Dashboard() {
       setReviewSubmitting(true)
       await createAttorneyReview(routingStatus.attorneyMatched.id, {
         attorneyId: routingStatus.attorneyMatched.id,
+        // The review is about this case. Without it the server cannot tell a
+        // review of a second matter from an edit of the first (CP-480).
+        assessmentId: activeAssessment.id,
         rating: reviewRating,
         title: reviewTitle,
         review: reviewText,
@@ -1266,8 +1287,8 @@ export default function Dashboard() {
         medicalChronologyCount: treatment.length,
         damagesDocumented: hasWageLoss || !!damages.med_charges,
         evidenceCount,
-        caseScore,
-        caseScoreLabel,
+        caseReadinessLabel,
+        caseReadinessProgress: `${caseReadinessComplete}/${caseReadinessTotal}`,
         estimatedValueText: `${formatCurrency(settlementLow)} – ${formatCurrency(settlementHigh)}`,
         documentationPercent: docPercent,
         assessmentId: activeAssessment?.id,
@@ -1798,7 +1819,7 @@ export default function Dashboard() {
                       <div className="bg-brand-600 rounded-xl p-5 min-h-[180px] flex flex-col">
                         <h2 className="text-lg font-bold mb-2 text-white">Next Best Action</h2>
                         <p className="text-lg text-brand-100 mb-1">{dailyAction.action}</p>
-                        <p className="text-sm text-brand-200 mb-3">{dailyAction.valueIncrease}</p>
+                        <p className="text-sm text-brand-200 mb-3">{dailyAction.detail}</p>
                         {dailyAction.isSchedule && !hasUpcomingConsult ? (
                           <button onClick={openScheduleModal} className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold bg-white text-brand-600 rounded-lg hover:bg-brand-50 mt-auto">
                             <Calendar className="h-4 w-4" />
@@ -2035,15 +2056,16 @@ export default function Dashboard() {
                     {/* Header metric cards */}
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div className="rounded-xl border border-gray-200 bg-white p-4">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-500">Case Strength</p>
-                        <p className="mt-1 text-3xl font-bold text-emerald-600 tabular-nums">{caseScore}<span className="text-sm font-medium text-gray-400"> / 100</span></p>
-                        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${caseScore}%` }} /></div>
-                        <p className="mt-1.5 text-xs font-medium text-emerald-600">{caseStrengthFriendly} case</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-500">Case Readiness</p>
+                        <p className="mt-1 text-3xl font-bold text-emerald-600">{caseReadinessLabel}</p>
+                        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${docPercent}%` }} /></div>
+                        <p className="mt-1.5 text-xs font-medium text-gray-500">{caseReadinessComplete}/{caseReadinessTotal} case details complete</p>
                       </div>
                       <div className="rounded-xl border border-gray-200 bg-white p-4">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-500">Estimated Value</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-500">Estimated Value Range</p>
                         <p className="mt-1 text-xl font-bold text-gray-900 tabular-nums">{formatCurrency(settlementLow)} – {formatCurrency(settlementHigh)}</p>
                         <p className="text-[11px] text-gray-400">Most likely: {formatCurrency(settlementMedian)}</p>
+                        <p className="mt-1 text-[11px] leading-4 text-gray-500">Based on the information you provided. Not a guarantee of outcome.</p>
                         <div className="relative mt-2 h-1.5 w-full rounded-full bg-gray-200"><div className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-600" /></div>
                       </div>
                       <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -2176,7 +2198,7 @@ export default function Dashboard() {
                   {/* Row 1: Upload Evidence | Case Progress */}
                   <div className="bg-white rounded-xl border border-gray-200 p-5 min-h-[280px] flex flex-col">
                     <h3 className="text-lg font-bold text-gray-900 mb-1">Ways To Strengthen Your Case</h3>
-                    <p className="text-sm text-gray-600 mb-4">Current Strength: <span className="font-semibold text-brand-700">{caseStrengthFriendly}</span></p>
+                    <p className="text-sm text-gray-600 mb-4">Current readiness: <span className="font-semibold text-brand-700">{caseReadinessLabel}</span></p>
                     <div className="space-y-3">
                       {(strengthOpportunities.length > 0 ? strengthOpportunities : [{ label: 'Core documents uploaded', impact: 'Good progress' }]).map((item) => (
                         <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm">
@@ -2237,13 +2259,15 @@ export default function Dashboard() {
                     </h3>
                     <div className="space-y-3">
                       <div className="rounded-lg border border-brand-100 bg-brand-50 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Current Estimate</p>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Current Estimated Range</p>
                         <p className="mt-1 text-2xl font-bold text-brand-950">{formatCurrency(settlementLow)} - {formatCurrency(settlementHigh)}</p>
+                        <p className="mt-1 text-xs text-brand-800">Based on the information you provided. Not a guarantee of outcome.</p>
                         <p className="mt-1 text-sm text-brand-700">Confidence: Medium</p>
                       </div>
                       <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
                         <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Potential Estimate After Additional Records</p>
                         <p className="mt-1 text-2xl font-bold text-emerald-950">{formatCurrency(potentialSettlementLow)} - {formatCurrency(potentialSettlementHigh)}</p>
+                        <p className="mt-1 text-xs text-emerald-800">A projection if more records are added, not a guarantee of outcome.</p>
                       </div>
                     </div>
                   </div>
@@ -2336,12 +2360,14 @@ export default function Dashboard() {
                     </summary>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 md:grid-cols-4">
                       <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                        <p className="text-xs font-medium text-gray-500">Case Health</p>
-                        <p className="font-semibold text-gray-900">{caseScore}%</p>
+                        <p className="text-xs font-medium text-gray-500">Case Readiness</p>
+                        <p className="font-semibold text-gray-900">{caseReadinessLabel}</p>
                       </div>
                       <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-xs font-medium text-gray-500">Liability</p>
-                        <p className="font-semibold text-gray-900">{liabilityLabel} ({liabilityPercent}%)</p>
+                        <p className="font-semibold text-gray-900">
+                          {liabilityLabel}{liabilityPercent != null ? ` (${liabilityPercent}%)` : ''}
+                        </p>
                       </div>
                       <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-xs font-medium text-gray-500">Evidence Score</p>
@@ -2353,11 +2379,9 @@ export default function Dashboard() {
                       </div>
                       <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-xs font-medium text-gray-500">Attorney Interest</p>
-                        <p className="font-semibold text-gray-900">{attorneyInterestLabel} ({attorneyInterest}%)</p>
-                      </div>
-                      <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                        <p className="text-xs font-medium text-gray-500">Settlement Likelihood</p>
-                        <p className="font-semibold text-gray-900">{settlementLikelihood}%</p>
+                        <p className="font-semibold text-gray-900">
+                          {attorneyInterestLabel}{attorneyInterest != null ? ` (${attorneyInterest}%)` : ''}
+                        </p>
                       </div>
                       <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-xs font-medium text-gray-500">Median (similar cases)</p>
@@ -2546,7 +2570,7 @@ export default function Dashboard() {
                 <PlaintiffDashboardDeferredTabPanel
                   activeTab={activeTab}
                   activeAssessmentId={activeAssessment.id}
-                  caseScore={caseScore}
+                  caseReadinessLabel={caseReadinessLabel}
                   scoreFactors={scoreFactors}
                   caseValueHistory={caseValueHistory}
                   maxValue={maxValue}

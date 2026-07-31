@@ -45,6 +45,13 @@ const VOICE_LANGUAGES: Record<
     speechLang: string
     composerPlaceholder: string
     preferredVoiceHints: string[]
+    /** Rose is named as AI wherever she is introduced, so nobody has to infer it. */
+    aiBadge: string
+    aiTitle: string
+    aiSubtitle: string
+    aiRole: string
+    aiDisclosure: string
+    aiDisclosureLink: string
   }
 > = {
   en: {
@@ -53,6 +60,13 @@ const VOICE_LANGUAGES: Record<
     speechLang: 'en-US',
     composerPlaceholder: 'Tell Rose what happened...',
     preferredVoiceHints: ['zira', 'jenny', 'aria', 'ava', 'samantha', 'female'],
+    aiBadge: 'AI Assistant',
+    aiTitle: 'Meet Rose — Your AI Case Assistant',
+    aiSubtitle: 'An AI assistant that helps you tell your story out loud and organizes it before any attorney sees it.',
+    aiRole: 'AI-powered case intake assistant',
+    aiDisclosure:
+      'Rose is an AI assistant developed by ClearCaseIQ, not a person. ClearCaseIQ is not a law firm. Rose helps collect and organize information but does not provide legal advice or replace a licensed attorney.',
+    aiDisclosureLink: 'About Rose',
   },
   es: {
     label: 'Español',
@@ -60,6 +74,13 @@ const VOICE_LANGUAGES: Record<
     speechLang: 'es-US',
     composerPlaceholder: 'Cuéntale a Rose lo que pasó...',
     preferredVoiceHints: ['paulina', 'helena', 'monica', 'soledad', 'sabina', 'female'],
+    aiBadge: 'Asistente de IA',
+    aiTitle: 'Conozca a Rose: su asistente de casos con IA',
+    aiSubtitle: 'Una asistente de IA que le ayuda a contar su historia en voz alta y la organiza antes de que un abogado la vea.',
+    aiRole: 'Asistente de admisión de casos con IA',
+    aiDisclosure:
+      'Rose es una asistente de inteligencia artificial desarrollada por ClearCaseIQ, no una persona. ClearCaseIQ no es un bufete de abogados. Rose ayuda a recopilar y organizar información, pero no brinda asesoramiento legal ni sustituye a un abogado con licencia.',
+    aiDisclosureLink: 'Acerca de Rose',
   },
   zh: {
     label: '中文',
@@ -67,6 +88,13 @@ const VOICE_LANGUAGES: Record<
     speechLang: 'zh-CN',
     composerPlaceholder: '告诉 Rose 发生了什么……',
     preferredVoiceHints: ['xiaoxiao', 'xiaoyi', 'mei-jia', 'sin-ji', 'female'],
+    aiBadge: 'AI 助理',
+    aiTitle: '认识 Rose——您的 AI 案件助理',
+    aiSubtitle: '一位 AI 助理，帮助您口述您的经历，并在律师查看之前将其整理好。',
+    aiRole: 'AI 案件接案助理',
+    aiDisclosure:
+      'Rose 是 ClearCaseIQ 开发的人工智能助理，并非真人。ClearCaseIQ 不是律师事务所。Rose 协助收集和整理信息，但不提供法律建议，也不能替代持照律师。',
+    aiDisclosureLink: '关于 Rose',
   },
 }
 
@@ -277,7 +305,7 @@ function RoseAvatar({ speaking, language }: { speaking: boolean; language: Voice
           <div className="relative overflow-hidden rounded-[1.75rem] border border-white/15 bg-white/10 p-2">
             <img
               src={rosePortrait.src}
-              alt="Rose, the ClearCaseIQ conversational intake assistant"
+              alt="Illustrated portrait representing Rose, ClearCaseIQ's AI intake assistant"
               className="h-28 w-28 rounded-[1.25rem] object-cover"
             />
             {speaking && (
@@ -300,11 +328,11 @@ function RoseAvatar({ speaking, language }: { speaking: boolean; language: Voice
         <div className="max-w-md">
           <div className="flex items-center gap-2">
           <div className="text-2xl font-semibold tracking-tight">Rose</div>
-          <span className="rounded-full bg-emerald-400/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-100">
-            Secure intake
+          <span className="rounded-full bg-sky-400/20 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-100">
+            {VOICE_LANGUAGES[language].aiBadge}
           </span>
           </div>
-          <div className="mt-1 text-sm text-white/80">Professional guided voice intake specialist</div>
+          <div className="mt-1 text-sm text-white/80">{VOICE_LANGUAGES[language].aiRole}</div>
           <div className="mt-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white">
             Conversation language: {VOICE_LANGUAGES[language].label}
           </div>
@@ -725,12 +753,31 @@ export default function RoseIntake() {
               <Sparkles className="h-3.5 w-3.5" />
               Guided Voice Intake
             </div>
-            <h1 className="font-display text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">Meet Rose</h1>
-            <p className="mt-2 text-slate-600">A calm, professional intake specialist who helps you tell your story out loud.</p>
+            <h1 className="font-display text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+              {VOICE_LANGUAGES[language].aiTitle}
+            </h1>
+            <p className="mt-2 text-slate-600">{VOICE_LANGUAGES[language].aiSubtitle}</p>
           </div>
         )}
 
         <RoseAvatar speaking={speaking} language={language} />
+
+        {/* Stays on screen for the whole conversation, not just the landing state, so
+            the disclosure is present at the moment someone is actually talking to Rose. */}
+        <div className="flex flex-wrap items-start gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <Bot className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" aria-hidden />
+          <p className="min-w-0 flex-1 text-xs leading-relaxed text-slate-600">
+            {VOICE_LANGUAGES[language].aiDisclosure}{' '}
+            <Link
+              to="/disclosures#ai"
+              target="_blank"
+              rel="noreferrer"
+              className="font-semibold text-brand-700 underline hover:text-brand-800"
+            >
+              {VOICE_LANGUAGES[language].aiDisclosureLink}
+            </Link>
+          </p>
+        </div>
 
         {launched && (
           <div className="rounded-[1.5rem] border border-slate-200 bg-white/85 p-4 shadow-sm">
@@ -769,7 +816,7 @@ export default function RoseIntake() {
                 <div className="rounded-3xl border border-white bg-white p-5 shadow-sm">
                   <h2 className="text-lg font-semibold text-slate-950">How Rose works</h2>
                   <p className="mt-2 text-sm leading-7 text-slate-600">
-                    Start the conversation, listen to Rose, and answer out loud. Rose will ask one question at a time, confirm what she heard, and keep medical and legal language clear.
+                    Start the conversation, listen to Rose, and answer out loud. Rose is an AI assistant: she will ask one question at a time, confirm what she heard, and keep medical and legal language clear. A person reviews your case before anything happens with it.
                   </p>
                   <div className="mt-4 grid gap-3 sm:grid-cols-3">
                     {[

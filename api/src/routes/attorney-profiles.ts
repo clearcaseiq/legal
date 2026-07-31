@@ -33,6 +33,12 @@ function busyBlocksToAppointments(busyBlocks: Array<{ startTime: Date; endTime: 
 
 const ReviewCreate = z.object({
   attorneyId: z.string(),
+  // Required: a review belongs to a case. Without it we cannot tell a second
+  // opinion about a different matter from a revision of the first, which is how
+  // reviews were being overwritten (CP-480). It also bounds how many reviews one
+  // plaintiff can leave for one attorney to the number of cases they actually
+  // have, since ownership of the case is verified below.
+  assessmentId: z.string().trim().min(1),
   rating: z.number().min(1).max(5),
   title: z.string().optional(),
   review: z.string().optional()
@@ -141,7 +147,7 @@ router.post('/:attorneyId/reviews', authMiddleware, async (req: AuthRequest, res
       })
     }
 
-    const { rating, title, review } = parsed.data
+    const { assessmentId, rating, title, review } = parsed.data
 
     // Check if attorney exists
     const attorney = await prisma.attorney.findUnique({
@@ -152,14 +158,22 @@ router.post('/:attorneyId/reviews', authMiddleware, async (req: AuthRequest, res
       return res.status(404).json({ error: 'Attorney not found' })
     }
 
-    // Check if user has already reviewed this attorney
-    const existingReview = await prisma.attorneyReview.findUnique({
-      where: {
-        attorneyId_userId: {
-          attorneyId,
-          userId: req.user!.id
-        }
-      }
+    // The case must be the reviewer's own. Accepting any case id would let one
+    // plaintiff post unlimited reviews for the same attorney by varying it, which
+    // would move the attorney's public average.
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: { id: true, userId: true }
+    })
+
+    if (!assessment || assessment.userId !== req.user!.id) {
+      return res.status(404).json({ error: 'Case not found' })
+    }
+
+    // Scoped to the case: a review of a different matter is a new review, not an
+    // edit of this one.
+    const existingReview = await prisma.attorneyReview.findFirst({
+      where: { attorneyId, userId: req.user!.id, assessmentId }
     })
 
     const isVerified = await maybeVerifyAttorneyReview({
@@ -168,8 +182,9 @@ router.post('/:attorneyId/reviews', authMiddleware, async (req: AuthRequest, res
     })
 
     // Create the review, or update it in place if this user already rated this
-    // attorney. Updating (rather than rejecting with 409) lets clients revise a
-    // rating and keeps the recomputed aggregate current on every resubmit.
+    // attorney on this case. Updating (rather than rejecting with 409) lets
+    // clients revise a rating and keeps the recomputed aggregate current on every
+    // resubmit.
     const newReview = existingReview
       ? await prisma.attorneyReview.update({
           where: { id: existingReview.id },
@@ -180,6 +195,7 @@ router.post('/:attorneyId/reviews', authMiddleware, async (req: AuthRequest, res
           data: {
             attorneyId,
             userId: req.user!.id,
+            assessmentId,
             rating,
             title,
             review,

@@ -8,6 +8,7 @@ import { logger } from './logger'
 import type { NormalizedCase } from './case-normalization'
 import { normalizeClaimTypeForSOL } from './solRules'
 import { evaluateCaseFraud, type FraudSignal } from './fraud-gate'
+import { assertShareAuthorization } from './share-authorization'
 
 type GateHoldAction = 'manual_review' | 'needs_more_info' | 'not_routable_yet'
 
@@ -192,12 +193,21 @@ export async function runPreRoutingGate(
     }
   }
 
-  // 6. Required disclosures
-  if (opts.requireDisclosures && !normalizedCase.required_disclosures_accepted) {
-    return {
-      pass: false,
-      reason: 'Required disclosures not accepted',
-      status: 'needs_more_info'
+  // 6. Authorization to disclose the case to a law firm.
+  //
+  // Read from the audited Consent table rather than from the assessment's own
+  // client-submitted JSON, and asked as its own question rather than inferred
+  // from terms + privacy + HIPAA — those are accepted before the consumer has
+  // seen a single attorney, so accepting them says nothing about whether they
+  // agreed to have their injury facts sent to a third party.
+  if (opts.requireDisclosures) {
+    const authorization = await assertShareAuthorization(normalizedCase.case_id)
+    if (!authorization.ok) {
+      return {
+        pass: false,
+        reason: authorization.reason,
+        status: 'needs_more_info'
+      }
     }
   }
 

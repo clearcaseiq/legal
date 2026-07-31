@@ -216,7 +216,7 @@ export default function AiCaseManagerPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Rose · AI Case Manager"
+        title="Rose — AI Case Manager"
         description="Rose reviews every retained case automatically — raising the next tasks, turning intelligent questions into work, and flagging cases ready for demand. Anything she raises is badged Rose and assigned to your team to action. She runs continuously; kick her manually any time."
         actions={
           <>

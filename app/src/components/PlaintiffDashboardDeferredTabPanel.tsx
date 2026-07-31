@@ -78,7 +78,8 @@ type CaseMessageItem = {
 type Props = {
   activeTab: DeferredTabId
   activeAssessmentId: string
-  caseScore: number
+  /** Band describing how complete the case file is, e.g. "High". Never a number. */
+  caseReadinessLabel: string
   scoreFactors: ScoreFactor[]
   caseValueHistory: CaseValueHistoryEntry[]
   maxValue: number
@@ -135,7 +136,7 @@ type Props = {
 export default function PlaintiffDashboardDeferredTabPanel({
   activeTab,
   activeAssessmentId,
-  caseScore,
+  caseReadinessLabel,
   scoreFactors,
   caseValueHistory,
   maxValue,
@@ -496,7 +497,9 @@ export default function PlaintiffDashboardDeferredTabPanel({
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Why Your Case Score Is {caseScore}</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-4">
+            What Drives Your Case Readiness
+          </h3>
           <div className="space-y-4">
             {scoreFactors.map((factor) => (
               <div key={factor.label} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
@@ -575,7 +578,9 @@ export default function PlaintiffDashboardDeferredTabPanel({
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Case Health: {caseScore}%</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-4">
+            Case Readiness: {caseReadinessLabel}
+          </h3>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div className="p-3 bg-gray-50 rounded-lg">
               <p className="text-xs font-medium text-gray-500">Liability</p>

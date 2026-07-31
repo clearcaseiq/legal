@@ -10,6 +10,7 @@ import { recordRoutingEvent, placeAssessmentInManualReview } from './routing-lif
 import { isRoutingEnabled, getMatchingRules, getPreRoutingGateOptions } from './matching-rules-config'
 import { normalizeCaseForRouting } from './case-normalization'
 import { runPreRoutingGate } from './pre-routing-gate'
+import { assertShareAuthorization } from './share-authorization'
 
 type TierRouteResult = {
   routed: boolean
@@ -191,6 +192,57 @@ async function enforcePreRoutingGate(
   }
 }
 
+/**
+ * Hold a case that has no live authorization to be disclosed to a firm.
+ *
+ * Deliberately separate from `enforcePreRoutingGate` and deliberately not
+ * governed by `skipPreRoutingGate`: that flag exists so a human clearing a fraud
+ * hold is not instantly re-flagged by the same signals, and it was quietly
+ * carrying the disclosure check out with it on three paths that each contact a
+ * new attorney. The consumer's permission is not an admin's to skip.
+ */
+async function enforceShareAuthorization(
+  assessmentId: string,
+  attorneyIds?: string[]
+): Promise<{ held: AssessmentRoutingStartResult } | { held: null; authorizedAttorneyIds: string[] }> {
+  const authorization = await assertShareAuthorization(assessmentId, attorneyIds)
+  if (authorization.ok) {
+    return { held: null, authorizedAttorneyIds: authorization.authorization.authorizedAttorneyIds }
+  }
+
+  await prisma.leadSubmission
+    .updateMany({
+      where: { assessmentId },
+      data: { lifecycleState: 'needs_more_info', routingLocked: false },
+    })
+    .catch(() => undefined)
+  await recordRoutingEvent(assessmentId, null, null, 'needs_more_info', {
+    reason: authorization.reason,
+    check: 'share_authorization',
+  })
+  logger.warn('Routing held: no live authorization to share case with attorneys', {
+    assessmentId,
+    reason: authorization.reason,
+    withdrawnAt: authorization.authorization.withdrawnAt,
+  })
+
+  return {
+    held: {
+      success: false,
+      strategy: 'classic',
+      tierNumber: null,
+      tierAttempted: false,
+      gatePassed: false,
+      gateStatus: 'needs_more_info',
+      gateReason: authorization.reason,
+      holdReason: authorization.reason,
+      routedTo: [],
+      introductionIds: [],
+      errors: [authorization.reason],
+    },
+  }
+}
+
 export async function startAssessmentRouting(
   assessmentId: string,
   options?: RoutingEngineOptions & {
@@ -198,7 +250,7 @@ export async function startAssessmentRouting(
     fallbackToClassic?: boolean
   }
 ): Promise<AssessmentRoutingStartResult> {
-  const preferTierRouting = options?.preferTierRouting ?? true
+  let preferTierRouting = options?.preferTierRouting ?? true
   const fallbackToClassic = options?.fallbackToClassic ?? true
 
   if (options?.dryRun) {
@@ -231,6 +283,30 @@ export async function startAssessmentRouting(
     }
   }
 
+  // Permission to disclose the case is checked on every path, including the ones
+  // that skip the rest of the gate. An admin releasing a case from review is
+  // overriding a fraud signal, which is theirs to override; they are not
+  // overriding the plaintiff's decision about who may see their injury facts.
+  const authorization = await enforceShareAuthorization(assessmentId, options?.preferredAttorneyIds)
+  if (authorization.held) return authorization.held
+
+  // A case whose authorization names particular firms is confined to them, even
+  // when the caller asked for tier routing and named nobody. Otherwise releasing
+  // a consumer's case from manual review would tier-route it to a firm they never
+  // saw, which is the § 6155(g)(2) exposure the consumer-selection path exists to
+  // avoid. Tier routing is left alone for cases that carry no named set.
+  let preferredAttorneyIds = options?.preferredAttorneyIds
+  if (!preferredAttorneyIds?.length && authorization.authorizedAttorneyIds.length > 0) {
+    preferredAttorneyIds = authorization.authorizedAttorneyIds
+    if (preferTierRouting) {
+      logger.info('Confining routing to the firms the plaintiff authorized', {
+        assessmentId,
+        authorizedAttorneyIds: preferredAttorneyIds,
+      })
+    }
+    preferTierRouting = false
+  }
+
   // Suspicious-case review gate — held cases never reach an attorney (tier or
   // classic). Skipped when the caller explicitly bypasses (e.g. an admin
   // releasing a case after review, which must not be instantly re-flagged).
@@ -240,8 +316,13 @@ export async function startAssessmentRouting(
     if (held) return held
     gateAlreadyRun = true
   }
-  // Avoid re-running the gate inside the classic engine when we've already run it.
-  const engineOptions = gateAlreadyRun ? { ...options, skipPreRoutingGate: true } : options
+  // Avoid re-running the gate inside the classic engine when we've already run it,
+  // and carry the authorized firm set through so the engine ranks within it.
+  const engineOptions = {
+    ...options,
+    ...(preferredAttorneyIds?.length ? { preferredAttorneyIds } : {}),
+    ...(gateAlreadyRun ? { skipPreRoutingGate: true } : {}),
+  }
 
   let tierNumber: number | null = null
   if (preferTierRouting) {

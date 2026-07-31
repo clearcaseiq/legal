@@ -1,10 +1,12 @@
-import { Router } from 'express'
+import { Router, type Response as ExpressResponse } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { AssessmentWrite, AssessmentUpdate, SubmitCaseForReview } from '../lib/validators'
 import { logger } from '../lib/logger'
 import { optionalAuthMiddleware, authMiddleware, AuthRequest } from '../lib/auth'
 import { enforceAssessmentReadAccess } from '../lib/assessment-access'
+import { ATTORNEY_PARTICIPATION_DISCLOSURE_VERSION } from '../lib/consent-templates'
+import { recordShareAuthorization, withdrawShareAuthorization } from '../lib/share-authorization'
 import {
   requireClientConsentsMiddleware,
   requireVerifiedEmailMiddleware,
@@ -14,7 +16,14 @@ import { analyzeCaseWithChatGPT, CaseAnalysisRequest } from '../services/chatgpt
 import { startAssessmentRouting } from '../lib/assessment-routing'
 import { generateSceneImageForAssessment } from '../services/incident-scene'
 import { buildCaseCommandCenter } from '../lib/case-command-center'
-import { runEscalationWave } from '../lib/routing-lifecycle'
+import {
+  approvePendingRankedBatch,
+  declinePendingRankedBatch,
+  getPendingRankedBatch,
+  placeAssessmentInManualReview,
+  proposeInitialBatchForApproval,
+  runEscalationWave
+} from '../lib/routing-lifecycle'
 import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
 import { runCaseRecalculation } from '../lib/case-recalculation'
 import { DOCUMENT_REQUEST_CATEGORY_MAP, DOCUMENT_REQUEST_LABELS, parseRequestedDocs } from '../lib/document-request-status'
@@ -734,9 +743,15 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       phone,
       preferredContactMethod,
       hipaa,
-      rankedAttorneyIds: rawRankedAttorneyIds = []
+      rankedAttorneyIds: rawRankedAttorneyIds = [],
+      dismissedAttorneyIds: rawDismissedAttorneyIds = [],
+      attorneyShareAuthorized
     } = parsed.data
-    const rankedAttorneyIds = [...new Set(rawRankedAttorneyIds)].slice(0, 3)
+    const dismissedAttorneyIds = [...new Set(rawDismissedAttorneyIds)]
+    // A removal outranks a selection: if an id somehow arrives in both lists, honour the removal.
+    const rankedAttorneyIds = [...new Set(rawRankedAttorneyIds)]
+      .filter((attorneyId) => !dismissedAttorneyIds.includes(attorneyId))
+      .slice(0, 3)
 
     const assessment = await prisma.assessment.findUnique({
       where: { id },
@@ -767,19 +782,48 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     if (phone) plaintiffContext.phone = phone
     if (preferredContactMethod) plaintiffContext.preferredContactMethod = preferredContactMethod
     facts.plaintiffContext = plaintiffContext
-    facts.plaintiffAttorneyPreferences = rankedAttorneyIds.length > 0
-      ? {
-          rankedAttorneyIds,
-          mode: 'sequential_ranked_top3',
-          source: 'plaintiff',
-          batchNumber: 1,
-          rankedAt: new Date().toISOString()
-        }
-      : undefined
+    // Removals are recorded even when the slate ends up empty, so a plaintiff who
+    // rejected everyone is not offered the same attorneys again.
+    const plaintiffAttorneyPreferences =
+      rankedAttorneyIds.length > 0 || dismissedAttorneyIds.length > 0
+        ? {
+            rankedAttorneyIds,
+            ...(dismissedAttorneyIds.length > 0 ? { dismissedAttorneyIds } : {}),
+            mode: 'sequential_ranked_top3',
+            source: 'plaintiff',
+            batchNumber: 1,
+            rankedAt: new Date().toISOString()
+          }
+        : undefined
+    facts.plaintiffAttorneyPreferences = plaintiffAttorneyPreferences
 
     const consents = ((facts.consents as Record<string, unknown> | undefined) || {}) as Record<string, unknown>
     if (hipaa === true) {
       consents.hipaa = true
+    }
+    // The case is disclosed to a firm because the plaintiff instructed it, so record the
+    // authorization itself alongside the version of the disclosure they were shown. The
+    // attorney list is stored too: the authorization covers those firms, not any firm.
+    if (attorneyShareAuthorized === true) {
+      consents.attorneyShare = {
+        authorized: true,
+        authorizedAt: new Date().toISOString(),
+        disclosureVersion: ATTORNEY_PARTICIPATION_DISCLOSURE_VERSION,
+        authorizedAttorneyIds: rankedAttorneyIds
+      }
+      // The durable copy, in the audited table the routing gate reads. Written for
+      // guests too: most submissions are pre-account, and before the consent record
+      // could be scoped to a case those authorizations existed only as the boolean
+      // above — no version, hash, IP or timestamp.
+      await recordShareAuthorization({
+        assessmentId: id,
+        userId: req.user?.id ?? assessment.userId ?? null,
+        attorneyIds: rankedAttorneyIds,
+        context: 'case_submission',
+        signatureMethod: 'clicked',
+        ipAddress: req.ip || (req.socket as { remoteAddress?: string } | undefined)?.remoteAddress || null,
+        userAgent: req.get('User-Agent') || null
+      })
     }
     facts.consents = consents
 
@@ -833,15 +877,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
               ? null
               : 'Medical records and extracted treatment details are pending plaintiff account creation and HIPAA authorization. The visible case summary is based on intake answers only until the plaintiff authorizes medical document sharing.'
           },
-          plaintiffAttorneyPreferences: rankedAttorneyIds.length > 0
-            ? {
-                rankedAttorneyIds,
-                mode: 'sequential_ranked_top3',
-                source: 'plaintiff',
-                batchNumber: 1,
-                rankedAt: new Date().toISOString()
-              }
-            : undefined
+          plaintiffAttorneyPreferences
         }),
         status: 'submitted'
       }
@@ -873,12 +909,43 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     // (non-blocking — never delays submission/routing).
     void generateSceneImageForAssessment(id).catch(() => {})
 
-    // Trigger unified routing orchestration: tier-first when available, classic engine as fallback.
+    // No plaintiff selection means nobody has been identified to this consumer, so
+    // routing waits for approval instead of falling through to tier routing, where
+    // offer priority is influenced by attorney subscriptions (SB 37, § 6155(g)).
+    if (rankedAttorneyIds.length === 0) {
+      void proposeInitialBatchForApproval(id)
+        .then(async (proposal) => {
+          if (proposal.proposed) {
+            logger.info('Held submission for plaintiff attorney approval', {
+              assessmentId: id,
+              proposedAttorneyIds: proposal.attorneyIds
+            })
+            return
+          }
+          logger.info('No attorneys available to propose on submit', {
+            assessmentId: id,
+            error: proposal.error
+          })
+          // Never leave a submitted case sitting with nobody assigned to it.
+          await placeAssessmentInManualReview(
+            id,
+            'no_attorneys_available_to_propose',
+            proposal.error || 'We could not find attorneys to propose for this case.'
+          )
+        })
+        .catch((err) =>
+          logger.error('Failed to propose attorneys on submit', { assessmentId: id, error: err.message })
+        )
+
+      return res.json({ ok: true, submitted: true, awaitingAttorneyApproval: true })
+    }
+
+    // Trigger unified routing orchestration against the attorneys the plaintiff chose.
     void startAssessmentRouting(id, {
-      maxAttorneysPerWave: rankedAttorneyIds.length > 0 ? 1 : 3,
-      preferTierRouting: rankedAttorneyIds.length === 0,
+      maxAttorneysPerWave: 1,
+      preferTierRouting: false,
       fallbackToClassic: true,
-      preferredAttorneyIds: rankedAttorneyIds.length > 0 ? rankedAttorneyIds : undefined
+      preferredAttorneyIds: rankedAttorneyIds
     }).then(async result => {
       if (result.success && result.routedTo?.length) {
         logger.info('Case auto-routed after submit', {
@@ -887,15 +954,15 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
           tierNumber: result.tierNumber,
           attorneyIds: result.routedTo
         })
-      } else if (rankedAttorneyIds.length > 0) {
+      } else if (!result.gatePassed) {
+        logger.info('Case held at pre-routing gate', { assessmentId: id, reason: result.gateReason, status: result.gateStatus })
+      } else if (result.errors?.length) {
         const escalationResult = await runEscalationWave(id)
-        logger.info('Ranked attorney queue auto-expanded after submit', {
+        logger.info('Ranked attorney queue advanced after submit', {
           assessmentId: id,
           errors: result.errors,
           escalationResult
         })
-      } else if (!result.gatePassed) {
-        logger.info('Case held at pre-routing gate', { assessmentId: id, reason: result.gateReason, status: result.gateStatus })
       } else {
         logger.info('Case was not placed during automatic routing', {
           assessmentId: id,
@@ -909,6 +976,105 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     res.json({ ok: true, submitted: true })
   } catch (error: any) {
     logger.error('Failed to submit case for review', { error, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Only the plaintiff decides who gets contacted about their case. Mirrors the read
+ * rule in assessment-access: an owned case needs its owner, and a pre-account
+ * intake is reachable by whoever holds the id.
+ */
+async function resolveRoutingDecider(
+  assessmentId: string,
+  user: { id: string } | undefined,
+  res: ExpressResponse
+): Promise<boolean> {
+  const assessment = await prisma.assessment.findUnique({
+    where: { id: assessmentId },
+    select: { id: true, userId: true }
+  })
+  if (!assessment) {
+    res.status(404).json({ error: 'Assessment not found' })
+    return false
+  }
+  if (assessment.userId && assessment.userId !== user?.id) {
+    res.status(user ? 403 : 401).json({ error: 'Not authorized to make routing decisions on this case' })
+    return false
+  }
+  return true
+}
+
+// The attorneys we would contact next, held until the plaintiff approves them.
+router.get('/:id/routing/pending-batch', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    if (!(await resolveRoutingDecider(req.params.id, req.user, res))) return
+    const pending = await getPendingRankedBatch(req.params.id)
+    res.json({ pending })
+  } catch (error: any) {
+    logger.error('Failed to load pending attorney batch', { error, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+router.post('/:id/routing/pending-batch/approve', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    if (!(await resolveRoutingDecider(req.params.id, req.user, res))) return
+    const approvedAttorneyIds = Array.isArray(req.body?.approvedAttorneyIds)
+      ? (req.body.approvedAttorneyIds as unknown[]).filter((v): v is string => typeof v === 'string' && v.length > 0)
+      : []
+    const result = await approvePendingRankedBatch(req.params.id, approvedAttorneyIds, {
+      userId: req.user?.id ?? null,
+      ipAddress: req.ip || (req.socket as { remoteAddress?: string } | undefined)?.remoteAddress || null,
+      userAgent: req.get('User-Agent') || null
+    })
+    if (!result.success) {
+      return res.status(400).json({ error: result.error || 'Could not approve those attorneys' })
+    }
+    res.json({ ok: true, routed: result.routed ?? false, attorneyId: result.attorneyId ?? null })
+  } catch (error: any) {
+    logger.error('Failed to approve pending attorney batch', { error, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+router.post('/:id/routing/pending-batch/decline', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    if (!(await resolveRoutingDecider(req.params.id, req.user, res))) return
+    const result = await declinePendingRankedBatch(req.params.id)
+    if (!result.success) {
+      return res.status(400).json({ error: result.error || 'Nothing is awaiting approval' })
+    }
+    res.json({ ok: true })
+  } catch (error: any) {
+    logger.error('Failed to decline pending attorney batch', { error, assessmentId: req.params.id })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Withdraw permission to send this case to any further law firm.
+ *
+ * Consent was previously verified once, before wave 1, so a plaintiff who
+ * changed their mind had no way to stop the next wave — there was nothing to
+ * change and nothing that would have read it. Marking the authorization
+ * withdrawn is what the per-wave check now looks for. Disclosures already made
+ * to a firm in reliance on the authorization are not undone by this.
+ */
+router.post('/:id/routing/authorization/withdraw', optionalAuthMiddleware, async (req: AuthRequest, res) => {
+  try {
+    if (!(await resolveRoutingDecider(req.params.id, req.user, res))) return
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.slice(0, 500) : null
+    const result = await withdrawShareAuthorization({
+      assessmentId: req.params.id,
+      userId: req.user?.id ?? null,
+      reason,
+      ipAddress: req.ip || (req.socket as { remoteAddress?: string } | undefined)?.remoteAddress || null,
+      userAgent: req.get('User-Agent') || null
+    })
+    res.json({ ok: true, withdrawn: result.withdrawn })
+  } catch (error: any) {
+    logger.error('Failed to withdraw share authorization', { error, assessmentId: req.params.id })
     res.status(500).json({ error: 'Internal server error' })
   }
 })

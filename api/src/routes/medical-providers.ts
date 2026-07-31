@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { Router, type Request, type Response, type NextFunction } from 'express'
 import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
 import { z } from 'zod'
@@ -6,10 +6,51 @@ import { prisma } from '../lib/prisma'
 
 const router = Router()
 
+/**
+ * Attorney-to-provider referrals, off by default.
+ *
+ * Bus. & Prof. Code § 6155(f)(2)-(3) makes it cause for denial or revocation of
+ * referral-service certification to share operations with any entity that refers
+ * to health care providers, or to take direct or indirect consideration
+ * regarding such referrals. No fee field exists on the provider record, so no
+ * money changes hands here — but the statute speaks to operations, not only
+ * payment, and this feature is exactly that: a lien-filtered provider directory,
+ * a referral record, and a letter of protection carrying lien terms.
+ *
+ * Whether ClearCaseIQ pursues § 6155 certification is a business decision that
+ * is not settled. Until it is, the referral-making surface stays disabled rather
+ * than deleted, so a decision to certify does not require rebuilding it and a
+ * decision not to certify is one env var away. History remains readable: only the
+ * endpoints that find a provider to refer to, or that create or advance a
+ * referral, are gated.
+ */
+export function areProviderReferralsEnabled(): boolean {
+  return process.env.PROVIDER_REFERRALS_ENABLED === 'true'
+}
+
+function requireProviderReferralsEnabled(_req: Request, res: Response, next: NextFunction) {
+  if (areProviderReferralsEnabled()) return next()
+  return res.status(403).json({
+    error:
+      'Provider referrals are disabled pending review of referral-service certification requirements.',
+    code: 'PROVIDER_REFERRALS_DISABLED',
+  })
+}
+
+/** Lets the attorney UI explain the state instead of surfacing a bare 403. */
+router.get('/config', authMiddleware, (_req: any, res) => {
+  res.json({
+    referralsEnabled: areProviderReferralsEnabled(),
+    disabledReason: areProviderReferralsEnabled()
+      ? null
+      : 'Attorney-to-provider referrals are turned off while referral-service certification requirements under B&P § 6155(f) are reviewed. Existing referrals and treatment records stay visible.',
+  })
+})
+
 // Medical Provider Management
 
 // Get medical providers
-router.get('/providers', authMiddleware, async (req: any, res) => {
+router.get('/providers', authMiddleware, requireProviderReferralsEnabled, async (req: any, res) => {
   try {
     const { 
       specialty, 
@@ -66,7 +107,7 @@ router.get('/providers', authMiddleware, async (req: any, res) => {
 })
 
 // Get provider details
-router.get('/providers/:providerId', authMiddleware, async (req: any, res) => {
+router.get('/providers/:providerId', authMiddleware, requireProviderReferralsEnabled, async (req: any, res) => {
   try {
     const { providerId } = req.params
 
@@ -103,7 +144,7 @@ router.get('/providers/:providerId', authMiddleware, async (req: any, res) => {
 })
 
 // Create provider referral
-router.post('/referrals', authMiddleware, async (req: any, res) => {
+router.post('/referrals', authMiddleware, requireProviderReferralsEnabled, async (req: any, res) => {
   try {
     const attorneyId = req.user.id
     const { leadId, providerId, referralType, notes } = req.body
@@ -206,7 +247,7 @@ router.get('/referrals', authMiddleware, async (req: any, res) => {
 })
 
 // Update referral status
-router.put('/referrals/:referralId', authMiddleware, async (req: any, res) => {
+router.put('/referrals/:referralId', authMiddleware, requireProviderReferralsEnabled, async (req: any, res) => {
   try {
     const { referralId } = req.params
     const attorneyId = req.user.id
@@ -282,7 +323,7 @@ router.get('/specialties', async (req: any, res) => {
 })
 
 // Provider search with advanced filters
-router.post('/search', authMiddleware, async (req: any, res) => {
+router.post('/search', authMiddleware, requireProviderReferralsEnabled, async (req: any, res) => {
   try {
     const {
       location,
@@ -550,7 +591,7 @@ async function queueProviderEmail(
 
 // Generate (or regenerate) a draft Letter of Protection for a referral.
 // Accepts an optional `content` override so attorneys can edit before sending.
-router.post('/referrals/:referralId/letter-of-protection', authMiddleware, async (req: any, res) => {
+router.post('/referrals/:referralId/letter-of-protection', authMiddleware, requireProviderReferralsEnabled, async (req: any, res) => {
   try {
     const attorneyId = req.user.id
     const { referralId } = req.params
@@ -637,7 +678,7 @@ router.get('/referrals/:referralId/letter-of-protection', authMiddleware, async 
 // Send the Letter of Protection to the provider. This emails the provider a
 // PI-case notice + the letter, and auto-creates a linked LienHolder so the
 // lien is tracked from the moment it is issued.
-router.post('/letters-of-protection/:id/send', authMiddleware, async (req: any, res) => {
+router.post('/letters-of-protection/:id/send', authMiddleware, requireProviderReferralsEnabled, async (req: any, res) => {
   try {
     const attorneyId = req.user.id
     const { id } = req.params

@@ -117,7 +117,7 @@ export default function Login() {
             to="/register"
             className="font-semibold text-blue-600 hover:text-blue-700 transition-colors block"
           >
-            Start My Free Case Review →
+            Start my free case assessment →
           </Link>
           <p className="mt-5 border-t border-slate-100 pt-4 text-xs text-slate-400">
             Already an attorney?{' '}
@@ -228,10 +228,14 @@ export default function Login() {
 
       <div className="mt-6 rounded-xl border border-brand-100 bg-brand-50 px-4 py-4">
         <h2 className="text-sm font-semibold text-brand-950">After you sign in</h2>
+        <p className="mt-2 text-sm leading-relaxed text-brand-800">
+          Complete an AI-powered case assessment to receive an estimated settlement range and, if you
+          choose, review participating attorneys.
+        </p>
         <ul className="mt-3 grid gap-2 text-sm text-brand-800 list-disc list-inside marker:text-brand-500">
-          <li>Review your case estimate.</li>
+          <li>Review your estimated settlement range.</li>
           <li>Upload medical records.</li>
-          <li>Compare attorney matches.</li>
+          <li>Review participating law firms.</li>
           <li>Track case progress.</li>
         </ul>
       </div>
@@ -240,6 +244,11 @@ export default function Login() {
         <p className="text-sm font-semibold text-slate-800">Trusted by injury victims nationwide.</p>
         <p className="mt-1 text-xs text-slate-500">Used by plaintiffs and personal injury attorneys across multiple states.</p>
       </div>
+
+      <p className="mt-4 text-center text-xs leading-relaxed text-slate-500">
+        ClearCaseIQ is a legal technology platform. It is not a law firm, does not provide legal
+        advice, and does not replace a licensed attorney.
+      </p>
     </LoginLayout>
   )
 }

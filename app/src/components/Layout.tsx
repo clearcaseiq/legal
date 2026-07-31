@@ -571,13 +571,20 @@ export default function Layout({ children }: LayoutProps) {
       {!['/assess', '/intake', '/intake2', '/rose'].includes(location.pathname) && (
       isDashboard ? (
       <footer className="mt-auto border-t border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <span>{t('footer.copyright')}</span>
-          <div className="flex flex-wrap gap-3">
-            <Link to="/help" className="hover:text-slate-900">{t('footer.helpCenter')}</Link>
-            <Link to="/terms-of-service" className="hover:text-slate-900">{t('footer.termsOfService')}</Link>
-            <Link to="/privacy-policy" className="hover:text-slate-900">{t('footer.privacyPolicy')}</Link>
+        <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
+          <div className="flex flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+            <span>{t('footer.copyright')}</span>
+            <div className="flex flex-wrap gap-3">
+              <Link to="/help" className="hover:text-slate-900">{t('footer.helpCenter')}</Link>
+              <Link to="/terms-of-service" className="hover:text-slate-900">{t('footer.termsOfService')}</Link>
+              <Link to="/privacy-policy" className="hover:text-slate-900">{t('footer.privacyPolicy')}</Link>
+              <Link to="/disclosures" className="hover:text-slate-900">{t('footer.disclosures')}</Link>
+              <Link to="/disclosures#california" className="hover:text-slate-900">{t('footer.doNotSell')}</Link>
+            </div>
           </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+            {t('footer.entityName')} · {t('footer.platformLabel')} · {t('footer.locationCity')} — {t('footer.disclaimer')}
+          </p>
         </div>
       </footer>
       ) : (
@@ -591,6 +598,13 @@ export default function Layout({ children }: LayoutProps) {
               <p className="mt-2 text-xs font-medium text-slate-300">
                 {t('footer.trustRowShort')}
               </p>
+              {/* Business identity and location — transparency about who operates the
+                  platform and from where, independent of any attorney disclosure. */}
+              <address className="mt-3 space-y-0.5 text-xs not-italic leading-relaxed text-slate-400">
+                <span className="block font-semibold text-slate-300">{t('footer.entityName')}</span>
+                <span className="block">{t('footer.platformLabel')}</span>
+                <span className="block">{t('footer.locationCity')}</span>
+              </address>
             </div>
             <div>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.forPlaintiffs')}</h3>
@@ -618,6 +632,10 @@ export default function Layout({ children }: LayoutProps) {
               <ul className="space-y-1.5 text-sm">
                 <li><Link to="/privacy-policy" className="text-slate-400 transition-colors hover:text-white">{t('footer.privacy')}</Link></li>
                 <li><Link to="/terms-of-service" className="text-slate-400 transition-colors hover:text-white">{t('footer.terms')}</Link></li>
+                <li><Link to="/disclosures" className="text-slate-400 transition-colors hover:text-white">{t('footer.disclosures')}</Link></li>
+                <li><Link to="/disclosures#ai" className="text-slate-400 transition-colors hover:text-white">{t('footer.aiDisclosure')}</Link></li>
+                <li><Link to="/disclosures#california" className="text-slate-400 transition-colors hover:text-white">{t('footer.doNotSell')}</Link></li>
+                <li><a href="mailto:legal@clearcaseiq.com" className="text-slate-400 transition-colors hover:text-white">{t('footer.contact')}</a></li>
               </ul>
             </div>
           </div>
@@ -630,7 +648,7 @@ export default function Layout({ children }: LayoutProps) {
             </div>
             <div className="mt-2 max-w-4xl text-[11px] leading-relaxed text-slate-500">
               <p>
-                <span className="font-semibold uppercase tracking-wide text-slate-400">{t('footer.attorneyAdvertising')}</span>
+                <span className="font-semibold uppercase tracking-wide text-slate-400">{t('footer.platformLabel')}</span>
                 {' · '}
                 {t('footer.disclaimer')}
               </p>

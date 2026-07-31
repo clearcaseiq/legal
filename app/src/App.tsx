@@ -125,6 +125,7 @@ const TestConsent = lazy(() => import('./pages/TestConsent'))
 const AuthDebug = lazy(() => import('./pages/AuthDebug'))
 const TermsOfService = lazy(() => import('./pages/TermsOfService'))
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))
+const Disclosures = lazy(() => import('./pages/Disclosures'))
 const Help = lazy(() => import('./pages/Help'))
 const HowItWorks = lazy(() => import('./pages/HowItWorks'))
 const AiMlConsent = lazy(() => import('./pages/AiMlConsent'))
@@ -356,6 +357,7 @@ function App() {
             )}
             <Route path="/terms-of-service" element={<TermsOfService />} />
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="/disclosures" element={<Disclosures />} />
             <Route path="/help" element={<Help />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/attorney-network" element={<AttorneyNetwork />} />

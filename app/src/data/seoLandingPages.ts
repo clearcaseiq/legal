@@ -114,7 +114,7 @@ export const landingPages: LandingPage[] = [
       howClearCaseHelps: 'The assessment organizes orthopedic treatment signals and missing evidence so the report can estimate readiness and next steps.',
     },
     faqs: [
-      { q: 'Can shoulder or knee pain increase case value?', a: 'Yes, especially when supported by imaging, PT, specialist care, or surgical recommendations.' },
+      { q: 'How is shoulder or knee pain evaluated in a claim?', a: 'Insurers and attorneys look at whether the pain is corroborated by imaging, specialist findings, and treatment records. Documenting the care a provider has recommended is what makes an injury legible to them; it is not a reason to seek care you do not need.' },
       { q: 'What documents help most?', a: 'Orthopedic records, imaging reports, PT notes, bills, work restrictions, and photos can all help.' },
     ],
   },

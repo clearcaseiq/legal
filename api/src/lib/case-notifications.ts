@@ -500,6 +500,105 @@ export async function sendPlaintiffManualReviewNeeded(
 }
 
 /**
+ * Ask the plaintiff to approve a further set of attorneys before any of them are
+ * contacted.
+ *
+ * SB 37 / Bus. & Prof. Code § 6155(g): the safe harbour covers attorneys the
+ * consumer "may select and initiate contact with". Once the attorneys the
+ * consumer actually chose are exhausted we may not quietly continue to a fresh
+ * batch, so routing stops here until they say yes.
+ *
+ * Guests have no User row, so fall back to the contact email captured at submit.
+ */
+export async function sendPlaintiffBatchApprovalRequest(
+  assessmentId: string,
+  attorneyNames: string[]
+): Promise<boolean> {
+  const assessment = await prisma.assessment.findUnique({
+    where: { id: assessmentId },
+    include: { user: true }
+  })
+  if (!assessment) return false
+
+  let guestEmail: string | null = null
+  if (!assessment.user?.email) {
+    try {
+      const facts = typeof assessment.facts === 'string' ? JSON.parse(assessment.facts) : assessment.facts || {}
+      const contact = (facts?.plaintiffContext || {}) as Record<string, unknown>
+      const candidate = typeof contact.email === 'string' ? contact.email.trim() : ''
+      guestEmail = candidate || null
+    } catch {
+      guestEmail = null
+    }
+  }
+
+  const recipient = assessment.user?.email || guestEmail
+  if (!recipient) {
+    logger.warn('No plaintiff email for batch-approval request', { assessmentId })
+    return false
+  }
+
+  const reviewUrl = webUrl(`/results/${assessmentId}?review=attorneys`)
+  const nameLines = attorneyNames.length
+    ? attorneyNames.map((name, index) => `${index + 1}. ${name}`).join('\n')
+    : 'We will show you the attorneys when you open your case.'
+  const message = [
+    'The attorneys you chose were not able to take your case.',
+    '',
+    'We found others who handle this type of matter in your area, and we will not',
+    'contact anyone until you approve them:',
+    '',
+    nameLines,
+    '',
+    `Review and approve: ${reviewUrl}`,
+    '',
+    'You can change the order, remove anyone you would rather not work with, or stop here.'
+  ].join('\n')
+  const subject = 'Approve the next attorneys for your case'
+
+  try {
+    if (assessment.userId && assessment.user?.email) {
+      for (const channel of ['email', 'in_app'] as const) {
+        await createNotificationEvent({
+          userId: assessment.userId,
+          assessmentId,
+          role: 'plaintiff',
+          channel,
+          eventType: PLAINTIFF_EVENTS.batch_approval_requested,
+          templateKey: `plaintiff_batch_approval_${channel}`,
+          subject,
+          body: message,
+          recipient: assessment.user.email,
+          payload: { assessmentId, attorneyNames, link: `/results/${assessmentId}?review=attorneys` }
+        })
+      }
+    } else {
+      const { deliverDirectNotification } = await import('./platform-notifications')
+      await deliverDirectNotification({
+        type: 'email',
+        recipient,
+        subject,
+        message,
+        assessmentId,
+        role: 'plaintiff',
+        metadata: { eventType: PLAINTIFF_EVENTS.batch_approval_requested, assessmentId }
+      })
+    }
+    logger.info('Plaintiff asked to approve the next attorney batch', {
+      assessmentId,
+      attorneyCount: attorneyNames.length
+    })
+    return true
+  } catch (err: unknown) {
+    logger.error('Failed to request plaintiff batch approval', {
+      assessmentId,
+      error: (err as Error).message
+    })
+    return false
+  }
+}
+
+/**
  * Plaintiff notification when case value increases after document upload
  */
 export async function sendPlaintiffCaseValueUpdated(

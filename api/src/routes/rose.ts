@@ -132,8 +132,10 @@ router.post('/conversation/start', optionalAuthMiddleware, async (req: AuthReque
     const state = createConversationState(conversationId)
     conversationStore.set(conversationId, state)
 
+    // Rose names herself as AI in her opening line. A consumer should never have to
+    // work out whether they are talking to an employee.
     const firstQuestion =
-      "Hi, I'm Rose. I'll help organize your injury case step by step. Tell me what happened in your own words, and I will summarize everything before anything is submitted. You can also say, \"I'm not sure\" or \"skip for now.\""
+      "Hi! I'm Rose, ClearCaseIQ's AI intake assistant. I'll help organize your injury case step by step. Tell me what happened in your own words, and I will summarize everything before anything is submitted. You can also say, \"I'm not sure\" or \"skip for now.\""
 
     res.json({
       conversation_id: conversationId,

@@ -256,15 +256,29 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Legal disclaimer + attorney advertising disclosure */}
+        {/* Platform identity + legal disclaimer. Leads with what ClearCaseIQ is —
+            a technology company — rather than presenting the site as advertising
+            for legal services. */}
         <section className="py-6">
-          <div className="mx-auto max-w-3xl text-center">
+          <div className="mx-auto max-w-3xl space-y-3 text-center">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
-              {t('home.attorneyAdvertising')}
+              {t('home.platformLabel')}
             </p>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+            <h2 className="text-base font-semibold text-slate-700 dark:text-slate-200">
+              {t('home.aboutTitle')}
+            </h2>
+            <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+              {t('home.platformPositioning')}
+            </p>
+            <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
               {t('home.legalDisclaimer')}
             </p>
+            <Link
+              to="/disclosures"
+              className="inline-block text-xs font-semibold text-brand-700 hover:text-brand-800 dark:text-brand-300"
+            >
+              {t('home.viewDisclosures')}
+            </Link>
           </div>
         </section>
 

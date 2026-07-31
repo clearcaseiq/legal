@@ -22,6 +22,10 @@ const HIPAA_CONSENT_VERSION = '1.0'
 // PHI-bearing document types gated behind health-info authorization. Medical bills
 // reveal treatment/diagnosis, so they carry PHI just like medical records.
 const HIPAA_UPLOAD_CATEGORIES = ['medical_records', 'bills']
+// Acknowledgement of the platform disclosure at the top of the funnel. The
+// footer is suppressed on the intake routes, so this is the only place a
+// claimant is told we are not a law firm before answering questions.
+const DISCLOSURE_ACK_KEY = 'intake_disclosure_ack_v1'
 
 type Step =
   | 'injury_type'
@@ -909,6 +913,13 @@ export default function IntakeWizardQuick() {
   const [hipaaAuthorized, setHipaaAuthorized] = useState<boolean>(() => {
     try { return localStorage.getItem('consent_read_hipaa') === 'true' } catch { return false }
   })
+  // One-time "we are not a law firm" acknowledgement shown before the first
+  // question. Kept outside the draft so "Start over" and ?fresh=1 do not nag a
+  // returning claimant, and so the funnel never renders without it.
+  const [disclosureAcked, setDisclosureAcked] = useState<boolean>(() => {
+    try { return localStorage.getItem(DISCLOSURE_ACK_KEY) === 'true' } catch { return false }
+  })
+  const [disclosureChecked, setDisclosureChecked] = useState(false)
   const [returnToReviewFromStep, setReturnToReviewFromStep] = useState<Step | null>(null)
   const [customDate, setCustomDate] = useState('')
   const [detectedLocation, setDetectedLocation] = useState<{ city: string; county: string; state: string } | null>(null)
@@ -5417,32 +5428,6 @@ export default function IntakeWizardQuick() {
         const readinessNow = Math.min(95, Math.round(confScore * 0.85 + 12))
         const readinessPotential = Math.min(98, readinessNow + 7)
 
-        const increasingFactors = [
-          hasMRI && tx('dv_incMRI'),
-          hasOngoing && tx('dv_incOngoing'),
-          hasDiagnoses && tx('dv_incDiagnosis'),
-          hasPT && tx('dv_incPT'),
-          hasSurgery && tx('dv_incSurgery'),
-          hasInjections && tx('dv_incInjections'),
-          hasPolice && tx('dv_incPolice'),
-          hasWitnesses && tx('dv_incWitnesses'),
-        ].filter(Boolean) as string[]
-        const reducingFactors = [
-          (isVehicle && !hasPolice) && tx('dv_redPolice'),
-          !hasMedicalBillsInfo && tx('dv_redBills'),
-          sharedFault && tx('dv_redShared'),
-          !hasWitnesses && tx('dv_redWitness'),
-          !hasMRI && tx('dv_redImaging'),
-          (!cpFinancial.missedWork || cpFinancial.missedWork === 'no') && !hasUploadedWageDocs && tx('dv_redWage'),
-        ].filter(Boolean) as string[]
-        const increaseValueItems = [
-          !hasMedicalBillsInfo ? { label: tx('dv_addBills'), impact: '+$3,000' } : null,
-          (isVehicle && !hasPolice) ? { label: tx('dv_addPolice'), impact: '+10%' } : null,
-          (cpFinancial.missedWork && cpFinancial.missedWork !== 'no' && !cpFinancial.lostWagesRange && !hasUploadedWageDocs) ? { label: tx('dv_addWage'), impact: '+$2,000' } : null,
-          !hasMRI ? { label: tx('dv_addMRI'), impact: '+5%' } : null,
-          !hasWitnesses ? { label: tx('dv_addWitness'), impact: '+8%' } : null,
-        ].filter(Boolean) as { label: string; impact: string }[]
-
         const breakdownRows = [
           { label: tx('dv_brMedical'), value: pastMedical },
           { label: tx('dv_brFuture'), value: futureMedical },
@@ -5710,7 +5695,6 @@ export default function IntakeWizardQuick() {
           const caseStrengthStars = Math.max(1, Math.min(5, Math.round(caseStrengthScore / 20)))
           const caseStrengthLabel = caseStrengthScore >= 80 ? tx('cs_strong') : caseStrengthScore >= 55 ? tx('cs_good') : caseStrengthScore >= 35 ? tx('cs_moderate') : tx('cs_building')
           const missingFactors = strengthFactorDefs.filter(f => !f.met)
-          const attorneyReadinessPct = Math.min(95, Math.round(caseStrengthScore * 0.85 + 12))
           const confidencePct = previewConfidence === 'high' ? 85 : previewConfidence === 'moderate' ? 60 : 35
           const confidenceText = previewConfidence === 'high' ? tx('dv_confHigh') : previewConfidence === 'moderate' ? tx('dv_confMedium') : tx('dv_confLow')
           const settlementBreakdown = ([
@@ -5803,16 +5787,17 @@ export default function IntakeWizardQuick() {
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
                   <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/40">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('cs_title')}</p>
-                    <p className="mt-0.5 font-display text-2xl font-bold text-slate-900 dark:text-slate-100">{caseStrengthScore} <span className="text-sm font-semibold text-slate-400">/ 100</span></p>
+                    <p className="mt-0.5 font-display text-2xl font-bold text-slate-900 dark:text-slate-100">{caseStrengthLabel}</p>
                     <div className="mt-0.5 flex items-center gap-1.5">
                       <span className="flex items-center gap-0.5">{Array.from({ length: 5 }).map((_, i) => <Star key={i} className={`h-3 w-3 ${i < caseStrengthStars ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-600'}`} aria-hidden />)}</span>
-                      <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">{caseStrengthLabel}</span>
                     </div>
                     <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">{tx('cs_strongReview')}</p>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/40">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx('readiness_title')}</p>
-                    <p className="mt-0.5 font-display text-2xl font-bold text-violet-700 dark:text-violet-300">{attorneyReadinessPct}%</p>
+                    <p className="mt-0.5 font-display text-2xl font-bold text-violet-700 dark:text-violet-300">
+                      {strengthFactorDefs.length - missingFactors.length}/{strengthFactorDefs.length}
+                    </p>
                     <p className="mt-1 text-[11px] leading-snug text-slate-500 dark:text-slate-400">{tx('readiness_pctDesc')}</p>
                   </div>
                 </div>
@@ -6187,6 +6172,57 @@ export default function IntakeWizardQuick() {
             className="inline-flex items-center gap-1.5 rounded-xl bg-brand-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-800"
           >
             {tx('documents_done')} <ChevronRight className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Shown once, before the first question. Everything after this point is
+  // ordinary questions with no repeated warnings.
+  if (!disclosureAcked) {
+    const acknowledge = () => {
+      try { localStorage.setItem(DISCLOSURE_ACK_KEY, 'true') } catch { /* ignore quota / private mode */ }
+      setDisclosureAcked(true)
+    }
+    return (
+      <div className="mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-2xl flex-col justify-center px-3 py-6 sm:px-4 md:min-h-[calc(100dvh-7.5rem)]">
+        <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-card dark:border-slate-700 dark:bg-slate-900/80 sm:p-7">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">
+              <Info className="h-5 w-5" aria-hidden />
+            </span>
+            <h1 className="font-display text-lg font-bold text-slate-900 dark:text-slate-50 sm:text-xl">
+              {tx('disclosure_title')}
+            </h1>
+          </div>
+          <p className="mt-4 text-sm leading-6 text-slate-700 dark:text-slate-200 sm:text-base sm:leading-7">
+            {tx('disclosure_body')}
+          </p>
+          <a
+            href="/disclosures"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 inline-block text-sm font-medium text-brand-700 underline underline-offset-2 hover:text-brand-800 dark:text-brand-300"
+          >
+            {tx('disclosure_learnMore')}
+          </a>
+          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3.5 dark:border-slate-600 dark:bg-slate-800/60">
+            <input
+              type="checkbox"
+              checked={disclosureChecked}
+              onChange={(e) => setDisclosureChecked(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+            />
+            <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{tx('disclosure_ack')}</span>
+          </label>
+          <button
+            type="button"
+            onClick={acknowledge}
+            disabled={!disclosureChecked}
+            className="mt-5 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-brand-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {tx('disclosure_continue')} <ChevronRight className="h-4 w-4" aria-hidden />
           </button>
         </div>
       </div>
