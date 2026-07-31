@@ -201,7 +201,12 @@ export const SubmitCaseForReview = z.object({
   phone: optionalPhone,
   preferredContactMethod: z.enum(['phone', 'text', 'email']).optional(),
   hipaa: z.boolean().optional(),
-  rankedAttorneyIds: z.array(z.string().trim().min(1)).max(3).optional(),
+  // Not capped at the wave-1 size here. That size is administrator-configurable
+  // and the plaintiff ranks as many attorneys as they were shown, so a hardcoded
+  // cap rejected the whole submission with "Invalid input" the moment wave 1 was
+  // raised above three. The handler trims to the configured size instead; this
+  // bound is only an abuse guard.
+  rankedAttorneyIds: z.array(z.string().trim().min(1)).max(50).optional(),
   // Attorneys the plaintiff removed from the proposed slate. Persisted so routing
   // never re-proposes them.
   dismissedAttorneyIds: z.array(z.string().trim().min(1)).max(50).optional(),

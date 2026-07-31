@@ -1,4 +1,5 @@
 import { validatePhoneField } from './phone'
+import { isValidEmail } from './email'
 
 export type RegisterInput = {
   firstName: string
@@ -9,8 +10,6 @@ export type RegisterInput = {
 }
 
 export type RegisterFieldErrors = Partial<Record<keyof RegisterInput, string>>
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export function validateRegisterInput(input: RegisterInput): RegisterFieldErrors {
   const errors: RegisterFieldErrors = {}
@@ -30,7 +29,7 @@ export function validateRegisterInput(input: RegisterInput): RegisterFieldErrors
   const email = input.email.trim()
   if (!email) {
     errors.email = 'Email is required'
-  } else if (!EMAIL_PATTERN.test(email)) {
+  } else if (!isValidEmail(email)) {
     errors.email = 'Invalid email address'
   }
 

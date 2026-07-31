@@ -37,6 +37,7 @@ import EstimateAccuracyStages from '../components/EstimateAccuracyStages'
 import CaseFileChecklist from '../components/CaseFileChecklist'
 import { useLanguage } from '../contexts/LanguageContext'
 import { formatPhoneInput, validatePhoneField } from '../lib/phone'
+import { isValidEmail } from '../lib/email'
 import { savePendingRegistration } from '../lib/pendingRegistration'
 import type { CaseCommandCenter } from '../lib/api'
 import { loadPlaintiffSessionSummary } from '../hooks/usePlaintiffSessionSummary'
@@ -1139,6 +1140,13 @@ export default function Results() {
     }
     if (!email?.trim()) {
       setContactFormError('Email is required')
+      return
+    }
+    // The send button is not inside a form, so type="email" never blocks
+    // anything. Without this, a mistyped address reached the API and came back
+    // as a bare "Invalid input" with no indication of which field was wrong.
+    if (!isValidEmail(email)) {
+      setContactFormError('Please enter a valid email address')
       return
     }
     if (!phone?.trim()) {

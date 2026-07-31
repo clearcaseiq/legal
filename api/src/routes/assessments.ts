@@ -24,6 +24,7 @@ import {
   proposeInitialBatchForApproval,
   runEscalationWave
 } from '../lib/routing-lifecycle'
+import { getConfiguredWaveSize, getMatchingRules } from '../lib/matching-rules-config'
 import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
 import { runCaseRecalculation } from '../lib/case-recalculation'
 import { DOCUMENT_REQUEST_CATEGORY_MAP, DOCUMENT_REQUEST_LABELS, parseRequestedDocs } from '../lib/document-request-status'
@@ -748,10 +749,14 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       attorneyShareAuthorized
     } = parsed.data
     const dismissedAttorneyIds = [...new Set(rawDismissedAttorneyIds)]
+    // Trim to the wave-1 size the plaintiff was actually shown rather than a
+    // hardcoded three, which silently dropped their fourth and fifth choices
+    // wherever an administrator had widened the first wave.
+    const waveOneSize = getConfiguredWaveSize(await getMatchingRules(), 1)
     // A removal outranks a selection: if an id somehow arrives in both lists, honour the removal.
     const rankedAttorneyIds = [...new Set(rawRankedAttorneyIds)]
       .filter((attorneyId) => !dismissedAttorneyIds.includes(attorneyId))
-      .slice(0, 3)
+      .slice(0, waveOneSize)
 
     const assessment = await prisma.assessment.findUnique({
       where: { id },

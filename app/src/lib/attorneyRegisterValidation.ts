@@ -1,6 +1,5 @@
 import { validatePhoneField } from './phone'
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+import { isValidEmail } from './email'
 
 const INTAKE_STATUS_OPTIONS = ['accept_immediately', 'pause', 'vacation'] as const
 const CONSULTATION_OPTIONS = ['phone', 'zoom', 'in_person'] as const
@@ -137,7 +136,7 @@ export function validateAttorneyRegisterInput(
   const email = input.email.trim()
   if (!email) {
     fieldErrors.email = 'Email is required.'
-  } else if (!EMAIL_PATTERN.test(email)) {
+  } else if (!isValidEmail(email)) {
     fieldErrors.email = 'Invalid email address.'
   }
 
