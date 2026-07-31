@@ -14,17 +14,22 @@
  *     node ../node_modules/tsx/dist/cli.mjs diagnose-new-matches.ts
  *
  * Optional:
+ *   ATTORNEY_NAME=<sub>   find the attorney by name instead of email
  *   ASSESSMENT_ID=...     focus on one case instead of the whole caseload
  *   PLAINTIFF=<substring> focus by plaintiff name
  *   DEADLINE_MINUTES=...  the admin "attorney response deadline" (default 1440).
  *                         Read it off the admin matching-rules screen; the expiry
  *                         verdict below is only as right as this number.
+ *
+ * With neither ATTORNEY_EMAIL nor ATTORNEY_NAME it lists attorneys and stops, so
+ * it can be run first just to find the right address.
  */
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
 const ATTORNEY_EMAIL = (process.env.ATTORNEY_EMAIL || '').trim()
+const ATTORNEY_NAME = (process.env.ATTORNEY_NAME || '').trim()
 const ASSESSMENT_ID = (process.env.ASSESSMENT_ID || '').trim()
 const PLAINTIFF = (process.env.PLAINTIFF || '').trim().toLowerCase()
 const DEADLINE_MINUTES = Number(process.env.DEADLINE_MINUTES || 24 * 60)
@@ -37,20 +42,47 @@ function hoursAgo(d: Date | null | undefined): string {
 }
 
 async function main() {
-  if (!ATTORNEY_EMAIL) {
-    console.error('Set ATTORNEY_EMAIL to the address the attorney signs in with.')
-    process.exit(1)
+  const select = { id: true, name: true, email: true, isActive: true, lawFirmId: true, createdAt: true }
+
+  if (!ATTORNEY_EMAIL && !ATTORNEY_NAME) {
+    const all = await prisma.attorney.findMany({ select, orderBy: { createdAt: 'desc' }, take: 40 })
+    console.log('\nSet ATTORNEY_EMAIL (or ATTORNEY_NAME). Most recent attorneys:\n')
+    for (const a of all) console.log(`  ${a.email}   ${a.name}   active=${a.isActive}`)
+    return
   }
 
   // The dashboard resolves the attorney with findFirst by email. Duplicate rows
   // are a recurring cause of an empty dashboard: routing points at one id while
-  // the login resolves the other, and nothing in the UI hints at it.
+  // the login resolves the other, and nothing in the UI hints at it. Resolving by
+  // name has to collapse to a single email first, or the duplicate check below
+  // would be comparing rows that were never meant to be the same person.
+  let email = ATTORNEY_EMAIL
+  if (!email) {
+    const byName = await prisma.attorney.findMany({
+      where: { name: { contains: ATTORNEY_NAME, mode: 'insensitive' } },
+      select,
+      orderBy: { createdAt: 'asc' },
+    })
+    const emails = [...new Set(byName.map((a) => a.email))]
+    if (emails.length === 0) {
+      console.error(`\nNo attorney whose name contains "${ATTORNEY_NAME}".`)
+      process.exit(1)
+    }
+    if (emails.length > 1) {
+      console.error(`\n"${ATTORNEY_NAME}" matches several people. Re-run with ATTORNEY_EMAIL set to one of:`)
+      for (const a of byName) console.error(`  ${a.email}   ${a.name}`)
+      process.exit(1)
+    }
+    email = emails[0]
+    console.log(`\nName "${ATTORNEY_NAME}" resolved to ${email}`)
+  }
+
   const rows = await prisma.attorney.findMany({
-    where: { email: ATTORNEY_EMAIL },
-    select: { id: true, name: true, isActive: true, lawFirmId: true, createdAt: true },
+    where: { email },
+    select,
     orderBy: { createdAt: 'asc' },
   })
-  console.log(`\nAttorney rows for ${ATTORNEY_EMAIL}: ${rows.length}`)
+  console.log(`\nAttorney rows for ${email}: ${rows.length}`)
   for (const r of rows) {
     console.log(`  - ${r.id}  active=${r.isActive}  firm=${r.lawFirmId}  created=${r.createdAt.toISOString()}`)
   }
