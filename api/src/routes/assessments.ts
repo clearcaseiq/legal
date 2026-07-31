@@ -864,29 +864,62 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       causationScore: viability.causation ?? 0.5,
       damagesScore: viability.damages ?? 0.5
     }
-    await prisma.leadSubmission.create({
-      data: {
-        assessmentId: id,
-        ...scores,
-        evidenceChecklist: JSON.stringify({ required: [] }),
-        isExclusive: false,
-        sourceType: 'plaintiff',
-        sourceDetails: JSON.stringify({
-          ...(req.user ? { userId: req.user.id } : {}),
-          submissionScope: medicalSharingAuthorized ? 'full_with_medical_authorization' : 'limited_non_medical',
-          medicalSharing: {
-            canShareMedicalData: medicalSharingAuthorized,
-            hasPlaintiffAccount: Boolean(req.user),
-            hasHipaaConsent: consents.hipaa === true,
-            message: medicalSharingAuthorized
-              ? null
-              : 'Medical records and extracted treatment details are pending plaintiff account creation and HIPAA authorization. The visible case summary is based on intake answers only until the plaintiff authorizes medical document sharing.'
-          },
-          plaintiffAttorneyPreferences
-        }),
-        status: 'submitted'
-      }
+    const leadData = {
+      ...scores,
+      evidenceChecklist: JSON.stringify({ required: [] }),
+      isExclusive: false,
+      sourceType: 'plaintiff',
+      sourceDetails: JSON.stringify({
+        ...(req.user ? { userId: req.user.id } : {}),
+        submissionScope: medicalSharingAuthorized ? 'full_with_medical_authorization' : 'limited_non_medical',
+        medicalSharing: {
+          canShareMedicalData: medicalSharingAuthorized,
+          hasPlaintiffAccount: Boolean(req.user),
+          hasHipaaConsent: consents.hipaa === true,
+          message: medicalSharingAuthorized
+            ? null
+            : 'Medical records and extracted treatment details are pending plaintiff account creation and HIPAA authorization. The visible case summary is based on intake answers only until the plaintiff authorizes medical document sharing.'
+        },
+        plaintiffAttorneyPreferences
+      }),
+      status: 'submitted'
+    }
+
+    // Sending a case has to be repeatable. A first attempt can stop before any
+    // attorney sees it — held at the pre-routing gate is the ordinary way — and
+    // because assessmentId is unique, a plain create met the retry with a
+    // constraint violation. The plaintiff was then stuck for good on a case
+    // nobody had been shown, with no route forward from the UI.
+    const existingLead = await prisma.leadSubmission.findUnique({
+      where: { assessmentId: id },
+      select: { status: true, routingLocked: true, assignedAttorneyId: true }
     })
+
+    // Once a case is genuinely with an attorney, a resend is a mistake rather
+    // than a retry: rewriting the row would restart the response clock and drop
+    // the case back into routing underneath the attorney already working it.
+    if (
+      existingLead &&
+      (existingLead.routingLocked || existingLead.assignedAttorneyId || existingLead.status !== 'submitted')
+    ) {
+      return res.status(409).json({ error: 'This case has already been sent to attorneys.' })
+    }
+
+    if (existingLead) {
+      await prisma.leadSubmission.update({
+        where: { assessmentId: id },
+        data: {
+          ...leadData,
+          // Leave the row as a fresh submission would: the response window the
+          // attorney sees runs from now, and the hold recorded by the previous
+          // attempt has to clear or routing will not look at the case again.
+          submittedAt: new Date(),
+          lifecycleState: 'routing_active'
+        }
+      })
+    } else {
+      await prisma.leadSubmission.create({ data: { assessmentId: id, ...leadData } })
+    }
     logger.info('Case submitted for review', { assessmentId: id, userId: req.user?.id })
 
     // Confirm receipt by email so the submitter — including guests without an

@@ -115,6 +115,60 @@ describe('HTTP API (integration)', () => {
     expect(createArg.data.sourceDetails).toContain('"canShareMedicalData":false')
   })
 
+  it('POST /v1/assessments/:id/submit-for-review updates the existing lead when a held case is sent again', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      ...assessmentRow,
+      facts: JSON.stringify({ consents: { tos: true, privacy: true, ml_use: true, hipaa: false } }),
+      leadSubmission: null,
+      predictions: [{ viability: JSON.stringify({ overall: 0.61, liability: 0.58, causation: 0.57, damages: 0.72 }) }],
+    } as any)
+    vi.mocked(prisma.assessment.update).mockResolvedValue({} as any)
+    // A case held at the pre-routing gate: submitted, but never offered to anyone.
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      status: 'submitted',
+      routingLocked: false,
+      assignedAttorneyId: null,
+    } as any)
+    vi.mocked(prisma.leadSubmission.update).mockResolvedValue({ id: 'lead-1' } as any)
+
+    const res = await request(app)
+      .post('/v1/assessments/assess-int-test-1/submit-for-review')
+      .send({ firstName: 'Taylor', email: 'taylor@example.com', phone: '(555) 111-2222' })
+      .expect(200)
+
+    expect(res.body.submitted).toBe(true)
+    expect(prisma.leadSubmission.create).not.toHaveBeenCalled()
+    const updateArg = vi.mocked(prisma.leadSubmission.update).mock.calls[0]?.[0] as any
+    // The hold has to clear, or routing will not reconsider the case.
+    expect(updateArg.data.lifecycleState).toBe('routing_active')
+    expect(updateArg.data.status).toBe('submitted')
+  })
+
+  it('POST /v1/assessments/:id/submit-for-review refuses to resend a case already with an attorney', async () => {
+    vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
+      ...assessmentRow,
+      facts: JSON.stringify({ consents: { tos: true, privacy: true, ml_use: true, hipaa: false } }),
+      leadSubmission: null,
+      predictions: [{ viability: JSON.stringify({ overall: 0.61, liability: 0.58, causation: 0.57, damages: 0.72 }) }],
+    } as any)
+    vi.mocked(prisma.assessment.update).mockResolvedValue({} as any)
+    vi.mocked(prisma.leadSubmission.findUnique).mockResolvedValue({
+      status: 'contacted',
+      routingLocked: true,
+      assignedAttorneyId: 'attorney-1',
+    } as any)
+
+    await request(app)
+      .post('/v1/assessments/assess-int-test-1/submit-for-review')
+      .send({ firstName: 'Taylor', email: 'taylor@example.com', phone: '(555) 111-2222' })
+      .expect(409)
+
+    // Rewriting the row would restart the response clock underneath the attorney
+    // already working the case.
+    expect(prisma.leadSubmission.update).not.toHaveBeenCalled()
+    expect(prisma.leadSubmission.create).not.toHaveBeenCalled()
+  })
+
   it('POST /v1/assessments/:id/submit-for-review persists HIPAA consent when provided', async () => {
     vi.mocked(prisma.assessment.findUnique).mockResolvedValue({
       ...assessmentRow,
