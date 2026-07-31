@@ -47,6 +47,7 @@ async function describe(assessmentId: string) {
       claimType: true,
       createdAt: true,
       lawFirmId: true,
+      facts: true,
       user: { select: { email: true, firstName: true, lastName: true } },
     },
   })
@@ -116,6 +117,25 @@ async function describe(assessmentId: string) {
   if (consents.length === 0) {
     console.log('    (none — if the pre-routing gate requires one, routing will not offer this case)')
   }
+
+  // Submission writes the authorization twice: this copy into the assessment, and
+  // the durable row above. Comparing them says which half failed. Present here but
+  // missing above means the consumer did authorize and the insert failed; absent
+  // from both means the submission never carried the authorization at all.
+  let attorneyShare: unknown = undefined
+  try {
+    const facts = JSON.parse(assessment.facts || '{}') as Record<string, unknown>
+    const factConsents = (facts.consents || {}) as Record<string, unknown>
+    attorneyShare = factConsents.attorneyShare
+  } catch {
+    /* unparseable facts tell us nothing either way */
+  }
+  console.log('\n  facts.consents.attorneyShare')
+  console.log(
+    attorneyShare === undefined
+      ? '    absent — the submission did not carry a share authorization'
+      : `    ${pretty(attorneyShare)}`
+  )
 
   const events = await prisma.routingAnalytics.findMany({
     where: { assessmentId },
