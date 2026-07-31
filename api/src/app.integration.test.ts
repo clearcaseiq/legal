@@ -57,7 +57,7 @@ describe('HTTP API (integration)', () => {
 
   it('GET / returns API meta', async () => {
     const res = await request(app).get('/').expect(200)
-    expect(res.body.name).toContain('Injury Intelligence')
+    expect(res.body.name).toContain('ClearCaseIQ')
     expect(res.body.endpoints.assessments).toBe('/v1/assessments')
   })
 

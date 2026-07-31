@@ -129,7 +129,7 @@ export function buildApp(): Express {
 
   app.get('/', (req, res) => {
     res.json({
-      name: 'Injury Intelligence API',
+      name: 'ClearCaseIQ API',
       version: '1.0.0',
       status: 'healthy',
       endpoints: {

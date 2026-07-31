@@ -1,16 +1,16 @@
 openapi: 3.0.3
 info:
-  title: Injury Intelligence API
+  title: ClearCaseIQ API
   description: API for legal case assessment and attorney matching
   version: 1.0.0
   contact:
-    name: Injury Intelligence API Support
-    email: support@injuryintelligence.com
+    name: ClearCaseIQ API Support
+    email: support@clearcaseiq.com
 
 servers:
   - url: http://localhost:4000
     description: Development server
-  - url: https://api.injuryintelligence.com
+  - url: https://api.clearcaseiq.com
     description: Production server
 
 paths:
