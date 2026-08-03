@@ -240,7 +240,15 @@ export default function AttorneyDashboardWorkstreamCollaboration({
                   )}
                 </div>
                 <button
-                  onClick={handleAddComment}
+                  onClick={() => {
+                    if (!commentMessage.trim()) {
+                      commentInputRef.current?.focus()
+                      commentInputRef.current?.classList.add('ring-2', 'ring-red-400')
+                      setTimeout(() => commentInputRef.current?.classList.remove('ring-2', 'ring-red-400'), 1500)
+                      return
+                    }
+                    handleAddComment()
+                  }}
                   disabled={commentLoading}
                   className="px-3 py-1.5 text-xs font-medium text-white bg-brand-600 rounded-md hover:bg-brand-700 disabled:opacity-50"
                 >

@@ -84,7 +84,7 @@ export default function Login() {
       return
     } catch (err: any) {
       if (err.response?.data?.isAttorney) {
-        setError('This email is registered as an attorney. To continue as a plaintiff, use Google sign-in or use a different email.')
+        setError('This email is registered as an attorney. Please use a different email or sign in through the attorney portal.')
       } else if (err.response?.data?.useOAuth) {
         setError(err.response?.data?.error || 'Please sign in with Google or Apple.')
       } else if (!err.response) {

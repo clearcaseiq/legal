@@ -465,7 +465,7 @@ export async function runRoutingEngine(
 
     // 5. Load attorneys and build AttorneyForRouting[]
     const attorneys = await prisma.attorney.findMany({
-      where: { isActive: true },
+      where: { isActive: true, isVerified: true },
       include: {
         lawFirm: true,
         attorneyProfile: true,

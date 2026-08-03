@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Search, ChevronDown, ChevronRight, FileText, Upload, Users, BarChart3, Shield, Mail, AlertCircle } from 'lucide-react'
 
@@ -70,7 +70,9 @@ const faqs = [
 ]
 
 export default function Help() {
-  const { hash } = useLocation()
+  const location = useLocation()
+  const { hash } = location
+  const isAdminArea = location.pathname.startsWith('/admin') || localStorage.getItem('role') === 'admin'
   const [search, setSearch] = useState('')
   const [expandedCategory, setExpandedCategory] = useState<number | null>(null)
 
@@ -111,7 +113,8 @@ export default function Help() {
         />
       </div>
 
-      {/* Quick links */}
+      {/* Quick links — hide plaintiff-specific actions when an admin is browsing. */}
+      {!isAdminArea && (
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
         <Link
           to="/assessment/start"
@@ -146,6 +149,7 @@ export default function Help() {
           <ChevronRight className="h-5 w-5 text-slate-400 ml-auto" />
         </Link>
       </div>
+      )}
 
       {/* Category cards */}
       <div className="space-y-4 mb-8">

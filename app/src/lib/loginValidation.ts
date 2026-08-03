@@ -12,13 +12,13 @@ export function validateLoginInput(input: LoginInput): LoginFieldErrors {
 
   const email = input.email.trim()
   if (!email) {
-    errors.email = 'Email is required'
+    errors.email = 'Email is required.'
   } else if (!isValidEmail(email)) {
-    errors.email = 'Please enter a valid email address'
+    errors.email = 'Please enter a valid email address.'
   }
 
   if (!input.password) {
-    errors.password = 'Password is required'
+    errors.password = 'Password is required.'
   }
 
   return errors

@@ -5,7 +5,7 @@
  * delete, a "request Dec Page" action, and an intake-derived suggestion to
  * pre-fill a new policy. Backed by /v1/attorney-dashboard/leads/:leadId/insurance*.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Shield,
   Plus,
@@ -17,6 +17,7 @@ import {
   Sparkles,
   AlertTriangle,
 } from 'lucide-react'
+import ConfirmDialog from '../../components/ConfirmDialog'
 import {
   getLeadInsurance,
   createLeadInsurance,
@@ -234,8 +235,18 @@ export default function InsurancePanel({ leadId }: { leadId: string; claimType?:
     }
   }
 
-  const remove = async (r: InsuranceRecord) => {
-    if (!window.confirm(`Delete the ${r.carrierName} policy? This can't be undone.`)) return
+  const pendingDeleteRef = useRef<InsuranceRecord | null>(null)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+
+  const requestDelete = (r: InsuranceRecord) => {
+    pendingDeleteRef.current = r
+    setDeleteConfirmOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    const r = pendingDeleteRef.current
+    if (!r) return
+    setDeleteConfirmOpen(false)
     setBusyId(r.id)
     setBanner(null)
     try {
@@ -246,6 +257,7 @@ export default function InsurancePanel({ leadId }: { leadId: string; claimType?:
       setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not delete the policy.' })
     } finally {
       setBusyId(null)
+      pendingDeleteRef.current = null
     }
   }
 
@@ -440,7 +452,7 @@ export default function InsurancePanel({ leadId }: { leadId: string; claimType?:
               <button type="button" onClick={() => startEdit(r)} disabled={editingId !== null} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40">
                 <Pencil className="h-3.5 w-3.5" /> Edit
               </button>
-              <button type="button" onClick={() => remove(r)} disabled={busyId === r.id || editingId !== null} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-40">
+              <button type="button" onClick={() => requestDelete(r)} disabled={busyId === r.id || editingId !== null} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:opacity-40">
                 <Trash2 className="h-3.5 w-3.5" /> Delete
               </button>
             </div>
@@ -495,6 +507,16 @@ export default function InsurancePanel({ leadId }: { leadId: string; claimType?:
           </button>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title="Delete policy?"
+        message={`Delete the ${pendingDeleteRef.current?.carrierName ?? ''} policy? This can't be undone.`}
+        confirmLabel="Delete"
+        tone="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => { setDeleteConfirmOpen(false); pendingDeleteRef.current = null }}
+      />
     </div>
   )
 }

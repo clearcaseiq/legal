@@ -138,6 +138,11 @@ const CLAIM_TYPE_LABELS: Record<string, string> = {
 }
 
 const CASE_SUBTYPE_LABELS: Record<string, string> = {
+  auto_accident: 'auto accident',
+  car_accident: 'car accident',
+  motorcycle_accident: 'motorcycle accident',
+  bus_accident: 'bus or public transit accident',
+  other_vehicle_accident: 'vehicle accident',
   rideshare_accident: 'rideshare accident',
   truck_accident: 'truck accident',
   delivery_vehicle_accident: 'delivery vehicle accident',
@@ -3344,7 +3349,7 @@ Checklist:
                     {rankedAttorneyCards.map((attorney: any, index) => (
                       <div key={attorney.id || attorney.attorney_id} className="subtle-panel px-3 py-3">
                         <div className="flex items-start justify-between gap-3">
-                          <div>
+                          <div className="min-w-0 flex-1">
                             <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Choice {index + 1}</p>
                             <p className="text-sm font-semibold text-slate-900">{attorney?.name ?? 'Attorney'}</p>
                             <p className="text-xs text-slate-600">
@@ -3402,7 +3407,7 @@ Checklist:
                               </span>
                             </div>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex shrink-0 gap-1.5">
                             <button
                               type="button"
                               onClick={() => moveRankedAttorney(attorney.id || attorney.attorney_id, -1)}
@@ -3543,15 +3548,15 @@ Checklist:
                   </p>
                 </div>
               )}
-              <div className="rounded-lg border border-slate-300 bg-white px-3 py-3">
-                <label className="flex items-start gap-2">
+              <div className={`rounded-lg border-2 px-3 py-3 transition-colors ${shareAuthorized ? 'border-brand-500 bg-brand-50' : 'border-brand-300 bg-white'}`}>
+                <label className="flex cursor-pointer items-start gap-3">
                   <input
                     type="checkbox"
                     checked={shareAuthorized}
                     onChange={(e) => setShareAuthorized(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                    className="mt-0.5 h-5 w-5 rounded border-2 border-brand-400 text-brand-600 focus:ring-brand-500"
                   />
-                  <span className="text-sm text-slate-700">{t('disclosures.shareAuthorization')}</span>
+                  <span className={`text-sm font-medium ${shareAuthorized ? 'text-brand-900' : 'text-slate-700'}`}>{t('disclosures.shareAuthorization')}</span>
                 </label>
               </div>
             </div>

@@ -594,7 +594,8 @@ export default function Dashboard() {
   const damages = parsedFacts.damages || {}
   const hasNarrative = !!parsedFacts.incident?.narrative
   const hasLocation = !!(parsedFacts.incident?.location || parsedFacts.venue?.state)
-  const hasWageLoss = !!(damages.wage_loss || parsedFacts?.caseAcceleration?.wageLoss || evidenceFiles.some(f => f.category === 'wage_loss'))
+  const hasWageLossEvidence = evidenceFiles.some(f => f.category === 'wage_loss')
+  const hasWageLoss = !!(damages.wage_loss || parsedFacts?.caseAcceleration?.wageLoss || hasWageLossEvidence)
   const submittedForReview = !!activeAssessment?.submittedForReview
   const attorneyReviewCount = (routingStatus?.attorneysReviewing && routingStatus.attorneysReviewing > 0) ? routingStatus.attorneysReviewing : 3
 
@@ -851,7 +852,7 @@ export default function Dashboard() {
     { label: 'Medical Records', sub: 'Treatment history & visits', impact: 'High', metric: 'Interest', potential: `${formatCurrency(potentialSettlementLow)} - ${formatCurrency(potentialSettlementHigh)}`, done: hasMedicalRecords },
     { label: 'Police Report', sub: 'Liability & incident details', impact: 'High', metric: 'Interest', potential: `${formatCurrency(settlementHigh)} - ${formatCurrency(potentialSettlementLow)}`, done: hasPoliceReport },
     { label: 'Medical Bills', sub: 'Economic damages', impact: 'Medium', metric: 'Confidence', potential: `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`, done: hasHospitalBill },
-    { label: 'Proof of Lost Wages', sub: 'Income & loss documentation', impact: 'Low', metric: 'Value', potential: `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`, done: hasWageLoss },
+    { label: 'Proof of Lost Wages', sub: 'Income & loss documentation', impact: 'Low', metric: 'Value', potential: `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`, done: hasWageLossEvidence },
   ]
 
   const caseCoachTips = [

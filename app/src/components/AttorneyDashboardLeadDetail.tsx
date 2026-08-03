@@ -485,7 +485,8 @@ export default function AttorneyDashboardLeadDetail({
             const hasMedical = treatments.length > 0 || leadEvidenceFiles.some((file: any) => file?.category === 'medical')
             const hasPolice = leadEvidenceFiles.some((file: any) => file?.category === 'police')
             const hasPhotos = leadEvidenceFiles.some((file: any) => file?.category === 'photos')
-            const caseScoreForHeader = Math.round((selectedLead?.viabilityScore ?? 0) * 100)
+            const rawViability = Number(selectedLead?.viabilityScore ?? 0)
+            const caseScoreForHeader = Math.round(rawViability <= 1 ? rawViability * 100 : Math.min(100, rawViability))
             const evidenceScoreForPriority = Math.round(
               (((hasMedical ? 1 : 0) + (hasPhotos ? 1 : 0) + (hasPolice ? 1 : 0)) / 4) * 100,
             )
@@ -560,7 +561,8 @@ export default function AttorneyDashboardLeadDetail({
               'Venue not provided'
             const valueLow = bands?.p25 ?? bands?.low ?? 0
             const valueHigh = bands?.p75 ?? bands?.high ?? bands?.median ?? 0
-            const caseScore = Math.round((selectedLead?.viabilityScore ?? 0) * 100)
+            const rawViabilityScore = Number(selectedLead?.viabilityScore ?? 0)
+            const caseScore = Math.round(rawViabilityScore <= 1 ? rawViabilityScore * 100 : Math.min(100, rawViabilityScore))
             const caseStrength = caseStrengthLabel(heuristics, caseScore)
             const treatment = treatments.length > 0 ? 'Yes' : 'No'
             const timelineEstimate = treatments.length >= 2 ? '8–14 months' : treatments.length === 1 ? '6–12 months' : '—'

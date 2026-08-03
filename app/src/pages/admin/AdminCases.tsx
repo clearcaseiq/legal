@@ -367,7 +367,7 @@ export default function AdminCases() {
     ) : (
       // Inactive but sortable: show a clearly visible (not near-invisible) indicator
       // so the column reads as clickable without waiting for a first click (CP-320).
-      <ChevronsUpDown className="h-4 w-4 text-slate-500" aria-hidden />
+      <ChevronsUpDown className="h-4 w-4 text-slate-400 group-hover:text-slate-600" aria-hidden />
     )
 
   /**
@@ -395,7 +395,7 @@ export default function AdminCases() {
   )
 
   return (
-    <div className="flex h-[calc(100vh-6.5rem)] min-h-0 flex-col gap-4 overflow-hidden">
+    <div className="flex h-[calc(100vh-4rem)] min-h-0 flex-col gap-4 overflow-hidden">
       <div className="shrink-0">
         <PageHeader
           title="Cases"

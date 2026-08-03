@@ -1,7 +1,7 @@
 /**
  * ClearCaseIQ Universal + Branching 12-Screen Intake Flow
  */
-import { useState, useEffect, useRef, type ReactNode } from 'react'
+import { Fragment, useState, useEffect, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, type IntakeLeadPayload } from '../lib/api-plaintiff'
 import { deleteEvidenceFile, extractIncidentDetails, type IncidentExtraction } from '../lib/api'
@@ -9,6 +9,7 @@ import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Steth
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import { useLanguage } from '../contexts/LanguageContext'
 import { buildCaseTaxonomy, injuryTypeToClaimType, sanitizeDetectedCounty, usesPoliceReportLabel } from '../lib/intakeQuickHelpers'
+import { INCIDENT_SUBTYPE_PROMPTS, getIncidentSubtypes, hasIncidentSubtypes } from '../lib/caseTaxonomy'
 import { US_STATES } from '../lib/constants'
 import { getCountiesForState } from '../lib/usLocationData'
 import { formatPhoneInput, validatePhoneField } from '../lib/phone'
@@ -25,7 +26,19 @@ const HIPAA_UPLOAD_CATEGORIES = ['medical_records', 'bills']
 // Acknowledgement of the platform disclosure at the top of the funnel. The
 // footer is suppressed on the intake routes, so this is the only place a
 // claimant is told we are not a law firm before answering questions.
+//
+// Holds the ISO time of the acknowledgement, which travels with the assessment
+// so the record does not live only in this browser. Older installs wrote the
+// string 'true'; those still count as acknowledged, just without a time.
 const DISCLOSURE_ACK_KEY = 'intake_disclosure_ack_v1'
+
+function readDisclosureAck(): string | null {
+  try {
+    return localStorage.getItem(DISCLOSURE_ACK_KEY)
+  } catch {
+    return null
+  }
+}
 
 type Step =
   | 'injury_type'
@@ -54,7 +67,12 @@ const INJURY_TYPES = [
   { value: 'toxic', labelKey: 'injuryType_toxic', icon: Droplets },
   { value: 'nursing_home_abuse', labelKey: 'injuryType_nursing_home_abuse', icon: BedDouble },
   { value: 'wrongful_death', labelKey: 'injuryType_wrongful_death', icon: HeartPulse },
-  { value: 'high_severity_surgery', labelKey: 'injuryType_high_severity_surgery', icon: Ambulance },
+  // "Catastrophic / high-severity injury" used to sit here. It describes how bad
+  // the injury is, not what caused it — a catastrophic truck crash, surgical
+  // error and workplace injury are all catastrophic — so it competed with every
+  // other tile instead of belonging beside them. Severity is asked later, on the
+  // injuries step. The high_severity_surgery *claim type* stays supported for
+  // cases already filed under it.
   { value: 'other', labelKey: 'injuryType_other', icon: HelpCircle }
 ]
 
@@ -913,13 +931,20 @@ export default function IntakeWizardQuick() {
   const [hipaaAuthorized, setHipaaAuthorized] = useState<boolean>(() => {
     try { return localStorage.getItem('consent_read_hipaa') === 'true' } catch { return false }
   })
-  // One-time "we are not a law firm" acknowledgement shown before the first
-  // question. Kept outside the draft so "Start over" and ?fresh=1 do not nag a
-  // returning claimant, and so the funnel never renders without it.
-  const [disclosureAcked, setDisclosureAcked] = useState<boolean>(() => {
-    try { return localStorage.getItem(DISCLOSURE_ACK_KEY) === 'true' } catch { return false }
-  })
-  const [disclosureChecked, setDisclosureChecked] = useState(false)
+  // One-time "we are not a law firm" acknowledgement, shown alongside the first
+  // question rather than on a screen of its own. Kept outside the draft so
+  // "Start over" and ?fresh=1 do not nag a returning claimant, and so no answer
+  // can be given before it is ticked.
+  const [disclosureAckAt, setDisclosureAckAt] = useState<string | null>(readDisclosureAck)
+  const disclosureAcked = disclosureAckAt !== null
+  // Whether the "what kind of incident was it?" panel is showing. Opened by
+  // picking a type that has subtypes, and by re-picking one to change the answer.
+  const [subtypePanelOpen, setSubtypePanelOpen] = useState(false)
+  // The option just picked, held for the moment between the click and the panel
+  // collapsing so the choice can be confirmed on screen.
+  const [subtypeConfirming, setSubtypeConfirming] = useState<string | null>(null)
+  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current) }, [])
   const [returnToReviewFromStep, setReturnToReviewFromStep] = useState<Step | null>(null)
   const [customDate, setCustomDate] = useState('')
   const [detectedLocation, setDetectedLocation] = useState<{ city: string; county: string; state: string } | null>(null)
@@ -939,6 +964,7 @@ export default function IntakeWizardQuick() {
   const [formData, setFormData] = useState({
     injuredParty: 'self' as 'self' | 'child' | 'dependent' | 'deceased',
     injuryType: '' as string,
+    incidentSubtype: '' as string,
     claimType: '' as string,
     incidentDate: '',
     incidentDatePreset: '' as string,
@@ -1334,8 +1360,17 @@ export default function IntakeWizardQuick() {
   // window scroll too — otherwise a new step can start mid-page.
   const stepScrollRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
-    stepScrollRef.current?.scrollTo({ top: 0 })
-    if (typeof window !== 'undefined') window.scrollTo({ top: 0 })
+    stepScrollRef.current?.scrollTo({ top: 0, behavior: 'instant' })
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'instant' })
+      // Some mobile browsers ignore the window scroll when the visual viewport
+      // hasn't been invalidated yet. A microtask retry catches those.
+      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }))
+    }
+    // Leaving the step settles the subtype answer; coming back should show the
+    // tiles with the choice on them, not reopen the question.
+    setSubtypePanelOpen(false)
+    setSubtypeConfirming(null)
   }, [currentStep])
 
   // Keep validation errors in one consistent place (top of the step) and bring it into view.
@@ -1499,7 +1534,11 @@ export default function IntakeWizardQuick() {
   const buildNarrative = (): string => {
     const parts: string[] = []
     const it = INJURY_TYPES.find(a => a.value === formData.injuryType)
-    parts.push(it ? t(`intake.${it.labelKey}`) : formData.injuryType)
+    const subtype = getIncidentSubtypes(formData.injuryType).find(o => o.value === formData.incidentSubtype)
+    const typeLabel = it ? t(`intake.${it.labelKey}`) : formData.injuryType
+    // Narrative text is read by the valuation model, so the specific answer is
+    // worth more here than the category it sits under.
+    parts.push(subtype ? `${typeLabel} — ${tx(subtype.labelKey)}` : typeLabel)
     parts.push(`Incident date: ${getIncidentDate()}`)
     parts.push(`Location: ${formatVenueLocation(formData.venue)}`)
     if (formData.narrative) parts.push(formData.narrative)
@@ -1920,9 +1959,31 @@ export default function IntakeWizardQuick() {
     }
   }
 
+  // The checkbox is the acknowledgement itself — there is no separate confirm
+  // step to press — so ticking it is what records the time.
+  const acknowledgeDisclosure = (checked: boolean) => {
+    const value = checked ? new Date().toISOString() : null
+    try {
+      if (value) localStorage.setItem(DISCLOSURE_ACK_KEY, value)
+      else localStorage.removeItem(DISCLOSURE_ACK_KEY)
+    } catch { /* ignore quota / private mode */ }
+    setDisclosureAckAt(value)
+    if (checked) setErrors(({ disclosure: _cleared, ...rest }) => rest)
+  }
+
   const validateAndNext = () => {
     const err: Record<string, string> = {}
     if (currentStep === 'injury_type' && !formData.injuryType) err.injuryType = tx('error_selectInjuryType')
+    // The subtype drives valuation and which follow-ups get asked, so a type that
+    // has one cannot be left at the broad level.
+    if (currentStep === 'injury_type' && formData.injuryType && hasIncidentSubtypes(formData.injuryType) && !formData.incidentSubtype) {
+      err.incidentSubtype = tx('subtype_required')
+      setSubtypePanelOpen(true)
+    }
+    // Nothing may be answered until the claimant has been told this is not a law
+    // firm, so the gate sits on leaving the first step rather than on a screen of
+    // its own.
+    if (currentStep === 'injury_type' && !disclosureAcked) err.disclosure = tx('disclosure_required')
     if (currentStep === 'when') {
       const preset = formData.incidentDatePreset
       const today = isoToday()
@@ -2001,6 +2062,7 @@ export default function IntakeWizardQuick() {
       const caseTaxonomy = buildCaseTaxonomy({
         injuryType: formData.injuryType,
         claimType,
+        incidentSubtype: formData.incidentSubtype,
         branch: formData.branch,
         insuranceCoverage: formData.insuranceCoverage,
         injuryDetails: formData.injuryDetails,
@@ -2181,11 +2243,19 @@ export default function IntakeWizardQuick() {
           privacy: consents.privacy,
           ml_use: consents.ml_use,
           ...(hipaaAuthorized ? { hipaa: true } : {})
-        }
+        },
+        // Taken before this case existed, so it rides along now to be stored
+        // against it. Omitted for the legacy 'true' marker, which carries no time.
+        ...(disclosureAckAt && disclosureAckAt !== 'true'
+          ? { platformDisclosureAckAt: disclosureAckAt }
+          : {})
       }
       ;(payload as any).intakeData = {
         injuredParty: formData.injuredParty,
         injuryType: formData.injuryType,
+        // Kept alongside injuryType rather than only folded into caseSubtype, so
+        // the claimant's own answer stays legible next to the broad category.
+        incidentSubtype: formData.incidentSubtype,
         caseTaxonomy,
         narrative: formData.narrative,
         branch: formData.branch,
@@ -3069,17 +3139,125 @@ export default function IntakeWizardQuick() {
     )
   }
 
+  const subtypeOptions = getIncidentSubtypes(formData.injuryType)
+  const selectedSubtype = subtypeOptions.find((option) => option.value === formData.incidentSubtype)
+  const selectedSubtypeLabel = selectedSubtype ? tx(selectedSubtype.labelKey) : ''
+
+  const chooseSubtype = (value: string) => {
+    updateForm({ incidentSubtype: value })
+    setErrors(({ incidentSubtype: _cleared, ...rest }) => rest)
+    // Acknowledge the choice before folding the panel away. Collapsing on the
+    // same frame as the click reads as the panel having been dismissed rather
+    // than the answer having been taken.
+    setSubtypeConfirming(value)
+    if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current)
+    collapseTimerRef.current = setTimeout(() => {
+      setSubtypePanelOpen(false)
+      setSubtypeConfirming(null)
+    }, 400)
+  }
+
+  /**
+   * The "what kind" question, opened in place under the row holding the type it
+   * belongs to so the eye never has to leave the card that was just picked.
+   *
+   * One layout at every width. It began as an inline panel on desktop and a
+   * bottom sheet on mobile, but once the options became chips the sheet was
+   * carrying no weight the inline panel could not — and a sheet reads as a modal
+   * interruption, which is the opposite of what a follow-up question is.
+   */
+  const renderSubtypePicker = () => {
+    if (subtypeOptions.length === 0 || !subtypePanelOpen) return null
+    const prompt = tx(INCIDENT_SUBTYPE_PROMPTS[formData.injuryType] || 'subtype_prompt_generic')
+    const selectedType = INJURY_TYPES.find((entry) => entry.value === formData.injuryType)
+    const primary = subtypeOptions.filter((option) => !option.secondary)
+    const secondary = subtypeOptions.filter((option) => option.secondary)
+
+    const chip = (option: (typeof subtypeOptions)[number], index: number, muted = false) => {
+      const { value, labelKey, chipLabelKey, icon: OptionIcon } = option
+      const isChosen = formData.incidentSubtype === value
+      const isConfirming = subtypeConfirming === value
+      return (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={isChosen}
+          onClick={() => chooseSubtype(value)}
+          style={{ animationDelay: `${Math.min(index, 8) * 25}ms` }}
+          className={`cc-option-rise flex min-h-[2.75rem] items-center gap-2 rounded-full px-3.5 py-2 text-left text-sm font-medium leading-tight transition-colors duration-150 motion-reduce:transition-none ${
+            isChosen
+              ? 'bg-brand-600 text-white'
+              : muted
+                ? 'bg-white/70 text-slate-600 ring-1 ring-slate-200 hover:bg-white hover:text-slate-900 dark:bg-slate-900/40 dark:text-slate-300 dark:ring-slate-700'
+                : 'bg-white text-slate-800 ring-1 ring-slate-200 hover:ring-brand-400 hover:bg-brand-50/60 dark:bg-slate-900/60 dark:text-slate-100 dark:ring-slate-700'
+          }`}
+        >
+          {isConfirming ? (
+            <Check className="h-[18px] w-[18px] shrink-0" strokeWidth={3} aria-hidden />
+          ) : (
+            <OptionIcon className={`h-[18px] w-[18px] shrink-0 ${isChosen ? 'text-white' : 'text-brand-600 dark:text-brand-400'}`} strokeWidth={2.1} aria-hidden />
+          )}
+          <span>{tx(chipLabelKey || labelKey)}</span>
+        </button>
+      )
+    }
+
+    return (
+      <div className="cc-panel-drop col-span-3 mt-5 rounded-2xl bg-slate-50/80 px-4 py-5 dark:bg-slate-800/40">
+        {/* Reads as a second question rather than a stray box: the answered part
+            is stated, ruled off, and the new question sits underneath it. */}
+        <div className="flex items-center justify-between gap-3 pb-3">
+          <p className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.04em] text-brand-700 sm:text-xs sm:tracking-[0.08em] dark:text-brand-300">
+            <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="truncate">{selectedType ? t(`intake.${selectedType.labelKey}`) : ''}</span>
+          </p>
+          <button
+            type="button"
+            onClick={() => setSubtypePanelOpen(false)}
+            className="shrink-0 text-xs font-medium text-slate-500 underline-offset-4 transition-colors hover:text-slate-800 hover:underline dark:text-slate-400 dark:hover:text-slate-100"
+          >
+            <span className="sm:hidden">{tx('subtype_change')}</span>
+            <span className="hidden sm:inline">{tx('subtype_chooseAnother')}</span>
+          </button>
+        </div>
+        <div className="border-t border-slate-200/80 pt-5 dark:border-slate-700/70">
+          <p className="font-display text-[15px] font-semibold text-slate-900 dark:text-slate-100 sm:text-base">{prompt}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{tx('subtype_helper')}</p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            {primary.map((option, index) => chip(option, index))}
+          </div>
+          {secondary.length > 0 && (
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-500 dark:text-slate-400">{tx('subtype_needHelp')}</span>
+              {secondary.map((option, index) => chip(option, primary.length + index, true))}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const renderStepContent = (step: Step) => {
     switch (step) {
-      case 'injury_type':
+      case 'injury_type': {
+        const selectedIndex = INJURY_TYPES.findIndex((entry) => entry.value === formData.injuryType)
+        const columns = 3
+        // The follow-up question opens under the row holding the chosen tile
+        // rather than under the whole grid, so the answer and the question it
+        // raised stay next to each other. A tile in the last, short row puts the
+        // panel after the final tile.
+        const panelAfterIndex =
+          selectedIndex < 0
+            ? -1
+            : Math.min(Math.floor(selectedIndex / columns) * columns + columns - 1, INJURY_TYPES.length - 1)
         return (
-          <div className="space-y-1.5">
-            <p className="text-center font-display text-[16px] font-semibold text-gray-900 sm:text-[19px]">{t('intake.injuryType')}</p>
-            <p className="text-center text-[11px] leading-snug text-gray-500 sm:text-xs">{t('intake.injuryTypeHelp')}</p>
-            <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
-              {INJURY_TYPES.map(({ value, labelKey, icon: Icon }) => (
+          <div>
+            <p className="text-center font-display text-[16px] font-semibold text-gray-900 sm:text-[19px] dark:text-slate-100">{t('intake.injuryType')}</p>
+            <p className="mt-1.5 text-center text-[11px] leading-snug text-gray-500 sm:text-xs dark:text-slate-400">{t('intake.injuryTypeHelp')}</p>
+            <div className="mt-6 grid grid-cols-3 gap-2 sm:gap-3">
+              {INJURY_TYPES.map(({ value, labelKey, icon: Icon }, index) => (
+                <Fragment key={value}>
                 <button
-                  key={value}
                   type="button"
                   aria-pressed={formData.injuryType === value}
                   // Prevent the browser from scroll-jumping the tile into view on click,
@@ -3088,34 +3266,70 @@ export default function IntakeWizardQuick() {
                   onClick={(e) => {
                     e.currentTarget.focus({ preventScroll: true })
                     if (formData.injuryType === value) {
+                      // Re-picking the selected type reopens its subtype question
+                      // rather than clearing the answer, so changing "car" to
+                      // "motorcycle" does not mean starting the step again. Types
+                      // without a subtype question keep the deselect behaviour,
+                      // which is otherwise the only way to undo a mis-tap.
+                      if (hasIncidentSubtypes(value)) {
+                        setSubtypePanelOpen(true)
+                        return
+                      }
                       // Deselecting clears the type-specific branch answers too, so
                       // nothing orphaned (e.g. a police-report flag) lingers.
-                      updateForm({ injuryType: '', claimType: '', branch: {} })
+                      updateForm({ injuryType: '', claimType: '', incidentSubtype: '', branch: {} })
                       return
                     }
                     // Switching injury types must reset branch. Branch holds
                     // type-specific answers (police report, witnesses, crash type,
                     // etc.); carrying them into a different injury type produced
                     // false positives such as "Police Report: Included" in the
-                    // damages step for a case where none was ever provided.
+                    // damages step for a case where none was ever provided. The
+                    // subtype belongs to the type it was asked under, so it goes
+                    // the same way.
                     updateForm({
                       injuryType: value,
                       claimType: injuryTypeToClaimType(value),
+                      incidentSubtype: '',
                       branch: {},
                     })
+                    setSubtypePanelOpen(hasIncidentSubtypes(value))
                   }}
-                  className={`relative flex h-20 flex-col items-center justify-center gap-1 rounded-xl border-[1.5px] px-1.5 py-1.5 shadow-sm transition-all focus-visible:ring-inset focus-visible:ring-offset-0 active:scale-[0.99] sm:h-24 sm:gap-1.5 sm:px-3 sm:py-2 ${
-                    formData.injuryType === value ? 'border-brand-600 bg-brand-50 shadow' : 'border-gray-300 bg-white hover:border-brand-500 hover:shadow-md'
+                  className={`relative flex min-h-[5rem] flex-col items-center justify-center gap-1.5 rounded-xl px-1.5 py-2.5 transition-all duration-150 focus-visible:ring-inset focus-visible:ring-offset-0 active:scale-[0.99] motion-reduce:transition-none sm:min-h-[6rem] sm:px-3 ${
+                    formData.injuryType === value
+                      ? 'bg-brand-50 shadow-md ring-2 ring-brand-500 dark:bg-brand-950/40 dark:ring-brand-400'
+                      : 'bg-white ring-1 ring-slate-200 hover:bg-slate-50 hover:ring-brand-300 dark:bg-slate-900/50 dark:ring-slate-700 dark:hover:bg-slate-900'
                   }`}
                 >
-                  {formData.injuryType === value && <Check className="absolute right-1.5 top-1.5 h-4 w-4 text-brand-600" aria-hidden />}
-                  <Icon className={`h-4 w-4 sm:h-5 sm:w-5 ${formData.injuryType === value ? 'text-brand-700' : 'text-brand-600'}`} />
-                  <span className="text-center text-[12px] font-semibold leading-tight sm:text-[16px] sm:font-medium sm:leading-snug">{t(`intake.${labelKey}`)}</span>
+                  {formData.injuryType === value && (
+                    <span className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-brand-600 shadow-sm ring-2 ring-white dark:ring-slate-900" aria-hidden>
+                      <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
+                    </span>
+                  )}
+                  <Icon
+                    className={`h-5 w-5 sm:h-6 sm:w-6 ${formData.injuryType === value ? 'text-brand-600 dark:text-brand-300' : 'text-slate-400 dark:text-slate-500'}`}
+                    strokeWidth={formData.injuryType === value ? 2.2 : 1.8}
+                  />
+                  <span
+                    className={`text-center text-[12px] font-semibold leading-tight sm:text-[15px] sm:leading-snug ${
+                      formData.injuryType === value ? 'text-brand-900 dark:text-brand-100' : 'text-slate-700 dark:text-slate-200'
+                    }`}
+                  >
+                    {t(`intake.${labelKey}`)}
+                  </span>
+                  {formData.injuryType === value && selectedSubtypeLabel && (
+                    <span className="max-w-full truncate text-center text-[10px] font-medium leading-tight text-brand-700 sm:text-xs dark:text-brand-300">
+                      {selectedSubtypeLabel}
+                    </span>
+                  )}
                 </button>
+                {index === panelAfterIndex && renderSubtypePicker()}
+                </Fragment>
               ))}
             </div>
           </div>
         )
+      }
 
       case 'when': {
         const detectedDisplay = detectedLocation ? [detectedLocation.city, detectedLocation.county, detectedLocation.state].filter(Boolean).join(', ') : ''
@@ -3639,9 +3853,9 @@ export default function IntakeWizardQuick() {
           `flex min-h-[2.25rem] w-full min-w-0 items-center gap-1 rounded-xl border px-2 py-1 text-left transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 sm:gap-1.5 sm:px-2.5 ${selected ? 'border-brand-500 bg-brand-50/70 dark:border-brand-500/50 dark:bg-brand-500/10' : 'border-slate-200 bg-white hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40'}`
         const renderCheck = (on: boolean) =>
           on ? (
-            <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+            <Check className="h-3.5 w-3.5 shrink-0 text-brand-600 sm:h-4 sm:w-4" aria-hidden />
           ) : (
-            <span className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" aria-hidden />
           )
         const treatmentIcons: Record<string, LucideIcon> = { mri: Activity, ct_scan: Scan, xray: Bone, physical_therapy: PersonStanding, chiropractic: Stethoscope, injections: Syringe, surgery: Scissors, other_treatment: Pill }
         const symptomIcons: Record<string, LucideIcon> = { pain: HeartPulse, stiffness: Bone, limited_rom: RotateCw, numbness: Activity, weakness: Dumbbell, headaches: Brain, other: Pencil }
@@ -6178,57 +6392,6 @@ export default function IntakeWizardQuick() {
     )
   }
 
-  // Shown once, before the first question. Everything after this point is
-  // ordinary questions with no repeated warnings.
-  if (!disclosureAcked) {
-    const acknowledge = () => {
-      try { localStorage.setItem(DISCLOSURE_ACK_KEY, 'true') } catch { /* ignore quota / private mode */ }
-      setDisclosureAcked(true)
-    }
-    return (
-      <div className="mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-2xl flex-col justify-center px-3 py-6 sm:px-4 md:min-h-[calc(100dvh-7.5rem)]">
-        <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-card dark:border-slate-700 dark:bg-slate-900/80 sm:p-7">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">
-              <Info className="h-5 w-5" aria-hidden />
-            </span>
-            <h1 className="font-display text-lg font-bold text-slate-900 dark:text-slate-50 sm:text-xl">
-              {tx('disclosure_title')}
-            </h1>
-          </div>
-          <p className="mt-4 text-sm leading-6 text-slate-700 dark:text-slate-200 sm:text-base sm:leading-7">
-            {tx('disclosure_body')}
-          </p>
-          <a
-            href="/disclosures"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-3 inline-block text-sm font-medium text-brand-700 underline underline-offset-2 hover:text-brand-800 dark:text-brand-300"
-          >
-            {tx('disclosure_learnMore')}
-          </a>
-          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3.5 dark:border-slate-600 dark:bg-slate-800/60">
-            <input
-              type="checkbox"
-              checked={disclosureChecked}
-              onChange={(e) => setDisclosureChecked(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-            />
-            <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{tx('disclosure_ack')}</span>
-          </label>
-          <button
-            type="button"
-            onClick={acknowledge}
-            disabled={!disclosureChecked}
-            className="mt-5 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-brand-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {tx('disclosure_continue')} <ChevronRight className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-[1440px] flex-col overflow-visible px-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:px-4 md:min-h-[calc(100dvh-7.5rem)] md:overflow-visible md:px-8 md:py-3 ${isFirstStep ? 'py-1' : 'py-1.5 sm:py-2'}`}>
       {generatingReport && (
@@ -6257,10 +6420,25 @@ export default function IntakeWizardQuick() {
           </p>
         )}
         <div className="mt-1 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 tabular-nums sm:text-sm">
+          {/* Position, then what this step is about. A percentage is a worse
+              answer to "how much is left?" than the step count next to it, and
+              naming the step is the only place the claimant is told what they
+              are being asked about on the opening screen. */}
           <span className="flex items-center gap-2">
-            <span className="font-semibold text-brand-700 dark:text-brand-300">{progressPercent}% {tx('progress_completeLabel')}</span>
-            <span className="text-slate-300 dark:text-slate-600">·</span>
-            <span>{t('intake.step')} {currentStepIndex + 1} {t('intake.of')} {visibleSteps.length}</span>
+            <span className="font-semibold text-brand-700 dark:text-brand-300">
+              {t('intake.step')} {currentStepIndex + 1} {t('intake.of')} {visibleSteps.length}
+            </span>
+            {/* Only on the opening screen, where the heading below is the
+                marketing headline and nothing else says what is being asked.
+                Every later step puts its own name in that heading, so repeating
+                it here would print it twice. Dropped on narrow screens either
+                way, where it loses the fight for room with the time estimate. */}
+            {isFirstStep && (
+              <>
+                <span className="hidden text-slate-300 sm:inline dark:text-slate-600">·</span>
+                <span className="hidden truncate sm:inline">{stepTitles[currentStep] || visibleSteps[currentStepIndex]?.title}</span>
+              </>
+            )}
           </span>
           <span className="flex items-center gap-3">
             <span>
@@ -6394,6 +6572,51 @@ export default function IntakeWizardQuick() {
         >
           <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>{Object.values(errors).filter(Boolean).join(' · ')}</span>
+        </div>
+      )}
+
+      {/* Sits above the first question rather than in front of it: a screen that
+          asks nothing is a screen people dismiss without reading, and the
+          disclosure is the one thing here that has to be read. Disappears for
+          good once ticked. */}
+      {isFirstStep && !disclosureAcked && (
+        <div className="mb-1.5 shrink-0 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/50 sm:px-4">
+          <div className="flex items-start gap-2.5">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-700 dark:text-brand-300" aria-hidden />
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">
+                {tx('disclosure_title')}
+              </p>
+              <p className="mt-0.5 text-xs leading-5 text-slate-700 dark:text-slate-300">
+                {tx('disclosure_body')}{' '}
+                <a
+                  href="/disclosures"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-brand-700 underline underline-offset-2 hover:text-brand-800 dark:text-brand-300"
+                >
+                  {tx('disclosure_learnMore')}
+                </a>
+              </p>
+              <label
+                className={`mt-2 flex cursor-pointer items-center gap-2 rounded-lg border bg-white px-2.5 py-1.5 transition-colors dark:bg-slate-800/60 ${
+                  errors.disclosure
+                    ? 'border-red-300 dark:border-red-800'
+                    : 'border-slate-300 dark:border-slate-600'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={disclosureAcked}
+                  onChange={(e) => acknowledgeDisclosure(e.target.checked)}
+                  className="h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                />
+                <span className="text-xs font-medium text-slate-800 dark:text-slate-100 sm:text-sm">
+                  {tx('disclosure_ack')} <span className="font-semibold text-red-500" aria-hidden>*</span>
+                </span>
+              </label>
+            </div>
+          </div>
         </div>
       )}
 

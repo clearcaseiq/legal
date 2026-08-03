@@ -5,7 +5,7 @@
  * breaks, so this is a plain textarea rather than a rich-text editor: anything
  * with formatting would be lost on the way out.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
   Bot,
@@ -20,6 +20,7 @@ import {
   Sparkles,
   User,
 } from 'lucide-react'
+import ConfirmDialog from '../../components/ConfirmDialog'
 import {
   approveLeadDemandLetter,
   downloadDemandLetterDocx,
@@ -138,14 +139,21 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
   const handleDraft = () =>
     run('draft', () => draftLeadDemandLetter(leadId, { guidance: guidance.trim() || null }), 'Draft ready to review.')
 
+  const [pendingConfirm, setPendingConfirm] = useState<{ title: string; message: string; action: () => void } | null>(null)
+
   const handleRegenerate = () => {
     if (!active) return
-    if (dirty && !window.confirm('Regenerating replaces your unsaved edits. Continue?')) return
-    return run(
-      'regen',
-      () => regenerateLeadDemandLetter(leadId, active.id, { guidance: guidance.trim() || null }),
-      'Redrafted. Your previous wording is kept in history.',
-    )
+    const go = () =>
+      run(
+        'regen',
+        () => regenerateLeadDemandLetter(leadId, active.id, { guidance: guidance.trim() || null }),
+        'Redrafted. Your previous wording is kept in history.',
+      )
+    if (dirty) {
+      setPendingConfirm({ title: 'Unsaved edits', message: 'Regenerating replaces your unsaved edits. Continue?', action: go })
+    } else {
+      go()
+    }
   }
 
   const handleSave = () => {
@@ -160,8 +168,12 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
 
   const handleFinalize = () => {
     if (!active) return
-    if (dirty && !window.confirm('You have unsaved edits. Finalize the last saved version?')) return
-    return run('finalize', () => finalizeLeadDemandLetter(leadId, active.id), 'Letter finalized.')
+    const go = () => run('finalize', () => finalizeLeadDemandLetter(leadId, active.id), 'Letter finalized.')
+    if (dirty) {
+      setPendingConfirm({ title: 'Unsaved edits', message: 'You have unsaved edits. Finalize the last saved version?', action: go })
+    } else {
+      go()
+    }
   }
 
   const handleDownload = async () => {
@@ -416,6 +428,16 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
           </ul>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={!!pendingConfirm}
+        title={pendingConfirm?.title ?? ''}
+        message={pendingConfirm?.message}
+        confirmLabel="Continue"
+        tone="default"
+        onConfirm={() => { pendingConfirm?.action(); setPendingConfirm(null) }}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   )
 }

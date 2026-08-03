@@ -21,7 +21,7 @@ interface ConsultSchedulerModalProps {
 type MeetingType = 'video' | 'phone' | 'in_person'
 
 const MEETING_TYPES: { value: MeetingType; label: string; icon: typeof Video }[] = [
-  { value: 'video', label: 'Video', icon: Video },
+  { value: 'video', label: 'Video (Zoom)', icon: Video },
   { value: 'phone', label: 'Phone', icon: Phone },
   { value: 'in_person', label: 'In person', icon: MapPin },
 ]

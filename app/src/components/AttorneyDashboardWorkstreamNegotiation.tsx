@@ -81,12 +81,12 @@ export default function AttorneyDashboardWorkstreamNegotiation({
                 <div className="text-gray-500">Recommended move</div>
                 <div className="text-gray-900 font-medium">{leadCommandCenter.negotiationSummary.recommendedMove}</div>
               </div>
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 overflow-hidden">
                 <div className="text-gray-500">Policy / readiness</div>
-                <div className="text-gray-900 font-medium">
+                <div className="text-gray-900 font-medium truncate">
                   {leadCommandCenter.coverageStory.policyLimit
                     ? `${leadCommandCenter.coverageStory.policyLimit.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}`
-                    : 'Coverage unclear'} • {leadCommandCenter.readiness.score}%
+                    : 'Coverage unclear'} · {leadCommandCenter.readiness.score}%
                 </div>
               </div>
             </div>

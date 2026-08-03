@@ -215,10 +215,10 @@ router.put('/availability', authMiddleware, async (req: AuthRequest, res) => {
       let prevEnd = ''
       for (const s of sorted) {
         if (s.startTime >= s.endTime) {
-          return res.status(400).json({ error: `${label}: each slot's start must be before its end` })
+          return res.status(400).json({ error: `${label}: Each slot's start must be before its end.` })
         }
         if (prevEnd && s.startTime < prevEnd) {
-          return res.status(400).json({ error: `${label}: time slots overlap` })
+          return res.status(400).json({ error: `${label}: Time slots must not overlap.` })
         }
         prevEnd = s.endTime
         rows.push({

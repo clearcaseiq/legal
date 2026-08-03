@@ -56,7 +56,8 @@ router.get('/search', async (req: Request, res: Response) => {
     const attorneys = await prisma.attorney.findMany({
       take: Math.max(limit * 10, 50),
       where: {
-        isActive: true
+        isActive: true,
+        isVerified: true,
       },
       include: {
         lawFirm: true,
