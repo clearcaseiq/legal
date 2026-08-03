@@ -53,10 +53,9 @@ export type AttorneyRegisterFieldErrors = Partial<Record<keyof AttorneyRegisterF
  * validateAttorneyRegisterInput can reject is gated by some step.
  */
 export const ATTORNEY_REGISTER_STEP_FIELDS: Record<number, Array<keyof AttorneyRegisterFormInput>> = {
-  1: ['email', 'password', 'firstName', 'lastName', 'phone', 'firmWebsite'],
-  2: ['specialties', 'venues'],
-  3: ['preferredCounties'],
-  4: ['maxCasesPerWeek', 'maxCasesPerMonth', 'minInjurySeverity', 'minDamagesRange', 'maxDamagesRange'],
+  1: ['email', 'password', 'firstName', 'lastName', 'firmName', 'phone', 'firmWebsite'],
+  2: ['specialties', 'venues', 'preferredCounties'],
+  3: ['maxCasesPerWeek', 'maxCasesPerMonth', 'minInjurySeverity', 'minDamagesRange', 'maxDamagesRange'],
 }
 
 export type AttorneyRegisterSubmission = {
@@ -64,8 +63,8 @@ export type AttorneyRegisterSubmission = {
   password: string
   firstName: string
   lastName: string
-  phone?: string
-  firmName?: string
+  phone: string
+  firmName: string
   firmWebsite?: string
   stateBarNumber?: string
   stateBarState?: string
@@ -154,7 +153,11 @@ export function validateAttorneyRegisterInput(
     fieldErrors.lastName = 'Last name is required.'
   }
 
-  const phoneError = validatePhoneField(input.phone)
+  if (!input.firmName.trim()) {
+    fieldErrors.firmName = 'Firm name is required.'
+  }
+
+  const phoneError = validatePhoneField(input.phone, { required: true })
   if (phoneError) {
     fieldErrors.phone = phoneError
   }
@@ -218,8 +221,8 @@ export function validateAttorneyRegisterInput(
       password: input.password,
       firstName: input.firstName.trim(),
       lastName: input.lastName.trim(),
-      phone: input.phone.trim() || undefined,
-      firmName: input.firmName.trim() || undefined,
+      phone: input.phone.trim(),
+      firmName: input.firmName.trim(),
       firmWebsite: hasFirmWebsite ? firmWebsite : undefined,
       stateBarNumber: input.stateBarNumber.trim() || undefined,
       stateBarState: input.stateBarState.trim() || undefined,

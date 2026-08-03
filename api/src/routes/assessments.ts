@@ -1,11 +1,16 @@
 import { Router, type Response as ExpressResponse } from 'express'
+import { createHash } from 'crypto'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { AssessmentWrite, AssessmentUpdate, SubmitCaseForReview } from '../lib/validators'
 import { logger } from '../lib/logger'
 import { optionalAuthMiddleware, authMiddleware, AuthRequest } from '../lib/auth'
 import { enforceAssessmentReadAccess } from '../lib/assessment-access'
-import { ATTORNEY_PARTICIPATION_DISCLOSURE_VERSION } from '../lib/consent-templates'
+import {
+  ATTORNEY_PARTICIPATION_DISCLOSURE_VERSION,
+  PLATFORM_DISCLOSURE_CONSENT_TYPE,
+  getConsentTemplate,
+} from '../lib/consent-templates'
 import { recordShareAuthorization, withdrawShareAuthorization } from '../lib/share-authorization'
 import {
   requireClientConsentsMiddleware,
@@ -81,6 +86,43 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
     })
 
     logger.info('Assessment created', { assessmentId: assessment.id, claimType: assessment.claimType })
+
+    // The disclosure is acknowledged before an assessment exists, so the browser
+    // holds it until there is a case to attach it to. Recorded here rather than
+    // left in localStorage: it is the only point at which a claimant is told we
+    // are not a law firm before answering questions, and an acknowledgement that
+    // a cleared cache erases is not a record of anything. Best-effort, because
+    // losing the case over an audit insert would be the worse failure.
+    if (parsed.data.platformDisclosureAckAt) {
+      const template = getConsentTemplate(PLATFORM_DISCLOSURE_CONSENT_TYPE)
+      if (template) {
+        const acknowledgedAt = new Date(parsed.data.platformDisclosureAckAt)
+        void prisma.consent
+          .create({
+            data: {
+              userId: req.user?.id ?? null,
+              assessmentId: assessment.id,
+              consentType: PLATFORM_DISCLOSURE_CONSENT_TYPE,
+              version: template.version,
+              documentId: template.documentId,
+              granted: true,
+              grantedAt: Number.isNaN(acknowledgedAt.getTime()) ? new Date() : acknowledgedAt,
+              signatureMethod: 'clicked',
+              consentText: template.content,
+              consentHash: createHash('sha256').update(template.content).digest('hex'),
+              ipAddress: req.ip || undefined,
+              userAgent: req.get('User-Agent') || undefined,
+              metadata: JSON.stringify({ context: 'intake_start' }),
+            },
+          })
+          .catch((consentError: unknown) =>
+            logger.error('Failed to record platform disclosure acknowledgement', {
+              assessmentId: assessment.id,
+              error: consentError instanceof Error ? consentError.message : String(consentError),
+            })
+          )
+      }
+    }
 
     // Kick off LLM analysis on submission (non-blocking)
     void (async () => {

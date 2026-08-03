@@ -1,9 +1,8 @@
 const STEPS = [
-  { num: 1, label: 'Account' },
-  { num: 2, label: 'Practice Areas' },
-  { num: 3, label: 'Service Area' },
-  { num: 4, label: 'Capacity & Availability' },
-  { num: 5, label: 'Verify' }
+  { num: 1, label: 'Account Information' },
+  { num: 2, label: 'Practice & Service Area' },
+  { num: 3, label: 'Capacity & Availability' },
+  { num: 4, label: 'Verify' }
 ]
 
 interface AttorneyRegisterProgressProps {
@@ -13,19 +12,6 @@ interface AttorneyRegisterProgressProps {
 export default function AttorneyRegisterProgress({ currentStep }: AttorneyRegisterProgressProps) {
   return (
     <div className="mb-8">
-      {/* Step labels */}
-      <div className="flex justify-between items-center mb-2">
-        {STEPS.map((step) => (
-          <div
-            key={step.num}
-            className={`text-xs font-medium ${
-              step.num <= currentStep ? 'text-brand-600' : 'text-gray-400'
-            }`}
-          >
-            Step {step.num} — {step.label}
-          </div>
-        ))}
-      </div>
       {/* Progress bar */}
       <div className="flex gap-1">
         {STEPS.map((step) => (
@@ -37,13 +23,22 @@ export default function AttorneyRegisterProgress({ currentStep }: AttorneyRegist
           />
         ))}
       </div>
-      {/* Short labels for bar */}
-      <div className="flex justify-between mt-1 text-[10px] text-gray-500">
-        <span>Account</span>
-        <span>Practice</span>
-        <span>Area</span>
-        <span>Capacity</span>
-        <span>Verify</span>
+      {/* Step labels */}
+      <div className="mt-2 flex justify-between">
+        {STEPS.map((step) => (
+          <span
+            key={step.num}
+            className={`text-[11px] font-medium ${
+              step.num === currentStep
+                ? 'text-brand-600'
+                : step.num < currentStep
+                  ? 'text-brand-500'
+                  : 'text-gray-400'
+            }`}
+          >
+            {step.label}
+          </span>
+        ))}
       </div>
     </div>
   )

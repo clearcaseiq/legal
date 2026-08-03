@@ -159,7 +159,9 @@ export function formatClaimTypeShort(value: string | null | undefined): string {
   return formatClaimType(value)
 }
 
-/** California counties (common PI jurisdictions) */
+export { STATE_COUNTIES } from './us-counties'
+
+/** California counties — kept for backward compat; prefer STATE_COUNTIES['CA'] */
 export const CA_COUNTIES = [
   'Alameda', 'Alpine', 'Amador', 'Butte', 'Calaveras', 'Colusa', 'Contra Costa', 'Del Norte', 'El Dorado',
   'Fresno', 'Glenn', 'Humboldt', 'Imperial', 'Inyo', 'Kern', 'Kings', 'Lake', 'Lassen', 'Los Angeles',

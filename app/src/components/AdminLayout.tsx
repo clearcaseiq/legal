@@ -1,5 +1,5 @@
 import { ReactNode } from 'react'
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   FileText,
@@ -17,7 +17,6 @@ import {
   Activity,
   Shield,
   Settings,
-  LogOut,
   Menu,
   Power,
   X,
@@ -29,7 +28,6 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { BrandMark } from './BrandLogo'
-import { clearStoredAuth } from '../lib/auth'
 import { useAdminRoutingStatus } from '../hooks/useAdminRoutingStatus'
 import { useTheme } from '../contexts/ThemeContext'
 import AdminNotificationBell from './AdminNotificationBell'
@@ -85,15 +83,9 @@ const navGroups: { label: string; items: { path: string; label: string; icon: ty
 
 export default function AdminLayout({ children }: { children?: ReactNode }) {
   const location = useLocation()
-  const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { routingEnabled, loading: routingStatusLoading } = useAdminRoutingStatus()
   const { darkMode, toggle } = useTheme()
-
-  const handleLogout = () => {
-    clearStoredAuth()
-    navigate('/login/admin?redirect=/admin')
-  }
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.1),_transparent_28%),linear-gradient(180deg,_#f8fafc_0%,_#eef2ff_100%)] dark:bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.12),_transparent_24%),linear-gradient(180deg,_#020617_0%,_#0f172a_100%)]">
@@ -109,12 +101,6 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
           </button>
           <div className="flex items-center gap-2.5">
             <BrandMark size="sm" />
-            <span className="font-semibold font-display text-slate-900 dark:text-slate-100 tracking-tight">
-              Admin
-            </span>
-            <span className="text-ui-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
-              Ops
-            </span>
             <Link
               to="/admin/matching-rules"
               className={`hidden sm:inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
@@ -131,8 +117,6 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
           </div>
           <div className="flex items-center gap-1">
             <AdminNotificationBell />
-            {/* /admin is a workspace route, so the dark preference already applies
-                here — but the admin shell never shipped a way to change it. */}
             <button
               type="button"
               onClick={toggle}
@@ -140,14 +124,6 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
               className="pressable rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             >
               {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </button>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="flex items-center gap-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 text-ui-sm pressable rounded-lg px-2 py-1 -mr-1"
-            >
-              <LogOut className="h-4 w-4" />
-              Logout
             </button>
           </div>
         </div>

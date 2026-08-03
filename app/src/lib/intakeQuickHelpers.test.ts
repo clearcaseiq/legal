@@ -157,6 +157,45 @@ describe('buildCaseTaxonomy', () => {
     expect(nursingHome.caseSubtype).toBe('nursing_home_abuse')
     expect(nursingHome.incidentTags).toContain('provider_nursing_home')
   })
+
+  it('prefers the subtype the claimant picked over one inferred from other answers', () => {
+    const taxonomy = buildCaseTaxonomy({
+      injuryType: 'vehicle',
+      claimType: 'auto',
+      incidentSubtype: 'motorcycle_accident',
+      // A rear-end collision with a rideshare driver would otherwise classify as
+      // a rideshare case. The claimant said they were on a motorcycle, which is
+      // an answer to the question rather than an inference from a neighbouring
+      // one, so it wins.
+      branch: { crashType: 'rear_end', defendantType: 'uber_lyft' },
+    })
+
+    expect(taxonomy.caseSubtype).toBe('motorcycle_accident')
+    expect(taxonomy.taxonomyPath).toEqual(['auto', 'motorcycle_accident'])
+    expect(taxonomy.incidentTags).toContain('motorcycle')
+  })
+
+  it('carries the tags that valuation rules match on across from the subtype', () => {
+    // These tags used to come from the defendant-type question, which the subtype
+    // question replaces. Losing them would silently stop the commercial-vehicle
+    // rules firing.
+    expect(
+      buildCaseTaxonomy({ injuryType: 'vehicle', claimType: 'auto', incidentSubtype: 'truck_accident' }).incidentTags
+    ).toContain('commercial_vehicle')
+    expect(
+      buildCaseTaxonomy({ injuryType: 'vehicle', claimType: 'auto', incidentSubtype: 'rideshare_accident' }).incidentTags
+    ).toContain('rideshare')
+  })
+
+  it('falls back to the derived subtype for a case saved before the question existed', () => {
+    const taxonomy = buildCaseTaxonomy({
+      injuryType: 'vehicle',
+      claimType: 'auto',
+      branch: { defendantType: 'trucking' },
+    })
+
+    expect(taxonomy.caseSubtype).toBe('truck_accident')
+  })
 })
 
 describe('CA_COUNTIES', () => {

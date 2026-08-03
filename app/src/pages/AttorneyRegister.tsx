@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { registerAttorney, lookupStateBarLicense, uploadAttorneyLicense, checkAttorneyEmailAvailable } from '../lib/api-auth'
-import { US_STATES, CA_COUNTIES, ATTORNEY_CASE_TYPES } from '../lib/constants'
+import { US_STATES, ATTORNEY_CASE_TYPES } from '../lib/constants'
+import { STATE_COUNTIES } from '../lib/us-counties'
 import { useLanguage } from '../contexts/LanguageContext'
 import {
   ATTORNEY_REGISTER_DEFAULTS,
@@ -16,7 +17,7 @@ import AttorneyRegisterBenefits from '../components/AttorneyRegisterBenefits'
 import BrandLogo from '../components/BrandLogo'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import { formatPhoneInput } from '../lib/phone'
-import { CheckCircle, FileText, Globe, CreditCard } from 'lucide-react'
+import { CheckCircle, FileText, Globe, CreditCard, Info } from 'lucide-react'
 
 // Single source of truth for attorney practice areas (the canonical claimType
 // enum used for routing/matching). Previously this page kept its own drifted
@@ -24,9 +25,7 @@ import { CheckCircle, FileText, Globe, CreditCard } from 'lucide-react'
 // incident-type inconsistency reported in #49.
 const CASE_TYPES = ATTORNEY_CASE_TYPES
 
-const POPULAR_STATES = ['CA', 'NV', 'AZ']
 const PRACTICE_STATE_LIMIT = 9
-const MVP_CA_COUNTIES = ['Los Angeles', 'Orange', 'Riverside', 'San Bernardino', 'Ventura', 'San Diego']
 
 export default function AttorneyRegister() {
   const { t } = useLanguage()
@@ -263,16 +262,34 @@ export default function AttorneyRegister() {
   // Trim so whitespace-only input (e.g. a stray space) doesn't trigger odd
   // partial matches or an empty "no results" state.
   const normalizedStateQuery = stateSearchQuery.trim().toLowerCase()
-  const filteredStates = US_STATES.filter(
-    (s) =>
+  const filteredStates = (() => {
+    if (!normalizedStateQuery) return []
+    const codeExact = US_STATES.filter((s) => s.code.toLowerCase() === normalizedStateQuery)
+    if (codeExact.length > 0) return codeExact
+    const nameStarts = US_STATES.filter((s) => s.name.toLowerCase().startsWith(normalizedStateQuery))
+    if (nameStarts.length > 0) return nameStarts
+    return US_STATES.filter((s) =>
       s.code.toLowerCase().includes(normalizedStateQuery) ||
       s.name.toLowerCase().includes(normalizedStateQuery)
-  )
-  const visibleStates = (normalizedStateQuery ? filteredStates : US_STATES.filter((state) => POPULAR_STATES.includes(state.code)))
-    .slice(0, PRACTICE_STATE_LIMIT)
+    )
+  })()
+  const visibleStates = filteredStates.slice(0, PRACTICE_STATE_LIMIT)
   const selectedStates = US_STATES.filter((state) => venues.includes(state.code))
-  const visibleCaCounties = CA_COUNTIES.filter((county) => MVP_CA_COUNTIES.includes(county))
-  const completionPercent = Math.round((currentStep / 5) * 100)
+  const completionPercent = (() => {
+    const fields: boolean[] = [
+      !!form.firstName.trim(),
+      !!form.lastName.trim(),
+      !!form.email.trim(),
+      !!form.phone.trim(),
+      !!form.password,
+      !!form.firmName.trim(),
+      form.specialties.length > 0,
+      form.venues.length > 0,
+      !!form.maxCasesPerWeek.trim() || !!form.maxCasesPerMonth.trim(),
+      !!form.stateBarNumber.trim(),
+    ]
+    return Math.round((fields.filter(Boolean).length / fields.length) * 100)
+  })()
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
@@ -367,7 +384,15 @@ export default function AttorneyRegister() {
                     {fieldErrors.email && <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                    <label className="mb-1 flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                      Phone *
+                      <span className="group relative">
+                        <Info className="h-3.5 w-3.5 cursor-help text-gray-400" aria-hidden />
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-72 -translate-x-1/2 rounded-lg bg-gray-900 px-3 py-2.5 text-[11px] leading-snug font-normal text-white opacity-0 shadow-lg transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+                          By providing your phone number, you agree to receive SMS text messages from ClearCaseIQ about case routing offers and case activity. Msg &amp; data rates may apply. Message frequency varies. Reply STOP to opt out, HELP for help. Consent is not a condition of service. See our Terms of Service &amp; Privacy Policy.
+                        </span>
+                      </span>
+                    </label>
                     <input
                       type="tel"
                       maxLength={20}
@@ -377,14 +402,6 @@ export default function AttorneyRegister() {
                       placeholder="(555) 123-4567"
                     />
                     {fieldErrors.phone && <p className="mt-1 text-xs text-red-600">{fieldErrors.phone}</p>}
-                    <p className="mt-1 text-[11px] leading-snug text-gray-400">
-                      By providing your phone number, you agree to receive SMS text messages from ClearCaseIQ about case
-                      routing offers and case activity. Msg &amp; data rates may apply. Message frequency varies. Reply STOP
-                      to opt out, HELP for help. Consent is not a condition of service. See our{' '}
-                      <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-gray-600">Terms of Service</a>
-                      {' '}&amp;{' '}
-                      <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-gray-600">Privacy Policy</a>.
-                    </p>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -400,9 +417,10 @@ export default function AttorneyRegister() {
                     {fieldErrors.password && <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Firm Name</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Firm Name *</label>
                     <input
                       type="text"
+                      required
                       maxLength={160}
                       value={form.firmName}
                       onChange={(e) => updateField('firmName', e.target.value)}
@@ -426,9 +444,6 @@ export default function AttorneyRegister() {
                   />
                   <p className="mt-1 text-xs text-gray-500">We can verify license details after account creation.</p>
                 </div>
-                <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800">
-                  Firm website and bar-state verification can be completed later.
-                </div>
                 <div hidden aria-hidden="true">
                   <select
                     value={form.stateBarState}
@@ -448,14 +463,14 @@ export default function AttorneyRegister() {
                 </div>
                 <div className="flex justify-end pt-2">
                   <button type="button" onClick={() => { void goToStep(2) }} disabled={checkingEmail} className="btn-primary disabled:opacity-60 disabled:cursor-not-allowed">
-                    {checkingEmail ? 'Checking…' : 'Next: Practice Areas'}
+                    {checkingEmail ? 'Checking…' : 'Next: Practice & Service Area'}
                   </button>
                 </div>
               </div>
 
-            {/* Step 2: Practice Areas */}
+            {/* Step 2: Practice & Service Area */}
             <div hidden={currentStep !== 2} className="space-y-4">
-                <h3 className="text-lg font-medium text-gray-900">Practice Areas</h3>
+                <h3 className="text-lg font-medium text-gray-900">Practice &amp; Service Area</h3>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Which cases do you want? *</label>
                   <p className="mb-2 text-xs text-gray-500">These are the same incident types clients choose when they start a case.</p>
@@ -523,23 +538,10 @@ export default function AttorneyRegister() {
                     ))}
                   </div>
                   {!normalizedStateQuery && (
-                    <p className="mt-2 text-xs text-gray-500">Start typing to find another state.</p>
+                    <p className="mt-2 text-xs text-gray-500">Start typing to find a state.</p>
                   )}
                   {fieldErrors.venues && <p className="mt-1 text-xs text-red-600">{fieldErrors.venues}</p>}
                 </div>
-                <div className="flex justify-between pt-2">
-                  <button type="button" onClick={() => setCurrentStep(1)} className="btn-secondary">
-                    Back
-                  </button>
-                  <button type="button" onClick={() => { void goToStep(3) }} className="btn-primary">
-                    Next: Service Area
-                  </button>
-                </div>
-              </div>
-
-            {/* Step 3: Service Area */}
-            <div hidden={currentStep !== 3} className="space-y-4">
-                <h3 className="text-lg font-medium text-gray-900">Service Area</h3>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">How do you want to receive cases?</label>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -573,50 +575,51 @@ export default function AttorneyRegister() {
                     ))}
                   </div>
                 </div>
-                {serviceAreaMode === 'counties' && (venues.includes('CA') ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">California counties</label>
-                    <p className="mb-3 text-xs text-gray-500">County matters most for PI routing. Cities can be added later in Settings.</p>
-                    <div className="flex flex-wrap gap-2">
-                      {visibleCaCounties.map((county) => (
-                        <label
-                          key={county}
-                          className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-sm ${
-                            selectedCounties.includes(county) ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-700 hover:border-gray-300'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedCounties.includes(county)}
-                            onChange={() => toggleArray('preferredCounties', county)}
-                            className="sr-only"
-                          />
-                          <span>{selectedCounties.includes(county) ? '✓' : '+'}</span>
-                          <span>{county} County</span>
-                        </label>
-                      ))}
-                    </div>
-                    <p className="mt-3 text-xs text-gray-500">
-                      Advanced rules like minimum damages, treatment requirements, police report preferences, and consultation method live in Settings after onboarding.
-                    </p>
+                {serviceAreaMode === 'counties' && venues.length > 0 && (
+                  <div className="space-y-4">
+                    {venues.map((stateCode) => {
+                      const stateCounties = STATE_COUNTIES[stateCode] || []
+                      if (stateCounties.length === 0) return null
+                      const stateName = US_STATES.find((s) => s.code === stateCode)?.name || stateCode
+                      return (
+                        <div key={stateCode}>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">{stateName} counties</label>
+                          <div className="flex flex-wrap gap-2">
+                            {stateCounties.map((county) => (
+                              <label
+                                key={`${stateCode}-${county}`}
+                                className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-sm ${
+                                  selectedCounties.includes(county) ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedCounties.includes(county)}
+                                  onChange={() => toggleArray('preferredCounties', county)}
+                                  className="sr-only"
+                                />
+                                <span>{selectedCounties.includes(county) ? '✓' : '+'}</span>
+                                <span>{county}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                ) : (
-                  <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
-                    County preferences for your selected states can be added in Settings after verification.
-                  </div>
-                ))}
+                )}
                 <div className="flex justify-between pt-2">
-                  <button type="button" onClick={() => setCurrentStep(2)} className="btn-secondary">
+                  <button type="button" onClick={() => setCurrentStep(1)} className="btn-secondary">
                     Back
                   </button>
-                  <button type="button" onClick={() => { void goToStep(4) }} className="btn-primary">
+                  <button type="button" onClick={() => { void goToStep(3) }} className="btn-primary">
                     Next: Capacity &amp; Availability
                   </button>
                 </div>
               </div>
 
-            {/* Step 4: Capacity & Availability */}
-            <div hidden={currentStep !== 4} className="space-y-4">
+            {/* Step 3: Capacity & Availability */}
+            <div hidden={currentStep !== 3} className="space-y-4">
                 <h3 className="text-lg font-medium text-gray-900">Capacity &amp; Availability</h3>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">How many new cases can you take?</label>
@@ -651,17 +654,17 @@ export default function AttorneyRegister() {
                   <p className="mt-2 text-xs text-gray-500">You can update your capacity and set your intake availability (accepting, limited, or paused) anytime from your dashboard after verification.</p>
                 </div>
                 <div className="flex justify-between pt-2">
-                  <button type="button" onClick={() => setCurrentStep(3)} className="btn-secondary">
+                  <button type="button" onClick={() => setCurrentStep(2)} className="btn-secondary">
                     Back
                   </button>
-                  <button type="button" onClick={() => { void goToStep(5) }} className="btn-primary">
+                  <button type="button" onClick={() => { void goToStep(4) }} className="btn-primary">
                     Next: License Verification
                   </button>
                 </div>
               </div>
 
-            {/* Step 5: License Verification */}
-            <div hidden={currentStep !== 5} className="space-y-4">
+            {/* Step 4: License Verification */}
+            <div hidden={currentStep !== 4} className="space-y-4">
                 <h3 className="text-lg font-medium text-gray-900">Verify Your License</h3>
                 <p className="text-sm text-gray-600">
                   Upload what you have now. Anything missing can be completed after your account is created.
@@ -765,7 +768,7 @@ export default function AttorneyRegister() {
                 </div>
 
                 <div className="flex justify-between pt-2">
-                  <button type="button" onClick={() => setCurrentStep(4)} className="btn-secondary">
+                  <button type="button" onClick={() => setCurrentStep(3)} className="btn-secondary">
                     Back
                   </button>
                   <button

@@ -20,6 +20,7 @@ vi.mock('./lib/prisma', () => import('./test/universalPrismaMock'))
 
 import { buildApp } from './build-app'
 import { prisma } from './lib/prisma'
+import { CONSENT_TEMPLATES } from './lib/consent-templates'
 import { resetUniversalPrismaMock } from './test/universalPrismaMock'
 
 const assessmentRow = {
@@ -83,6 +84,51 @@ describe('HTTP API (integration)', () => {
     const res = await request(app).post('/v1/assessments').send(body).expect(200)
     expect(res.body.assessment_id).toBe('assess-int-test-1')
     expect(prisma.assessment.create).toHaveBeenCalledOnce()
+  })
+
+  it('POST /v1/assessments records the platform disclosure acknowledgement against the case', async () => {
+    vi.mocked(prisma.consent.create).mockResolvedValue({ id: 'consent-disclosure-1' } as any)
+    const acknowledgedAt = '2026-08-02T17:04:11.000Z'
+
+    await request(app)
+      .post('/v1/assessments')
+      .send({
+        claimType: 'auto',
+        venue: { state: 'CA', county: 'Los Angeles' },
+        incident: { date: '2026-01-15', narrative: 'Detailed narrative about a rear-end crash here.' },
+        injuries: [{ description: 'neck pain' }],
+        damages: {},
+        consents: { tos: true, privacy: true, ml_use: true },
+        platformDisclosureAckAt: acknowledgedAt,
+      })
+      .expect(200)
+
+    const { data } = vi.mocked(prisma.consent.create).mock.calls[0][0] as any
+    expect(data.consentType).toBe('platform_disclosure')
+    expect(data.assessmentId).toBe('assess-int-test-1')
+    // The time the claimant ticked the box, not the time the case was created —
+    // the two are minutes apart and only the first one is the acknowledgement.
+    expect(data.grantedAt.toISOString()).toBe(acknowledgedAt)
+    expect(data.version).toBe(CONSENT_TEMPLATES.platform_disclosure.version)
+  })
+
+  it('POST /v1/assessments still creates the case when the acknowledgement is absent', async () => {
+    await request(app)
+      .post('/v1/assessments')
+      .send({
+        claimType: 'auto',
+        venue: { state: 'CA', county: 'Los Angeles' },
+        incident: { date: '2026-01-15', narrative: 'Detailed narrative about a rear-end crash here.' },
+        injuries: [{ description: 'neck pain' }],
+        damages: {},
+        consents: { tos: true, privacy: true, ml_use: true },
+      })
+      .expect(200)
+
+    // A browser that cleared storage between acknowledging and submitting must
+    // not lose the case over a missing audit field.
+    expect(prisma.assessment.create).toHaveBeenCalledOnce()
+    expect(prisma.consent.create).not.toHaveBeenCalled()
   })
 
   it('POST /v1/assessments/:id/submit-for-review succeeds without HIPAA but flags medical sharing as limited', async () => {

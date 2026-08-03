@@ -146,7 +146,13 @@ export const AssessmentWrite = z.object({
   plaintiffContext: PlaintiffContext.optional(),
   expectationCheck: ExpectationCheck.optional(),
   caseTaxonomy: CaseTaxonomy.optional(),
-  intakeData: z.record(z.any()).optional()
+  intakeData: z.record(z.any()).optional(),
+  // When the claimant acknowledged the "we are not a law firm" disclosure at the
+  // top of intake. Optional because it is taken in the browser before an
+  // assessment exists, so a client that never sent it must not be rejected here;
+  // the value is only carried through so the acknowledgement can be recorded
+  // against the case rather than living solely in localStorage.
+  platformDisclosureAckAt: z.string().datetime().optional()
 })
 
 export const AssessmentUpdate = z.object({

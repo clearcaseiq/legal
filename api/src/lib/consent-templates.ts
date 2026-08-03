@@ -10,6 +10,7 @@ export type ConsentTemplateKey =
   | 'marketing'
   | 'call_recording'
   | 'attorney_share'
+  | 'platform_disclosure'
 
 export type ConsentTemplateRecord = {
   version: string
@@ -276,7 +277,34 @@ I authorize ClearCaseIQ to share my case information with the law firms I select
 I may withdraw this authorization at any time. Withdrawal stops further firms from being contacted about my case. It does not undo a disclosure already made to a firm in reliance on it before I withdrew.
     `.trim(),
   },
+  platform_disclosure: {
+    version: '1.0',
+    documentId: 'platform-disclosure-v1.0',
+    title: 'About your assessment',
+    effectiveDate: '2026-08-02',
+    plainLanguageSummary: `ClearCaseIQ is technology, not a law firm. It organizes what you tell us about your case; it does not give legal advice and is not a substitute for an attorney.`,
+    content: `
+# About your assessment
+
+ClearCaseIQ is an AI-powered legal technology platform that helps organize your case information. ClearCaseIQ is not a law firm, does not provide legal advice, and does not replace a licensed attorney.
+
+## What this means
+- The assessment is built from what you tell us. It is an organized summary, not a legal opinion, and no part of it should be relied on as advice about your rights or deadlines.
+- Using this platform does not create an attorney–client relationship. That is formed only if you separately engage an attorney.
+- Nothing here guarantees any outcome, and no estimate of a case's strength or value is a prediction of what any case will recover.
+- You are free to contact any attorney directly, whether or not they participate on this platform.
+    `.trim(),
+  },
 }
+
+/**
+ * The "we are not a law firm" acknowledgement taken at the top of intake.
+ *
+ * Recorded rather than left in the browser: it is the only point at which a
+ * claimant is told this before answering questions, so the acknowledgement has
+ * to survive a cleared cache to be worth anything as a record.
+ */
+export const PLATFORM_DISCLOSURE_CONSENT_TYPE = 'platform_disclosure'
 
 /**
  * Version of the paid-participation disclosure shown on the attorney selection

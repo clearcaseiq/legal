@@ -10,8 +10,12 @@ test.describe('Plaintiff intake flow', () => {
 
     await page.goto('/assess?fresh=1')
 
-    // Step 1 — Injury type
+    // Step 1 — Injury type. The platform disclosure shares this screen and has to
+    // be acknowledged before any answer is accepted, and a vehicle case cannot
+    // leave the step at the broad level — it asks which kind.
+    await page.getByLabel(/not a law firm/i).check()
     await page.getByRole('button', { name: /vehicle accident/i }).click()
+    await page.getByRole('button', { name: 'Car', exact: true }).click()
     await page.getByRole('button', { name: 'Next', exact: true }).click()
 
     // Step 2 — Incident facts (date, venue, and narrative share one screen)

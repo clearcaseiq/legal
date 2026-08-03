@@ -1,6 +1,7 @@
 /**
  * Pure helpers for IntakeWizardQuick — unit-tested without React/i18n.
  */
+import { INCIDENT_SUBTYPE_TAGS } from './caseTaxonomy'
 import { getCountiesForState } from './usLocationData'
 
 /**
@@ -41,15 +42,24 @@ export type CaseTaxonomy = {
 const compactTags = (values: Array<string | false | null | undefined>) =>
   Array.from(new Set(values.filter(Boolean) as string[]))
 
+/**
+ * @param input.incidentSubtype The subtype the claimant picked directly (see
+ * caseTaxonomy.ts). Where present it wins over anything derived from branch
+ * answers, because it is the claimant's own answer to the same question rather
+ * than an inference from a neighbouring one. A type that gains a subtype
+ * question should follow the vehicle branch below and prefer it the same way.
+ */
 export function buildCaseTaxonomy(input: {
   injuryType?: string
   claimType?: string
+  incidentSubtype?: string
   branch?: Record<string, any>
   insuranceCoverage?: Record<string, any>
   injuryDetails?: Record<string, any>
   casePosture?: Record<string, any>
 }): CaseTaxonomy {
   const injuryType = input.injuryType || ''
+  const incidentSubtype = input.incidentSubtype || ''
   const branch = input.branch || {}
   const insuranceCoverage = input.insuranceCoverage || {}
   const injuryDetails = input.injuryDetails || {}
@@ -64,18 +74,21 @@ export function buildCaseTaxonomy(input: {
     const crashType = branch.crashType || 'vehicle_accident'
     const defendantType = branch.defendantType || ''
     caseSubtype =
-      defendantType === 'trucking' ? 'truck_accident'
-        : defendantType === 'uber_lyft' ? 'rideshare_accident'
-          : defendantType === 'delivery' ? 'delivery_vehicle_accident'
-            : crashType === 'pedestrian' ? 'pedestrian_accident'
-              : crashType === 'bicycle' ? 'bicycle_accident'
-                : crashType === 'multi_vehicle' ? 'multi_vehicle_accident'
-                  : crashType === 'rear_end' ? 'rear_end_collision'
-                    : crashType === 'head_on' ? 'head_on_collision'
-                      : crashType === 'left_turn' ? 'left_turn_collision'
-                        : 'auto_accident'
+      incidentSubtype
+        ? incidentSubtype
+        : defendantType === 'trucking' ? 'truck_accident'
+          : defendantType === 'uber_lyft' ? 'rideshare_accident'
+            : defendantType === 'delivery' ? 'delivery_vehicle_accident'
+              : crashType === 'pedestrian' ? 'pedestrian_accident'
+                : crashType === 'bicycle' ? 'bicycle_accident'
+                  : crashType === 'multi_vehicle' ? 'multi_vehicle_accident'
+                    : crashType === 'rear_end' ? 'rear_end_collision'
+                      : crashType === 'head_on' ? 'head_on_collision'
+                        : crashType === 'left_turn' ? 'left_turn_collision'
+                          : 'auto_accident'
     taxonomyPath.push(caseSubtype)
     tags.push(
+      ...(INCIDENT_SUBTYPE_TAGS[caseSubtype] || []),
       crashType,
       defendantType,
       defendantType === 'trucking' && 'commercial_vehicle',
@@ -149,6 +162,11 @@ export function buildCaseTaxonomy(input: {
       branch.exposureDuration && `exposure_${branch.exposureDuration}`,
       'environmental_exposure',
     )
+  } else if (incidentSubtype) {
+    // A type that has a subtype question but no branch derivation of its own.
+    caseSubtype = incidentSubtype
+    taxonomyPath.push(caseSubtype)
+    tags.push(...(INCIDENT_SUBTYPE_TAGS[caseSubtype] || []))
   }
 
   tags.push(

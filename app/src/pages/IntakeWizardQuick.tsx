@@ -9,7 +9,7 @@ import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Steth
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import { useLanguage } from '../contexts/LanguageContext'
 import { buildCaseTaxonomy, injuryTypeToClaimType, sanitizeDetectedCounty, usesPoliceReportLabel } from '../lib/intakeQuickHelpers'
-import { INCIDENT_SUBTYPE_PROMPTS, getIncidentSubtypes, hasIncidentSubtypes } from '../lib/caseTaxonomy'
+import { INCIDENT_SUBTYPE_PROMPTS, INCIDENT_SUBTYPE_FREE_TEXT, getIncidentSubtypes, hasIncidentSubtypes } from '../lib/caseTaxonomy'
 import { US_STATES } from '../lib/constants'
 import { getCountiesForState } from '../lib/usLocationData'
 import { formatPhoneInput, validatePhoneField } from '../lib/phone'
@@ -351,7 +351,7 @@ const CURRENT_SYMPTOM_OPTION_DEFS = [
   { value: 'numbness', labelKey: 'sym_numbness' },
   { value: 'weakness', labelKey: 'sym_weakness' },
   { value: 'headaches', labelKey: 'sym_headaches' },
-  { value: 'other', labelKey: 'optionOther' },
+  { value: 'other_symptom', labelKey: 'sym_other' },
 ]
 
 const RECOVERY_STATUS_OPTION_DEFS = [
@@ -369,14 +369,17 @@ const LIFE_AREA_OPTION_DEFS = [
   { value: 'driving_difficulty', labelKey: 'life_driving' },
   { value: 'household_chores', labelKey: 'life_household' },
   { value: 'missed_family', labelKey: 'life_family' },
+  { value: 'other_life', labelKey: 'life_other' },
 ]
 
 const MISSED_WORK_OPTION_DEFS = [
-  { value: 'no', labelKey: 'optionNo' },
-  { value: 'few_days', labelKey: 'work_fewDays' },
-  { value: 'several_weeks', labelKey: 'work_severalWeeks' },
-  { value: 'unable_to_return', labelKey: 'work_unableToReturn' },
-  { value: 'lost_job_business_income', labelKey: 'work_selfEmployed' },
+  { value: 'no', labelKey: 'work_noMissed', icon: 'CalendarDays' },
+  { value: 'few_days', labelKey: 'work_fewDays', icon: 'Clock' },
+  { value: '1_4_weeks', labelKey: 'work_1to4weeks', icon: 'CalendarDays' },
+  { value: 'over_month', labelKey: 'work_overMonth', icon: 'CalendarClock' },
+  { value: 'unable_to_return', labelKey: 'work_unableToReturn', icon: 'Ban' },
+  { value: 'lost_job_business_income', labelKey: 'work_selfEmployed', icon: 'Briefcase' },
+  { value: 'retired', labelKey: 'work_retired', icon: 'UserX' },
 ]
 
 const ACCIDENT_EXPENSE_OPTION_DEFS = [
@@ -412,7 +415,9 @@ const WAGE_LOSS_RANGE_OPTION_DEFS = [
 // vocational review, and the self-reported range still applies via the max() below.
 const MISSED_WORK_WEEKS: Record<string, number> = {
   few_days: 0.6,
+  '1_4_weeks': 2.5,
   several_weeks: 3,
+  over_month: 6,
   unable_to_return: 12,
   lost_job_business_income: 12,
 }
@@ -965,6 +970,7 @@ export default function IntakeWizardQuick() {
     injuredParty: 'self' as 'self' | 'child' | 'dependent' | 'deceased',
     injuryType: '' as string,
     incidentSubtype: '' as string,
+    otherInjuryDescription: '' as string,
     claimType: '' as string,
     incidentDate: '',
     incidentDatePreset: '' as string,
@@ -990,6 +996,7 @@ export default function IntakeWizardQuick() {
       backFindings: [] as string[],
       diagnoses: [] as string[],
       currentSymptoms: [] as string[],
+      otherSymptomDescription: '' as string,
       recoveryStatus: '' as string,
       biggestImpact: '' as string,
     },
@@ -1360,17 +1367,21 @@ export default function IntakeWizardQuick() {
   // window scroll too — otherwise a new step can start mid-page.
   const stepScrollRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
-    stepScrollRef.current?.scrollTo({ top: 0, behavior: 'instant' })
-    if (typeof window !== 'undefined') {
+    const scrollTop = () => {
       window.scrollTo({ top: 0, behavior: 'instant' })
-      // Some mobile browsers ignore the window scroll when the visual viewport
-      // hasn't been invalidated yet. A microtask retry catches those.
-      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'instant' }))
+      document.documentElement.scrollTop = 0
+      document.body.scrollTop = 0
+      stepScrollRef.current?.scrollTo({ top: 0, behavior: 'instant' })
     }
-    // Leaving the step settles the subtype answer; coming back should show the
-    // tiles with the choice on them, not reopen the question.
+    scrollTop()
+    requestAnimationFrame(scrollTop)
+    // Heavy steps (e.g. insurance / legal) may not finish layout within a
+    // single frame. A short timeout catches late reflows that push the
+    // viewport down.
+    const t = setTimeout(scrollTop, 80)
     setSubtypePanelOpen(false)
     setSubtypeConfirming(null)
+    return () => clearTimeout(t)
   }, [currentStep])
 
   // Keep validation errors in one consistent place (top of the step) and bring it into view.
@@ -1538,7 +1549,13 @@ export default function IntakeWizardQuick() {
     const typeLabel = it ? t(`intake.${it.labelKey}`) : formData.injuryType
     // Narrative text is read by the valuation model, so the specific answer is
     // worth more here than the category it sits under.
-    parts.push(subtype ? `${typeLabel} — ${tx(subtype.labelKey)}` : typeLabel)
+    if (subtype) {
+      parts.push(`${typeLabel} — ${tx(subtype.labelKey)}`)
+    } else if (formData.otherInjuryDescription.trim()) {
+      parts.push(`${typeLabel} — ${formData.otherInjuryDescription.trim()}`)
+    } else {
+      parts.push(typeLabel)
+    }
     parts.push(`Incident date: ${getIncidentDate()}`)
     parts.push(`Location: ${formatVenueLocation(formData.venue)}`)
     if (formData.narrative) parts.push(formData.narrative)
@@ -1976,9 +1993,16 @@ export default function IntakeWizardQuick() {
     if (currentStep === 'injury_type' && !formData.injuryType) err.injuryType = tx('error_selectInjuryType')
     // The subtype drives valuation and which follow-ups get asked, so a type that
     // has one cannot be left at the broad level.
-    if (currentStep === 'injury_type' && formData.injuryType && hasIncidentSubtypes(formData.injuryType) && !formData.incidentSubtype) {
-      err.incidentSubtype = tx('subtype_required')
-      setSubtypePanelOpen(true)
+    if (currentStep === 'injury_type' && formData.injuryType && hasIncidentSubtypes(formData.injuryType)) {
+      if (INCIDENT_SUBTYPE_FREE_TEXT.has(formData.injuryType)) {
+        if (!formData.otherInjuryDescription.trim()) {
+          err.incidentSubtype = tx('subtype_required_describe')
+          setSubtypePanelOpen(true)
+        }
+      } else if (!formData.incidentSubtype) {
+        err.incidentSubtype = tx('subtype_required')
+        setSubtypePanelOpen(true)
+      }
     }
     // Nothing may be answered until the claimant has been told this is not a law
     // firm, so the gate sits on leaving the first step rather than on a screen of
@@ -2256,6 +2280,7 @@ export default function IntakeWizardQuick() {
         // Kept alongside injuryType rather than only folded into caseSubtype, so
         // the claimant's own answer stays legible next to the broad category.
         incidentSubtype: formData.incidentSubtype,
+        otherInjuryDescription: formData.otherInjuryDescription.trim() || undefined,
         caseTaxonomy,
         narrative: formData.narrative,
         branch: formData.branch,
@@ -2846,314 +2871,391 @@ export default function IntakeWizardQuick() {
         }
     return (
       <div className="space-y-3">
-              <section className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+              {/* ===== Insurance Card ===== */}
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
                 <div className="flex items-center gap-2.5">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
-                  <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_insurance')}</h3>
-                </div>
-
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_otherPartyInsuredQuestion')}</p>
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  {renderChoice(icLegal.otherPartyInsured === 'yes', () => setInsuranceField('otherPartyInsured', 'yes'), ShieldCheck, tx('optionYes'), { tone: 'emerald', stack: true })}
-                  {renderChoice(icLegal.otherPartyInsured === 'no', () => setInsuranceField('otherPartyInsured', 'no'), XCircle, tx('optionNo'), { tone: 'red', stack: true })}
-                  {renderChoice(icLegal.otherPartyInsured === 'unsure', () => setInsuranceField('otherPartyInsured', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
-                </div>
-
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_healthInsuranceQuestion')}</p>
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  {renderChoice(icLegal.healthCoverage === 'yes', () => setInsuranceField('healthCoverage', 'yes'), CheckCircle2, tx('optionYes'), { tone: 'emerald', stack: true })}
-                  {renderChoice(icLegal.healthCoverage === 'no', () => setInsuranceField('healthCoverage', 'no'), XCircle, tx('optionNo'), { tone: 'amber', stack: true })}
-                  {renderChoice(icLegal.healthCoverage === 'unsure', () => setInsuranceField('healthCoverage', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
-                </div>
-
-                {!hasAnyInsuranceSignal && (
-                  <div className="mt-3 flex items-start gap-2 rounded-xl border border-dashed border-violet-200 bg-violet-50/60 px-3 py-2 text-[11px] leading-5 text-violet-800">
-                    <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                    <span>{tx('legal_insuranceNudge')}</span>
+                  <div>
+                    <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_insurance')}</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{tx('insurance_subtitle')}</p>
                   </div>
-                )}
-              </section>
-
-              <section className="flex flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Scale className="h-4 w-4" aria-hidden /></span>
-                  <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_legalStatus')}</h3>
                 </div>
 
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_insurerContactQuestion')}</p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                  {renderChoice(insurerContactValue === 'no', () => setInsurerContact('no'), Phone, tx('optionNo'))}
-                  {renderChoice(insurerContactValue === 'contact_only', () => setInsurerContact('contact_only'), Clock, tx('legal_contactNoOffer'))}
-                  {renderChoice(insurerContactValue === 'offer', () => setInsurerContact('offer'), ClipboardCheck, tx('legal_contactWithOffer'))}
-                </div>
-
-                {insurerContactValue === 'offer' && (
-                  <div className="mt-3 rounded-xl border border-brand-100 bg-brand-50/50 p-2">
-                    <p className="font-display text-xs font-semibold text-slate-950">{tx('legal_offerAmountQuestion')}</p>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      {SETTLEMENT_OFFER_OPTIONS.filter((option) => option.value !== 'no').map(({ value, label }) => (
-                        <button
-                          key={value}
-                          type="button"
-                          aria-pressed={cpLegal.settlementOffer === value}
-                          onClick={() => setCasePostureField('settlementOffer', value)}
-                          className={`flex items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
-                        >
-                          <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent'}`}>✓</span>
-                          <span className="min-w-0 break-words">{label}</span>
-                        </button>
-                      ))}
+                <div className="mt-4 grid gap-6 lg:grid-cols-2">
+                  {/* Other party insurance */}
+                  <div>
+                    <div className="flex items-start gap-2">
+                      <Shield className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
+                      <div>
+                        <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_otherPartyInsuredQuestion')}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">{tx('insurance_otherHelper')}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      {renderChoice(icLegal.otherPartyInsured === 'yes', () => setInsuranceField('otherPartyInsured', 'yes'), ShieldCheck, tx('optionYes'), { tone: 'emerald', stack: true })}
+                      {renderChoice(icLegal.otherPartyInsured === 'no', () => setInsuranceField('otherPartyInsured', 'no'), XCircle, tx('optionNo'), { tone: 'red', stack: true })}
+                      {renderChoice(icLegal.otherPartyInsured === 'unsure', () => setInsuranceField('otherPartyInsured', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
                     </div>
                   </div>
-                )}
 
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_attorneyQuestion')}</p>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  {ATTORNEY_STATUS_OPTIONS.map(({ value, label }) =>
-                    renderChoice(
-                      cpLegal.attorneyStatus === value,
-                      () => {
-                        setFormData(prev => ({
-                          ...prev,
-                          casePosture: {
-                            ...prev.casePosture,
-                            attorneyStatus: prev.casePosture.attorneyStatus === value ? '' : value,
-                            ...(value !== 'hired' ? { attorneyName: '', secondOpinionInterest: '' } : {})
-                          }
-                        }))
-                      },
-                      value === 'hired' ? User : UserX,
-                      label,
-                      { key: value }
-                    )
-                  )}
-                </div>
-
-                <p className="mt-4 font-display text-sm font-semibold text-slate-950">{tx('legal_acceptedQuestion')}</p>
-                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  {([
-                    { value: 'no', label: tx('optionNo'), Icon: CheckCircle2, tone: 'emerald' as const },
-                    { value: 'yes', label: tx('optionYes'), Icon: CheckCircle2, tone: 'amber' as const },
-                    { value: 'not_sure', label: tx('optionNotSure'), Icon: HelpCircle, tone: undefined },
-                  ]).map(({ value, label, Icon, tone }) =>
-                    renderChoice(
-                      cpLegal.acceptedSettlement === value,
-                      () => {
-                        setFormData(prev => ({
-                          ...prev,
-                          casePosture: {
-                            ...prev.casePosture,
-                            acceptedSettlement: prev.casePosture.acceptedSettlement === value ? '' : value,
-                            ...(value !== 'yes' ? { acceptedSettlementAmount: '' } : {})
-                          }
-                        }))
-                      },
-                      Icon,
-                      label,
-                      { tone, key: value }
-                    )
-                  )}
-                </div>
-
-                {cpLegal.acceptedSettlement === 'yes' && (
-                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
-                    <p className="text-sm font-semibold">{tx('legal_settledTitle')}</p>
-                    <p className="mt-1 text-xs leading-5">⚠ {tx('legal_settledWarning')}</p>
-                  </div>
-                )}
-              </section>
-            <details className="group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <summary className="flex cursor-pointer list-none items-center gap-3 [&::-webkit-details-marker]:hidden">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600"><ShieldCheck className="h-5 w-5" aria-hidden /></span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-display text-sm font-semibold text-slate-950">{tx('legal_insuranceDetails')}</span>
-                    <span className="block text-xs leading-5 text-slate-500">{tx('legal_insuranceDetailsSubtitle')}</span>
-                  </span>
-                  <ChevronDown className="h-5 w-5 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
-                </summary>
-                <div className="mt-4 space-y-5">
-                  <div className="border-t border-slate-100 pt-4">
-                    <div className="flex items-center gap-2">
-                      <Umbrella className="h-4 w-4 shrink-0 text-violet-500" aria-hidden />
-                      <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_coverageLimitsQuestion')}</p>
+                  {/* Health insurance */}
+                  <div>
+                    <div className="flex items-start gap-2">
+                      <HeartPulse className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
+                      <div>
+                        <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_healthInsuranceQuestion')}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">{tx('insurance_healthHelper')}</p>
+                      </div>
                     </div>
-                    <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_coverageLimitsHelper')}</p>
-                    <div className="mt-3 grid gap-3 lg:grid-cols-4">
-                      <div className="grid gap-2 sm:grid-cols-2 lg:col-span-3 lg:grid-cols-3">
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      {renderChoice(icLegal.healthCoverage === 'yes', () => setInsuranceField('healthCoverage', 'yes'), CheckCircle2, tx('optionYes'), { tone: 'emerald', stack: true })}
+                      {renderChoice(icLegal.healthCoverage === 'no', () => setInsuranceField('healthCoverage', 'no'), XCircle, tx('optionNo'), { tone: 'red', stack: true })}
+                      {renderChoice(icLegal.healthCoverage === 'unsure', () => setInsuranceField('healthCoverage', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
+                    </div>
+                  </div>
+                </div>
+
+              </section>
+
+              {/* ===== Legal Status Card ===== */}
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Scale className="h-4 w-4" aria-hidden /></span>
+                    <div>
+                      <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_legalStatus')}</h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">{tx('legalStatus_subtitle')}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-6 lg:grid-cols-3">
+                  {/* Insurance contact */}
+                  <div>
+                    <div className="flex items-start gap-2">
+                      <Phone className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
+                      <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_insurerContactQuestion')}</p>
+                    </div>
+                    <div className="mt-3 grid gap-2">
+                      {renderChoice(insurerContactValue === 'no', () => setInsurerContact('no'), Phone, tx('optionNo'))}
+                      {renderChoice(insurerContactValue === 'contact_only', () => setInsurerContact('contact_only'), Clock, tx('legal_contactNoOffer'))}
+                      {renderChoice(insurerContactValue === 'offer', () => setInsurerContact('offer'), ClipboardCheck, tx('legal_contactWithOffer'))}
+                    </div>
+                    {insurerContactValue === 'offer' && (
+                      <div className="mt-3 rounded-xl border border-brand-100 bg-brand-50/50 p-2">
+                        <p className="font-display text-xs font-semibold text-slate-950">{tx('legal_offerAmountQuestion')}</p>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          {SETTLEMENT_OFFER_OPTIONS.filter((option) => option.value !== 'no').map(({ value, label }) => (
+                            <button
+                              key={value}
+                              type="button"
+                              aria-pressed={cpLegal.settlementOffer === value}
+                              onClick={() => setCasePostureField('settlementOffer', value)}
+                              className={`flex items-center gap-2 rounded-lg border-[1.5px] px-2 py-2 text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
+                            >
+                              <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${cpLegal.settlementOffer === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent'}`}>✓</span>
+                              <span className="min-w-0 break-words">{label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Attorney */}
+                  <div>
+                    <div className="flex items-start gap-2">
+                      <User className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
+                      <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_attorneyQuestion')}</p>
+                    </div>
+                    <div className="mt-3 grid gap-2">
+                      {ATTORNEY_STATUS_OPTIONS.map(({ value, label }) =>
+                        renderChoice(
+                          cpLegal.attorneyStatus === value,
+                          () => {
+                            setFormData(prev => ({
+                              ...prev,
+                              casePosture: {
+                                ...prev.casePosture,
+                                attorneyStatus: prev.casePosture.attorneyStatus === value ? '' : value,
+                                ...(value !== 'hired' ? { attorneyName: '', secondOpinionInterest: '' } : {})
+                              }
+                            }))
+                          },
+                          value === 'hired' ? User : UserX,
+                          label,
+                          { key: value }
+                        )
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Settlement */}
+                  <div>
+                    <div className="flex items-start gap-2">
+                      <DollarSign className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
+                      <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_acceptedQuestion')}</p>
+                    </div>
+                    <div className="mt-3 grid gap-2">
+                      {([
+                        { value: 'no', label: tx('optionNo'), Icon: CheckCircle2, tone: 'emerald' as const },
+                        { value: 'yes_received', label: tx('settlement_received'), Icon: Receipt, tone: 'amber' as const },
+                        { value: 'yes', label: tx('settlement_accepted'), Icon: CheckCircle2, tone: 'amber' as const },
+                        { value: 'not_sure', label: tx('optionNotSure'), Icon: HelpCircle, tone: undefined },
+                      ]).map(({ value, label, Icon, tone }) =>
+                        renderChoice(
+                          cpLegal.acceptedSettlement === value,
+                          () => {
+                            setFormData(prev => ({
+                              ...prev,
+                              casePosture: {
+                                ...prev.casePosture,
+                                acceptedSettlement: prev.casePosture.acceptedSettlement === value ? '' : value,
+                                ...(value !== 'yes' ? { acceptedSettlementAmount: '' } : {})
+                              }
+                            }))
+                          },
+                          Icon,
+                          label,
+                          { tone, key: value }
+                        )
+                      )}
+                    </div>
+                    {cpLegal.acceptedSettlement === 'yes' && (
+                      <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                        <p className="text-sm font-semibold">{tx('legal_settledTitle')}</p>
+                        <p className="mt-1 text-xs leading-5">{tx('legal_settledWarning')}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+            {/* ===== Insurance Coverage (Optional) ===== */}
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
+                <div>
+                  <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('icov_title')}</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{tx('icov_subtitle')}</p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-6 lg:grid-cols-[1fr_280px]">
+                {/* Left: accordion sections */}
+                <div className="space-y-3">
+                  {/* 1. Other Driver's Insurance */}
+                  <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700" open>
+                    <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800"><Shield className="h-4 w-4" aria-hidden /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">1. {tx('icov_otherDriverTitle')}</span>
+                        <span className="block text-[11px] text-slate-500">{tx('icov_otherDriverSub')}</span>
+                      </span>
+                      {icLegal.defendantCoverageLimits && <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />{tx('icov_completed')}</span>}
+                      <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
+                    </summary>
+                    <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                         {DEFENDANT_COVERAGE_OPTIONS.map(({ value, label }) => {
                           const meta = coverageMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
-                          return detailCard(
-                            icLegal.defendantCoverageLimits === value,
-                            () => updateForm({ insuranceCoverage: { ...icLegal, defendantCoverageLimits: icLegal.defendantCoverageLimits === value ? '' : value } }),
-                            meta.Icon,
-                            label,
-                            meta.sub,
-                            meta.wrap,
-                            value
+                          const sel = icLegal.defendantCoverageLimits === value
+                          return (
+                            <button key={value} type="button" aria-pressed={sel}
+                              onClick={() => updateForm({ insuranceCoverage: { ...icLegal, defendantCoverageLimits: sel ? '' : value } })}
+                              className={`relative flex flex-col items-center gap-1.5 rounded-xl border-[1.5px] px-3 py-3 text-center text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${sel ? 'border-brand-600 bg-brand-50 text-brand-900 shadow' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400 hover:bg-brand-50/50'}`}>
+                              <meta.Icon className={`h-5 w-5 ${sel ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
+                              {sel && <Check className="absolute top-2 right-2 h-3.5 w-3.5 text-brand-600" aria-hidden />}
+                              <span className="leading-tight">{label}</span>
+                              {meta.sub && <span className="text-[10px] font-normal text-slate-500 leading-tight">{meta.sub}</span>}
+                            </button>
                           )
                         })}
                       </div>
-                      <div className="flex flex-col justify-center rounded-xl bg-indigo-50 p-3 lg:col-span-1">
-                        <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-700">
-                          <Lightbulb className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whyMattersTitle')}
-                        </div>
-                        <p className="mt-1.5 text-[11px] leading-4 text-indigo-800/90">{tx('legal_whyLimits')}</p>
+                      <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-snug text-slate-500"><Info className="mt-px h-3 w-3 shrink-0" aria-hidden />{tx('icov_limitsHint')}</p>
+                    </div>
+                  </details>
+
+                  {/* 2. UM/UIM Coverage */}
+                  {isVehicle && (
+                  <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700">
+                    <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-500"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">2. {tx('icov_umUimTitle')}</span>
+                        <span className="block text-[11px] text-slate-500">{tx('icov_umUimSub')}</span>
+                      </span>
+                      {icLegal.umUimCoverage && <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />{tx('icov_completed')}</span>}
+                      <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
+                    </summary>
+                    <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
+                      <div className="grid grid-cols-3 gap-2">
+                        {UM_UIM_OPTIONS.map(({ value, label }) => {
+                          const sel = icLegal.umUimCoverage === value
+                          return renderChoice(sel, () => updateForm({ insuranceCoverage: { ...icLegal, umUimCoverage: sel ? '' : value } }),
+                            value === 'yes' ? ShieldCheck : value === 'no' ? XCircle : HelpCircle, label,
+                            { tone: value === 'yes' ? 'emerald' : value === 'no' ? 'red' : undefined, stack: true, key: value })
+                        })}
+                      </div>
+                      <div className="mt-3 rounded-lg bg-blue-50 px-3 py-2 dark:bg-blue-950/20">
+                        <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">{tx('icov_whatUmUim')}</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-blue-700/80 dark:text-blue-400/80">{tx('legal_whatUmUim')}</p>
                       </div>
                     </div>
+                  </details>
+                  )}
+
+                  {/* 3. PIP Coverage */}
+                  {isVehicle && (
+                  <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700">
+                    <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-500"><HeartPulse className="h-4 w-4" aria-hidden /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">3. {tx('icov_pipTitle')}</span>
+                        <span className="block text-[11px] text-slate-500">{tx('icov_pipSub')}</span>
+                      </span>
+                      {icLegal.pipCoverage && <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />{tx('icov_completed')}</span>}
+                      <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
+                    </summary>
+                    <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
+                      <div className="grid grid-cols-3 gap-2">
+                        {PIP_OPTIONS.map(({ value, label }) => {
+                          const sel = icLegal.pipCoverage === value
+                          return renderChoice(sel, () => updateForm({ insuranceCoverage: { ...icLegal, pipCoverage: sel ? '' : value } }),
+                            value === 'yes' ? ShieldCheck : value === 'no' ? XCircle : HelpCircle, label,
+                            { tone: value === 'yes' ? 'emerald' : value === 'no' ? 'red' : undefined, stack: true, key: value })
+                        })}
+                      </div>
+                      <div className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 dark:bg-emerald-950/20">
+                        <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">{tx('icov_whatPip')}</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-emerald-700/80 dark:text-emerald-400/80">{tx('legal_whatPip')}</p>
+                      </div>
+                    </div>
+                  </details>
+                  )}
+
+                  {/* 4. MedPay Coverage */}
+                  {isVehicle && (
+                  <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700">
+                    <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-500"><HeartPulse className="h-4 w-4" aria-hidden /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">4. {tx('icov_medPayTitle')}</span>
+                        <span className="block text-[11px] text-slate-500">{tx('icov_medPaySub')}</span>
+                      </span>
+                      {icLegal.medPayCoverage && <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />{tx('icov_completed')}</span>}
+                      <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
+                    </summary>
+                    <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
+                      <div className="grid grid-cols-3 gap-2">
+                        {PIP_OPTIONS.map(({ value, label }) => {
+                          const sel = icLegal.medPayCoverage === value
+                          return renderChoice(sel, () => updateForm({ insuranceCoverage: { ...icLegal, medPayCoverage: sel ? '' : value } }),
+                            value === 'yes' ? ShieldCheck : value === 'no' ? XCircle : HelpCircle, label,
+                            { tone: value === 'yes' ? 'emerald' : value === 'no' ? 'red' : undefined, stack: true, key: value })
+                        })}
+                      </div>
+                      <div className="mt-3 rounded-lg bg-teal-50 px-3 py-2 dark:bg-teal-950/20">
+                        <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">{tx('icov_whatMedPay')}</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-teal-700/80 dark:text-teal-400/80">{tx('legal_whatMedPay')}</p>
+                      </div>
+                    </div>
+                  </details>
+                  )}
+
+                  {/* 5. Your Auto Insurance Company */}
+                  {isVehicle && (
+                  <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-500"><Umbrella className="h-4 w-4" aria-hidden /></span>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">5. {tx('icov_autoCarrierTitle')}</p>
+                        <p className="text-[11px] text-slate-500">{tx('icov_autoCarrierSub')}</p>
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      maxLength={120}
+                      value={icLegal.plaintiffAutoCarrier}
+                      onChange={(event) => updateForm({ insuranceCoverage: { ...icLegal, plaintiffAutoCarrier: event.target.value } })}
+                      placeholder={tx('legal_plaintiffCarrierPlaceholder')}
+                      className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    />
+                    <p className="mt-1.5 text-[11px] text-slate-400">{tx('icov_autoCarrierExamples')}</p>
                   </div>
-
-                  {isVehicle && (
-                    <div className="border-t border-slate-100 pt-4">
-                      <div className="flex items-center gap-2">
-                        <ShieldCheck className="h-4 w-4 shrink-0 text-blue-500" aria-hidden />
-                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_umUimQuestion')}</p>
-                      </div>
-                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_umUimHelper')}</p>
-                      <div className="mt-3 grid gap-3 lg:grid-cols-4">
-                        <div className="grid gap-2 sm:grid-cols-3 lg:col-span-3">
-                          {UM_UIM_OPTIONS.map(({ value, label }) => {
-                            const meta = umUimMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
-                            return detailCard(
-                              icLegal.umUimCoverage === value,
-                              () => updateForm({ insuranceCoverage: { ...icLegal, umUimCoverage: icLegal.umUimCoverage === value ? '' : value } }),
-                              meta.Icon,
-                              label,
-                              meta.sub,
-                              meta.wrap,
-                              value
-                            )
-                          })}
-                        </div>
-                        <div className="flex flex-col justify-center rounded-xl bg-blue-50 p-3 lg:col-span-1">
-                          <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-700">
-                            <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whatUmUimTitle')}
-                          </div>
-                          <p className="mt-1.5 text-[11px] leading-4 text-blue-800/90">{tx('legal_whatUmUim')}</p>
-                        </div>
-                      </div>
-                    </div>
                   )}
-
-                  {isVehicle && (
-                    <div className="border-t border-slate-100 pt-4">
-                      <div className="flex items-center gap-2">
-                        <HeartPulse className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
-                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_pipQuestion')}</p>
-                      </div>
-                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_pipHelper')}</p>
-                      <div className="mt-3 grid gap-3 lg:grid-cols-4">
-                        <div className="grid gap-2 sm:grid-cols-3 lg:col-span-3">
-                          {PIP_OPTIONS.map(({ value, label }) => {
-                            const meta = pipMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
-                            return detailCard(
-                              icLegal.pipCoverage === value,
-                              () => updateForm({ insuranceCoverage: { ...icLegal, pipCoverage: icLegal.pipCoverage === value ? '' : value } }),
-                              meta.Icon,
-                              label,
-                              meta.sub,
-                              meta.wrap,
-                              value
-                            )
-                          })}
-                        </div>
-                        <div className="flex flex-col justify-center rounded-xl bg-emerald-50 p-3 lg:col-span-1">
-                          <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
-                            <HeartPulse className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whatPipTitle')}
-                          </div>
-                          <p className="mt-1.5 text-[11px] leading-4 text-emerald-800/90">{tx('legal_whatPip')}</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {isVehicle && (
-                    <div className="border-t border-slate-100 pt-4">
-                      <div className="flex items-center gap-2">
-                        <HeartPulse className="h-4 w-4 shrink-0 text-teal-500" aria-hidden />
-                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_medPayQuestion')}</p>
-                      </div>
-                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_medPayHelper')}</p>
-                      <div className="mt-3 grid gap-3 lg:grid-cols-4">
-                        <div className="grid gap-2 sm:grid-cols-3 lg:col-span-3">
-                          {PIP_OPTIONS.map(({ value, label }) => {
-                            const meta = medPayMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
-                            return detailCard(
-                              icLegal.medPayCoverage === value,
-                              () => updateForm({ insuranceCoverage: { ...icLegal, medPayCoverage: icLegal.medPayCoverage === value ? '' : value } }),
-                              meta.Icon,
-                              label,
-                              meta.sub,
-                              meta.wrap,
-                              value
-                            )
-                          })}
-                        </div>
-                        <div className="flex flex-col justify-center rounded-xl bg-teal-50 p-3 lg:col-span-1">
-                          <div className="flex items-center gap-1.5 text-xs font-semibold text-teal-700">
-                            <HeartPulse className="h-3.5 w-3.5 shrink-0" aria-hidden /> {tx('legal_whatMedPayTitle')}
-                          </div>
-                          <p className="mt-1.5 text-[11px] leading-4 text-teal-800/90">{tx('legal_whatMedPay')}</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {isVehicle && (
-                    <div className="border-t border-slate-100 pt-4">
-                      <div className="flex items-center gap-2">
-                        <Umbrella className="h-4 w-4 shrink-0 text-violet-500" aria-hidden />
-                        <p className="font-display text-sm font-semibold text-slate-950">{tx('legal_plaintiffCarrierQuestion')}</p>
-                      </div>
-                      <p className="mt-1 pl-6 text-xs leading-5 text-slate-500">{tx('legal_plaintiffCarrierHelper')}</p>
-                      <input
-                        type="text"
-                        maxLength={120}
-                        value={icLegal.plaintiffAutoCarrier}
-                        onChange={(event) => updateForm({ insuranceCoverage: { ...icLegal, plaintiffAutoCarrier: event.target.value } })}
-                        placeholder={tx('legal_plaintiffCarrierPlaceholder')}
-                        className="input mt-3 w-full border-gray-300"
-                      />
-                    </div>
-                  )}
-
-                  <div className="flex flex-col gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="flex items-start gap-2 text-[11px] leading-4 text-slate-600">
-                      <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                      <span>{tx('legal_uploadInstead')}</span>
-                    </p>
-                    <button
-                      type="button"
-                      onClick={(e) => { const d = e.currentTarget.closest('details'); if (d) d.open = false }}
-                      className="inline-flex shrink-0 items-center gap-1 self-start rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 sm:self-auto"
-                    >
-                      {tx('legal_addDetailsLater')} <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-                    </button>
-                  </div>
-
-                  <p className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
-                    <Lock className="h-3 w-3 shrink-0" aria-hidden /> {tx('legal_secureNote')}
-                  </p>
                 </div>
-              </details>
+
+                {/* Right sidebar: progress + why we ask + upload */}
+                <div className="hidden space-y-4 lg:block">
+                  {/* Progress */}
+                  {isVehicle && (() => {
+                    const steps = [
+                      { label: tx('icov_otherDriverTitle'), done: !!icLegal.defendantCoverageLimits },
+                      { label: tx('icov_umUimTitle'), done: !!icLegal.umUimCoverage },
+                      { label: tx('icov_pipTitle'), done: !!icLegal.pipCoverage },
+                      { label: tx('icov_medPayTitle'), done: !!icLegal.medPayCoverage },
+                      { label: tx('icov_autoCarrierTitle'), done: !!(icLegal.plaintiffAutoCarrier && icLegal.plaintiffAutoCarrier.trim()) },
+                    ]
+                    const doneCount = steps.filter(s => s.done).length
+                    return (
+                      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{tx('icov_yourProgress')}</p>
+                        <div className="mt-3 flex items-center justify-center">
+                          <div className="relative flex h-24 w-24 items-center justify-center">
+                            <svg className="h-full w-full -rotate-90" viewBox="0 0 36 36">
+                              <circle cx="18" cy="18" r="15.5" fill="none" stroke="currentColor" strokeWidth="3" className="text-slate-100 dark:text-slate-800" />
+                              <circle cx="18" cy="18" r="15.5" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray={`${(doneCount / steps.length) * 97.4} 97.4`} strokeLinecap="round" className="text-brand-600" />
+                            </svg>
+                            <span className="absolute text-center">
+                              <span className="block text-lg font-bold text-slate-900 dark:text-slate-100">{doneCount}/{steps.length}</span>
+                              <span className="block text-[10px] text-slate-500">{tx('icov_completed')}</span>
+                            </span>
+                          </div>
+                        </div>
+                        <ul className="mt-4 space-y-2">
+                          {steps.map((s, i) => (
+                            <li key={i} className="flex items-center gap-2 text-xs">
+                              {s.done
+                                ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden />
+                                : <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px] font-bold text-slate-400">{i + 1}</span>
+                              }
+                              <span className={s.done ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400'}>{s.label}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )
+                  })()}
+
+                </div>
+              </div>
+
+              <p className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
+                <Lock className="h-3 w-3 shrink-0" aria-hidden /> {tx('legal_secureNote')}
+              </p>
+            </section>
       </div>
     )
   }
 
   const subtypeOptions = getIncidentSubtypes(formData.injuryType)
+  const isFreeTextSubtype = INCIDENT_SUBTYPE_FREE_TEXT.has(formData.injuryType)
   const selectedSubtype = subtypeOptions.find((option) => option.value === formData.incidentSubtype)
-  const selectedSubtypeLabel = selectedSubtype ? tx(selectedSubtype.labelKey) : ''
+  const selectedSubtypeLabel = selectedSubtype
+    ? tx(selectedSubtype.labelKey)
+    : isFreeTextSubtype && formData.otherInjuryDescription.trim()
+      ? formData.otherInjuryDescription.trim()
+      : ''
 
   const chooseSubtype = (value: string) => {
     updateForm({ incidentSubtype: value })
     setErrors(({ incidentSubtype: _cleared, ...rest }) => rest)
-    // Acknowledge the choice before folding the panel away. Collapsing on the
-    // same frame as the click reads as the panel having been dismissed rather
-    // than the answer having been taken.
     setSubtypeConfirming(value)
     if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current)
     collapseTimerRef.current = setTimeout(() => {
       setSubtypePanelOpen(false)
       setSubtypeConfirming(null)
+      validateAndNext()
     }, 400)
   }
 
@@ -3167,11 +3269,11 @@ export default function IntakeWizardQuick() {
    * interruption, which is the opposite of what a follow-up question is.
    */
   const renderSubtypePicker = () => {
-    if (subtypeOptions.length === 0 || !subtypePanelOpen) return null
+    if (!subtypePanelOpen) return null
+    if (subtypeOptions.length === 0 && !isFreeTextSubtype) return null
     const prompt = tx(INCIDENT_SUBTYPE_PROMPTS[formData.injuryType] || 'subtype_prompt_generic')
     const selectedType = INJURY_TYPES.find((entry) => entry.value === formData.injuryType)
     const primary = subtypeOptions.filter((option) => !option.secondary)
-    const secondary = subtypeOptions.filter((option) => option.secondary)
 
     const chip = (option: (typeof subtypeOptions)[number], index: number, muted = false) => {
       const { value, labelKey, chipLabelKey, icon: OptionIcon } = option
@@ -3184,7 +3286,7 @@ export default function IntakeWizardQuick() {
           aria-pressed={isChosen}
           onClick={() => chooseSubtype(value)}
           style={{ animationDelay: `${Math.min(index, 8) * 25}ms` }}
-          className={`cc-option-rise flex min-h-[2.75rem] items-center gap-2 rounded-full px-3.5 py-2 text-left text-sm font-medium leading-tight transition-colors duration-150 motion-reduce:transition-none ${
+          className={`cc-option-rise flex shrink-0 min-h-[2.25rem] items-center gap-1.5 rounded-full px-2.5 py-1.5 text-left text-xs font-medium leading-tight whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none ${
             isChosen
               ? 'bg-brand-600 text-white'
               : muted
@@ -3193,9 +3295,9 @@ export default function IntakeWizardQuick() {
           }`}
         >
           {isConfirming ? (
-            <Check className="h-[18px] w-[18px] shrink-0" strokeWidth={3} aria-hidden />
+            <Check className="h-3.5 w-3.5 shrink-0" strokeWidth={3} aria-hidden />
           ) : (
-            <OptionIcon className={`h-[18px] w-[18px] shrink-0 ${isChosen ? 'text-white' : 'text-brand-600 dark:text-brand-400'}`} strokeWidth={2.1} aria-hidden />
+            <OptionIcon className={`h-3.5 w-3.5 shrink-0 ${isChosen ? 'text-white' : 'text-brand-600 dark:text-brand-400'}`} strokeWidth={2.1} aria-hidden />
           )}
           <span>{tx(chipLabelKey || labelKey)}</span>
         </button>
@@ -3213,23 +3315,33 @@ export default function IntakeWizardQuick() {
           </p>
           <button
             type="button"
-            onClick={() => setSubtypePanelOpen(false)}
-            className="shrink-0 text-xs font-medium text-slate-500 underline-offset-4 transition-colors hover:text-slate-800 hover:underline dark:text-slate-400 dark:hover:text-slate-100"
+            onClick={() => {
+              setSubtypePanelOpen(false)
+              updateForm({ injuryType: '', claimType: '', incidentSubtype: '', otherInjuryDescription: '', branch: {} })
+            }}
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 shadow-sm transition-colors hover:border-brand-400 hover:bg-brand-50 hover:text-brand-900 dark:border-brand-700 dark:bg-slate-800 dark:text-brand-300 dark:hover:bg-slate-700"
           >
-            <span className="sm:hidden">{tx('subtype_change')}</span>
-            <span className="hidden sm:inline">{tx('subtype_chooseAnother')}</span>
+            <CornerUpLeft className="h-3.5 w-3.5" aria-hidden />
+            {tx('subtype_chooseAnother')}
           </button>
         </div>
         <div className="border-t border-slate-200/80 pt-5 dark:border-slate-700/70">
           <p className="font-display text-[15px] font-semibold text-slate-900 dark:text-slate-100 sm:text-base">{prompt}</p>
           <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{tx('subtype_helper')}</p>
-          <div className="mt-5 flex flex-wrap gap-2">
-            {primary.map((option, index) => chip(option, index))}
-          </div>
-          {secondary.length > 0 && (
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-              <span className="text-xs text-slate-500 dark:text-slate-400">{tx('subtype_needHelp')}</span>
-              {secondary.map((option, index) => chip(option, primary.length + index, true))}
+          {isFreeTextSubtype ? (
+            <textarea
+              value={formData.otherInjuryDescription}
+              onChange={(e) => {
+                updateForm({ otherInjuryDescription: e.target.value })
+                if (e.target.value.trim()) setErrors(({ incidentSubtype: _cleared, ...rest }) => rest)
+              }}
+              placeholder={tx('subtype_other_placeholder')}
+              rows={3}
+              className="mt-4 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-brand-500 dark:focus:ring-brand-800"
+            />
+          ) : (
+            <div className="mt-5 flex flex-wrap justify-evenly gap-2">
+              {primary.map((option, index) => chip(option, index))}
             </div>
           )}
         </div>
@@ -3249,44 +3361,32 @@ export default function IntakeWizardQuick() {
         const panelAfterIndex =
           selectedIndex < 0
             ? -1
-            : Math.min(Math.floor(selectedIndex / columns) * columns + columns - 1, INJURY_TYPES.length - 1)
+            : subtypePanelOpen
+              ? selectedIndex
+              : Math.min(Math.floor(selectedIndex / columns) * columns + columns - 1, INJURY_TYPES.length - 1)
         return (
           <div>
             <p className="text-center font-display text-[16px] font-semibold text-gray-900 sm:text-[19px] dark:text-slate-100">{t('intake.injuryType')}</p>
             <p className="mt-1.5 text-center text-[11px] leading-snug text-gray-500 sm:text-xs dark:text-slate-400">{t('intake.injuryTypeHelp')}</p>
-            <div className="mt-6 grid grid-cols-3 gap-2 sm:gap-3">
-              {INJURY_TYPES.map(({ value, labelKey, icon: Icon }, index) => (
+            <div className={`mt-6 grid gap-2 sm:gap-3 ${subtypePanelOpen && formData.injuryType ? 'grid-cols-1' : 'grid-cols-3'}`}>
+              {INJURY_TYPES.map(({ value, labelKey, icon: Icon }, index) => {
+                if (subtypePanelOpen && formData.injuryType && value !== formData.injuryType) return null
+                return (
                 <Fragment key={value}>
                 <button
                   type="button"
                   aria-pressed={formData.injuryType === value}
-                  // Prevent the browser from scroll-jumping the tile into view on click,
-                  // while still keeping it focused (preventScroll) for keyboard users.
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={(e) => {
                     e.currentTarget.focus({ preventScroll: true })
                     if (formData.injuryType === value) {
-                      // Re-picking the selected type reopens its subtype question
-                      // rather than clearing the answer, so changing "car" to
-                      // "motorcycle" does not mean starting the step again. Types
-                      // without a subtype question keep the deselect behaviour,
-                      // which is otherwise the only way to undo a mis-tap.
                       if (hasIncidentSubtypes(value)) {
                         setSubtypePanelOpen(true)
                         return
                       }
-                      // Deselecting clears the type-specific branch answers too, so
-                      // nothing orphaned (e.g. a police-report flag) lingers.
-                      updateForm({ injuryType: '', claimType: '', incidentSubtype: '', branch: {} })
+                      updateForm({ injuryType: '', claimType: '', incidentSubtype: '', otherInjuryDescription: '', branch: {} })
                       return
                     }
-                    // Switching injury types must reset branch. Branch holds
-                    // type-specific answers (police report, witnesses, crash type,
-                    // etc.); carrying them into a different injury type produced
-                    // false positives such as "Police Report: Included" in the
-                    // damages step for a case where none was ever provided. The
-                    // subtype belongs to the type it was asked under, so it goes
-                    // the same way.
                     updateForm({
                       injuryType: value,
                       claimType: injuryTypeToClaimType(value),
@@ -3325,7 +3425,8 @@ export default function IntakeWizardQuick() {
                 </button>
                 {index === panelAfterIndex && renderSubtypePicker()}
                 </Fragment>
-              ))}
+                )
+              })}
             </div>
           </div>
         )
@@ -3858,9 +3959,9 @@ export default function IntakeWizardQuick() {
             <span className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" aria-hidden />
           )
         const treatmentIcons: Record<string, LucideIcon> = { mri: Activity, ct_scan: Scan, xray: Bone, physical_therapy: PersonStanding, chiropractic: Stethoscope, injections: Syringe, surgery: Scissors, other_treatment: Pill }
-        const symptomIcons: Record<string, LucideIcon> = { pain: HeartPulse, stiffness: Bone, limited_rom: RotateCw, numbness: Activity, weakness: Dumbbell, headaches: Brain, other: Pencil }
+        const symptomIcons: Record<string, LucideIcon> = { pain: HeartPulse, stiffness: Bone, limited_rom: RotateCw, numbness: Activity, weakness: Dumbbell, headaches: Brain, other_symptom: Pencil }
         const diagnosisIcons: Record<string, LucideIcon> = { herniation: Bone, radiculopathy: Activity, muscle_strain: Dumbbell, tear: Bone, whiplash: PersonStanding, concussion: Brain, fracture: Bone, tbi: Brain, other_diagnosis: Pill }
-        const lifeAreaIcons: Record<string, LucideIcon> = { unable_to_work_normally: Briefcase, sleep_disruption: Moon, exercise_limitations: Dumbbell, driving_difficulty: Car, household_chores: Building2, missed_family: CalendarDays }
+        const lifeAreaIcons: Record<string, LucideIcon> = { unable_to_work_normally: Briefcase, sleep_disruption: Moon, exercise_limitations: Dumbbell, driving_difficulty: Car, household_chores: Building2, missed_family: CalendarDays, other_life: Pencil }
         const futureTreatmentIcons: Record<string, LucideIcon> = { additional_pt: PersonStanding, mri: Scan, injections: Syringe, surgery: Scissors, specialist: Stethoscope, additional_testing: ClipboardCheck, long_term_treatment: CalendarClock, none: Clock, not_sure: HelpCircle }
         const radioDot = (on: boolean) =>
           on ? (
@@ -4046,7 +4147,7 @@ export default function IntakeWizardQuick() {
             {/* Body parts */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
               <SectionHeader icon={Bone} title={tx('injuryDetails_whereInjured')} helper={tx('injuryDetails_whereInjuredHelper')} />
-              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                 {BODY_PART_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.bodyParts.includes(value)
                   const disp = bodyPartDisplay[value]
@@ -4164,7 +4265,7 @@ export default function IntakeWizardQuick() {
               })()}
               <p className="mt-4 font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_imagingDetailQuestion')}</p>
               <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_imagingDetailHelper')}</p>
-              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                 {TREATMENT_RECEIVED_OPTIONS.filter(o => ['ct_scan', 'xray', 'chiropractic', 'other_treatment'].includes(o.value)).map(({ value, label }) => {
                   const selected = formData.injuryDetails.imaging.includes(value)
                   const Icon = treatmentIcons[value] || Stethoscope
@@ -4182,7 +4283,7 @@ export default function IntakeWizardQuick() {
             {/* Diagnoses */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
               <SectionHeader icon={ClipboardCheck} title={tx('injuryDetails_diagnosesQuestion')} helper={tx('injuryDetails_diagnosesHelper')} />
-              <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                 {DIAGNOSIS_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.diagnoses.includes(value)
                   const Icon = diagnosisIcons[value] || Stethoscope
@@ -4211,7 +4312,7 @@ export default function IntakeWizardQuick() {
             {/* Symptoms */}
             <div>
               <SectionHeader icon={HeartPulse} title={tx('injuryDetails_currentSymptomsQuestion')} helper={tx('injuryDetails_selectAllApply')} />
-              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                 {CURRENT_SYMPTOM_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.currentSymptoms.includes(value)
                   const Icon = symptomIcons[value] || Activity
@@ -4224,6 +4325,15 @@ export default function IntakeWizardQuick() {
                   )
                 })}
               </div>
+              {formData.injuryDetails.currentSymptoms.includes('other_symptom') && (
+                <input
+                  type="text"
+                  value={formData.injuryDetails.otherSymptomDescription}
+                  onChange={(e) => updateForm({ injuryDetails: { ...formData.injuryDetails, otherSymptomDescription: e.target.value } })}
+                  placeholder={tx('sym_other_placeholder')}
+                  className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                />
+              )}
               <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-snug text-gray-400 dark:text-slate-500"><HelpCircle className="mt-px h-3 w-3 shrink-0" aria-hidden />{tx('injuryDetails_notSureNote')}</p>
             </div>
 
@@ -4246,7 +4356,7 @@ export default function IntakeWizardQuick() {
             {/* Daily life */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
               <SectionHeader icon={Briefcase} title={tx('injuryDetails_dailyLifeQuestion')} helper={tx('injuryDetails_dailyLifeHelper')} />
-              <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                 {LIFE_AREA_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.lifestyleImpact.includes(value)
                   const Icon = lifeAreaIcons[value] || Activity
@@ -4259,20 +4369,16 @@ export default function IntakeWizardQuick() {
                   )
                 })}
               </div>
-              <div className="mt-2.5 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/40">
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Pencil className="h-3.5 w-3.5" aria-hidden /></span>
-                  <span className="text-xs font-semibold text-gray-800 dark:text-slate-200">{tx('injuryDetails_otherDescribe')}</span>
-                </div>
+              {formData.injuryDetails.lifestyleImpact.includes('other_life') && (
                 <input
                   type="text"
                   maxLength={200}
                   value={formData.injuryDetails.lifestyleOther}
                   onChange={(e) => updateForm({ injuryDetails: { ...formData.injuryDetails, lifestyleOther: e.target.value } })}
                   placeholder={tx('injuryDetails_otherPlaceholder')}
-                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                  className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
                 />
-              </div>
+              )}
             </div>
             </div>
             )}{/* end Card 3 */}
@@ -5674,19 +5780,25 @@ export default function IntakeWizardQuick() {
                 <SectionHeader icon={DollarSign} accent="emerald" title={tx('financial_medicalCosts')} helper={tx('financial_medicalCostsHelper')} />
 
                 <p className="mt-3 font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('financial_billsSoFar')}</p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  {medicalBillCards.map(({ value, label }) => (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {medicalBillCards.map(({ value, label }) => {
+                    const selected = icFinancial.medicalBillRange === value
+                    const billIcons: Record<string, LucideIcon> = { under_2500: DollarSign, '2500_10000': DollarSign, '10000_50000': Briefcase, over_50000: Landmark, not_sure: HelpCircle }
+                    const BIcon = billIcons[value] || DollarSign
+                    return (
                     <button
                       key={value}
                       type="button"
-                      aria-pressed={icFinancial.medicalBillRange === value}
+                      aria-pressed={selected}
                       onClick={() => updateForm({ insuranceCoverage: { ...icFinancial, medicalBillRange: icFinancial.medicalBillRange === value ? '' : value } })}
-                      className={`flex items-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-left text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${icFinancial.medicalBillRange === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
+                      className={`relative flex flex-col items-center gap-1.5 rounded-xl border-[1.5px] px-3 py-3 text-center text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${selected ? 'border-brand-600 bg-brand-50 text-brand-900 shadow' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400 hover:bg-brand-50/50'}`}
                     >
-                      <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${icFinancial.medicalBillRange === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent'}`}>✓</span>
+                      <BIcon className={`h-5 w-5 ${selected ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
+                      {selected && <Check className="absolute top-2 right-2 h-4 w-4 text-brand-600" aria-hidden />}
                       <span>{label}</span>
                     </button>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 {icFinancial.medicalBillRange === 'over_50000' && (
@@ -5716,28 +5828,34 @@ export default function IntakeWizardQuick() {
 
               <div className="order-2 border-t border-slate-200 pt-4 dark:border-slate-700 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
                 <SectionHeader icon={Briefcase} accent="brand" title={tx('financial_workImpact')} helper={tx('financial_workImpactHelper')} />
-                <div className="mt-3 grid gap-2">
-                  {MISSED_WORK_OPTIONS.map(({ value, label }) => (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {MISSED_WORK_OPTIONS.map(({ value, label }) => {
+                    const selected = cpFinancial.missedWork === value
+                    const iconMap: Record<string, LucideIcon> = { no: CalendarDays, few_days: Clock, '1_4_weeks': CalendarDays, several_weeks: CalendarClock, over_month: CalendarClock, unable_to_return: Ban, lost_job_business_income: Briefcase, retired: UserX }
+                    const WIcon = iconMap[value] || CalendarDays
+                    return (
                     <button
                       key={value}
                       type="button"
-                      aria-pressed={cpFinancial.missedWork === value}
+                      aria-pressed={selected}
                       onClick={() => {
                         setFormData(prev => ({
                           ...prev,
                           casePosture: {
                             ...prev.casePosture,
                             missedWork: prev.casePosture.missedWork === value ? '' : value,
-                            ...(value === 'no' ? { lostWagesRange: '', lostWagesEstimate: '' } : {})
+                            ...(value === 'no' || value === 'retired' ? { lostWagesRange: '', lostWagesEstimate: '' } : {})
                           }
                         }))
                       }}
-                      className={`flex items-center gap-2 rounded-xl border-[1.5px] px-3 py-2 text-left text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${cpFinancial.missedWork === value ? 'border-brand-600 bg-brand-100 text-brand-900 shadow' : 'border-gray-300 bg-white text-gray-800 hover:border-brand-500 hover:bg-brand-50/50 hover:shadow-md'}`}
+                      className={`relative flex flex-col items-center gap-1.5 rounded-xl border-[1.5px] px-3 py-3 text-center text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${selected ? 'border-brand-600 bg-brand-50 text-brand-900 shadow' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400 hover:bg-brand-50/50'}`}
                     >
-                      <span aria-hidden="true" className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] ${cpFinancial.missedWork === value ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent'}`}>✓</span>
+                      <WIcon className={`h-5 w-5 ${selected ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
+                      {selected && <Check className="absolute top-2 right-2 h-4 w-4 text-brand-600" aria-hidden />}
                       <span>{label}</span>
                     </button>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 {hasIncomeImpact && (
@@ -5771,6 +5889,16 @@ export default function IntakeWizardQuick() {
 
               </div>
             </div>
+
+            <details className="group mt-4">
+              <summary className="flex cursor-pointer items-center gap-2 rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-slate-800">
+                <Sparkles className="h-4 w-4 text-brand-500" aria-hidden />
+                <span className="flex-1">{tx('financial_whyAskTitle')}</span>
+                <CheckCircle2 className="h-4 w-4 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
+              </summary>
+              <p className="mt-2 px-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">{tx('financial_whyAskBody')}</p>
+            </details>
+
             </section>
             {/* Insurance & Representation merged into the Damages step. */}
             <div>
@@ -6643,17 +6771,23 @@ export default function IntakeWizardQuick() {
         <button
           type="button"
           onClick={() => {
-            // Clear any validation errors from the current step so they don't linger
-            // in the error summary after navigating to a different step.
             setErrors({})
+            if (currentStepIndex === 0) {
+              if (subtypePanelOpen) {
+                setSubtypePanelOpen(false)
+                updateForm({ injuryType: '', claimType: '', incidentSubtype: '', otherInjuryDescription: '', branch: {} })
+              } else {
+                navigate('/')
+              }
+              return
+            }
             if (returnToReviewFromStep === currentStep) {
               setReturnToReviewFromStep(null)
               setCurrentStep('consent')
               return
             }
-            if (currentStepIndex > 0) setCurrentStep(visibleSteps[currentStepIndex - 1].key)
+            setCurrentStep(visibleSteps[currentStepIndex - 1].key)
           }}
-          disabled={currentStepIndex === 0}
           className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2 text-sm font-semibold text-brand-800 shadow-sm transition-colors hover:border-brand-400 hover:bg-brand-100 hover:text-brand-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-brand-800 dark:bg-brand-950/50 dark:text-brand-200 dark:hover:bg-brand-900/50 dark:hover:text-white sm:min-h-11 sm:rounded-xl sm:px-5"
         >
           <ChevronLeft className="h-4 w-4" aria-hidden /> {t('common.back')}

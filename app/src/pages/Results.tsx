@@ -1028,6 +1028,15 @@ export default function Results() {
           preferredContactMethod: prev.preferredContactMethod
         }))
       }).catch(() => {})
+    } else {
+      const intakeContact = parsedFacts?.intakeData?.contact
+      if (intakeContact) {
+        setContactForm(prev => ({
+          ...prev,
+          email: prev.email || intakeContact.email || '',
+          phone: prev.phone || intakeContact.phone || '',
+        }))
+      }
     }
     setSendModalOpen(true)
     void refreshMatchedAttorneys()

@@ -191,6 +191,41 @@
     animation: roseTypingCursor 0.9s steps(1, end) infinite;
   }
 
+  /* Intake follow-up question: the panel drops in, then its options rise into
+     place one after another, so the eye is led downward into the new question
+     instead of having to find it. */
+  @keyframes ccPanelDrop {
+    from {
+      opacity: 0;
+      transform: translateY(-6px);
+      clip-path: inset(0 0 100% 0);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+      clip-path: inset(0 0 0 0);
+    }
+  }
+
+  @keyframes ccOptionRise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .cc-panel-drop {
+    animation: ccPanelDrop 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .cc-option-rise {
+    animation: ccOptionRise 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .motion-reduce\:transition-none {
       transition: none !important;
@@ -203,6 +238,16 @@
     .rose-speaking-caption,
     .rose-typing-cursor {
       animation: none !important;
+    }
+
+    /* Reveal rather than suppress: these carry the content into view, so
+       cancelling the animation outright would leave it at its opening opacity. */
+    .cc-panel-drop,
+    .cc-option-rise {
+      animation: none !important;
+      opacity: 1;
+      transform: none;
+      clip-path: none;
     }
   }
 }

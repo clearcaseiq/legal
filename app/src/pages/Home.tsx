@@ -84,12 +84,6 @@ export default function Home() {
                   {t('common.startAssessment')}
                 </Link>
                 <Link
-                  to="/assess?fresh=1"
-                  className="btn-outline inline-flex w-full max-w-xs items-center justify-center bg-white/70 text-base font-semibold sm:w-auto sm:px-6 dark:bg-slate-900/50"
-                >
-                  {t('common.continueAsGuest')}
-                </Link>
-                <Link
                   to="/assess"
                   className="group inline-flex items-center justify-center rounded-xl px-3 py-1.5 text-sm font-medium text-slate-500 underline-offset-4 transition-colors hover:text-brand-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 dark:text-slate-400 dark:hover:text-brand-300 dark:focus-visible:ring-offset-slate-900"
                 >

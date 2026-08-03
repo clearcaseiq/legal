@@ -3,12 +3,12 @@ type AttorneyRegisterBenefitsProps = {
   completionPercent: number
 }
 
-const STEP_LABELS = ['Create account', 'Select practice areas', 'Choose service area', 'Choose capacity', 'Verify license']
+const STEP_LABELS = ['Create account', 'Practice & service area', 'Choose capacity', 'Verify license']
 
 export default function AttorneyRegisterBenefits({ currentStep, completionPercent }: AttorneyRegisterBenefitsProps) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-      <p className="text-sm font-semibold text-brand-700">Step {currentStep} of 5</p>
+      <p className="text-sm font-semibold text-brand-700">Step {currentStep} of 4</p>
       <h4 className="mt-1 font-semibold text-gray-900">{STEP_LABELS[currentStep - 1]}</h4>
       <div className="mt-4">
         <div className="mb-1 flex items-center justify-between text-xs text-gray-500">
