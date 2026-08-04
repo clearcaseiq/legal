@@ -357,7 +357,7 @@ export function ResultsSubmittedView({
           {isLoggedIn ? (
             <Link
               to="/dashboard"
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 py-4 text-lg font-semibold text-white hover:bg-brand-700"
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-6 py-4 text-lg font-semibold text-white hover:bg-brand-700"
             >
               <LayoutDashboard className="h-5 w-5" />
               {t('results.submitted.goToDashboard')}
