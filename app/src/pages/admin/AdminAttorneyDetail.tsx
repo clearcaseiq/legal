@@ -158,13 +158,13 @@ export default function AdminAttorneyDetail() {
             <p className="text-xs text-slate-500">Firm</p>
             <p>{capitalizeWords(attorney.lawFirm?.name) || '—'}</p>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs text-slate-500">Email</p>
-            <p>{attorney.email || '—'}</p>
+            <p className="truncate" title={attorney.email || undefined}>{attorney.email || '—'}</p>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs text-slate-500">Phone</p>
-            <p>{attorney.phone || '—'}</p>
+            <p className="truncate">{attorney.phone || '—'}</p>
           </div>
           <div>
             <p className="text-xs text-slate-500">Status</p>

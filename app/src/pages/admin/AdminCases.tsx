@@ -395,7 +395,7 @@ export default function AdminCases() {
   )
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] min-h-0 flex-col gap-4 overflow-hidden">
+    <div className="flex h-[calc(100vh-6rem)] min-h-[500px] min-h-0 flex-col gap-4 overflow-hidden">
       <div className="shrink-0">
         <PageHeader
           title="Cases"
