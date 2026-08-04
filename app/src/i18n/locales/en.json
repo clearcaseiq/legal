@@ -251,6 +251,7 @@
     "injuryType_toxic": "Exposure to toxic substances",
     "injuryType_nursing_home_abuse": "Nursing home abuse",
     "injuryType_wrongful_death": "Wrongful death",
+    "injuryType_high_severity_surgery": "Catastrophic / high-severity injury",
     "injuryType_other": "Other injury",
     "subtype_prompt_vehicle": "Which best describes your accident?",
     "subtype_prompt_slip_fall": "Where did the incident happen?",

@@ -251,6 +251,7 @@
     "injuryType_toxic": "接触有毒物质",
     "injuryType_nursing_home_abuse": "养老院虐待",
     "injuryType_wrongful_death": "非正常死亡",
+    "injuryType_high_severity_surgery": "重大/高严重性伤害",
     "injuryType_other": "其他伤害",
     "subtype_prompt_vehicle": "以下哪一项最符合您的事故？",
     "subtype_prompt_slip_fall": "事故发生在哪里？",

@@ -63,10 +63,14 @@ export default function AttorneyRegister() {
   // Practice-area options reuse the exact incident-type labels a plaintiff sees
   // during intake (the `intake.injuryType_*` keys), so the attorney list can
   // never drift from the client-facing list and stays localized (#49).
-  const practiceAreaOptions = CASE_TYPES.map((caseType) => ({
-    value: caseType.value,
-    label: t(`intake.injuryType_${caseType.value}`),
-  }))
+  const practiceAreaOptions = CASE_TYPES.map((caseType) => {
+    const localeKey = `intake.injuryType_${caseType.value}`
+    const translated = t(localeKey)
+    return {
+      value: caseType.value,
+      label: translated !== localeKey ? translated : caseType.label,
+    }
+  })
 
   const updateField = <K extends keyof AttorneyRegisterFormInput>(
     field: K,

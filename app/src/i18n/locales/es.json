@@ -251,6 +251,7 @@
     "injuryType_toxic": "Exposición a sustancias tóxicas",
     "injuryType_nursing_home_abuse": "Abuso en residencia de ancianos",
     "injuryType_wrongful_death": "Muerte por negligencia",
+    "injuryType_high_severity_surgery": "Lesión catastrófica / alta gravedad",
     "injuryType_other": "Otra lesión",
     "subtype_prompt_vehicle": "¿Cuál describe mejor su accidente?",
     "subtype_prompt_slip_fall": "¿Dónde ocurrió el incidente?",
