@@ -245,7 +245,7 @@
     "injuryType_slip_fall": "Slip / trip / unsafe property",
     "injuryType_workplace": "Workplace injury",
     "injuryType_medmal": "Medical error or malpractice",
-    "injuryType_dog_bite": "Dog bite / animal attack",
+    "injuryType_dog_bite": "Animal bite / attack",
     "injuryType_product": "Defective product",
     "injuryType_assault": "Assault or negligent security",
     "injuryType_toxic": "Exposure to toxic substances",

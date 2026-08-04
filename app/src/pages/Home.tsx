@@ -128,6 +128,7 @@ export default function Home() {
               <span className="text-slate-800 dark:text-slate-100 font-medium">{t('home.trust3')}</span>
             </div>
             <div className="flex items-center gap-3">
+              <FileTextIcon className="h-6 w-6 text-brand-600 dark:text-brand-400" aria-hidden />
               <span className="text-slate-800 dark:text-slate-100 font-medium tabular-nums">{t('home.trust4')}</span>
             </div>
           </div>

@@ -2745,9 +2745,9 @@ export default function IntakeWizardQuick() {
         {/* SMS consent — documents opt-in for A2P/toll-free compliance. */}
         <p className="mt-1 whitespace-pre-line text-[11px] leading-snug text-gray-400 sm:max-w-3xl">
           {tx('contact_smsConsent')}{' '}
-          <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-gray-600">{tx('contact_smsConsentTerms')}</a>
+          <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="font-semibold underline underline-offset-2 hover:text-gray-600">{tx('contact_smsConsentTerms')}</a>
           {' '}&{' '}
-          <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-gray-600">{tx('contact_smsConsentPrivacy')}</a>.
+          <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="font-semibold underline underline-offset-2 hover:text-gray-600">{tx('contact_smsConsentPrivacy')}</a>.
         </p>
         {/* Trust badges */}
         <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-gray-400">
@@ -3328,7 +3328,7 @@ export default function IntakeWizardQuick() {
         {/* Reads as a second question rather than a stray box: the answered part
             is stated, ruled off, and the new question sits underneath it. */}
         <div className="flex items-center justify-between gap-3 pb-3">
-          <p className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.04em] text-brand-700 sm:text-xs sm:tracking-[0.08em] dark:text-brand-300">
+          <p className="hidden min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.04em] text-brand-700 sm:flex sm:text-xs sm:tracking-[0.08em] dark:text-brand-300">
             <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
             <span className="truncate">{selectedType ? t(`intake.${selectedType.labelKey}`) : ''}</span>
           </p>
@@ -3338,7 +3338,7 @@ export default function IntakeWizardQuick() {
               setSubtypePanelOpen(false)
               updateForm({ injuryType: '', claimType: '', incidentSubtype: '', otherInjuryDescription: '', branch: {} })
             }}
-            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 shadow-sm transition-colors hover:border-brand-400 hover:bg-brand-50 hover:text-brand-900 dark:border-brand-700 dark:bg-slate-800 dark:text-brand-300 dark:hover:bg-slate-700"
+            className="inline-flex shrink items-center gap-1.5 rounded-lg border border-brand-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-brand-700 shadow-sm transition-colors hover:border-brand-400 hover:bg-brand-50 hover:text-brand-900 sm:px-3 sm:text-xs dark:border-brand-700 dark:bg-slate-800 dark:text-brand-300 dark:hover:bg-slate-700"
           >
             <CornerUpLeft className="h-3.5 w-3.5" aria-hidden />
             {tx('subtype_chooseAnother')}
@@ -3529,8 +3529,8 @@ export default function IntakeWizardQuick() {
               <div className="space-y-6">
                 {/* Mobile-only: collapsed "Why we ask this" so the rail does not add a long scroll under the form */}
                 <details className="group rounded-xl border border-slate-200 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-800/40 lg:hidden">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-semibold text-gray-900 dark:text-slate-100">
-                    <span className="flex items-center gap-1.5"><Info className="h-4 w-4 text-brand-600" aria-hidden /> {tx('whyAsk_title')}</span>
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-sm font-semibold text-gray-900 [&::-webkit-details-marker]:hidden dark:text-slate-100">
+                    <span className="flex items-center gap-1.5"><HelpCircle className="h-4 w-4 text-brand-600" aria-hidden /> {tx('whyAsk_title')}</span>
                     <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
                   </summary>
                   <div className="space-y-3 px-3 pb-3">
@@ -3582,7 +3582,7 @@ export default function IntakeWizardQuick() {
                                 if (val) updateForm({ incidentDatePreset: 'custom', incidentDate: val })
                                 else updateForm({ incidentDatePreset: '', incidentDate: '' })
                               }}
-                              className="date-input-clean !min-h-0 w-full min-w-0 max-w-full !border-0 !bg-transparent !p-0 !text-[15px] font-medium text-gray-900 focus:!ring-0 dark:text-slate-100"
+                              className="date-input-clean !min-h-0 w-full min-w-0 max-w-full !border-0 !bg-transparent !p-0 text-left !text-[15px] font-medium text-gray-900 focus:!ring-0 dark:text-slate-100"
                             />
                           </div>
                           <button
@@ -5910,7 +5910,7 @@ export default function IntakeWizardQuick() {
             </div>
 
             <details className="group mt-4">
-              <summary className="flex cursor-pointer items-center gap-2 rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-slate-800">
+              <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 [&::-webkit-details-marker]:hidden dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-slate-800">
                 <Sparkles className="h-4 w-4 text-brand-500" aria-hidden />
                 <span className="flex-1">{tx('financial_whyAskTitle')}</span>
                 <CheckCircle2 className="h-4 w-4 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
@@ -6293,16 +6293,14 @@ export default function IntakeWizardQuick() {
                     {tx('consent_agreeTermsPre')}
                     <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_termsLink')}</a>
                     {tx('consent_termsMid')}
-                    <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_privacyLink')}</a>
-                    {' '}<span className="font-semibold text-red-500" aria-hidden>*</span>
+                    <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_privacyLink')}<span className="font-semibold text-red-500" aria-hidden>&thinsp;*</span></a>
                   </span>
                 </label>
                 <label className={`flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2 transition-all ${consents.ml_use ? 'border-brand-300 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-200 bg-slate-50 hover:border-brand-200 dark:border-slate-700 dark:bg-slate-800/40'}`}>
                   <input type="checkbox" checked={!!consents.ml_use} onChange={e => updateForm({ consents: { ...consents, ml_use: e.target.checked } })} className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600" />
                   <span className="text-xs leading-snug text-gray-700 dark:text-slate-300">
                     {tx('consent_agreeAiPre')}
-                    <a href="/ai-ml-consent" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_aiLink')}</a>
-                    {' '}<span className="font-semibold text-red-500" aria-hidden>*</span>
+                    <a href="/ai-ml-consent" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_aiLink')}<span className="font-semibold text-red-500" aria-hidden>&thinsp;*</span></a>
                   </span>
                 </label>
               </div>
