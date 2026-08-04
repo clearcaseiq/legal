@@ -3074,7 +3074,7 @@ export default function IntakeWizardQuick() {
                       <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
                     </summary>
                     <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                         {DEFENDANT_COVERAGE_OPTIONS.map(({ value, label }) => {
                           const meta = coverageMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
                           const sel = icLegal.defendantCoverageLimits === value
@@ -3107,7 +3107,7 @@ export default function IntakeWizardQuick() {
                       <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
                     </summary>
                     <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                         {UM_UIM_OPTIONS.map(({ value, label }) => {
                           const sel = icLegal.umUimCoverage === value
                           return renderChoice(sel, () => updateForm({ insuranceCoverage: { ...icLegal, umUimCoverage: sel ? '' : value } }),
@@ -3136,7 +3136,7 @@ export default function IntakeWizardQuick() {
                       <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
                     </summary>
                     <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                         {PIP_OPTIONS.map(({ value, label }) => {
                           const sel = icLegal.pipCoverage === value
                           return renderChoice(sel, () => updateForm({ insuranceCoverage: { ...icLegal, pipCoverage: sel ? '' : value } }),
@@ -3165,7 +3165,7 @@ export default function IntakeWizardQuick() {
                       <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
                     </summary>
                     <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                         {PIP_OPTIONS.map(({ value, label }) => {
                           const sel = icLegal.medPayCoverage === value
                           return renderChoice(sel, () => updateForm({ insuranceCoverage: { ...icLegal, medPayCoverage: sel ? '' : value } }),
@@ -3591,19 +3591,14 @@ export default function IntakeWizardQuick() {
                             onClick={() => {
                               const el = document.getElementById('incident-exact-date') as (HTMLInputElement & { showPicker?: () => void }) | null
                               if (!el) return
-                              // showPicker() needs Safari 16+. On older iOS, focusing
-                              // alone never opens the wheel — a click on the field
-                              // does, so fall back to that (CP-370).
                               try {
                                 if (typeof el.showPicker === 'function') {
                                   el.showPicker()
                                   return
                                 }
-                              } catch {
-                                /* showPicker can throw when not user-activated */
-                              }
+                              } catch { /* showPicker can throw when not user-activated */ }
                               el.focus()
-                              el.click()
+                              el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
                             }}
                             className="flex h-8 w-14 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 transition-colors hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-300 dark:hover:bg-brand-500/25"
                           >
@@ -4166,7 +4161,7 @@ export default function IntakeWizardQuick() {
             {/* Body parts */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
               <SectionHeader icon={Bone} title={tx('injuryDetails_whereInjured')} helper={tx('injuryDetails_whereInjuredHelper')} />
-              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
                 {BODY_PART_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.bodyParts.includes(value)
                   const disp = bodyPartDisplay[value]
