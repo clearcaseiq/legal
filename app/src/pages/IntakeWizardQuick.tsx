@@ -957,6 +957,7 @@ export default function IntakeWizardQuick() {
   // collapsing so the choice can be confirmed on screen.
   const [subtypeConfirming, setSubtypeConfirming] = useState<string | null>(null)
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const validateAndNextRef = useRef<() => void>(() => {})
   useEffect(() => () => { if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current) }, [])
   const [returnToReviewFromStep, setReturnToReviewFromStep] = useState<Step | null>(null)
   const [customDate, setCustomDate] = useState('')
@@ -2073,6 +2074,7 @@ export default function IntakeWizardQuick() {
       setCurrentStep(visibleSteps[currentStepIndex + 1].key)
     }
   }
+  validateAndNextRef.current = validateAndNext
 
   const handleSubmit = async () => {
     // The assessment was already created but some documents failed: retry uploads instead of re-submitting.
@@ -3272,7 +3274,7 @@ export default function IntakeWizardQuick() {
     collapseTimerRef.current = setTimeout(() => {
       setSubtypePanelOpen(false)
       setSubtypeConfirming(null)
-      validateAndNext()
+      validateAndNextRef.current()
     }, 400)
   }
 
