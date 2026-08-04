@@ -102,7 +102,7 @@ export default function BrandLogo({
           : 'text-base md:text-[1.05rem]'
 
   return (
-    <span className={clsx('inline-flex items-center gap-2.5', size === 'xl' && 'gap-3.5', className)}>
+    <span className={clsx('inline-flex items-center gap-1.5', size === 'xl' && 'gap-2', className)}>
       <BrandMark size={size} />
       {showWordmark && (
         <span className={clsx('font-display font-bold tracking-[-0.02em] leading-none', wordSize)}>
