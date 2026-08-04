@@ -583,7 +583,7 @@ export default function CaseWorkspacePage() {
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Metric label="Case value" value={money(detail.caseValue)} accent />
+              <Metric label="Case value" value={detail.caseValue ? money(detail.caseValue) : 'Pending valuation'} accent />
               <Metric label="Policy limit" value={money(detail.policyLimit)} />
               <Metric label="Demand" value={money(detail.demand)} />
               <Metric label="Days open" value={detail.daysOpen} />
@@ -1318,12 +1318,13 @@ function WorkstreamPanel({
     const v = cc?.valueStory
     const n = cc?.negotiationSummary
     const readinessScore = Number(cc?.readiness?.score ?? 0)
-    const estValue =
+    const rawEstValue =
       v && (v.low || v.high)
         ? v.low && v.high
           ? `${compactMoney(v.low)}–${compactMoney(v.high)}`
           : money(v.median || v.high || v.low)
         : money(detail.caseValue)
+    const estValue = rawEstValue === '—' ? 'Pending valuation' : rawEstValue
     const hasPosture = Boolean(cc && (cc.strengths?.length || cc.weaknesses?.length || cc.defenseRisks?.length))
     const nba = cc?.nextBestAction
     const nbaMeta = nba ? NBA_META[nba.actionType] : null
@@ -1896,7 +1897,7 @@ function MedicalPanel({
           </Note>
         )}
         <button
-          onClick={() => onOpenSection('evidence')}
+          onClick={() => onOpenSection('evidence?uploadCategory=medical_records')}
           className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
           <Upload className="h-4 w-4" /> Add medical records
@@ -2099,10 +2100,12 @@ function EvidencePanel({
   clientName: string
   initialFiles: any[]
 }) {
+  const [spEv] = useSearchParams()
+  const initialCategory = spEv.get('uploadCategory') || 'other'
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [docs, setDocs] = useState<any[]>(initialFiles || [])
   const [uploading, setUploading] = useState(false)
-  const [category, setCategory] = useState('other')
+  const [category, setCategory] = useState(initialCategory)
   const [description, setDescription] = useState('')
   const [requestOpen, setRequestOpen] = useState(false)
   const [requested, setRequested] = useState<string[]>([])
@@ -3278,12 +3281,12 @@ function evidenceStatusTone(status?: string): Tone {
 function Metric({ label, value, accent = false }: { label: string; value: ReactNode; accent?: boolean }) {
   return (
     <div
-      className={`rounded-xl border px-4 py-3 ${
+      className={`overflow-hidden rounded-xl border px-4 py-3 ${
         accent ? 'border-brand-100 bg-brand-50/50' : 'border-slate-200 bg-slate-50/60'
       }`}
     >
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className={`mt-1 text-lg font-bold leading-tight ${accent ? 'text-brand-700' : 'text-slate-900'}`}>{value}</p>
+      <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className={`mt-1 truncate text-lg font-bold leading-tight ${accent ? 'text-brand-700' : 'text-slate-900'}`}>{value}</p>
     </div>
   )
 }

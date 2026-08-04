@@ -72,7 +72,7 @@ const faqs = [
 export default function Help() {
   const location = useLocation()
   const { hash } = location
-  const isAdminArea = location.pathname.startsWith('/admin') || localStorage.getItem('role') === 'admin'
+  const isAdminArea = location.pathname.startsWith('/admin') || localStorage.getItem('auth_role') === 'admin'
   const [search, setSearch] = useState('')
   const [expandedCategory, setExpandedCategory] = useState<number | null>(null)
 

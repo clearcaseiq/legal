@@ -65,15 +65,26 @@ export default function CaseNameEditor({
     return (
       <div className="group flex items-center gap-1.5">
         <h1 className="text-lg font-bold text-slate-900">{displayName}</h1>
-        <button
-          type="button"
-          onClick={open}
-          aria-label="Rename case"
-          title="Rename case"
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-300 transition hover:bg-slate-100 hover:text-slate-700 focus:opacity-100 group-hover:text-slate-500"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-        </button>
+        {customName ? (
+          <button
+            type="button"
+            onClick={open}
+            aria-label="Rename case"
+            title="Rename case"
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-300 transition hover:bg-slate-100 hover:text-slate-700 focus:opacity-100 group-hover:text-slate-500"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={open}
+            title="Set a case caption (e.g., Rivera v. Delgado)"
+            className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-brand-600 opacity-0 transition hover:bg-brand-50 group-hover:opacity-100"
+          >
+            + Add caption
+          </button>
+        )}
       </div>
     )
   }

@@ -895,7 +895,15 @@ export default function IntakeWizardQuick() {
   }
   const isDocumentsMode = documentsModeRef.current.mode
 
-  const [currentStep, setCurrentStep] = useState<Step>('injury_type')
+  const [currentStep, setCurrentStep] = useState<Step>(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search)
+      const urlStep = sp.get('step')
+      const validSteps: string[] = ['injury_type', 'when', 'narrative', 'injury_severity', 'injury_details', 'case_details', 'evidence', 'financial_impact', 'legal_status', 'review', 'consent']
+      if (urlStep && validSteps.includes(urlStep)) return urlStep as Step
+    } catch { /* ignore */ }
+    return 'injury_type'
+  })
   const [loading, setLoading] = useState(false)
   const [generatingReport, setGeneratingReport] = useState(false)
   const [assessmentId, setAssessmentId] = useState<string | null>(documentsModeRef.current.assessmentId)
@@ -1352,7 +1360,15 @@ export default function IntakeWizardQuick() {
     if (currentStepIndex >= 0) {
       setFurthestReachedStepIndex((previous) => Math.max(previous, currentStepIndex))
     }
-  }, [currentStepIndex])
+    // Persist step in URL so a copied link resumes at the same step.
+    try {
+      const url = new URL(window.location.href)
+      if (url.searchParams.get('step') !== currentStep) {
+        url.searchParams.set('step', currentStep)
+        window.history.replaceState(window.history.state, '', url.toString())
+      }
+    } catch { /* ignore */ }
+  }, [currentStepIndex, currentStep])
 
   const editReviewStep = (step: Step) => {
     // Several review categories are folded into a host screen; jump to the host
@@ -1376,12 +1392,13 @@ export default function IntakeWizardQuick() {
     scrollTop()
     requestAnimationFrame(scrollTop)
     // Heavy steps (e.g. insurance / legal) may not finish layout within a
-    // single frame. A short timeout catches late reflows that push the
+    // single frame. Multiple timeouts catch late reflows that push the
     // viewport down.
-    const t = setTimeout(scrollTop, 80)
+    const t1 = setTimeout(scrollTop, 80)
+    const t2 = setTimeout(scrollTop, 300)
     setSubtypePanelOpen(false)
     setSubtypeConfirming(null)
-    return () => clearTimeout(t)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
   }, [currentStep])
 
   // Keep validation errors in one consistent place (top of the step) and bring it into view.
@@ -4062,9 +4079,9 @@ export default function IntakeWizardQuick() {
             </div>
 
             {/* Case Snapshot metric bar */}
-            <div className={`grid grid-cols-2 gap-2 ${snapshotCards.length >= 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
+            <div className={`grid grid-cols-2 gap-1.5 sm:gap-2 ${snapshotCards.length >= 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
               {snapshotCards.map(({ key, icon: Icon, label, value, sub, tone, tip }, i) => (
-                <div key={key} className="group relative min-w-0 cursor-help rounded-lg border border-slate-200 bg-white px-2.5 py-1 dark:border-slate-700 dark:bg-slate-900/40" tabIndex={0}>
+                <div key={key} className="group relative min-w-0 cursor-help overflow-hidden rounded-lg border border-slate-200 bg-white px-2 py-1 sm:px-2.5 dark:border-slate-700 dark:bg-slate-900/40" tabIndex={0}>
                   <div className="flex items-center gap-1 text-[9px] font-semibold uppercase leading-none tracking-wide text-gray-600 dark:text-slate-300">
                     <Icon className="h-3 w-3 shrink-0" aria-hidden />
                     <span className="truncate">{label}</span>

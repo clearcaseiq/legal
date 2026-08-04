@@ -4,7 +4,7 @@
  * description, created-by, assignee, time estimate, reminders, and a
  * Comments/History panel. All edits autosave and refresh the caller via onChanged.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   X,
   Loader2,
@@ -33,10 +33,12 @@ import {
   getTaskComments,
   addTaskComment,
   getTaskHistory,
+  getFirmColleagues,
   type TaskDetail,
   type TaskSubtask,
   type TaskComment,
   type TaskHistoryEntry,
+  type FirmColleague,
 } from '../../lib/api'
 import { isAiTask } from './TaskOriginBadge'
 import ModalPortal from '../../components/ModalPortal'
@@ -153,6 +155,59 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
 
   const [estHours, setEstHours] = useState('')
   const [estMins, setEstMins] = useState('')
+
+  const [mentionOpen, setMentionOpen] = useState(false)
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [mentionIdx, setMentionIdx] = useState(0)
+  const [colleagues, setColleagues] = useState<FirmColleague[]>([])
+  const commentRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    getFirmColleagues().then((r) => setColleagues(r.colleagues || [])).catch(() => {})
+  }, [])
+
+  const filteredColleagues = mentionQuery
+    ? colleagues.filter((c) => c.name.toLowerCase().includes(mentionQuery.toLowerCase()) || c.email?.toLowerCase().includes(mentionQuery.toLowerCase()))
+    : colleagues
+
+  const insertMention = (c: FirmColleague) => {
+    const ta = commentRef.current
+    if (!ta) return
+    const pos = ta.selectionStart ?? commentText.length
+    const before = commentText.slice(0, pos)
+    const atIdx = before.lastIndexOf('@')
+    if (atIdx === -1) return
+    const tag = c.email ? `@${c.email}` : `@${c.name.replace(/\s+/g, '_')}`
+    const insertion = `${tag} `
+    const newText = commentText.slice(0, atIdx) + insertion + commentText.slice(pos)
+    setCommentText(newText)
+    setMentionOpen(false)
+    setMentionQuery('')
+    setTimeout(() => {
+      ta.focus()
+      const cursor = atIdx + insertion.length
+      ta.setSelectionRange(cursor, cursor)
+    }, 0)
+  }
+
+  const handleCommentChange = (value: string) => {
+    setCommentText(value)
+    const ta = commentRef.current
+    if (!ta) return
+    const pos = ta.selectionStart ?? value.length
+    const before = value.slice(0, pos)
+    const atIdx = before.lastIndexOf('@')
+    if (atIdx >= 0 && (atIdx === 0 || /\s/.test(before[atIdx - 1]))) {
+      const query = before.slice(atIdx + 1)
+      if (!/\s/.test(query)) {
+        setMentionOpen(true)
+        setMentionQuery(query)
+        setMentionIdx(0)
+        return
+      }
+    }
+    setMentionOpen(false)
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -645,15 +700,41 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                       ))
                     )}
                   </div>
-                  <div className="border-t border-slate-200 p-2.5">
+                  <div className="relative border-t border-slate-200 p-2.5">
+                    {mentionOpen && filteredColleagues.length > 0 && (
+                      <div className="absolute bottom-full left-2.5 right-2.5 z-10 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+                        {filteredColleagues.slice(0, 8).map((c, i) => (
+                          <button
+                            key={c.userId}
+                            type="button"
+                            onMouseDown={(e) => { e.preventDefault(); insertMention(c) }}
+                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${i === mentionIdx ? 'bg-brand-50 text-brand-700' : 'text-slate-700 hover:bg-slate-50'}`}
+                          >
+                            <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[10px] font-bold text-brand-700">
+                              {c.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()}
+                            </span>
+                            <span className="font-medium">{c.name}</span>
+                            {c.email && <span className="text-xs text-slate-400">{c.email}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <textarea
+                      ref={commentRef}
                       value={commentText}
-                      onChange={(e) => setCommentText(e.target.value)}
+                      onChange={(e) => handleCommentChange(e.target.value)}
                       onKeyDown={(e) => {
+                        if (mentionOpen && filteredColleagues.length > 0) {
+                          if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx((i) => Math.min(i + 1, Math.min(filteredColleagues.length, 8) - 1)) }
+                          else if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx((i) => Math.max(i - 1, 0)) }
+                          else if (e.key === 'Enter') { e.preventDefault(); insertMention(filteredColleagues[mentionIdx]) }
+                          else if (e.key === 'Escape') { e.preventDefault(); setMentionOpen(false) }
+                          return
+                        }
                         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submitComment()
                       }}
                       rows={2}
-                      placeholder="Write a comment… use @name@firm.com to mention"
+                      placeholder="Write a comment… type @ to mention a colleague"
                       className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
                     />
                     <div className="mt-1.5 flex justify-end">

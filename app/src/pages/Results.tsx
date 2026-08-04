@@ -888,11 +888,12 @@ export default function Results() {
   }, [])
 
   const refreshMatchedAttorneys = async () => {
-    if (!assessment || !venueState) return []
+    if (!assessment) return []
     try {
       setAttorneySearchLoading(true)
+      const effectiveVenue = venueState && venueState !== 'Unknown' ? venueState : undefined
       const data = await searchAttorneys({
-        venue: venueState,
+        venue: effectiveVenue,
         claim_type: assessment.claimType,
         limit: Math.max(waveOneSize, 3)
       })
@@ -3233,9 +3234,9 @@ Checklist:
       )}
       {/* Send Case Modal — minimal contact info before routing */}
       {sendModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-4 backdrop-blur-sm" onClick={() => !submitLoading && setSendModalOpen(false)}>
-          <div className="flex min-h-full items-start justify-center py-6 sm:items-center" onClick={e => e.stopPropagation()}>
-            <div className="surface-panel max-h-[calc(100vh-3rem)] w-full max-w-md overflow-y-auto p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-2 backdrop-blur-sm sm:p-4" onClick={() => !submitLoading && setSendModalOpen(false)}>
+          <div className="flex min-h-full items-start justify-center py-3 sm:items-center sm:py-6" onClick={e => e.stopPropagation()}>
+            <div className="surface-panel max-h-[calc(100vh-1.5rem)] w-full max-w-md overflow-y-auto p-4 shadow-xl sm:p-6">
             <h3 className="section-title text-ui-xl">Before we send your case to attorneys</h3>
             <p className="section-copy mb-4">
               Add your contact info so attorneys can reach you about your case. No account required.
@@ -3557,7 +3558,7 @@ Checklist:
                   </p>
                 </div>
               )}
-              <div className={`rounded-lg border-2 px-3 py-3 transition-colors ${shareAuthorized ? 'border-brand-500 bg-brand-50' : 'border-brand-300 bg-white'}`}>
+              <div className={`rounded-lg border-2 px-4 py-3.5 transition-colors ${shareAuthorized ? 'border-brand-500 bg-brand-50 shadow-sm' : 'border-amber-400 bg-amber-50/60'}`}>
                 <label className="flex cursor-pointer items-start gap-3">
                   <input
                     type="checkbox"
@@ -3565,7 +3566,10 @@ Checklist:
                     onChange={(e) => setShareAuthorized(e.target.checked)}
                     className="mt-0.5 h-5 w-5 rounded border-2 border-brand-400 text-brand-600 focus:ring-brand-500"
                   />
-                  <span className={`text-sm font-medium ${shareAuthorized ? 'text-brand-900' : 'text-slate-700'}`}>{t('disclosures.shareAuthorization')}</span>
+                  <div>
+                    <span className={`text-sm font-semibold ${shareAuthorized ? 'text-brand-900' : 'text-slate-800'}`}>{t('disclosures.shareAuthorization')}</span>
+                    {!shareAuthorized && <p className="mt-0.5 text-xs text-amber-700">Required to send your case</p>}
+                  </div>
                 </label>
               </div>
             </div>

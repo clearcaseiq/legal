@@ -217,10 +217,14 @@ export default function AttorneyDashboardLeadsTab({
     return { label: 'Standard', class: 'bg-slate-100 text-slate-700', icon: '·' }
   }
 
-  const getCaseStrengthBar = (score: number) => {
-    const percent = Math.round((score || 0) * 100)
-    const filled = Math.max(0, Math.min(10, Math.round(percent / 10)))
-    return `${'█'.repeat(filled)}${'░'.repeat(10 - filled)}`
+  const CaseStrengthBar = ({ score }: { score: number }) => {
+    const percent = Math.max(0, Math.min(100, Math.round((score || 0) * 100)))
+    const color = percent >= 70 ? 'bg-emerald-500' : percent >= 40 ? 'bg-amber-500' : 'bg-slate-400'
+    return (
+      <div className="mt-0.5 h-1.5 w-20 overflow-hidden rounded-full bg-slate-200">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${percent}%` }} />
+      </div>
+    )
   }
 
   const getAttentionLabel = (lead: any) => {
@@ -1091,7 +1095,7 @@ export default function AttorneyDashboardLeadsTab({
                         {strength > 0 ? (
                           <>
                             <div className="text-sm font-medium">{strength}/100</div>
-                            <div className="text-xs text-gray-500 font-mono">{getCaseStrengthBar(lead.viabilityScore)}</div>
+                            <CaseStrengthBar score={lead.viabilityScore} />
                           </>
                         ) : (
                           <div className="text-sm text-gray-400">Not scored</div>

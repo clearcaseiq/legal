@@ -11,7 +11,7 @@ import {
 import { PageHeader, Avatar, Badge, EmptyState, initials } from '../shared/ui'
 
 /** How often to refresh the colleague list / open thread while the page is open. */
-const POLL_MS = 20_000
+const POLL_MS = 5_000
 
 function relativeTime(iso: string | null): string {
   if (!iso) return ''

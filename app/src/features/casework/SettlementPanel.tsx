@@ -146,6 +146,8 @@ export default function SettlementPanel({ leadId }: { leadId: string }) {
   const [newExpense, setNewExpense] = useState({ category: 'filing', description: '', amount: '' })
   const [showAddLien, setShowAddLien] = useState(false)
   const [showAddExpense, setShowAddExpense] = useState(false)
+  const [addLienError, setAddLienError] = useState<string | null>(null)
+  const [addExpenseError, setAddExpenseError] = useState<string | null>(null)
 
   const applyData = useCallback((d: SettlementData) => {
     setData(d)
@@ -195,7 +197,8 @@ export default function SettlementPanel({ leadId }: { leadId: string }) {
   }, [leadId, applyData])
 
   const addLien = async () => {
-    if (!newLien.name.trim()) return
+    if (!newLien.name.trim()) { setAddLienError('Enter the lienholder name.'); return }
+    setAddLienError(null)
     await createLeadLien(leadId, {
       name: newLien.name.trim(),
       type: newLien.type,
@@ -218,7 +221,11 @@ export default function SettlementPanel({ leadId }: { leadId: string }) {
   }
 
   const addExpense = async () => {
-    if (!newExpense.description.trim() || !newExpense.amount) return
+    if (!newExpense.description.trim() || !newExpense.amount) {
+      setAddExpenseError(!newExpense.description.trim() ? 'Enter a description.' : 'Enter an amount.')
+      return
+    }
+    setAddExpenseError(null)
     await createLeadExpense(leadId, {
       category: newExpense.category,
       description: newExpense.description.trim(),
@@ -442,6 +449,7 @@ export default function SettlementPanel({ leadId }: { leadId: string }) {
             >
               Add
             </button>
+            {addLienError && <p className="col-span-full text-xs text-rose-600">{addLienError}</p>}
           </div>
         )}
 
@@ -575,6 +583,7 @@ export default function SettlementPanel({ leadId }: { leadId: string }) {
             >
               Add
             </button>
+            {addExpenseError && <p className="col-span-full text-xs text-rose-600">{addExpenseError}</p>}
           </div>
         )}
 
