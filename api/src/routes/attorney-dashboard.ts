@@ -5568,7 +5568,7 @@ router.post('/leads/:leadId/reassign', authMiddleware, async (req: any, res) => 
     if (lead?.assessmentId) {
       const { createNotificationEvent } = await import('../lib/platform-notifications')
       await createNotificationEvent({
-        userId: null,
+        userId: undefined,
         attorneyId: targetAttorneyId,
         assessmentId: lead.assessmentId,
         role: 'attorney',
@@ -5576,7 +5576,7 @@ router.post('/leads/:leadId/reassign', authMiddleware, async (req: any, res) => 
         eventType: 'attorney.case_reassigned',
         subject: 'A case has been assigned to you',
         body: `${callerName} assigned you a new case. Please review it in your Active Cases.`,
-        recipient: null,
+        recipient: undefined,
         payload: { leadId, reassignedBy: callerId },
       }).catch(() => {})
     }
