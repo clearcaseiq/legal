@@ -6810,7 +6810,7 @@ export default function IntakeWizardQuick() {
         {t('intake.privacyNote')}
       </p>
 
-      <div className="z-20 mx-4 shrink-0 rounded-xl border border-slate-200/80 bg-white/95 p-1.5 pb-[max(0.375rem,calc(0.375rem+env(safe-area-inset-bottom)))] shadow-lg shadow-slate-200/70 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 sm:mx-0 sm:rounded-2xl">
+      <div className="z-20 mx-4 shrink-0 rounded-xl border border-slate-200/90 bg-white/95 p-1.5 pb-[max(0.375rem,calc(0.375rem+env(safe-area-inset-bottom)))] shadow-lg shadow-slate-200/70 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 sm:mx-0 sm:rounded-2xl md:rounded-3xl">
       <div className="flex flex-col items-stretch gap-1.5 sm:flex-row sm:items-center sm:justify-between">
         <button
           type="button"
