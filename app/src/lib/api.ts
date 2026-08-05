@@ -1524,6 +1524,13 @@ export async function transferLeadToFirmAttorney(leadId: string, attorneyId: str
   return data
 }
 
+export async function reassignCaseToFirmAttorney(leadId: string, targetAttorneyId: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/reassign`, {
+    targetAttorneyId
+  })
+  return data
+}
+
 // Lead Quality & Transparency
 
 export async function getAttorneyFilteredLeads(params?: Record<string, string | number | boolean>) {

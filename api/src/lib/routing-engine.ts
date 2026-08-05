@@ -761,6 +761,36 @@ export async function runRoutingEngine(
       })
     }
 
+    // 12. Firm-level routing: when the routed attorney belongs to a multi-attorney
+    // firm, stamp the assessment with the firm so every firm member can see it
+    // and the firm admin can reassign internally.
+    if (routedTo.length > 0) {
+      const routedAttorney = attorneys.find(a => a.id === routedTo[0])
+      if (routedAttorney?.lawFirmId) {
+        const firmAttorneyCount = attorneys.filter(
+          a => a.lawFirmId === routedAttorney.lawFirmId && a.isActive
+        ).length
+        if (firmAttorneyCount >= 2) {
+          await prisma.assessment.update({
+            where: { id: assessmentId },
+            data: { lawFirmId: routedAttorney.lawFirmId },
+          }).catch(err => {
+            logger.warn('Failed to stamp assessment with lawFirmId', {
+              assessmentId,
+              lawFirmId: routedAttorney.lawFirmId,
+              error: (err as Error).message,
+            })
+          })
+          logger.info('Firm-level routing: case visible to all firm members', {
+            assessmentId,
+            lawFirmId: routedAttorney.lawFirmId,
+            firmAttorneyCount,
+            assignedAttorneyId: routedTo[0],
+          })
+        }
+      }
+    }
+
     logger.info('Routing engine completed', {
       assessmentId,
       candidatesEligible: eligible.length,

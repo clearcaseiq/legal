@@ -5514,6 +5514,73 @@ router.get('/leads/filtered', authMiddleware, async (req: any, res) => {
   }
 })
 
+// Firm-level case reassignment: firm admin can reassign a case to another
+// attorney within the same firm.
+router.post('/leads/:leadId/reassign', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const { targetAttorneyId } = req.body
+    if (!targetAttorneyId) {
+      return res.status(400).json({ error: 'targetAttorneyId is required' })
+    }
+    const auth = await getAuthorizedLead(req, leadId)
+    if (!auth) return res.status(403).json({ error: 'Not authorized' })
+    const { attorney } = auth
+
+    if (!attorney.lawFirmId) {
+      return res.status(403).json({ error: 'Only firm members can reassign cases' })
+    }
+
+    const targetAttorney = await prisma.attorney.findUnique({
+      where: { id: targetAttorneyId },
+      select: { id: true, name: true, lawFirmId: true, isActive: true },
+    })
+    if (!targetAttorney || !targetAttorney.isActive) {
+      return res.status(404).json({ error: 'Target attorney not found or inactive' })
+    }
+    if (targetAttorney.lawFirmId !== attorney.lawFirmId) {
+      return res.status(403).json({ error: 'Target attorney must be in the same firm' })
+    }
+
+    await prisma.leadSubmission.update({
+      where: { id: leadId },
+      data: { assignedAttorneyId: targetAttorneyId },
+    })
+
+    const lead = await prisma.leadSubmission.findUnique({
+      where: { id: leadId },
+      select: { assessmentId: true },
+    })
+    if (lead?.assessmentId) {
+      const { createNotificationEvent } = await import('../lib/platform-notifications')
+      await createNotificationEvent({
+        userId: null,
+        attorneyId: targetAttorneyId,
+        assessmentId: lead.assessmentId,
+        role: 'attorney',
+        channel: 'in_app',
+        eventType: 'attorney.case_reassigned',
+        subject: 'A case has been assigned to you',
+        body: `${attorney.name || 'A firm admin'} assigned you a new case. Please review it in your Active Cases.`,
+        recipient: null,
+        payload: { leadId, reassignedBy: attorney.id },
+      }).catch(() => {})
+    }
+
+    logger.info('Case reassigned within firm', {
+      leadId,
+      fromAttorneyId: attorney.id,
+      toAttorneyId: targetAttorneyId,
+      lawFirmId: attorney.lawFirmId,
+    })
+
+    return res.json({ ok: true, assignedAttorneyId: targetAttorneyId, assignedAttorneyName: targetAttorney.name })
+  } catch (err: any) {
+    logger.error('Case reassignment failed', { error: err.message })
+    return res.status(500).json({ error: 'Failed to reassign case' })
+  }
+})
+
 // Lead contact and booking endpoints
 
 // Create a contact attempt
