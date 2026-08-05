@@ -4198,7 +4198,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('bodyParts', value)} className={tileClass(selected)}>
                       <span className="hidden h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs dark:bg-slate-800 sm:flex" aria-hidden>{disp?.emoji || '•'}</span>
-                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{disp?.label || label}</span>
+                      <span className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{disp?.label || label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -4316,7 +4316,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('imaging', value)} className={tileClass(selected)}>
                       <span className="hidden h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800 sm:flex"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -4327,14 +4327,14 @@ export default function IntakeWizardQuick() {
             {/* Diagnoses */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
               <SectionHeader icon={ClipboardCheck} title={tx('injuryDetails_diagnosesQuestion')} helper={tx('injuryDetails_diagnosesHelper')} />
-              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-2.5">
                 {DIAGNOSIS_OPTIONS.map(({ value, label }) => {
                   const selected = formData.injuryDetails.diagnoses.includes(value)
                   const Icon = diagnosisIcons[value] || Stethoscope
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('diagnoses', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 break-words text-sm font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -4363,7 +4363,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('currentSymptoms', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -4390,7 +4390,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, recoveryStatus: selected ? '' : value } })} className={radioCardClass(selected)}>
                       {radioDot(selected)}
-                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
                     </button>
                   )
                 })}
@@ -4407,7 +4407,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('lifestyleImpact', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                      <span className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -4496,7 +4496,7 @@ export default function IntakeWizardQuick() {
                       return (
                         <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('futureTreatment', value, value === 'none')} className={tileClass(selected)}>
                           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                          <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold leading-tight text-gray-800 dark:text-slate-200">{label}</span>
+                          <span className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
                           {renderCheck(selected)}
                         </button>
                       )
