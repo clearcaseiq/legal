@@ -4560,8 +4560,8 @@ export default function IntakeWizardQuick() {
               </div>{/* end main column */}
 
               {/* ---------- Sidebar (injury overview + insights) ---------- */}
-              <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-                {/* Injury overview + body diagram */}
+              <aside className="hidden space-y-4 sm:block lg:sticky lg:top-4 lg:self-start">
+                {/* Injury overview + body diagram — hidden on mobile to reduce scroll */}
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/40">
                   <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_overviewTitle')}</p>
                   <div className="mt-3 flex justify-center">
