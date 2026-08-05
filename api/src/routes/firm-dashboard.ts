@@ -585,19 +585,21 @@ router.patch('/members/:memberId', authMiddleware as any, async (req: any, res: 
     const { memberId } = req.params
     const member = await (prisma as any).firmMember.findFirst({
       where: { id: memberId, lawFirmId: context.lawFirmId },
-      select: { id: true }
+      select: { id: true, userId: true, role: true }
     })
     if (!member) {
       return res.status(404).json({ error: 'Member not found in this firm' })
     }
 
+    const body = req.body || {}
     const data: Record<string, any> = {}
-    if ('officeId' in (req.body || {})) {
-      const { officeId } = req.body
+
+    // Office assignment
+    if ('officeId' in body) {
+      const { officeId } = body
       if (officeId === null || officeId === '') {
         data.officeId = null
       } else if (typeof officeId === 'string') {
-        // Only allow offices that belong to this firm.
         const office = await (prisma as any).firmOffice.findFirst({
           where: { id: officeId, lawFirmId: context.lawFirmId },
           select: { id: true }
@@ -609,6 +611,47 @@ router.patch('/members/:memberId', authMiddleware as any, async (req: any, res: 
       }
     }
 
+    // Role change
+    if ('role' in body && typeof body.role === 'string') {
+      const validRoles = Object.keys(FIRM_ROLE_PERMISSIONS)
+      if (!validRoles.includes(body.role)) {
+        return res.status(400).json({ error: `Invalid role. Must be one of: ${validRoles.join(', ')}` })
+      }
+      // Prevent demoting yourself from firm_admin
+      if (member.userId === context.member?.userId && member.role === 'firm_admin' && body.role !== 'firm_admin') {
+        return res.status(400).json({ error: 'You cannot remove your own admin role. Ask another admin to change it.' })
+      }
+      data.role = body.role
+    }
+
+    // Title
+    if ('title' in body) {
+      data.title = typeof body.title === 'string' ? body.title.trim() || null : null
+    }
+
+    // Permission overrides (JSON array of strings)
+    if ('permissions' in body) {
+      if (body.permissions === null || (Array.isArray(body.permissions) && body.permissions.length === 0)) {
+        data.permissions = null
+      } else if (Array.isArray(body.permissions) && body.permissions.every((p: unknown) => typeof p === 'string')) {
+        data.permissions = JSON.stringify(body.permissions)
+      } else {
+        return res.status(400).json({ error: 'permissions must be an array of strings or null' })
+      }
+    }
+
+    // Status change (suspend / reactivate)
+    if ('status' in body && typeof body.status === 'string') {
+      const validStatuses = ['active', 'suspended']
+      if (!validStatuses.includes(body.status)) {
+        return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` })
+      }
+      if (member.userId === context.member?.userId && body.status === 'suspended') {
+        return res.status(400).json({ error: 'You cannot suspend yourself' })
+      }
+      data.status = body.status
+    }
+
     if (Object.keys(data).length === 0) {
       return res.status(400).json({ error: 'No supported fields to update' })
     }
@@ -616,13 +659,50 @@ router.patch('/members/:memberId', authMiddleware as any, async (req: any, res: 
     const updated = await (prisma as any).firmMember.update({
       where: { id: memberId },
       data,
-      select: { id: true, officeId: true, office: { select: { id: true, name: true } } }
+      select: {
+        id: true, role: true, title: true, permissions: true, status: true,
+        officeId: true, office: { select: { id: true, name: true } },
+        user: { select: { id: true, email: true, name: true } },
+      }
     })
 
     res.json({ member: updated })
   } catch (error: any) {
     logger.error('Failed to update firm member', { error: error?.message || String(error) })
     res.status(500).json({ error: 'Failed to update firm member' })
+  }
+})
+
+// Remove a member from the firm entirely
+router.delete('/members/:memberId', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) {
+      return res.status(404).json({ error: 'No law firm associated with this user' })
+    }
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage firm users' })
+    }
+
+    const { memberId } = req.params
+    const member = await (prisma as any).firmMember.findFirst({
+      where: { id: memberId, lawFirmId: context.lawFirmId },
+      select: { id: true, userId: true, role: true }
+    })
+    if (!member) {
+      return res.status(404).json({ error: 'Member not found in this firm' })
+    }
+    if (member.userId === context.member?.userId) {
+      return res.status(400).json({ error: 'You cannot remove yourself from the firm' })
+    }
+
+    await (prisma as any).firmMember.delete({ where: { id: memberId } })
+    logger.info('Firm member removed', { memberId, lawFirmId: context.lawFirmId })
+
+    res.json({ ok: true })
+  } catch (error: any) {
+    logger.error('Failed to remove firm member', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to remove firm member' })
   }
 })
 

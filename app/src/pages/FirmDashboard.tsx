@@ -19,6 +19,10 @@ import {
   FileText,
   Workflow,
   X,
+  Trash2,
+  Shield,
+  Ban,
+  CheckCircle2,
 } from 'lucide-react'
 import {
   addFirmAttorney,
@@ -27,6 +31,7 @@ import {
   addFirmTeam,
   addFirmTeamMember,
   removeFirmTeamMember,
+  removeFirmMember,
   updateFirmAttorney,
   updateFirmMember,
   resendFirmMemberInvite,
@@ -310,6 +315,15 @@ export default function FirmDashboard() {
   const [editSaving, setEditSaving] = useState(false)
   const [editAttorney, setEditAttorney] = useState({ firstName: '', middleName: '', lastName: '', specialties: [] as string[], jurisdictions: [] as string[] })
 
+  // Member permissions editor state
+  const [editingMember, setEditingMember] = useState<any>(null)
+  const [editMemberRole, setEditMemberRole] = useState('')
+  const [editMemberTitle, setEditMemberTitle] = useState('')
+  const [editMemberPermOverrides, setEditMemberPermOverrides] = useState<string[]>([])
+  const [editMemberSaving, setEditMemberSaving] = useState(false)
+  const [editMemberError, setEditMemberError] = useState<string | null>(null)
+  const [confirmRemoveMember, setConfirmRemoveMember] = useState(false)
+
   const refreshCaseload = useCallback(async () => {
     try {
       const d = await getFirmTeamCaseload()
@@ -473,6 +487,86 @@ export default function FirmDashboard() {
       setMemberError(err.response?.data?.error || 'Failed to resend invitation.')
     } finally {
       setResendingMemberId(null)
+    }
+  }
+
+  const ALL_PERMISSIONS = useMemo(() => {
+    const set = new Set<string>()
+    Object.values(workspace?.roleCapabilities || {}).forEach((perms: any) =>
+      (perms as string[]).forEach((p) => set.add(p))
+    )
+    return Array.from(set).sort()
+  }, [workspace?.roleCapabilities])
+
+  const openEditMember = (m: any) => {
+    setEditingMember(m)
+    setEditMemberRole(m.role || 'intake_specialist')
+    setEditMemberTitle(m.title || '')
+    const overrides = (() => {
+      try { return JSON.parse(m.permissions || '[]') } catch { return [] }
+    })()
+    setEditMemberPermOverrides(Array.isArray(overrides) ? overrides : [])
+    setEditMemberError(null)
+    setConfirmRemoveMember(false)
+  }
+
+  const roleDefaultPerms: string[] = useMemo(() => {
+    return (workspace?.roleCapabilities as Record<string, string[]> | undefined)?.[editMemberRole] || []
+  }, [editMemberRole, workspace?.roleCapabilities])
+
+  const togglePermOverride = (perm: string) => {
+    setEditMemberPermOverrides((prev) =>
+      prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm]
+    )
+  }
+
+  const handleSaveMember = async () => {
+    if (!editingMember) return
+    setEditMemberSaving(true)
+    setEditMemberError(null)
+    try {
+      const extraPerms = editMemberPermOverrides.filter((p) => !roleDefaultPerms.includes(p))
+      await updateFirmMember(editingMember.id, {
+        role: editMemberRole,
+        title: editMemberTitle.trim() || null,
+        permissions: extraPerms.length > 0 ? extraPerms : null,
+      })
+      await refresh(true)
+      setEditingMember(null)
+    } catch (err: any) {
+      setEditMemberError(err.response?.data?.error || 'Failed to update member.')
+    } finally {
+      setEditMemberSaving(false)
+    }
+  }
+
+  const handleToggleMemberStatus = async (newStatus: 'active' | 'suspended') => {
+    if (!editingMember) return
+    setEditMemberSaving(true)
+    setEditMemberError(null)
+    try {
+      await updateFirmMember(editingMember.id, { status: newStatus })
+      await refresh(true)
+      setEditingMember(null)
+    } catch (err: any) {
+      setEditMemberError(err.response?.data?.error || `Failed to ${newStatus === 'suspended' ? 'suspend' : 'reactivate'} member.`)
+    } finally {
+      setEditMemberSaving(false)
+    }
+  }
+
+  const handleRemoveMember = async () => {
+    if (!editingMember) return
+    setEditMemberSaving(true)
+    setEditMemberError(null)
+    try {
+      await removeFirmMember(editingMember.id)
+      await refresh(true)
+      setEditingMember(null)
+    } catch (err: any) {
+      setEditMemberError(err.response?.data?.error || 'Failed to remove member.')
+    } finally {
+      setEditMemberSaving(false)
     }
   }
 
@@ -1244,6 +1338,15 @@ export default function FirmDashboard() {
                   ),
                 },
                 {
+                  key: 'status',
+                  header: 'Status',
+                  cell: (m: any) => {
+                    const st = m.status || 'active'
+                    const tone = st === 'active' ? 'success' : st === 'invited' ? 'warning' : 'neutral'
+                    return <Badge tone={tone}>{st === 'active' ? 'Active' : st === 'invited' ? 'Pending' : 'Suspended'}</Badge>
+                  },
+                },
+                {
                   key: 'action',
                   header: '',
                   align: 'right',
@@ -1261,8 +1364,16 @@ export default function FirmDashboard() {
                           </button>
                         )}
                         {att && (
-                          <button onClick={() => startEditAttorney(att)} className={btnGhost + ' !px-2.5 !py-1 !text-xs'}>Edit</button>
+                          <button onClick={() => startEditAttorney(att)} className={btnGhost + ' !px-2.5 !py-1 !text-xs'}>Edit profile</button>
                         )}
+                        <button
+                          onClick={() => openEditMember(m)}
+                          className={btnGhost + ' !px-2.5 !py-1 !text-xs'}
+                          title="Edit role & permissions"
+                        >
+                          <Shield className="mr-1 inline h-3.5 w-3.5" />
+                          Manage
+                        </button>
                       </div>
                     )
                   },
@@ -1590,6 +1701,140 @@ export default function FirmDashboard() {
               <button onClick={() => setAssignTarget(null)} className={btnGhost}>Cancel</button>
               <button onClick={submitAssign} disabled={assignSaving} className={btnPrimary}>
                 {assignSaving ? 'Assigning…' : 'Assign'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── EDIT MEMBER: Role & Permissions modal ───────────────────── */}
+      {editingMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditingMember(null)}>
+          <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Manage member</h3>
+                <p className="mt-0.5 text-sm text-slate-500">{editingMember.user?.email || editingMember.attorney?.email || '—'}</p>
+              </div>
+              <button onClick={() => setEditingMember(null)} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+            </div>
+
+            <div className="max-h-[68vh] space-y-5 overflow-y-auto px-6 py-5">
+              {/* Role */}
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-slate-700">Role</label>
+                <select value={editMemberRole} onChange={(e) => setEditMemberRole(e.target.value)} className={inputCls}>
+                  {FIRM_ROLES.map((r) => (
+                    <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-slate-400">
+                  This role determines the base set of permissions for this user.
+                </p>
+              </div>
+
+              {/* Title */}
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-slate-700">Title (optional)</label>
+                <input type="text" value={editMemberTitle} onChange={(e) => setEditMemberTitle(e.target.value)} placeholder="e.g. Senior Paralegal" maxLength={120} className={inputCls} />
+              </div>
+
+              {/* Permission matrix */}
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  <Shield className="mr-1.5 inline h-4 w-4 text-brand-500" />
+                  Permissions
+                </label>
+                <p className="mb-3 text-xs text-slate-400">
+                  Permissions from the selected role are checked by default. Toggle additional permissions or remove role defaults by unchecking them.
+                </p>
+                <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                  {ALL_PERMISSIONS.map((perm) => {
+                    const isRoleDefault = roleDefaultPerms.includes(perm)
+                    const isOverride = editMemberPermOverrides.includes(perm)
+                    const isActive = isRoleDefault || isOverride
+                    return (
+                      <label
+                        key={perm}
+                        className={`flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition ${
+                          isActive ? 'bg-brand-50 text-brand-800' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isActive}
+                          onChange={() => {
+                            if (isRoleDefault && !isOverride) return
+                            togglePermOverride(perm)
+                          }}
+                          disabled={isRoleDefault && !isOverride}
+                          className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 disabled:opacity-40"
+                        />
+                        <span className="flex-1">{perm.replace(/_/g, ' ')}</span>
+                        {isRoleDefault && <span className="rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-brand-600">Role</span>}
+                        {!isRoleDefault && isOverride && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-600">Extra</span>}
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Status / Suspend / Remove */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="mb-3 text-sm font-semibold text-slate-700">Account controls</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {(editingMember.status || 'active') === 'active' ? (
+                    <button
+                      onClick={() => handleToggleMemberStatus('suspended')}
+                      disabled={editMemberSaving}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 shadow-sm transition hover:bg-amber-50 disabled:opacity-50"
+                    >
+                      <Ban className="h-3.5 w-3.5" /> Suspend access
+                    </button>
+                  ) : editingMember.status === 'suspended' ? (
+                    <button
+                      onClick={() => handleToggleMemberStatus('active')}
+                      disabled={editMemberSaving}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-green-200 bg-white px-3 py-1.5 text-xs font-semibold text-green-700 shadow-sm transition hover:bg-green-50 disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Reactivate
+                    </button>
+                  ) : null}
+                  {!confirmRemoveMember ? (
+                    <button
+                      onClick={() => setConfirmRemoveMember(true)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-600 shadow-sm transition hover:bg-red-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Remove from firm
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-red-600 font-medium">Are you sure?</span>
+                      <button
+                        onClick={handleRemoveMember}
+                        disabled={editMemberSaving}
+                        className="inline-flex items-center gap-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {editMemberSaving ? 'Removing…' : 'Yes, remove'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmRemoveMember(false)}
+                        className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {editMemberError && <p className="text-sm text-red-600">{editMemberError}</p>}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-6 py-4">
+              <button onClick={() => setEditingMember(null)} className={btnGhost}>Cancel</button>
+              <button onClick={handleSaveMember} disabled={editMemberSaving} className={btnPrimary}>
+                {editMemberSaving ? 'Saving…' : 'Save changes'}
               </button>
             </div>
           </div>

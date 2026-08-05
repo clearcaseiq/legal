@@ -4439,8 +4439,16 @@ export async function addFirmAttorney(payload: {
   return data
 }
 
-export async function updateFirmMember(memberId: string, payload: { officeId?: string | null }) {
+export async function updateFirmMember(
+  memberId: string,
+  payload: { officeId?: string | null; role?: string; title?: string | null; permissions?: string[] | null; status?: string }
+) {
   const { data } = await api.patch(`/v1/firm-dashboard/members/${memberId}`, payload)
+  return data
+}
+
+export async function removeFirmMember(memberId: string) {
+  const { data } = await api.delete(`/v1/firm-dashboard/members/${memberId}`)
   return data
 }
 
