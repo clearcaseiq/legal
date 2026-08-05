@@ -6579,7 +6579,7 @@ export default function IntakeWizardQuick() {
         />,
         document.body
       )}
-      <div className="mb-1 shrink-0 px-3 sm:px-0" aria-busy={loading}>
+      <div className="mb-1 shrink-0 px-4 sm:px-0" aria-busy={loading}>
         <p className={`mb-0.5 text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300 md:text-sm ${isFirstStep ? 'hidden sm:block' : ''}`}>
           {t('intake.timePromise')}
         </p>
@@ -6682,7 +6682,7 @@ export default function IntakeWizardQuick() {
       </div>
 
       {draftRestored && (
-        <div className="mx-3 mb-1 flex shrink-0 items-center justify-between gap-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-1.5 text-xs leading-5 text-sky-900 sm:mx-0 sm:px-4 sm:py-2 sm:text-sm">
+        <div className="mx-4 mb-1 flex shrink-0 items-center justify-between gap-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-1.5 text-xs leading-5 text-sky-900 sm:mx-0 sm:px-4 sm:py-2 sm:text-sm">
           <span><span className="font-semibold">{tx('draft_welcomeBack')}</span> {tx('draft_savedProgress')}</span>
           <button type="button" onClick={() => setDraftRestored(false)} aria-label={tx('draft_dismiss')} className="shrink-0 rounded-full p-0.5 text-sky-700 hover:text-sky-900">
             <X className="h-4 w-4" aria-hidden />
@@ -6692,7 +6692,7 @@ export default function IntakeWizardQuick() {
 
       {showReassurance && !evidenceFit && Object.keys(errors).length === 0 && (
         <div
-          className={`mx-3 mb-1 shrink-0 rounded-xl border border-brand-100 bg-brand-50 text-brand-900 sm:mx-0 ${
+          className={`mx-4 mb-1 shrink-0 rounded-xl border border-brand-100 bg-brand-50 text-brand-900 sm:mx-0 ${
             evidenceFit ? 'px-3 py-1.5 text-xs leading-snug' : 'px-3 py-1.5 text-xs leading-5 sm:px-4 sm:py-2 sm:text-sm sm:leading-6'
           }`}
         >
@@ -6701,7 +6701,7 @@ export default function IntakeWizardQuick() {
       )}
 
       {showSavedAnswerHint && Object.keys(errors).length === 0 && (
-        <div className="mx-3 mb-1 shrink-0 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs leading-5 text-emerald-900 sm:mx-0 sm:px-4 sm:text-sm">
+        <div className="mx-4 mb-1 shrink-0 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs leading-5 text-emerald-900 sm:mx-0 sm:px-4 sm:text-sm">
           <span className="inline-flex items-center gap-1 font-semibold"><Check className="h-3.5 w-3.5" aria-hidden /> {tx('savedAnswer_title')}</span> {tx('savedAnswer_hint')}
         </div>
       )}
@@ -6710,7 +6710,7 @@ export default function IntakeWizardQuick() {
       {isFirstStep && Object.keys(errors).length === 0 && (
         <div
           aria-hidden={!isRevisitingAnsweredStep}
-          className={`mx-3 mb-1 shrink-0 rounded-lg border px-3 py-1 text-xs leading-5 sm:mx-0 sm:px-4 sm:text-sm ${
+          className={`mx-4 mb-1 shrink-0 rounded-lg border px-3 py-1 text-xs leading-5 sm:mx-0 sm:px-4 sm:text-sm ${
             isRevisitingAnsweredStep ? 'border-emerald-100 bg-emerald-50 text-emerald-900' : 'invisible border-transparent'
           }`}
         >
@@ -6719,7 +6719,7 @@ export default function IntakeWizardQuick() {
       )}
 
       {injuryDetailsFit && (
-        <div className="mx-3 mb-1 shrink-0 rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-brand-950 sm:mx-0">
+        <div className="mx-4 mb-1 shrink-0 rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-brand-950 sm:mx-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-semibold leading-tight sm:text-sm">{tx('injuryStrength_title')}</p>
             <p className="text-[10px] font-bold uppercase tracking-wide text-brand-700">{tx('consent_confidence')} {injuryConfidencePercent}%</p>
@@ -6740,7 +6740,7 @@ export default function IntakeWizardQuick() {
           ref={errorSummaryRef}
           role="alert"
           aria-live="assertive"
-          className="mx-3 mb-1 flex shrink-0 items-start gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium leading-snug text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300 sm:mx-0"
+          className="mx-4 mb-1 flex shrink-0 items-start gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium leading-snug text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300 sm:mx-0"
         >
           <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>{Object.values(errors).filter(Boolean).join(' · ')}</span>
@@ -6752,7 +6752,7 @@ export default function IntakeWizardQuick() {
           disclosure is the one thing here that has to be read. Disappears for
           good once ticked. */}
       {isFirstStep && !disclosureAcked && (
-        <div className="mx-3 mb-1.5 shrink-0 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/50 sm:mx-0 sm:px-4">
+        <div className="mx-4 mb-1.5 shrink-0 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/50 sm:mx-0 sm:px-4">
           <div className="flex items-start gap-2.5">
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-700 dark:text-brand-300" aria-hidden />
             <div className="min-w-0">
@@ -6801,7 +6801,7 @@ export default function IntakeWizardQuick() {
               : "[&_button]:min-h-14 [&_button]:leading-snug [&_button]:text-base md:[&_button]:text-lg [&_input:not([type='checkbox'])]:min-h-12 [&_input:not([type='checkbox'])]:text-lg [&_label]:text-base [&_p.text-lg]:text-xl [&_p.text-sm]:text-base [&_p.text-xs]:text-sm [&_select]:min-h-12 [&_select]:text-lg [&_span.text-sm]:text-base [&_span.text-xs]:text-sm [&_textarea]:min-h-[4.75rem] [&_textarea]:py-2 [&_textarea]:text-base [&_textarea]:leading-snug"
         } min-h-0`}
       >
-        <div ref={stepScrollRef} className="px-3 sm:px-2">
+        <div ref={stepScrollRef} className="px-4 sm:px-2">
           {renderStep()}
         </div>
       </div>
@@ -6810,7 +6810,7 @@ export default function IntakeWizardQuick() {
         {t('intake.privacyNote')}
       </p>
 
-      <div className="z-20 mx-3 shrink-0 rounded-xl border border-slate-200/80 bg-white/95 p-1.5 pb-[max(0.375rem,calc(0.375rem+env(safe-area-inset-bottom)))] shadow-lg shadow-slate-200/70 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 sm:mx-0 sm:rounded-2xl">
+      <div className="z-20 mx-4 shrink-0 rounded-xl border border-slate-200/80 bg-white/95 p-1.5 pb-[max(0.375rem,calc(0.375rem+env(safe-area-inset-bottom)))] shadow-lg shadow-slate-200/70 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 sm:mx-0 sm:rounded-2xl">
       <div className="flex flex-col items-stretch gap-1.5 sm:flex-row sm:items-center sm:justify-between">
         <button
           type="button"
