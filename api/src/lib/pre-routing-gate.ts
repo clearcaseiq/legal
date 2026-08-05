@@ -68,7 +68,7 @@ const DEFAULT_OPTIONS: Required<PreRoutingGateOptions> = {
   requireDisclosures: true,
   requirePlaintiffContact: false, // User may be linked via userId; relax for now
   supportedJurisdictions: ['CA', 'TX', 'FL', 'NY', 'IL', 'PA', 'OH', 'GA', 'NC', 'MI', 'AZ', 'WA', 'CO', 'NV', 'NJ'],
-  supportedClaimTypes: ['auto', 'slip_and_fall', 'dog_bite', 'medmal', 'product', 'nursing_home_abuse', 'wrongful_death', 'auto_accident', 'premises', 'pi'],
+  supportedClaimTypes: ['auto', 'slip_and_fall', 'dog_bite', 'medmal', 'product', 'nursing_home_abuse', 'wrongful_death', 'auto_accident', 'premises', 'pi', 'workplace_injury', 'intentional_tort', 'toxic_exposure', 'other_pi'],
   gateFailureAction: 'manual_review',
   claimTypeGateOverrides: [],
   stateGateOverrides: [],

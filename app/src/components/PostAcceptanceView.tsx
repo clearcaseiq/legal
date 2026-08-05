@@ -10,6 +10,7 @@ import { useHeuristics } from '../contexts/HeuristicsContext'
 import { caseStrengthLabel } from '../lib/heuristics'
 import { CallPlaintiffModal, MessagePlaintiffModal, ScheduleConsultModal } from './CaseCommandModals'
 import { formatClaimType } from '../lib/claimTypes'
+import { scheduleConsultation } from '../lib/api'
 
 interface CollapsibleSectionProps {
   title: string
@@ -235,15 +236,23 @@ export default function PostAcceptanceView({
     }
   }
 
-  const handleScheduleConsult = async (scheduledAt: string, meetingType: 'phone' | 'zoom' | 'in-person') => {
-    if (!onCreateContact) return
+  const handleScheduleConsult = async (scheduledAt: string, meetingType: 'phone' | 'video' | 'in_person') => {
     setModalLoading(true)
     try {
-      await onCreateContact({
-        contactType: 'consult',
-        scheduledAt,
-        notes: `Consultation scheduled. Meeting type: ${meetingType}`
-      })
+      const dt = new Date(scheduledAt)
+      if (selectedLead?.id) {
+        await scheduleConsultation(selectedLead.id, {
+          date: dt.toISOString().slice(0, 10),
+          time: dt.toTimeString().slice(0, 5),
+          meetingType,
+        })
+      } else if (onCreateContact) {
+        await onCreateContact({
+          contactType: 'consult',
+          scheduledAt,
+          notes: `Consultation scheduled. Meeting type: ${meetingType}`
+        })
+      }
       onRefresh?.()
     } finally {
       setModalLoading(false)

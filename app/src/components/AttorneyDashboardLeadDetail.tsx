@@ -714,6 +714,7 @@ export default function AttorneyDashboardLeadDetail({
                   email={email}
                   preferredContact={preferredContact}
                   contactHistory={contactHistory}
+                  leadId={selectedLead?.id}
                   onCall={handleQuickCall}
                   onMessage={handleQuickMessage}
                   onScheduleConsult={handleQuickConsult}

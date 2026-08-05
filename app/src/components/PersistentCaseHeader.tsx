@@ -9,6 +9,7 @@ import { Phone, MessageSquare, Calendar, Download, FileText } from 'lucide-react
 import { formatCurrency } from '../lib/formatters'
 import { CallPlaintiffModal, MessagePlaintiffModal, ScheduleConsultModal } from './CaseCommandModals'
 import { formatClaimType } from '../lib/claimTypes'
+import { scheduleConsultation } from '../lib/api'
 
 export interface PersistentCaseHeaderProps {
   claimType: string
@@ -33,6 +34,7 @@ export interface PersistentCaseHeaderProps {
   /** When provided, Message button opens in-app chat drawer instead of contact modal */
   onOpenChat?: () => void
   onDownloadCaseFile: () => void
+  leadId?: string
   onCreateContact?: (payload: { contactType: string; contactMethod?: string; scheduledAt?: string; notes?: string }) => Promise<void>
   onRefresh?: () => void
   caseFileLoading?: boolean
@@ -64,6 +66,7 @@ export default function PersistentCaseHeader({
   onMessage,
   onScheduleConsult,
   onDownloadCaseFile,
+  leadId,
   onCreateContact,
   onOpenChat,
   onRefresh,
@@ -111,15 +114,23 @@ export default function PersistentCaseHeader({
     }
   }
 
-  const handleScheduleConsult = async (scheduledAt: string, meetingType: 'phone' | 'zoom' | 'in-person') => {
-    if (!onCreateContact) return
+  const handleScheduleConsult = async (scheduledAt: string, meetingType: 'phone' | 'video' | 'in_person') => {
     setModalLoading(true)
     try {
-      await onCreateContact({
-        contactType: 'consult',
-        scheduledAt,
-        notes: `Consultation scheduled. Meeting type: ${meetingType}`
-      })
+      const dt = new Date(scheduledAt)
+      if (leadId) {
+        await scheduleConsultation(leadId, {
+          date: dt.toISOString().slice(0, 10),
+          time: dt.toTimeString().slice(0, 5),
+          meetingType,
+        })
+      } else if (onCreateContact) {
+        await onCreateContact({
+          contactType: 'consult',
+          scheduledAt,
+          notes: `Consultation scheduled. Meeting type: ${meetingType}`
+        })
+      }
       onRefresh?.()
     } finally {
       setModalLoading(false)

@@ -277,13 +277,13 @@ export function ScheduleConsultModal({
   open: boolean
   onClose: () => void
   plaintiffName: string
-  onSchedule: (scheduledAt: string, meetingType: 'phone' | 'zoom' | 'in-person') => Promise<void>
+  onSchedule: (scheduledAt: string, meetingType: 'phone' | 'video' | 'in_person') => Promise<void>
   loading?: boolean
 }) {
   const defaultDate = new Date(Date.now() + 24 * 60 * 60 * 1000)
   const [date, setDate] = useState(defaultDate.toISOString().slice(0, 10))
   const [time, setTime] = useState('10:00')
-  const [meetingType, setMeetingType] = useState<'phone' | 'zoom' | 'in-person'>('phone')
+  const [meetingType, setMeetingType] = useState<'phone' | 'video' | 'in_person'>('phone')
 
   const handleSchedule = async () => {
     const scheduledAt = new Date(`${date}T${time}`).toISOString()
@@ -328,7 +328,7 @@ export function ScheduleConsultModal({
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Meeting type</label>
             <div className="space-y-2">
-              {(['phone', 'zoom', 'in-person'] as const).map((t) => (
+              {(['phone', 'video', 'in_person'] as const).map((t) => (
                 <label key={t} className="flex items-center gap-2 text-sm text-gray-700">
                   <input
                     type="radio"
@@ -337,7 +337,7 @@ export function ScheduleConsultModal({
                     onChange={() => setMeetingType(t)}
                     className="text-brand-600"
                   />
-                  {t === 'phone' ? 'Phone' : t === 'zoom' ? 'Zoom' : 'In-person'}
+                  {t === 'phone' ? 'Phone' : t === 'video' ? 'Zoom / Video' : 'In-person'}
                 </label>
               ))}
             </div>
