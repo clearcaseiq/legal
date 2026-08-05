@@ -130,6 +130,24 @@ services:
     networks:
       - injury-network
 
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: clearcaseiq-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/clearcaseiq.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+    networks:
+      - injury-network
+
 volumes:
   dbdata:
 
