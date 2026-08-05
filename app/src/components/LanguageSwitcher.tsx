@@ -31,12 +31,23 @@ export default function LanguageSwitcher() {
       ) return
       setOpen(false)
     }
-    document.addEventListener('mousedown', handleClose)
-    document.addEventListener('touchstart', handleClose, { passive: true })
-    window.addEventListener('scroll', () => setOpen(false), { passive: true, once: true })
+    // Defer attaching the outside-click listeners to the next tick. Without this,
+    // the same tap that opens the menu (its touchstart/mousedown) is caught by the
+    // listener we attach synchronously and closes the dropdown instantly on mobile.
+    const attachTimer = setTimeout(() => {
+      document.addEventListener('mousedown', handleClose)
+      document.addEventListener('touchstart', handleClose, { passive: true })
+    }, 0)
+    // Reposition on resize/orientation change. Deliberately NOT closing on scroll:
+    // mobile fires spurious scroll events (address-bar collapse, menu layout) that
+    // were closing the dropdown the moment it opened.
+    const onResize = () => updatePosition()
+    window.addEventListener('resize', onResize)
     return () => {
+      clearTimeout(attachTimer)
       document.removeEventListener('mousedown', handleClose)
       document.removeEventListener('touchstart', handleClose)
+      window.removeEventListener('resize', onResize)
     }
   }, [open, updatePosition])
 
