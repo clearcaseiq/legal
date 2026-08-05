@@ -490,86 +490,6 @@ export default function FirmDashboard() {
     }
   }
 
-  const ALL_PERMISSIONS = useMemo(() => {
-    const set = new Set<string>()
-    Object.values(workspace?.roleCapabilities || {}).forEach((perms: any) =>
-      (perms as string[]).forEach((p) => set.add(p))
-    )
-    return Array.from(set).sort()
-  }, [workspace?.roleCapabilities])
-
-  const openEditMember = (m: any) => {
-    setEditingMember(m)
-    setEditMemberRole(m.role || 'intake_specialist')
-    setEditMemberTitle(m.title || '')
-    const overrides = (() => {
-      try { return JSON.parse(m.permissions || '[]') } catch { return [] }
-    })()
-    setEditMemberPermOverrides(Array.isArray(overrides) ? overrides : [])
-    setEditMemberError(null)
-    setConfirmRemoveMember(false)
-  }
-
-  const roleDefaultPerms: string[] = useMemo(() => {
-    return (workspace?.roleCapabilities as Record<string, string[]> | undefined)?.[editMemberRole] || []
-  }, [editMemberRole, workspace?.roleCapabilities])
-
-  const togglePermOverride = (perm: string) => {
-    setEditMemberPermOverrides((prev) =>
-      prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm]
-    )
-  }
-
-  const handleSaveMember = async () => {
-    if (!editingMember) return
-    setEditMemberSaving(true)
-    setEditMemberError(null)
-    try {
-      const extraPerms = editMemberPermOverrides.filter((p) => !roleDefaultPerms.includes(p))
-      await updateFirmMember(editingMember.id, {
-        role: editMemberRole,
-        title: editMemberTitle.trim() || null,
-        permissions: extraPerms.length > 0 ? extraPerms : null,
-      })
-      await refresh(true)
-      setEditingMember(null)
-    } catch (err: any) {
-      setEditMemberError(err.response?.data?.error || 'Failed to update member.')
-    } finally {
-      setEditMemberSaving(false)
-    }
-  }
-
-  const handleToggleMemberStatus = async (newStatus: 'active' | 'suspended') => {
-    if (!editingMember) return
-    setEditMemberSaving(true)
-    setEditMemberError(null)
-    try {
-      await updateFirmMember(editingMember.id, { status: newStatus })
-      await refresh(true)
-      setEditingMember(null)
-    } catch (err: any) {
-      setEditMemberError(err.response?.data?.error || `Failed to ${newStatus === 'suspended' ? 'suspend' : 'reactivate'} member.`)
-    } finally {
-      setEditMemberSaving(false)
-    }
-  }
-
-  const handleRemoveMember = async () => {
-    if (!editingMember) return
-    setEditMemberSaving(true)
-    setEditMemberError(null)
-    try {
-      await removeFirmMember(editingMember.id)
-      await refresh(true)
-      setEditingMember(null)
-    } catch (err: any) {
-      setEditMemberError(err.response?.data?.error || 'Failed to remove member.')
-    } finally {
-      setEditMemberSaving(false)
-    }
-  }
-
   const handleAddOffice = async (e: React.FormEvent) => {
     e.preventDefault()
     setOfficeError(null)
@@ -705,6 +625,86 @@ export default function FirmDashboard() {
   const cases = dashboardData?.cases || []
   const workspace = dashboardData?.workspace
   const assignmentRoles = workspace?.assignmentRoles || ['lead_attorney', 'secondary_attorney', 'case_manager', 'paralegal']
+
+  const ALL_PERMISSIONS = useMemo(() => {
+    const set = new Set<string>()
+    Object.values(workspace?.roleCapabilities || {}).forEach((perms: any) =>
+      (perms as string[]).forEach((p) => set.add(p))
+    )
+    return Array.from(set).sort()
+  }, [workspace?.roleCapabilities])
+
+  const openEditMember = (m: any) => {
+    setEditingMember(m)
+    setEditMemberRole(m.role || 'intake_specialist')
+    setEditMemberTitle(m.title || '')
+    const overrides = (() => {
+      try { return JSON.parse(m.permissions || '[]') } catch { return [] }
+    })()
+    setEditMemberPermOverrides(Array.isArray(overrides) ? overrides : [])
+    setEditMemberError(null)
+    setConfirmRemoveMember(false)
+  }
+
+  const roleDefaultPerms: string[] = useMemo(() => {
+    return (workspace?.roleCapabilities as Record<string, string[]> | undefined)?.[editMemberRole] || []
+  }, [editMemberRole, workspace?.roleCapabilities])
+
+  const togglePermOverride = (perm: string) => {
+    setEditMemberPermOverrides((prev) =>
+      prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm]
+    )
+  }
+
+  const handleSaveMember = async () => {
+    if (!editingMember) return
+    setEditMemberSaving(true)
+    setEditMemberError(null)
+    try {
+      const extraPerms = editMemberPermOverrides.filter((p) => !roleDefaultPerms.includes(p))
+      await updateFirmMember(editingMember.id, {
+        role: editMemberRole,
+        title: editMemberTitle.trim() || null,
+        permissions: extraPerms.length > 0 ? extraPerms : null,
+      })
+      await refresh(true)
+      setEditingMember(null)
+    } catch (err: any) {
+      setEditMemberError(err.response?.data?.error || 'Failed to update member.')
+    } finally {
+      setEditMemberSaving(false)
+    }
+  }
+
+  const handleToggleMemberStatus = async (newStatus: 'active' | 'suspended') => {
+    if (!editingMember) return
+    setEditMemberSaving(true)
+    setEditMemberError(null)
+    try {
+      await updateFirmMember(editingMember.id, { status: newStatus })
+      await refresh(true)
+      setEditingMember(null)
+    } catch (err: any) {
+      setEditMemberError(err.response?.data?.error || `Failed to ${newStatus === 'suspended' ? 'suspend' : 'reactivate'} member.`)
+    } finally {
+      setEditMemberSaving(false)
+    }
+  }
+
+  const handleRemoveMember = async () => {
+    if (!editingMember) return
+    setEditMemberSaving(true)
+    setEditMemberError(null)
+    try {
+      await removeFirmMember(editingMember.id)
+      await refresh(true)
+      setEditingMember(null)
+    } catch (err: any) {
+      setEditMemberError(err.response?.data?.error || 'Failed to remove member.')
+    } finally {
+      setEditMemberSaving(false)
+    }
+  }
 
   // Scope the visible tabs to what this member's role/permissions allow. Firm
   // attorneys/admins see everything; staff see a relevant subset (CP-337).
