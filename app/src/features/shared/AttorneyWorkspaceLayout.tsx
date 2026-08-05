@@ -33,6 +33,7 @@ interface NavEntry {
   description?: string
   icon: ComponentType<{ className?: string }>
   firmAdminOnly?: boolean
+  comingSoon?: boolean
 }
 
 interface NavSection {
@@ -69,7 +70,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/attorney-dashboard/cases/ai-manager', label: 'Rose — AI Case Manager', description: 'Raises the next task on every case', icon: Bot },
       { to: '/attorney-dashboard/cases/copilot', label: 'AI Copilot', description: 'Analysis & next actions', icon: Sparkles },
       { to: '/attorney-dashboard/cases/firm', label: 'Firm Dashboard', description: 'Team caseload', icon: Building2, firmAdminOnly: true },
-      { to: '/attorney-dashboard/cases/intake', label: 'Intake', description: 'Manual & imported leads', icon: Upload },
+      { to: '/attorney-dashboard/cases/intake', label: 'Intake', description: 'Manual & imported leads', icon: Upload, comingSoon: true },
     ],
   },
 ]
@@ -216,6 +217,22 @@ function Sidebar() {
                 {entries.map((entry) => {
                   const Icon = entry.icon
                   const active = isActive(entry.to)
+                  if (entry.comingSoon) {
+                    return (
+                      <span
+                        key={entry.to}
+                        className="group relative flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm opacity-50 cursor-default select-none"
+                      >
+                        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${style.chipIdle}`}>
+                          <Icon className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block font-medium leading-tight">{entry.label}</span>
+                          <span className="block text-[11px] leading-tight text-slate-400">Coming soon</span>
+                        </span>
+                      </span>
+                    )
+                  }
                   return (
                     <Link
                       key={entry.to}
@@ -294,6 +311,20 @@ function MobileNav() {
           const Icon = entry.icon
           const active = isActive(entry.to)
           const style = domainStyle(entry.domain)
+          if (entry.comingSoon) {
+            return (
+              <span
+                key={entry.to}
+                className="flex shrink-0 items-center gap-2 rounded-full border border-slate-200 bg-white py-1.5 pl-1.5 pr-3 text-xs font-semibold opacity-50 cursor-default select-none"
+              >
+                <span className={`flex h-5 w-5 items-center justify-center rounded-full ${style.chipIdle}`}>
+                  <Icon className="h-3 w-3" />
+                </span>
+                {entry.label}
+                <span className="text-[10px] font-normal text-slate-400">Soon</span>
+              </span>
+            )
+          }
           return (
             <Link
               key={entry.to}
