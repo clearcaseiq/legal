@@ -19,12 +19,24 @@
  *   node ../node_modules/tsx/dist/cli.mjs scripts/enrich-staged-pi-websites.ts --limit 5000
  *   node ../node_modules/tsx/dist/cli.mjs scripts/enrich-staged-pi-websites.ts
  *
+ * The resolver prefers the website already on file (from CPRA / Places /
+ * directories) and only guesses the domain from the firm name as a fallback.
+ * Once a site is reachable it also crawls a few attorney/team subpages, since
+ * bios, headshots and case results almost never live on the homepage.
+ *
  * Flags:
- *   --dry-run       Report without writing.
- *   --limit <n>     Process at most n attorneys.
- *   --source <s>    Filter by source (default: cpra-ca-bar-2026).
- *   --concurrency   Max parallel fetches (default: 5).
- *   --skip-known    Skip attorneys already flagged piRelevant.
+ *   --dry-run        Report without writing.
+ *   --limit <n>      Process at most n attorneys.
+ *   --source <s>     Filter by source (default: cpra-ca-bar-2026).
+ *   --concurrency    Max parallel fetches (default: 5).
+ *   --skip-known     Skip attorneys already flagged piRelevant (discovery mode, default).
+ *   --include-known  Also visit already-PI attorneys (enrich them too).
+ *   --pi-only        Enrichment mode: only visit already-PI attorneys.
+ *   --with-website   Only visit rows that already have a website (highest yield).
+ *
+ * Examples:
+ *   # Enrich known PI attorneys that already have a website (best first run):
+ *   node ../node_modules/tsx/dist/cli.mjs scripts/enrich-staged-pi-websites.ts --pi-only --with-website --dry-run --limit 100
  */
 
 import '../src/env'
@@ -36,10 +48,15 @@ type Args = {
   source: string
   concurrency: number
   skipKnown: boolean
+  piOnly: boolean
+  withWebsite: boolean
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { dryRun: false, limit: null, source: 'cpra-ca-bar-2026', concurrency: 5, skipKnown: true }
+  const args: Args = {
+    dryRun: false, limit: null, source: 'cpra-ca-bar-2026', concurrency: 5,
+    skipKnown: true, piOnly: false, withWebsite: false,
+  }
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i]
     const next = () => argv[++i]
@@ -50,6 +67,12 @@ function parseArgs(argv: string[]): Args {
       case '--concurrency': { const v = Number(next()); args.concurrency = Number.isFinite(v) ? v : 5; break }
       case '--skip-known': args.skipKnown = true; break
       case '--include-known': args.skipKnown = false; break
+      // Enrichment mode: only visit attorneys already flagged PI (fill in bio,
+      // headshot, languages, results) rather than discovering new PI firms.
+      case '--pi-only': args.piOnly = true; args.skipKnown = false; break
+      // Only visit rows that already have a website on file — the highest-yield,
+      // zero-guessing subset. Pairs well with --pi-only.
+      case '--with-website': args.withWebsite = true; break
       default: if (flag.startsWith('--')) throw new Error(`Unknown flag: ${flag}`)
     }
   }
@@ -118,6 +141,36 @@ function firmNameToUrl(firmName: string): string | null {
   return `https://${cleaned}law.com`
 }
 
+/**
+ * Normalize a website value we already hold (from CPRA / Places / directories)
+ * into a fetchable origin. Returns null for social/directory hosts, which are
+ * not the firm's own site and shouldn't be scraped as one.
+ */
+function normalizeWebsite(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  let url = raw.trim()
+  if (!url) return null
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url.replace(/^\/+/, '')
+  try {
+    const u = new URL(url)
+    if (/(facebook|linkedin|twitter|x|instagram|youtube|yelp|avvo|justia|findlaw|google)\./i.test(u.hostname)) return null
+    return u.origin + (u.pathname === '/' ? '' : u.pathname.replace(/\/+$/, ''))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Subpages where attorney bios, headshots, languages and case results actually
+ * live. The homepage alone rarely carries them, so once a firm site is
+ * reachable we pull a few of these too and extract from the combined HTML.
+ */
+const TEAM_SUBPATHS = [
+  '/attorneys', '/our-attorneys', '/attorney-profiles', '/our-team', '/team',
+  '/lawyers', '/our-lawyers', '/about', '/about-us', '/results', '/case-results',
+  '/verdicts-settlements', '/verdicts-and-settlements',
+]
+
 function firmNameVariants(firmName: string): string[] {
   if (!firmName) return []
   const cleaned = firmName
@@ -169,7 +222,44 @@ function stripHtml(html: string): string {
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
-    .slice(0, 50000)
+    .slice(0, 120000)
+}
+
+/**
+ * Fetch a firm site starting at `baseUrl`, then a bounded set of attorney/team
+ * subpages, and return the concatenated HTML. This is where bios, headshots and
+ * results are found — the homepage alone almost never has them.
+ *
+ * Returns null when the base URL itself is unreachable (so the caller can try
+ * the next candidate URL). `maxSubpages` caps how many extra pages we fetch to
+ * keep the crawl polite and fast.
+ */
+async function fetchSiteBundle(
+  baseUrl: string,
+  attorneyName: string,
+  maxSubpages = 3,
+): Promise<string | null> {
+  const baseHtml = await fetchPageText(baseUrl)
+  if (!baseHtml) return null
+
+  let origin: string
+  try { origin = new URL(baseUrl).origin } catch { origin = baseUrl.replace(/\/+$/, '') }
+
+  const nameParts = attorneyName.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(Boolean)
+  const first = nameParts[0] ?? ''
+  const last = nameParts[nameParts.length - 1] ?? ''
+  const attorneyPaths = last && first
+    ? [`/attorney/${first}-${last}`, `/attorneys/${first}-${last}`, `/team/${first}-${last}`, `/${first}-${last}`]
+    : []
+
+  const parts: string[] = [baseHtml]
+  let fetched = 0
+  for (const path of [...attorneyPaths, ...TEAM_SUBPATHS]) {
+    if (fetched >= maxSubpages) break
+    const sub = await fetchPageText(origin + path)
+    if (sub) { parts.push(sub); fetched += 1 }
+  }
+  return parts.join('\n').slice(0, 400000)
 }
 
 /**
@@ -508,7 +598,8 @@ async function main() {
       orderBy: { id: 'asc' },
       where: {
         source: args.source,
-        ...(args.skipKnown ? { piRelevant: false } : {}),
+        ...(args.piOnly ? { piRelevant: true } : args.skipKnown ? { piRelevant: false } : {}),
+        ...(args.withWebsite ? { website: { not: null } } : {}),
       },
       select: {
         id: true,
@@ -518,6 +609,7 @@ async function main() {
         barNumber: true,
         piRelevant: true,
         practiceAreas: true,
+        website: true,
       },
     })
     if (batch.length === 0) break
@@ -528,11 +620,19 @@ async function main() {
 
     for (const atty of batch) {
       stats.scanned += 1
-      if (atty.piRelevant) { stats.alreadyPi += 1; continue }
-      if (!atty.firmName) { stats.noFirm += 1; continue }
+      // In discovery mode we skip rows already flagged PI. In enrichment mode
+      // (--pi-only / --include-known) we process them to fill in missing fields.
+      if (atty.piRelevant && args.skipKnown && !args.piOnly) { stats.alreadyPi += 1; continue }
 
-      stats.withFirm += 1
-      const urls = firmNameVariants(atty.firmName)
+      // Prefer the website we already hold (from CPRA / Places / directories);
+      // only guess the domain from the firm name when we have nothing on file.
+      const known = normalizeWebsite(atty.website)
+      const guessed = atty.firmName ? firmNameVariants(atty.firmName) : []
+      const urls = [...new Set([...(known ? [known] : []), ...guessed])]
+
+      if (atty.firmName) stats.withFirm += 1
+      else if (!known) { stats.noFirm += 1 }
+
       if (urls.length === 0) { stats.noUrl += 1; continue }
 
       toFetch.push({ attorney: atty, urls })
@@ -543,7 +643,7 @@ async function main() {
     await processInParallel(toFetch, args.concurrency, async ({ attorney, urls }) => {
       for (const url of urls) {
         stats.urlsAttempted += 1
-        const html = await fetchPageText(url)
+        const html = await fetchSiteBundle(url, attorney.name)
         if (!html) continue
 
         stats.urlsReachable += 1
@@ -651,4 +751,6 @@ async function main() {
   await prisma.$disconnect()
 }
 
-main().catch(async (e) => { console.error(e); await prisma.$disconnect(); process.exit(1) })
+main()
+  .then(() => process.exit(0))
+  .catch(async (e) => { console.error(e); await prisma.$disconnect(); process.exit(1) })
