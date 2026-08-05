@@ -1286,7 +1286,13 @@ export default function IntakeWizardQuick() {
 
   const discardDraftAndRestart = () => {
     clearDraft()
-    window.location.reload()
+    // Prevent the auto-save effect from re-writing the draft before the navigation
+    // completes by marking the draft as not yet loaded (guards the save effect).
+    draftLoadedRef.current = false
+    // Navigate to the intake path with only ?fresh=1 — stripping any ?lead= or
+    // other query params so the init effect cannot restore the old session from
+    // the server or localStorage.
+    window.location.href = window.location.pathname + '?fresh=1'
   }
 
   // --- Server-side partial lead: once contact info exists, mirror progress to the API
