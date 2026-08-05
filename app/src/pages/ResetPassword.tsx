@@ -11,6 +11,7 @@ export default function ResetPassword() {
 
   const [status, setStatus] = useState<'checking' | 'valid' | 'invalid'>('checking')
   const [isNewPassword, setIsNewPassword] = useState(false)
+  const [userRole, setUserRole] = useState<string | null>(null)
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -30,6 +31,7 @@ export default function ResetPassword() {
         if (res.valid) {
           setStatus('valid')
           setIsNewPassword(!!res.isNewPassword)
+          if (res.role) setUserRole(res.role)
         } else {
           setStatus('invalid')
           setError(res.error || 'This reset link is invalid or has expired.')
@@ -58,9 +60,15 @@ export default function ResetPassword() {
     setIsLoading(true)
     setError(null)
     try {
-      await resetPassword(token, password)
+      const result = await resetPassword(token, password)
+      const role = result.role || userRole
       setDone(true)
-      setTimeout(() => navigate('/login'), 2500)
+      const loginPath =
+        role === 'attorney' ? '/attorney-login'
+        : role === 'staff' ? '/staff-login'
+        : role === 'admin' ? '/staff-login'
+        : '/login'
+      setTimeout(() => navigate(loginPath), 2500)
     } catch (err: any) {
       setError(err?.response?.data?.error || 'Could not reset your password. The link may have expired.')
     } finally {
@@ -80,7 +88,10 @@ export default function ResetPassword() {
       error={status === 'valid' ? error : null}
       footerDividerText="Need help?"
       footerContent={
-        <Link to="/login" className="font-semibold text-brand-600 hover:text-brand-700 transition-colors block">
+        <Link
+          to={userRole === 'attorney' ? '/attorney-login' : userRole === 'staff' || userRole === 'admin' ? '/staff-login' : '/login'}
+          className="font-semibold text-brand-600 hover:text-brand-700 transition-colors block"
+        >
           Back to sign in
         </Link>
       }

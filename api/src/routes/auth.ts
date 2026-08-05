@@ -350,12 +350,12 @@ router.get('/reset-password/:token/validate', async (req, res) => {
     }
     const record = await prisma.passwordResetToken.findUnique({
       where: { tokenHash: hashResetToken(rawToken) },
-      include: { user: { select: { passwordHash: true } } },
+      include: { user: { select: { passwordHash: true, role: true } } },
     })
     if (!record || record.usedAt || record.expiresAt < new Date()) {
       return res.status(400).json({ valid: false, error: 'This reset link is invalid or has expired.' })
     }
-    return res.json({ valid: true, isNewPassword: !record.user.passwordHash })
+    return res.json({ valid: true, isNewPassword: !record.user.passwordHash, role: record.user.role })
   } catch (error) {
     logger.error('Password reset token validation failed', { error })
     return res.status(500).json({ valid: false, error: 'Could not validate reset link.' })
@@ -376,12 +376,14 @@ router.post('/reset-password', async (req, res) => {
     const { token: rawToken, password } = parsed.data
     const record = await prisma.passwordResetToken.findUnique({
       where: { tokenHash: hashResetToken(rawToken) },
+      include: { user: { select: { role: true } } },
     })
 
     if (!record || record.usedAt || record.expiresAt < new Date()) {
       return res.status(400).json({ error: 'This reset link is invalid or has expired. Please request a new one.' })
     }
 
+    const userRole = record.user.role
     const passwordHash = await bcrypt.hash(password, 12)
 
     // Set the password and consume the token atomically. Proving control of the
@@ -417,7 +419,7 @@ router.post('/reset-password', async (req, res) => {
     }
 
     logger.info('Password reset completed', { userId: record.userId })
-    return res.json({ ok: true, message: 'Your password has been updated. You can now sign in.' })
+    return res.json({ ok: true, message: 'Your password has been updated. You can now sign in.', role: userRole })
   } catch (error) {
     logger.error('Password reset failed', { error })
     return res.status(500).json({ error: 'Could not reset your password. Please try again.' })

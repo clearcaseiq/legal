@@ -27,12 +27,12 @@ export async function requestPasswordReset(email: string) {
 
 export async function validatePasswordResetToken(token: string) {
   const { data } = await api.get(`/v1/auth/reset-password/${encodeURIComponent(token)}/validate`)
-  return data as { valid: boolean; isNewPassword?: boolean; error?: string }
+  return data as { valid: boolean; isNewPassword?: boolean; role?: string; error?: string }
 }
 
 export async function resetPassword(token: string, password: string) {
   const { data } = await api.post('/v1/auth/reset-password', { token, password })
-  return data as { ok: boolean; message: string }
+  return data as { ok: boolean; message: string; role?: string }
 }
 
 export async function getCurrentUser() {
