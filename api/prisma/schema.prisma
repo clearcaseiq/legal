@@ -2821,6 +2821,24 @@ model ProductionAttorney {
   // before this row can produce a routable attorney).
   countySource  String?
   practiceAreas String? @db.Text // JSON array of practice areas
+  specialties   String? @db.Text // JSON array of board-certified specialties
+  claSections   String? @db.Text // JSON array of CLA section memberships
+  discipline    String? @db.Text // JSON array of disciplinary records
+  lawSchool     String?
+  dateOfAdmission DateTime?
+  district      Int?
+
+  // Enrichment fields (populated by website scraping)
+  headshotUrl   String?  @db.VarChar(1024)
+  bio           String?  @db.Text
+  languages     String?  @db.Text  // JSON array of languages spoken
+  caseResults   String?  @db.Text  // JSON array of notable case results/verdicts
+  awards        String?  @db.Text  // JSON array of awards/recognitions
+  freeConsult   Boolean? // Whether they offer free consultations
+  contingencyFee String? // e.g. "33%", "33-40%"
+  associations  String?  @db.Text  // JSON array of bar association memberships
+  socialLinks   String?  @db.Text  // JSON object of social media URLs
+
   // Attorney count at the firm, where the source reports it.
   firmSize      Int?
 
@@ -2829,6 +2847,8 @@ model ProductionAttorney {
 
   // Pipeline state: scraped -> reviewed -> promoted | rejected
   status        String  @default("scraped")
+  /// Whether this attorney likely practises PI, derived from practiceAreas/specialties.
+  piRelevant    Boolean @default(false)
   // When promoted into the live `Attorney` table, the resulting attorney id.
   promotedAttorneyId String?
 
