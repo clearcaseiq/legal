@@ -568,7 +568,7 @@ export default function Layout({ children }: LayoutProps) {
               : 'py-8'
         }`}
       >
-        <div className={`min-w-0 px-3 sm:px-0 ${['/assess', '/intake', '/intake2'].includes(location.pathname) ? 'min-h-full' : ''}`}>
+        <div className={`min-w-0 ${['/assess', '/intake', '/intake2'].includes(location.pathname) ? 'min-h-full px-0' : 'px-3 sm:px-0'}`}>
           {children}
         </div>
       </main>
