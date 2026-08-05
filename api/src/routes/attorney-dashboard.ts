@@ -219,7 +219,8 @@ async function resolveFirmVisibility(req: any, attorney: any): Promise<FirmVisib
       } else if (Array.isArray(firmMember.permissions)) {
         extraPermissions = firmMember.permissions
       }
-      const canViewAllCases = role === 'firm_admin' || extraPermissions.includes('view_all_cases')
+      const FIRM_WIDE_ROLES = ['firm_admin', 'case_manager', 'intake_specialist']
+      const canViewAllCases = FIRM_WIDE_ROLES.includes(role) || extraPermissions.includes('view_all_cases')
       return { lawFirmId: firmMember.lawFirmId, canViewAllCases }
     }
 
@@ -5523,12 +5524,25 @@ router.post('/leads/:leadId/reassign', authMiddleware, async (req: any, res) => 
     if (!targetAttorneyId) {
       return res.status(400).json({ error: 'targetAttorneyId is required' })
     }
-    const auth = await getAuthorizedLead(req, leadId)
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true, firmMemberWrite: true })
     if (!auth) return res.status(403).json({ error: 'Not authorized' })
-    const { attorney } = auth
 
-    if (!attorney.lawFirmId) {
+    // Determine the caller's firm — could be an attorney or a staff member
+    const callerFirmId = auth.attorney?.lawFirmId || (auth as any).firmMember?.lawFirmId
+    const callerName = auth.attorney?.name || (auth as any).firmMember?.title || 'A team member'
+    const callerId = auth.attorney?.id || (auth as any).firmMember?.id
+    const REASSIGN_ROLES = ['firm_admin', 'case_manager']
+
+    if (!callerFirmId) {
       return res.status(403).json({ error: 'Only firm members can reassign cases' })
+    }
+
+    // Non-attorney staff must have a reassign-capable role
+    if (!auth.attorney && (auth as any).firmMember) {
+      const memberRole = (auth as any).firmMember.role || ''
+      if (!REASSIGN_ROLES.includes(memberRole)) {
+        return res.status(403).json({ error: 'Your role does not have permission to reassign cases' })
+      }
     }
 
     const targetAttorney = await prisma.attorney.findUnique({
@@ -5538,7 +5552,7 @@ router.post('/leads/:leadId/reassign', authMiddleware, async (req: any, res) => 
     if (!targetAttorney || !targetAttorney.isActive) {
       return res.status(404).json({ error: 'Target attorney not found or inactive' })
     }
-    if (targetAttorney.lawFirmId !== attorney.lawFirmId) {
+    if (targetAttorney.lawFirmId !== callerFirmId) {
       return res.status(403).json({ error: 'Target attorney must be in the same firm' })
     }
 
@@ -5561,17 +5575,17 @@ router.post('/leads/:leadId/reassign', authMiddleware, async (req: any, res) => 
         channel: 'in_app',
         eventType: 'attorney.case_reassigned',
         subject: 'A case has been assigned to you',
-        body: `${attorney.name || 'A firm admin'} assigned you a new case. Please review it in your Active Cases.`,
+        body: `${callerName} assigned you a new case. Please review it in your Active Cases.`,
         recipient: null,
-        payload: { leadId, reassignedBy: attorney.id },
+        payload: { leadId, reassignedBy: callerId },
       }).catch(() => {})
     }
 
     logger.info('Case reassigned within firm', {
       leadId,
-      fromAttorneyId: attorney.id,
+      fromId: callerId,
       toAttorneyId: targetAttorneyId,
-      lawFirmId: attorney.lawFirmId,
+      lawFirmId: callerFirmId,
     })
 
     return res.json({ ok: true, assignedAttorneyId: targetAttorneyId, assignedAttorneyName: targetAttorney.name })
