@@ -6793,7 +6793,7 @@ export default function IntakeWizardQuick() {
       )}
 
       <div
-        className={`mb-1 flex flex-col overflow-visible rounded-none border-x-0 border-y border-slate-200/90 bg-white shadow-card transition-shadow hover:shadow-card-hover dark:border-slate-700 dark:bg-slate-900/80 motion-reduce:hover:shadow-card sm:rounded-2xl sm:border md:overflow-visible md:rounded-3xl ${denseStepFit ? 'px-0 py-2.5 sm:p-2.5 md:p-4' : casePostureFit ? 'px-0 py-3 sm:p-4 md:p-5' : 'px-0 py-3 sm:p-4 md:p-6'} ${isFirstStep ? 'py-2 sm:py-2.5 md:py-3' : ''} ${denseStepFit ? 'text-sm md:text-base' : 'text-base'} ${
+        className={`mx-4 mb-1 flex flex-col overflow-visible rounded-xl border border-slate-200/90 bg-white shadow-card transition-shadow hover:shadow-card-hover dark:border-slate-700 dark:bg-slate-900/80 motion-reduce:hover:shadow-card sm:mx-0 sm:rounded-2xl md:overflow-visible md:rounded-3xl ${denseStepFit ? 'px-0 py-2.5 sm:p-2.5 md:p-4' : casePostureFit ? 'px-0 py-3 sm:p-4 md:p-5' : 'px-0 py-3 sm:p-4 md:p-6'} ${isFirstStep ? 'py-2 sm:py-2.5 md:py-3' : ''} ${denseStepFit ? 'text-sm md:text-base' : 'text-base'} ${
           denseStepFit
             ? "[&_button]:min-h-9 [&_button]:py-2 [&_button]:text-xs [&_button]:leading-tight md:[&_button]:min-h-10 md:[&_button]:text-sm [&_input:not([type='checkbox'])]:min-h-10 [&_input:not([type='checkbox'])]:text-sm [&_select]:min-h-10 [&_select]:text-sm [&_p.text-lg]:text-sm [&_p.text-sm]:text-xs [&_span.text-sm]:text-xs [&_textarea]:min-h-[3rem] [&_textarea]:py-2 [&_textarea]:text-sm"
             : casePostureFit
