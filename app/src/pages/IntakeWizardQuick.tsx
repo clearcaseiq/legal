@@ -2,6 +2,7 @@
  * ClearCaseIQ Universal + Branching 12-Screen Intake Flow
  */
 import { Fragment, useState, useEffect, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, type IntakeLeadPayload } from '../lib/api-plaintiff'
 import { deleteEvidenceFile, extractIncidentDetails, type IncidentExtraction } from '../lib/api'
@@ -3719,22 +3720,45 @@ export default function IntakeWizardQuick() {
                 </div>
                 {/* Estimated filing deadline: full-width banner across the When + Where
                     columns, laid out on two lines (headline row + estimate note). */}
-                {hasFilingDeadline && (
-                  <div className="w-fit max-w-full rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-1.5 dark:border-emerald-500/30 dark:bg-emerald-500/10">
+                {hasFilingDeadline && (() => {
+                  const isExpired = solPreview?.status === 'expired'
+                  const isCritical = solPreview?.status === 'critical'
+                  const isWarning = solPreview?.status === 'warning'
+                  const isUrgent = isExpired || isCritical
+                  const bannerBorder = isUrgent ? 'border-red-300' : isWarning ? 'border-amber-200' : 'border-emerald-200'
+                  const bannerBg = isUrgent ? 'bg-red-50/80' : isWarning ? 'bg-amber-50/70' : 'bg-emerald-50/70'
+                  const bannerDarkBorder = isUrgent ? 'dark:border-red-500/40' : isWarning ? 'dark:border-amber-500/30' : 'dark:border-emerald-500/30'
+                  const bannerDarkBg = isUrgent ? 'dark:bg-red-500/10' : isWarning ? 'dark:bg-amber-500/10' : 'dark:bg-emerald-500/10'
+                  const labelColor = isUrgent ? 'text-red-700 dark:text-red-300' : isWarning ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300'
+                  const dateColor = isUrgent ? 'text-red-900 dark:text-red-200' : isWarning ? 'text-amber-800 dark:text-amber-200' : 'text-emerald-800 dark:text-emerald-200'
+                  const noteColor = isUrgent ? 'text-red-700/80 dark:text-red-300/80' : isWarning ? 'text-amber-700/80 dark:text-amber-300/80' : 'text-emerald-700/80 dark:text-emerald-300/80'
+                  return (
+                  <div className={`w-fit max-w-full rounded-lg border px-3 py-1.5 ${bannerBorder} ${bannerBg} ${bannerDarkBorder} ${bannerDarkBg}`}>
                     <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
-                      <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-                        <CalendarClock className="h-3.5 w-3.5 shrink-0 self-center" aria-hidden /> {tx('sol_estimatedFilingDeadline')}
+                      <span className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide ${labelColor}`}>
+                        {isUrgent
+                          ? <AlertTriangle className="h-3.5 w-3.5 shrink-0 self-center" aria-hidden />
+                          : <CalendarClock className="h-3.5 w-3.5 shrink-0 self-center" aria-hidden />}
+                        {' '}{isExpired ? tx('sol_expired') : tx('sol_estimatedFilingDeadline')}
                       </span>
-                      <span className="font-display text-base font-bold leading-none text-emerald-800 dark:text-emerald-200">{filingDeadlineLong}</span>
+                      <span className={`font-display text-base font-bold leading-none ${dateColor}`}>{filingDeadlineLong}</span>
                       {filingDaysRemaining != null && (
-                        <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
-                          {tx(filingDaysRemaining === 1 ? 'sol_dayRemainingShort' : 'sol_daysRemainingShort').replace('{days}', String(filingDaysRemaining))}
+                        <span className={`text-[11px] font-medium ${labelColor}`}>
+                          {isExpired
+                            ? tx('sol_expiredAgo')
+                            : tx(filingDaysRemaining === 1 ? 'sol_dayRemainingShort' : 'sol_daysRemainingShort').replace('{days}', String(filingDaysRemaining))}
                         </span>
                       )}
                     </div>
-                    <p className="mt-0.5 text-[11px] leading-snug text-emerald-700/80 dark:text-emerald-300/80">{tx('whenCard_estimateNote').replace('{state}', venueStateName || tx('whenCard_yourState'))}</p>
+                    {isExpired && (
+                      <p className={`mt-1 text-xs font-semibold leading-snug ${labelColor}`}>
+                        {tx('sol_expiredWarning')}
+                      </p>
+                    )}
+                    <p className={`mt-0.5 text-[11px] leading-snug ${noteColor}`}>{tx('whenCard_estimateNote').replace('{state}', venueStateName || tx('whenCard_yourState'))}</p>
                   </div>
-                )}
+                  )
+                })()}
                 {/* Who was injured */}
                 <div>
                   <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Users className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('injuredParty_heading')}</p>
@@ -5632,7 +5656,7 @@ export default function IntakeWizardQuick() {
                 <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="hidden shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-brand-600 transition-colors hover:text-brand-700 sm:inline-flex">{tx('evidence_learnSecurity')}<ChevronRight className="h-3.5 w-3.5" aria-hidden /></a>
               </div>
 
-              {hipaaModalOpen && (
+              {hipaaModalOpen && createPortal(
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
                   <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl dark:bg-slate-900">
                     <div className="flex items-start gap-3">
@@ -5655,7 +5679,8 @@ export default function IntakeWizardQuick() {
                       <button type="button" disabled={!hipaaAgreed} onClick={authorizeHipaa} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-700">{tx('hipaa_authorizeConfirm')}</button>
                     </div>
                   </div>
-                </div>
+                </div>,
+                document.body
               )}
             </div>
           )
@@ -6534,7 +6559,7 @@ export default function IntakeWizardQuick() {
 
   return (
     <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-[1440px] flex-col overflow-visible px-0 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:px-4 md:min-h-[calc(100dvh-7.5rem)] md:overflow-visible md:px-8 md:py-3 ${isFirstStep ? 'py-1' : 'py-1.5 sm:py-2'}`}>
-      {generatingReport && (
+      {generatingReport && createPortal(
         <ReportGeneratingOverlay
           title={tx('generatingTitle')}
           subtitle={tx('generatingSubtitle')}
@@ -6545,7 +6570,8 @@ export default function IntakeWizardQuick() {
             tx('generatingStep_evidence'),
             tx('generatingStep_finalizing'),
           ]}
-        />
+        />,
+        document.body
       )}
       <div className="mb-1 shrink-0 px-2 sm:px-0" aria-busy={loading}>
         <p className={`mb-0.5 text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300 md:text-sm ${isFirstStep ? 'hidden sm:block' : ''}`}>
@@ -6851,7 +6877,7 @@ export default function IntakeWizardQuick() {
       </div>
       </div>
 
-      {showResetConfirm && (
+      {showResetConfirm && createPortal(
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm"
           role="dialog"
@@ -6886,7 +6912,8 @@ export default function IntakeWizardQuick() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
