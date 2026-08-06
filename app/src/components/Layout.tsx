@@ -631,7 +631,11 @@ export default function Layout({ children }: LayoutProps) {
       </footer>
       ) : (
       <footer className="mt-auto border-t border-slate-700/50 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-900">
-        <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
+        {/* When the fixed mobile "Start Assessment" CTA is present it overlaps the
+            bottom of the footer (the footer lives outside <main>, so main's
+            pb-24 doesn't clear it here). Pad the footer's bottom on mobile so its
+            legal links and copyright stay above the button. */}
+        <div className={`mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8 ${showMobileAssessmentCta ? 'pb-28 md:pb-4' : ''}`}>
           <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-[1.5fr_repeat(4,auto)] md:items-start md:justify-between">
             {/* On mobile the brand block laid out as a narrow vertical stack in a
                 full-width row, leaving a large empty gap on the right. Lay the logo
