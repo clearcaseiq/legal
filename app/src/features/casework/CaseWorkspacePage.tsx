@@ -4228,11 +4228,20 @@ function LadderMarker({
 }) {
   const line = { amber: 'bg-amber-500', brand: 'bg-brand-600', emerald: 'bg-emerald-600' }[color]
   const text = { amber: 'text-amber-600', brand: 'text-brand-700', emerald: 'text-emerald-700' }[color]
+  // Keep the label inside the panel when the marker sits near an edge; otherwise a
+  // centered label (e.g. "Policy") overflows the track and the panel border clips
+  // it (CP-500). The marker line itself stays at the true position.
+  const labelPos =
+    pct <= 8
+      ? 'left-0 translate-x-0 text-left'
+      : pct >= 92
+        ? 'right-0 translate-x-0 text-right'
+        : 'left-1/2 -translate-x-1/2 text-center'
   return (
     <div className="absolute z-10" style={{ left: `${pct}%`, top: '50%', transform: 'translate(-50%, -50%)' }}>
       <div className={`h-6 w-0.5 rounded ${line}`} />
       <div
-        className={`absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-center ${
+        className={`absolute whitespace-nowrap ${labelPos} ${
           align === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'
         }`}
       >

@@ -3808,7 +3808,7 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
                                 <h4 className="mt-2 text-sm font-semibold text-gray-900">{item.title}</h4>
                                 <p className="mt-1 text-sm text-gray-600">{item.detail}</p>
                                 <p className="mt-2 text-xs text-gray-500">
-                                  Due: {new Date(item.dueAt).toLocaleString()} • {item.claimType}
+                                  Due: {new Date(item.dueAt).toLocaleString()} • {formatCanonicalClaimType(item.claimType || '')}
                                 </p>
                                 {item.activityTrail?.length ? (
                                   <div className="mt-2 flex flex-wrap gap-2">
@@ -4098,7 +4098,7 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
             plaintiffName={[selectedLead.assessment?.user?.firstName, selectedLead.assessment?.user?.lastName].filter(Boolean).join(' ') || 'Plaintiff'}
             phone={selectedLead.assessment?.user?.phone ?? null}
             email={selectedLead.assessment?.user?.email ?? null}
-            caseLabel={(selectedLead.assessment?.claimType || 'case').replace(/_/g, ' ')}
+            caseLabel={formatCanonicalClaimType(selectedLead.assessment?.claimType || '')}
             venue={[selectedLead.assessment?.venueCounty, selectedLead.assessment?.venueState].filter(Boolean).join(', ')}
             lastContactLabel={
               contactHistory[0]?.createdAt
@@ -4152,7 +4152,7 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
                       <Calendar className="h-4 w-4 text-blue-600 shrink-0" />
                       <div>
                         <p className="font-medium text-gray-900">{new Date(c.scheduledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} — {new Date(c.scheduledAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</p>
-                        <p className="text-sm text-gray-600">{c.plaintiffName || '—'} · {(c.claimType || 'Case').replace(/_/g, ' ')}</p>
+                        <p className="text-sm text-gray-600">{c.plaintiffName || '—'} · {formatCanonicalClaimType(c.claimType || '')}</p>
                         <p className="text-xs text-gray-500">{c.type === 'phone' ? 'Phone consultation' : c.type === 'video' ? 'Video' : 'In person'}</p>
                       </div>
                       {c.leadId && (
@@ -4247,7 +4247,7 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
 }
 
 function dashboardClaimLabel(value: string) {
-  return (value || 'case').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
+  return formatCanonicalClaimType(value || '')
 }
 
 function dashboardLeadVenue(lead: Lead) {

@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { Calendar } from 'lucide-react'
 import { useAttorneyDashboardSummary } from '../hooks/useAttorneyDashboardSummary'
 import { BackButton } from '../features/shared/ui'
+import { formatClaimType } from '../lib/claimTypes'
 
 export default function EventsPage() {
   const navigate = useNavigate()
@@ -40,7 +41,7 @@ export default function EventsPage() {
                       <p className="font-medium text-gray-900">
                         {new Date(c.scheduledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} — {new Date(c.scheduledAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                       </p>
-                      <p className="text-sm text-gray-600">{c.plaintiffName || '—'} · {(c.claimType || 'Case').replace(/_/g, ' ')}</p>
+                      <p className="text-sm text-gray-600">{c.plaintiffName || '—'} · {formatClaimType(c.claimType)}</p>
                       <p className="text-xs text-gray-500">{c.type === 'phone' ? 'Phone consultation' : c.type === 'video' ? 'Video' : 'In person'}</p>
                     </div>
                     {c.leadId && (

@@ -9,6 +9,7 @@ import {
   getAdminRoutingFeedbackSummary,
 } from '../../lib/api'
 import { formatDate, formatPercentage } from '../../lib/formatters'
+import { formatClaimType } from '../../lib/claimTypes'
 import { AlertTriangle, Download, RefreshCw, Send, Target } from 'lucide-react'
 import {
   Badge,
@@ -305,8 +306,8 @@ export default function AdminRoutingFeedback() {
                 header: 'Case',
                 cell: (c: any) => (
                   <>
-                    <div className="font-medium capitalize text-slate-900 dark:text-slate-100">
-                      {(c.assessment?.claimType || 'unknown').replace(/_/g, ' ')}
+                    <div className="font-medium text-slate-900 dark:text-slate-100">
+                      {c.assessment?.claimType ? formatClaimType(c.assessment.claimType) : 'Unknown'}
                     </div>
                     <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                       {c.assessment?.venueState}

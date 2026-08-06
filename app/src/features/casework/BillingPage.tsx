@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getAttorneyFeesYtd } from '../../lib/api'
+import { formatClaimType } from '../../lib/claimTypes'
 import { Avatar, Badge, ClientLink, DataTable, EmptyState, PageHeader, SectionCard, type DataTableColumn } from '../shared/ui'
 
 interface FeeCase {
@@ -36,7 +37,7 @@ const feeColumns: DataTableColumn<FeeCase>[] = [
   {
     key: 'type',
     header: 'Type',
-    cell: (c) => <span className="capitalize text-slate-500">{(c.claimType || '—').replace(/_/g, ' ')}</span>,
+    cell: (c) => <span className="text-slate-500">{c.claimType ? formatClaimType(c.claimType) : '—'}</span>,
   },
   {
     key: 'amount',

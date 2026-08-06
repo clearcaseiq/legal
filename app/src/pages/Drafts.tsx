@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getAssessment } from '../lib/api'
 import { BackButton } from '../features/shared/ui'
+import { formatClaimType } from '../lib/claimTypes'
 
 interface Assessment {
   id: string
@@ -106,7 +107,7 @@ export default function Drafts() {
           <h1 className="text-2xl font-semibold text-gray-900">Draft Legal Documents</h1>
           {assessment && (
             <p className="text-sm text-gray-600">
-              Case: {assessment.claimType} • {assessment.venue?.state || assessment.venueState || 'Unknown'}
+              Case: {formatClaimType(assessment.claimType)} • {assessment.venue?.state || assessment.venueState || 'Unknown'}
             </p>
           )}
         </div>

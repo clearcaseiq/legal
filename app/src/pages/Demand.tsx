@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { downloadDemandLetterDocx, generateDemandLetter, getAssessment } from '../lib/api'
 import { formatCurrency } from '../lib/formatters'
+import { formatClaimType } from '../lib/claimTypes'
 import { AlertCircle, CheckCircle, Download, FileText, ShieldCheck } from 'lucide-react'
 import { BackButton } from '../features/shared/ui'
 
@@ -166,7 +167,7 @@ export default function Demand() {
       <div className="text-center">
         <h1 className="text-3xl font-bold text-gray-900">Self-Help Settlement Demand Package</h1>
         <p className="mt-2 text-gray-600">
-          Prepare a demand letter and review checklist for your {assessment.claimType} case without presenting it as attorney work.
+          Prepare a demand letter and review checklist for your {formatClaimType(assessment.claimType)} case without presenting it as attorney work.
         </p>
       </div>
 
@@ -203,7 +204,7 @@ export default function Demand() {
           <div>
             <h3 className="font-medium text-gray-900 mb-2">Case Details</h3>
             <div className="space-y-2 text-sm">
-              <div><span className="font-medium">Type:</span> {assessment.claimType}</div>
+              <div><span className="font-medium">Type:</span> {formatClaimType(assessment.claimType)}</div>
               <div><span className="font-medium">State:</span> {assessment.venue.state}</div>
               {assessment.venue.county && (
                 <div><span className="font-medium">County:</span> {assessment.venue.county}</div>

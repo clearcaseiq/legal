@@ -53,6 +53,7 @@ import {
   type DataTableColumn,
 } from '../features/shared/ui'
 import { formatCurrency } from '../lib/formatters'
+import { formatClaimType } from '../lib/claimTypes'
 import { US_STATES } from '../lib/constants'
 import { StateMultiSelect } from '../components/StateMultiSelect'
 import { invalidateFirmDashboardSummary, useFirmDashboardSummary } from '../hooks/useFirmDashboardSummary'
@@ -1008,9 +1009,9 @@ export default function FirmDashboard() {
                 {cases.map((c) => (
                   <div key={c.assessmentId} className="flex items-center justify-between gap-3 px-3 py-2">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-slate-800">{c.clientName || titleCase(c.claimType) || 'Case'}</div>
+                      <div className="truncate text-sm font-medium text-slate-800">{c.clientName || (c.claimType ? formatClaimType(c.claimType) : 'Case')}</div>
                       <div className="truncate text-xs text-slate-400">
-                        {titleCase(c.claimType)}
+                        {c.claimType ? formatClaimType(c.claimType) : ''}
                         {c.venueCounty ? ` · ${c.venueCounty}` : ''}
                       </div>
                     </div>
@@ -1153,9 +1154,9 @@ export default function FirmDashboard() {
                     header: 'Case',
                     cell: (c: any) => (
                       <div className="min-w-0">
-                        <div className="truncate font-medium text-slate-800">{c.clientName || titleCase(c.claimType) || 'Case'}</div>
+                        <div className="truncate font-medium text-slate-800">{c.clientName || (c.claimType ? formatClaimType(c.claimType) : 'Case')}</div>
                         <div className="truncate text-xs text-slate-400">
-                          {titleCase(c.claimType)}
+                          {c.claimType ? formatClaimType(c.claimType) : ''}
                           {c.venueCounty ? ` · ${c.venueCounty}` : ''}
                           {c.venueState ? `, ${c.venueState}` : ''}
                         </div>
@@ -1659,8 +1660,8 @@ export default function FirmDashboard() {
             </div>
             <div className="space-y-4 px-5 py-4">
               <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                <div className="font-medium text-slate-800">{assignTarget.clientName || titleCase(assignTarget.claimType) || 'Case'}</div>
-                <div className="text-xs text-slate-400">{titleCase(assignTarget.claimType)}{assignTarget.venueCounty ? ` · ${assignTarget.venueCounty}` : ''}</div>
+                <div className="font-medium text-slate-800">{assignTarget.clientName || (assignTarget.claimType ? formatClaimType(assignTarget.claimType) : 'Case')}</div>
+                <div className="text-xs text-slate-400">{assignTarget.claimType ? formatClaimType(assignTarget.claimType) : ''}{assignTarget.venueCounty ? ` · ${assignTarget.venueCounty}` : ''}</div>
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-slate-700">Role</label>

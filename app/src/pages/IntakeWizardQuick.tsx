@@ -5,7 +5,7 @@ import { Fragment, useState, useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, type IntakeLeadPayload } from '../lib/api-plaintiff'
-import { deleteEvidenceFile, extractIncidentDetails, type IncidentExtraction } from '../lib/api'
+import { deleteEvidenceFile, extractIncidentDetails, getPlaintiffDocumentRequests, type IncidentExtraction } from '../lib/api'
 import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, X, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -915,6 +915,9 @@ export default function IntakeWizardQuick() {
   const [emailDeliverable, setEmailDeliverable] = useState<'unknown' | 'checking' | 'ok' | 'bad'>('unknown')
   const [contactMethod, setContactMethod] = useState<'email' | 'phone'>('email')
   const [pendingEvidenceFiles, setPendingEvidenceFiles] = useState<Record<string, any[]>>({})
+  // "Send documents" flow for the plaintiff document-upload page (CP-499).
+  const [sendingDocs, setSendingDocs] = useState(false)
+  const [docsSent, setDocsSent] = useState(false)
   const [manageEvidence, setManageEvidence] = useState<Record<string, boolean>>({})
   type EvidenceWarning = { fileName: string; status: string; message: string; title?: string; action?: { label: string; onClick: () => void } }
   const [evidenceWarnings, setEvidenceWarnings] = useState<Record<string, { items: EvidenceWarning[]; dismiss: (fileName: string) => void }>>({})
@@ -3077,7 +3080,7 @@ export default function IntakeWizardQuick() {
                         <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">1. {tx('icov_otherDriverTitle')}</span>
                         <span className="block text-[11px] text-slate-500">{tx('icov_otherDriverSub')}</span>
                       </span>
-                      {icLegal.defendantCoverageLimits && <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />{tx('icov_completed')}</span>}
+                      {icLegal.defendantCoverageLimits && <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
                       <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
                     </summary>
                     <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
@@ -3091,7 +3094,7 @@ export default function IntakeWizardQuick() {
                               className={`relative flex flex-col items-center gap-1.5 rounded-xl border-[1.5px] px-3 py-3 text-center text-xs font-semibold shadow-sm transition-all active:scale-[0.99] ${sel ? 'border-brand-600 bg-brand-50 text-brand-900 shadow' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400 hover:bg-brand-50/50'}`}>
                               <meta.Icon className={`h-5 w-5 ${sel ? 'text-brand-600' : 'text-slate-400'}`} aria-hidden />
                               {sel && <Check className="absolute top-2 right-2 h-3.5 w-3.5 text-brand-600" aria-hidden />}
-                              <span className="leading-tight">{label}</span>
+                              <span className="min-w-0 break-words leading-tight">{label}</span>
                               {meta.sub && <span className="text-[10px] font-normal text-slate-500 leading-tight">{meta.sub}</span>}
                             </button>
                           )
@@ -3110,7 +3113,7 @@ export default function IntakeWizardQuick() {
                         <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">2. {tx('icov_umUimTitle')}</span>
                         <span className="block text-[11px] text-slate-500">{tx('icov_umUimSub')}</span>
                       </span>
-                      {icLegal.umUimCoverage && <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />{tx('icov_completed')}</span>}
+                      {icLegal.umUimCoverage && <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
                       <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
                     </summary>
                     <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
@@ -3139,7 +3142,7 @@ export default function IntakeWizardQuick() {
                         <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">3. {tx('icov_pipTitle')}</span>
                         <span className="block text-[11px] text-slate-500">{tx('icov_pipSub')}</span>
                       </span>
-                      {icLegal.pipCoverage && <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />{tx('icov_completed')}</span>}
+                      {icLegal.pipCoverage && <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
                       <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
                     </summary>
                     <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
@@ -3168,7 +3171,7 @@ export default function IntakeWizardQuick() {
                         <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">4. {tx('icov_medPayTitle')}</span>
                         <span className="block text-[11px] text-slate-500">{tx('icov_medPaySub')}</span>
                       </span>
-                      {icLegal.medPayCoverage && <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" aria-hidden />{tx('icov_completed')}</span>}
+                      {icLegal.medPayCoverage && <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
                       <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
                     </summary>
                     <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
@@ -3334,7 +3337,7 @@ export default function IntakeWizardQuick() {
       <div className="cc-panel-drop col-span-3 mt-5 rounded-2xl bg-slate-50/80 px-4 py-5 dark:bg-slate-800/40">
         {/* Reads as a second question rather than a stray box: the answered part
             is stated, ruled off, and the new question sits underneath it. */}
-        <div className="flex items-center justify-between gap-3 pb-3">
+        <div className="flex items-center justify-center gap-3 pb-3 sm:justify-between">
           <p className="hidden min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.04em] text-brand-700 sm:flex sm:text-xs sm:tracking-[0.08em] dark:text-brand-300">
             <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
             <span className="truncate">{selectedType ? t(`intake.${selectedType.labelKey}`) : ''}</span>
@@ -3774,7 +3777,7 @@ export default function IntakeWizardQuick() {
                       id="injuredParty-when"
                       value={formData.injuredParty}
                       onChange={(e) => updateForm({ injuredParty: e.target.value as typeof formData.injuredParty })}
-                      className="input w-full max-w-xs rounded-xl border-gray-300 py-2.5 text-base focus-visible:ring-inset focus-visible:ring-offset-0"
+                      className="input w-full max-w-xs border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0"
                     >
                       <option value="self">{tx('injuredParty_self')}</option>
                       <option value="child">{tx('injuredParty_child')}</option>
@@ -3809,13 +3812,13 @@ export default function IntakeWizardQuick() {
                       </span>
                     </div>
                     {/* Helpful details: suggestions to spark recall, not a checklist */}
-                    <div className="mt-1 flex w-fit max-w-full flex-nowrap items-center gap-x-2 gap-y-1.5 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/70 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-800/40">
+                    <div className="mt-1 flex w-full flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl border border-slate-200 bg-slate-50/70 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-800/40">
                       <p className="flex shrink-0 items-center gap-1 whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                         <Lightbulb className="h-3.5 w-3.5 text-amber-500" aria-hidden /> {tx('narrative_hintsLabel')}
                       </p>
-                      <div className="flex flex-nowrap gap-1">
+                      <div className="flex flex-wrap gap-1">
                         {narrativeHints.map(hint => (
-                          <span key={hint} className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                          <span key={hint} className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                             <span className="h-1.5 w-1.5 rounded-full bg-brand-400" aria-hidden /> {hint}
                           </span>
                         ))}
@@ -5429,14 +5432,14 @@ export default function IntakeWizardQuick() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <p className="truncate text-sm font-semibold text-gray-900 dark:text-slate-100">{item.title}</p>
+                      <p className="min-w-0 break-words text-sm font-semibold text-gray-900 dark:text-slate-100">{item.title}</p>
                       {weight > 0 && (
                         <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${uploaded ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'}`}>
                           +{weight}%
                         </span>
                       )}
                     </div>
-                    <p className="truncate text-xs text-gray-500">{item.helper}</p>
+                    <p className="break-words text-xs text-gray-500">{item.helper}</p>
                   </div>
                   <div className="hidden w-[104px] shrink-0 text-right sm:block">
                     {isDragging ? (
@@ -5638,7 +5641,7 @@ export default function IntakeWizardQuick() {
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/10"><GroupIcon className="h-4 w-4" aria-hidden /></span>
                       <div className="min-w-0 flex-1">
                         <p className="font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{group.title}</p>
-                        <p className="truncate text-xs text-gray-500">{group.helper}</p>
+                        <p className="break-words text-xs text-gray-500">{group.helper}</p>
                       </div>
                       <span className="hidden shrink-0 text-xs font-medium text-gray-500 sm:inline">{tx('evidence_xOfYUploaded').replace('{done}', String(done)).replace('{total}', String(total))}</span>
                       <ChevronDown className="h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" aria-hidden />
@@ -6319,14 +6322,14 @@ export default function IntakeWizardQuick() {
                     {tx('consent_agreeTermsPre')}
                     <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_termsLink')}</a>
                     {tx('consent_termsMid')}
-                    <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_privacyLink')}<span className="font-semibold text-red-500" aria-hidden>&thinsp;*</span></a>
+                    <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_privacyLink')}<span className="font-semibold text-red-500" aria-hidden>{'\u202F*'}</span></a>
                   </span>
                 </label>
                 <label className={`flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2 transition-all ${consents.ml_use ? 'border-brand-300 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-200 bg-slate-50 hover:border-brand-200 dark:border-slate-700 dark:bg-slate-800/40'}`}>
                   <input type="checkbox" checked={!!consents.ml_use} onChange={e => updateForm({ consents: { ...consents, ml_use: e.target.checked } })} className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600" />
                   <span className="text-xs leading-snug text-gray-700 dark:text-slate-300">
                     {tx('consent_agreeAiPre')}
-                    <a href="/ai-ml-consent" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_aiLink')}<span className="font-semibold text-red-500" aria-hidden>&thinsp;*</span></a>
+                    <a href="/ai-ml-consent" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_aiLink')}<span className="font-semibold text-red-500" aria-hidden>{'\u202F*'}</span></a>
                   </span>
                 </label>
               </div>
@@ -6531,6 +6534,21 @@ export default function IntakeWizardQuick() {
       if (canGoBack) navigate(-1)
       else navigate(backTo)
     }
+    // Uploaded files already attach to the case as they drop, so this confirms
+    // the request is fulfilled on the attorney side and tells the plaintiff their
+    // documents were sent — the page previously had no submit action (CP-499).
+    const handleSendDocuments = async () => {
+      if (!assessmentId) { goBackToCase(); return }
+      setSendingDocs(true)
+      try {
+        await getPlaintiffDocumentRequests(assessmentId)
+      } catch {
+        // Best-effort: the files are already saved even if the status refresh fails.
+      }
+      setSendingDocs(false)
+      setDocsSent(true)
+      window.setTimeout(() => goBackToCase(), 1400)
+    }
     return (
       <div className="mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-[1440px] flex-col px-2 py-3 sm:px-4 md:px-8 md:py-4">
         <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
@@ -6550,14 +6568,35 @@ export default function IntakeWizardQuick() {
         <div className="mb-4 rounded-2xl border border-slate-200/90 bg-white p-3 shadow-card dark:border-slate-700 dark:bg-slate-900/80 sm:p-4 md:p-6">
           {renderStepContent('evidence')}
         </div>
-        <div className="flex shrink-0 justify-end">
-          <button
-            type="button"
-            onClick={goBackToCase}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-brand-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-800"
-          >
-            {tx('documents_done')} <ChevronRight className="h-4 w-4" aria-hidden />
-          </button>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          {docsSent ? (
+            <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+              <CheckCircle2 className="h-4 w-4" aria-hidden /> {tx('documents_sentToast')}
+            </p>
+          ) : null}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={goBackToCase}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200"
+            >
+              {tx('documents_done')}
+            </button>
+            <button
+              type="button"
+              onClick={handleSendDocuments}
+              disabled={sendingDocs || docsSent || uploadedEvidenceCount === 0}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-brand-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {docsSent ? (
+                <>{tx('documents_sent')} <Check className="h-4 w-4" aria-hidden /></>
+              ) : sendingDocs ? (
+                tx('documents_sending')
+              ) : (
+                <>{tx('documents_send')} <ChevronRight className="h-4 w-4" aria-hidden /></>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     )

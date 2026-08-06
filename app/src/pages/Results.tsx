@@ -41,7 +41,7 @@ import { isValidEmail } from '../lib/email'
 import { savePendingRegistration } from '../lib/pendingRegistration'
 import type { CaseCommandCenter } from '../lib/api'
 import { loadPlaintiffSessionSummary } from '../hooks/usePlaintiffSessionSummary'
-import { getStoredRole, hasValidAuthToken } from '../lib/auth'
+import { getStoredRole, hasValidAuthToken, getLoginRedirect } from '../lib/auth'
 import {
   AlertTriangle,
   CheckCircle,
@@ -1347,6 +1347,14 @@ export default function Results() {
           status: err.response?.status,
           assessmentId: resolvedAssessmentId
         })
+        // An owned case can only be read by the signed-in plaintiff. A guest who
+        // followed an upload/report link lands here with a 401 — send them to
+        // login and bring them straight back to this report instead of a
+        // dead-end "We couldn't load your report" screen (CP-540).
+        if (err.response?.status === 401 && !hasValidAuthToken()) {
+          window.location.assign(getLoginRedirect(window.location.pathname + window.location.search, 'plaintiff'))
+          return
+        }
         const errorMessage = err.response?.data?.error || err.message || 'Failed to load assessment results'
         setError(errorMessage)
       } finally {

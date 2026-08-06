@@ -10,6 +10,7 @@ import {
   updateAdminSupportTicket,
   replyAdminSupportTicket,
 } from '../../lib/api'
+import { formatClaimType } from '../../lib/claimTypes'
 import { formatDate } from '../../lib/formatters'
 import { RefreshCw, AlertTriangle, Send, MessageSquare } from 'lucide-react'
 import EmptyState from '../../components/EmptyState'
@@ -396,7 +397,7 @@ function NotificationsTable({
             key: 'case',
             header: 'Case',
             cell: (n: any) =>
-              n.case?.claimType ? `${n.case.claimType} (${n.case.venueState})` : '—',
+              n.case?.claimType ? `${formatClaimType(n.case.claimType)} (${n.case.venueState})` : '—',
           },
           {
             key: 'status',

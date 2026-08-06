@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { getCaseDashboard, getCaseDetails, getCaseTimeline, getCaseCommandCenter, type CaseCommandCenter } from '../lib/api'
 import { formatCurrency, formatDate } from '../lib/formatters'
+import { formatClaimType } from '../lib/claimTypes'
 import PlaintiffCaseCommandCenter from '../components/PlaintiffCaseCommandCenter'
 import { 
   Calendar, 
@@ -230,7 +231,7 @@ export default function CaseTracker() {
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                      {caseData.claimType} Case
+                      {formatClaimType(caseData.claimType)} Case
                     </h3>
                     <p className="text-sm text-gray-600">
                       {caseData.venue.state}{caseData.venue.county && `, ${caseData.venue.county}`}
@@ -348,7 +349,7 @@ export default function CaseTracker() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onClick={() => setSelectedCase(null)}>
           <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="p-6 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white">
-              <h2 className="text-2xl font-bold text-gray-900">{selectedCase.claimType} Case Details</h2>
+              <h2 className="text-2xl font-bold text-gray-900">{formatClaimType(selectedCase.claimType)} Case Details</h2>
               <button
                 onClick={() => setSelectedCase(null)}
                 className="text-gray-500 hover:text-gray-700"
