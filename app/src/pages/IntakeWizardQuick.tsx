@@ -1150,9 +1150,16 @@ export default function IntakeWizardQuick() {
           if (typeof draft.customDate === 'string') setCustomDate(draft.customDate)
           const hidden = HIDDEN_STEPS_BY_INJURY[draft.formData.injuryType] || []
           const validKeys = activeSteps.map(s => s.key).filter(key => !hidden.includes(key))
-          const restoredStep = typeof draft.currentStep === 'string'
+          // A step explicitly present in the URL (a copied/shared link) takes
+          // precedence over the draft's own saved step, so pasting the link into a
+          // fresh tab resumes at the same step instead of the draft's last step
+          // (CP-518). Fall back to the draft step when the URL has no ?step=.
+          const urlStepRaw = new URLSearchParams(window.location.search).get('step') || ''
+          const urlStep = urlStepRaw ? (LEGACY_STEP_MAP[urlStepRaw] ?? urlStepRaw) : ''
+          const draftStep = typeof draft.currentStep === 'string'
             ? (LEGACY_STEP_MAP[draft.currentStep] ?? draft.currentStep)
             : undefined
+          const restoredStep = (urlStep && validKeys.includes(urlStep as Step)) ? urlStep : draftStep
           if (restoredStep && validKeys.includes(restoredStep as Step)) {
             setCurrentStep(restoredStep as Step)
           }

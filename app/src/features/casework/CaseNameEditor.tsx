@@ -69,8 +69,11 @@ export default function CaseNameEditor({
           <button
             type="button"
             onClick={open}
-            aria-label="Rename case"
-            title="Rename case"
+            // This edits the case *caption*, not the plaintiff's legal name (which is
+            // never editable here). Label it explicitly so the pencil next to the name
+            // doesn't read as "edit the plaintiff's name" (CP-477).
+            aria-label="Edit case caption"
+            title="Edit case caption"
             className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-300 transition hover:bg-slate-100 hover:text-slate-700 focus:opacity-100 group-hover:text-slate-500"
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -79,7 +82,8 @@ export default function CaseNameEditor({
           <button
             type="button"
             onClick={open}
-            title="Set a case caption (e.g., Rivera v. Delgado)"
+            aria-label="Add case caption"
+            title="Add a case caption (e.g., Rivera v. Delgado) — this does not change the plaintiff's name"
             className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-brand-600 opacity-0 transition hover:bg-brand-50 group-hover:opacity-100"
           >
             + Add caption

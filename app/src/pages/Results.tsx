@@ -1017,7 +1017,11 @@ export default function Results() {
 
     setContactFormError(null)
     setSendHipaaConsent(hasHipaaConsent)
-    setShowAttorneyRanking(false)
+    // Show the attorney choices expanded when the popup opens. Defaulting this to
+    // collapsed meant the plaintiff only saw a one-line summary and the actual list
+    // of attorneys was hidden until they found the "Customize order" toggle, which
+    // read as "attorney choices not displaying" (CP-511).
+    setShowAttorneyRanking(true)
     setShowContactEdit(false)
     if (isLoggedIn) {
       loadPlaintiffSessionSummary().then((session) => {
