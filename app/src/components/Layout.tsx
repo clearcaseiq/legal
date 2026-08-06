@@ -488,7 +488,7 @@ export default function Layout({ children }: LayoutProps) {
           <div className="lg:hidden border-t border-slate-200/80 bg-white px-4 py-4 shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mx-auto flex max-w-lg flex-col gap-2">
               <div className="mb-2 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/40">
-                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">Menu</span>
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{t('common.menu')}</span>
                 {!isAttorney && (
                   <Suspense fallback={languageFallback}>
                     <LanguageSwitcher />

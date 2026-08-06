@@ -1,12 +1,15 @@
 import { Link } from 'react-router-dom'
-import { CheckCircle, ClipboardList, BarChart3, Users, Car, Scale, Handshake, Trophy } from 'lucide-react'
+import { CheckCircle, ClipboardList, BarChart3, Users, Car, Scale, Handshake, Trophy, UserCheck } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import FaqSection from '../components/FaqSection'
 
 // The claimant journey, rendered as an animated timeline further down the page.
+// The claimant chooses which attorneys receive the case (jSelect) before any
+// attorney review — the platform never routes without the consumer's choice.
 const JOURNEY = [
   { key: 'j1', Icon: Car },
   { key: 'j2', Icon: ClipboardList },
+  { key: 'jSelect', Icon: UserCheck },
   { key: 'j3', Icon: Scale },
   { key: 'j4', Icon: Handshake },
   { key: 'j5', Icon: Trophy },
@@ -57,7 +60,7 @@ export default function HowItWorks() {
           {/* Track: a full-width base line with an animated gradient line drawn over it (desktop only). */}
           <div className="pointer-events-none absolute left-[10%] right-[10%] top-6 hidden h-0.5 bg-slate-200 sm:block" aria-hidden />
           <div className="hiw-line-grow pointer-events-none absolute left-[10%] right-[10%] top-6 hidden h-0.5 bg-gradient-to-r from-brand-500 to-emerald-500 sm:block" aria-hidden />
-          <ol className="relative grid grid-cols-2 gap-y-6 sm:grid-cols-5">
+          <ol className="relative grid grid-cols-2 gap-y-6 sm:grid-cols-6">
             {JOURNEY.map((stage, i) => (
               <li
                 key={stage.key}

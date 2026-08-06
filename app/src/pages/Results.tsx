@@ -161,6 +161,10 @@ const CASE_SUBTYPE_LABELS: Record<string, string> = {
   nursing_home_abuse: 'nursing home abuse',
   negligent_security: 'negligent security',
   toxic_exposure: 'toxic exposure',
+  // Catch-all bucket. Without this it fell back to the raw slug ("other pi"),
+  // which the capitalize style rendered as "Other Pi".
+  other_pi: 'personal injury',
+  other: 'personal injury',
 }
 
 // Passing the `t` translator localizes the label; omitting it keeps the English
@@ -3867,12 +3871,6 @@ Checklist:
                 <span>{t('results.chrome.notAGuarantee')}</span>
               </p>
               <p className="mt-2 text-sm text-slate-600">{t('results.chrome.mostLikely')} <span className="font-semibold text-slate-900">{formatCurrency(displaySettlementExpected)}</span></p>
-              {netEstimatedRecovery > 0 && (
-                <p className="mt-1 text-xs text-slate-500">
-                  {t('results.chrome.afterFeesA')} <span className="font-semibold text-emerald-700">{formatCurrency(netEstimatedRecovery)}</span>.{' '}
-                  <button type="button" onClick={() => { document.getElementById('net-recovery')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }} className="font-semibold text-brand-700 hover:text-brand-800">{t('results.chrome.seeBreakdown')}</button>
-                </p>
-              )}
               <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="text-xs text-slate-500">{t('results.chrome.confidence')}</span>
                 <span className={estimateConfidenceLevel === 'High' ? 'text-xs font-semibold text-emerald-700' : estimateConfidenceLevel === 'Medium' ? 'text-xs font-semibold text-amber-600' : 'text-xs font-semibold text-rose-600'}>{estimateConfidenceLevel}</span>
@@ -3981,77 +3979,6 @@ Checklist:
               )}
             </div>
           </div>
-
-          {/* Estimated net recovery */}
-          {displaySettlementExpected > 0 && (
-          <div id="net-recovery" className="scroll-mt-6 min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"><DollarSign className="h-4 w-4" aria-hidden /></span>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.estNetRecovery')}</p>
-            </div>
-            <p className="mt-3 text-sm text-slate-600">{t('results.chrome.whatYouTakeA')} <span className="font-semibold text-slate-900">{formatCurrency(displaySettlementExpected)}</span> {t('results.chrome.whatYouTakeB')}</p>
-            <div className="mt-4 space-y-2.5">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-600">{t('results.chrome.settlementMostLikely')}</span>
-                <span className="font-semibold text-slate-900">{formatCurrency(displaySettlementExpected)}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-600">{t('results.chrome.attorneyFeeContingency')}</span>
-                <span className="font-medium text-rose-600">&ndash; {formatCurrency(netAttorneyFee)}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-600">{t('results.chrome.medicalLiens')}{t('results.chrome.estSuffix')}</span>
-                <span className="font-medium text-rose-600">&ndash; {formatCurrency(netMedicalLiens)}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-600">{t('results.chrome.caseExpenses')}</span>
-                <span className="font-medium text-rose-600">&ndash; {formatCurrency(netCaseExpenses)}</span>
-              </div>
-              <div className="flex items-center justify-between border-t border-slate-200 pt-3">
-                <span className="text-sm font-semibold text-slate-900">{t('results.chrome.estNetToYou')}</span>
-                <span className={`font-display text-xl font-bold ${netRecoveryExhaustedByCosts ? 'text-amber-600' : 'text-emerald-600'}`}>{formatCurrency(netEstimatedRecovery)}</span>
-              </div>
-            </div>
-            {netRecoveryExhaustedByCosts ? (
-              <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-700">
-                <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
-                {t('results.chrome.exhaustedNote')}
-              </p>
-            ) : (
-              <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-500">
-                <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                {t('results.chrome.illustrativeNote')}
-              </p>
-            )}
-          </div>
-          )}
-
-          {/* Potential litigation costs */}
-          {hasValuation && (
-          <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500"><Scale className="h-4 w-4" aria-hidden /></span>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.snap.litTitle')}</p>
-            </div>
-            <p className="mt-3 text-sm text-slate-600">{t('results.snap.litDesc')}</p>
-            <div className="mt-4 space-y-2.5">
-              {litigationCostItems.map((item) => (
-                <div key={item.label} className="flex items-center justify-between gap-3 text-sm">
-                  <span className="flex min-w-0 flex-wrap items-center gap-2 text-slate-600">
-                    <span className="min-w-0">{trSnap(item.label)}</span>
-                    {item.stage === 'litigation' && <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">{t('results.snap.ifLitigated')}</span>}
-                  </span>
-                  <span className="shrink-0 pl-1 font-medium text-slate-900">{formatCurrency(item.amount)}</span>
-                </div>
-              ))}
-              <div className="flex items-center justify-between border-t border-slate-200 pt-3">
-                <span className="text-sm font-semibold text-slate-900">{t('results.snap.estTotal')}</span>
-                <span className="font-display text-lg font-bold text-slate-900">{formatCurrency(litigationCostTotal)}</span>
-              </div>
-            </div>
-            <p className="mt-3 text-[11px] leading-5 text-slate-500">{t('results.snap.litDisclaimer')}</p>
-          </div>
-          )}
 
           {/* Your case strength — unified narrative, quality score, and factor/value breakdown */}
           <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
