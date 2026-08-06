@@ -1,11 +1,11 @@
-import { useTranslation } from 'react-i18next'
+import { useLanguage } from '../contexts/LanguageContext'
 import { ActivityIcon, ScaleIcon, ShieldCheckIcon, TrendingUpIcon } from './StartupIcons'
 
 /**
  * Abstract product preview for marketing hero — no live data.
  */
 export default function HomeProductPreview() {
-  const { t } = useTranslation()
+  const { t } = useLanguage()
   return (
     <div className="relative mx-auto w-full max-w-md lg:max-w-none">
       <div className="absolute -inset-4 rounded-3xl bg-gradient-to-br from-accent-500/10 via-brand-600/5 to-transparent blur-2xl motion-reduce:hidden" aria-hidden />
