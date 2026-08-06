@@ -6,11 +6,8 @@ export default function HowItWorks() {
     <div className="max-w-3xl mx-auto py-8">
       {/* Headline + intro */}
       <h1 className="text-3xl font-bold text-slate-900 text-center mb-4">How ClearCaseIQ Works</h1>
-      <p className="text-slate-600 text-center mb-2">
-        ClearCaseIQ helps you understand whether you may have a personal injury case before speaking with an attorney.
-      </p>
       <p className="text-slate-600 text-center mb-12">
-        Our AI-powered assessment analyzes your accident details and compares them with similar injury cases.
+        ClearCaseIQ helps you understand whether you may have a personal injury case before speaking with an attorney, using an AI-powered assessment that analyzes your accident details and compares them with similar injury cases.
       </p>
 
       {/* Steps */}
