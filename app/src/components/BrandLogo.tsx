@@ -102,8 +102,10 @@ export default function BrandLogo({
           : 'text-base md:text-[1.05rem]'
 
   return (
-    <span className={clsx('inline-flex items-center gap-0.5', size === 'xl' && 'gap-1', className)}>
-      <BrandMark size={size} />
+    <span className={clsx('inline-flex items-center', className)}>
+      {/* Negative margin absorbs the shield SVG's built-in right padding so the
+          wordmark sits snug against the mark instead of floating apart. */}
+      <BrandMark size={size} className={clsx('-mr-1', size === 'xl' && '-mr-1.5')} />
       {showWordmark && (
         <span className={clsx('font-display font-bold tracking-[-0.02em] leading-none', wordSize)}>
           {iqPart ? (

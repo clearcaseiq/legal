@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useLanguage } from '../contexts/LanguageContext'
 import MarketingHeroArt from '../components/MarketingHeroArt'
@@ -18,6 +18,21 @@ const HomeProductPreview = lazy(() => import('../components/HomeProductPreview')
 export default function Home() {
   const { t } = useLanguage()
   const { hash } = useLocation()
+
+  // The sticky mobile CTA is redundant while the hero's own "Start" button is on
+  // screen, so it only slides in once the hero CTA scrolls out of view.
+  const heroCtaRef = useRef<HTMLAnchorElement>(null)
+  const [heroCtaVisible, setHeroCtaVisible] = useState(true)
+  useEffect(() => {
+    const el = heroCtaRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(
+      ([entry]) => setHeroCtaVisible(entry.isIntersecting),
+      { rootMargin: '0px 0px -40% 0px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   const CASE_TYPES = [
     { key: 'caseType1', href: '/assessment/start' },
@@ -77,6 +92,7 @@ export default function Home() {
               </ul>
               <div className="flex flex-col items-center lg:items-start gap-3">
                 <Link
+                  ref={heroCtaRef}
                   to="/assessment/start"
                   className="btn-cta group px-8 py-4 text-lg shadow-xl shadow-accent-500/30 duration-200 hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl hover:shadow-accent-500/40 sm:px-11 sm:py-5 sm:text-xl"
                 >
@@ -281,8 +297,14 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Sticky mobile CTA */}
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-4px_20px_rgba(15,23,42,0.08)] backdrop-blur-xl md:hidden dark:border-slate-800 dark:bg-slate-900/95">
+        {/* Sticky mobile CTA — hidden while the hero's own CTA is on screen to
+            avoid showing two identical buttons at once. */}
+        <div
+          aria-hidden={heroCtaVisible}
+          className={`fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-4px_20px_rgba(15,23,42,0.08)] backdrop-blur-xl transition-all duration-300 md:hidden dark:border-slate-800 dark:bg-slate-900/95 ${
+            heroCtaVisible ? 'pointer-events-none translate-y-full opacity-0' : 'translate-y-0 opacity-100'
+          }`}
+        >
           <Link
             to="/assessment/start"
             className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-6 py-3 text-base font-bold text-white shadow-lg shadow-accent-500/25"
