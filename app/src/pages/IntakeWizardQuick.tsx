@@ -6607,7 +6607,7 @@ export default function IntakeWizardQuick() {
   }
 
   return (
-    <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-[1440px] flex-col overflow-visible px-0 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:px-4 md:min-h-[calc(100dvh-7.5rem)] md:overflow-visible md:px-8 md:py-3 ${isFirstStep ? 'py-1' : 'py-1.5 sm:py-2'}`}>
+    <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-[1440px] flex-col overflow-visible px-0 pb-[calc(6.75rem+env(safe-area-inset-bottom))] sm:px-4 sm:pb-[calc(0.5rem+env(safe-area-inset-bottom))] md:min-h-[calc(100dvh-7.5rem)] md:overflow-visible md:px-8 md:py-3 ${isFirstStep ? 'py-1' : 'py-1.5 sm:py-2'}`}>
       {generatingReport && createPortal(
         <ReportGeneratingOverlay
           title={tx('generatingTitle')}
@@ -6853,7 +6853,11 @@ export default function IntakeWizardQuick() {
         {t('intake.privacyNote')}
       </p>
 
-      <div className="sticky bottom-1 z-30 mx-4 shrink-0 rounded-xl border border-slate-200/90 bg-white/95 p-1.5 pb-[max(0.375rem,calc(0.375rem+env(safe-area-inset-bottom)))] shadow-lg shadow-slate-200/70 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 sm:static sm:bottom-auto sm:z-20 sm:mx-0 sm:rounded-2xl md:rounded-3xl">
+      {/* Mobile: a fixed bottom bar so Back/Next stay reachable no matter how tall
+          the step grows (e.g. expanding "Additional information"). `sticky` on a
+          last child collapsed to the end of the scrolled content and vanished.
+          sm+: back to an in-flow card below the step. */}
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/90 bg-white/95 px-4 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-4px_20px_rgba(15,23,42,0.10)] backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 sm:static sm:inset-auto sm:z-20 sm:mx-0 sm:shrink-0 sm:rounded-2xl sm:border sm:px-1.5 sm:py-1.5 sm:shadow-lg sm:shadow-slate-200/70 md:rounded-3xl">
       <div className="flex flex-col items-stretch gap-1.5 sm:flex-row sm:items-center sm:justify-between">
         <button
           type="button"
