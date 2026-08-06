@@ -1146,7 +1146,7 @@
     "injuryDetails_priorBodyAreas": "这些身体部位以前受过伤吗？",
     "injuryDetails_priorHelper": "本次事故涉及的相同部位，您以前是否受过伤？",
     "injuryDetails_dailyLifeQuestion": "这次受伤对您的日常生活有何影响？",
-    "injuryDetails_dailyLifeHelper": "这是我们评估“疼痛与精神损害”的方式——即除了医疗账单和误工之外，伤害对您生活质量的影响。请选择所有适用项。",
+    "injuryDetails_dailyLifeHelper": "您的伤害在医疗账单和误工之外对生活质量的影响。请选择所有适用项。",
     "injuryDetails_symptomsStill": "您目前还有症状吗？",
     "injuryDetails_symptomsTrend": "您的症状有好转吗？",
     "injuryDetails_otherDescribe": "其他（请说明）",

@@ -1146,7 +1146,7 @@
     "injuryDetails_priorBodyAreas": "¿Lesiones previas en estas áreas del cuerpo?",
     "injuryDetails_priorHelper": "¿Se había lesionado antes las mismas áreas involucradas en este accidente?",
     "injuryDetails_dailyLifeQuestion": "¿Cómo ha afectado la lesión su vida diaria?",
-    "injuryDetails_dailyLifeHelper": "Así es como tenemos en cuenta el dolor y sufrimiento: las formas en que su lesión afecta su calidad de vida más allá de las facturas médicas y el trabajo perdido. Seleccione todas las que correspondan.",
+    "injuryDetails_dailyLifeHelper": "Cómo su lesión afecta su calidad de vida más allá de las facturas y el trabajo perdido. Seleccione todas las que correspondan.",
     "injuryDetails_symptomsStill": "¿Todavía tiene síntomas?",
     "injuryDetails_symptomsTrend": "¿Han mejorado sus síntomas?",
     "injuryDetails_otherDescribe": "Otro (describa)",

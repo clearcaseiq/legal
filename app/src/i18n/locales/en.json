@@ -1152,7 +1152,7 @@
     "injuryDetails_priorBodyAreas": "Prior injuries to these body areas?",
     "injuryDetails_priorHelper": "Have you previously injured the same areas involved in this accident?",
     "injuryDetails_dailyLifeQuestion": "How has the injury affected your daily life?",
-    "injuryDetails_dailyLifeHelper": "This is how we account for pain & suffering — the ways your injury affects your quality of life beyond medical bills and missed work. Select all that apply.",
+    "injuryDetails_dailyLifeHelper": "How your injury affects your quality of life beyond bills and missed work. Select all that apply.",
     "injuryDetails_symptomsStill": "Are you still experiencing symptoms?",
     "injuryDetails_symptomsTrend": "Have your symptoms improved?",
     "injuryDetails_otherDescribe": "Other (please describe)",
