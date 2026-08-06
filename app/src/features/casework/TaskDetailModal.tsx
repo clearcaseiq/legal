@@ -453,7 +453,7 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                       <p className="text-xs text-emerald-700">
                         {done
                           ? 'This task is complete, so it can no longer be sent back for review.'
-                          : 'Unapprove to send it back for review — it will be un-assigned until someone approves it again.'}
+                          : 'Unapprove to send it back for review. It will be un-assigned until someone approves it again.'}
                       </p>
                     </div>
                   </div>

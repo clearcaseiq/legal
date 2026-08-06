@@ -307,7 +307,7 @@ export default function MessagesPage() {
         isOpen={pickerOpen}
         onClose={() => setPickerOpen(false)}
         leads={composeLeads}
-        title="New message — select a case"
+        title="New message: select a case"
         onSelect={openThread}
         emptyMessage="No messageable cases yet. You can message a client once they've been contacted or retained."
       />

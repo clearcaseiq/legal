@@ -496,7 +496,7 @@ function AttorneyHomeDashboardScreen() {
       ) : (
         <View style={styles.todayEmpty}>
           <Ionicons name="sunny-outline" size={22} color={colors.muted} />
-          <Text style={styles.todayEmptyText}>Nothing urgent for today — you’re in good shape.</Text>
+          <Text style={styles.todayEmptyText}>Nothing urgent for today. You’re in good shape.</Text>
         </View>
       )}
 

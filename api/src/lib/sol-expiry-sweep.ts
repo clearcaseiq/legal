@@ -146,7 +146,7 @@ async function withdrawTimeBarredOffer(
       attorneyId: intro.attorneyId,
       assessmentId: lead.assessmentId,
       eventType: ATTORNEY_EVENTS.sol_expired,
-      subject: 'Match withdrawn — filing deadline passed',
+      subject: 'Match withdrawn: filing deadline passed',
       body: `A case you were offered is outside its statute of limitations (expired ${expiredOn}) and has been withdrawn from your queue.`,
       leadId: lead.id,
       link: '/attorney-dashboard/leadgen/matches',

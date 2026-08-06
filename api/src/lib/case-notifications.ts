@@ -368,7 +368,7 @@ export async function sendPlaintiffAttorneyAccepted(
   const message = [
     `Hello${greetingName},`,
     '',
-    `Good news — ${attorneyName}${firmText} has reviewed and accepted your case and would like to help.`,
+    `Good news. ${attorneyName}${firmText} has reviewed and accepted your case and would like to help.`,
     '',
     `Case type: ${caseTypeLabel}`,
     `Accepted: ${acceptedDate} at ${acceptedTime}`,

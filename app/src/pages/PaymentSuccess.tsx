@@ -59,9 +59,9 @@ export default function PaymentSuccess() {
         {type === 'routing_fee' ? (
           <>
             <p className="text-sm font-semibold uppercase tracking-wide text-emerald-700">Payment received</p>
-            <h1 className="mt-2 text-3xl font-bold">Congratulations — this case is now yours! 🎉</h1>
+            <h1 className="mt-2 text-3xl font-bold">Congratulations. This case is now yours! 🎉</h1>
             <p className="mt-3 text-sm text-emerald-800">
-              You can now manage everything for this matter — client details, documents, tasks,
+              You can now manage everything for this matter. Client details, documents, tasks,
               deadlines, and messages all live in your Case Workspace.
             </p>
             <p className="mt-3 text-sm text-emerald-800">

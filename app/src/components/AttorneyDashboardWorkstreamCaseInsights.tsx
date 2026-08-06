@@ -145,7 +145,7 @@ function MedicalChronologySummaryPanel({ summary }: { summary: MedicalChronology
     <div className="rounded-md border border-brand-100 bg-brand-50/40 p-4">
       <h5 className="text-sm font-semibold text-gray-900">Extracted Medical Summary</h5>
       <p className="mt-0.5 text-xs text-gray-500">
-        Auto-extracted from uploaded records &amp; bills — providers, diagnoses, procedures, medications, imaging, surgeries, bills, and treatment gaps.
+        Auto-extracted from uploaded records &amp; bills: providers, diagnoses, procedures, medications, imaging, surgeries, bills, and treatment gaps.
       </p>
 
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">

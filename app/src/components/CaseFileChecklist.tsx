@@ -46,7 +46,7 @@ export default function CaseFileChecklist({
       label: 'Insurance declarations page',
       category: 'insurance',
       subcategory: 'dec_page',
-      why: 'Shows the coverage limits — the realistic ceiling on your recovery.',
+      why: 'Shows the coverage limits, the realistic ceiling on your recovery.',
       howToGet: "Ask your insurer (or the at-fault driver's) for the “declarations page.” It's free and you're entitled to yours.",
       done: hasInsurance,
     },
@@ -103,7 +103,7 @@ export default function CaseFileChecklist({
         <div>
           <p className="text-sm font-semibold text-slate-900">Build your case file</p>
           <p className="mt-0.5 text-xs text-slate-500">
-            You&apos;re entitled to every item below. Add what you have now — each one sharpens your
+            You&apos;re entitled to every item below. Add what you have now. Each one sharpens your
             estimate. You can always come back as more arrives.
           </p>
         </div>

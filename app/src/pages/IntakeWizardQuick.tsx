@@ -5,7 +5,7 @@ import { Fragment, useState, useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, type IntakeLeadPayload } from '../lib/api-plaintiff'
-import { deleteEvidenceFile, extractIncidentDetails, getPlaintiffDocumentRequests, type IncidentExtraction } from '../lib/api'
+import { deleteEvidenceFile, extractIncidentDetails, type IncidentExtraction } from '../lib/api'
 import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, X, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -916,7 +916,6 @@ export default function IntakeWizardQuick() {
   const [contactMethod, setContactMethod] = useState<'email' | 'phone'>('email')
   const [pendingEvidenceFiles, setPendingEvidenceFiles] = useState<Record<string, any[]>>({})
   // "Send documents" flow for the plaintiff document-upload page (CP-499).
-  const [sendingDocs, setSendingDocs] = useState(false)
   const [docsSent, setDocsSent] = useState(false)
   const [manageEvidence, setManageEvidence] = useState<Record<string, boolean>>({})
   type EvidenceWarning = { fileName: string; status: string; message: string; title?: string; action?: { label: string; onClick: () => void } }
@@ -5435,7 +5434,7 @@ export default function IntakeWizardQuick() {
                       : 'border-slate-200 bg-white hover:border-brand-300 hover:shadow-sm dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-brand-600'
                 }`}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${uploaded ? 'bg-emerald-600 text-white' : 'border-2 border-slate-300 text-slate-500 dark:border-slate-600 dark:text-slate-400'}`}>
                     {uploaded ? <Check className="h-3 w-3" aria-hidden /> : stepNo}
                   </span>
@@ -5471,7 +5470,7 @@ export default function IntakeWizardQuick() {
                       </>
                     )}
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
                     {uploaded && (
                       <button type="button" onClick={() => setManaging(true)} className="inline-flex !min-h-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900/40 dark:text-slate-200">
                         <FolderOpen className="h-3.5 w-3.5" aria-hidden /><span className="hidden sm:inline">{tx('evidence_manageShort')}</span>
@@ -6546,18 +6545,13 @@ export default function IntakeWizardQuick() {
       if (canGoBack) navigate(-1)
       else navigate(backTo)
     }
-    // Uploaded files already attach to the case as they drop, so this confirms
-    // the request is fulfilled on the attorney side and tells the plaintiff their
-    // documents were sent — the page previously had no submit action (CP-499).
-    const handleSendDocuments = async () => {
+    // Uploaded files already attach to the case as they drop, so submit is just a
+    // confirmation + return to the case (CP-499 added the action). We deliberately
+    // do NOT call any plaintiff-only endpoint here: that endpoint 401s for guests
+    // and stale sessions, and the global 401 interceptor would then wipe auth and
+    // bounce the user to the login screen instead of back to their case.
+    const handleSendDocuments = () => {
       if (!assessmentId) { goBackToCase(); return }
-      setSendingDocs(true)
-      try {
-        await getPlaintiffDocumentRequests(assessmentId)
-      } catch {
-        // Best-effort: the files are already saved even if the status refresh fails.
-      }
-      setSendingDocs(false)
       setDocsSent(true)
       window.setTimeout(() => goBackToCase(), 1400)
     }
@@ -6597,13 +6591,11 @@ export default function IntakeWizardQuick() {
             <button
               type="button"
               onClick={handleSendDocuments}
-              disabled={sendingDocs || docsSent || uploadedEvidenceCount === 0}
+              disabled={docsSent || uploadedEvidenceCount === 0}
               className="inline-flex items-center gap-1.5 rounded-xl bg-brand-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {docsSent ? (
                 <>{tx('documents_sent')} <Check className="h-4 w-4" aria-hidden /></>
-              ) : sendingDocs ? (
-                tx('documents_sending')
               ) : (
                 <>{tx('documents_send')} <ChevronRight className="h-4 w-4" aria-hidden /></>
               )}

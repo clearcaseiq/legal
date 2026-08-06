@@ -82,7 +82,7 @@ export default function AttorneyOnboardingPayment() {
             <div>
               <h1 className="text-xl font-bold text-gray-900">Add a payment method</h1>
               <p className="mt-1 text-sm text-gray-600">
-                Save a card to finish setting up your account. You&apos;re not charged now — a
+                Save a card to finish setting up your account. You&apos;re not charged now. A
                 per-case routing fee applies only when you accept a case, and having a card on file
                 lets you accept instantly without an extra checkout step.
               </p>

@@ -483,7 +483,7 @@ router.post('/upload', upload.single('file'), async (req: any, res) => {
     if (!req.file) {
       logger.warn('No file uploaded')
       return res.status(400).json({
-        error: 'No file received. If you selected a file, its format may be unsupported — please use a JPG, PNG, HEIC, PDF, or common document file.',
+        error: 'No file received. If you selected a file, its format may be unsupported. Please use a JPG, PNG, HEIC, PDF, or common document file.',
       })
     }
 

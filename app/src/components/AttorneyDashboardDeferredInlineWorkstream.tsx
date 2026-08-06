@@ -95,7 +95,7 @@ export default function AttorneyDashboardDeferredInlineWorkstream({
     return (
       <div className="rounded-md border border-gray-200 p-4 space-y-4">
         <h4 className="text-sm font-semibold text-gray-900">Medical Chronology</h4>
-        <p className="text-xs text-gray-500">Treatment timeline — attorneys immediately see treatment gaps.</p>
+        <p className="text-xs text-gray-500">Treatment timeline: attorneys immediately see treatment gaps.</p>
         {timelineEntries.length > 0 ? (
           <div className="space-y-2">
             {timelineEntries.map((entry, index) => (

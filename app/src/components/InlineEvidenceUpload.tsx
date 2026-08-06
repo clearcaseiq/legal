@@ -336,7 +336,7 @@ export default function InlineEvidenceUpload({
       // Positive confirmation so the user can see the check ran and passed.
       setVisionWarnings((prev) => [
         ...prev.filter((w) => w.fileName !== fileName),
-        { fileName, status, message: 'Looks good — this matches what we expected for this section.' },
+        { fileName, status, message: 'Looks good. This matches what we expected for this section.' },
       ])
       return
     }

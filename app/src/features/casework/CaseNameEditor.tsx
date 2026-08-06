@@ -83,7 +83,7 @@ export default function CaseNameEditor({
             type="button"
             onClick={open}
             aria-label="Add case caption"
-            title="Add a case caption (e.g., Rivera v. Delgado) — this does not change the plaintiff's name"
+            title="Add a case caption (e.g., Rivera v. Delgado). This does not change the plaintiff's name"
             className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-brand-600 opacity-0 transition hover:bg-brand-50 group-hover:opacity-100"
           >
             + Add caption

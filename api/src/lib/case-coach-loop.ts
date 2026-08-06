@@ -334,7 +334,7 @@ async function announceDemandReadyOnce(
       recipient: assignees.attorneyEmail,
       subject: 'Case ready to move to demand',
       message:
-        'This case now has strong documentation and no critical gaps remaining — it is ready to move to the demand/settlement stage. The demand-package task has been added to the board.',
+        'This case now has strong documentation and no critical gaps remaining. It is ready to move to the demand/settlement stage. The demand-package task has been added to the board.',
       role: 'attorney',
       attorneyId: assignees.attorneyId || undefined,
       userId: assignees.attorneyUserId || undefined,

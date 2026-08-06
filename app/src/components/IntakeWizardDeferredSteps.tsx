@@ -272,7 +272,7 @@ export default function IntakeWizardDeferredSteps({
           <div className="rounded-md border border-gray-200 p-4 space-y-4">
             <h4 className="text-sm font-semibold text-gray-900">Defense risk flags (optional)</h4>
             <p className="text-xs text-gray-500">
-              Insurance companies often ask this — answering now helps us protect your case.
+              Insurance companies often ask this. Answering now helps us protect your case.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               {[
@@ -293,7 +293,7 @@ export default function IntakeWizardDeferredSteps({
                     <option value="no">No</option>
                   </select>
                   <p className="text-xs text-gray-500">
-                    Insurance companies often ask this — answering now helps us protect your case.
+                    Insurance companies often ask this. Answering now helps us protect your case.
                   </p>
                 </div>
               ))}
@@ -580,7 +580,7 @@ export default function IntakeWizardDeferredSteps({
               placeholder="Any additional treatment details you want us to know..."
             />
             <p className="mt-2 text-xs text-gray-500">
-              Why we ask: insurance companies often challenge gaps in treatment — documenting this helps protect your case.
+              Why we ask: insurance companies often challenge gaps in treatment. Documenting this helps protect your case.
             </p>
           </div>
         </div>

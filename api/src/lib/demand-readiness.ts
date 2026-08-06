@@ -242,7 +242,7 @@ export function deriveTreatmentPosture(input: TreatmentPostureInput): TreatmentP
     return {
       ...base,
       posture: 'gap',
-      detail: `No treatment recorded for ${gap} days and no discharge or MMI note on file — care may still be ongoing, or it ended without documentation.`,
+      detail: `No treatment recorded for ${gap} days and no discharge or MMI note on file. Care may still be ongoing, or it ended without documentation.`,
     }
   }
 

@@ -98,7 +98,7 @@ export function analyzeTreatmentChronology(facts: any): ChronologyAnalysis {
       let modifier = 1
       if (onset > ONSET_LARGE_DELAY_DAYS) {
         modifier = 0.94
-        factors.push(`First treatment ${onset} days after incident — delayed onset weakens causation`)
+        factors.push(`First treatment ${onset} days after incident: delayed onset weakens causation`)
       } else if (onset > ONSET_DELAY_DAYS) {
         modifier = 0.97
         factors.push(`First treatment ${onset} days after incident`)
@@ -133,7 +133,7 @@ export function analyzeTreatmentChronology(facts: any): ChronologyAnalysis {
   } else if (gapCount >= 2 || largestGapDays > 90) {
     continuity = 'gapped'
     modifier -= clamp(0.04 + gapCount * 0.02, 0, 0.1)
-    factors.push(`${gapCount} gap(s) in care (largest ${largestGapDays} days) — weakens treatment narrative`)
+    factors.push(`${gapCount} gap(s) in care (largest ${largestGapDays} days): weakens treatment narrative`)
   } else {
     continuity = 'sporadic'
     if (largestGapDays > GAP_THRESHOLD_DAYS) {
@@ -145,7 +145,7 @@ export function analyzeTreatmentChronology(facts: any): ChronologyAnalysis {
   if (treatmentOnsetDays !== null) {
     if (treatmentOnsetDays > ONSET_LARGE_DELAY_DAYS) {
       modifier -= 0.06
-      factors.push(`First treatment ${treatmentOnsetDays} days after incident — delayed onset weakens causation`)
+      factors.push(`First treatment ${treatmentOnsetDays} days after incident: delayed onset weakens causation`)
     } else if (treatmentOnsetDays > ONSET_DELAY_DAYS) {
       modifier -= 0.03
       factors.push(`First treatment ${treatmentOnsetDays} days after incident`)

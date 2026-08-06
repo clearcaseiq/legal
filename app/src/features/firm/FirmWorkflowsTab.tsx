@@ -530,7 +530,7 @@ export function FirmWorkflowsTab() {
                         <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800 ring-1 ring-emerald-200">
                           <CheckCircle2 className="h-4 w-4 shrink-0" />
                           <span>
-                            <strong>Applied.</strong> This is your firm's standard workflow — new matters follow this
+                            <strong>Applied.</strong> This is your firm's standard workflow. New matters follow this
                             pipeline.
                           </span>
                         </div>

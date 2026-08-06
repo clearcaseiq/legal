@@ -66,7 +66,7 @@ export function StateMultiSelect({
           </button>
         </div>
       ) : (
-        <p className="text-xs text-slate-400">No states selected yet — use a region shortcut or search below.</p>
+        <p className="text-xs text-slate-400">No states selected yet. Use a region shortcut or search below.</p>
       )}
 
       {/* Quick actions: region presets + all */}

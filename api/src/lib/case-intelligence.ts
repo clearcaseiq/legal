@@ -350,7 +350,7 @@ export function buildGaps(params: {
   if (!priorInjuryKnown(facts)) {
     gaps.push({
       key: 'prior_injuries', label: 'Prior injuries / pre-existing conditions', category: 'case_strategy', severity: 3, valueImpact: 'medium',
-      rationale: 'Prior injuries to the same body part are a leading defense argument — confirm before demand.',
+      rationale: 'Prior injuries to the same body part are a leading defense argument. Confirm before demand.',
       actions: ['schedule_followup'],
     })
   }

@@ -163,7 +163,7 @@ export default function DeadlinesPage() {
     <div className="space-y-4">
       <PageHeader
         title="Deadlines"
-        description="A portfolio-wide filing-clock radar. Statute-of-limitations dates are computed live per case from the incident date, venue, and claim type, alongside every open, dated deadline task — so nothing slips across your caseload."
+        description="A portfolio-wide filing-clock radar. Statute-of-limitations dates are computed live per case from the incident date, venue, and claim type, alongside every open, dated deadline task, so nothing slips across your caseload."
       />
 
       {!loading && !error && atRisk > 0 ? (

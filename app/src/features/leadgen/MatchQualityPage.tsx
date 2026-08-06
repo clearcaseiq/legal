@@ -597,7 +597,7 @@ export default function MatchQualityPage() {
                   label="Aging > 24h"
                   tone={mine.leadSpeed.aging.over24h > 0 ? 'danger' : 'neutral'}
                   filled
-                  hint={hint('Undecided matches routed more than 24 hours ago — act on these first.')}
+                  hint={hint('Undecided matches routed more than 24 hours ago. Act on these first.')}
                   onClick={() => navigate('/attorney-dashboard/leadgen/matches')}
                 />
               </StatGrid>
@@ -632,7 +632,7 @@ export default function MatchQualityPage() {
                       {mine.decisionQuality.declined.total} declines. Worth a second look at strong-fit passes.
                     </>
                   ) : (
-                    <>Good judgment — none of your {mine.decisionQuality.declined.total} declined matches were high-value.</>
+                    <>Good judgment. None of your {mine.decisionQuality.declined.total} declined matches were high-value.</>
                   )}
                 </div>
               )}

@@ -45,7 +45,7 @@ const COMMON: BankQuestion[] = [
   { id: 'strat_social_media', section: 'Case Strategy', text: 'Have you posted anything about the incident or your injuries on social media?', whyAsked: 'Defense routinely mines social media to contradict damages.', valueImpact: 'medium' },
   { id: 'strat_prior_accidents', section: 'Case Strategy', text: 'Have you been in any prior accidents or made prior injury claims?', whyAsked: 'Prior claims are a common causation defense.', valueImpact: 'medium', gate: onlyIfGap('prior_injuries'), gapKeys: ['prior_injuries'] },
   { id: 'strat_bankruptcy', section: 'Case Strategy', text: 'Have you filed for bankruptcy, or are you considering it?', whyAsked: 'A pending bankruptcy can make the claim an asset of the estate.', valueImpact: 'low' },
-  { id: 'strat_prior_injury', section: 'Case Strategy', text: 'Any prior injuries or treatment to the same body part(s)?', whyAsked: 'Pre-existing conditions are the leading damages defense — get ahead of it.', valueImpact: 'medium', gate: onlyIfGap('prior_injuries'), gapKeys: ['prior_injuries'] },
+  { id: 'strat_prior_injury', section: 'Case Strategy', text: 'Any prior injuries or treatment to the same body part(s)?', whyAsked: 'Pre-existing conditions are the leading damages defense. Get ahead of it.', valueImpact: 'medium', gate: onlyIfGap('prior_injuries'), gapKeys: ['prior_injuries'] },
 ]
 
 const INSURANCE_COMMON: BankQuestion[] = [
@@ -80,7 +80,7 @@ const BANKS: Record<string, BankQuestion[]> = {
     { id: 'sf_warning', section: 'Liability', text: 'Were there any warning signs (wet floor, caution cones) present?', whyAsked: 'Absence of warnings supports a hazard/notice claim.', valueImpact: 'high' },
     { id: 'sf_condition', section: 'Liability', text: 'What was the condition (spill, ice, uneven surface), and how long had it been there?', whyAsked: 'Notice/time is central to premises liability.', valueImpact: 'high' },
     { id: 'sf_footwear', section: 'Liability', text: 'What footwear were you wearing, and what were you doing at the time?', whyAsked: 'Anticipates comparative-fault defenses.', valueImpact: 'medium' },
-    { id: 'sf_video', section: 'Liability', text: 'Is there surveillance video or an incident report from the property?', whyAsked: 'Video/reports are the strongest liability evidence — request before it’s overwritten.', valueImpact: 'high', gate: onlyIfGap('police_report'), gapKeys: ['police_report'] },
+    { id: 'sf_video', section: 'Liability', text: 'Is there surveillance video or an incident report from the property?', whyAsked: 'Video/reports are the strongest liability evidence. Request before it’s overwritten.', valueImpact: 'high', gate: onlyIfGap('police_report'), gapKeys: ['police_report'] },
     { id: 'sf_witness', section: 'Liability', text: 'Did any employees or witnesses see the fall or the hazard?', whyAsked: 'Witnesses corroborate the hazard and notice.', valueImpact: 'medium', gate: onlyIfGap('witness_statements'), gapKeys: ['witness_statements'] },
     { id: 'sf_report', section: 'Damages', text: 'Did the store/property create an incident report, and did you get a copy?', whyAsked: 'Documents the fall and the property’s response.', valueImpact: 'medium' },
   ],
@@ -99,7 +99,7 @@ const BANKS: Record<string, BankQuestion[]> = {
   ],
   product: [
     { id: 'pr_maker', section: 'Liability', text: 'Do you know the manufacturer, brand, and model of the product?', whyAsked: 'Identifies the defendant(s) in the chain of distribution.', valueImpact: 'high' },
-    { id: 'pr_preserved', section: 'Liability', text: 'Do you still have the product itself (preserved, unaltered)?', whyAsked: 'The product is the key evidence — spoliation can sink the case.', valueImpact: 'high' },
+    { id: 'pr_preserved', section: 'Liability', text: 'Do you still have the product itself (preserved, unaltered)?', whyAsked: 'The product is the key evidence. Spoliation can sink the case.', valueImpact: 'high' },
     { id: 'pr_recall', section: 'Liability', text: 'Are you aware of any recalls or similar incidents with this product?', whyAsked: 'Recalls/prior incidents support a known defect.', valueImpact: 'high' },
     { id: 'pr_instructions', section: 'Liability', text: 'Were you using the product as instructed, and do you have the manual/packaging?', whyAsked: 'Anticipates misuse defenses and supports warning claims.', valueImpact: 'medium' },
     { id: 'pr_receipt', section: 'Damages', text: 'Do you have the purchase receipt or proof of purchase?', whyAsked: 'Establishes ownership and the purchase timeline.', valueImpact: 'low' },

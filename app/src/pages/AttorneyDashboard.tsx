@@ -3359,7 +3359,7 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
           <div className="mt-4 space-y-3">
             {operationalQueueItems.filter((item) => item.count > 0).length === 0 ? (
               <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
-                No queued work right now — nothing needs your attention.
+                No queued work right now. Nothing needs your attention.
               </div>
             ) : (
               operationalQueueItems.filter((item) => item.count > 0).map((item) => (
@@ -3385,7 +3385,7 @@ export default function AttorneyDashboard({ chromeless = false, initialView }: A
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {decisionQueueItems.filter((item) => item.count > 0).length === 0 ? (
               <div className="rounded-xl border border-dashed border-brand-100 bg-brand-50 px-4 py-5 text-sm text-brand-700 sm:col-span-2">
-                No pending decisions — new matches will appear here.
+                No pending decisions. New matches will appear here.
               </div>
             ) : (
               decisionQueueItems.filter((item) => item.count > 0).map((item) => (

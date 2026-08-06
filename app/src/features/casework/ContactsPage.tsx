@@ -177,7 +177,7 @@ export default function ContactsPage() {
     <div className="space-y-4">
       <PageHeader
         title="Contacts"
-        description="Everyone attached to your cases — clients, adjusters, providers, and experts."
+        description="Everyone attached to your cases: clients, adjusters, providers, and experts."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">

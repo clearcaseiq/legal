@@ -233,7 +233,7 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
           <FileText className="mx-auto h-8 w-8 text-slate-300" />
           <p className="mt-3 text-sm font-semibold text-slate-900">No demand letter yet</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-            {AI_AUTHOR} can draft one from the case record — the incident, liability, treatment timeline, bills, wage
+            {AI_AUTHOR} can draft one from the case record: the incident, liability, treatment timeline, bills, wage
             loss, and the damages summary. You can edit every word before it goes out.
           </p>
           <textarea

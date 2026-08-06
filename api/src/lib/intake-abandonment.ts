@@ -70,7 +70,7 @@ export async function sweepAbandonedIntakeLeads(): Promise<{ scanned: number; se
         await sendClaimEmail({
           to: lead.email,
           subject: 'You may have a valuable settlement waiting',
-          body: `Hi,\n\nWe noticed you left ClearCaseIQ before finishing your case assessment. Based on what you started, you could potentially have a valuable settlement — but we can't complete your evaluation until your assessment is finished.\n\nIt only takes a couple of minutes to pick up right where you left off:\n${link}\n\nIf you'd prefer not to continue, you can safely ignore this email.`,
+          body: `Hi,\n\nWe noticed you left ClearCaseIQ before finishing your case assessment. Based on what you started, you could potentially have a valuable settlement, but we can't complete your evaluation until your assessment is finished.\n\nIt only takes a couple of minutes to pick up right where you left off:\n${link}\n\nIf you'd prefer not to continue, you can safely ignore this email.`,
         })
       }
       if (lead.phone) {

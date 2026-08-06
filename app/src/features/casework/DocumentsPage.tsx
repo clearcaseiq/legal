@@ -293,7 +293,7 @@ export default function DocumentsPage() {
         isOpen={picker !== null}
         onClose={() => setPicker(null)}
         leads={composeLeads}
-        title={picker === 'esign' ? 'Send for e-signature — select a case' : 'Request documents — select a case'}
+        title={picker === 'esign' ? 'Send for e-signature: select a case' : 'Request documents: select a case'}
         onSelect={startFlow}
         emptyMessage="No eligible cases yet. Documents and e-signatures can be sent once a case is contacted or retained."
       />

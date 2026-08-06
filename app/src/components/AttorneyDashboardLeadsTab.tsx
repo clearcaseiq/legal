@@ -666,7 +666,7 @@ export default function AttorneyDashboardLeadsTab({
             filled
             active={caseLeadsFilter.routingInboxView === 'hotMatches'}
             onClick={() => applyRoutingInboxView('hotMatches', {}, null)}
-            hint={hintText('Open matches flagged high-priority — high estimated value or strong evidence. Your highest-value cases to review first.')}
+            hint={hintText('Open matches flagged high-priority: high estimated value or strong evidence. Your highest-value cases to review first.')}
           />
           <div
             className="relative"
@@ -757,7 +757,7 @@ export default function AttorneyDashboardLeadsTab({
                 role="tooltip"
                 className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-60 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-medium leading-5 text-white shadow-lg shadow-slate-900/20"
               >
-                Matches you passed on in the last {declineWindow} days — a retrospective glance that doesn't change your open inbox.
+                Matches you passed on in the last {declineWindow} days, a retrospective glance that doesn't change your open inbox.
                 <span
                   className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 bg-slate-900"
                   aria-hidden
@@ -772,7 +772,7 @@ export default function AttorneyDashboardLeadsTab({
             filled
             active={caseLeadsFilter.routingInboxView === 'expired'}
             onClick={() => applyRoutingInboxView('expired', {}, null)}
-            hint={hintText('Response window elapsed — no longer available to accept.')}
+            hint={hintText('Response window elapsed. No longer available to accept.')}
           />
           <FilterStat
             value={compactCurrency(inboxValue)}

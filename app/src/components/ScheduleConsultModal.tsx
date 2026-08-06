@@ -120,7 +120,7 @@ export default function ScheduleConsultModal({
             </div>
             {meetingType === 'video' && zoomStatus && !zoomStatus.configured && (
               <p className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
-                Zoom isn't enabled on this server yet — please paste a Google Meet or Microsoft Teams
+                Zoom isn't enabled on this server yet. Please paste a Google Meet or Microsoft Teams
                 meeting link in the Notes field below, and we'll send it to the plaintiff with the
                 confirmation.
               </p>

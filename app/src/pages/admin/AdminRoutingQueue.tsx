@@ -92,7 +92,7 @@ export default function AdminRoutingQueue() {
     <div className="space-y-6">
       <PageHeader
         title="Routing queue"
-        description="Live dispatch console — cases currently in routing, waiting for attorney response."
+        description="Live dispatch console: cases currently in routing, waiting for attorney response."
         actions={
           <>
             <select

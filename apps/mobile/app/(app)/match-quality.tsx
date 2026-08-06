@@ -119,7 +119,7 @@ export default function MatchQualityScreen() {
           </View>
           {(dq.declined.highViability ?? 0) > 0 ? (
             <Text style={styles.footnote}>
-              {dq.declined.highViability} declined match{(dq.declined.highViability === 1) ? '' : 'es'} scored ≥70% viability — worth a second look.
+              {dq.declined.highViability} declined match{(dq.declined.highViability === 1) ? '' : 'es'} scored ≥70% viability. Worth a second look.
             </Text>
           ) : (
             <Text style={styles.footnote}>No high-viability matches were declined. Good calibration.</Text>

@@ -283,7 +283,7 @@ router.post('/assessments/:assessmentId/satisfaction', optionalAuthMiddleware, a
         },
       })
     } else {
-      return res.status(409).json({ error: 'No matched attorney yet — satisfaction can be recorded once a case is engaged.' })
+      return res.status(409).json({ error: 'No matched attorney yet. Satisfaction can be recorded once a case is engaged.' })
     }
 
     // This widget asks the plaintiff to rate their attorney, so it has to count as

@@ -340,7 +340,7 @@ export default function CaseIntelligencePanel({ leadId }: { leadId: string }) {
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-600 text-white"><Sparkles className="h-4 w-4" /></span>
           <div>
             <h3 className="text-sm font-bold text-slate-900">AI Case Summary</h3>
-            <p className="text-xs text-slate-500">Everything already collected during intake — don’t re-ask.</p>
+            <p className="text-xs text-slate-500">Everything already collected during intake. Don’t re-ask.</p>
           </div>
         </div>
 
@@ -371,7 +371,7 @@ export default function CaseIntelligencePanel({ leadId }: { leadId: string }) {
             <span className="grid h-8 w-8 place-items-center rounded-lg bg-amber-500 text-white"><AlertTriangle className="h-4 w-4" /></span>
             <div>
               <h3 className="text-sm font-bold text-slate-900">Missing Information</h3>
-              <p className="text-xs text-slate-500">What the AI could not determine — ranked by impact on the case.</p>
+              <p className="text-xs text-slate-500">What the AI could not determine, ranked by impact on the case.</p>
             </div>
           </div>
 
@@ -456,7 +456,7 @@ export default function CaseIntelligencePanel({ leadId }: { leadId: string }) {
         {qLoading && questions === null ? (
           <div className="mt-3 flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin text-violet-500" /> Generating questions…</div>
         ) : grouped.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">No open questions — the file looks complete.</p>
+          <p className="mt-3 text-sm text-slate-500">No open questions. The file looks complete.</p>
         ) : (
           <div className="mt-3 space-y-4">
             {grouped.map(({ section, items }) => (

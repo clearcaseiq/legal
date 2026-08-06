@@ -216,7 +216,7 @@ export function FirmTemplatesTab() {
         }
       >
         <p className="mb-4 text-sm text-slate-500">
-          Reusable firm documents — retainers, HIPAA authorizations, intake packages, and more. Import or drag &amp; drop
+          Reusable firm documents: retainers, HIPAA authorizations, intake packages, and more. Import or drag &amp; drop
           files, or start from the recommended set. Attach a PDF to send it for signature.
         </p>
 
@@ -308,12 +308,12 @@ function TemplateRow({
   const signable = template.isPdf || Boolean(template.body && template.body.trim())
   const blockedReason = !signable
     ? template.hasFile
-      ? 'Only PDF attachments can be sent for signature — re-upload this template as a PDF or add body text.'
+      ? 'Only PDF attachments can be sent for signature. Re-upload this template as a PDF or add body text.'
       : 'Add body text or attach a PDF before this template can be sent for signature.'
     : esignConfigured === false
       ? 'E-signature isn’t connected yet. A firm admin can connect Dropbox Sign or Documenso under Firm Settings → Integrations.'
       : !hasRecipients
-        ? 'No accepted cases to send to yet — accept a case first.'
+        ? 'No accepted cases to send to yet. Accept a case first.'
         : null
 
   const view = async () => {

@@ -1089,7 +1089,7 @@ export function predictViabilityHeuristic(features: any, calibrationOverride?: V
       'Not legal advice',
       'Results based on limited information',
       ...(economicsImputed
-        ? ['Medical specials estimated from injury severity — add your actual bills to refine this figure']
+        ? ['Medical specials estimated from injury severity. Add your actual bills to refine this figure']
         : []),
       'Consult with qualified attorney',
     ],

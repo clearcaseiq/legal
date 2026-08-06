@@ -256,7 +256,7 @@ export default function AddTaskPage() {
                 </p>
               ) : (
                 <p className="mt-1.5 text-xs text-amber-600">
-                  Internal — only your firm sees this. Choose “Client (Plaintiff)” to send it to the client.
+                  Internal: only your firm sees this. Choose “Client (Plaintiff)” to send it to the client.
                 </p>
               )}
             </div>

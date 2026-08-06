@@ -39,7 +39,7 @@ export const BUILT_IN_QUICK_REPLIES: QuickReply[] = [
   {
     id: 'received',
     label: 'Got it',
-    body: 'Thanks — I received this and will review it shortly. I will follow up with next steps.',
+    body: 'Thanks. I received this and will review it shortly. I will follow up with next steps.',
     builtIn: true,
   },
   {

@@ -180,8 +180,8 @@ export default function AdminSystemStatus() {
             )}
             <p className="mt-3 text-xs text-slate-400 dark:text-slate-500">
               Checked {timeAgo(status.checkedAt)} · refreshes automatically every minute. This page
-              is served by the platform it reports on, so it cannot tell you the platform is down —
-              if nothing loads at all, check the container health on the host.
+              is served by the platform it reports on, so it cannot tell you the platform is down.
+              If nothing loads at all, check the container health on the host.
             </p>
           </SectionCard>
 
@@ -233,7 +233,7 @@ export default function AdminSystemStatus() {
                 {status.schema.missingColumns.length > 0 && (
                   <div className="mt-2">
                     <p className="text-sm text-rose-600 dark:text-rose-400">
-                      Missing columns — the API will error on any route that reads these:
+                      Missing columns. The API will error on any route that reads these:
                     </p>
                     <ul className="mt-1 space-y-0.5">
                       {status.schema.missingColumns.map((column) => (

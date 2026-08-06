@@ -266,7 +266,7 @@ export default function TeamMessagesPage() {
                 {threadLoading && messages.length === 0 ? (
                   <p className="text-center text-sm text-slate-400">Loading…</p>
                 ) : messages.length === 0 ? (
-                  <EmptyState message="No messages yet — say hello." />
+                  <EmptyState message="No messages yet. Say hello." />
                 ) : (
                   grouped.map((group) => (
                     <div key={group.day} className="space-y-2">

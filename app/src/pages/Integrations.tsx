@@ -119,7 +119,7 @@ export default function Integrations() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Case Management Integrations</h1>
             <p className="text-sm text-gray-500">
-              Connect your firm's case management system to auto-send accepted cases, contacts, and documents — no double entry.
+              Connect your firm's case management system to auto-send accepted cases, contacts, and documents. No double entry.
             </p>
           </div>
         </div>

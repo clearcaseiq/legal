@@ -372,7 +372,7 @@ export default function SignatureRequestPanel({
       return
     }
     if (!packetProvider) {
-      setError('The onboarding packet includes a HIPAA authorization — configure a HIPAA-capable signature tool first.')
+      setError('The onboarding packet includes a HIPAA authorization. Configure a HIPAA-capable signature tool first.')
       return
     }
     setSubmitting(true)
@@ -391,7 +391,7 @@ export default function SignatureRequestPanel({
         recordsDateRange: recordsDateRange.trim() || undefined,
       })
       setEnvelopes((prev) => [hipaa, retainer, ...prev])
-      setNotice('Sent onboarding packet — retainer + HIPAA authorization — to the client.')
+      setNotice('Sent onboarding packet, retainer + HIPAA authorization, to the client.')
       setConfirmResend(false)
     } catch (err: any) {
       setError(err?.response?.data?.detail || err?.response?.data?.error || 'Failed to send onboarding packet.')
@@ -885,7 +885,7 @@ export default function SignatureRequestPanel({
             </div>
             <iframe title="Document preview" src={previewUrl} className="flex-1 w-full" />
             <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-end gap-3">
-              <span className="text-xs text-slate-400 mr-auto">This is a draft — nothing has been sent yet.</span>
+              <span className="text-xs text-slate-400 mr-auto">This is a draft. Nothing has been sent yet.</span>
               <button
                 onClick={() => setPreviewUrl(null)}
                 className="px-3 py-2 text-sm font-medium text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50"

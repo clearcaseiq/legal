@@ -990,7 +990,7 @@ function buildInsuranceClaimSuggestion(facts: any) {
       ...(plaintiffCarrier ? { carrierName: plaintiffCarrier } : {}),
     }
     if (!hasUmUim) {
-      warnings.push('Client reported no UM/UIM coverage — recovery may be limited. Confirm the policy.')
+      warnings.push('Client reported no UM/UIM coverage. Recovery may be limited. Confirm the policy.')
     }
   } else if (otherPartyInsured === 'yes') {
     available = true
@@ -1002,10 +1002,10 @@ function buildInsuranceClaimSuggestion(facts: any) {
       ...(defendantPolicyLimit ? { policyLimit: defendantPolicyLimit } : {}),
     }
     if (hasUmUim && defendantPolicyLimit && defendantPolicyLimit <= 25000) {
-      warnings.push('Defendant limits look low and the client has UM/UIM — consider a UIM claim if liability limits are insufficient.')
+      warnings.push('Defendant limits look low and the client has UM/UIM. Consider a UIM claim if liability limits are insufficient.')
     }
   } else if (otherPartyInsured === 'not_sure') {
-    rationale = 'Client is unsure whether the at-fault party is insured — request the Dec Page to confirm coverage before classifying the claim.'
+    rationale = 'Client is unsure whether the at-fault party is insured. Request the Dec Page to confirm coverage before classifying the claim.'
   }
 
   return {
@@ -6079,7 +6079,7 @@ router.post('/leads/:leadId/opposing-document-request', authMiddleware, async (r
     if (ccPlaintiffEmail) {
       const ccName = oppAssessment?.user?.firstName || 'there'
       const ccSubject = 'Your attorney sent a document request on your case'
-      const ccMessage = `Hi ${ccName},\n\n${attorneyName} sent a request for the following documents to ${recipientName} (${roleLabel}) as part of building your case:\n\n${docList}\n\n${customMessage ? `Note included: ${customMessage}\n\n` : ''}No action is needed from you — this is just to keep you informed.\n\nBest regards,\nClearCaseIQ`
+      const ccMessage = `Hi ${ccName},\n\n${attorneyName} sent a request for the following documents to ${recipientName} (${roleLabel}) as part of building your case:\n\n${docList}\n\n${customMessage ? `Note included: ${customMessage}\n\n` : ''}No action is needed from you. This is just to keep you informed.\n\nBest regards,\nClearCaseIQ`
       await deliverDirectNotification({
         type: 'email',
         recipient: ccPlaintiffEmail,
@@ -6117,7 +6117,7 @@ router.post('/leads/:leadId/opposing-document-request', authMiddleware, async (r
             chatRoomId: ccRoom.id,
             senderId: attorney.id,
             senderType: 'attorney',
-            content: `FYI — I've requested the following documents from ${recipientName} (${roleLabel}) to support your case:\n\n${docList}\n\nNo action is needed from you.`,
+            content: `FYI. I've requested the following documents from ${recipientName} (${roleLabel}) to support your case:\n\n${docList}\n\nNo action is needed from you.`,
             messageType: 'text',
           },
         })
@@ -6283,7 +6283,7 @@ router.post('/leads/:leadId/schedule-consult', authMiddleware, async (req: any, 
       return res.status(400).json({ error: 'Please choose a valid date and time.' })
     }
     if (scheduledAt.getTime() < Date.now()) {
-      return res.status(400).json({ error: 'Please choose a time in the future — you cannot schedule a consultation in the past.' })
+      return res.status(400).json({ error: 'Please choose a time in the future. You cannot schedule a consultation in the past.' })
     }
 
     // This used to reuse *any* upcoming consult on the case, to stop repeated

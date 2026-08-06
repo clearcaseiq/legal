@@ -36,7 +36,7 @@ function QuestionTaskBadge() {
   return (
     <span
       className="inline-flex shrink-0 items-center gap-1 rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-sky-200"
-      title="Questions Rose wants answered — open the task for the checklist"
+      title="Questions Rose wants answered. Open the task for the checklist"
     >
       <HelpCircle className="h-3 w-3" /> {AI_AUTHOR_SHORT_NAME} · Q
     </span>
@@ -55,7 +55,7 @@ export function PendingReviewBadge() {
   return (
     <span
       className="inline-flex shrink-0 items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200"
-      title="Awaiting case-manager review — approve to assign it and make it live"
+      title="Awaiting case-manager review: approve to assign it and make it live"
     >
       <ShieldAlert className="h-3 w-3" /> Pending review
     </span>

@@ -58,7 +58,7 @@ async function inviteNonRegisteredAttorney(email: string): Promise<{ attorneyId:
   const url = claimUrl(token)
   const emailSent = await sendClaimEmail({
     to: normalizedEmail,
-    subject: 'You have a new case on ClearCaseIQ — claim your profile',
+    subject: 'You have a new case on ClearCaseIQ. Claim your profile',
     body: [
       `Hi ${derivedName},`,
       '',

@@ -128,7 +128,7 @@ function RoutingStateView({ state }: { state: any }) {
         <div className="flex items-center gap-2">
           <span className="text-slate-500">Email lookup:</span>
           {lookup.error
-            ? <span className="text-red-700">Not found — attorney must log in with this exact email</span>
+            ? <span className="text-red-700">Not found: attorney must log in with this exact email</span>
             : <span>Matched <span className="font-medium">{lookup.name}</span> ({lookup.email})</span>}
         </div>
       )}

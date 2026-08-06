@@ -250,7 +250,7 @@ export default function AdminAttorneys() {
                 e.stopPropagation()
                 void setVerified(a, !a.isVerified)
               }}
-              title={a.isVerified ? 'Remove verification' : 'Mark verified — allows routing'}
+              title={a.isVerified ? 'Remove verification' : 'Mark verified: allows routing'}
               className={`${btn} ${
                 a.isVerified
                   ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:text-emerald-400 dark:hover:bg-emerald-950/40'
@@ -267,7 +267,7 @@ export default function AdminAttorneys() {
                 e.stopPropagation()
                 void setActive(a, !a.isActive)
               }}
-              title={a.isActive ? 'Deactivate — removes from routing' : 'Reactivate'}
+              title={a.isActive ? 'Deactivate: removes from routing' : 'Reactivate'}
               className={`${btn} ${
                 a.isActive
                   ? 'border-slate-200 text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-rose-950/40 dark:hover:text-rose-400'

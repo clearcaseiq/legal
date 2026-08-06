@@ -169,7 +169,7 @@ export default function AdminFieldMappings() {
     <div className="mx-auto max-w-4xl">
       <PageHeader
         title="Field mappings"
-        description="Reconcile values that differ between surfaces — e.g. the case type a plaintiff picks in attorney search vs. the specialty slug an attorney stored. Each row maps a canonical value to any number of aliases that should resolve to it. Changes apply without a deploy."
+        description="Reconcile values that differ between surfaces, e.g. the case type a plaintiff picks in attorney search vs. the specialty slug an attorney stored. Each row maps a canonical value to any number of aliases that should resolve to it. Changes apply without a deploy."
         actions={
           <>
             <button type="button" onClick={handleReset} className="btn-outline text-ui-sm">

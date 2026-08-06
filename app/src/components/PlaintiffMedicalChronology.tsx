@@ -334,7 +334,7 @@ export default function PlaintiffMedicalChronology({
       )}
       {!readOnly && (
       <p className="mt-2 text-xs text-slate-500">
-        Not ready to confirm? <span className="font-medium text-slate-700">Skipping is fine</span> — attorneys can still review your case now and follow up if anything is needed.
+        Not ready to confirm? <span className="font-medium text-slate-700">Skipping is fine</span>. Attorneys can still review your case now and follow up if anything is needed.
       </p>
       )}
     </section>

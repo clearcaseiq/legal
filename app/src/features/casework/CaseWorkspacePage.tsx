@@ -506,10 +506,10 @@ export default function CaseWorkspacePage() {
           </div>
           <div className="min-w-0 pr-6">
             <p className="text-sm font-semibold text-emerald-900">
-              Congratulations — this case is now yours!
+              Congratulations. This case is now yours!
             </p>
             <p className="mt-0.5 text-sm text-emerald-800">
-              You can now manage everything for this matter right here — client details, documents,
+              You can now manage everything for this matter right here. Client details, documents,
               tasks, deadlines, and messages all live in this workspace.
             </p>
           </div>
@@ -937,7 +937,7 @@ function WorkstreamPanel({
             </p>
             <p className="mt-0.5 text-sm text-slate-600">
               {demandReady
-                ? 'Readiness clears the bar — assemble specials, liability, and the damages narrative into the package.'
+                ? 'Readiness clears the bar. Assemble specials, liability, and the damages narrative into the package.'
                 : `Readiness is ${readinessScore}%. Close the ${blockers.length} item${blockers.length === 1 ? '' : 's'} below to strengthen the file before sending.`}
             </p>
           </div>
@@ -981,7 +981,7 @@ function WorkstreamPanel({
           {policy > 0 && high > policy ? (
             <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-800">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>Modeled value runs above the known policy limit — build the demand with a policy-limits strategy and document the excess exposure.</span>
+              <span>Modeled value runs above the known policy limit. Build the demand with a policy-limits strategy and document the excess exposure.</span>
             </div>
           ) : null}
           {v?.detail ? <p className="mt-3 text-sm leading-relaxed text-slate-500">{v.detail}</p> : null}
@@ -1044,7 +1044,7 @@ function WorkstreamPanel({
         ) : (
           <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-800">
             <Check className="h-4 w-4 shrink-0" />
-            All key records are in — no outstanding items blocking the demand.
+            All key records are in. No outstanding items blocking the demand.
           </div>
         )}
 
@@ -1262,7 +1262,7 @@ function WorkstreamPanel({
           <div className="min-w-0">
             <p className="text-sm font-semibold text-slate-900">Statute of limitations — {detail.type}</p>
             <p className="mt-0.5 text-sm text-slate-600">{solText}</p>
-            <p className="mt-1 text-xs text-slate-400">Estimate only — confirm the exact filing deadline against the incident date and venue ({detail.venue}).</p>
+            <p className="mt-1 text-xs text-slate-400">Estimate only: confirm the exact filing deadline against the incident date and venue ({detail.venue}).</p>
           </div>
         </div>
 
@@ -1270,7 +1270,7 @@ function WorkstreamPanel({
         {group('Due this week', soon, 'text-amber-700')}
         {group('Upcoming', later, 'text-slate-500')}
 
-        {!dated.length ? <Note>No scheduled task deadlines yet — the statute guidance above still applies. Add case tasks with due dates and they’ll appear here, sorted by urgency.</Note> : null}
+        {!dated.length ? <Note>No scheduled task deadlines yet. The statute guidance above still applies. Add case tasks with due dates and they’ll appear here, sorted by urgency.</Note> : null}
 
         {cc?.nextBestAction ? (
           <div className="flex items-start gap-2.5 rounded-xl border border-brand-100 bg-brand-50/60 px-4 py-3 text-sm text-slate-700">
@@ -2008,7 +2008,7 @@ function MedicalPanel({
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <MedSection icon={Receipt} title="Cost benchmarks" />
           <p className="mt-1 mb-3 text-xs text-slate-500">
-            Typical vs. high paid amounts per patient for the treatment on file — anchors your damages ask.
+            Typical vs. high paid amounts per patient for the treatment on file. Anchors your damages ask.
           </p>
           <DataTable
             headers={['Treatment category', 'Typical / patient', 'High / patient']}
@@ -3755,8 +3755,8 @@ function TasksPanel({
       flash(
         'ok',
         approved
-          ? 'Task approved — it is now live and assigned.'
-          : 'Approval taken back — the task is un-assigned and back in review.',
+          ? 'Task approved. It is now live and assigned.'
+          : 'Approval taken back. The task is un-assigned and back in review.',
       )
       await load()
     } catch (err: any) {
@@ -3770,7 +3770,7 @@ function TasksPanel({
     setBusy('generate')
     try {
       const res = await createLeadTasksFromReadiness(leadId)
-      flash('ok', res?.createdCount ? `Added ${res.createdCount} task${res.createdCount === 1 ? '' : 's'} from case readiness.` : 'No new tasks needed — the case is on track.')
+      flash('ok', res?.createdCount ? `Added ${res.createdCount} task${res.createdCount === 1 ? '' : 's'} from case readiness.` : 'No new tasks needed. The case is on track.')
       await load()
     } catch (err: any) {
       flash('err', err?.response?.data?.error || 'Failed to generate tasks.')
@@ -3873,14 +3873,14 @@ function TasksPanel({
             {t.reviewStatus === 'pending' ? (
               <span
                 className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-200"
-                title="Awaiting case-manager review — approve to assign it and make it live"
+                title="Awaiting case-manager review: approve to assign it and make it live"
               >
                 <ShieldAlert className="h-3 w-3" /> Pending review
               </span>
             ) : t.reviewStatus === 'approved' ? (
               <span
                 className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200"
-                title="Reviewed and approved — unapprove to send it back"
+                title="Reviewed and approved: unapprove to send it back"
               >
                 <BadgeCheck className="h-3 w-3" /> Approved
               </span>
@@ -3906,7 +3906,7 @@ function TasksPanel({
               onClick={() => void setApproval(t, true)}
               disabled={rowBusy}
               className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-              title="Approve — assign it and make it live"
+              title="Approve: assign it and make it live"
             >
               <BadgeCheck className="h-3.5 w-3.5" /> Approve
             </button>
@@ -3916,7 +3916,7 @@ function TasksPanel({
               disabled={rowBusy}
               className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 opacity-0 transition hover:bg-amber-50 hover:text-amber-600 disabled:opacity-50 group-hover:opacity-100"
               aria-label="Unapprove task"
-              title="Unapprove — un-assign it and send it back for review"
+              title="Unapprove: un-assign it and send it back for review"
             >
               <Undo2 className="h-3.5 w-3.5" />
             </button>
@@ -4121,7 +4121,7 @@ function TasksPanel({
               <p className={`mt-1 text-[11px] ${form.assignedRole === 'client' ? 'text-emerald-600' : 'text-slate-500'}`}>
                 {form.assignedRole === 'client'
                   ? 'The plaintiff will see this in their Tasks and get an email.'
-                  : 'Internal — only your firm sees this. Choose “Client (Plaintiff)” to send it to the client.'}
+                  : 'Internal: only your firm sees this. Choose “Client (Plaintiff)” to send it to the client.'}
               </p>
             </div>
             <div>

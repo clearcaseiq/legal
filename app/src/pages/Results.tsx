@@ -2398,13 +2398,13 @@ export default function Results() {
     // ReferenceError when a guest downloads the PDF from that screen. Keep the copy in
     // sync with the on-screen nextStepItems.
     const pdfDocsDesc = hasMedicalRecords
-      ? 'Add injury photos and wage-loss proof so attorneys see the full picture — stronger files draw more attorney interest.'
+      ? 'Add injury photos and wage-loss proof so attorneys see the full picture. Stronger files draw more attorney interest.'
       : 'Attorneys see a limited summary until you add medical records. Cases with records are valued materially higher.'
     const nextSteps = [
       ...(medicalChronology.length > 0
         ? [{ title: 'Review your treatment timeline', desc: 'Confirm or adjust your medical story so attorneys see an accurate timeline.', done: !medicalReviewPending, optional: false }]
         : []),
-      { title: 'Send your case for attorney review', desc: 'Attorneys who handle cases like yours review it — free, with no obligation.', done: false, optional: false },
+      { title: 'Send your case for attorney review', desc: 'Attorneys who handle cases like yours review it. Free, with no obligation.', done: false, optional: false },
       { title: 'Add records for a stronger review', desc: pdfDocsDesc, done: hasMedicalRecords && hasInjuryPhotos && hasWageLossProof, optional: false },
     ]
     const fmtTimelineDate = (iso: unknown) => {
@@ -2908,7 +2908,7 @@ Checklist:
     (!hasInjuryPhotos ? 7 : 0)
   const docReadinessBoost = Math.min(rawDocReadinessBoost, Math.max(0, 100 - readinessDetails.percent))
   const docStepDesc = hasMedicalRecords
-    ? 'Add injury photos and wage-loss proof so attorneys see the full picture — stronger files draw more attorney interest.'
+    ? 'Add injury photos and wage-loss proof so attorneys see the full picture. Stronger files draw more attorney interest.'
     : 'Attorneys see a limited summary until you add medical records. Cases with records are valued materially higher.'
 
   // ---- "Your next step" guidance: the single linear path the plaintiff should follow ----
@@ -2950,7 +2950,7 @@ Checklist:
     }
     const sendStep = {
       title: 'Send your case for attorney review',
-      desc: 'Attorneys who handle cases like yours review it — free, with no obligation.',
+      desc: 'Attorneys who handle cases like yours review it. Free, with no obligation.',
       done: false,
       primary: true,
       cta: 'Send for review',
@@ -3209,7 +3209,7 @@ Checklist:
               <div className="min-w-0">
                 <h3 className="font-display text-lg font-semibold text-slate-900">Add records so attorneys see your full case?</h3>
                 <p className="mt-1 text-sm leading-relaxed text-slate-600">
-                  You're about to send with no documents. Attorneys may pass on limited files — adding medical records helps them value your case and respond faster.
+                  You're about to send with no documents. Attorneys may pass on limited files. Adding medical records helps them value your case and respond faster.
                 </p>
               </div>
             </div>
@@ -3462,7 +3462,7 @@ Checklist:
                   {removedAttorneyCards.length > 0 && (
                     <div className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                        Removed — we will not contact these
+                        Removed: we will not contact these
                       </p>
                       <ul className="mt-1 space-y-1">
                         {removedAttorneyCards.map((attorney: any) => (
@@ -3613,7 +3613,7 @@ Checklist:
       {pendingBatchResolved && (
         <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           {pendingBatchResolved === 'approved'
-            ? 'Thanks — we are reaching out to the attorneys you approved, one at a time.'
+            ? 'Thanks. We are reaching out to the attorneys you approved, one at a time.'
             : 'Understood. We will not contact those attorneys. Our team will follow up with you about other options.'}
         </div>
       )}
@@ -4096,13 +4096,18 @@ Checklist:
                   const Icon = row.icon
                   const tone = row.tone === 'strong' ? 'bg-emerald-50 text-emerald-700' : row.tone === 'moderate' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'
                   return (
-                    <div key={row.label} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5">
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm"><Icon className="h-4 w-4" aria-hidden /></span>
+                    <div key={row.label} className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5">
+                      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm"><Icon className="h-4 w-4" aria-hidden /></span>
+                      {/* Label gets its own full-width line so the status badge can't
+                          squeeze it narrow enough to trigger mid-word breaking
+                          (index.css `.overflow-safe` sets overflow-wrap: anywhere). */}
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-slate-800">{row.label}</p>
-                        <p className="text-xs leading-5 text-slate-500">{row.desc}</p>
+                        <p className="text-sm font-medium text-slate-800 [overflow-wrap:normal]">{row.label}</p>
+                        <div className="mt-0.5 flex items-start justify-between gap-2">
+                          <p className="min-w-0 text-xs leading-5 text-slate-500">{row.desc}</p>
+                          <span className={`mt-0.5 shrink-0 rounded-md px-2 py-0.5 text-xs font-semibold capitalize ${tone}`}>{row.value}</span>
+                        </div>
                       </div>
-                      <span className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-semibold capitalize ${tone}`}>{row.value}</span>
                     </div>
                   )
                 })}

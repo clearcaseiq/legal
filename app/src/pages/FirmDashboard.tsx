@@ -424,7 +424,7 @@ export default function FirmDashboard() {
       setAddSuccess(
         added?.emailSent === false
           ? 'Attorney added, but the invitation email could not be delivered. Ask them to use “Forgot password” to set their password.'
-          : 'Attorney added to firm — an invitation email is on its way.',
+          : 'Attorney added to firm. An invitation email is on its way.',
       )
       setNewAttorney({ firstName: '', middleName: '', lastName: '', email: '', specialties: [], jurisdictions: [], officeId: '' })
       invalidateFirmDashboardSummary()
@@ -454,7 +454,7 @@ export default function FirmDashboard() {
       setMemberSuccess(
         created?.emailSent === false
           ? 'Team member added, but the invitation email could not be delivered. Use “Resend invite”, or ask them to use “Forgot password” to set their password.'
-          : 'Invitation sent — they’ll get an email to verify and set their password.',
+          : 'Invitation sent. They’ll get an email to verify and set their password.',
       )
       setNewMember({ firstName: '', lastName: '', email: '', role: 'case_manager', title: '', officeId: '' })
       invalidateFirmDashboardSummary()
@@ -1382,7 +1382,7 @@ export default function FirmDashboard() {
               ] as DataTableColumn<any>[]}
               rows={filteredPeople}
               rowKey={(m: any) => m.id}
-              emptyMessage={peopleFilter === 'attorneys' ? 'No attorneys yet — add one below.' : peopleFilter === 'staff' ? 'No staff yet — add someone below.' : 'No team members yet. Add attorneys or support staff below.'}
+              emptyMessage={peopleFilter === 'attorneys' ? 'No attorneys yet. Add one below.' : peopleFilter === 'staff' ? 'No staff yet. Add someone below.' : 'No team members yet. Add attorneys or support staff below.'}
             />
           </SectionCard>
 
@@ -1560,7 +1560,7 @@ export default function FirmDashboard() {
                                 ))}
                               </ul>
                             ) : (
-                              <p className="text-xs text-slate-400">No members yet — add staff or attorneys below.</p>
+                              <p className="text-xs text-slate-400">No members yet. Add staff or attorneys below.</p>
                             )}
                             <div className="flex flex-wrap items-center gap-2">
                               <select

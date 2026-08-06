@@ -570,7 +570,7 @@ export default function CalendarPage() {
                 </span>
                 <span>
                   <span className="block text-sm font-semibold text-slate-900">Add event</span>
-                  <span className="block text-xs text-slate-500">Meeting, hearing, deposition — invite staff &amp; clients</span>
+                  <span className="block text-xs text-slate-500">Meeting, hearing, deposition. Invite staff &amp; clients</span>
                 </span>
               </button>
               <button

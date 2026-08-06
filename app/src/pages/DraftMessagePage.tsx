@@ -189,7 +189,7 @@ export default function DraftMessagePage() {
               </span>
               <p className="mt-3 text-sm font-medium text-slate-700">No messages yet</p>
               <p className="mt-1 max-w-sm text-sm text-slate-400">
-                Start the conversation with {plaintiffName.split(' ')[0]} below — or use a quick template.
+                Start the conversation with {plaintiffName.split(' ')[0]} below, or use a quick template.
               </p>
             </div>
           ) : (

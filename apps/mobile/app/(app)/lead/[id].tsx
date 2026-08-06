@@ -1025,7 +1025,7 @@ export default function LeadDetailScreen() {
               {Number.isFinite(solDays) ? ` · ${solDays} days left` : ''}
             </Text>
           ) : (
-            <Text style={styles.signalText}>Deadline not confirmed yet — verify the incident date.</Text>
+            <Text style={styles.signalText}>Deadline not confirmed yet. Verify the incident date.</Text>
           )}
           <Text style={styles.qualitySummary}>
             {isSolUrgent

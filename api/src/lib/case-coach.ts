@@ -152,7 +152,7 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
       const elapsed = Math.abs(d)
       insights.push({
         key: 'sol_expired',
-        title: 'Filing deadline has passed — confirm status immediately',
+        title: 'Filing deadline has passed. Confirm status immediately',
         category: 'deadline',
         priority: PRIORITY_FROM_SCORE(100),
         priorityScore: 100,
@@ -219,7 +219,7 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
         category: 'medical',
         priority: PRIORITY_FROM_SCORE(score),
         priorityScore: score,
-        why: `No treatment recorded for ${gapDays} days. Insurers argue a gap means the client recovered — confirm whether treatment ended or lapsed and document the reason.`,
+        why: `No treatment recorded for ${gapDays} days. Insurers argue a gap means the client recovered. Confirm whether treatment ended or lapsed and document the reason.`,
         impact: 'Prevents a common value-reduction argument',
         valueImpact: 'medium',
         actions: ['schedule_followup', 'request_from_client'],
@@ -307,7 +307,7 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
 
   const headline = ranked.length
     ? ranked[0].title
-    : 'No urgent actions — the file is on track.'
+    : 'No urgent actions. The file is on track.'
 
   logger.info('Built case coach', { assessmentId, insights: ranked.length })
 

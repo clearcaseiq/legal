@@ -321,7 +321,7 @@ router.post('/request-password-reset', async (req, res) => {
         '',
         link,
         '',
-        "If you didn't request this, you can safely ignore this email — your account is unchanged.",
+        "If you didn't request this, you can safely ignore this email. Your account is unchanged.",
         '',
         '— The ClearCaseIQ team',
       ].join('\n')

@@ -389,7 +389,7 @@ export default function PreAcceptanceView({
         {!accepted && !caseTaken && isExpired && (
           <div className="mb-4 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
             <Clock className="h-4 w-4" />
-            <span>Response window expired — this match has been released to another attorney and can no longer be accepted.</span>
+            <span>Response window expired. This match has been released to another attorney and can no longer be accepted.</span>
           </div>
         )}
         {!accepted && decisionError && (
@@ -523,7 +523,7 @@ export default function PreAcceptanceView({
                   {claimType} in {location}.{' '}
                   {valueLow || valueHigh
                     ? `Estimated value is ${formatCurrency(valueLow)}–${formatCurrency(valueHigh)}${confidenceScore > 0 ? ` with ${confidenceScore}% confidence` : ''}.`
-                    : 'A value estimate is not available yet — more case details are needed.'}{' '}
+                    : 'A value estimate is not available yet. More case details are needed.'}{' '}
                   {liabilityScore > 0
                     ? `Liability is scored at ${Math.round(liabilityScore * 100)}%,`
                     : 'Liability has not been scored yet,'}{' '}
@@ -565,7 +565,7 @@ export default function PreAcceptanceView({
                     <div className="mt-1 text-xl font-bold text-emerald-600">{viabilityBreakdown.causation > 0 ? formatPercentage(viabilityBreakdown.causation) : '—'}</div>
                     {showHints && (
                       <span role="tooltip" className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-72 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-medium leading-5 text-white opacity-0 shadow-lg shadow-slate-900/20 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-                        How strongly the incident — not a pre-existing condition — caused the injuries. Scored 0–100% from the treatment timeline (time-to-first-visit, continuity of care) and medical records; long gaps or prior conditions lower it.
+                        How strongly the incident, not a pre-existing condition, caused the injuries. Scored 0–100% from the treatment timeline (time-to-first-visit, continuity of care) and medical records; long gaps or prior conditions lower it.
                         <span className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 bg-slate-900" aria-hidden />
                       </span>
                     )}

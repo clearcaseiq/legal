@@ -94,7 +94,7 @@ async function parsePreviewFile(file: File): Promise<ParsedPreview> {
   const name = file.name
   const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
   if (['.xlsx', '.xls'].includes(ext)) {
-    return { fileName: name, headers: [], rows: [], unsupported: 'Excel files can’t be previewed in the browser — export as CSV to preview and map columns.' }
+    return { fileName: name, headers: [], rows: [], unsupported: 'Excel files can’t be previewed in the browser. Export as CSV to preview and map columns.' }
   }
   const content = await file.text()
   if (ext === '.json') {
@@ -508,7 +508,7 @@ export default function AttorneyDashboardIntakeTab({ onGoToLeads }: AttorneyDash
                 </div>
 
                 <p className="mb-3 text-xs text-slate-500">
-                  We auto-matched your columns. Adjust any mapping below — unmapped fields fall back to smart detection.
+                  We auto-matched your columns. Adjust any mapping below. Unmapped fields fall back to smart detection.
                 </p>
 
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">

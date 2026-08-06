@@ -168,7 +168,7 @@ export default function NotificationsPage() {
           <EmptyState
             message={
               filter === 'unread'
-                ? "You're all caught up — no unread notifications."
+                ? "You're all caught up. No unread notifications."
                 : 'No notifications yet. New matches, deadlines, and case activity will show up here.'
             }
           />

@@ -1449,7 +1449,7 @@ export default function Dashboard() {
               <h1 className="font-display text-ui-2xl font-semibold text-slate-950 dark:text-slate-50">Hi {user.firstName}</h1>
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
                 {activeAssessment && submittedForReview
-                  ? `Your case is in attorney review — we'll email you the moment an attorney responds.`
+                  ? `Your case is in attorney review. We'll email you the moment an attorney responds.`
                   : activeAssessment
                   ? `Your case is ${docPercent}% complete.${actionItemsCount > 0 ? ` You have ${actionItemsCount} ${actionItemsCount === 1 ? 'thing' : 'things'} to do next to strengthen your case.` : ''}`
                   : "Let's find out if you may have a personal injury case."}
@@ -2634,7 +2634,7 @@ export default function Dashboard() {
                 </span>
                 <h2 className="mt-4 font-display text-2xl font-semibold leading-tight sm:text-3xl">See if you have a personal injury case</h2>
                 <p className="mt-2 max-w-xl text-sm leading-6 text-brand-100 sm:text-base">
-                  Answer a few questions about your accident and get a free Case Intelligence Report — no obligation, in about a minute.
+                  Answer a few questions about your accident and get a free Case Intelligence Report. No obligation, in about a minute.
                 </p>
                 <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center">
                   <Link to="/assessment/start" className="btn-cta w-full sm:w-auto">
@@ -2727,7 +2727,7 @@ export default function Dashboard() {
                   <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent-50 text-accent-600 dark:bg-accent-950/40 dark:text-accent-300"><Upload className="h-5 w-5" aria-hidden /></span>
                   <h3 className="font-display text-lg font-semibold text-slate-950 dark:text-slate-50">Upload evidence</h3>
                 </div>
-                <p className="mt-2 flex-1 text-sm text-slate-600 dark:text-slate-300">Photos, medical bills, or police reports strengthen your case — you can add them right inside your assessment.</p>
+                <p className="mt-2 flex-1 text-sm text-slate-600 dark:text-slate-300">Photos, medical bills, or police reports strengthen your case. You can add them right inside your assessment.</p>
                 <Link to="/assessment/start" className="btn-outline mt-4 inline-flex w-full items-center justify-center gap-2 bg-white text-sm font-semibold">
                   <Upload className="h-4 w-4" aria-hidden /> Start &amp; upload
                 </Link>
@@ -2741,7 +2741,7 @@ export default function Dashboard() {
                 <ul className="mt-3 space-y-2.5 text-sm text-slate-600 dark:text-slate-300">
                   <li className="flex items-start gap-2"><Clock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden /> Most people finish in about 60 seconds.</li>
                   <li className="flex items-start gap-2"><Lock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden /> Your answers are secure and confidential.</li>
-                  <li className="flex items-start gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden /> No obligation — you decide on next steps.</li>
+                  <li className="flex items-start gap-2"><CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" aria-hidden /> No obligation. You decide on next steps.</li>
                 </ul>
               </div>
             </div>

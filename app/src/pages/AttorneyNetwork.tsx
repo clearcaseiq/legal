@@ -34,7 +34,7 @@ const trustChips = [
 ]
 
 const valueProps = [
-  { icon: ShieldCheck, label: 'Pay-per-lead', value: '$0', detail: 'Review cases free — no cost until you accept.' },
+  { icon: ShieldCheck, label: 'Pay-per-lead', value: '$0', detail: 'Review cases free. No cost until you accept.' },
   { icon: Gauge, label: 'Every case', value: 'Pre-scored', detail: 'Viability, liability, and value signals up front.' },
   { icon: Users, label: 'Plaintiffs', value: 'Choose you', detail: 'Matches come from clients selecting counsel.' },
   { icon: Clock, label: 'Case review', value: 'Minutes', detail: 'Attorney-ready packages, not raw leads.' },
@@ -59,7 +59,7 @@ const benefits = [
   {
     icon: Scale,
     title: 'Plaintiffs choose you',
-    detail: 'Clients actively select their preferred attorneys — not resold, shared leads.',
+    detail: 'Clients actively select their preferred attorneys. Not resold, shared leads.',
   },
   {
     icon: ScrollText,
@@ -83,7 +83,7 @@ const includedFree = [
     icon: FileSearch,
     title: 'Every case review is free',
     detail:
-      'Open the full assessment — viability, settlement range, medical chronology, evidence — before you decide, and decline as many as you like.',
+      'Open the full assessment (viability, settlement range, medical chronology, evidence) before you decide, and decline as many as you like.',
   },
   {
     icon: Briefcase,
@@ -189,7 +189,7 @@ const differentiators = [
   { traditional: 'Limited, unverified information', clearcase: 'Full AI case assessment included' },
   { traditional: 'One-time lead handoff', clearcase: 'End-to-end case management' },
   { traditional: 'Unknown case quality', clearcase: 'Viability and readiness scoring' },
-  { traditional: 'Pay for every lead', clearcase: 'Review free — commit when you accept' },
+  { traditional: 'Pay for every lead', clearcase: 'Review free. Commit when you accept' },
 ]
 
 const practiceAreas = [
@@ -206,7 +206,7 @@ const requirements = ['Licensed, practicing attorney', 'Personal injury practice
 
 const faqs = [
   { q: 'How are cases matched?', a: 'Cases are routed based on jurisdiction, practice area, and case attributes so you only see relevant matters.' },
-  { q: 'Do I have to accept every case?', a: 'No. You review each case and its AI assessment, then accept selectively — there is no obligation.' },
+  { q: 'Do I have to accept every case?', a: 'No. You review each case and its AI assessment, then accept selectively. There is no obligation.' },
   { q: 'Is this pay-per-lead?', a: 'No. Reviewing matched cases is free. You only commit once you choose to accept a case.' },
   {
     q: 'Does the fee change with the size of the case?',
@@ -415,7 +415,7 @@ export default function AttorneyNetwork() {
             </div>
             <ul className="space-y-3">
               {[
-                'The same amount for every case — it never varies by claim type, injury severity, case score, or expected recovery',
+                'The same amount for every case. It never varies by claim type, injury severity, case score, or expected recovery',
                 'Never a percentage of a settlement, and never a share of your fee',
                 'No setup fee, no seat or per-user charges, and no charge for e-signature, messaging, or storage',
                 'Optional monthly plans bundle case fees for higher-volume firms, but are never required',
@@ -465,7 +465,7 @@ export default function AttorneyNetwork() {
             Everything your firm needs, in one place
           </h2>
           <p className="mt-3 text-lg text-slate-600">
-            Every capability below is included — there is nothing else to buy and no add-on tier.
+            Every capability below is included. There is nothing else to buy and no add-on tier.
           </p>
         </div>
         <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
@@ -506,7 +506,7 @@ export default function AttorneyNetwork() {
           <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">Not another lead vendor</h2>
           <p className="mt-3 text-lg text-slate-600">
             Traditional vendors sell you contact information. ClearCaseIQ delivers qualified, scored cases from
-            plaintiffs who chose you — with the intelligence to work them.
+            plaintiffs who chose you, with the intelligence to work them.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             {practiceAreas.map((area) => (
@@ -597,7 +597,7 @@ export default function AttorneyNetwork() {
             Ready to review qualified injury cases?
           </h2>
           <p className="mx-auto mt-3 max-w-xl text-base leading-relaxed text-brand-50">
-            Join the network, review AI case intelligence, and manage retained clients — all in one platform.
+            Join the network, review AI case intelligence, and manage retained clients. All in one platform.
           </p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             <Link

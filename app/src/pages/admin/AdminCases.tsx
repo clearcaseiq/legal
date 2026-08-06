@@ -535,7 +535,7 @@ export default function AdminCases() {
             {selectedIds.size} selected
             {routableSelection.length !== selectedIds.size && (
               <span className="ml-1 font-normal text-brand-700">
-                ({routableSelection.length} routable — already-routed cases are skipped)
+                ({routableSelection.length} routable: already-routed cases are skipped)
               </span>
             )}
           </p>

@@ -331,7 +331,7 @@ export default function AttorneyProductTour({ caseFee = null }: { caseFee?: stri
         id: 'rose',
         title: 'Rose works the file',
         caption:
-          'Your AI case manager reviews every active case and raises the next action — always held for a person to approve.',
+          'Your AI case manager reviews every active case and raises the next action, always held for a person to approve.',
         durationMs: 7000,
         screen: <RoseScreen />,
       },
@@ -406,7 +406,7 @@ export default function AttorneyProductTour({ caseFee = null }: { caseFee?: stri
           From a new match to a drafted demand
         </h2>
         <p className="mt-3 text-base leading-relaxed text-slate-600">
-          Five steps, start to finish. It plays on its own — jump to any step.
+          Five steps, start to finish. It plays on its own. Jump to any step.
         </p>
 
         <ol className="mt-6 space-y-1.5">

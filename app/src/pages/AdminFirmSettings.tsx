@@ -225,7 +225,7 @@ export default function AdminFirmSettings() {
                 front rather than letting the admin discover it after saving. */}
             {valueInput.trim().length > 0 && !isParseableJson(valueInput) && (
               <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                Not valid JSON — this will be stored as plain text.
+                Not valid JSON. This will be stored as plain text.
               </p>
             )}
           </div>

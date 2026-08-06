@@ -273,7 +273,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
               <p className="mt-1 text-sm text-slate-600">
                 {openTasks.length > 0
                   ? `${openTasks.length} thing${openTasks.length !== 1 ? 's' : ''} that will strengthen your case.`
-                  : 'You are all caught up — nothing to do right now.'}
+                  : 'You are all caught up. Nothing to do right now.'}
               </p>
             </div>
             <div className="shrink-0 text-right">
@@ -462,7 +462,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
               <p className="text-sm font-medium text-slate-700">{submittedForReview ? 'No messages yet' : 'Messages appear after you submit'}</p>
               <p className="mx-auto mt-1 max-w-sm text-sm text-slate-500">
                 {submittedForReview
-                  ? "When an attorney responds or requests documents, it'll show up here — and we'll email you."
+                  ? "When an attorney responds or requests documents, it'll show up here, and we'll email you."
                   : 'Submit your case to start receiving attorney responses.'}
               </p>
             </div>
@@ -909,7 +909,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
         {/* Cases Like Yours */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="font-display text-lg font-bold text-slate-900">Cases Like Yours in {venueState}</h3>
-          <p className="mt-1 text-sm text-slate-500">Most cases like yours settle within this range — a benchmark for your estimate.</p>
+          <p className="mt-1 text-sm text-slate-500">Most cases like yours settle within this range, a benchmark for your estimate.</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
               <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Typical low</p>
@@ -978,7 +978,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
     <div className="space-y-5">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h3 className="font-display text-xl font-bold text-slate-900">Impact on Your Life</h3>
-        <p className="mt-1 text-sm text-slate-600">Document how your injuries affect your daily life — this is powerful evidence attorneys use to value your case.</p>
+        <p className="mt-1 text-sm text-slate-600">Document how your injuries affect your daily life. This is powerful evidence attorneys use to value your case.</p>
 
         <div className="mt-5 grid gap-5 lg:grid-cols-2">
           {/* Lost wages */}

@@ -363,7 +363,7 @@ export default function ActiveCasesPage() {
           actionType = 'schedule_consult'
           nextAction = 'Consultation today'
           actionHref = `/attorney-dashboard/lead/${lead.id}/timeline`
-          actionHint = 'A consultation is booked for today — open the case to prep or review.'
+          actionHint = 'A consultation is booked for today. Open the case to prep or review.'
           actionTone = 'amber'
         } else if (ra) {
           actionType = String(ra.actionType || 'open_lead')

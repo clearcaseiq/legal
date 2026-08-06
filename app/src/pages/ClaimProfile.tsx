@@ -106,7 +106,7 @@ export default function ClaimProfile() {
       if (res.verified) setStep('account')
       else if (res.manualReview) {
         setError(
-          'Thanks — we could not auto-verify this bar number, so our team will review your request and follow up by email.'
+          'Thanks. We could not auto-verify this bar number, so our team will review your request and follow up by email.'
         )
       } else {
         setError('That bar number did not match our records.')

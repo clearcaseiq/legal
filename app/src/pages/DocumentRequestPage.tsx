@@ -541,7 +541,7 @@ export default function DocumentRequestPage() {
               <p className="mt-1 text-sm text-gray-500">
                 Have a document the client sent you (or that your firm collected)? Add it directly to
                 their case file. It attaches to the client&apos;s assessment and updates the live
-                estimate — no need to wait on the client.
+                estimate. No need to wait on the client.
               </p>
             </div>
           </div>
@@ -586,7 +586,7 @@ export default function DocumentRequestPage() {
             <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3">
               <div className="flex items-center gap-2 text-sm font-medium text-emerald-800">
                 <CheckCircle2 className="h-4 w-4" />
-                Added to the client&apos;s case file — the estimate is recalculating.
+                Added to the client&apos;s case file. The estimate is recalculating.
               </div>
               <ul className="mt-1 ml-6 list-disc text-xs text-emerald-700">
                 {behalfUploaded.map((name, i) => (

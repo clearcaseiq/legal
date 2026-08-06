@@ -172,7 +172,7 @@ export default function ScheduleConsultPage() {
         // and tell them what to do instead (CP-383).
         setZoomStatus({ configured: false, connected: false })
         setError(
-          "Zoom isn't enabled on this server yet — paste a Google Meet or Microsoft Teams meeting link in the Notes field and we'll send it to the plaintiff with the confirmation.",
+          "Zoom isn't enabled on this server yet. Paste a Google Meet or Microsoft Teams meeting link in the Notes field and we'll send it to the plaintiff with the confirmation.",
         )
       } else {
         setError(err?.response?.data?.error || 'Failed to start Zoom connection.')
@@ -198,7 +198,7 @@ export default function ScheduleConsultPage() {
       return
     }
     if (isToday && (!time || slotToMinutes(time) <= nowMinutes)) {
-      setError('Please choose a time later today — you cannot schedule a consultation in the past.')
+      setError('Please choose a time later today. You cannot schedule a consultation in the past.')
       return
     }
     setError(null)
@@ -275,7 +275,7 @@ export default function ScheduleConsultPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
               >
                 {availableSlots.length === 0 ? (
-                  <option value="">No times left today — pick another date</option>
+                  <option value="">No times left today. Pick another date</option>
                 ) : (
                   availableSlots.map((slot) => (
                     <option key={slot} value={slot}>{slot}</option>
@@ -309,7 +309,7 @@ export default function ScheduleConsultPage() {
                     </p>
                   ) : !zoomStatus.configured ? (
                     <p className="text-sm text-amber-700">
-                      Zoom isn't enabled on this server yet — please paste a Google Meet or Microsoft
+                      Zoom isn't enabled on this server yet. Please paste a Google Meet or Microsoft
                       Teams meeting link in the Notes field below, and we'll send it to the plaintiff
                       with the confirmation.
                     </p>
@@ -321,7 +321,7 @@ export default function ScheduleConsultPage() {
                   ) : (
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <p className="text-sm text-gray-600">
-                        Connect your Zoom account once — we'll create the meeting link for every Zoom consult after that.
+                        Connect your Zoom account once. We'll create the meeting link for every Zoom consult after that.
                       </p>
                       <button
                         type="button"

@@ -209,7 +209,7 @@ export default function AttorneyDashboardWorkstreamCollaboration({
                     onKeyDown={handleCommentKeyDown}
                     onBlur={() => window.setTimeout(() => setMention({ open: false, query: '', start: -1 }), 150)}
                     className="input"
-                    placeholder="Add a comment — type @ to mention a teammate"
+                    placeholder="Add a comment. Type @ to mention a teammate"
                   />
                   {mention.open && filteredMentions.length > 0 && (
                     <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border border-gray-200 bg-white shadow-lg">

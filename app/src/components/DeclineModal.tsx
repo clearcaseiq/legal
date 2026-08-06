@@ -76,7 +76,7 @@ export default function DeclineModal({ open, onClose, onSubmit, loading, success
             Case declined.
           </p>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            Thank you — this helps us improve future case matching.
+            Thank you. This helps us improve future case matching.
           </p>
         </div>
       </div>

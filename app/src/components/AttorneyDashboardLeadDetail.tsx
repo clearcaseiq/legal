@@ -1341,11 +1341,11 @@ function MedicalSpecialsProvenance({
   if (source === 'documented') {
     methodology.push(`Total reflects ${items.filter((i) => i.kind === 'document').length} uploaded bill document(s), confirmed complete by the claimant.`)
   } else if (source === 'partially_documented') {
-    methodology.push(`Higher of documented bills (${formatCurrency(documentedTotal)}) and the self-reported estimate (${formatCurrency(selfReported)}). Treated as a floor — more bills may exist.`)
+    methodology.push(`Higher of documented bills (${formatCurrency(documentedTotal)}) and the self-reported estimate (${formatCurrency(selfReported)}). Treated as a floor. More bills may exist.`)
   } else {
     methodology.push('Self-reported by the claimant; no medical bills have been uploaded yet.')
   }
-  if (workup.medicalSpendIsFloor) methodology.push('Shown as a floor (+) — the true total is likely higher and should be confirmed with records.')
+  if (workup.medicalSpendIsFloor) methodology.push('Shown as a floor (+). The true total is likely higher and should be confirmed with records.')
 
   const raiseConfidence: string[] = []
   if (source !== 'documented') raiseConfidence.push('Request and upload all medical bills')
@@ -1436,16 +1436,16 @@ function medicalSpendHelper(workup: {
   if (workup.medicalSpend <= 0) return 'No medical spend captured yet'
   if (workup.medicalDiscrepancy) {
     const { intake, extracted } = workup.medicalDiscrepancy
-    return `Mismatch: self-reported ${formatCurrency(intake)} vs documented ${formatCurrency(extracted)} — verify bills`
+    return `Mismatch: self-reported ${formatCurrency(intake)} vs documented ${formatCurrency(extracted)}. Verify bills`
   }
   switch (workup.medicalSpendSource) {
     case 'documented':
       return 'Documented from uploaded bills'
     case 'partially_documented':
-      return 'Partially documented — more bills may exist'
+      return 'Partially documented. More bills may exist'
     case 'self_reported':
       return workup.medicalSpendIsFloor
-        ? 'Self-reported floor ($50k+) — request bills to refine'
+        ? 'Self-reported floor ($50k+). Request bills to refine'
         : 'Self-reported estimate — not yet documented'
     default:
       return 'Estimated from treatment and billing facts'

@@ -975,7 +975,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
         type: 'email',
         recipient: confirmationEmail,
         subject: 'We received your case — ClearCaseIQ',
-        message: `Hi ${submitterName},\n\nThanks for submitting your case to ClearCaseIQ. Our attorney network is reviewing it now, and we'll email you as soon as an attorney responds — typically within about 24 hours.\n\nWhat happens next:\n• Attorneys review your case summary\n• A matched attorney reaches out to you directly\n• You can add documents anytime to strengthen your case\n\nBest regards,\nClearCaseIQ`,
+        message: `Hi ${submitterName},\n\nThanks for submitting your case to ClearCaseIQ. Our attorney network is reviewing it now, and we'll email you as soon as an attorney responds, typically within about 24 hours.\n\nWhat happens next:\n• Attorneys review your case summary\n• A matched attorney reaches out to you directly\n• You can add documents anytime to strengthen your case\n\nBest regards,\nClearCaseIQ`,
         userId: req.user?.id || null,
         assessmentId: id,
         role: 'plaintiff',

@@ -288,7 +288,7 @@ export default function TasksPage() {
 
   const setTaskStatus = async (row: TaskRow, status: 'done' | 'open') => {
     if (!row.leadId) {
-      flash('err', 'Cannot update this task — missing case reference.')
+      flash('err', 'Cannot update this task. Missing case reference.')
       return
     }
     setBusyId(row.id)
@@ -305,7 +305,7 @@ export default function TasksPage() {
 
   const setTaskApproval = async (row: TaskRow, approved: boolean) => {
     if (!row.leadId) {
-      flash('err', `Cannot ${approved ? 'approve' : 'unapprove'} this task — missing case reference.`)
+      flash('err', `Cannot ${approved ? 'approve' : 'unapprove'} this task. Missing case reference.`)
       return
     }
     setBusyId(row.id)
@@ -316,8 +316,8 @@ export default function TasksPage() {
       flash(
         'ok',
         approved
-          ? 'Task approved — it is now live and assigned.'
-          : 'Approval taken back — the task is un-assigned and back in review.',
+          ? 'Task approved. It is now live and assigned.'
+          : 'Approval taken back. The task is un-assigned and back in review.',
       )
     } catch (err: any) {
       flash('err', err?.response?.data?.error || `Failed to ${approved ? 'approve' : 'unapprove'} task.`)
@@ -369,7 +369,7 @@ export default function TasksPage() {
 
   const removeTask = (row: TaskRow) => {
     if (!row.leadId) {
-      flash('err', 'Cannot delete this task — missing case reference.')
+      flash('err', 'Cannot delete this task. Missing case reference.')
       return
     }
     setTaskToDelete(row)
@@ -458,7 +458,7 @@ export default function TasksPage() {
       cellClassName: 'w-10',
       cell: (r) =>
         r.source === 'workflow' ? (
-          <ListChecks className="h-5 w-5 text-indigo-500" aria-label="Workflow step — complete it in the case Workflow tab" />
+          <ListChecks className="h-5 w-5 text-indigo-500" aria-label="Workflow step: complete it in the case Workflow tab" />
         ) : busyId === r.id ? (
           <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
         ) : viewingCompleted ? (
@@ -548,7 +548,7 @@ export default function TasksPage() {
                 onClick={() => void setTaskApproval(r, true)}
                 disabled={busyId === r.id}
                 className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-                title="Approve — assign it and make it live"
+                title="Approve: assign it and make it live"
               >
                 <BadgeCheck className="h-3.5 w-3.5" /> Approve
               </button>
@@ -558,7 +558,7 @@ export default function TasksPage() {
                 onClick={() => void setTaskApproval(r, false)}
                 disabled={busyId === r.id}
                 className="text-slate-300 transition hover:text-amber-600 disabled:opacity-50"
-                title="Unapprove — un-assign it and send it back for review"
+                title="Unapprove: un-assign it and send it back for review"
                 aria-label="Unapprove task"
               >
                 <Undo2 className="h-4 w-4" />
@@ -643,7 +643,7 @@ export default function TasksPage() {
       />
       <PageHeader
         title="Tasks"
-        description="A cross-case queue that rolls up every case's task list so nothing slips. Complete, add, or open any task without leaving the page — changes sync to each case's Tasks tab."
+        description="A cross-case queue that rolls up every case's task list so nothing slips. Complete, add, or open any task without leaving the page. Changes sync to each case's Tasks tab."
         actions={
           !formOpen ? (
             <button
@@ -806,7 +806,7 @@ export default function TasksPage() {
               <p className={`mt-1 text-[11px] ${form.assignedRole === 'client' ? 'text-emerald-600' : 'text-slate-500'}`}>
                 {form.assignedRole === 'client'
                   ? 'The plaintiff will see this in their Tasks and get an email.'
-                  : 'Internal — only your firm sees this.'}
+                  : 'Internal: only your firm sees this.'}
               </p>
             </div>
           </div>
