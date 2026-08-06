@@ -27,7 +27,7 @@ export default function TermsOfService() {
     <div className="max-w-3xl mx-auto space-y-6 px-4 py-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-slate-100">{doc?.title ?? t('legal.termsTitle')}</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-slate-100">{t('legal.termsTitle')}</h1>
           <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">
             {doc && (
               <>
@@ -54,7 +54,7 @@ export default function TermsOfService() {
       {doc?.plainLanguageSummary && (
         <div className="card dark:bg-slate-900 dark:border-slate-700 text-sm text-gray-700 dark:text-slate-300">
           <h2 className="font-semibold text-gray-900 dark:text-slate-100 mb-2">{t('legal.summary')}</h2>
-          <p>{doc.plainLanguageSummary}</p>
+          <p>{language === 'en' ? doc.plainLanguageSummary : t('legal.summaryTerms')}</p>
         </div>
       )}
 
