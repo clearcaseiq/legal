@@ -3232,5 +3232,12 @@
     "datesFound": "fechas encontradas",
     "deleteConfirm": "¿Está seguro de que desea eliminar este archivo?",
     "cat_videos": "Videos"
+  },
+  "faqSection": {
+    "kicker": "P.F.",
+    "asideKicker": "¿Aún con dudas?",
+    "asideTitle": "¿Tiene alguna pregunta?",
+    "asideBody": "¿No encuentra la respuesta que busca? Nuestro equipo estará encantado de ayudarle. Escríbanos y le responderemos, normalmente dentro de un día hábil.",
+    "contactCta": "Contáctenos"
   }
 }

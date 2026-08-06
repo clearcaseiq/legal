@@ -1,8 +1,9 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { BarChart3, ChevronDown, ClipboardList, Users } from 'lucide-react'
+import { BarChart3, ClipboardList, Users } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import MarketingHeroArt from '../components/MarketingHeroArt'
+import FaqSection from '../components/FaqSection'
 import {
   FileTextIcon,
   ShieldIcon,
@@ -267,27 +268,11 @@ export default function Home() {
 
         {/* FAQ — visible counterpart to the FAQPage JSON-LD emitted above, so the
             page shows the same answers search engines are told about. */}
-        <section className="py-10">
-          <h2 className="font-display text-3xl font-bold text-slate-900 dark:text-slate-50 text-center mb-6">
-            {t('home.faqTitle')}
-          </h2>
-          <div className="mx-auto max-w-2xl space-y-3">
-            {[1, 2, 3, 4].map((n) => (
-              <details
-                key={n}
-                className="group rounded-xl border border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900/50"
-              >
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-semibold text-slate-900 dark:text-slate-100 [&::-webkit-details-marker]:hidden">
-                  {t(`home.faqQ${n}`)}
-                  <ChevronDown className="h-5 w-5 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
-                </summary>
-                <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-                  {t(`home.faqA${n}`)}
-                </p>
-              </details>
-            ))}
-          </div>
-        </section>
+        <FaqSection
+          className="py-10"
+          title={t('home.faqTitle')}
+          items={[1, 2, 3, 4].map((n) => ({ q: t(`home.faqQ${n}`), a: t(`home.faqA${n}`) }))}
+        />
 
         {/* Final CTA banner — recaps the hero promises after objections are answered. */}
         <section className="py-6">

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { CheckCircle, ClipboardList, BarChart3, Users, Car, Scale, Handshake, Trophy } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
+import FaqSection from '../components/FaqSection'
 
 // The claimant journey, rendered as an animated timeline further down the page.
 const JOURNEY = [
@@ -122,17 +123,11 @@ export default function HowItWorks() {
       </div>
 
       {/* FAQ */}
-      <div className="mb-12">
-        <h2 className="text-2xl font-bold text-slate-900 text-center mb-6">{t('hiw.faqTitle')}</h2>
-        <div className="space-y-4">
-          {[1, 2, 3].map((n) => (
-            <div key={n}>
-              <h3 className="font-semibold text-slate-900 mb-2">{t(`hiw.q${n}`)}</h3>
-              <p className="text-slate-600">{t(`hiw.a${n}`)}</p>
-            </div>
-          ))}
-        </div>
-      </div>
+      <FaqSection
+        className="mb-12"
+        title={t('hiw.faqTitle')}
+        items={[1, 2, 3].map((n) => ({ q: t(`hiw.q${n}`), a: t(`hiw.a${n}`) }))}
+      />
 
       {/* CTAs */}
       <div className="text-center space-y-6">

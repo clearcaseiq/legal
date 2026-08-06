@@ -90,6 +90,15 @@ export default function Layout({ children }: LayoutProps) {
   // Claimant/marketing routes (everything that isn't the attorney workspace or
   // admin) opt into a scoped visual polish so the attorney UI stays untouched.
   const isClaimantRoute = !isAttorney && !isAdmin && !isAdminArea
+  // In-app claimant "screens" (forms and flows, not marketing pages) get a fixed
+  // type scale: 18px main headings, 16px sub-headings, 16px fields/labels. The
+  // marketing pages (home, how-it-works, attorney-network) are intentionally
+  // excluded so their large hero titles are preserved.
+  const isClaimantScreen =
+    isClaimantRoute &&
+    (['/assess', '/intake', '/intake2', '/register', '/forgot-password', '/reset-password', '/attorney-register', '/contact'].includes(location.pathname) ||
+      location.pathname.startsWith('/results') ||
+      location.pathname.startsWith('/login'))
   // Show the mobile Start Assessment bar on informational claimant pages so the
   // primary CTA is always one tap away (it lives in the hamburger otherwise).
   const showMobileAssessmentCta = isClaimantRoute && MOBILE_ASSESSMENT_CTA_ROUTES.has(location.pathname)
@@ -219,7 +228,7 @@ export default function Layout({ children }: LayoutProps) {
     'flex items-center gap-2 px-4 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800'
 
   return (
-    <div className={`min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.12),_transparent_32%),linear-gradient(135deg,_#f8fafc_0%,_#ffffff_45%,_rgba(224,242,254,0.6)_100%)] dark:bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.14),_transparent_26%),linear-gradient(135deg,_#020617_0%,_#020617_48%,_#0f172a_100%)] transition-colors duration-300${isClaimantRoute ? ' claimant-theme' : ''}`}>
+    <div className={`min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.12),_transparent_32%),linear-gradient(135deg,_#f8fafc_0%,_#ffffff_45%,_rgba(224,242,254,0.6)_100%)] dark:bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.14),_transparent_26%),linear-gradient(135deg,_#020617_0%,_#020617_48%,_#0f172a_100%)] transition-colors duration-300${isClaimantRoute ? ' claimant-theme' : ''}${isClaimantScreen ? ' claimant-screen' : ''}`}>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}

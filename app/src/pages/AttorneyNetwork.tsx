@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import FaqSection from '../components/FaqSection'
 import {
   ArrowRight,
   BarChart3,
@@ -353,9 +354,9 @@ export default function AttorneyNetwork() {
         </div>
       </section>
 
-      {/* REQUIREMENTS + FAQ */}
-      <section className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
-        <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+      {/* REQUIREMENTS */}
+      <section>
+        <div className="mx-auto max-w-2xl rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
           <div className="grid h-11 w-11 place-items-center rounded-xl bg-brand-50 text-brand-600">
             <Building2 className="h-5 w-5" />
           </div>
@@ -377,26 +378,13 @@ export default function AttorneyNetwork() {
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
-
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">{t('attorneyNet.faqLabel')}</p>
-          <h2 className="mt-3 text-2xl font-extrabold tracking-tight text-slate-900">{t('attorneyNet.faqTitle')}</h2>
-          <div className="mt-6 space-y-3">
-            {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-              <details
-                key={n}
-                className="group rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm [&_summary::-webkit-details-marker]:hidden"
-              >
-                <summary className="flex cursor-pointer items-center justify-between gap-4 text-sm font-semibold text-slate-900">
-                  {t(`attorneyNet.fq${n}`)}
-                  <ArrowRight className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-90" />
-                </summary>
-                <p className="mt-3 text-sm leading-6 text-slate-600">{t(`attorneyNet.fa${n}`)}</p>
-              </details>
-            ))}
-          </div>
-        </div>
       </section>
+
+      {/* FAQ */}
+      <FaqSection
+        title={t('attorneyNet.faqTitle')}
+        items={[1, 2, 3, 4, 5, 6, 7].map((n) => ({ q: t(`attorneyNet.fq${n}`), a: t(`attorneyNet.fa${n}`) }))}
+      />
 
       {/* FINAL CTA */}
       <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-600 to-brand-700 px-6 py-12 text-center shadow-xl shadow-brand-900/20 sm:px-10 sm:py-14">

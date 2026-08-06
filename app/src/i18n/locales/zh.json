@@ -3232,5 +3232,12 @@
     "datesFound": "个找到的日期",
     "deleteConfirm": "确定要删除此文件吗？",
     "cat_videos": "视频"
+  },
+  "faqSection": {
+    "kicker": "常见问题",
+    "asideKicker": "还有疑问？",
+    "asideTitle": "有任何问题吗？",
+    "asideBody": "没有找到您需要的答案？我们的团队很乐意帮助您。请联系我们，我们通常会在一个工作日内回复。",
+    "contactCta": "联系我们"
   }
 }

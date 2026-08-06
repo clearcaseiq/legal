@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Search, ChevronDown, ChevronRight, FileText, Upload, Users, BarChart3, Shield } from 'lucide-react'
 import SupportRequestForm from '../components/SupportRequestForm'
+import FaqSection from '../components/FaqSection'
 import { useLanguage } from '../contexts/LanguageContext'
 
 // Stable slugs so /help#attorney-matching style deep links keep working in
@@ -169,17 +170,11 @@ export default function Help() {
       </div>
 
       {/* FAQ */}
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-slate-900 mb-4">{t('helpPage.faqTitle')}</h2>
-        <div className="space-y-4">
-          {[1, 2, 3, 4, 5].map((n) => (
-            <div key={n} className="p-4 bg-white border border-slate-200 rounded-xl">
-              <h3 className="font-semibold text-slate-900 mb-2">{t(`helpPage.faq${n}Q`)}</h3>
-              <p className="text-slate-600">{t(`helpPage.faq${n}A`)}</p>
-            </div>
-          ))}
-        </div>
-      </div>
+      <FaqSection
+        className="mb-8"
+        title={t('helpPage.faqTitle')}
+        items={[1, 2, 3, 4, 5].map((n) => ({ q: t(`helpPage.faq${n}Q`), a: t(`helpPage.faq${n}A`) }))}
+      />
 
       {/* Trust statement */}
       <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 mb-8">

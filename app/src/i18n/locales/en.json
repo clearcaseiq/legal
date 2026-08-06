@@ -936,7 +936,6 @@
     "subtype_vehicle_multi": "Multi-vehicle accident",
     "subtype_vehicle_other": "Other vehicle accident",
     "subtype_vehicle_notSure": "I'm not sure",
-
     "subtype_slip_store_short": "Store",
     "subtype_slip_apartment_short": "Apartment",
     "subtype_slip_sidewalk_short": "Sidewalk",
@@ -949,7 +948,6 @@
     "subtype_slip_workplace": "Workplace",
     "subtype_slip_hotel": "Hotel or resort",
     "subtype_slip_private_home": "Private home",
-
     "subtype_work_construction_short": "Construction",
     "subtype_work_warehouse_short": "Warehouse",
     "subtype_work_office_short": "Office",
@@ -960,7 +958,6 @@
     "subtype_work_office": "Office or indoor workplace",
     "subtype_work_delivery": "Delivery or driving",
     "subtype_work_repetitive": "Repetitive stress injury",
-
     "subtype_medmal_misdiagnosis_short": "Misdiagnosis",
     "subtype_medmal_surgery_error_short": "Surgery error",
     "subtype_medmal_medication_error_short": "Medication error",
@@ -971,14 +968,12 @@
     "subtype_medmal_medication_error": "Medication or prescription error",
     "subtype_medmal_birth_injury": "Birth injury",
     "subtype_medmal_delayed_treatment": "Delayed treatment",
-
     "subtype_dog_bite_attack_short": "Dog bite",
     "subtype_dog_knockdown_short": "Knockdown",
     "subtype_animal_other_short": "Other animal",
     "subtype_dog_bite_attack": "Dog bite",
     "subtype_dog_knockdown": "Knocked down by a dog",
     "subtype_animal_other": "Other animal attack",
-
     "subtype_product_vehicle_short": "Vehicle",
     "subtype_product_medication_short": "Medication",
     "subtype_product_medical_device_short": "Medical device",
@@ -987,7 +982,6 @@
     "subtype_product_medication": "Dangerous medication",
     "subtype_product_medical_device": "Defective medical device",
     "subtype_product_consumer": "Defective consumer product",
-
     "subtype_assault_apartment_short": "Apartment",
     "subtype_assault_hotel_short": "Hotel",
     "subtype_assault_nightclub_short": "Nightclub / bar",
@@ -998,7 +992,6 @@
     "subtype_assault_nightclub": "Nightclub or bar",
     "subtype_assault_parking": "Parking lot or garage",
     "subtype_assault_business": "Business or commercial property",
-
     "subtype_toxic_workplace_short": "Workplace",
     "subtype_toxic_chemical_spill_short": "Chemical spill",
     "subtype_toxic_mold_short": "Mold",
@@ -1009,7 +1002,6 @@
     "subtype_toxic_mold": "Mold exposure",
     "subtype_toxic_asbestos": "Asbestos exposure",
     "subtype_toxic_contaminated_product": "Contaminated product",
-
     "subtype_nh_fall_short": "Fall",
     "subtype_nh_neglect_short": "Neglect",
     "subtype_nh_pressure_sore_short": "Pressure sore",
@@ -1020,7 +1012,6 @@
     "subtype_nh_pressure_sore": "Pressure sore or bedsore",
     "subtype_nh_medication_error": "Medication error",
     "subtype_nh_physical_abuse": "Physical abuse",
-
     "subtype_wd_vehicle_short": "Vehicle",
     "subtype_wd_medical_short": "Medical",
     "subtype_wd_workplace_short": "Workplace",
@@ -2127,7 +2118,7 @@
     "card_incident": "Incident Summary",
     "card_injury": "Injury Summary",
     "card_financial": "Financial Summary",
-    "financialEmpty_prompt": "Even a rough range for your medical costs and lost income sharpens your estimate \u2014 you can add actual bills later.",
+    "financialEmpty_prompt": "Even a rough range for your medical costs and lost income sharpens your estimate — you can add actual bills later.",
     "financialEmpty_cta": "Add financial details",
     "card_documents": "Documents & Evidence",
     "card_legal": "Legal Summary",
@@ -3241,5 +3232,12 @@
     "datesFound": "dates found",
     "deleteConfirm": "Are you sure you want to delete this file?",
     "cat_videos": "Videos"
+  },
+  "faqSection": {
+    "kicker": "F.A.Q",
+    "asideKicker": "Still curious?",
+    "asideTitle": "Have any questions?",
+    "asideBody": "Can't find the answer you're looking for? Our team is happy to help. Reach out and we'll get back to you, usually within one business day.",
+    "contactCta": "Contact us"
   }
 }

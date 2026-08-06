@@ -507,3 +507,49 @@
     @apply rounded-xl;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Claimant/public typography scale (requested site-wide).
+   These rules are intentionally UNLAYERED: Tailwind's utility classes live in
+   the `utilities` cascade layer, which beats anything inside `@layer components`
+   regardless of selector specificity. Unlayered rules outrank all layered rules,
+   so putting these here lets them reliably override the per-element text-*
+   utilities. `!` (important) utilities such as the Step 2 date field's
+   `!text-[17px]` still win, which is intended.
+--------------------------------------------------------------------------- */
+
+/* 4. Headings render in the sans (Inter) family, not the display serif.
+   Applies to every claimant/marketing page; sizes untouched so hero titles
+   stay large. */
+.claimant-theme :is(h1, h2, h3, h4, h5, h6),
+.claimant-theme .font-display {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Fixed scale for in-app claimant screens only (forms + flows). Marketing pages
+   with large heroes are excluded via the route check in Layout. */
+/* 1. Main heading — 18px */
+.claimant-screen h1,
+.claimant-screen .section-title {
+  font-size: 18px;
+  line-height: 1.4;
+}
+/* 2. Sub heading — 16px */
+.claimant-screen :is(h2, h3, h4, h5, h6) {
+  font-size: 16px;
+  line-height: 1.4;
+}
+.claimant-screen .section-copy {
+  font-size: 16px;
+}
+/* 3. Fields / labels / values — 16px. Checkboxes and radios are excluded since
+   font-size is meaningless on them and can nudge layout. */
+.claimant-screen label,
+.claimant-screen .input,
+.claimant-screen .select,
+.claimant-screen .textarea,
+.claimant-screen input:not([type='checkbox']):not([type='radio']),
+.claimant-screen select,
+.claimant-screen textarea {
+  font-size: 16px;
+}
