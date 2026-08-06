@@ -24,23 +24,6 @@ const HIPAA_CONSENT_VERSION = '1.0'
 // PHI-bearing document types gated behind health-info authorization. Medical bills
 // reveal treatment/diagnosis, so they carry PHI just like medical records.
 const HIPAA_UPLOAD_CATEGORIES = ['medical_records', 'bills']
-// Acknowledgement of the platform disclosure at the top of the funnel. The
-// footer is suppressed on the intake routes, so this is the only place a
-// claimant is told we are not a law firm before answering questions.
-//
-// Holds the ISO time of the acknowledgement, which travels with the assessment
-// so the record does not live only in this browser. Older installs wrote the
-// string 'true'; those still count as acknowledged, just without a time.
-const DISCLOSURE_ACK_KEY = 'intake_disclosure_ack_v1'
-
-function readDisclosureAck(): string | null {
-  try {
-    return localStorage.getItem(DISCLOSURE_ACK_KEY)
-  } catch {
-    return null
-  }
-}
-
 type Step =
   | 'injury_type'
   | 'when'
@@ -951,8 +934,6 @@ export default function IntakeWizardQuick() {
   // question rather than on a screen of its own. Kept outside the draft so
   // "Start over" and ?fresh=1 do not nag a returning claimant, and so no answer
   // can be given before it is ticked.
-  const [disclosureAckAt, setDisclosureAckAt] = useState<string | null>(readDisclosureAck)
-  const disclosureAcked = disclosureAckAt !== null
   // Whether the "what kind of incident was it?" panel is showing. Opened by
   // picking a type that has subtypes, and by re-picking one to change the answer.
   const [subtypePanelOpen, setSubtypePanelOpen] = useState(false)
@@ -2014,18 +1995,6 @@ export default function IntakeWizardQuick() {
     }
   }
 
-  // The checkbox is the acknowledgement itself — there is no separate confirm
-  // step to press — so ticking it is what records the time.
-  const acknowledgeDisclosure = (checked: boolean) => {
-    const value = checked ? new Date().toISOString() : null
-    try {
-      if (value) localStorage.setItem(DISCLOSURE_ACK_KEY, value)
-      else localStorage.removeItem(DISCLOSURE_ACK_KEY)
-    } catch { /* ignore quota / private mode */ }
-    setDisclosureAckAt(value)
-    if (checked) setErrors(({ disclosure: _cleared, ...rest }) => rest)
-  }
-
   const validateAndNext = () => {
     const err: Record<string, string> = {}
     if (currentStep === 'injury_type' && !formData.injuryType) err.injuryType = tx('error_selectInjuryType')
@@ -2042,10 +2011,6 @@ export default function IntakeWizardQuick() {
         setSubtypePanelOpen(true)
       }
     }
-    // Nothing may be answered until the claimant has been told this is not a law
-    // firm, so the gate sits on leaving the first step rather than on a screen of
-    // its own.
-    if (currentStep === 'injury_type' && !disclosureAcked) err.disclosure = tx('disclosure_required')
     if (currentStep === 'when') {
       const preset = formData.incidentDatePreset
       const today = isoToday()
@@ -2307,11 +2272,6 @@ export default function IntakeWizardQuick() {
           ml_use: consents.ml_use,
           ...(hipaaAuthorized ? { hipaa: true } : {})
         },
-        // Taken before this case existed, so it rides along now to be stored
-        // against it. Omitted for the legacy 'true' marker, which carries no time.
-        ...(disclosureAckAt && disclosureAckAt !== 'true'
-          ? { platformDisclosureAckAt: disclosureAckAt }
-          : {})
       }
       ;(payload as any).intakeData = {
         injuredParty: formData.injuredParty,
@@ -3598,9 +3558,21 @@ export default function IntakeWizardQuick() {
                               value={formData.incidentDatePreset === 'custom' ? customDate : ''}
                               onChange={e => {
                                 const val = e.target.value
+                                // An incident can't happen in the future. `max` disables
+                                // future dates in the native picker, but a typed-in future
+                                // date can still slip through on some browsers — reject it
+                                // so it never sticks, and flag it inline.
+                                if (val && val > isoToday()) {
+                                  setErrors(prev => ({ ...prev, incidentDate: tx('error_futureDate') }))
+                                  return
+                                }
                                 setCustomDate(val)
-                                if (val) updateForm({ incidentDatePreset: 'custom', incidentDate: val })
-                                else updateForm({ incidentDatePreset: '', incidentDate: '' })
+                                if (val) {
+                                  updateForm({ incidentDatePreset: 'custom', incidentDate: val })
+                                  setErrors(({ incidentDate: _cleared, ...rest }) => rest)
+                                } else {
+                                  updateForm({ incidentDatePreset: '', incidentDate: '' })
+                                }
                               }}
                               className="date-input-clean !min-h-0 w-full min-w-0 max-w-full !border-0 !bg-transparent !p-0 text-left !text-[15px] font-medium text-gray-900 focus:!ring-0 dark:text-slate-100"
                             />
@@ -6787,51 +6759,6 @@ export default function IntakeWizardQuick() {
         >
           <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>{Object.values(errors).filter(Boolean).join(' · ')}</span>
-        </div>
-      )}
-
-      {/* Sits above the first question rather than in front of it: a screen that
-          asks nothing is a screen people dismiss without reading, and the
-          disclosure is the one thing here that has to be read. Disappears for
-          good once ticked. */}
-      {isFirstStep && !disclosureAcked && (
-        <div className="mx-4 mb-1.5 shrink-0 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-900/50 sm:mx-0 sm:px-4">
-          <div className="flex items-start gap-2.5">
-            <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-700 dark:text-brand-300" aria-hidden />
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">
-                {tx('disclosure_title')}
-              </p>
-              <p className="mt-0.5 text-xs leading-5 text-slate-700 dark:text-slate-300">
-                {tx('disclosure_body')}{' '}
-                <a
-                  href="/disclosures"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-medium text-brand-700 underline underline-offset-2 hover:text-brand-800 dark:text-brand-300"
-                >
-                  {tx('disclosure_learnMore')}
-                </a>
-              </p>
-              <label
-                className={`mt-2 flex cursor-pointer items-center gap-2 rounded-lg border bg-white px-2.5 py-1.5 transition-colors dark:bg-slate-800/60 ${
-                  errors.disclosure
-                    ? 'border-red-300 dark:border-red-800'
-                    : 'border-slate-300 dark:border-slate-600'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={disclosureAcked}
-                  onChange={(e) => acknowledgeDisclosure(e.target.checked)}
-                  className="h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                />
-                <span className="text-xs font-medium text-slate-800 dark:text-slate-100 sm:text-sm">
-                  {tx('disclosure_ack')} <span className="font-semibold text-red-500" aria-hidden>*</span>
-                </span>
-              </label>
-            </div>
-          </div>
         </div>
       )}
 

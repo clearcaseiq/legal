@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Search, ChevronDown, ChevronRight, FileText, Upload, Users, BarChart3, Shield, Mail, AlertCircle } from 'lucide-react'
+import { Search, ChevronDown, ChevronRight, FileText, Upload, Users, BarChart3, Shield } from 'lucide-react'
+import SupportRequestForm from '../components/SupportRequestForm'
 
 const categories = [
   {
@@ -246,7 +247,7 @@ export default function Help() {
         </p>
         <ol className="space-y-4">
           {[
-            { title: 'You reach out', body: 'Email support@clearcaseiq.com or use “Report a problem” below. Include your name, the email on your case, and a short description (screenshots help).' },
+            { title: 'You reach out', body: 'Submit a support request below or email support@clearcaseiq.com. Include your name, the email on your case, and a short description (screenshots help).' },
             { title: 'We acknowledge', body: 'You get a confirmation that we received your request, typically within a few hours during business hours (Mon–Fri, Pacific Time).' },
             { title: 'We triage', body: 'We categorize the request — technical, case & attorney matching, or privacy — and prioritize anything urgent or privacy-related.' },
             { title: 'We resolve or escalate', body: 'Most requests are answered within 24 hours. Complex issues are escalated to the right team, and we keep you updated until it’s fixed.' },
@@ -269,32 +270,16 @@ export default function Help() {
         </div>
       </div>
 
-      {/* Contact & Report */}
-      <div className="grid sm:grid-cols-2 gap-4 mb-8">
-        <div className="p-6 bg-white border border-slate-200 rounded-xl">
-          <h3 className="text-lg font-semibold text-slate-900 mb-2">Need more help?</h3>
-          <p className="text-slate-600 mb-4">
-            Email: <a href="mailto:support@clearcaseiq.com" className="text-brand-600 hover:text-brand-700 font-medium">support@clearcaseiq.com</a>
-          </p>
-          <p className="text-sm text-slate-500">Most support requests are answered within 24 hours.</p>
-          <a
-            href="mailto:support@clearcaseiq.com?subject=Support%20Request"
-            className="inline-flex items-center gap-2 mt-4 text-brand-600 hover:text-brand-700 font-medium text-sm"
-          >
-            Submit a support request →
-          </a>
-        </div>
-        <div className="p-6 bg-white border border-slate-200 rounded-xl">
-          <h3 className="text-lg font-semibold text-slate-900 mb-2">Something not working?</h3>
-          <p className="text-slate-600 mb-4">Report technical issues so we can fix them.</p>
-          <a
-            href="mailto:support@clearcaseiq.com?subject=Report%20a%20Problem"
-            className="inline-flex items-center gap-2 text-brand-600 hover:text-brand-700 font-medium text-sm"
-          >
-            <AlertCircle className="h-4 w-4" />
-            Report a problem →
-          </a>
-        </div>
+      {/* Submit a support request — a real form the team can triage, instead of
+          a bare mailto. Deep-linkable via /help#submit-request. */}
+      <div id="submit-request" className="mb-8 scroll-mt-24">
+        <h2 className="text-2xl font-bold text-slate-900 mb-1">Contact support</h2>
+        <p className="text-slate-600 mb-4">
+          Can’t find what you need? Submit a request below and our team will triage it, usually within one business day.
+          Prefer email? Reach us at{' '}
+          <a href="mailto:support@clearcaseiq.com" className="font-medium text-brand-600 hover:text-brand-700">support@clearcaseiq.com</a>.
+        </p>
+        <SupportRequestForm />
       </div>
 
       {/* Legal links */}

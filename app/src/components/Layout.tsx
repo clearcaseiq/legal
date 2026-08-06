@@ -22,6 +22,7 @@ const NotificationsBell = lazy(() => import('./NotificationsBell'))
 const PlaintiffNotificationBell = lazy(() => import('./PlaintiffNotificationBell'))
 const PlaintiffNotificationsBell = lazy(() => import('./PlaintiffNotificationsBell'))
 const LanguageSwitcher = lazy(() => import('./LanguageSwitcher'))
+const SupportChatWidget = lazy(() => import('./SupportChatWidget'))
 
 interface LayoutProps {
   children: ReactNode
@@ -38,6 +39,19 @@ const navLinks = {
   attorneyLogin: '/login/attorney',
   adminLogin: '/login/admin',
 }
+
+// Informational/marketing pages where a mobile visitor should always have a
+// one-tap way to start the free assessment (the header CTA is tucked into the
+// hamburger on small screens). Home is excluded — it renders its own scroll-aware
+// sticky CTA. Attorney-facing pages (e.g. /attorney-network) are excluded too.
+const MOBILE_ASSESSMENT_CTA_ROUTES = new Set<string>([
+  '/how-it-works',
+  '/help',
+  '/contact',
+  '/privacy-policy',
+  '/terms-of-service',
+  '/disclosures',
+])
 
 const organizationJsonLd = {
   '@context': 'https://schema.org',
@@ -76,6 +90,12 @@ export default function Layout({ children }: LayoutProps) {
   // Claimant/marketing routes (everything that isn't the attorney workspace or
   // admin) opt into a scoped visual polish so the attorney UI stays untouched.
   const isClaimantRoute = !isAttorney && !isAdmin && !isAdminArea
+  // Show the mobile Start Assessment bar on informational claimant pages so the
+  // primary CTA is always one tap away (it lives in the hamburger otherwise).
+  const showMobileAssessmentCta = isClaimantRoute && MOBILE_ASSESSMENT_CTA_ROUTES.has(location.pathname)
+  // Home has its own scroll-aware sticky CTA; lift the chat launcher on mobile
+  // wherever a bottom CTA bar can appear so the two don't overlap.
+  const raiseChatLauncher = isClaimantRoute && (showMobileAssessmentCta || location.pathname === navLinks.home)
 
   // Highlight a nav item when the current route matches its href. Some hrefs carry
   // query params (e.g. My Cases -> /attorney-dashboard?tab=leads); comparing against
@@ -567,7 +587,7 @@ export default function Layout({ children }: LayoutProps) {
               : 'py-8'
         }`}
       >
-        <div className={`min-w-0 ${['/assess', '/intake', '/intake2'].includes(location.pathname) ? 'min-h-full px-0' : 'px-3 sm:px-0'}`}>
+        <div className={`min-w-0 ${['/assess', '/intake', '/intake2'].includes(location.pathname) ? 'min-h-full px-0' : 'px-3 sm:px-0'} ${showMobileAssessmentCta ? 'pb-24 md:pb-0' : ''}`}>
           {children}
         </div>
       </main>
@@ -661,14 +681,34 @@ export default function Layout({ children }: LayoutProps) {
           <div className="mt-4 border-t border-slate-700/50 pt-3">
             <div className="flex flex-col gap-1.5 text-xs text-slate-400 md:flex-row md:items-center md:justify-between">
               <span>{t('footer.copyright')}</span>
-              <a href="mailto:support@clearcaseiq.com?subject=Support%20Request" className="transition-colors hover:text-white">
-                {t('footer.supportEmail')}
-              </a>
             </div>
           </div>
         </div>
       </footer>
       )
+      )}
+
+      {/* Mobile Start Assessment CTA — informational pages only. Mirrors the
+          Home sticky CTA so the primary action is always reachable on small
+          screens without opening the hamburger menu. */}
+      {showMobileAssessmentCta && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-4px_20px_rgba(15,23,42,0.08)] backdrop-blur-xl md:hidden dark:border-slate-800 dark:bg-slate-900/95">
+          <Link
+            to={navLinks.startAssessment}
+            className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-6 py-3 text-base font-bold text-white shadow-lg shadow-accent-500/25"
+          >
+            <FileTextIcon className="h-5 w-5" aria-hidden />
+            {t('common.startAssessment')}
+          </Link>
+        </div>
+      )}
+
+      {/* AI help assistant — available across the site, but hidden during the
+          intake/assessment funnel to avoid distracting from completion. */}
+      {!['/assess', '/intake', '/intake2', '/rose'].includes(location.pathname) && (
+        <Suspense fallback={null}>
+          <SupportChatWidget raiseOnMobile={raiseChatLauncher} />
+        </Suspense>
       )}
     </div>
   )

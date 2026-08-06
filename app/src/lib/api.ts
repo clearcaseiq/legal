@@ -325,6 +325,51 @@ export async function submitContactInquiry(input: {
   return data
 }
 
+export type SupportCategory =
+  | 'technical_issue'
+  | 'case_help'
+  | 'attorney_matching'
+  | 'account_access'
+  | 'privacy'
+  | 'other'
+
+export type SupportPriority = 'low' | 'medium' | 'high'
+
+/**
+ * Submit a support request (no auth required). Creates a triage-able ticket the
+ * team can pick up in the admin dashboard and emails the support inbox.
+ */
+export async function submitSupportRequest(input: {
+  name: string
+  email: string
+  category: SupportCategory
+  priority: SupportPriority
+  subject: string
+  description: string
+  pageUrl?: string
+  /** Honeypot — leave empty; only bots fill it. */
+  company?: string
+}): Promise<{ ok: boolean; ticketId?: string | null }> {
+  const { data } = await api.post('/v1/contact/support-request', input)
+  return data
+}
+
+export interface SupportChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+/**
+ * Send the conversation to the AI Help Assistant and get the next reply.
+ * `escalate` hints the UI to surface the "contact support" affordance.
+ */
+export async function sendSupportChatMessage(
+  messages: SupportChatMessage[]
+): Promise<{ reply: string; escalate?: boolean; degraded?: boolean }> {
+  const { data } = await api.post('/v1/support/chat', { messages })
+  return data
+}
+
 export interface PlaintiffFeedNotification {
   id: string
   type: string
