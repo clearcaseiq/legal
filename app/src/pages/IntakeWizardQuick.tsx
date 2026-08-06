@@ -1023,7 +1023,56 @@ export default function IntakeWizardQuick() {
   const hiddenSteps = HIDDEN_STEPS_BY_INJURY[formData.injuryType] || []
   const visibleSteps = activeSteps.filter(s => !hiddenSteps.includes(s.key))
   const currentStepIndex = visibleSteps.findIndex(s => s.key === currentStep)
-  const progressPercent = Math.round(((currentStepIndex + 1) / visibleSteps.length) * 100)
+  // Fraction (0..1) of the gating fields answered on a given step. Drives a
+  // progress bar that fills as the claimant types/selects rather than only
+  // jumping when they advance. Steps the user has already passed count as fully
+  // complete (they cleared validation to get here); steps ahead count as 0.
+  const stepFieldFraction = (stepKey: Step): number => {
+    switch (stepKey) {
+      case 'injury_type': {
+        const needsSubtype = !!formData.injuryType && hasIncidentSubtypes(formData.injuryType)
+        const subtypeOk = needsSubtype
+          ? (INCIDENT_SUBTYPE_FREE_TEXT.has(formData.injuryType)
+              ? !!formData.otherInjuryDescription.trim()
+              : !!formData.incidentSubtype)
+          : true
+        const total = 1 + (needsSubtype ? 1 : 0)
+        const filled = (formData.injuryType ? 1 : 0) + (needsSubtype && subtypeOk ? 1 : 0)
+        return filled / total
+      }
+      case 'when': {
+        const preset = formData.incidentDatePreset
+        const dateOk = !!preset && (preset === 'custom' ? !!customDate : preset === 'month_year' ? !!formData.incidentDate : true)
+        const checks = [dateOk, !!formData.venue.state, !!formData.venue.county?.trim(), formData.medicalTreatment.length > 0]
+        return checks.filter(Boolean).length / checks.length
+      }
+      case 'injury_severity':
+        return formData.injurySeverity ? 1 : 0
+      case 'financial_impact': {
+        const ic = formData.insuranceCoverage
+        // No fields block advancing here, so credit the answers people usually give.
+        const checks = [!!ic.medicalBillRange, !!ic.healthCoverage, (ic.accidentExpenses?.length || 0) > 0]
+        return checks.filter(Boolean).length / checks.length
+      }
+      case 'consent': {
+        const c = formData.consents || {}
+        const checks = [!!c.tos, !!c.privacy, !!c.ml_use]
+        return checks.filter(Boolean).length / checks.length
+      }
+      default:
+        return 0
+    }
+  }
+  const completedFraction = visibleSteps.reduce((sum, step, index) => {
+    if (index < currentStepIndex) return sum + 1
+    if (index === currentStepIndex) return sum + stepFieldFraction(step.key)
+    return sum
+  }, 0)
+  const progressPercent = Math.max(
+    // Keep a little bar showing on step 1 even before anything is filled.
+    Math.round((currentStepIndex / visibleSteps.length) * 100) + 2,
+    Math.round((completedFraction / visibleSteps.length) * 100),
+  )
   // Estimate remaining time from steps left (whole assessment budgeted at ~60s),
   // rounded to a friendly 5-second increment so the header reflects real progress
   // instead of showing a static "about 60 seconds total" on every step.
@@ -3284,7 +3333,10 @@ export default function IntakeWizardQuick() {
     const selectedType = INJURY_TYPES.find((entry) => entry.value === formData.injuryType)
     const primary = subtypeOptions.filter((option) => !option.secondary)
 
-    const chip = (option: (typeof subtypeOptions)[number], index: number, muted = false) => {
+    // Subtype options render as compact cards (icon inside a soft circle, label
+    // beneath, ring + check badge when chosen) so they read as a smaller echo of
+    // the primary incident tiles above rather than as a separate pill toolbar.
+    const chip = (option: (typeof subtypeOptions)[number], index: number, _muted = false) => {
       const { value, labelKey, chipLabelKey, icon: OptionIcon } = option
       const isChosen = formData.incidentSubtype === value
       const isConfirming = subtypeConfirming === value
@@ -3295,20 +3347,39 @@ export default function IntakeWizardQuick() {
           aria-pressed={isChosen}
           onClick={() => chooseSubtype(value)}
           style={{ animationDelay: `${Math.min(index, 8) * 25}ms` }}
-          className={`cc-option-rise flex shrink-0 min-h-[2.25rem] items-center gap-1.5 rounded-full px-2.5 py-1.5 text-left text-xs font-medium leading-tight whitespace-nowrap transition-colors duration-150 motion-reduce:transition-none ${
+          className={`cc-option-rise relative flex w-[84px] shrink-0 flex-col items-center justify-start gap-2 rounded-2xl px-2 py-3 text-center transition-all duration-150 active:scale-[0.99] motion-reduce:transition-none sm:w-24 ${
             isChosen
-              ? 'bg-brand-600 text-white'
-              : muted
-                ? 'bg-white/70 text-slate-600 ring-1 ring-slate-200 hover:bg-white hover:text-slate-900 dark:bg-slate-900/40 dark:text-slate-300 dark:ring-slate-700'
-                : 'bg-white text-slate-800 ring-1 ring-slate-200 hover:ring-brand-400 hover:bg-brand-50/60 dark:bg-slate-900/60 dark:text-slate-100 dark:ring-slate-700'
+              ? 'bg-brand-50 shadow-md ring-2 ring-brand-500 dark:bg-brand-950/40 dark:ring-brand-400'
+              : 'bg-white ring-1 ring-slate-200 hover:bg-slate-50 hover:ring-brand-300 dark:bg-slate-900/50 dark:ring-slate-700 dark:hover:bg-slate-900'
           }`}
         >
-          {isConfirming ? (
-            <Check className="h-3.5 w-3.5 shrink-0" strokeWidth={3} aria-hidden />
-          ) : (
-            <OptionIcon className={`h-3.5 w-3.5 shrink-0 ${isChosen ? 'text-white' : 'text-brand-600 dark:text-brand-400'}`} strokeWidth={2.1} aria-hidden />
+          {isChosen && (
+            <span className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-brand-600 shadow-sm ring-2 ring-white dark:ring-slate-900" aria-hidden>
+              <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
+            </span>
           )}
-          <span>{tx(chipLabelKey || labelKey)}</span>
+          <span
+            className={`flex h-10 w-10 items-center justify-center rounded-full sm:h-11 sm:w-11 ${
+              isChosen ? 'bg-brand-100 dark:bg-brand-900/50' : 'bg-slate-100 dark:bg-slate-800'
+            }`}
+          >
+            {isConfirming ? (
+              <Check className="h-5 w-5 text-brand-600 dark:text-brand-300" strokeWidth={3} aria-hidden />
+            ) : (
+              <OptionIcon
+                className={`h-5 w-5 ${isChosen ? 'text-brand-600 dark:text-brand-300' : 'text-slate-500 dark:text-slate-400'}`}
+                strokeWidth={1.9}
+                aria-hidden
+              />
+            )}
+          </span>
+          <span
+            className={`text-[12px] font-medium leading-tight ${
+              isChosen ? 'text-brand-900 dark:text-brand-100' : 'text-slate-700 dark:text-slate-200'
+            }`}
+          >
+            {tx(chipLabelKey || labelKey)}
+          </span>
         </button>
       )
     }
@@ -3349,7 +3420,7 @@ export default function IntakeWizardQuick() {
               className="mt-4 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-brand-500 dark:focus:ring-brand-800"
             />
           ) : (
-            <div className="mt-5 flex flex-wrap justify-evenly gap-2">
+            <div className="mt-5 flex flex-wrap justify-center gap-2 sm:gap-3">
               {primary.map((option, index) => chip(option, index))}
             </div>
           )}
@@ -3415,10 +3486,16 @@ export default function IntakeWizardQuick() {
                       <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
                     </span>
                   )}
-                  <Icon
-                    className={`h-5 w-5 sm:h-6 sm:w-6 ${formData.injuryType === value ? 'text-brand-600 dark:text-brand-300' : 'text-slate-400 dark:text-slate-500'}`}
-                    strokeWidth={formData.injuryType === value ? 2.2 : 1.8}
-                  />
+                  <span
+                    className={`flex h-10 w-10 items-center justify-center rounded-full sm:h-11 sm:w-11 ${
+                      formData.injuryType === value ? 'bg-brand-100 dark:bg-brand-900/50' : 'bg-slate-100 dark:bg-slate-800'
+                    }`}
+                  >
+                    <Icon
+                      className={`h-5 w-5 sm:h-6 sm:w-6 ${formData.injuryType === value ? 'text-brand-600 dark:text-brand-300' : 'text-slate-500 dark:text-slate-400'}`}
+                      strokeWidth={formData.injuryType === value ? 2.2 : 1.9}
+                    />
+                  </span>
                   <span
                     className={`text-center text-[12px] font-semibold leading-tight sm:text-[15px] sm:leading-snug ${
                       formData.injuryType === value ? 'text-brand-900 dark:text-brand-100' : 'text-slate-700 dark:text-slate-200'
@@ -6604,7 +6681,14 @@ export default function IntakeWizardQuick() {
         />,
         document.body
       )}
-      <div className="mb-1 shrink-0 px-4 sm:px-0" aria-busy={loading}>
+      {/* Sticky so the step title and progress bar stay pinned to the top of the
+          intake scroll area as the claimant scrolls a long step. top-0 is
+          relative to <main> (the scroll container on intake routes), which sits
+          just below the site nav, so there is no overlap with the nav.
+          On mobile the pinned background is inset (mx-4) and rounded so it keeps
+          the same left/right padding as the step card and footer below it,
+          rather than bleeding edge-to-edge. */}
+      <div className="sticky top-0 z-20 mx-4 mb-1 shrink-0 rounded-2xl bg-white/95 px-4 pt-1 pb-1.5 backdrop-blur-sm sm:mx-0 sm:rounded-none sm:px-0 dark:bg-slate-950/95" aria-busy={loading}>
         <p className={`mb-0.5 text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300 md:text-sm ${isFirstStep ? 'hidden sm:block' : ''}`}>
           {t('intake.timePromise')}
         </p>
