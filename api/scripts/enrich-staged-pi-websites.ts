@@ -698,6 +698,13 @@ async function main() {
               updateData.piRelevant = true
               updateData.practiceAreas = JSON.stringify(enrichedAreas)
             }
+            // Persist defense classification so the cleanup sweep can drop these
+            // from the routable pool without re-fetching the site. A defense firm
+            // is never a plaintiff-side PI referral target.
+            if (isDefense) {
+              updateData.piRelevant = false
+              updateData.status = 'rejected'
+            }
             if (hasNewEmail) updateData.email = professionalEmails[0]
             if (headshot) updateData.headshotUrl = headshot
             if (bio) updateData.bio = bio
