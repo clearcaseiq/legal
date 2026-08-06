@@ -613,10 +613,15 @@ export default function Layout({ children }: LayoutProps) {
                   {/* Business identity and location — transparency about who operates the
                       platform and from where, independent of any attorney disclosure. */}
                   <address className="mt-3 space-y-0.5 text-xs not-italic leading-relaxed text-slate-400">
-                    <span className="block font-semibold text-slate-300">{t('footer.entityName')}</span>
+                    <Link to="/" className="block font-semibold text-slate-300 transition-colors hover:text-white">{t('footer.entityName')}</Link>
                     <span className="block">{t('footer.platformLabel')}</span>
                     <span className="block">{t('footer.locationCity')}</span>
                   </address>
+                  {/* Not-a-law-firm disclaimer, shown here alongside the platform
+                      identity rather than as a separate block at the very bottom. */}
+                  <p className="mt-2 max-w-sm text-[11px] leading-relaxed text-slate-500">
+                    {t('footer.disclaimer')}
+                  </p>
                 </div>
               </div>
             </div>
@@ -659,13 +664,6 @@ export default function Layout({ children }: LayoutProps) {
               <a href="mailto:support@clearcaseiq.com?subject=Support%20Request" className="transition-colors hover:text-white">
                 {t('footer.supportEmail')}
               </a>
-            </div>
-            <div className="mt-2 max-w-4xl text-[11px] leading-relaxed text-slate-500">
-              <p>
-                <span className="font-semibold uppercase tracking-wide text-slate-400">{t('footer.platformLabel')}</span>
-                {' · '}
-                {t('footer.disclaimer')}
-              </p>
             </div>
           </div>
         </div>
