@@ -8,7 +8,6 @@ import {
   CloseIcon,
   FileTextIcon,
   ScaleIcon,
-  HelpCircleIcon,
   MoonIcon,
   SunIcon,
 } from './StartupIcons'
@@ -189,9 +188,9 @@ export default function Layout({ children }: LayoutProps) {
     // logged-out visitors still get their case link.
     isAttorney ? null : caseNavItem,
     isAuthenticated ? null : { name: t('common.forAttorneys'), href: navLinks.forAttorneys, icon: ScaleIcon },
-    // Help lives in the account dropdown for attorneys (see user menu), so drop it
-    // from the center pill for them.
-    isAttorney ? null : { name: t('common.help'), href: navLinks.help, icon: HelpCircleIcon },
+    // Help is intentionally NOT in the top header bar — it stays in the hamburger
+    // menu, the account dropdown (attorneys), and the footer. Dropping it from the
+    // header frees room so the language switcher is always visible on every device.
   ] as (NavItem | null)[]).filter((item): item is NavItem => item !== null)
 
   const shellIconFallback = <div className="h-9 w-9 rounded-lg bg-slate-100 dark:bg-slate-800" aria-hidden />
@@ -439,14 +438,14 @@ export default function Layout({ children }: LayoutProps) {
                 <Link to={navLinks.forAttorneys} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
                   {t('common.forAttorneys')}
                 </Link>
-                <Link to={navLinks.help} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
-                  {t('common.help')}
-                </Link>
-                <div className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-2 py-1 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
-                  <Suspense fallback={languageFallback}>
-                    <LanguageSwitcher />
-                  </Suspense>
-                </div>
+              </div>
+              {/* Language switcher is pinned OUTSIDE the horizontal scroller so it is
+                  always visible, even on the narrowest phones (previously it was the
+                  last scroll item and sat off-screen behind Help). */}
+              <div className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-2 py-1 shadow-sm dark:border-slate-800 dark:bg-slate-900/80">
+                <Suspense fallback={languageFallback}>
+                  <LanguageSwitcher />
+                </Suspense>
               </div>
               <Link to={navLinks.plaintiffLogin} className="shrink-0 rounded-full bg-brand-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm">
                 {t('common.signIn')}
@@ -597,20 +596,29 @@ export default function Layout({ children }: LayoutProps) {
       <footer className="mt-auto border-t border-slate-700/50 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-900">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-[1.5fr_repeat(4,auto)] md:items-start md:justify-between">
+            {/* On mobile the brand block laid out as a narrow vertical stack in a
+                full-width row, leaving a large empty gap on the right. Lay the logo
+                and the identity text side-by-side on small screens to fill the row,
+                then revert to the stacked layout on md where it sits in its own
+                narrow column. */}
             <div className="col-span-2 md:col-span-1">
-              <Link to="/" className="inline-flex items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900">
-                <BrandLogo mode="footer" size="md" appName={t('common.appName')} />
-              </Link>
-              <p className="mt-2 text-xs font-medium text-slate-300">
-                {t('footer.trustRowShort')}
-              </p>
-              {/* Business identity and location — transparency about who operates the
-                  platform and from where, independent of any attorney disclosure. */}
-              <address className="mt-3 space-y-0.5 text-xs not-italic leading-relaxed text-slate-400">
-                <span className="block font-semibold text-slate-300">{t('footer.entityName')}</span>
-                <span className="block">{t('footer.platformLabel')}</span>
-                <span className="block">{t('footer.locationCity')}</span>
-              </address>
+              <div className="flex flex-wrap items-start gap-x-8 gap-y-3 md:block">
+                <Link to="/" className="inline-flex items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900">
+                  <BrandLogo mode="footer" size="md" appName={t('common.appName')} />
+                </Link>
+                <div className="md:mt-2">
+                  <p className="text-xs font-medium text-slate-300">
+                    {t('footer.trustRowShort')}
+                  </p>
+                  {/* Business identity and location — transparency about who operates the
+                      platform and from where, independent of any attorney disclosure. */}
+                  <address className="mt-3 space-y-0.5 text-xs not-italic leading-relaxed text-slate-400">
+                    <span className="block font-semibold text-slate-300">{t('footer.entityName')}</span>
+                    <span className="block">{t('footer.platformLabel')}</span>
+                    <span className="block">{t('footer.locationCity')}</span>
+                  </address>
+                </div>
+              </div>
             </div>
             <div>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.forPlaintiffs')}</h3>
@@ -630,7 +638,7 @@ export default function Layout({ children }: LayoutProps) {
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.resources')}</h3>
               <ul className="space-y-1.5 text-sm">
                 <li><Link to={navLinks.howItWorks} className="text-slate-400 transition-colors hover:text-white">{t('common.howItWorks')}</Link></li>
-                <li><a href="mailto:support@clearcaseiq.com?subject=Support%20Request" className="text-slate-400 transition-colors hover:text-white">{t('footer.support')}</a></li>
+                <li><Link to="/help#how-we-resolve" className="text-slate-400 transition-colors hover:text-white">{t('footer.support')}</Link></li>
               </ul>
             </div>
             <div>
@@ -641,7 +649,7 @@ export default function Layout({ children }: LayoutProps) {
                 <li><Link to="/disclosures" className="text-slate-400 transition-colors hover:text-white">{t('footer.disclosures')}</Link></li>
                 <li><Link to="/disclosures#ai" className="text-slate-400 transition-colors hover:text-white">{t('footer.aiDisclosure')}</Link></li>
                 <li><Link to="/disclosures#california" className="text-slate-400 transition-colors hover:text-white">{t('footer.doNotSell')}</Link></li>
-                <li><a href="mailto:legal@clearcaseiq.com" className="text-slate-400 transition-colors hover:text-white">{t('footer.contact')}</a></li>
+                <li><Link to="/contact" className="text-slate-400 transition-colors hover:text-white">{t('footer.contact')}</Link></li>
               </ul>
             </div>
           </div>

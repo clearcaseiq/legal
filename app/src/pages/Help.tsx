@@ -236,6 +236,39 @@ export default function Help() {
         </p>
       </div>
 
+      {/* How we resolve issues — sets expectations for the support process so the
+          footer "Support" link lands somewhere that explains how we help, not just a
+          mailto. Deep-linkable via /help#how-we-resolve. */}
+      <div id="how-we-resolve" className="mb-8 scroll-mt-24">
+        <h2 className="text-2xl font-bold text-slate-900 mb-2">How we resolve issues</h2>
+        <p className="text-slate-600 mb-4">
+          Every request follows the same path so you always know what to expect. Most issues are resolved within one business day.
+        </p>
+        <ol className="space-y-4">
+          {[
+            { title: 'You reach out', body: 'Email support@clearcaseiq.com or use “Report a problem” below. Include your name, the email on your case, and a short description (screenshots help).' },
+            { title: 'We acknowledge', body: 'You get a confirmation that we received your request, typically within a few hours during business hours (Mon–Fri, Pacific Time).' },
+            { title: 'We triage', body: 'We categorize the request — technical, case & attorney matching, or privacy — and prioritize anything urgent or privacy-related.' },
+            { title: 'We resolve or escalate', body: 'Most requests are answered within 24 hours. Complex issues are escalated to the right team, and we keep you updated until it’s fixed.' },
+            { title: 'We confirm it’s resolved', body: 'We follow up to make sure the issue is fully handled and record it so we can prevent it from happening again.' },
+          ].map((step, i) => (
+            <li key={i} className="flex gap-4 rounded-xl border border-slate-200 bg-white p-4">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-600 text-sm font-bold text-white">{i + 1}</span>
+              <div>
+                <h3 className="font-semibold text-slate-900">{step.title}</h3>
+                <p className="mt-0.5 text-sm text-slate-600">{step.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-4 flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <Shield className="mt-0.5 h-5 w-5 shrink-0 text-brand-600" aria-hidden />
+          <p className="text-sm text-slate-600">
+            Support helps you with the ClearCaseIQ platform. We don’t provide legal advice — questions about your specific case or legal strategy should go to your matched attorney.
+          </p>
+        </div>
+      </div>
+
       {/* Contact & Report */}
       <div className="grid sm:grid-cols-2 gap-4 mb-8">
         <div className="p-6 bg-white border border-slate-200 rounded-xl">

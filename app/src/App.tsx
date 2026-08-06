@@ -127,6 +127,7 @@ const TermsOfService = lazy(() => import('./pages/TermsOfService'))
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'))
 const Disclosures = lazy(() => import('./pages/Disclosures'))
 const Help = lazy(() => import('./pages/Help'))
+const Contact = lazy(() => import('./pages/Contact'))
 const HowItWorks = lazy(() => import('./pages/HowItWorks'))
 const AiMlConsent = lazy(() => import('./pages/AiMlConsent'))
 const RoseIntake = lazy(() => import('./pages/RoseIntake'))
@@ -359,6 +360,7 @@ function App() {
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/disclosures" element={<Disclosures />} />
             <Route path="/help" element={<Help />} />
+            <Route path="/contact" element={<Contact />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/attorney-network" element={<AttorneyNetwork />} />
             {/* Consolidated: the old marketing page now points at the single attorney landing page. */}

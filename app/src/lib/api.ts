@@ -304,6 +304,27 @@ export async function getPlaintiffDocumentRequests(assessmentId: string): Promis
   return data
 }
 
+export type ContactTopic =
+  | 'general'
+  | 'plaintiff_support'
+  | 'attorney_partnership'
+  | 'media_press'
+  | 'privacy'
+  | 'other'
+
+/** Submit a public "Contact us" inquiry (no auth required). */
+export async function submitContactInquiry(input: {
+  name: string
+  email: string
+  topic: ContactTopic
+  message: string
+  /** Honeypot — leave empty; only bots fill it. */
+  company?: string
+}): Promise<{ ok: boolean }> {
+  const { data } = await api.post('/v1/contact', input)
+  return data
+}
+
 export interface PlaintiffFeedNotification {
   id: string
   type: string
