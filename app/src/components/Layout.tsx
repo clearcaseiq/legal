@@ -587,7 +587,15 @@ export default function Layout({ children }: LayoutProps) {
               : 'py-8'
         }`}
       >
-        <div className={`min-w-0 ${['/assess', '/intake', '/intake2'].includes(location.pathname) ? 'min-h-full px-0' : 'px-3 sm:px-0'} ${showMobileAssessmentCta ? 'pb-24 md:pb-0' : ''}`}>
+        <div className={`min-w-0 ${
+          ['/assess', '/intake', '/intake2'].includes(location.pathname)
+            ? 'min-h-full px-0'
+            // The Case Snapshot (results) page goes edge-to-edge on mobile like
+            // the intake steps; its cards carry their own inner padding.
+            : location.pathname.startsWith('/results')
+              ? 'px-0'
+              : 'px-3 sm:px-0'
+        } ${showMobileAssessmentCta ? 'pb-24 md:pb-0' : ''}`}>
           {children}
         </div>
       </main>

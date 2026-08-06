@@ -1381,10 +1381,18 @@ export default function IntakeWizardQuick() {
   // window scroll too — otherwise a new step can start mid-page.
   const stepScrollRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
+    // Dismiss the on-screen keyboard first. Arriving on a step with a text
+    // field still focused (e.g. the Step 2 description box) keeps the mobile
+    // keyboard up; on iOS the keyboard offsets the visual viewport and shrinks
+    // the dvh-sized <main>, so the window is left scrolled past the content
+    // and the new step reads as a blank white screen until the user scrolls.
+    const active = document.activeElement
+    if (active instanceof HTMLElement && active !== document.body) active.blur()
     const scrollTop = () => {
       window.scrollTo({ top: 0, behavior: 'instant' })
       document.documentElement.scrollTop = 0
       document.body.scrollTop = 0
+      if (document.scrollingElement) document.scrollingElement.scrollTop = 0
       // On the intake routes the Layout makes <main> the scroll container, so
       // resetting the window/body alone leaves a new step opening mid-page.
       const main = document.getElementById('main-content')
@@ -1395,12 +1403,14 @@ export default function IntakeWizardQuick() {
     requestAnimationFrame(scrollTop)
     // Heavy steps (e.g. insurance / legal) may not finish layout within a
     // single frame. Multiple timeouts catch late reflows that push the
-    // viewport down.
+    // viewport down; the last one runs after the iOS keyboard-close
+    // animation (~400ms) has restored the visual viewport.
     const t1 = setTimeout(scrollTop, 80)
     const t2 = setTimeout(scrollTop, 300)
+    const t3 = setTimeout(scrollTop, 650)
     setSubtypePanelOpen(false)
     setSubtypeConfirming(null)
-    return () => { clearTimeout(t1); clearTimeout(t2) }
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
   }, [currentStep])
 
   // Keep validation errors in one consistent place (top of the step) and bring it into view.
@@ -3549,7 +3559,7 @@ export default function IntakeWizardQuick() {
                       <div className={`group relative w-full rounded-xl border bg-white py-1 pl-3.5 pr-2.5 shadow-sm transition-all focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/25 dark:bg-slate-900/40 ${errors.incidentDate ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-300 hover:border-slate-400 dark:border-slate-600 dark:hover:border-slate-500'}`}>
                         <div className="flex items-center gap-3">
                           <div className="min-w-0 flex-1">
-                            <label htmlFor="incident-exact-date" className="block !text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">{tx('when_selectDate')}</label>
+                            <label htmlFor="incident-exact-date" className="block text-center !text-[13px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">{tx('when_selectDate')}</label>
                             <input
                               id="incident-exact-date"
                               type="date"
@@ -3574,7 +3584,7 @@ export default function IntakeWizardQuick() {
                                   updateForm({ incidentDatePreset: '', incidentDate: '' })
                                 }
                               }}
-                              className="date-input-clean !min-h-0 w-full min-w-0 max-w-full !border-0 !bg-transparent !p-0 text-left !text-[15px] font-medium text-gray-900 focus:!ring-0 dark:text-slate-100"
+                              className="date-input-clean !min-h-0 w-full min-w-0 max-w-full !border-0 !bg-transparent !p-0 text-center !text-[17px] font-medium text-gray-900 focus:!ring-0 dark:text-slate-100"
                             />
                           </div>
                           {/* A <label> bound to the input is the only reliable way to open

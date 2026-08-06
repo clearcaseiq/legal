@@ -41,13 +41,12 @@
     -webkit-appearance: none;
     appearance: none;
     min-width: 0;
-    /* WebKit renders the date value centered inside the field's intrinsic box
-       regardless of the Tailwind `text-left` utility; force left alignment so the
-       date reads flush with the field label (CP-533). */
-    text-align: left;
+    /* The "Select date" label above is centered, so center the value with it. */
+    text-align: center;
   }
   .date-input-clean::-webkit-datetime-edit {
-    text-align: left;
+    text-align: center;
+    width: 100%;
     padding: 0;
   }
 

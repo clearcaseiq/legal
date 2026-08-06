@@ -3199,7 +3199,8 @@ Checklist:
   // Uses the wider workspace column (matches the attorney experience) so the
   // snapshot's dense cards get the same horizontal room.
   return (
-    <div className="page-shell overflow-safe max-w-[1440px]">
+    // px-0 on mobile: the snapshot goes edge-to-edge like the intake steps; cards keep their own inner padding.
+    <div className="page-shell overflow-safe max-w-[1440px] px-0 sm:px-6 lg:px-8">
       {/* Soft interstitial — informed choice when sending with no documents */}
       {sendInterstitialOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm" onClick={() => setSendInterstitialOpen(false)} role="dialog" aria-modal="true">
