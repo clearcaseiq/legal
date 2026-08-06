@@ -364,9 +364,10 @@ export interface SupportChatMessage {
  * `escalate` hints the UI to surface the "contact support" affordance.
  */
 export async function sendSupportChatMessage(
-  messages: SupportChatMessage[]
+  messages: SupportChatMessage[],
+  language: 'en' | 'es' | 'zh' = 'en'
 ): Promise<{ reply: string; escalate?: boolean; degraded?: boolean }> {
-  const { data } = await api.post('/v1/support/chat', { messages })
+  const { data } = await api.post('/v1/support/chat', { messages, language })
   return data
 }
 

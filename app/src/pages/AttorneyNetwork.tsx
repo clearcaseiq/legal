@@ -26,201 +26,21 @@ import {
 } from 'lucide-react'
 import AttorneyProductTour from '../components/AttorneyProductTour'
 import { getPlatformPricing } from '../lib/api'
+import { useLanguage } from '../contexts/LanguageContext'
 
-const trustChips = [
-  'No pay-per-lead',
-  'Review before you accept',
-  'AI case intelligence included',
-]
+const VALUE_PROP_ICONS = [ShieldCheck, Gauge, Users, Clock]
+const BENEFIT_ICONS = [FileSearch, Sparkles, Stethoscope, Scale, ScrollText, TrendingUp]
+const FREE_ICONS = [Wallet, FileSearch, Briefcase, Users]
 
-const valueProps = [
-  { icon: ShieldCheck, label: 'Pay-per-lead', value: '$0', detail: 'Review cases free. No cost until you accept.' },
-  { icon: Gauge, label: 'Every case', value: 'Pre-scored', detail: 'Viability, liability, and value signals up front.' },
-  { icon: Users, label: 'Plaintiffs', value: 'Choose you', detail: 'Matches come from clients selecting counsel.' },
-  { icon: Clock, label: 'Case review', value: 'Minutes', detail: 'Attorney-ready packages, not raw leads.' },
-]
-
-const benefits = [
-  {
-    icon: FileSearch,
-    title: 'Qualified, structured cases',
-    detail: 'Review plaintiff-submitted facts, documents, venue, and valuation signals before you decide.',
-  },
-  {
-    icon: Sparkles,
-    title: 'AI case intelligence',
-    detail: 'Viability scoring, liability indicators, and a settlement range on every match.',
-  },
-  {
-    icon: Stethoscope,
-    title: 'Medical chronology',
-    detail: 'Extracted treatment timelines and records gaps so you can assess damages fast.',
-  },
-  {
-    icon: Scale,
-    title: 'Plaintiffs choose you',
-    detail: 'Clients actively select their preferred attorneys. Not resold, shared leads.',
-  },
-  {
-    icon: ScrollText,
-    title: 'Full case management',
-    detail: 'Evidence, demand prep, negotiation, and e-signature — all in one workspace.',
-  },
-  {
-    icon: TrendingUp,
-    title: 'No cost to say no',
-    detail: 'Reviewing and declining cases is free, so you can hold a high bar without paying for it.',
-  },
-]
-
-const includedFree = [
-  {
-    icon: Wallet,
-    title: 'No subscription to join',
-    detail: 'No setup fee, no monthly minimum, and no seat or per-user charges. Bring your whole firm on at no cost.',
-  },
-  {
-    icon: FileSearch,
-    title: 'Every case review is free',
-    detail:
-      'Open the full assessment (viability, settlement range, medical chronology, evidence) before you decide, and decline as many as you like.',
-  },
-  {
-    icon: Briefcase,
-    title: 'The whole platform is included',
-    detail:
-      'Case workspace, AI case manager, e-signature, scheduling, messaging, documents, and invoicing all come with the cases you accept.',
-  },
-  {
-    icon: Users,
-    title: 'Logins for your whole team',
-    detail:
-      'Attorneys, paralegals, case managers, and intake staff each get their own account on web and mobile, with permissions you control.',
-  },
-]
-
-const capabilityGroups = [
-  {
-    icon: FileSearch,
-    title: 'Before you accept',
-    items: [
-      'A de-identified case package built for a 10–20 second decision',
-      'Viability broken out into liability, causation, and damages',
-      'An estimated settlement range with a confidence level',
-      'Medical chronology and treatment gaps extracted from records',
-      'Insurance carrier, coverage type, and policy limits',
-      'An evidence checklist showing what is actually uploaded',
-      'Why the case matched your practice area and venue',
-      'A live countdown to your response deadline',
-    ],
-  },
-  {
-    icon: Bot,
-    title: 'AI case work',
-    items: [
-      'Rose, an AI case manager, reviews every active case and raises the next action',
-      'Every task she raises waits for a human to approve it before it is assigned',
-      'Ranked next-best-actions, each with the reason and the impact',
-      'A first-draft demand letter written as soon as a case is demand-ready',
-      'Case-specific questions to ask your client, with answers captured inline',
-      'Case values and scores come from a deterministic engine, not a language model',
-    ],
-  },
-  {
-    icon: ScrollText,
-    title: 'Your case workspace',
-    items: [
-      'Evidence, medical, insurance, negotiation, and demand tabs on every case',
-      'A full case timeline and deadline tracking',
-      'A statute-of-limitations radar across your whole caseload',
-      'A settlement waterfall from gross recovery to net-to-client',
-      'A task queue that routes work by role',
-      'Time tracking with billable value, approved at the firm level',
-    ],
-  },
-  {
-    icon: CalendarClock,
-    title: 'Clients and scheduling',
-    items: [
-      'A calendar with day, week, and month views',
-      'Public booking pages for you and for your team',
-      'Two-way sync with Google Calendar and Outlook',
-      'Zoom links created automatically on booked consults',
-      'Client and adjuster messaging across every case',
-      'Internal team chat, case notes, and @mentions',
-    ],
-  },
-  {
-    icon: FileSignature,
-    title: 'Documents and signatures',
-    items: [
-      'E-signature for retainers and HIPAA authorizations',
-      'Records requests with a client-facing upload portal',
-      'Text extraction and OCR on uploaded records',
-      'Reusable firm document templates with merge fields',
-      'Invoicing with PDF and DOCX export',
-    ],
-  },
-  {
-    icon: Building2,
-    title: 'Firm operations',
-    items: [
-      'Nine staff roles governed by a permission matrix',
-      'Offices and teams, with caseload assignment across attorneys',
-      'Firm workflow phases and stages applied to every case',
-      'Team workload, capacity, and attorney performance analytics',
-      'Match quality and marketplace performance reporting',
-    ],
-  },
-  {
-    icon: Smartphone,
-    title: 'On your phone',
-    items: [
-      'Review and accept or decline matches from anywhere',
-      'Cases, tasks, messages, calendar, and contacts',
-      'Push notifications for new matches and deadlines',
-      'Face ID and Touch ID unlock',
-    ],
-  },
-]
-
-const differentiators = [
-  { traditional: 'Buys and resells leads', clearcase: 'Plaintiffs choose their attorneys' },
-  { traditional: 'Limited, unverified information', clearcase: 'Full AI case assessment included' },
-  { traditional: 'One-time lead handoff', clearcase: 'End-to-end case management' },
-  { traditional: 'Unknown case quality', clearcase: 'Viability and readiness scoring' },
-  { traditional: 'Pay for every lead', clearcase: 'Review free. Commit when you accept' },
-]
-
-const practiceAreas = [
-  'Personal Injury',
-  'Auto Accident',
-  'Slip & Fall',
-  'Wrongful Death',
-  'Product Liability',
-  'Dog Bite',
-  'Medical Malpractice',
-]
-
-const requirements = ['Licensed, practicing attorney', 'Personal injury practice', 'Good standing with the state bar']
-
-const faqs = [
-  { q: 'How are cases matched?', a: 'Cases are routed based on jurisdiction, practice area, and case attributes so you only see relevant matters.' },
-  { q: 'Do I have to accept every case?', a: 'No. You review each case and its AI assessment, then accept selectively. There is no obligation.' },
-  { q: 'Is this pay-per-lead?', a: 'No. Reviewing matched cases is free. You only commit once you choose to accept a case.' },
-  {
-    q: 'Does the fee change with the size of the case?',
-    a: 'No. Every accepted case costs exactly the same. The fee never varies by claim type, injury severity, case score, or expected recovery, and it is never a percentage of a settlement.',
-  },
-  {
-    q: 'Do I need a subscription?',
-    a: 'No. Optional monthly plans bundle case fees for higher-volume firms, but a subscription is never required to receive or accept cases.',
-  },
-  {
-    q: 'Are there charges for the case management tools?',
-    a: 'No. The case workspace, AI case manager, e-signature, scheduling, messaging, and document storage are included, and there are no per-user or per-seat fees.',
-  },
-  { q: 'How quickly do I receive case details?', a: 'Immediately after a match is made, with the full case package and intelligence ready to review.' },
+// Capability groups: icon + how many bullet items each group has in the locale files.
+const CAPABILITY_GROUPS = [
+  { icon: FileSearch, prefix: 'cap1', count: 8 },
+  { icon: Bot, prefix: 'cap2', count: 6 },
+  { icon: ScrollText, prefix: 'cap3', count: 6 },
+  { icon: CalendarClock, prefix: 'cap4', count: 6 },
+  { icon: FileSignature, prefix: 'cap5', count: 5 },
+  { icon: Building2, prefix: 'cap6', count: 5 },
+  { icon: Smartphone, prefix: 'cap7', count: 4 },
 ]
 
 function formatFee(priceCents: number): string {
@@ -256,6 +76,7 @@ function useCaseFee(): string | null {
 }
 
 export default function AttorneyNetwork() {
+  const { t } = useLanguage()
   const caseFee = useCaseFee()
 
   return (
@@ -268,14 +89,13 @@ export default function AttorneyNetwork() {
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-brand-200">
               <Scale className="h-3.5 w-3.5" />
-              For Personal Injury Attorneys
+              {t('attorneyNet.badge')}
             </span>
             <h1 className="mt-5 max-w-2xl text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl">
-              Receive qualified PI cases with AI‑powered intelligence
+              {t('attorneyNet.heroTitle')}
             </h1>
             <p className="mt-5 max-w-xl text-lg leading-relaxed text-slate-300">
-              Qualified injury cases from plaintiffs actively choosing counsel — every match pre‑scored,
-              documented, and ready to review. No pay‑per‑lead.
+              {t('attorneyNet.heroSub')}
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -283,22 +103,22 @@ export default function AttorneyNetwork() {
                 to="/attorney-register"
                 className="group inline-flex items-center justify-center gap-2 rounded-xl bg-brand-500 px-6 py-3.5 text-base font-semibold text-white shadow-lg shadow-brand-900/40 transition hover:bg-brand-400"
               >
-                Join the Attorney Network
+                {t('auth.joinAttorneyNetwork')}
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </Link>
               <Link
                 to="/attorney-login"
                 className="inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/5 px-6 py-3.5 text-base font-semibold text-white transition hover:bg-white/10"
               >
-                Attorney Login
+                {t('auth.attorneyLoginLabel')}
               </Link>
             </div>
 
             <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2">
-              {trustChips.map((chip) => (
-                <span key={chip} className="inline-flex items-center gap-1.5 text-sm text-slate-300">
+              {[1, 2, 3].map((n) => (
+                <span key={n} className="inline-flex items-center gap-1.5 text-sm text-slate-300">
                   <CheckCircle2 className="h-4 w-4 text-brand-300" />
-                  {chip}
+                  {t(`attorneyNet.chip${n}`)}
                 </span>
               ))}
             </div>
@@ -311,44 +131,44 @@ export default function AttorneyNetwork() {
                 <div>
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    New match
+                    {t('attorneyNet.newMatch')}
                   </span>
-                  <p className="mt-2 text-base font-bold text-slate-900">Auto accident &middot; rear‑end collision</p>
+                  <p className="mt-2 text-base font-bold text-slate-900">{t('attorneyNet.previewCase')}</p>
                   <p className="text-xs text-slate-500">Los Angeles County, CA</p>
                 </div>
                 <div className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-100">
                   <span className="text-lg font-extrabold leading-none">87</span>
-                  <span className="text-[9px] font-semibold uppercase tracking-wide text-brand-500">score</span>
+                  <span className="text-[9px] font-semibold uppercase tracking-wide text-brand-500">{t('attorneyNet.scoreLabel')}</span>
                 </div>
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Est. value</p>
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('attorneyNet.estValue')}</p>
                   <p className="font-semibold text-slate-900">$180k–$240k</p>
                 </div>
                 <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Liability</p>
-                  <p className="font-semibold text-emerald-600">Clear</p>
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('attorneyNet.liability')}</p>
+                  <p className="font-semibold text-emerald-600">{t('attorneyNet.liabilityClear')}</p>
                 </div>
                 <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Treatment</p>
-                  <p className="font-semibold text-slate-900">6 providers</p>
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('attorneyNet.treatment')}</p>
+                  <p className="font-semibold text-slate-900">{t('attorneyNet.treatmentValue')}</p>
                 </div>
                 <div className="rounded-lg bg-slate-50 px-3 py-2">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Evidence</p>
-                  <p className="font-semibold text-slate-900">12 items</p>
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('attorneyNet.evidence')}</p>
+                  <p className="font-semibold text-slate-900">{t('attorneyNet.evidenceValue')}</p>
                 </div>
               </div>
 
               <div className="mt-4 flex items-center gap-2 rounded-lg border border-brand-100 bg-brand-50/60 px-3 py-2 text-xs font-medium text-brand-800">
                 <Sparkles className="h-4 w-4 text-brand-500" />
-                AI case assessment ready to review
+                {t('attorneyNet.aiReady')}
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-3">
-                <div className="rounded-lg bg-brand-600 px-3 py-2 text-center text-sm font-semibold text-white">Accept</div>
-                <div className="rounded-lg border border-slate-200 px-3 py-2 text-center text-sm font-semibold text-slate-600">Review</div>
+                <div className="rounded-lg bg-brand-600 px-3 py-2 text-center text-sm font-semibold text-white">{t('attorneyNet.accept')}</div>
+                <div className="rounded-lg border border-slate-200 px-3 py-2 text-center text-sm font-semibold text-slate-600">{t('attorneyNet.review')}</div>
               </div>
             </div>
           </div>
@@ -357,14 +177,14 @@ export default function AttorneyNetwork() {
 
       {/* VALUE PROP BAND */}
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {valueProps.map(({ icon: Icon, label, value, detail }) => (
-          <div key={label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        {VALUE_PROP_ICONS.map((Icon, i) => (
+          <div key={i} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600">
               <Icon className="h-5 w-5" />
             </div>
-            <p className="mt-4 text-2xl font-extrabold text-slate-900">{value}</p>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">{detail}</p>
+            <p className="mt-4 text-2xl font-extrabold text-slate-900">{t(`attorneyNet.vp${i + 1}Value`)}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{t(`attorneyNet.vp${i + 1}Label`)}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">{t(`attorneyNet.vp${i + 1}Detail`)}</p>
           </div>
         ))}
       </section>
@@ -372,29 +192,29 @@ export default function AttorneyNetwork() {
       {/* WHAT'S FREE + PRICING */}
       <section>
         <div className="mx-auto max-w-2xl text-center">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">Pricing</p>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">{t('attorneyNet.pricingLabel')}</p>
           <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
-            Free to join. Free to review. One fee when you accept.
+            {t('attorneyNet.pricingTitle')}
           </h2>
           <p className="mt-3 text-lg text-slate-600">
-            You can run your entire firm on ClearCaseIQ without paying anything until you take a case.
+            {t('attorneyNet.pricingSub')}
           </p>
         </div>
 
         <div className="mt-10 grid gap-5 md:grid-cols-2">
-          {includedFree.map(({ icon: Icon, title, detail }) => (
-            <div key={title} className="flex gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          {FREE_ICONS.map((Icon, i) => (
+            <div key={i} className="flex gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
                 <Icon className="h-5 w-5" />
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-lg font-bold text-slate-900">{title}</h3>
+                  <h3 className="text-lg font-bold text-slate-900">{t(`attorneyNet.free${i + 1}Title`)}</h3>
                   <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-emerald-700">
-                    Free
+                    {t('attorneyNet.freeBadge')}
                   </span>
                 </div>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{detail}</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{t(`attorneyNet.free${i + 1}Detail`)}</p>
               </div>
             </div>
           ))}
@@ -403,26 +223,20 @@ export default function AttorneyNetwork() {
         <div className="mt-6 overflow-hidden rounded-3xl border border-brand-200 bg-brand-50/60">
           <div className="grid gap-6 p-6 sm:p-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-700">The only fee</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-700">{t('attorneyNet.onlyFee')}</p>
               <p className="mt-3 flex items-baseline gap-2">
-                <span className="text-5xl font-extrabold tracking-tight text-slate-900">{caseFee ?? 'One flat fee'}</span>
-                {caseFee && <span className="text-lg font-semibold text-slate-500">per accepted case</span>}
+                <span className="text-5xl font-extrabold tracking-tight text-slate-900">{caseFee ?? t('attorneyNet.flatFallback')}</span>
+                {caseFee && <span className="text-lg font-semibold text-slate-500">{t('attorneyNet.perAccepted')}</span>}
               </p>
               <p className="mt-3 text-sm leading-6 text-slate-700">
-                Charged only when you accept a case. Nothing is charged when a case is offered to you, when you open
-                it, or when you decline it.
+                {t('attorneyNet.feeNote')}
               </p>
             </div>
             <ul className="space-y-3">
-              {[
-                'The same amount for every case. It never varies by claim type, injury severity, case score, or expected recovery',
-                'Never a percentage of a settlement, and never a share of your fee',
-                'No setup fee, no seat or per-user charges, and no charge for e-signature, messaging, or storage',
-                'Optional monthly plans bundle case fees for higher-volume firms, but are never required',
-              ].map((line) => (
-                <li key={line} className="flex gap-3 text-sm leading-6 text-slate-700">
+              {[1, 2, 3, 4].map((n) => (
+                <li key={n} className="flex gap-3 text-sm leading-6 text-slate-700">
                   <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-brand-600" />
-                  <span>{line}</span>
+                  <span>{t(`attorneyNet.feeLine${n}`)}</span>
                 </li>
               ))}
             </ul>
@@ -433,25 +247,25 @@ export default function AttorneyNetwork() {
       {/* BENEFITS */}
       <section>
         <div className="mx-auto max-w-2xl text-center">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">Why attorneys join</p>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">{t('auth.whyAttorneysJoin')}</p>
           <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
-            More than leads — a complete case pipeline
+            {t('attorneyNet.benefitsTitle')}
           </h2>
           <p className="mt-3 text-lg text-slate-600">
-            Everything you need to evaluate, accept, and work personal injury cases in one place.
+            {t('attorneyNet.benefitsSub')}
           </p>
         </div>
         <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {benefits.map(({ icon: Icon, title, detail }) => (
+          {BENEFIT_ICONS.map((Icon, i) => (
             <div
-              key={title}
+              key={i}
               className="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:border-brand-200 hover:shadow-md"
             >
               <div className="grid h-11 w-11 place-items-center rounded-xl bg-brand-50 text-brand-600 transition group-hover:bg-brand-100">
                 <Icon className="h-5 w-5" />
               </div>
-              <h3 className="mt-4 text-lg font-bold text-slate-900">{title}</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-600">{detail}</p>
+              <h3 className="mt-4 text-lg font-bold text-slate-900">{t(`attorneyNet.b${i + 1}Title`)}</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{t(`attorneyNet.b${i + 1}Detail`)}</p>
             </div>
           ))}
         </div>
@@ -460,28 +274,28 @@ export default function AttorneyNetwork() {
       {/* WHAT YOU GET — CAPABILITY INVENTORY */}
       <section>
         <div className="mx-auto max-w-2xl text-center">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">What&rsquo;s included</p>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">{t('attorneyNet.includedLabel')}</p>
           <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
-            Everything your firm needs, in one place
+            {t('attorneyNet.includedTitle')}
           </h2>
           <p className="mt-3 text-lg text-slate-600">
-            Every capability below is included. There is nothing else to buy and no add-on tier.
+            {t('attorneyNet.includedSub')}
           </p>
         </div>
         <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-          {capabilityGroups.map(({ icon: Icon, title, items }) => (
-            <div key={title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          {CAPABILITY_GROUPS.map(({ icon: Icon, prefix, count }) => (
+            <div key={prefix} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-center gap-3">
                 <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600">
                   <Icon className="h-5 w-5" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-900">{title}</h3>
+                <h3 className="text-lg font-bold text-slate-900">{t(`attorneyNet.${prefix}Title`)}</h3>
               </div>
               <ul className="mt-5 space-y-2.5">
-                {items.map((item) => (
-                  <li key={item} className="flex gap-2.5 text-sm leading-6 text-slate-600">
+                {Array.from({ length: count }, (_, i) => (
+                  <li key={i} className="flex gap-2.5 text-sm leading-6 text-slate-600">
                     <Check className="mt-1 h-4 w-4 shrink-0 text-brand-600" />
-                    <span>{item}</span>
+                    <span>{t(`attorneyNet.${prefix}i${i + 1}`)}</span>
                   </li>
                 ))}
               </ul>
@@ -489,8 +303,7 @@ export default function AttorneyNetwork() {
           ))}
         </div>
         <p className="mx-auto mt-8 max-w-3xl text-center text-sm leading-6 text-slate-500">
-          ClearCaseIQ is a technology platform, not a law firm, and does not provide legal advice. AI-generated
-          assessments, values, and drafts are informational and always require review by a licensed attorney.
+          {t('attorneyNet.aiDisclaimer')}
         </p>
       </section>
 
@@ -502,39 +315,38 @@ export default function AttorneyNetwork() {
       {/* COMPARISON */}
       <section className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">Why ClearCaseIQ is different</p>
-          <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">Not another lead vendor</h2>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">{t('attorneyNet.diffLabel')}</p>
+          <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">{t('attorneyNet.diffTitle')}</h2>
           <p className="mt-3 text-lg text-slate-600">
-            Traditional vendors sell you contact information. ClearCaseIQ delivers qualified, scored cases from
-            plaintiffs who chose you, with the intelligence to work them.
+            {t('attorneyNet.diffSub')}
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
-            {practiceAreas.map((area) => (
+            {[1, 2, 3, 4, 5, 6, 7].map((n) => (
               <span
-                key={area}
+                key={n}
                 className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700"
               >
-                {area}
+                {t(`attorneyNet.pa${n}`)}
               </span>
             ))}
           </div>
           <div className="mt-6 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm">
             <MapPin className="h-4 w-4 text-brand-600" />
-            Currently serving California &middot; expanding nationwide
+            {t('attorneyNet.servingNote')}
           </div>
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-slate-200 shadow-sm">
           <div className="grid grid-cols-2 bg-slate-900 text-sm font-semibold text-white">
-            <div className="px-4 py-3">Traditional lead vendor</div>
+            <div className="px-4 py-3">{t('attorneyNet.tradCol')}</div>
             <div className="px-4 py-3 bg-brand-600">ClearCaseIQ</div>
           </div>
-          {differentiators.map((row) => (
-            <div key={row.traditional} className="grid grid-cols-2 border-t border-slate-200 bg-white text-sm">
-              <div className="px-4 py-3 text-slate-500">{row.traditional}</div>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <div key={n} className="grid grid-cols-2 border-t border-slate-200 bg-white text-sm">
+              <div className="px-4 py-3 text-slate-500">{t(`attorneyNet.d${n}Trad`)}</div>
               <div className="flex items-start gap-2 bg-brand-50/50 px-4 py-3 font-semibold text-brand-900">
                 <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
-                {row.clearcase}
+                {t(`attorneyNet.d${n}Ours`)}
               </div>
             </div>
           ))}
@@ -547,13 +359,13 @@ export default function AttorneyNetwork() {
           <div className="grid h-11 w-11 place-items-center rounded-xl bg-brand-50 text-brand-600">
             <Building2 className="h-5 w-5" />
           </div>
-          <h2 className="mt-4 text-2xl font-extrabold text-slate-900">Membership requirements</h2>
-          <p className="mt-2 text-sm text-slate-600">A quick verification keeps the network trusted for plaintiffs.</p>
+          <h2 className="mt-4 text-2xl font-extrabold text-slate-900">{t('attorneyNet.reqTitle')}</h2>
+          <p className="mt-2 text-sm text-slate-600">{t('attorneyNet.reqSub')}</p>
           <ul className="mt-6 space-y-3">
-            {requirements.map((req) => (
-              <li key={req} className="flex items-center gap-3 text-slate-700">
+            {[1, 2, 3].map((n) => (
+              <li key={n} className="flex items-center gap-3 text-slate-700">
                 <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
-                <span className="text-sm font-medium">{req}</span>
+                <span className="text-sm font-medium">{t(`attorneyNet.req${n}`)}</span>
               </li>
             ))}
           </ul>
@@ -561,25 +373,25 @@ export default function AttorneyNetwork() {
             to="/attorney-register"
             className="mt-8 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
           >
-            Start your application
+            {t('attorneyNet.startApp')}
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
 
         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">FAQ</p>
-          <h2 className="mt-3 text-2xl font-extrabold tracking-tight text-slate-900">Frequently asked questions</h2>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">{t('attorneyNet.faqLabel')}</p>
+          <h2 className="mt-3 text-2xl font-extrabold tracking-tight text-slate-900">{t('attorneyNet.faqTitle')}</h2>
           <div className="mt-6 space-y-3">
-            {faqs.map((faq) => (
+            {[1, 2, 3, 4, 5, 6, 7].map((n) => (
               <details
-                key={faq.q}
+                key={n}
                 className="group rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm [&_summary::-webkit-details-marker]:hidden"
               >
                 <summary className="flex cursor-pointer items-center justify-between gap-4 text-sm font-semibold text-slate-900">
-                  {faq.q}
+                  {t(`attorneyNet.fq${n}`)}
                   <ArrowRight className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-90" />
                 </summary>
-                <p className="mt-3 text-sm leading-6 text-slate-600">{faq.a}</p>
+                <p className="mt-3 text-sm leading-6 text-slate-600">{t(`attorneyNet.fa${n}`)}</p>
               </details>
             ))}
           </div>
@@ -594,24 +406,24 @@ export default function AttorneyNetwork() {
             <BarChart3 className="h-6 w-6" />
           </div>
           <h2 className="mt-5 text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-            Ready to review qualified injury cases?
+            {t('attorneyNet.ctaTitle')}
           </h2>
           <p className="mx-auto mt-3 max-w-xl text-base leading-relaxed text-brand-50">
-            Join the network, review AI case intelligence, and manage retained clients. All in one platform.
+            {t('attorneyNet.ctaSub')}
           </p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             <Link
               to="/attorney-register"
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-base font-semibold text-brand-700 shadow-lg transition hover:bg-brand-50"
             >
-              Join the Attorney Network
+              {t('auth.joinAttorneyNetwork')}
               <ArrowRight className="h-4 w-4" />
             </Link>
             <Link
               to="/attorney-login"
               className="inline-flex items-center justify-center rounded-xl border border-white/40 px-6 py-3.5 text-base font-semibold text-white transition hover:bg-white/10"
             >
-              Attorney Login
+              {t('auth.attorneyLoginLabel')}
             </Link>
           </div>
         </div>

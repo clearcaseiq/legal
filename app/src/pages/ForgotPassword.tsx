@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import LoginLayout from '../components/LoginLayout'
 import { requestPasswordReset } from '../lib/api-auth'
+import { useLanguage } from '../contexts/LanguageContext'
 
 export default function ForgotPassword() {
+  const { t } = useLanguage()
   const [email, setEmail] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -13,7 +15,7 @@ export default function ForgotPassword() {
     event.preventDefault()
     const trimmed = email.trim()
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-      setError('Please enter a valid email address.')
+      setError(t('auth.errEmailInvalid'))
       return
     }
     setIsLoading(true)
@@ -23,7 +25,7 @@ export default function ForgotPassword() {
       setSubmitted(true)
     } catch {
       // The endpoint is intentionally generic; only surface true network errors.
-      setError("We couldn't send the reset email. Please check your connection and try again.")
+      setError(t('auth.errResetSend'))
     } finally {
       setIsLoading(false)
     }
@@ -31,25 +33,25 @@ export default function ForgotPassword() {
 
   return (
     <LoginLayout
-      title="Reset your password"
-      subtitle="We'll email you a secure link to set a new password"
+      title={t('auth.forgotTitle')}
+      subtitle={t('auth.forgotSubtitle')}
       error={error}
-      footerDividerText="Remembered it?"
+      footerDividerText={t('auth.rememberedIt')}
       footerContent={
         <Link to="/login" className="font-semibold text-brand-600 hover:text-brand-700 transition-colors block">
-          Back to sign in
+          {t('auth.backToSignIn')}
         </Link>
       }
     >
       {submitted ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-5 text-sm text-emerald-800">
-          <p className="font-semibold">Check your email</p>
+          <p className="font-semibold">{t('auth.checkEmailTitle')}</p>
           <p className="mt-2">
-            If an account exists for <span className="font-medium">{email.trim()}</span>, we've sent a link to reset
-            your password. It expires in 1 hour.
+            {t('auth.resetSentPre')} <span className="font-medium">{email.trim()}</span>
+            {t('auth.resetSentPost')}
           </p>
           <p className="mt-2 text-emerald-700">
-            Don't see it? Check your spam folder, or{' '}
+            {t('auth.noEmailHint')}{' '}
             <button
               type="button"
               onClick={() => {
@@ -58,7 +60,7 @@ export default function ForgotPassword() {
               }}
               className="font-semibold underline underline-offset-2 hover:text-emerald-900"
             >
-              try again
+              {t('auth.tryAgain')}
             </button>
             .
           </p>
@@ -67,7 +69,7 @@ export default function ForgotPassword() {
         <form className="space-y-6" onSubmit={onSubmit}>
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-              Email address
+              {t('auth.emailLabel')}
             </label>
             <div className="mt-1">
               <input
@@ -90,7 +92,7 @@ export default function ForgotPassword() {
             disabled={isLoading}
             className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl text-base font-semibold text-white bg-gradient-to-r from-blue-600 to-brand-600 hover:from-blue-700 hover:to-brand-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/30 transition-all duration-200"
           >
-            {isLoading ? 'Sending…' : 'Send reset link'}
+            {isLoading ? t('auth.sending') : t('auth.sendResetLink')}
           </button>
         </form>
       )}

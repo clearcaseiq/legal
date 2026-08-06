@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { BarChart3, ChevronDown, ClipboardList, Users } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import MarketingHeroArt from '../components/MarketingHeroArt'
 import {
@@ -9,9 +10,10 @@ import {
   BarChart3Icon,
   UsersIcon,
   CheckCircleIcon,
-  QuoteIcon,
-  StarIcon,
 } from '../components/StartupIcons'
+
+// Icons for the three How-It-Works steps — mirrors the treatment on /how-it-works.
+const STEP_ICONS = [ClipboardList, BarChart3, Users]
 
 const HomeProductPreview = lazy(() => import('../components/HomeProductPreview'))
 
@@ -71,7 +73,11 @@ export default function Home() {
             <div className="relative text-center lg:text-left order-1">
               <MarketingHeroArt />
               <h1 className="font-display text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl md:text-[3.25rem] leading-[1.1] mb-4 dark:text-slate-50">
-                {t('home.heroTitle')}
+                {t('home.heroTitlePre')}
+                <span className="whitespace-nowrap bg-gradient-to-r from-accent-600 to-amber-500 bg-clip-text text-transparent">
+                  {t('home.heroTitleHighlight')}
+                </span>
+                {t('home.heroTitlePost')}
               </h1>
               <p className="max-w-xl mx-auto lg:mx-0 text-lg md:text-xl text-slate-600 dark:text-slate-300 mb-6">
                 {t('home.heroSubtitle')}
@@ -108,6 +114,10 @@ export default function Home() {
                 </Link>
               </div>
               <p className="mt-4 text-sm font-medium text-slate-600 dark:text-slate-300">{t('home.heroReassurance')}</p>
+              <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-200/70 bg-emerald-50/70 px-3.5 py-1.5 text-xs font-medium text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">
+                <ShieldCheckIcon className="h-4 w-4 flex-shrink-0" aria-hidden />
+                <span>{t('home.securityBadge')}</span>
+              </div>
             </div>
 
             <div className="order-2">
@@ -134,7 +144,7 @@ export default function Home() {
               centers each icon+label pair. Icons need `shrink-0` (a wrapping label
               like "Private, encrypted intake" was squeezing the icon and throwing
               the row out of alignment — CP-520). */}
-          <div className="flex flex-col items-center gap-5 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-8 md:gap-12 mb-10">
+          <div className="flex flex-col items-center gap-5 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-8 md:gap-12 mb-8">
             <div className="flex items-center gap-3">
               <BarChart3Icon className="h-6 w-6 shrink-0 text-brand-600 dark:text-brand-400" aria-hidden />
               <span className="text-slate-800 dark:text-slate-100 font-medium">{t('home.trust1')}</span>
@@ -153,31 +163,20 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Security / privacy badge */}
-          <div className="mx-auto mb-10 flex max-w-xl items-center justify-center gap-2.5 rounded-full border border-emerald-200/70 bg-emerald-50/70 px-4 py-2 text-center text-xs font-medium text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">
-            <ShieldCheckIcon className="h-4 w-4 flex-shrink-0" aria-hidden />
-            <span>{t('home.securityBadge')}</span>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {[1, 2, 3].map((n) => (
-              <figure
+          {/* Stats band — honest, verifiable claims about the product itself
+              (replaces the former placeholder testimonials). */}
+          <div className="grid gap-4 sm:grid-cols-3 max-w-3xl mx-auto">
+            {[1, 2, 3].map((n, i) => (
+              <div
                 key={n}
-                className="card relative"
+                className="hiw-reveal rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900/50"
+                style={{ animationDelay: `${i * 120}ms` }}
               >
-                <div className="mb-2 flex items-center gap-0.5 text-amber-400" role="img" aria-label={t('home.ratingLabel')}>
-                  {[0, 1, 2, 3, 4].map((s) => (
-                    <StarIcon key={s} className="h-4 w-4" aria-hidden />
-                  ))}
-                </div>
-                <QuoteIcon className="h-8 w-8 text-brand-200 dark:text-brand-800 mb-2" aria-hidden />
-                <blockquote className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">
-                  “{t(`home.testimonial${n}Quote`)}”
-                </blockquote>
-                <figcaption className="mt-3 text-xs font-medium text-slate-500 dark:text-slate-400">
-                  — {t(`home.testimonial${n}Attribution`)}
-                </figcaption>
-              </figure>
+                <p className="font-display text-3xl font-bold tabular-nums text-brand-700 dark:text-brand-300">
+                  {t(`home.stat${n}Value`)}
+                </p>
+                <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400">{t(`home.stat${n}Label`)}</p>
+              </div>
             ))}
           </div>
         </section>
@@ -190,22 +189,29 @@ export default function Home() {
             {t('home.howItWorksTitle')}
           </h2>
           <div className="grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
-            {[1, 2, 3].map((n) => (
-              <div
-                key={n}
-                className="text-center rounded-2xl p-6 border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900/50 hover:border-brand-200 dark:hover:border-brand-800 hover:shadow-card transition-all duration-200"
-              >
-                <div className="inline-flex items-center justify-center h-14 w-14 rounded-xl bg-brand-100 dark:bg-brand-950 text-brand-700 dark:text-brand-300 font-display font-bold text-xl mb-4">
-                  {n}
+            {[1, 2, 3].map((n, i) => {
+              const StepIcon = STEP_ICONS[i]
+              return (
+                <div
+                  key={n}
+                  className="hiw-reveal text-center rounded-2xl p-6 border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900/50 hover:border-brand-200 dark:hover:border-brand-800 hover:shadow-card transition-all duration-200"
+                  style={{ animationDelay: `${i * 120}ms` }}
+                >
+                  <div className="relative inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-brand-100 dark:bg-brand-950 text-brand-700 dark:text-brand-300 mb-4">
+                    <StepIcon className="h-7 w-7" aria-hidden />
+                    <span className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-brand-600 text-xs font-bold text-white shadow-sm">
+                      {n}
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
+                    {t(`home.step${n}Title`)}
+                  </h3>
+                  <p className="text-slate-600 dark:text-slate-400 text-sm">
+                    {n === 3 ? t('home.step3DescAlt') : t(`home.step${n}Desc`)}
+                  </p>
                 </div>
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
-                  {t(`home.step${n}Title`)}
-                </h3>
-                <p className="text-slate-600 dark:text-slate-400 text-sm">
-                  {n === 3 ? t('home.step3DescAlt') : t(`home.step${n}Desc`)}
-                </p>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </section>
 
@@ -257,17 +263,53 @@ export default function Home() {
               </li>
             ))}
           </ul>
-          <div className="mt-8 flex flex-col items-center gap-3">
+        </section>
+
+        {/* FAQ — visible counterpart to the FAQPage JSON-LD emitted above, so the
+            page shows the same answers search engines are told about. */}
+        <section className="py-10">
+          <h2 className="font-display text-3xl font-bold text-slate-900 dark:text-slate-50 text-center mb-6">
+            {t('home.faqTitle')}
+          </h2>
+          <div className="mx-auto max-w-2xl space-y-3">
+            {[1, 2, 3, 4].map((n) => (
+              <details
+                key={n}
+                className="group rounded-xl border border-slate-200 bg-white px-5 py-4 dark:border-slate-800 dark:bg-slate-900/50"
+              >
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-semibold text-slate-900 dark:text-slate-100 [&::-webkit-details-marker]:hidden">
+                  {t(`home.faqQ${n}`)}
+                  <ChevronDown className="h-5 w-5 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
+                </summary>
+                <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                  {t(`home.faqA${n}`)}
+                </p>
+              </details>
+            ))}
+          </div>
+        </section>
+
+        {/* Final CTA banner — recaps the hero promises after objections are answered. */}
+        <section className="py-6">
+          <div className="rounded-3xl bg-gradient-to-br from-brand-700 via-brand-800 to-slate-900 px-6 py-10 text-center text-white shadow-xl md:px-12">
+            <h2 className="font-display text-3xl font-bold mb-4">{t('home.finalCtaTitle')}</h2>
+            <ul className="mx-auto mb-7 flex max-w-2xl flex-col items-center justify-center gap-2 text-sm text-white/85 sm:flex-row sm:flex-wrap sm:gap-x-6 sm:gap-y-2">
+              {['heroItem1', 'heroItem2', 'heroItem3'].map((key) => (
+                <li key={key} className="flex items-center gap-1.5">
+                  <CheckCircleIcon className="h-4 w-4 flex-shrink-0 text-emerald-300" aria-hidden />
+                  {t(`home.${key}`)}
+                </li>
+              ))}
+            </ul>
             <Link
               to="/assessment/start"
-              className="group inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-8 py-4 text-base font-bold text-white shadow-lg shadow-accent-500/25 ring-1 ring-white/20 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-accent-500/30 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent-300 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900 sm:text-lg"
+              className="group inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-8 py-4 text-base font-bold text-white shadow-lg shadow-black/25 ring-1 ring-white/20 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent-300 sm:text-lg"
             >
               <FileTextIcon className="mr-2 h-5 w-5 transition-transform group-hover:rotate-[-4deg]" aria-hidden />
               {t('common.startAssessment')}
             </Link>
-            <p className="text-center text-sm text-slate-500 dark:text-slate-400">
-              {t('home.finalCtaHelper')}
-            </p>
+            <p className="mt-3 text-sm text-white/75">{t('home.finalCtaHelper')}</p>
+            <p className="mx-auto mt-5 max-w-xl text-xs leading-relaxed text-white/60">{t('home.deadlineNote')}</p>
           </div>
         </section>
 

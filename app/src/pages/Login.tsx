@@ -8,8 +8,10 @@ import LoginLayout from '../components/LoginLayout'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import { resetCachedPlaintiffSessionSummary, updateCachedPlaintiffAssessments, updateCachedPlaintiffUser } from '../hooks/usePlaintiffSessionSummary'
 import { type LoginFieldErrors, type LoginInput, validateLoginInput } from '../lib/loginValidation'
+import { useLanguage } from '../contexts/LanguageContext'
 
 export default function Login() {
+  const { t } = useLanguage()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState<LoginInput>({ email: '', password: '' })
@@ -24,7 +26,7 @@ export default function Login() {
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const nextFieldErrors = validateLoginInput(form)
+    const nextFieldErrors = validateLoginInput(form, t)
     setFieldErrors(nextFieldErrors)
     if (Object.keys(nextFieldErrors).length > 0) {
       return
@@ -40,7 +42,7 @@ export default function Login() {
       })
 
       if (response.isAttorney) {
-        setError('Please use the attorney login page')
+        setError(t('auth.errUseAttorneyLogin'))
         return
       }
 
@@ -84,16 +86,16 @@ export default function Login() {
       return
     } catch (err: any) {
       if (err.response?.data?.isAttorney) {
-        setError('This email is registered as an attorney. Please use a different email or sign in through the attorney portal.')
+        setError(t('auth.errAttorneyEmail'))
       } else if (err.response?.data?.useOAuth) {
         setError(err.response?.data?.error || 'Please sign in with Google or Apple.')
       } else if (!err.response) {
-        setError("We couldn't reach the server. Please check your internet connection and try again in a moment.")
+        setError(t('auth.errNetwork'))
       } else if (err.response?.status === 401) {
         // A 401 here always means the email/password didn't match. Surface a
         // clear auth message rather than a raw status or (when the body fails to
         // parse) the misleading "couldn't reach the server" fallback (#39).
-        setError(err.response?.data?.error || 'Invalid email or password. Please try again.')
+        setError(t('auth.errInvalidCredentials'))
       } else {
         const apiError = err.response?.data?.error || err.message || 'Login failed'
         const details = err.response?.data?.details as { fieldErrors?: Record<string, string[]> } | undefined
@@ -107,25 +109,25 @@ export default function Login() {
 
   return (
     <LoginLayout
-      title="Welcome Back"
-      subtitle="Continue your injury case"
+      title={t('auth.loginTitle')}
+      subtitle={t('auth.loginSubtitle')}
       error={error}
-      footerDividerText="New to ClearCaseIQ?"
+      footerDividerText={t('auth.newToApp')}
       footerContent={
         <>
           <Link
             to="/register"
             className="font-semibold text-blue-600 hover:text-blue-700 transition-colors block"
           >
-            Start my free case assessment →
+            {t('auth.startFreeAssessment')}
           </Link>
           <p className="mt-5 border-t border-slate-100 pt-4 text-xs text-slate-400">
-            Already an attorney?{' '}
+            {t('auth.alreadyAttorney')}{' '}
             <Link
               to="/attorney-login"
               className="font-medium text-slate-500 hover:text-slate-700 transition-colors"
             >
-              Attorney Login →
+              {t('auth.attorneyLogin')}
             </Link>
           </p>
         </>
@@ -134,9 +136,9 @@ export default function Login() {
       <div className="mb-6">
         <OAuthButtons onError={setError} disabled={isLoading} emphasizeGoogle />
         <ul className="mt-4 grid gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800 list-disc list-inside marker:text-emerald-500">
-          <li>Free to use.</li>
-          <li>No obligation to hire an attorney.</li>
-          <li>Your information stays private.</li>
+          <li>{t('auth.benefitFree')}</li>
+          <li>{t('auth.benefitNoObligation')}</li>
+          <li>{t('auth.benefitPrivate')}</li>
         </ul>
       </div>
 
@@ -145,14 +147,14 @@ export default function Login() {
           <div className="w-full border-t border-gray-300" />
         </div>
         <div className="relative flex justify-center text-sm">
-          <span className="px-2 bg-white text-gray-500">or use email</span>
+          <span className="px-2 bg-white text-gray-500">{t('auth.orUseEmail')}</span>
         </div>
       </div>
 
       <form className="space-y-6" onSubmit={onSubmit}>
         <div>
           <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-            Email address
+            {t('auth.emailLabel')}
           </label>
           <div className="mt-1">
             <input
@@ -175,7 +177,7 @@ export default function Login() {
 
         <div>
           <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-            Password
+            {t('auth.passwordLabel')}
           </label>
           <div className="mt-1">
             <PasswordInputWithReveal
@@ -205,12 +207,12 @@ export default function Login() {
               className="h-4 w-4 text-brand-600 focus:ring-brand-500 border-gray-300 rounded"
             />
             <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900">
-              Remember me
+              {t('auth.rememberMe')}
             </label>
           </div>
           <div className="text-sm">
             <Link to="/forgot-password" className="font-medium text-brand-600 hover:text-brand-500">
-              Forgot your password?
+              {t('auth.forgotPasswordLink')}
             </Link>
           </div>
         </div>
@@ -221,33 +223,31 @@ export default function Login() {
             disabled={isLoading}
             className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl text-base font-semibold text-white bg-gradient-to-r from-blue-600 to-brand-600 hover:from-blue-700 hover:to-brand-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/30 transition-all duration-200"
           >
-            {isLoading ? 'Signing in...' : 'Continue My Case'}
+            {isLoading ? t('auth.signingIn') : t('auth.continueMyCase')}
           </button>
         </div>
       </form>
 
       <div className="mt-6 rounded-xl border border-brand-100 bg-brand-50 px-4 py-4">
-        <h2 className="text-sm font-semibold text-brand-950">After you sign in</h2>
+        <h2 className="text-sm font-semibold text-brand-950">{t('auth.afterSignInTitle')}</h2>
         <p className="mt-2 text-sm leading-relaxed text-brand-800">
-          Complete an AI-powered case assessment to receive an estimated settlement range and, if you
-          choose, review participating attorneys.
+          {t('auth.afterSignInDesc')}
         </p>
         <ul className="mt-3 grid gap-2 text-sm text-brand-800 list-disc list-inside marker:text-brand-500">
-          <li>Review your estimated settlement range.</li>
-          <li>Upload medical records.</li>
-          <li>Review participating law firms.</li>
-          <li>Track case progress.</li>
+          <li>{t('auth.afterSignInItem1')}</li>
+          <li>{t('auth.afterSignInItem2')}</li>
+          <li>{t('auth.afterSignInItem3')}</li>
+          <li>{t('auth.afterSignInItem4')}</li>
         </ul>
       </div>
 
       <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-center">
-        <p className="text-sm font-semibold text-slate-800">Trusted by injury victims nationwide.</p>
-        <p className="mt-1 text-xs text-slate-500">Used by plaintiffs and personal injury attorneys across multiple states.</p>
+        <p className="text-sm font-semibold text-slate-800">{t('auth.trustedTitle')}</p>
+        <p className="mt-1 text-xs text-slate-500">{t('auth.trustedDesc')}</p>
       </div>
 
       <p className="mt-4 text-center text-xs leading-relaxed text-slate-500">
-        ClearCaseIQ is a legal technology platform. It is not a law firm, does not provide legal
-        advice, and does not replace a licensed attorney.
+        {t('auth.platformDisclaimer')}
       </p>
     </LoginLayout>
   )

@@ -128,38 +128,46 @@ export const ATTORNEY_REGISTER_DEFAULTS: AttorneyRegisterFormInput = {
 }
 
 export function validateAttorneyRegisterInput(
-  input: AttorneyRegisterFormInput
+  input: AttorneyRegisterFormInput,
+  t?: (key: string) => string
 ): { fieldErrors: AttorneyRegisterFieldErrors; data?: AttorneyRegisterSubmission } {
+  // Localizes a message when a translator is provided; falls back to English so
+  // callers that never pass `t` keep their current behavior.
+  const msg = (key: string, fallback: string) => {
+    if (!t) return fallback
+    const translated = t(`attorneyReg.${key}`)
+    return translated === `attorneyReg.${key}` ? fallback : translated
+  }
   const fieldErrors: AttorneyRegisterFieldErrors = {}
 
   const email = input.email.trim()
   if (!email) {
-    fieldErrors.email = 'Email is required.'
+    fieldErrors.email = msg('errEmailRequired', 'Email is required.')
   } else if (!isValidEmail(email)) {
-    fieldErrors.email = 'Invalid email address.'
+    fieldErrors.email = msg('errEmailInvalid', 'Invalid email address.')
   }
 
   if (!input.password) {
-    fieldErrors.password = 'Password is required.'
+    fieldErrors.password = msg('errPasswordRequired', 'Password is required.')
   } else if (input.password.length < 8) {
-    fieldErrors.password = 'Password must be at least 8 characters.'
+    fieldErrors.password = msg('errPasswordMin', 'Password must be at least 8 characters.')
   }
 
   if (!input.firstName.trim()) {
-    fieldErrors.firstName = 'First name is required.'
+    fieldErrors.firstName = msg('errFirstNameRequired', 'First name is required.')
   }
 
   if (!input.lastName.trim()) {
-    fieldErrors.lastName = 'Last name is required.'
+    fieldErrors.lastName = msg('errLastNameRequired', 'Last name is required.')
   }
 
   if (!input.firmName.trim()) {
-    fieldErrors.firmName = 'Firm name is required.'
+    fieldErrors.firmName = msg('errFirmNameRequired', 'Firm name is required.')
   }
 
   const phoneError = validatePhoneField(input.phone, { required: true })
   if (phoneError) {
-    fieldErrors.phone = phoneError
+    fieldErrors.phone = t ? msg('errPhoneInvalid', phoneError) : phoneError
   }
 
   const firmWebsite = input.firmWebsite.trim()
@@ -168,38 +176,38 @@ export function validateAttorneyRegisterInput(
     try {
       new URL(firmWebsite)
     } catch {
-      fieldErrors.firmWebsite = 'Enter a valid website URL.'
+      fieldErrors.firmWebsite = msg('errWebsiteInvalid', 'Enter a valid website URL.')
     }
   }
 
   if (input.specialties.length === 0) {
-    fieldErrors.specialties = 'Select at least one case type.'
+    fieldErrors.specialties = msg('errSpecialtiesRequired', 'Select at least one case type.')
   }
 
   if (input.venues.length === 0) {
-    fieldErrors.venues = 'Select at least one state.'
+    fieldErrors.venues = msg('errVenuesRequired', 'Select at least one state.')
   }
 
   const minInjurySeverity = parseOptionalNumber(input.minInjurySeverity)
   if (input.minInjurySeverity.trim()) {
     if (minInjurySeverity === undefined || minInjurySeverity < 0 || minInjurySeverity > 4) {
-      fieldErrors.minInjurySeverity = 'Choose a valid injury severity.'
+      fieldErrors.minInjurySeverity = msg('errSeverityInvalid', 'Choose a valid injury severity.')
     }
   }
 
   const minDamagesRange = parseOptionalNumber(input.minDamagesRange)
   if (input.minDamagesRange.trim() && (minDamagesRange === undefined || minDamagesRange < 0)) {
-    fieldErrors.minDamagesRange = 'Minimum damages must be 0 or higher.'
+    fieldErrors.minDamagesRange = msg('errMinDamages', 'Minimum damages must be 0 or higher.')
   }
 
   const maxDamagesRange = parseOptionalNumber(input.maxDamagesRange)
   if (input.maxDamagesRange.trim() && (maxDamagesRange === undefined || maxDamagesRange < 0)) {
-    fieldErrors.maxDamagesRange = 'Maximum damages must be 0 or higher.'
+    fieldErrors.maxDamagesRange = msg('errMaxDamages', 'Maximum damages must be 0 or higher.')
   }
 
   const maxCasesPerWeek = parseOptionalNumber(input.maxCasesPerWeek)
   if (input.maxCasesPerWeek.trim() && (maxCasesPerWeek === undefined || maxCasesPerWeek < 0 || !Number.isInteger(maxCasesPerWeek))) {
-    fieldErrors.maxCasesPerWeek = 'Weekly capacity must be a whole number.'
+    fieldErrors.maxCasesPerWeek = msg('errWeeklyCapacity', 'Weekly capacity must be a whole number.')
   }
 
   const maxCasesPerMonth = parseOptionalNumber(input.maxCasesPerMonth)
@@ -207,7 +215,7 @@ export function validateAttorneyRegisterInput(
     input.maxCasesPerMonth.trim() &&
     (maxCasesPerMonth === undefined || maxCasesPerMonth < 0 || !Number.isInteger(maxCasesPerMonth))
   ) {
-    fieldErrors.maxCasesPerMonth = 'Monthly capacity must be a whole number.'
+    fieldErrors.maxCasesPerMonth = msg('errMonthlyCapacity', 'Monthly capacity must be a whole number.')
   }
 
   if (Object.keys(fieldErrors).length > 0) {

@@ -11,11 +11,16 @@ export type RegisterInput = {
 
 export type RegisterFieldErrors = Partial<Record<keyof RegisterInput, string>>
 
-export function validateRegisterInput(input: RegisterInput): RegisterFieldErrors {
+/**
+ * Validates the plaintiff signup form. Pass `t` (the i18n translate function)
+ * to get localized messages; callers that omit it get the English defaults.
+ */
+export function validateRegisterInput(input: RegisterInput, t?: (key: string) => string): RegisterFieldErrors {
+  const msg = (key: string, fallback: string) => (t ? t(key) : fallback)
   const errors: RegisterFieldErrors = {}
 
   if (!input.firstName.trim()) {
-    errors.firstName = 'First name is required'
+    errors.firstName = msg('auth.errFirstNameRequired', 'First name is required')
   }
 
   // Last name is optional: intake only ever collects a first name, so requiring
@@ -23,20 +28,22 @@ export function validateRegisterInput(input: RegisterInput): RegisterFieldErrors
 
   const phoneError = validatePhoneField(input.phone)
   if (phoneError) {
-    errors.phone = phoneError
+    // validatePhoneField returns English strings (it's shared by English-only
+    // surfaces); localize with a generic invalid-phone message here.
+    errors.phone = msg('auth.errPhoneInvalid', phoneError)
   }
 
   const email = input.email.trim()
   if (!email) {
-    errors.email = 'Email is required'
+    errors.email = msg('auth.errEmailRequired', 'Email is required')
   } else if (!isValidEmail(email)) {
-    errors.email = 'Invalid email address'
+    errors.email = msg('auth.errEmailInvalid', 'Invalid email address')
   }
 
   if (!input.password) {
-    errors.password = 'Password is required'
+    errors.password = msg('auth.errPasswordRequired', 'Password is required')
   } else if (input.password.length < 8) {
-    errors.password = 'Password must be at least 8 characters'
+    errors.password = msg('auth.errPasswordMin', 'Password must be at least 8 characters')
   }
 
   return errors

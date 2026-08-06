@@ -31,7 +31,15 @@ const ChatSchema = z.object({
     )
     .min(1)
     .max(20),
+  // UI language of the visitor; the assistant answers in this language.
+  language: z.enum(['en', 'es', 'zh']).optional().default('en'),
 })
+
+const LANGUAGE_NAMES: Record<'en' | 'es' | 'zh', string> = {
+  en: 'English',
+  es: 'Spanish',
+  zh: 'Simplified Chinese',
+}
 
 // Curated knowledge base — kept in sync with the Help Center. The assistant is
 // told to answer ONLY from this, so it can't drift into inventing policy.
@@ -81,45 +89,52 @@ Hard rules:
 KNOWLEDGE BASE:
 ${KNOWLEDGE_BASE}`
 
-const FALLBACK_REPLY =
-  "I can help with questions about how ClearCaseIQ works — the free case assessment, uploading evidence, attorney matching, privacy, and case value estimates. I'm not able to give legal advice; a matched attorney can help with your specific situation. If you have an account or technical issue, the best next step is to submit a support request in the Help Center and our team will follow up, usually within one business day."
+const FALLBACK_REPLIES: Record<'en' | 'es' | 'zh', string> = {
+  en: "I can help with questions about how ClearCaseIQ works, like the free case assessment, uploading evidence, attorney matching, privacy, and case value estimates. I'm not able to give legal advice; a matched attorney can help with your specific situation. If you have an account or technical issue, the best next step is to submit a support request in the Help Center and our team will follow up, usually within one business day.",
+  es: 'Puedo ayudarle con preguntas sobre cómo funciona ClearCaseIQ: la evaluación gratuita del caso, la carga de evidencia, la conexión con abogados, la privacidad y las estimaciones del valor del caso. No puedo dar asesoría legal; un abogado asignado puede ayudarle con su situación específica. Si tiene un problema técnico o de cuenta, el mejor siguiente paso es enviar una solicitud de soporte en el Centro de Ayuda y nuestro equipo le responderá, normalmente dentro de un día hábil.',
+  zh: '我可以回答关于 ClearCaseIQ 平台的问题，例如免费案件评估、上传证据、律师匹配、隐私以及案件价值估算。我无法提供法律建议；匹配的律师可以就您的具体情况提供帮助。如果您遇到账户或技术问题，最好的下一步是在帮助中心提交支持请求，我们的团队通常会在一个工作日内跟进。',
+}
 
 router.post('/', async (req, res) => {
   const parsed = ChatSchema.safeParse(req.body)
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
   }
-  const { messages } = parsed.data
+  const { messages, language } = parsed.data
+  const fallbackReply = FALLBACK_REPLIES[language]
 
   // No provider configured -> still be useful.
   if (llmChatDisabled()) {
-    return res.status(200).json({ reply: FALLBACK_REPLY, escalate: true, degraded: true })
+    return res.status(200).json({ reply: fallbackReply, escalate: true, degraded: true })
   }
 
   const client = getLlmChatClient()
   if (!client) {
-    return res.status(200).json({ reply: FALLBACK_REPLY, escalate: true, degraded: true })
+    return res.status(200).json({ reply: fallbackReply, escalate: true, degraded: true })
   }
+
+  const languageInstruction = `\n\nRespond in ${LANGUAGE_NAMES[language]}. If the user writes in a different language, respond in the language the user writes in.`
 
   try {
     const completion = await client.chat.completions.create({
       model: LLM_CHAT_MODEL,
-      messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
+      messages: [{ role: 'system', content: SYSTEM_PROMPT + languageInstruction }, ...messages],
       temperature: 0.3,
       max_tokens: 500,
     })
     const reply = completion.choices[0]?.message?.content?.trim()
     if (!reply) {
-      return res.status(200).json({ reply: FALLBACK_REPLY, escalate: true })
+      return res.status(200).json({ reply: fallbackReply, escalate: true })
     }
     // Nudge escalation when the model signals it can't help from the KB.
-    const escalate = /support request|can'?t help|cannot help|not able to|contact (our )?support/i.test(reply)
+    // Matches English plus the Spanish/Chinese phrasings the prompt steers toward.
+    const escalate = /support request|can'?t help|cannot help|not able to|contact (our )?support|solicitud de soporte|equipo de soporte|支持请求|支持团队/i.test(reply)
     return res.status(200).json({ reply, escalate })
   } catch (err) {
     logger.warn('Support chat completion failed', {
       error: err instanceof Error ? err.message : String(err),
     })
-    return res.status(200).json({ reply: FALLBACK_REPLY, escalate: true, degraded: true })
+    return res.status(200).json({ reply: fallbackReply, escalate: true, degraded: true })
   }
 })
 

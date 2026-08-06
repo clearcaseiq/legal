@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Bot, Check, CheckCircle2, Clock, Pause, Play, RotateCcw, Sparkles } from 'lucide-react'
+import { useLanguage } from '../contexts/LanguageContext'
 
 /**
  * A silent, auto-advancing walkthrough of the attorney experience.
@@ -301,50 +302,47 @@ function DemandScreen() {
 }
 
 export default function AttorneyProductTour({ caseFee = null }: { caseFee?: string | null }) {
+  const { t, language } = useLanguage()
   const steps = useMemo<TourStep[]>(
     () => [
       {
         id: 'match',
-        title: 'A matched case arrives',
-        caption:
-          'Cases reach you already filtered to your practice area and venue, each with a response window. Opening one costs nothing.',
+        title: t('attorneyNet.tour1Title'),
+        caption: t('attorneyNet.tour1Caption'),
         durationMs: 5500,
         screen: <MatchInboxScreen />,
       },
       {
         id: 'assess',
-        title: 'Read the assessment',
-        caption:
-          'Viability, an estimated settlement range, the treatment picture, policy limits, and what evidence is actually on file — before you commit.',
+        title: t('attorneyNet.tour2Title'),
+        caption: t('attorneyNet.tour2Caption'),
         durationMs: 7000,
         screen: <AssessmentScreen />,
       },
       {
         id: 'decide',
-        title: 'Accept or decline',
-        caption:
-          'Decline as many as you like at no cost. One flat fee applies when you accept, identical on every case.',
+        title: t('attorneyNet.tour3Title'),
+        caption: t('attorneyNet.tour3Caption'),
         durationMs: 6000,
         screen: <DecisionScreen caseFee={caseFee} />,
       },
       {
         id: 'rose',
-        title: 'Rose works the file',
-        caption:
-          'Your AI case manager reviews every active case and raises the next action, always held for a person to approve.',
+        title: t('attorneyNet.tour4Title'),
+        caption: t('attorneyNet.tour4Caption'),
         durationMs: 7000,
         screen: <RoseScreen />,
       },
       {
         id: 'demand',
-        title: 'The demand is already drafted',
-        caption:
-          'When a case becomes demand-ready, you open a first draft instead of a blank page. Nothing is finalized until you read it.',
+        title: t('attorneyNet.tour5Title'),
+        caption: t('attorneyNet.tour5Caption'),
         durationMs: 6500,
         screen: <DemandScreen />,
       },
     ],
-    [caseFee]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [caseFee, language]
   )
 
   const [index, setIndex] = useState(0)
@@ -401,12 +399,12 @@ export default function AttorneyProductTour({ caseFee = null }: { caseFee?: stri
   return (
     <div ref={containerRef} className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr] lg:items-center">
       <div>
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">See how it works</p>
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-600">{t('attorneyNet.tourLabel')}</p>
         <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900">
-          From a new match to a drafted demand
+          {t('attorneyNet.tourTitle')}
         </h2>
         <p className="mt-3 text-base leading-relaxed text-slate-600">
-          Five steps, start to finish. It plays on its own. Jump to any step.
+          {t('attorneyNet.tourSub')}
         </p>
 
         <ol className="mt-6 space-y-1.5">
@@ -455,20 +453,20 @@ export default function AttorneyProductTour({ caseFee = null }: { caseFee?: stri
           <button
             type="button"
             onClick={() => setPlaying((current) => !current)}
-            aria-label={playing ? 'Pause the walkthrough' : 'Play the walkthrough'}
+            aria-label={playing ? t('attorneyNet.tourPause') : t('attorneyNet.tourPlay')}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-            {playing ? 'Pause' : 'Play'}
+            {playing ? t('attorneyNet.tourPause') : t('attorneyNet.tourPlay')}
           </button>
           <button
             type="button"
             onClick={() => goTo(0)}
-            aria-label="Restart the walkthrough"
+            aria-label={t('attorneyNet.tourRestart')}
             className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             <RotateCcw className="h-4 w-4" />
-            Restart
+            {t('attorneyNet.tourRestart')}
           </button>
         </div>
       </div>

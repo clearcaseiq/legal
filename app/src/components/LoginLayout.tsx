@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import BrandLogo from './BrandLogo'
+import { useLanguage } from '../contexts/LanguageContext'
 
 interface LoginLayoutProps {
   title: string
@@ -17,9 +18,10 @@ export default function LoginLayout({
   error,
   children,
   footerContent,
-  footerDividerText = 'More options',
+  footerDividerText,
   showTerms = true
 }: LoginLayoutProps) {
+  const { t } = useLanguage()
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-brand-50/50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
@@ -54,7 +56,7 @@ export default function LoginLayout({
                   <div className="w-full border-t border-slate-200" />
                 </div>
                 <div className="relative flex justify-center text-sm">
-                  <span className="px-4 bg-white text-slate-500 font-medium">{footerDividerText}</span>
+                  <span className="px-4 bg-white text-slate-500 font-medium">{footerDividerText ?? t('auth.moreOptions')}</span>
                 </div>
               </div>
               <div className="mt-6 text-center space-y-2">
@@ -66,13 +68,13 @@ export default function LoginLayout({
 
         {showTerms && (
           <p className="mt-8 text-center text-sm text-slate-500">
-            By signing in, you agree to our{' '}
+            {t('auth.termsAgreePre')}{' '}
             <Link to="/terms-of-service" className="text-brand-700 hover:text-brand-800 underline-offset-2">
-              Terms
+              {t('auth.termsShort')}
             </Link>
-            {' '}and{' '}
+            {' '}{t('auth.legalAnd')}{' '}
             <Link to="/privacy-policy" className="text-brand-700 hover:text-brand-800 underline-offset-2">
-              Privacy Policy
+              {t('auth.privacyPolicy')}
             </Link>
             .
           </p>

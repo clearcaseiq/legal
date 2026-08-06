@@ -1,42 +1,40 @@
-const STEPS = [
-  { num: 1, label: 'Account Information' },
-  { num: 2, label: 'Practice & Service Area' },
-  { num: 3, label: 'Capacity & Availability' },
-  { num: 4, label: 'Verify' }
-]
+import { useLanguage } from '../contexts/LanguageContext'
+
+const STEP_KEYS = ['prog1', 'prog2', 'prog3', 'prog4']
 
 interface AttorneyRegisterProgressProps {
   currentStep: number
 }
 
 export default function AttorneyRegisterProgress({ currentStep }: AttorneyRegisterProgressProps) {
+  const { t } = useLanguage()
   return (
     <div className="mb-8">
       {/* Progress bar */}
       <div className="flex gap-1">
-        {STEPS.map((step) => (
+        {STEP_KEYS.map((key, i) => (
           <div
-            key={step.num}
+            key={key}
             className={`h-2 flex-1 rounded-full transition-colors ${
-              step.num <= currentStep ? 'bg-brand-600' : 'bg-gray-200'
+              i + 1 <= currentStep ? 'bg-brand-600' : 'bg-gray-200'
             }`}
           />
         ))}
       </div>
       {/* Step labels */}
       <div className="mt-2 flex justify-between">
-        {STEPS.map((step) => (
+        {STEP_KEYS.map((key, i) => (
           <span
-            key={step.num}
+            key={key}
             className={`text-[11px] font-medium ${
-              step.num === currentStep
+              i + 1 === currentStep
                 ? 'text-brand-600'
-                : step.num < currentStep
+                : i + 1 < currentStep
                   ? 'text-brand-500'
                   : 'text-gray-400'
             }`}
           >
-            {step.label}
+            {t(`attorneyReg.${key}`)}
           </span>
         ))}
       </div>

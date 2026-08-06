@@ -2,17 +2,19 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Mail, Send, CheckCircle2, AlertCircle, Loader2, LifeBuoy, Scale } from 'lucide-react'
 import { submitContactInquiry, type ContactTopic } from '../lib/api'
+import { useLanguage } from '../contexts/LanguageContext'
 
-const TOPICS: { value: ContactTopic; label: string }[] = [
-  { value: 'general', label: 'General inquiry' },
-  { value: 'plaintiff_support', label: 'Help with my case' },
-  { value: 'attorney_partnership', label: 'Attorney / firm partnership' },
-  { value: 'media_press', label: 'Media & press' },
-  { value: 'privacy', label: 'Privacy request' },
-  { value: 'other', label: 'Other' },
+const TOPICS: { value: ContactTopic; labelKey: string }[] = [
+  { value: 'general', labelKey: 'contactPage.topicGeneral' },
+  { value: 'plaintiff_support', labelKey: 'contactPage.topicPlaintiff' },
+  { value: 'attorney_partnership', labelKey: 'contactPage.topicAttorney' },
+  { value: 'media_press', labelKey: 'contactPage.topicMedia' },
+  { value: 'privacy', labelKey: 'contactPage.topicPrivacy' },
+  { value: 'other', labelKey: 'contactPage.topicOther' },
 ]
 
 export default function Contact() {
+  const { t } = useLanguage()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [topic, setTopic] = useState<ContactTopic>('general')
@@ -33,7 +35,7 @@ export default function Contact() {
       setStatus('sent')
     } catch {
       setStatus('error')
-      setError('We couldn’t send your message. Please try again, or email us directly at support@clearcaseiq.com.')
+      setError(t('contactPage.errSend'))
     }
   }
 
@@ -44,16 +46,17 @@ export default function Contact() {
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white">
             <CheckCircle2 className="h-7 w-7" aria-hidden />
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Thanks — we’ve got your message</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{t('contactPage.sentTitle')}</h1>
           <p className="mx-auto mt-2 max-w-md text-slate-600">
-            A member of our team will get back to you at <span className="font-medium text-slate-900">{email}</span>, usually within one business day.
+            {t('contactPage.sentBodyPre')} <span className="font-medium text-slate-900">{email}</span>
+            {t('contactPage.sentBodyPost')}
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <Link to="/" className="rounded-xl bg-brand-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-800">
-              Back to home
+              {t('contactPage.backHome')}
             </Link>
             <Link to="/help" className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-              Visit the Help Center
+              {t('contactPage.visitHelp')}
             </Link>
           </div>
         </div>
@@ -64,9 +67,9 @@ export default function Contact() {
   return (
     <div className="mx-auto max-w-4xl py-8">
       <div className="mb-8 text-center">
-        <h1 className="text-3xl font-bold text-slate-900">Contact us</h1>
+        <h1 className="text-3xl font-bold text-slate-900">{t('contactPage.title')}</h1>
         <p className="mx-auto mt-2 max-w-xl text-slate-600">
-          Questions, partnership ideas, or feedback? Send us a note and we’ll get back to you, usually within one business day.
+          {t('contactPage.intro')}
         </p>
       </div>
 
@@ -89,7 +92,7 @@ export default function Contact() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <label htmlFor="contact-name" className="mb-1 block text-sm font-medium text-slate-700">Name</label>
+              <label htmlFor="contact-name" className="mb-1 block text-sm font-medium text-slate-700">{t('contactPage.nameLabel')}</label>
               <input
                 id="contact-name"
                 type="text"
@@ -97,11 +100,11 @@ export default function Contact() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:border-brand-500 focus:ring-2 focus:ring-brand-500"
-                placeholder="Your full name"
+                placeholder={t('contactPage.namePlaceholder')}
               />
             </div>
             <div>
-              <label htmlFor="contact-email" className="mb-1 block text-sm font-medium text-slate-700">Email</label>
+              <label htmlFor="contact-email" className="mb-1 block text-sm font-medium text-slate-700">{t('auth.emailShortLabel')}</label>
               <input
                 id="contact-email"
                 type="email"
@@ -115,21 +118,21 @@ export default function Contact() {
           </div>
 
           <div className="mt-4">
-            <label htmlFor="contact-topic" className="mb-1 block text-sm font-medium text-slate-700">What’s this about?</label>
+            <label htmlFor="contact-topic" className="mb-1 block text-sm font-medium text-slate-700">{t('contactPage.topicLabel')}</label>
             <select
               id="contact-topic"
               value={topic}
               onChange={(e) => setTopic(e.target.value as ContactTopic)}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:border-brand-500 focus:ring-2 focus:ring-brand-500"
             >
-              {TOPICS.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
+              {TOPICS.map((option) => (
+                <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
               ))}
             </select>
           </div>
 
           <div className="mt-4">
-            <label htmlFor="contact-message" className="mb-1 block text-sm font-medium text-slate-700">Message</label>
+            <label htmlFor="contact-message" className="mb-1 block text-sm font-medium text-slate-700">{t('contactPage.messageLabel')}</label>
             <textarea
               id="contact-message"
               required
@@ -137,7 +140,7 @@ export default function Contact() {
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:border-brand-500 focus:ring-2 focus:ring-brand-500"
-              placeholder="How can we help?"
+              placeholder={t('contactPage.messagePlaceholder')}
             />
             <p className="mt-1 text-xs text-slate-400">{message.trim().length}/4000</p>
           </div>
@@ -155,13 +158,13 @@ export default function Contact() {
             className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             {status === 'sending' ? (
-              <><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Sending…</>
+              <><Loader2 className="h-4 w-4 animate-spin" aria-hidden /> {t('contactPage.sending')}</>
             ) : (
-              <><Send className="h-4 w-4" aria-hidden /> Send message</>
+              <><Send className="h-4 w-4" aria-hidden /> {t('contactPage.sendMessage')}</>
             )}
           </button>
           <p className="mt-3 text-xs text-slate-500">
-            ClearCaseIQ does not provide legal advice. For questions about your specific case, please contact your matched attorney.
+            {t('contactPage.disclaimer')}
           </p>
         </form>
 
@@ -170,39 +173,39 @@ export default function Contact() {
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <div className="mb-2 flex items-center gap-2 text-slate-900">
               <Mail className="h-5 w-5 text-brand-600" aria-hidden />
-              <h2 className="font-semibold">Prefer email?</h2>
+              <h2 className="font-semibold">{t('contactPage.preferEmail')}</h2>
             </div>
             <p className="text-sm text-slate-600">
-              General: <a href="mailto:support@clearcaseiq.com" className="font-medium text-brand-600 hover:text-brand-700">support@clearcaseiq.com</a>
+              {t('contactPage.generalLabel')} <a href="mailto:support@clearcaseiq.com" className="font-medium text-brand-600 hover:text-brand-700">support@clearcaseiq.com</a>
             </p>
             <p className="mt-1 text-sm text-slate-600">
-              Privacy: <a href="mailto:legal@clearcaseiq.com" className="font-medium text-brand-600 hover:text-brand-700">legal@clearcaseiq.com</a>
+              {t('contactPage.privacyLabel')} <a href="mailto:legal@clearcaseiq.com" className="font-medium text-brand-600 hover:text-brand-700">legal@clearcaseiq.com</a>
             </p>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <div className="mb-2 flex items-center gap-2 text-slate-900">
               <LifeBuoy className="h-5 w-5 text-brand-600" aria-hidden />
-              <h2 className="font-semibold">Need help now?</h2>
+              <h2 className="font-semibold">{t('contactPage.needHelpNow')}</h2>
             </div>
             <p className="text-sm text-slate-600">
-              Browse common questions and see how we resolve issues in the Help Center.
+              {t('contactPage.helpCenterDesc')}
             </p>
             <Link to="/help" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-600 hover:text-brand-700">
-              Go to Help Center →
+              {t('contactPage.goHelpCenter')}
             </Link>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <div className="mb-2 flex items-center gap-2 text-slate-900">
               <Scale className="h-5 w-5 text-brand-600" aria-hidden />
-              <h2 className="font-semibold">Are you an attorney?</h2>
+              <h2 className="font-semibold">{t('contactPage.areYouAttorney')}</h2>
             </div>
             <p className="text-sm text-slate-600">
-              Learn about joining the attorney network and how case routing works.
+              {t('contactPage.attorneyDesc')}
             </p>
             <Link to="/attorney-network" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-brand-600 hover:text-brand-700">
-              For attorneys →
+              {t('contactPage.forAttorneys')}
             </Link>
           </div>
         </div>

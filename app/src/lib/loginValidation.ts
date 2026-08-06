@@ -7,18 +7,24 @@ export type LoginInput = {
 
 export type LoginFieldErrors = Partial<Record<keyof LoginInput, string>>
 
-export function validateLoginInput(input: LoginInput): LoginFieldErrors {
+/**
+ * Validates the login form. Pass `t` (the i18n translate function) to get
+ * localized messages; callers that omit it (attorney/staff/admin logins, which
+ * are English-only surfaces) get the English defaults.
+ */
+export function validateLoginInput(input: LoginInput, t?: (key: string) => string): LoginFieldErrors {
+  const msg = (key: string, fallback: string) => (t ? t(key) : fallback)
   const errors: LoginFieldErrors = {}
 
   const email = input.email.trim()
   if (!email) {
-    errors.email = 'Email is required.'
+    errors.email = msg('auth.errEmailRequired', 'Email is required.')
   } else if (!isValidEmail(email)) {
-    errors.email = 'Please enter a valid email address.'
+    errors.email = msg('auth.errEmailInvalid', 'Please enter a valid email address.')
   }
 
   if (!input.password) {
-    errors.password = 'Password is required.'
+    errors.password = msg('auth.errPasswordRequired', 'Password is required.')
   }
 
   return errors

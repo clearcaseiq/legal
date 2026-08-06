@@ -6,8 +6,10 @@ import BrandLogo from '../components/BrandLogo'
 import OAuthButtons from '../components/OAuthButtons'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import { type LoginFieldErrors, type LoginInput, validateLoginInput } from '../lib/loginValidation'
+import { useLanguage } from '../contexts/LanguageContext'
 
 export default function AttorneyLogin() {
+  const { t } = useLanguage()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState<LoginInput>({ email: '', password: '' })
@@ -21,7 +23,7 @@ export default function AttorneyLogin() {
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const nextFieldErrors = validateLoginInput(form)
+    const nextFieldErrors = validateLoginInput(form, t)
     setFieldErrors(nextFieldErrors)
     if (Object.keys(nextFieldErrors).length > 0) {
       return
@@ -35,7 +37,7 @@ export default function AttorneyLogin() {
         password: form.password,
       })
       if (!response.token) {
-        setError('Login failed: missing token in response.')
+        setError(t('auth.errLoginFailedRetry'))
         return
       }
       localStorage.setItem('auth_token', response.token)
@@ -44,7 +46,7 @@ export default function AttorneyLogin() {
       localStorage.setItem('auth_role', 'attorney')
       window.location.assign('/attorney-dashboard')
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Login failed')
+      setError(err.response?.data?.error || err.message || t('auth.errLoginFailed'))
     } finally {
       setIsLoading(false)
     }
@@ -60,9 +62,9 @@ export default function AttorneyLogin() {
         <div className="grid overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl lg:grid-cols-[1fr_0.9fr]">
           <section className="p-8 sm:p-10">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-wide text-brand-600">Attorney Login</p>
-              <h1 className="mt-2 text-3xl font-extrabold text-slate-950">Sign in to ClearCaseIQ</h1>
-              <p className="mt-2 text-sm text-slate-600">Manage cases, reviews, consults, and firm intelligence.</p>
+              <p className="text-sm font-semibold uppercase tracking-wide text-brand-600">{t('auth.attorneyLoginLabel')}</p>
+              <h1 className="mt-2 text-3xl font-extrabold text-slate-950">{t('auth.attorneySignInTitle')}</h1>
+              <p className="mt-2 text-sm text-slate-600">{t('auth.attorneySignInSubtitle')}</p>
             </div>
 
             {error && (
@@ -74,7 +76,7 @@ export default function AttorneyLogin() {
             <form className="mt-8 space-y-5" onSubmit={onSubmit}>
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                  Email
+                  {t('auth.emailShortLabel')}
                 </label>
                 <div className="mt-1">
                   <input
@@ -97,7 +99,7 @@ export default function AttorneyLogin() {
 
               <div>
                 <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                  Password
+                  {t('auth.passwordLabel')}
                 </label>
                 <div className="mt-1">
                   <PasswordInputWithReveal
@@ -123,12 +125,12 @@ export default function AttorneyLogin() {
                 disabled={isLoading}
                 className="w-full rounded-xl border border-transparent bg-brand-700 px-4 py-3 text-base font-semibold text-white shadow-lg shadow-brand-500/20 transition-colors hover:bg-brand-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isLoading ? 'Signing in...' : 'Sign In'}
+                {isLoading ? t('auth.signingIn') : t('auth.signInCta')}
               </button>
 
               <div className="text-center">
                 <Link to="/forgot-password" className="text-sm font-medium text-brand-700 hover:text-brand-800">
-                  Forgot Password?
+                  {t('auth.forgotPasswordShort')}
                 </Link>
               </div>
             </form>
@@ -138,29 +140,23 @@ export default function AttorneyLogin() {
             </div>
 
             <div className="mt-8 border-t border-slate-200 pt-6 text-center">
-              <p className="text-sm text-slate-500">New to ClearCaseIQ?</p>
+              <p className="text-sm text-slate-500">{t('auth.newToApp')}</p>
               <Link to="/attorney-register" className="mt-2 block font-semibold text-brand-700 hover:text-brand-800">
-                Join the Attorney Network -&gt;
+                {t('auth.joinNetworkArrow')}
               </Link>
               <p className="mt-3 text-xs text-slate-500">
-                Not an attorney? <Link to="/login" className="font-medium text-brand-700 hover:text-brand-800">Plaintiff login</Link>
+                {t('auth.notAttorney')} <Link to="/login" className="font-medium text-brand-700 hover:text-brand-800">{t('auth.plaintiffLogin')}</Link>
               </p>
             </div>
           </section>
 
           <aside className="bg-slate-950 p-8 text-white sm:p-10">
-            <p className="text-sm font-semibold uppercase tracking-wide text-brand-300">Why Attorneys Join</p>
-            <h2 className="mt-3 text-3xl font-extrabold">Grow your practice with qualified PI cases.</h2>
+            <p className="text-sm font-semibold uppercase tracking-wide text-brand-300">{t('auth.whyAttorneysJoin')}</p>
+            <h2 className="mt-3 text-3xl font-extrabold">{t('auth.growPractice')}</h2>
             <div className="mt-8 space-y-4 text-sm text-slate-100">
-              {[
-                'Receive qualified PI cases',
-                'Review AI-powered case assessments',
-                'Improve intake efficiency',
-                'Import existing firm cases',
-                'Increase case conversion',
-              ].map((benefit) => (
-                <div key={benefit} className="rounded-xl bg-white/10 px-4 py-3">
-                  {benefit}
+              {[1, 2, 3, 4, 5].map((n) => (
+                <div key={n} className="rounded-xl bg-white/10 px-4 py-3">
+                  {t(`auth.attorneyBenefit${n}`)}
                 </div>
               ))}
             </div>
@@ -168,7 +164,7 @@ export default function AttorneyLogin() {
               to="/attorney-register"
               className="mt-8 inline-flex w-full items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-100"
             >
-              Join Attorney Network
+              {t('auth.joinAttorneyNetwork')}
             </Link>
           </aside>
         </div>

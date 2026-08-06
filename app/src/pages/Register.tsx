@@ -87,7 +87,7 @@ export default function Register() {
     // wasn't provided. It stays editable later in the profile.
     const derivedFirstName = form.firstName.trim() || deriveFirstNameFromEmail(form.email)
     const normalizedForm = { ...form, firstName: derivedFirstName }
-    const nextFieldErrors = validateRegisterInput(normalizedForm)
+    const nextFieldErrors = validateRegisterInput(normalizedForm, t)
     setFieldErrors(nextFieldErrors)
     if (Object.keys(nextFieldErrors).length > 0) {
       // In the collapsed streamlined view the name/email/phone inputs are hidden;
@@ -133,8 +133,8 @@ export default function Register() {
       setRegisteredUserId(response.user.id)
       showToast({
         variant: 'success',
-        title: 'Account created',
-        message: 'Review the agreements and e-sign once to continue.',
+        title: t('auth.toastAccountCreatedTitle'),
+        message: t('auth.toastAccountCreatedMsg'),
       })
       setShowConsentWorkflow(true)
     } catch (err: any) {
@@ -192,7 +192,7 @@ export default function Register() {
       {consentSaving && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
           <div className="rounded-xl bg-white dark:bg-slate-900 px-6 py-4 shadow-xl border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100">
-            Saving your agreements…
+            {t('auth.savingAgreements')}
           </div>
         </div>
       )}
@@ -213,24 +213,24 @@ export default function Register() {
           >
             <BrandLogo appName={t('common.appName')} size="lg" />
           </Link>
-          <p className="text-sm text-gray-600 dark:text-slate-400">AI-Powered Legal Assessment Platform</p>
+          <p className="text-sm text-gray-600 dark:text-slate-400">{t('auth.registerTagline')}</p>
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          {streamlined ? "You're almost done" : 'Create your account'}
+          {streamlined ? t('auth.almostDoneTitle') : t('auth.createAccountTitle')}
         </h2>
         {streamlined ? (
           <p className="mt-2 text-center text-sm text-gray-600">
-            We saved the details from your case. Just set a password to finish and open your dashboard.
+            {t('auth.streamlinedSubtitle')}
           </p>
         ) : (
           <p className="mt-2 text-center text-sm text-gray-600">
-            Already have an account?{' '}
+            {t('auth.alreadyHaveAccount')}{' '}
             <Link to="/login" className="font-medium text-brand-600 hover:text-brand-500">
-              Sign in
+              {t('auth.signIn')}
             </Link>
             {' '}•{' '}
             <Link to="/attorney-register" className="font-medium text-brand-600 hover:text-brand-500">
-              Attorney Sign Up
+              {t('auth.attorneySignUp')}
             </Link>
           </p>
         )}
@@ -255,7 +255,7 @@ export default function Register() {
               <div className="w-full border-t border-gray-300" />
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-gray-500">Or create account with email</span>
+              <span className="px-2 bg-white text-gray-500">{t('auth.orCreateWithEmail')}</span>
             </div>
           </div>
 
@@ -265,7 +265,7 @@ export default function Register() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">
-                  First name
+                  {t('auth.firstNameLabel')}
                 </label>
                 <div className="mt-1">
                   <input
@@ -287,7 +287,7 @@ export default function Register() {
 
               <div>
                 <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">
-                  Last name <span className="text-gray-400">(optional)</span>
+                  {t('auth.lastNameLabel')} <span className="text-gray-400">{t('auth.optionalSuffix')}</span>
                 </label>
                 <div className="mt-1">
                   <input
@@ -310,7 +310,7 @@ export default function Register() {
 
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email address
+                {t('auth.emailLabel')}
               </label>
               <div className="mt-1">
                 <input
@@ -335,7 +335,7 @@ export default function Register() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-gray-900">
-                      {[form.firstName, form.lastName].filter(Boolean).join(' ') || 'Your account'}
+                      {[form.firstName, form.lastName].filter(Boolean).join(' ') || t('auth.yourAccount')}
                     </p>
                     <p className="mt-0.5 truncate text-sm text-gray-600">{form.email}</p>
                     {form.phone && <p className="mt-0.5 text-sm text-gray-600">{form.phone}</p>}
@@ -345,7 +345,7 @@ export default function Register() {
                     onClick={() => setShowDetails(true)}
                     className="shrink-0 text-sm font-medium text-brand-600 hover:text-brand-500"
                   >
-                    Edit
+                    {t('auth.edit')}
                   </button>
                 </div>
               </div>
@@ -353,7 +353,7 @@ export default function Register() {
 
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
+                {t('auth.passwordLabel')}
               </label>
               <div className="mt-1">
                 <PasswordInputWithReveal
@@ -377,7 +377,7 @@ export default function Register() {
             {(!streamlined || showDetails) && (
             <div>
               <label htmlFor="phone" className="block text-sm font-medium text-gray-700">
-                Phone number (optional)
+                {t('auth.phoneOptionalLabel')}
               </label>
               <div className="mt-1">
                 <input
@@ -406,19 +406,19 @@ export default function Register() {
                 className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
               />
               <label htmlFor="accept-legal-signup" className="text-sm text-gray-700 dark:text-slate-300">
-                I agree to create an account. Right after signup I will review and electronically sign the{' '}
+                {t('auth.legalAgreeIntro')}{' '}
                 <Link to="/terms-of-service" className="font-medium text-brand-600 hover:text-brand-500" target="_blank" rel="noopener noreferrer">
-                  Terms of Service
+                  {t('auth.termsOfService')}
                 </Link>
                 ,{' '}
                 <Link to="/privacy-policy" className="font-medium text-brand-600 hover:text-brand-500" target="_blank" rel="noopener noreferrer">
-                  Privacy Policy
+                  {t('auth.privacyPolicy')}
                 </Link>
-                , and{' '}
+                {' '}{t('auth.legalAnd')}{' '}
                 <Link to="/hipaa-authorization" className="font-medium text-brand-600 hover:text-brand-500" target="_blank" rel="noopener noreferrer">
-                  HIPAA authorization
+                  {t('auth.hipaaAuthorization')}
                 </Link>{' '}
-                in one combined step (same versions as those pages; your signature applies to each).
+                {t('auth.legalAgreeEnd')}
               </label>
             </div>
 
@@ -428,7 +428,7 @@ export default function Register() {
                 disabled={isLoading || !acceptedLegalSignup}
                 className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isLoading ? 'Creating account...' : 'Create account'}
+                {isLoading ? t('auth.creatingAccount') : t('auth.createAccount')}
               </button>
             </div>
           </form>
@@ -439,7 +439,7 @@ export default function Register() {
                 <div className="w-full border-t border-gray-300" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">Or continue without account</span>
+                <span className="px-2 bg-white text-gray-500">{t('auth.orContinueWithoutAccount')}</span>
               </div>
             </div>
 
