@@ -69,8 +69,10 @@ export default function Layout({ children }: LayoutProps) {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [hasCase, setHasCase] = useState(false)
+  const [footerInView, setFooterInView] = useState(false)
   const signInRef = useRef<HTMLDivElement>(null)
   const userMenuRef = useRef<HTMLDivElement>(null)
+  const footerRef = useRef<HTMLElement>(null)
 
   const { showWorkspaceThemeToggle, darkMode, toggle } = useTheme()
   const authToken = localStorage.getItem('auth_token')
@@ -105,6 +107,24 @@ export default function Layout({ children }: LayoutProps) {
   // Home has its own scroll-aware sticky CTA; lift the chat launcher on mobile
   // wherever a bottom CTA bar can appear so the two don't overlap.
   const raiseChatLauncher = isClaimantRoute && (showMobileAssessmentCta || location.pathname === navLinks.home)
+
+  // When the footer scrolls into view, retract the fixed mobile CTA so it no
+  // longer overlaps the footer's links/copyright — letting the user reach the
+  // very bottom of the page cleanly.
+  useEffect(() => {
+    if (!showMobileAssessmentCta) {
+      setFooterInView(false)
+      return
+    }
+    const el = footerRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(
+      ([entry]) => setFooterInView(entry.isIntersecting),
+      { root: null, threshold: 0, rootMargin: '0px 0px -8% 0px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [showMobileAssessmentCta, location.pathname])
 
   // Highlight a nav item when the current route matches its href. Some hrefs carry
   // query params (e.g. My Cases -> /attorney-dashboard?tab=leads); comparing against
@@ -630,12 +650,12 @@ export default function Layout({ children }: LayoutProps) {
         </div>
       </footer>
       ) : (
-      <footer className="mt-auto border-t border-slate-700/50 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-900">
+      <footer ref={footerRef} className="mt-auto border-t border-slate-700/50 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-900">
         {/* When the fixed mobile "Start Assessment" CTA is present it overlaps the
             bottom of the footer (the footer lives outside <main>, so main's
             pb-24 doesn't clear it here). Pad the footer's bottom on mobile so its
             legal links and copyright stay above the button. */}
-        <div className={`mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8 ${showMobileAssessmentCta ? 'pb-28 md:pb-4' : ''}`}>
+        <div className={`mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8 ${showMobileAssessmentCta ? 'pb-10 md:pb-4' : ''}`}>
           <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-[1.5fr_repeat(4,auto)] md:items-start md:justify-between">
             {/* On mobile the brand block laid out as a narrow vertical stack in a
                 full-width row, leaving a large empty gap on the right. Lay the logo
@@ -713,7 +733,12 @@ export default function Layout({ children }: LayoutProps) {
           Home sticky CTA so the primary action is always reachable on small
           screens without opening the hamburger menu. */}
       {showMobileAssessmentCta && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-4px_20px_rgba(15,23,42,0.08)] backdrop-blur-xl md:hidden dark:border-slate-800 dark:bg-slate-900/95">
+        <div
+          className={`fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/80 bg-white/95 px-4 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-[0_-4px_20px_rgba(15,23,42,0.08)] backdrop-blur-xl transition-all duration-300 ease-out md:hidden dark:border-slate-800 dark:bg-slate-900/95 ${
+            footerInView ? 'pointer-events-none translate-y-full opacity-0' : 'translate-y-0 opacity-100'
+          }`}
+          aria-hidden={footerInView}
+        >
           <Link
             to={navLinks.startAssessment}
             className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent-600 via-orange-500 to-amber-500 px-6 py-3 text-base font-bold text-white shadow-lg shadow-accent-500/25"
