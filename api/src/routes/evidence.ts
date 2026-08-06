@@ -559,9 +559,12 @@ router.post('/upload', upload.single('file'), async (req: any, res) => {
       }
     }
 
-    // Validate image content relevance (AWS Rekognition DetectLabels). Non-blocking:
-    // a poor verdict only attaches a warning + flags the file, it never rejects.
+    // Validate content relevance (AWS Rekognition for images, Textract text match
+    // for PDFs). Non-blocking: a poor verdict only attaches a warning + flags the
+    // file, it never rejects.
     let visionResult: VisionRelevanceResult | null = null
+    const looksLikePdf =
+      req.file.mimetype === 'application/pdf' || /\.pdf$/i.test(req.file.originalname || '')
     if (req.file.mimetype.startsWith('image/')) {
       try {
         visionResult = await analyzeImageRelevance({
@@ -571,6 +574,15 @@ router.post('/upload', upload.single('file'), async (req: any, res) => {
         })
       } catch (visionError) {
         logger.warn('Image relevance check failed', { error: visionError })
+      }
+    } else if (looksLikePdf) {
+      try {
+        visionResult = await analyzePdfRelevance({
+          category: category || 'other',
+          buffer: fs.readFileSync(req.file.path),
+        })
+      } catch (visionError) {
+        logger.warn('PDF relevance check failed', { error: visionError })
       }
     }
 
@@ -722,6 +734,8 @@ router.post('/upload-multiple', optionalAuthMiddleware, upload.array('files', 10
         }
 
         let visionResult: VisionRelevanceResult | null = null
+        const looksLikePdf =
+          file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname || '')
         if (file.mimetype.startsWith('image/')) {
           try {
             visionResult = await analyzeImageRelevance({
@@ -731,6 +745,15 @@ router.post('/upload-multiple', optionalAuthMiddleware, upload.array('files', 10
             })
           } catch (visionError) {
             logger.warn('Image relevance check failed (batch)', { error: visionError, filename: file.originalname })
+          }
+        } else if (looksLikePdf) {
+          try {
+            visionResult = await analyzePdfRelevance({
+              category: category || 'other',
+              buffer: fs.readFileSync(file.path),
+            })
+          } catch (visionError) {
+            logger.warn('PDF relevance check failed (batch)', { error: visionError, filename: file.originalname })
           }
         }
 
