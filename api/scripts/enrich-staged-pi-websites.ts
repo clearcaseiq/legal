@@ -50,12 +50,18 @@ type Args = {
   skipKnown: boolean
   piOnly: boolean
   withWebsite: boolean
+  timeoutMs: number
+  maxSubpages: number
 }
+
+// Fetch tuning, set from CLI args in main() and read by the fetch helpers.
+const runtimeConfig = { timeoutMs: 8000, maxSubpages: 3 }
 
 function parseArgs(argv: string[]): Args {
   const args: Args = {
     dryRun: false, limit: null, source: 'cpra-ca-bar-2026', concurrency: 5,
     skipKnown: true, piOnly: false, withWebsite: false,
+    timeoutMs: 8000, maxSubpages: 3,
   }
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i]
@@ -70,6 +76,8 @@ function parseArgs(argv: string[]): Args {
       // Enrichment mode: only visit attorneys already flagged PI (fill in bio,
       // headshot, languages, results) rather than discovering new PI firms.
       case '--pi-only': args.piOnly = true; args.skipKnown = false; break
+      case '--timeout': { const v = Number(next()); args.timeoutMs = Number.isFinite(v) && v > 0 ? Math.floor(v) : 8000; break }
+      case '--max-subpages': { const v = Number(next()); args.maxSubpages = Number.isFinite(v) && v >= 0 ? Math.floor(v) : 3; break }
       // Only visit rows that already have a website on file — the highest-yield,
       // zero-guessing subset. Pairs well with --pi-only.
       case '--with-website': args.withWebsite = true; break
@@ -194,7 +202,7 @@ function firmNameVariants(firmName: string): string[] {
 
 /* ── Fetch with timeout ──────────────────────────────────────────── */
 
-async function fetchPageText(url: string, timeoutMs = 8000): Promise<string | null> {
+async function fetchPageText(url: string, timeoutMs = runtimeConfig.timeoutMs): Promise<string | null> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -237,7 +245,7 @@ function stripHtml(html: string): string {
 async function fetchSiteBundle(
   baseUrl: string,
   attorneyName: string,
-  maxSubpages = 3,
+  maxSubpages = runtimeConfig.maxSubpages,
 ): Promise<string | null> {
   const baseHtml = await fetchPageText(baseUrl)
   if (!baseHtml) return null
@@ -561,12 +569,15 @@ const PAGE_SIZE = 200
 
 async function main() {
   const args = parseArgs(process.argv.slice(2))
+  runtimeConfig.timeoutMs = args.timeoutMs
+  runtimeConfig.maxSubpages = args.maxSubpages
 
   console.log('\nEnriching staged attorneys via website scraping')
   if (args.dryRun) console.log('  DRY RUN — nothing written')
   if (args.limit) console.log(`  Limit: ${args.limit}`)
   console.log(`  Source: ${args.source}`)
   console.log(`  Concurrency: ${args.concurrency}`)
+  console.log(`  Timeout: ${args.timeoutMs}ms | Max subpages: ${args.maxSubpages}`)
   console.log()
 
   const stats = {

@@ -36,6 +36,7 @@ type Args = {
   skipEnriched: boolean
   sources: ('avvo' | 'justia' | 'calbar')[]
   startAfter: string | null
+  withWebsite: boolean
 }
 
 function parseArgs(argv: string[]): Args {
@@ -47,6 +48,7 @@ function parseArgs(argv: string[]): Args {
     skipEnriched: true,
     sources: ['avvo', 'justia', 'calbar'],
     startAfter: null,
+    withWebsite: false,
   }
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i]
@@ -62,6 +64,8 @@ function parseArgs(argv: string[]): Args {
       case '--justia-only': args.sources = ['justia']; break
       case '--calbar-only': args.sources = ['calbar']; break
       case '--start-after': args.startAfter = next() ?? null; break
+      // Restrict to rows that already have a website — the routable-now subset.
+      case '--with-website': args.withWebsite = true; break
       default: if (flag.startsWith('--')) throw new Error(`Unknown flag: ${flag}`)
     }
   }
@@ -409,6 +413,7 @@ async function main() {
         barNumber: { not: null },
         barState: 'CA',
         ...(args.skipEnriched ? { bio: null } : {}),
+        ...(args.withWebsite ? { website: { not: null } } : {}),
       },
       select: {
         id: true,
