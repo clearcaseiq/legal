@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Bot, CalendarDays, ClipboardCheck, FileText, Receipt, ShieldCheck } from 'lucide-react'
 import { formatCurrency } from '../lib/formatters'
+import { formatClaimType } from '../lib/claimTypes'
 import { useHeuristics } from '../contexts/HeuristicsContext'
 import { scoreTone } from '../lib/heuristics'
 import type {
@@ -414,7 +415,7 @@ function buildTimeline({
   return [
     {
       label: 'Case submitted',
-      detail: `${String(selectedLead.assessment?.claimType || 'Case').replace(/_/g, ' ')} in ${[selectedLead.assessment?.venueCounty, selectedLead.assessment?.venueState].filter(Boolean).join(', ') || 'venue not provided'}.`,
+      detail: `${selectedLead.assessment?.claimType ? formatClaimType(selectedLead.assessment.claimType) : 'Case'} in ${[selectedLead.assessment?.venueCounty, selectedLead.assessment?.venueState].filter(Boolean).join(', ') || 'venue not provided'}.`,
       date: formatDate(selectedLead.submittedAt || selectedLead.assessment?.createdAt),
     },
     {

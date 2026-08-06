@@ -5,6 +5,7 @@ import {
   type MatchingRulesConfig,
 } from '../../lib/api'
 import { PageHeader } from '../../features/shared/ui'
+import { formatClaimType } from '../../lib/claimTypes'
 
 // Clamp a raw input string to an integer within [min, max], falling back when
 // the value is blank or non-numeric. Prevents typed negatives / over-max values
@@ -933,7 +934,7 @@ export default function AdminMatchingRules() {
                       className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
                     >
                       {[...new Set([...(config.supportedClaimTypes || []), override.claimType].filter(Boolean))].map((claimType) => (
-                        <option key={claimType} value={claimType}>{claimType.replace(/_/g, ' ')}</option>
+                        <option key={claimType} value={claimType}>{formatClaimType(claimType)}</option>
                       ))}
                     </select>
                   </label>

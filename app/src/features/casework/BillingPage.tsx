@@ -29,8 +29,8 @@ const feeColumns: DataTableColumn<FeeCase>[] = [
     header: 'Client / case',
     cell: (c) => (
       <div className="flex items-center gap-3">
-        <Avatar name={c.clientName || c.claimType || 'Case'} />
-        <ClientLink name={c.clientName || c.claimType || 'Case'} leadId={c.leadId} section="billing" />
+        <Avatar name={c.clientName || (c.claimType ? formatClaimType(c.claimType) : 'Case')} />
+        <ClientLink name={c.clientName || (c.claimType ? formatClaimType(c.claimType) : 'Case')} leadId={c.leadId} section="billing" />
       </div>
     ),
   },

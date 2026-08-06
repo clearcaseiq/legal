@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router-dom'
 import { MessageSquare } from 'lucide-react'
 import { getPlaintiffMessageSummary } from '../lib/api'
 import { sortRoomsByRecency } from '../lib/messaging'
-import { formatSpecialty } from '../lib/constants'
+import { formatClaimType } from '../lib/claimTypes'
 
 interface RoomPreview {
   id: string
@@ -128,7 +128,7 @@ export default function PlaintiffNotificationBell() {
                     </div>
                     <div className="text-xs text-slate-500 mt-0.5">
                       {caseRef(room)}
-                      {room.assessment?.claimType && ` · ${formatSpecialty(room.assessment.claimType)}`}
+                      {room.assessment?.claimType && ` · ${formatClaimType(room.assessment.claimType)}`}
                     </div>
                     <div className="text-sm text-slate-600 truncate mt-0.5">
                       {previewText(room)}

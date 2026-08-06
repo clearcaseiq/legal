@@ -4,6 +4,7 @@ import { BackButton } from '../features/shared/ui'
 import PreAcceptanceView from './PreAcceptanceView'
 import PersistentCaseHeader from './PersistentCaseHeader'
 import { formatCurrency, formatPercentage } from '../lib/formatters'
+import { formatClaimType } from '../lib/claimTypes'
 import { getAttorneyCaseStatusKey, caseStatusLabel } from '../lib/caseStatus'
 import { formatLeadCaseId } from '../lib/caseId'
 import { useHeuristics } from '../contexts/HeuristicsContext'
@@ -553,9 +554,7 @@ export default function AttorneyDashboardLeadDetail({
               )
             }
 
-            const claimType = (selectedLead?.assessment?.claimType || 'personal injury')
-              .replace(/_/g, ' ')
-              .replace(/\b\w/g, (c: string) => c.toUpperCase())
+            const claimType = formatClaimType(selectedLead?.assessment?.claimType)
             const location =
               [selectedLead?.assessment?.venueCounty, selectedLead?.assessment?.venueState].filter(Boolean).join(', ') ||
               'Venue not provided'

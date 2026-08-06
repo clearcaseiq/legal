@@ -7,6 +7,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { MessageSquare } from 'lucide-react'
 import { getAttorneyUnreadSummary } from '../lib/api'
+import { formatClaimType } from '../lib/claimTypes'
 
 interface ChatRoomPreview {
   id: string
@@ -117,7 +118,7 @@ export default function NotificationBell() {
                         {room.plaintiff?.name || 'Plaintiff'}
                         {room.assessment?.claimType && (
                           <span className="text-slate-500 font-normal ml-1">
-                            ({room.assessment.claimType.replace(/_/g, ' ')})
+                            ({formatClaimType(room.assessment.claimType)})
                           </span>
                         )}
                       </div>

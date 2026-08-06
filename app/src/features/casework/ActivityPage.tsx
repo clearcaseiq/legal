@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { AtSign, MessagesSquare, ArrowRight } from 'lucide-react'
 import { getFirmActivity, type ActivityItem } from '../../lib/api'
 import { PageHeader, SectionCard, EmptyState, Avatar, Badge } from '../shared/ui'
+import { formatClaimType } from '../../lib/claimTypes'
 
 const POLL_MS = 30_000
 
@@ -40,7 +41,7 @@ function ActivityRow({ item, onOpen }: { item: ActivityItem; onOpen: (item: Acti
           {item.claimType && (
             <>
               <span className="text-slate-300">•</span>
-              <span className="truncate">{item.claimType.replace(/_/g, ' ')}</span>
+              <span className="truncate">{formatClaimType(item.claimType)}</span>
             </>
           )}
           {item.link && (

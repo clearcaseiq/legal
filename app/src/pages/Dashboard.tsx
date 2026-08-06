@@ -827,13 +827,9 @@ export default function Dashboard() {
     !hasMedicalRecords && 'Medical records missing',
     !hasWageLoss && 'No wage-loss documentation',
   ].filter(Boolean).slice(0, 3) as string[]
-  const claimTypeLabel = activeAssessment?.claimType === 'auto'
-    ? 'Auto Accident'
-    : activeAssessment?.claimType === 'slip_and_fall'
-      ? 'Slip and Fall'
-      : activeAssessment?.claimType === 'medmal'
-        ? 'Medical Malpractice'
-        : 'Personal Injury'
+  // Use the canonical formatter so the incident type reads identically on web and
+  // mobile ("Motor vehicle", not "Auto Accident") — CP-406.
+  const claimTypeLabel = formatClaimType(activeAssessment?.claimType)
   const incidentDateLabel = (() => {
     const raw = parsedFacts?.incident?.date || parsedFacts?.incidentDate
     if (!raw) return null

@@ -41,6 +41,14 @@
     -webkit-appearance: none;
     appearance: none;
     min-width: 0;
+    /* WebKit renders the date value centered inside the field's intrinsic box
+       regardless of the Tailwind `text-left` utility; force left alignment so the
+       date reads flush with the field label (CP-533). */
+    text-align: left;
+  }
+  .date-input-clean::-webkit-datetime-edit {
+    text-align: left;
+    padding: 0;
   }
 
   /* Structural guard against horizontal overflow on narrow phones.

@@ -9,6 +9,7 @@ import {
   type AttorneyDocumentEnvelope,
 } from '../../lib/api'
 import LeadPickerModal from '../../components/LeadPickerModal'
+import { formatClaimType } from '../../lib/claimTypes'
 import { Badge, ClientLink, DataTable, FilterStat, PageHeader, SectionCard, StatGrid, type BadgeTone, type DataTableColumn } from '../shared/ui'
 
 type DocBucket = 'pending' | 'in_progress' | 'completed'
@@ -84,7 +85,7 @@ function requestToRow(r: AttorneyDocumentRequest): FeedRow {
     kind: 'request',
     leadId: r.leadId,
     title: docs || 'Document request',
-    caseName: r.clientName || titleCase(r.claimType) || 'Case',
+    caseName: r.clientName || (r.claimType ? formatClaimType(r.claimType) : 'Case'),
     recipient: r.recipientName || titleCase(r.targetType) || '—',
     status: r.status || 'pending',
     createdAt: r.createdAt,
@@ -98,7 +99,7 @@ function envelopeToRow(e: AttorneyDocumentEnvelope): FeedRow {
     kind: 'esign',
     leadId: e.leadId,
     title: e.title || DOC_TYPE_LABEL[e.documentType] || 'E-signature',
-    caseName: e.clientName || titleCase(e.claimType) || 'Case',
+    caseName: e.clientName || (e.claimType ? formatClaimType(e.claimType) : 'Case'),
     recipient: e.signerName || e.signerEmail || '—',
     status: e.status || 'draft',
     createdAt: e.createdAt,

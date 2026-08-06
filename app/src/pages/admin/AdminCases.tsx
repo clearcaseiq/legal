@@ -395,7 +395,11 @@ export default function AdminCases() {
   )
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] min-h-[500px] min-h-0 flex-col gap-4 overflow-hidden">
+    // `min-h-0` previously overrode the `min-h-[500px]` floor (same property, later
+    // class wins), so on the case-detail viewport the flex column collapsed and the
+    // table showed only 1-2 rows (CP-484). Keep a real minimum height on the page so
+    // the table always shows several cases; the inner scroll area carries min-h-0.
+    <div className="flex h-[calc(100vh-6rem)] min-h-[640px] flex-col gap-4 overflow-hidden">
       <div className="shrink-0">
         <PageHeader
           title="Cases"
@@ -587,7 +591,7 @@ export default function AdminCases() {
         // pager keeps its own row — otherwise the table's `h-full` pushes the
         // pager past the clipped bottom edge and it can't be reached.
         <div className="surface-panel flex min-h-0 flex-1 flex-col overflow-hidden p-0">
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div className="min-h-[20rem] flex-1 overflow-auto">
             <table className="app-data-table w-full">
               <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
                 <tr>

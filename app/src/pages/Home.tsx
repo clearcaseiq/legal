@@ -114,21 +114,25 @@ export default function Home() {
           <p className="text-center text-sm font-medium text-slate-500 dark:text-slate-400 mb-6">
             {t('home.trustBar')}
           </p>
-          <div className="flex flex-wrap justify-center gap-8 md:gap-12 mb-10">
+          {/* On phones the row wraps to one item per line; `justify-center` then
+              centers each icon+label pair. Icons need `shrink-0` (a wrapping label
+              like "Private, encrypted intake" was squeezing the icon and throwing
+              the row out of alignment — CP-520). */}
+          <div className="flex flex-col items-center gap-5 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-8 md:gap-12 mb-10">
             <div className="flex items-center gap-3">
-              <BarChart3Icon className="h-6 w-6 text-brand-600 dark:text-brand-400" aria-hidden />
+              <BarChart3Icon className="h-6 w-6 shrink-0 text-brand-600 dark:text-brand-400" aria-hidden />
               <span className="text-slate-800 dark:text-slate-100 font-medium">{t('home.trust1')}</span>
             </div>
             <div className="flex items-center gap-3">
-              <UsersIcon className="h-6 w-6 text-brand-600 dark:text-brand-400" aria-hidden />
+              <UsersIcon className="h-6 w-6 shrink-0 text-brand-600 dark:text-brand-400" aria-hidden />
               <span className="text-slate-800 dark:text-slate-100 font-medium">{t('home.trust2')}</span>
             </div>
             <div className="flex items-center gap-3">
-              <ShieldIcon className="h-6 w-6 text-brand-600 dark:text-brand-400" aria-hidden />
+              <ShieldIcon className="h-6 w-6 shrink-0 text-brand-600 dark:text-brand-400" aria-hidden />
               <span className="text-slate-800 dark:text-slate-100 font-medium">{t('home.trust3')}</span>
             </div>
             <div className="flex items-center gap-3">
-              <FileTextIcon className="h-6 w-6 text-brand-600 dark:text-brand-400" aria-hidden />
+              <FileTextIcon className="h-6 w-6 shrink-0 text-brand-600 dark:text-brand-400" aria-hidden />
               <span className="text-slate-800 dark:text-slate-100 font-medium tabular-nums">{t('home.trust4')}</span>
             </div>
           </div>

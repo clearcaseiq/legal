@@ -7,6 +7,7 @@ import {
   reprocessAdminDocument,
   type AdminDocumentItem,
 } from '../../lib/api'
+import { formatClaimType } from '../../lib/claimTypes'
 import {
   CheckCircle,
   ClipboardCheck,
@@ -345,7 +346,7 @@ export default function AdminDocuments() {
                             {document.case.id.slice(-8)}
                           </Link>
                           <p className="mt-1 text-xs text-slate-500">
-                            {labelize(document.case.claimType)} • {document.case.venueCounty ? `${document.case.venueCounty}, ` : ''}{document.case.venueState}
+                            {formatClaimType(document.case.claimType)} • {document.case.venueCounty ? `${document.case.venueCounty}, ` : ''}{document.case.venueState}
                           </p>
                           <p className="mt-1 text-xs text-slate-400">{document.plaintiff?.email || 'No plaintiff email'}</p>
                         </div>

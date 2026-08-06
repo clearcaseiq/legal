@@ -3595,25 +3595,26 @@ export default function IntakeWizardQuick() {
                               className="date-input-clean !min-h-0 w-full min-w-0 max-w-full !border-0 !bg-transparent !p-0 text-left !text-[15px] font-medium text-gray-900 focus:!ring-0 dark:text-slate-100"
                             />
                           </div>
-                          <button
-                            type="button"
+                          {/* A <label> bound to the input is the only reliable way to open
+                              the native date picker on iOS Safari, where showPicker() is
+                              gated behind user activation and a synthetic click is ignored,
+                              so tapping the button did nothing (CP-521). Keep showPicker()
+                              as a desktop enhancement — the label activation opens the
+                              picker on touch devices. */}
+                          <label
+                            htmlFor="incident-exact-date"
                             aria-label={tx('when_selectDate')}
                             onClick={() => {
                               const el = document.getElementById('incident-exact-date') as (HTMLInputElement & { showPicker?: () => void }) | null
                               if (!el) return
                               try {
-                                if (typeof el.showPicker === 'function') {
-                                  el.showPicker()
-                                  return
-                                }
-                              } catch { /* showPicker can throw when not user-activated */ }
-                              el.focus()
-                              el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+                                if (typeof el.showPicker === 'function') el.showPicker()
+                              } catch { /* showPicker can throw when not user-activated; label handles it */ }
                             }}
-                            className="flex h-8 w-14 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 transition-colors hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-300 dark:hover:bg-brand-500/25"
+                            className="flex h-8 w-14 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-brand-50 text-brand-600 transition-colors hover:bg-brand-100 dark:bg-brand-500/15 dark:text-brand-300 dark:hover:bg-brand-500/25"
                           >
                             <CalendarDays className="h-5 w-5" aria-hidden />
-                          </button>
+                          </label>
                         </div>
                       </div>
                       {/* Quick date presets. Two columns on mobile so each label fits in

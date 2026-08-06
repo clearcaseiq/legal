@@ -3542,7 +3542,7 @@ Checklist:
                       checked={hasHipaaConsent || sendHipaaConsent}
                       onChange={(e) => setSendHipaaConsent(e.target.checked)}
                       disabled={hasHipaaConsent}
-                      className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                      className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600 accent-brand-600 focus:ring-brand-500"
                     />
                     <span className="text-sm text-amber-900">
                       I authorize{' '}
@@ -3572,7 +3572,11 @@ Checklist:
                     type="checkbox"
                     checked={shareAuthorized}
                     onChange={(e) => setShareAuthorized(e.target.checked)}
-                    className="mt-0.5 h-5 w-5 rounded border-2 border-brand-400 text-brand-600 focus:ring-brand-500"
+                    /* `text-brand-600` does not tint a native checkbox, so the checked
+                       state rendered as a faint default box that was hard to see against
+                       the panel (CP-504). `accent-brand-600` colors the native control
+                       and `shrink-0` keeps it square next to the long label. */
+                    className="mt-0.5 h-5 w-5 shrink-0 rounded border-2 border-brand-400 text-brand-600 accent-brand-600 focus:ring-brand-500"
                   />
                   <div>
                     <span className={`text-sm font-semibold ${shareAuthorized ? 'text-brand-900' : 'text-slate-800'}`}>{t('disclosures.shareAuthorization')}</span>

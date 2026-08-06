@@ -7,6 +7,7 @@ import {
 } from '../../lib/api'
 import { formatDate, formatEnumLabel, formatJurisdictions, capitalizeWords } from '../../lib/formatters'
 import { formatSpecialty } from '../../lib/constants'
+import { formatClaimType } from '../../lib/claimTypes'
 import { BackButton, Breadcrumbs } from '../../features/shared/ui'
 import {
   RefreshCw,
@@ -372,7 +373,7 @@ export default function AdminAttorneyDetail() {
                     onClick={() => navigate(`/admin/cases/${c.id}`)}
                   >
                     <td className="py-2 font-mono">{c.id?.slice(0, 8)}...</td>
-                    <td className="py-2">{c.claimType ? formatSpecialty(c.claimType) : '—'}</td>
+                    <td className="py-2">{c.claimType ? formatClaimType(c.claimType) : '—'}</td>
                     <td className="py-2">{c.venueState}</td>
                     <td className="py-2">
                       <span

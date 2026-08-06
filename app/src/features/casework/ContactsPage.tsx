@@ -3,6 +3,7 @@ import { Search, Mail, Phone } from 'lucide-react'
 import { getAllCaseContacts, getFirmCaseContacts } from '../../lib/api'
 import { useAttorneyWorkspace } from '../shared/AttorneyWorkspaceContext'
 import { Avatar, Badge, ClientLink, DataTable, FilterStat, PageHeader, SectionCard, StatGrid, type BadgeTone, type DataTableColumn } from '../shared/ui'
+import { formatClaimType } from '../../lib/claimTypes'
 
 interface CaseContactRow {
   id: string
@@ -118,7 +119,7 @@ const contactColumns: DataTableColumn<CaseContactRow>[] = [
   {
     key: 'case',
     header: 'Case',
-    cell: (c) => <ClientLink name={titleCase(c.lead?.assessment?.claimType) || 'Case'} leadId={c.lead?.id} section="contacts" />,
+    cell: (c) => <ClientLink name={c.lead?.assessment?.claimType ? formatClaimType(c.lead.assessment.claimType) : 'Case'} leadId={c.lead?.id} section="contacts" />,
   },
 ]
 
