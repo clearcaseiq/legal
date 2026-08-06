@@ -1,5 +1,14 @@
 import { Link } from 'react-router-dom'
-import { CheckCircle, ArrowRight } from 'lucide-react'
+import { CheckCircle, ClipboardList, BarChart3, Users, Car, Scale, Handshake, Trophy } from 'lucide-react'
+
+// The claimant journey, rendered as an animated timeline further down the page.
+const JOURNEY = [
+  { label: 'Accident', Icon: Car },
+  { label: 'Case Assessment', Icon: ClipboardList },
+  { label: 'Attorney Review', Icon: Scale },
+  { label: 'Negotiation', Icon: Handshake },
+  { label: 'Resolution', Icon: Trophy },
+]
 
 export default function HowItWorks() {
   return (
@@ -11,35 +20,54 @@ export default function HowItWorks() {
       </p>
 
       {/* Steps */}
-      <div className="grid md:grid-cols-3 gap-8 mb-12">
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center h-14 w-14 rounded-xl bg-brand-100 text-brand-600 font-bold text-xl mb-4">1</div>
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">Tell Us About Your Accident</h2>
-          <p className="text-slate-600 text-sm">Answer a few quick questions about what happened, your injuries, and where the accident occurred.</p>
-        </div>
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center h-14 w-14 rounded-xl bg-brand-100 text-brand-600 font-bold text-xl mb-4">2</div>
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">See If You May Have a Case</h2>
-          <p className="text-slate-600 text-sm">Our system estimates your case value, probability of success, and typical timeline based on similar cases.</p>
-        </div>
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center h-14 w-14 rounded-xl bg-brand-100 text-brand-600 font-bold text-xl mb-4">3</div>
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">Connect With Attorneys Who Handle Cases Like Yours</h2>
-          <p className="text-slate-600 text-sm">If you choose, your case is securely sent to attorneys experienced in cases like yours.</p>
-        </div>
+      <div className="relative grid md:grid-cols-3 gap-6 mb-12">
+        {/* Connecting line behind the icon badges on desktop. */}
+        <div
+          className="pointer-events-none absolute inset-x-[16%] top-14 hidden h-0.5 bg-gradient-to-r from-brand-200 via-brand-300 to-emerald-200 md:block"
+          aria-hidden
+        />
+        {[
+          { Icon: ClipboardList, title: 'Tell us what happened', body: "Answer a few quick questions about your accident, your injuries, and where it happened. It takes about a minute, and you don't need an account to start." },
+          { Icon: BarChart3, title: 'See what your case may look like', body: 'Get a plain-English snapshot: an estimated value range, how ready your case looks, and a typical timeline, all based on outcomes from similar injury cases.' },
+          { Icon: Users, title: 'Connect with the right attorneys', body: "When you're ready, choose to securely share your case with vetted attorneys who handle cases like yours. You're never obligated to hire anyone." },
+        ].map((step, i) => (
+          <div
+            key={step.title}
+            className="hiw-reveal relative rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm transition-shadow hover:shadow-md"
+            style={{ animationDelay: `${i * 120}ms` }}
+          >
+            <div className="relative mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-600 ring-4 ring-white">
+              <step.Icon className="h-7 w-7" aria-hidden />
+              <span className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-brand-600 text-xs font-bold text-white shadow-sm">{i + 1}</span>
+            </div>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">{step.title}</h2>
+            <p className="text-slate-600 text-sm">{step.body}</p>
+          </div>
+        ))}
       </div>
 
-      {/* Timeline visual */}
-      <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4 mb-12 py-6 px-4 bg-slate-50 rounded-xl">
-        <span className="text-sm font-medium text-slate-700">Accident</span>
-        <ArrowRight className="h-4 w-4 text-slate-400" />
-        <span className="text-sm font-medium text-slate-700">Case Assessment</span>
-        <ArrowRight className="h-4 w-4 text-slate-400" />
-        <span className="text-sm font-medium text-slate-700">Attorney Review</span>
-        <ArrowRight className="h-4 w-4 text-slate-400" />
-        <span className="text-sm font-medium text-slate-700">Negotiation</span>
-        <ArrowRight className="h-4 w-4 text-slate-400" />
-        <span className="text-sm font-medium text-slate-700">Resolution</span>
+      {/* Journey timeline — animated stepper */}
+      <div className="mb-12 rounded-2xl border border-slate-200/70 bg-gradient-to-br from-slate-50 to-brand-50/40 p-6 sm:p-8">
+        <p className="mb-6 text-center text-xs font-semibold uppercase tracking-[0.14em] text-brand-700">Your case journey</p>
+        <div className="relative">
+          {/* Track: a full-width base line with an animated gradient line drawn over it (desktop only). */}
+          <div className="pointer-events-none absolute left-[10%] right-[10%] top-6 hidden h-0.5 bg-slate-200 sm:block" aria-hidden />
+          <div className="hiw-line-grow pointer-events-none absolute left-[10%] right-[10%] top-6 hidden h-0.5 bg-gradient-to-r from-brand-500 to-emerald-500 sm:block" aria-hidden />
+          <ol className="relative grid grid-cols-2 gap-y-6 sm:grid-cols-5">
+            {JOURNEY.map((stage, i) => (
+              <li
+                key={stage.label}
+                className="hiw-reveal flex flex-col items-center text-center"
+                style={{ animationDelay: `${350 + i * 140}ms` }}
+              >
+                <span className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-white bg-brand-600 text-white shadow-md ring-1 ring-brand-500/20">
+                  <stage.Icon className="h-5 w-5" aria-hidden />
+                </span>
+                <span className="mt-2 text-xs font-semibold text-slate-700 sm:text-sm">{stage.label}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
       </div>
 
       {/* What Happens Next */}
@@ -80,8 +108,8 @@ export default function HowItWorks() {
             <p className="text-xl font-bold text-slate-900">$3,000 – $22,000</p>
           </div>
           <div className="text-center p-4 bg-slate-50 rounded-lg">
-            <p className="text-sm font-medium text-slate-500 mb-1">Probability of Success</p>
-            <p className="text-xl font-bold text-slate-900">Moderate</p>
+            <p className="text-sm font-medium text-slate-500 mb-1">Case Readiness</p>
+            <p className="text-xl font-bold text-slate-900">Developing</p>
           </div>
           <div className="text-center p-4 bg-slate-50 rounded-lg">
             <p className="text-sm font-medium text-slate-500 mb-1">Estimated Timeline</p>
