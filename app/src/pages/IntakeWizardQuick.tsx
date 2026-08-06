@@ -6841,7 +6841,7 @@ export default function IntakeWizardQuick() {
               : "[&_button]:min-h-14 [&_button]:leading-snug [&_button]:text-base md:[&_button]:text-lg [&_input:not([type='checkbox'])]:min-h-12 [&_input:not([type='checkbox'])]:text-lg [&_label]:text-base [&_p.text-lg]:text-xl [&_p.text-sm]:text-base [&_p.text-xs]:text-sm [&_select]:min-h-12 [&_select]:text-lg [&_span.text-sm]:text-base [&_span.text-xs]:text-sm [&_textarea]:min-h-[4.75rem] [&_textarea]:py-2 [&_textarea]:text-base [&_textarea]:leading-snug"
         } min-h-0`}
       >
-        <div ref={stepScrollRef} className="px-4 sm:px-2">
+        <div ref={stepScrollRef} className="px-4 pb-2 sm:px-2 sm:pb-0">
           {renderStep()}
         </div>
       </div>
@@ -6850,7 +6850,7 @@ export default function IntakeWizardQuick() {
         {t('intake.privacyNote')}
       </p>
 
-      <div className="z-20 mx-4 shrink-0 rounded-xl border border-slate-200/90 bg-white/95 p-1.5 pb-[max(0.375rem,calc(0.375rem+env(safe-area-inset-bottom)))] shadow-lg shadow-slate-200/70 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 sm:mx-0 sm:rounded-2xl md:rounded-3xl">
+      <div className="sticky bottom-1 z-30 mx-4 shrink-0 rounded-xl border border-slate-200/90 bg-white/95 p-1.5 pb-[max(0.375rem,calc(0.375rem+env(safe-area-inset-bottom)))] shadow-lg shadow-slate-200/70 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 sm:static sm:bottom-auto sm:z-20 sm:mx-0 sm:rounded-2xl md:rounded-3xl">
       <div className="flex flex-col items-stretch gap-1.5 sm:flex-row sm:items-center sm:justify-between">
         <button
           type="button"

@@ -53,7 +53,7 @@ export default function Home() {
         {/* Hero — split layout + product preview */}
         <section className="py-8 md:py-14 lg:py-16">
           <div className="grid lg:grid-cols-2 gap-10 lg:gap-12 items-center">
-            <div className="relative text-center lg:text-left order-2 lg:order-1">
+            <div className="relative text-center lg:text-left order-1">
               <MarketingHeroArt />
               <h1 className="font-display text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl md:text-[3.25rem] leading-[1.1] mb-4 dark:text-slate-50">
                 {t('home.heroTitle')}
@@ -94,7 +94,7 @@ export default function Home() {
               <p className="mt-4 text-sm font-medium text-slate-600 dark:text-slate-300">{t('home.heroReassurance')}</p>
             </div>
 
-            <div className="order-1 lg:order-2">
+            <div className="order-2">
               <Suspense
                 fallback={
                   <div
