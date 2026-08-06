@@ -5,6 +5,9 @@ import { ActivityIcon, ScaleIcon, ShieldCheckIcon, TrendingUpIcon } from './Star
  * Abstract product preview for marketing hero — no live data.
  */
 export default function HomeProductPreview() {
+  // Use the app's own i18n hook. `react-i18next` isn't a dependency here and isn't
+  // wired up (no I18nextProvider), so importing useTranslation from it broke the
+  // home page build with a module-not-found error.
   const { t } = useLanguage()
   return (
     <div className="relative mx-auto w-full max-w-md lg:max-w-none">
