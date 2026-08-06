@@ -1405,6 +1405,10 @@ export default function IntakeWizardQuick() {
       window.scrollTo({ top: 0, behavior: 'instant' })
       document.documentElement.scrollTop = 0
       document.body.scrollTop = 0
+      // On the intake routes the Layout makes <main> the scroll container, so
+      // resetting the window/body alone leaves a new step opening mid-page.
+      const main = document.getElementById('main-content')
+      if (main) main.scrollTop = 0
       stepScrollRef.current?.scrollTo({ top: 0, behavior: 'instant' })
     }
     scrollTop()
