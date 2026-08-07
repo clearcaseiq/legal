@@ -1479,21 +1479,42 @@ export default function IntakeWizardQuick() {
   useEffect(() => {
     const vv = typeof window !== 'undefined' ? window.visualViewport : undefined
     if (!vv) return
+    // The lift exists solely to keep the bar above the on-screen keyboard. It must
+    // therefore fire ONLY while a text field is focused (the only time the keyboard
+    // is up). Otherwise the same viewport `resize`/`scroll` events that iOS emits
+    // when the toolbar collapses or the page scrolls — e.g. when expanding the
+    // "Additional information" section on step 3 — compute a phantom overlap and
+    // translate the bar up off its position, so Back/Next appear to vanish.
+    const keyboardIsUp = () => {
+      const ae = document.activeElement as HTMLElement | null
+      if (!ae) return false
+      const tag = ae.tagName
+      return tag === 'INPUT' || tag === 'TEXTAREA' || ae.isContentEditable === true
+    }
     const apply = () => {
       const el = navBarRef.current
       if (!el) return
       // Only lift on mobile widths where the bar is `fixed`; at sm+ (>=640px) it
       // is a static, in-flow element and must never be transformed.
       const isMobile = window.matchMedia('(max-width: 639px)').matches
-      const overlap = isMobile ? Math.max(0, window.innerHeight - (vv.height + vv.offsetTop)) : 0
+      const overlap =
+        isMobile && keyboardIsUp()
+          ? Math.max(0, window.innerHeight - (vv.height + vv.offsetTop))
+          : 0
       el.style.transform = overlap > 1 ? `translateY(-${Math.round(overlap)}px)` : ''
     }
     apply()
     vv.addEventListener('resize', apply)
     vv.addEventListener('scroll', apply)
+    // Blur/focus don't emit a visualViewport event on their own, so re-evaluate on
+    // focus changes too — this snaps the bar back down the instant a field is blurred.
+    document.addEventListener('focusin', apply)
+    document.addEventListener('focusout', apply)
     return () => {
       vv.removeEventListener('resize', apply)
       vv.removeEventListener('scroll', apply)
+      document.removeEventListener('focusin', apply)
+      document.removeEventListener('focusout', apply)
       if (navBarRef.current) navBarRef.current.style.transform = ''
     }
   }, [])
