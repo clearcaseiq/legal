@@ -1,4 +1,81 @@
 {
+  "adminChrome": {
+    "routingStatus": "Routing status...",
+    "routingOff": "Routing off",
+    "routingOn": "Routing on",
+    "signOut": "Sign out",
+    "useLightTheme": "Use light theme",
+    "useDarkTheme": "Use dark theme"
+  },
+  "adminNav": {
+    "groups": {
+      "operations": "Operations",
+      "network": "Network",
+      "oversight": "Oversight",
+      "configuration": "Configuration"
+    },
+    "items": {
+      "dashboard": { "label": "Dashboard" },
+      "opsInbox": { "label": "Ops Inbox" },
+      "cases": { "label": "Cases" },
+      "caseFlow": { "label": "Case Flow" },
+      "routingQueue": { "label": "Routing Queue" },
+      "manualReview": { "label": "Manual Review" },
+      "attorneys": { "label": "Attorneys" },
+      "analytics": { "label": "Analytics" },
+      "routingFeedback": { "label": "Routing Feedback" },
+      "communications": { "label": "Communications" },
+      "documents": { "label": "Documents & OCR" },
+      "auditLogs": { "label": "Audit Logs" },
+      "systemStatus": { "label": "System Status" },
+      "compliance": { "label": "Compliance" },
+      "matchingRules": { "label": "Matching Rules" },
+      "heuristics": { "label": "Heuristics" },
+      "fieldMappings": { "label": "Field Mappings" },
+      "users": { "label": "User Roles" },
+      "featureToggles": { "label": "Feature Toggles" },
+      "firmSettings": { "label": "Firm Settings" },
+      "smsTools": { "label": "SMS tools" }
+    }
+  },
+  "attorneyWorkspace": {
+    "workspaceSubtitle": "Attorney workspace",
+    "comingSoon": "Coming soon",
+    "soon": "Soon",
+    "notifications": {
+      "label": "Notifications",
+      "description": "Matches, deadlines & activity"
+    },
+    "sections": {
+      "leadgen": "Lead Generation",
+      "casework": "Case Management"
+    },
+    "domain": {
+      "leadGeneration": "Lead Generation",
+      "caseManagement": "Case Management",
+      "workspace": "Attorney Workspace"
+    },
+    "nav": {
+      "matches": { "label": "New Matches", "description": "Cases awaiting review" },
+      "quality": { "label": "Match Quality", "description": "Conversion by practice area" },
+      "marketplace": { "label": "Marketplace Performance", "description": "Acquisition ROI" },
+      "active": { "label": "Active Cases", "description": "Caseload & quick re-entry" },
+      "calendar": { "label": "Calendar & Consults", "description": "Upcoming meetings" },
+      "scheduling": { "label": "Scheduling", "description": "Your public booking link" },
+      "messages": { "label": "Messages", "description": "Client & adjuster threads" },
+      "team": { "label": "Team Chat", "description": "Message firm colleagues" },
+      "activity": { "label": "Activity", "description": "Mentions & case discussion" },
+      "documents": { "label": "Documents & E-sign", "description": "Requests & signatures" },
+      "tasks": { "label": "Tasks", "description": "Cross-case queue" },
+      "deadlines": { "label": "Deadlines", "description": "Statute-of-limitations radar" },
+      "contacts": { "label": "Contacts", "description": "Parties directory" },
+      "billing": { "label": "Billing", "description": "Fees, invoices, costs" },
+      "aiManager": { "label": "Rose — AI Case Manager", "description": "Raises the next task on every case" },
+      "copilot": { "label": "AI Copilot", "description": "Analysis & next actions" },
+      "firm": { "label": "Firm Dashboard", "description": "Team caseload" },
+      "intake": { "label": "Intake", "description": "Manual & imported leads" }
+    }
+  },
   "common": {
     "appName": "ClearCaseIQ",
     "startAssessment": "Start Free Case Assessment",

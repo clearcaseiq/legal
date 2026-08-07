@@ -1,4 +1,81 @@
 {
+  "adminChrome": {
+    "routingStatus": "Estado de enrutamiento...",
+    "routingOff": "Enrutamiento desactivado",
+    "routingOn": "Enrutamiento activado",
+    "signOut": "Cerrar sesión",
+    "useLightTheme": "Usar tema claro",
+    "useDarkTheme": "Usar tema oscuro"
+  },
+  "adminNav": {
+    "groups": {
+      "operations": "Operaciones",
+      "network": "Red",
+      "oversight": "Supervisión",
+      "configuration": "Configuración"
+    },
+    "items": {
+      "dashboard": { "label": "Panel" },
+      "opsInbox": { "label": "Bandeja de operaciones" },
+      "cases": { "label": "Casos" },
+      "caseFlow": { "label": "Flujo de casos" },
+      "routingQueue": { "label": "Cola de enrutamiento" },
+      "manualReview": { "label": "Revisión manual" },
+      "attorneys": { "label": "Abogados" },
+      "analytics": { "label": "Analíticas" },
+      "routingFeedback": { "label": "Retroalimentación de enrutamiento" },
+      "communications": { "label": "Comunicaciones" },
+      "documents": { "label": "Documentos y OCR" },
+      "auditLogs": { "label": "Registros de auditoría" },
+      "systemStatus": { "label": "Estado del sistema" },
+      "compliance": { "label": "Cumplimiento" },
+      "matchingRules": { "label": "Reglas de coincidencia" },
+      "heuristics": { "label": "Heurísticas" },
+      "fieldMappings": { "label": "Asignación de campos" },
+      "users": { "label": "Roles de usuario" },
+      "featureToggles": { "label": "Interruptores de funciones" },
+      "firmSettings": { "label": "Ajustes del bufete" },
+      "smsTools": { "label": "Herramientas SMS" }
+    }
+  },
+  "attorneyWorkspace": {
+    "workspaceSubtitle": "Espacio del abogado",
+    "comingSoon": "Próximamente",
+    "soon": "Pronto",
+    "notifications": {
+      "label": "Notificaciones",
+      "description": "Coincidencias, plazos y actividad"
+    },
+    "sections": {
+      "leadgen": "Generación de clientes",
+      "casework": "Gestión de casos"
+    },
+    "domain": {
+      "leadGeneration": "Generación de clientes",
+      "caseManagement": "Gestión de casos",
+      "workspace": "Espacio del abogado"
+    },
+    "nav": {
+      "matches": { "label": "Nuevas coincidencias", "description": "Casos pendientes de revisión" },
+      "quality": { "label": "Calidad de coincidencia", "description": "Conversión por área de práctica" },
+      "marketplace": { "label": "Rendimiento del mercado", "description": "ROI de adquisición" },
+      "active": { "label": "Casos activos", "description": "Cartera y reingreso rápido" },
+      "calendar": { "label": "Calendario y consultas", "description": "Próximas reuniones" },
+      "scheduling": { "label": "Programación", "description": "Tu enlace público de reservas" },
+      "messages": { "label": "Mensajes", "description": "Hilos con clientes y ajustadores" },
+      "team": { "label": "Chat del equipo", "description": "Mensajea a colegas del bufete" },
+      "activity": { "label": "Actividad", "description": "Menciones y discusión del caso" },
+      "documents": { "label": "Documentos y firma electrónica", "description": "Solicitudes y firmas" },
+      "tasks": { "label": "Tareas", "description": "Cola entre casos" },
+      "deadlines": { "label": "Plazos", "description": "Radar de prescripción" },
+      "contacts": { "label": "Contactos", "description": "Directorio de partes" },
+      "billing": { "label": "Facturación", "description": "Honorarios, facturas, costos" },
+      "aiManager": { "label": "Rose — Gestor de casos IA", "description": "Plantea la siguiente tarea en cada caso" },
+      "copilot": { "label": "Copiloto IA", "description": "Análisis y próximas acciones" },
+      "firm": { "label": "Panel del bufete", "description": "Cartera del equipo" },
+      "intake": { "label": "Admisión", "description": "Clientes manuales e importados" }
+    }
+  },
   "common": {
     "appName": "ClearCaseIQ",
     "startAssessment": "Iniciar Evaluación Gratuita",

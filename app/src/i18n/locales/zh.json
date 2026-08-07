@@ -1,4 +1,81 @@
 {
+  "adminChrome": {
+    "routingStatus": "路由状态…",
+    "routingOff": "路由已关闭",
+    "routingOn": "路由已开启",
+    "signOut": "退出登录",
+    "useLightTheme": "使用浅色主题",
+    "useDarkTheme": "使用深色主题"
+  },
+  "adminNav": {
+    "groups": {
+      "operations": "运营",
+      "network": "网络",
+      "oversight": "监督",
+      "configuration": "配置"
+    },
+    "items": {
+      "dashboard": { "label": "仪表板" },
+      "opsInbox": { "label": "运营收件箱" },
+      "cases": { "label": "案件" },
+      "caseFlow": { "label": "案件流程" },
+      "routingQueue": { "label": "路由队列" },
+      "manualReview": { "label": "人工审核" },
+      "attorneys": { "label": "律师" },
+      "analytics": { "label": "分析" },
+      "routingFeedback": { "label": "路由反馈" },
+      "communications": { "label": "通讯" },
+      "documents": { "label": "文档与 OCR" },
+      "auditLogs": { "label": "审计日志" },
+      "systemStatus": { "label": "系统状态" },
+      "compliance": { "label": "合规" },
+      "matchingRules": { "label": "匹配规则" },
+      "heuristics": { "label": "启发式规则" },
+      "fieldMappings": { "label": "字段映射" },
+      "users": { "label": "用户角色" },
+      "featureToggles": { "label": "功能开关" },
+      "firmSettings": { "label": "事务所设置" },
+      "smsTools": { "label": "短信工具" }
+    }
+  },
+  "attorneyWorkspace": {
+    "workspaceSubtitle": "律师工作区",
+    "comingSoon": "即将推出",
+    "soon": "即将",
+    "notifications": {
+      "label": "通知",
+      "description": "匹配、截止日期和动态"
+    },
+    "sections": {
+      "leadgen": "客户开发",
+      "casework": "案件管理"
+    },
+    "domain": {
+      "leadGeneration": "客户开发",
+      "caseManagement": "案件管理",
+      "workspace": "律师工作区"
+    },
+    "nav": {
+      "matches": { "label": "新匹配", "description": "待审核的案件" },
+      "quality": { "label": "匹配质量", "description": "按业务领域的转化率" },
+      "marketplace": { "label": "市场表现", "description": "获客投资回报" },
+      "active": { "label": "进行中的案件", "description": "案件量与快速返回" },
+      "calendar": { "label": "日历与咨询", "description": "即将到来的会议" },
+      "scheduling": { "label": "排期", "description": "你的公开预约链接" },
+      "messages": { "label": "消息", "description": "客户与理赔员对话" },
+      "team": { "label": "团队聊天", "description": "与事务所同事沟通" },
+      "activity": { "label": "动态", "description": "提及与案件讨论" },
+      "documents": { "label": "文件与电子签名", "description": "请求与签名" },
+      "tasks": { "label": "任务", "description": "跨案件队列" },
+      "deadlines": { "label": "截止日期", "description": "诉讼时效雷达" },
+      "contacts": { "label": "联系人", "description": "当事人名录" },
+      "billing": { "label": "账单", "description": "费用、发票、成本" },
+      "aiManager": { "label": "Rose — AI 案件经理", "description": "为每个案件提出下一项任务" },
+      "copilot": { "label": "AI 副驾", "description": "分析与后续行动" },
+      "firm": { "label": "事务所仪表板", "description": "团队案件量" },
+      "intake": { "label": "接案", "description": "手动与导入的客户" }
+    }
+  },
   "common": {
     "appName": "ClearCaseIQ",
     "startAssessment": "免费开始案件评估",

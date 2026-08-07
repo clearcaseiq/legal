@@ -32,6 +32,8 @@ import {
 import { BrandMark } from './BrandLogo'
 import { useAdminRoutingStatus } from '../hooks/useAdminRoutingStatus'
 import { useTheme } from '../contexts/ThemeContext'
+import { useLanguage } from '../contexts/LanguageContext'
+import LanguageSwitcher from './LanguageSwitcher'
 import AdminNotificationBell from './AdminNotificationBell'
 import { clearStoredAuth, getAdminLoginPath, getStoredUser } from '../lib/auth'
 import { verifyAdminAccess } from '../lib/api-auth'
@@ -51,46 +53,51 @@ import {
  * to them left nothing highlighted in the nav.
  */
 const navGroups: {
+  id: string
   label: string
-  items: { path: string; label: string; icon: typeof LayoutDashboard }[]
+  items: { path: string; id: string; label: string; icon: typeof LayoutDashboard }[]
 }[] = [
   {
+    id: 'operations',
     label: 'Operations',
     items: [
-      { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
-      { path: '/admin/ops-inbox', label: 'Ops Inbox', icon: Inbox },
-      { path: '/admin/cases', label: 'Cases', icon: FileText },
-      { path: '/admin/case-flow', label: 'Case Flow', icon: Workflow },
-      { path: '/admin/routing-queue', label: 'Routing Queue', icon: GitBranch },
-      { path: '/admin/manual-review', label: 'Manual Review', icon: ClipboardCheck },
+      { path: '/admin', id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { path: '/admin/ops-inbox', id: 'opsInbox', label: 'Ops Inbox', icon: Inbox },
+      { path: '/admin/cases', id: 'cases', label: 'Cases', icon: FileText },
+      { path: '/admin/case-flow', id: 'caseFlow', label: 'Case Flow', icon: Workflow },
+      { path: '/admin/routing-queue', id: 'routingQueue', label: 'Routing Queue', icon: GitBranch },
+      { path: '/admin/manual-review', id: 'manualReview', label: 'Manual Review', icon: ClipboardCheck },
     ],
   },
   {
+    id: 'network',
     label: 'Network',
-    items: [{ path: '/admin/attorneys', label: 'Attorneys', icon: Users }],
+    items: [{ path: '/admin/attorneys', id: 'attorneys', label: 'Attorneys', icon: Users }],
   },
   {
+    id: 'oversight',
     label: 'Oversight',
     items: [
-      { path: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
-      { path: '/admin/routing-feedback', label: 'Routing Feedback', icon: BrainCircuit },
-      { path: '/admin/communications', label: 'Communications', icon: MessageSquare },
-      { path: '/admin/documents', label: 'Documents & OCR', icon: FileSearch },
-      { path: '/admin/audit-logs', label: 'Audit Logs', icon: ScrollText },
-      { path: '/admin/system-status', label: 'System Status', icon: Activity },
-      { path: '/admin/compliance', label: 'Compliance', icon: Shield },
+      { path: '/admin/analytics', id: 'analytics', label: 'Analytics', icon: BarChart3 },
+      { path: '/admin/routing-feedback', id: 'routingFeedback', label: 'Routing Feedback', icon: BrainCircuit },
+      { path: '/admin/communications', id: 'communications', label: 'Communications', icon: MessageSquare },
+      { path: '/admin/documents', id: 'documents', label: 'Documents & OCR', icon: FileSearch },
+      { path: '/admin/audit-logs', id: 'auditLogs', label: 'Audit Logs', icon: ScrollText },
+      { path: '/admin/system-status', id: 'systemStatus', label: 'System Status', icon: Activity },
+      { path: '/admin/compliance', id: 'compliance', label: 'Compliance', icon: Shield },
     ],
   },
   {
+    id: 'configuration',
     label: 'Configuration',
     items: [
-      { path: '/admin/matching-rules', label: 'Matching Rules', icon: Sliders },
-      { path: '/admin/heuristics', label: 'Heuristics', icon: SlidersHorizontal },
-      { path: '/admin/field-mappings', label: 'Field Mappings', icon: ArrowLeftRight },
-      { path: '/admin/users', label: 'User Roles', icon: UserCog },
-      { path: '/admin/feature-toggles', label: 'Feature Toggles', icon: ToggleLeft },
-      { path: '/admin/firm-settings', label: 'Firm Settings', icon: Building2 },
-      { path: '/admin/settings', label: 'SMS tools', icon: MessageSquareText },
+      { path: '/admin/matching-rules', id: 'matchingRules', label: 'Matching Rules', icon: Sliders },
+      { path: '/admin/heuristics', id: 'heuristics', label: 'Heuristics', icon: SlidersHorizontal },
+      { path: '/admin/field-mappings', id: 'fieldMappings', label: 'Field Mappings', icon: ArrowLeftRight },
+      { path: '/admin/users', id: 'users', label: 'User Roles', icon: UserCog },
+      { path: '/admin/feature-toggles', id: 'featureToggles', label: 'Feature Toggles', icon: ToggleLeft },
+      { path: '/admin/firm-settings', id: 'firmSettings', label: 'Firm Settings', icon: Building2 },
+      { path: '/admin/settings', id: 'smsTools', label: 'SMS tools', icon: MessageSquareText },
     ],
   },
 ]
@@ -103,6 +110,7 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
   const [capabilities, setCapabilities] = useState<AdminCapability[]>(() => getStoredAdminCapabilities())
   const { routingEnabled, loading: routingStatusLoading } = useAdminRoutingStatus()
   const { darkMode, toggle } = useTheme()
+  const { t } = useLanguage()
   const adminUser = getStoredUser<{ email?: string; firstName?: string }>('user')
   const adminEmail = adminUser?.email?.trim() || null
 
@@ -168,7 +176,7 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
               }`}
             >
               <Power className="h-3.5 w-3.5" />
-              {routingStatusLoading ? 'Routing status...' : routingEnabled === false ? 'Routing off' : 'Routing on'}
+              {routingStatusLoading ? t('adminChrome.routingStatus') : routingEnabled === false ? t('adminChrome.routingOff') : t('adminChrome.routingOn')}
             </Link>
           </div>
           <div className="flex items-center gap-1 sm:gap-2">
@@ -181,10 +189,11 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
               </span>
             )}
             <AdminNotificationBell />
+            <LanguageSwitcher />
             <button
               type="button"
               onClick={toggle}
-              aria-label={darkMode ? 'Use light theme' : 'Use dark theme'}
+              aria-label={darkMode ? t('adminChrome.useLightTheme') : t('adminChrome.useDarkTheme')}
               className="pressable rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             >
               {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
@@ -192,11 +201,11 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
             <button
               type="button"
               onClick={handleSignOut}
-              aria-label="Sign out"
+              aria-label={t('adminChrome.signOut')}
               className="pressable inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             >
               <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">Sign out</span>
+              <span className="hidden sm:inline">{t('adminChrome.signOut')}</span>
             </button>
           </div>
         </div>
@@ -211,9 +220,9 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
         >
           <nav className="h-full space-y-5 overflow-y-auto p-4 pb-8">
             {visibleNavGroups.map((group) => (
-              <div key={group.label}>
+              <div key={group.id}>
                 <p className="px-3 pb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                  {group.label}
+                  {t(`adminNav.groups.${group.id}`)}
                 </p>
                 <div className="space-y-1">
                   {group.items.map((item) => {
@@ -235,7 +244,7 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
                         }`}
                       >
                         <Icon className="h-5 w-5 shrink-0" />
-                        {item.label}
+                        {t(`adminNav.items.${item.id}.label`)}
                       </Link>
                     )
                   })}

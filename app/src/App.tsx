@@ -3,8 +3,6 @@ import { Routes, Route, Navigate, Link, useLocation, useParams, useNavigate, use
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import { GuestRoute, ProtectedRoute } from './components/AuthRoute'
-import { useLanguage } from './contexts/LanguageContext'
-import { ATTORNEY_ROUTE_PREFIXES } from './lib/layoutWidth'
 
 const Home = lazy(() => import('./pages/Home'))
 const Login = lazy(() => import('./pages/Login'))
@@ -252,22 +250,6 @@ function ResultsRouteBoundary() {
   )
 }
 
-// The attorney-facing product is English-only; switch back to English if the
-// shared language picker was left on Spanish/Chinese from the plaintiff flow.
-function AttorneyEnglishEnforcer() {
-  const location = useLocation()
-  const { language, setLanguage } = useLanguage()
-
-  useEffect(() => {
-    const isAttorneyRoute = ATTORNEY_ROUTE_PREFIXES.some((prefix) => location.pathname.startsWith(prefix))
-    if (isAttorneyRoute && language !== 'en') {
-      setLanguage('en')
-    }
-  }, [location.pathname, language, setLanguage])
-
-  return null
-}
-
 // Route-scoped boundary that lives inside <Layout> so a render crash on one
 // page shows an inline, recoverable error (with the nav still usable) instead
 // of blanking the whole app. Resetting on pathname change lets the user simply
@@ -288,7 +270,6 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <AttorneyEnglishEnforcer />
       <Layout>
         <RouteErrorBoundary>
         <Suspense fallback={<RouteFallback />}>

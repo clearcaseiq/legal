@@ -26,9 +26,13 @@ import { AttorneyWorkspaceProvider, useAttorneyWorkspace } from './AttorneyWorks
 import { initials } from './ui'
 import GlobalSearch from './GlobalSearch'
 import { isCalendarRoute, isWideAttorneyRoute } from '../../lib/layoutWidth'
+import { useLanguage } from '../../contexts/LanguageContext'
 
 interface NavEntry {
   to: string
+  /** i18n id: label/description resolve to attorneyWorkspace.nav.<id>.* */
+  id: string
+  /** English fallback label (source of truth mirrored into en.json). */
   label: string
   description?: string
   icon: ComponentType<{ className?: string }>
@@ -47,30 +51,30 @@ const NAV_SECTIONS: NavSection[] = [
     id: 'leadgen',
     label: 'Lead Generation',
     entries: [
-      { to: '/attorney-dashboard/leadgen/matches', label: 'New Matches', description: 'Cases awaiting review', icon: Inbox },
-      { to: '/attorney-dashboard/leadgen/quality', label: 'Match Quality', description: 'Conversion by practice area', icon: Gauge },
-      { to: '/attorney-dashboard/leadgen/marketplace', label: 'Marketplace Performance', description: 'Acquisition ROI', icon: Store },
+      { to: '/attorney-dashboard/leadgen/matches', id: 'matches', label: 'New Matches', description: 'Cases awaiting review', icon: Inbox },
+      { to: '/attorney-dashboard/leadgen/quality', id: 'quality', label: 'Match Quality', description: 'Conversion by practice area', icon: Gauge },
+      { to: '/attorney-dashboard/leadgen/marketplace', id: 'marketplace', label: 'Marketplace Performance', description: 'Acquisition ROI', icon: Store },
     ],
   },
   {
     id: 'casework',
     label: 'Case Management',
     entries: [
-      { to: '/attorney-dashboard/cases/active', label: 'Active Cases', description: 'Caseload & quick re-entry', icon: Briefcase },
-      { to: '/attorney-dashboard/cases/calendar', label: 'Calendar & Consults', description: 'Upcoming meetings', icon: CalendarDays },
-      { to: '/attorney-dashboard/cases/scheduling', label: 'Scheduling', description: 'Your public booking link', icon: CalendarClock },
-      { to: '/attorney-dashboard/cases/messages', label: 'Messages', description: 'Client & adjuster threads', icon: MessagesSquare },
-      { to: '/attorney-dashboard/cases/team', label: 'Team Chat', description: 'Message firm colleagues', icon: Users2 },
-      { to: '/attorney-dashboard/cases/activity', label: 'Activity', description: 'Mentions & case discussion', icon: AtSign },
-      { to: '/attorney-dashboard/cases/documents', label: 'Documents & E-sign', description: 'Requests & signatures', icon: FileSignature },
-      { to: '/attorney-dashboard/cases/tasks', label: 'Tasks', description: 'Cross-case queue', icon: ListChecks },
-      { to: '/attorney-dashboard/cases/deadlines', label: 'Deadlines', description: 'Statute-of-limitations radar', icon: AlarmClock },
-      { to: '/attorney-dashboard/cases/contacts', label: 'Contacts', description: 'Parties directory', icon: Contact },
-      { to: '/attorney-dashboard/cases/billing', label: 'Billing', description: 'Fees, invoices, costs', icon: Wallet },
-      { to: '/attorney-dashboard/cases/ai-manager', label: 'Rose — AI Case Manager', description: 'Raises the next task on every case', icon: Bot },
-      { to: '/attorney-dashboard/cases/copilot', label: 'AI Copilot', description: 'Analysis & next actions', icon: Sparkles },
-      { to: '/attorney-dashboard/cases/firm', label: 'Firm Dashboard', description: 'Team caseload', icon: Building2, firmAdminOnly: true },
-      { to: '/attorney-dashboard/cases/intake', label: 'Intake', description: 'Manual & imported leads', icon: Upload, comingSoon: true },
+      { to: '/attorney-dashboard/cases/active', id: 'active', label: 'Active Cases', description: 'Caseload & quick re-entry', icon: Briefcase },
+      { to: '/attorney-dashboard/cases/calendar', id: 'calendar', label: 'Calendar & Consults', description: 'Upcoming meetings', icon: CalendarDays },
+      { to: '/attorney-dashboard/cases/scheduling', id: 'scheduling', label: 'Scheduling', description: 'Your public booking link', icon: CalendarClock },
+      { to: '/attorney-dashboard/cases/messages', id: 'messages', label: 'Messages', description: 'Client & adjuster threads', icon: MessagesSquare },
+      { to: '/attorney-dashboard/cases/team', id: 'team', label: 'Team Chat', description: 'Message firm colleagues', icon: Users2 },
+      { to: '/attorney-dashboard/cases/activity', id: 'activity', label: 'Activity', description: 'Mentions & case discussion', icon: AtSign },
+      { to: '/attorney-dashboard/cases/documents', id: 'documents', label: 'Documents & E-sign', description: 'Requests & signatures', icon: FileSignature },
+      { to: '/attorney-dashboard/cases/tasks', id: 'tasks', label: 'Tasks', description: 'Cross-case queue', icon: ListChecks },
+      { to: '/attorney-dashboard/cases/deadlines', id: 'deadlines', label: 'Deadlines', description: 'Statute-of-limitations radar', icon: AlarmClock },
+      { to: '/attorney-dashboard/cases/contacts', id: 'contacts', label: 'Contacts', description: 'Parties directory', icon: Contact },
+      { to: '/attorney-dashboard/cases/billing', id: 'billing', label: 'Billing', description: 'Fees, invoices, costs', icon: Wallet },
+      { to: '/attorney-dashboard/cases/ai-manager', id: 'aiManager', label: 'Rose — AI Case Manager', description: 'Raises the next task on every case', icon: Bot },
+      { to: '/attorney-dashboard/cases/copilot', id: 'copilot', label: 'AI Copilot', description: 'Analysis & next actions', icon: Sparkles },
+      { to: '/attorney-dashboard/cases/firm', id: 'firm', label: 'Firm Dashboard', description: 'Team caseload', icon: Building2, firmAdminOnly: true },
+      { to: '/attorney-dashboard/cases/intake', id: 'intake', label: 'Intake', description: 'Manual & imported leads', icon: Upload, comingSoon: true },
     ],
   },
 ]
@@ -130,11 +134,11 @@ function navEntryActive(to: string, pathname: string): boolean {
   return false
 }
 
-function domainForPath(pathname: string): 'Lead Generation' | 'Case Management' | 'Attorney Workspace' {
-  if (pathname.startsWith('/attorney-dashboard/leadgen')) return 'Lead Generation'
-  if (pathname.startsWith('/attorney-dashboard/cases')) return 'Case Management'
-  if (isCaseFilePath(pathname)) return 'Case Management'
-  return 'Attorney Workspace'
+function domainForPath(pathname: string): 'leadGeneration' | 'caseManagement' | 'workspace' {
+  if (pathname.startsWith('/attorney-dashboard/leadgen')) return 'leadGeneration'
+  if (pathname.startsWith('/attorney-dashboard/cases')) return 'caseManagement'
+  if (isCaseFilePath(pathname)) return 'caseManagement'
+  return 'workspace'
 }
 
 const MESSAGES_ROUTE = '/attorney-dashboard/cases/messages'
@@ -153,6 +157,7 @@ const NOTIFICATIONS_ROUTE = '/attorney-dashboard/notifications'
 
 function Sidebar() {
   const location = useLocation()
+  const { t } = useLanguage()
   const { attorney, isFirmAdmin, unreadMessages, unreadTeamMessages, unreadNotifications } = useAttorneyWorkspace()
 
   const isActive = (to: string) => navEntryActive(to, location.pathname)
@@ -172,7 +177,7 @@ function Sidebar() {
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-slate-800">{attorney.name}</p>
-            <p className="truncate text-xs text-slate-500">{attorney.firmName || 'Attorney workspace'}</p>
+            <p className="truncate text-xs text-slate-500">{attorney.firmName || t('attorneyWorkspace.workspaceSubtitle')}</p>
           </div>
           <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-brand-500" />
         </Link>
@@ -195,9 +200,9 @@ function Sidebar() {
                 <Bell className="h-4 w-4" />
               </span>
               <span className="min-w-0">
-                <span className="block font-medium leading-tight">Notifications</span>
+                <span className="block font-medium leading-tight">{t('attorneyWorkspace.notifications.label')}</span>
                 <span className={`block text-[11px] leading-tight ${active ? 'text-brand-500' : 'text-slate-400'}`}>
-                  Matches, deadlines &amp; activity
+                  {t('attorneyWorkspace.notifications.description')}
                 </span>
               </span>
               <NavBadge count={unreadNotifications} />
@@ -211,7 +216,7 @@ function Sidebar() {
           return (
             <div key={section.id}>
               <p className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
-                {section.label}
+                {t(`attorneyWorkspace.sections.${section.id}`)}
               </p>
               <nav className="space-y-0.5">
                 {entries.map((entry) => {
@@ -227,8 +232,8 @@ function Sidebar() {
                           <Icon className="h-4 w-4" />
                         </span>
                         <span className="min-w-0">
-                          <span className="block font-medium leading-tight">{entry.label}</span>
-                          <span className="block text-[11px] leading-tight text-slate-400">Coming soon</span>
+                          <span className="block font-medium leading-tight">{t(`attorneyWorkspace.nav.${entry.id}.label`)}</span>
+                          <span className="block text-[11px] leading-tight text-slate-400">{t('attorneyWorkspace.comingSoon')}</span>
                         </span>
                       </span>
                     )
@@ -252,12 +257,12 @@ function Sidebar() {
                         <Icon className="h-4 w-4" />
                       </span>
                       <span className="min-w-0">
-                        <span className="block font-medium leading-tight">{entry.label}</span>
+                        <span className="block font-medium leading-tight">{t(`attorneyWorkspace.nav.${entry.id}.label`)}</span>
                         {entry.description && (
                           <span
                             className={`block text-[11px] leading-tight ${active ? style.desc : 'text-slate-400'}`}
                           >
-                            {entry.description}
+                            {t(`attorneyWorkspace.nav.${entry.id}.description`)}
                           </span>
                         )}
                       </span>
@@ -276,6 +281,7 @@ function Sidebar() {
 
 function MobileNav() {
   const location = useLocation()
+  const { t } = useLanguage()
   const { isFirmAdmin, unreadMessages, unreadTeamMessages, unreadNotifications } = useAttorneyWorkspace()
   const isActive = (to: string) => navEntryActive(to, location.pathname)
   const badgeFor = (to: string) =>
@@ -305,12 +311,12 @@ function MobileNav() {
               </span>
             )}
           </span>
-          Notifications
+          {t('attorneyWorkspace.notifications.label')}
         </Link>
         {entries.map((entry) => {
           const Icon = entry.icon
           const active = isActive(entry.to)
-          const style = domainStyle(entry.domain)
+          const style = domainStyle(entry.domain as string)
           if (entry.comingSoon) {
             return (
               <span
@@ -320,8 +326,8 @@ function MobileNav() {
                 <span className={`flex h-5 w-5 items-center justify-center rounded-full ${style.chipIdle}`}>
                   <Icon className="h-3 w-3" />
                 </span>
-                {entry.label}
-                <span className="text-[10px] font-normal text-slate-400">Soon</span>
+                {t(`attorneyWorkspace.nav.${entry.id}.label`)}
+                <span className="text-[10px] font-normal text-slate-400">{t('attorneyWorkspace.soon')}</span>
               </span>
             )
           }
@@ -345,7 +351,7 @@ function MobileNav() {
                   </span>
                 )}
               </span>
-              {entry.label}
+              {t(`attorneyWorkspace.nav.${entry.id}.label`)}
             </Link>
           )
         })}
@@ -356,6 +362,7 @@ function MobileNav() {
 
 function WorkspaceChrome() {
   const location = useLocation()
+  const { t } = useLanguage()
   const domain = domainForPath(location.pathname)
   // Global (case/contact/document) search is a Case Management tool — it's noise on
   // the Lead Generation screens (New Matches, Match Quality, Marketplace), so hide it there.
@@ -370,7 +377,7 @@ function WorkspaceChrome() {
         <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-slate-500">
           <span className="font-semibold text-slate-700">ClearCaseIQ</span>
           <span className="text-slate-300">/</span>
-          <span className="truncate">{domain}</span>
+          <span className="truncate">{t(`attorneyWorkspace.domain.${domain}`)}</span>
         </div>
       </div>
       <div className="flex gap-6">
