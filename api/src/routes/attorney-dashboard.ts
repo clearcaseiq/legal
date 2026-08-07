@@ -9549,8 +9549,12 @@ router.post('/leads/:leadId/intelligence/gap-action', authMiddleware, async (req
       generate_doc_request: `Send document request: ${label}`,
       schedule_followup: `Follow up with client re: ${label}`,
     }
+    // "Request from client" is work the plaintiff must do, so it belongs to them
+    // and must trigger a plaintiff notification/email (CP-430). Other gap actions
+    // stay internal to the firm.
+    const isClientRequest = action === 'request_from_client'
     const paralegalActions: GapAction[] = ['assign_paralegal', 'generate_doc_request']
-    const assignedRole = paralegalActions.includes(action) ? 'paralegal' : 'attorney'
+    const assignedRole = isClientRequest ? 'client' : paralegalActions.includes(action) ? 'paralegal' : 'attorney'
 
     const record = await prisma.caseTask.create({
       data: {
@@ -9575,6 +9579,14 @@ router.post('/leads/:leadId/intelligence/gap-action', authMiddleware, async (req
       entityId: record.id,
       metadata: { title: record.title, source: 'case_intelligence', gapAction: action },
     }).catch(() => undefined)
+    if (isClientRequest) {
+      await notifyPlaintiffOfAssignedTask({
+        leadId,
+        assessmentId: lead.assessmentId,
+        attorney,
+        task: record,
+      })
+    }
     res.json({ task: record })
   } catch (error: any) {
     logger.error('Failed to run gap action', { error: error.message })
@@ -9632,8 +9644,11 @@ router.post('/leads/:leadId/coach/action', authMiddleware, async (req: any, res)
       generate_doc_request: `Send document request: ${title}`,
       schedule_followup: `Follow up: ${title}`,
     }
+    // A coach "request from client" is plaintiff work — assign it to them and
+    // notify by bell + email (CP-430). Other coach actions stay firm-internal.
+    const isClientRequest = action === 'request_from_client'
     const paralegalActions: GapAction[] = ['assign_paralegal', 'generate_doc_request']
-    const assignedRole = paralegalActions.includes(action) ? 'paralegal' : 'attorney'
+    const assignedRole = isClientRequest ? 'client' : paralegalActions.includes(action) ? 'paralegal' : 'attorney'
     const taskPriority = priority === 'critical' || priority === 'high' ? 'high' : priority === 'low' ? 'low' : 'medium'
 
     const record = await prisma.caseTask.create({
@@ -9659,6 +9674,14 @@ router.post('/leads/:leadId/coach/action', authMiddleware, async (req: any, res)
       entityId: record.id,
       metadata: { title: record.title, source: 'case_coach', coachAction: action },
     }).catch(() => undefined)
+    if (isClientRequest) {
+      await notifyPlaintiffOfAssignedTask({
+        leadId,
+        assessmentId: lead.assessmentId,
+        attorney,
+        task: record,
+      })
+    }
     res.json({ task: record })
   } catch (error: any) {
     logger.error('Failed to run coach action', { error: error.message })

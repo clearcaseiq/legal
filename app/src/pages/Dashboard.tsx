@@ -2014,8 +2014,8 @@ export default function Dashboard() {
                               <p className="text-xs font-medium text-gray-500 mb-1">
                                 {m.from === 'plaintiff' ? t('plaintiffDashboard.messages.you') : routingStatus?.attorneyMatched?.name}
                               </p>
-                              {m.subject && <p className="font-medium text-gray-900 text-sm">{m.subject}</p>}
-                              <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap">{m.message}</p>
+                              {m.subject && <p translate="no" className="notranslate font-medium text-gray-900 text-sm">{m.subject}</p>}
+                              <p translate="no" className="notranslate text-sm text-gray-700 mt-1 whitespace-pre-wrap">{m.message}</p>
                               <p className="text-xs text-gray-500 mt-2">{new Date(m.createdAt).toLocaleString()}</p>
                             </div>
                           ))

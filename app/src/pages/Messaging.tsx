@@ -530,7 +530,7 @@ export default function Messaging() {
                             ? 'bg-primary-600 text-white'
                             : 'bg-gray-100 text-gray-900'
                         }`}>
-                          <p className="text-sm whitespace-pre-wrap break-words">{linkify(message.content, message.senderType === 'user' ? 'underline break-all text-white hover:text-white/80' : 'underline break-all text-primary-600 hover:text-primary-700')}</p>
+                          <p translate="no" className="notranslate text-sm whitespace-pre-wrap break-words">{linkify(message.content, message.senderType === 'user' ? 'underline break-all text-white hover:text-white/80' : 'underline break-all text-primary-600 hover:text-primary-700')}</p>
                           <p className={`text-xs mt-1 ${
                             message.senderType === 'user' ? 'text-primary-100' : 'text-gray-500'
                           }`}>
@@ -626,7 +626,7 @@ export default function Messaging() {
                     }`}>
                       {message.type === 'user' ? <User className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
                     </div>
-                    <div className={`px-3 py-2 rounded-lg text-sm ${
+                    <div translate="no" className={`notranslate px-3 py-2 rounded-lg text-sm ${
                       message.type === 'user'
                         ? 'bg-primary-600 text-white'
                         : 'bg-gray-100 text-gray-900'

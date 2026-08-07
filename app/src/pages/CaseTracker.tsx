@@ -750,7 +750,7 @@ export default function CaseTracker() {
                             {room.attorney?.name || 'Attorney'}
                           </p>
                           {room.lastMessage && (
-                            <p className="text-xs text-gray-500 mt-1 truncate">
+                            <p translate="no" className="notranslate text-xs text-gray-500 mt-1 truncate">
                               {room.lastMessage.content}
                             </p>
                           )}
