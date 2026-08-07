@@ -3879,6 +3879,109 @@
         "edit": "编辑",
         "delete": "删除"
       }
+    },
+    "dynamic": {
+      "notif": {
+        "viewed": "有律师查看了您的案件。",
+        "accepted": "有律师对您的案件感兴趣！",
+        "requestedInfo": "有律师要求提供更多信息。",
+        "manualReview": "您的案件正在团队审核中。",
+        "rankAdvanced": "您的案件已转到您排序列表中的下一位律师。",
+        "rankBatch": "您最初的首选律师暂无法接案，因此我们扩大了搜索范围，联系了更多匹配的律师。"
+      },
+      "scheduleLoadError": "无法加载咨询时间。",
+      "banner": {
+        "matchedTitle": "有律师对您的案件感兴趣",
+        "matchedSubtitle": "您现在正与一位律师合作。请预约咨询以讨论您的案件。",
+        "reviewTitle": "您的案件正在团队审核中",
+        "reviewSubtitle": "我们的团队正在核查分配匹配度和下一步最佳方案。",
+        "moreInfoTitle": "需要更多信息",
+        "moreInfoSubtitle": "请补充所需的详情或文件，以便您的案件继续推进。",
+        "needsDetailTitle": "您的案件需要更多细节",
+        "needsDetailSubtitle": "在分配之前，请用更多事实或证据来加强您的案件。",
+        "submittedTitle": "已提交律师审核",
+        "submittedSubtitle": "预计在 {label} 内回复"
+      },
+      "action": {
+        "scheduleConsult": "下一步：预约咨询",
+        "scheduleConsultDetail": "预约与您的律师通话，讨论您的案件",
+        "scheduleConsultCta": "预约咨询",
+        "uploadRequested": "上传您的律师所要求的文件",
+        "itemsMissingOne": "还缺少 {count} 项",
+        "itemsMissingMany": "还缺少 {count} 项",
+        "uploadDocumentsCta": "上传文件",
+        "consultScheduled": "咨询已预约",
+        "consultScheduledDetail": "为与您的律师通话做好准备",
+        "viewDetailsCta": "查看详情",
+        "teamReviewing": "我们的团队正在审核您的案件",
+        "teamReviewingDetail": "除非我们要求提供更多信息，否则您无需进行任何紧急操作。",
+        "uploadEvidenceCta": "上传证据",
+        "addRequested": "补充所要求的信息",
+        "addRequestedDetail": "尽快回复有助于律师继续审核您的案件",
+        "strengthenDetails": "完善您的案件细节",
+        "strengthenDetailsDetail": "更多证据和完整的事实可以使您的案件可被分配",
+        "improveCaseCta": "完善案件",
+        "completeDescription": "完成您的事故描述",
+        "completeDescriptionDetail": "事故是如何发生的是律师最先阅读的内容",
+        "editCaseCta": "编辑案件",
+        "addLocation": "添加事故地点",
+        "addLocationDetail": "事发地点决定了哪些律师可以承接此案",
+        "uploadBill": "上传您的急诊或医院账单",
+        "uploadBillDetail": "您的治疗费用在有文件证明之前无法计入",
+        "uploadDocumentCta": "上传文件",
+        "documentWageLoss": "如果您误工，请记录薪资损失",
+        "documentWageLossDetail": "您已经损失的时间可以获得赔偿，但前提是有文件证明",
+        "addWageLossCta": "添加薪资损失",
+        "submitted": "您的案件已提交律师审核",
+        "submittedDetail": "律师通常在 {label} 内回复",
+        "viewReportCta": "查看案件报告",
+        "submitCase": "提交您的案件以供律师审核",
+        "submitCaseDetail": "与律师匹配",
+        "sendForReviewCta": "发送审核"
+      },
+      "timeline": {
+        "submittedTitle": "案件已提交律师审核",
+        "submittedDetail": "您的案件正在匹配队列中。",
+        "interestedTitle": "{name} 对您的案件感兴趣",
+        "interestedDetailUpcoming": "您的咨询是下一个里程碑。",
+        "interestedDetailSchedule": "预约咨询以继续推进。",
+        "consultScheduledTitle": "咨询已预约",
+        "waitlistTitle": "更早时段候补名单已启用",
+        "waitlistDetail": "状态：{status}",
+        "recentUpdate": "最近更新"
+      },
+      "activity": {
+        "tenMinutesAgo": "10 分钟前",
+        "none": "暂无律师活动"
+      },
+      "stage": {
+        "matched": "已匹配",
+        "attorneyReview": "律师审核",
+        "assessment": "评估"
+      },
+      "opportunity": {
+        "medicalRecords": "上传医疗记录",
+        "hospitalBill": "上传医院账单",
+        "policeReport": "上传警方报告",
+        "wageLoss": "上传薪资损失文件"
+      },
+      "impact": {
+        "highest": "影响最大",
+        "medium": "影响中等",
+        "helpful": "有帮助"
+      },
+      "band": {
+        "high": "高",
+        "moderate": "中等",
+        "building": "构建中",
+        "notAssessed": "未评估",
+        "strong": "强",
+        "weak": "弱",
+        "missing": "缺失",
+        "improving": "改善中",
+        "documented": "已记录",
+        "notDocumented": "未记录"
+      }
     }
   },
   "notFound": {

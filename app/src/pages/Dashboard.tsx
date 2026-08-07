@@ -445,12 +445,12 @@ export default function Dashboard() {
         .then((data: any) => {
           setRoutingStatus(data)
           const last = data?.attorneyActivity?.[0]
-          if (last?.type === 'viewed') setLatestNotification('An attorney viewed your case.')
-          else if (last?.type === 'accepted') setLatestNotification('An attorney is interested in your case!')
-          else if (last?.type === 'requested_info') setLatestNotification('An attorney requested more information.')
-          else if (last?.type === 'manual_review_needed') setLatestNotification('Your case is in team review.')
-          else if (last?.type === 'plaintiff_rank_advanced') setLatestNotification('Your case moved to the next attorney in your ranked list.')
-          else if (last?.type === 'plaintiff_rank_batch_generated') setLatestNotification('Your original top choices were unavailable, so we expanded the search to more matching attorneys.')
+          if (last?.type === 'viewed') setLatestNotification(t('plaintiffDashboard.dynamic.notif.viewed'))
+          else if (last?.type === 'accepted') setLatestNotification(t('plaintiffDashboard.dynamic.notif.accepted'))
+          else if (last?.type === 'requested_info') setLatestNotification(t('plaintiffDashboard.dynamic.notif.requestedInfo'))
+          else if (last?.type === 'manual_review_needed') setLatestNotification(t('plaintiffDashboard.dynamic.notif.manualReview'))
+          else if (last?.type === 'plaintiff_rank_advanced') setLatestNotification(t('plaintiffDashboard.dynamic.notif.rankAdvanced'))
+          else if (last?.type === 'plaintiff_rank_batch_generated') setLatestNotification(t('plaintiffDashboard.dynamic.notif.rankBatch'))
           else if (data?.statusMessage) setLatestNotification(plaintiffStatusMessage(data.statusMessage))
         })
         .catch(() => {})
@@ -480,7 +480,7 @@ export default function Dashboard() {
       .catch((error: any) => {
         setScheduleSlots([])
         setSelectedScheduleSlot('')
-        setScheduleError(error?.response?.data?.error || 'Could not load consultation times.')
+        setScheduleError(error?.response?.data?.error || t('plaintiffDashboard.dynamic.scheduleLoadError'))
       })
       .finally(() => {
         setScheduleSlotsLoading(false)
@@ -648,6 +648,23 @@ export default function Dashboard() {
   const injuryLabel = injuries.length > 0 ? 'Strong' : 'Missing'
   const docLabel = evidenceCount > 0 ? 'Improving' : 'Missing'
   const damagesLabel = damages.med_charges || damages.med_paid || damages.wage_loss ? 'Documented' : 'Not documented'
+  // The *Label values above stay as stable English enums because other logic and
+  // child components compare against them (e.g. `liabilityLabel === 'Strong'`).
+  // bandLabel translates them only at render time so the UI follows the language.
+  const bandLabelKeys: Record<string, string> = {
+    'High': 'plaintiffDashboard.dynamic.band.high',
+    'Moderate': 'plaintiffDashboard.dynamic.band.moderate',
+    'Building': 'plaintiffDashboard.dynamic.band.building',
+    'Not assessed': 'plaintiffDashboard.dynamic.band.notAssessed',
+    'Strong': 'plaintiffDashboard.dynamic.band.strong',
+    'Weak': 'plaintiffDashboard.dynamic.band.weak',
+    'Missing': 'plaintiffDashboard.dynamic.band.missing',
+    'Improving': 'plaintiffDashboard.dynamic.band.improving',
+    'Documented': 'plaintiffDashboard.dynamic.band.documented',
+    'Not documented': 'plaintiffDashboard.dynamic.band.notDocumented',
+  }
+  const bandLabel = (value: string | null | undefined): string =>
+    value && bandLabelKeys[value] ? t(bandLabelKeys[value]) : (value ?? '')
 
   const attorneyMatched = !!routingStatus?.attorneyMatched
   const hasUpcomingConsult = !!routingStatus?.upcomingAppointment
@@ -669,36 +686,36 @@ export default function Dashboard() {
   const plaintiffRoutingStatusMessage = plaintiffStatusMessage(routingStatus?.statusMessage)
   const waitingBanner = attorneyMatched
     ? {
-        title: 'Attorney Interested In Your Case',
-        subtitle: "You're now working with an attorney. Schedule your consultation to discuss your case.",
+        title: t('plaintiffDashboard.dynamic.banner.matchedTitle'),
+        subtitle: t('plaintiffDashboard.dynamic.banner.matchedSubtitle'),
         className: 'bg-emerald-600 text-white',
         subClassName: 'text-emerald-100'
       }
     : inManualReview
     ? {
-        title: 'Your Case Is In Team Review',
-        subtitle: plaintiffRoutingStatusMessage || 'Our team is checking routing fit and the next best step.',
+        title: t('plaintiffDashboard.dynamic.banner.reviewTitle'),
+        subtitle: plaintiffRoutingStatusMessage || t('plaintiffDashboard.dynamic.banner.reviewSubtitle'),
         className: 'bg-amber-500 text-white',
         subClassName: 'text-amber-50'
       }
     : needsMoreInfo
     ? {
-        title: 'More Information Needed',
-        subtitle: plaintiffRoutingStatusMessage || 'Add the requested details or documents so your case can keep moving.',
+        title: t('plaintiffDashboard.dynamic.banner.moreInfoTitle'),
+        subtitle: plaintiffRoutingStatusMessage || t('plaintiffDashboard.dynamic.banner.moreInfoSubtitle'),
         className: 'bg-blue-600 text-white',
         subClassName: 'text-blue-100'
       }
     : notRoutableYet
     ? {
-        title: 'Your Case Needs More Detail',
-        subtitle: plaintiffRoutingStatusMessage || 'Strengthen your case with more facts or evidence before routing.',
+        title: t('plaintiffDashboard.dynamic.banner.needsDetailTitle'),
+        subtitle: plaintiffRoutingStatusMessage || t('plaintiffDashboard.dynamic.banner.needsDetailSubtitle'),
         className: 'bg-slate-700 text-white',
         subClassName: 'text-slate-100'
       }
     : submittedForReview
     ? {
-        title: 'Submitted for Attorney Review',
-        subtitle: plaintiffRoutingStatusMessage || `Expected response within ${responseDeadlineLabel}`,
+        title: t('plaintiffDashboard.dynamic.banner.submittedTitle'),
+        subtitle: plaintiffRoutingStatusMessage || t('plaintiffDashboard.dynamic.banner.submittedSubtitle', { label: responseDeadlineLabel }),
         className: 'bg-brand-600 text-white',
         subClassName: 'text-brand-100'
       }
@@ -711,54 +728,59 @@ export default function Dashboard() {
   // were not computed from anything. What these steps actually do is make the file
   // complete enough to evaluate, so that is what they say.
   const dailyAction = attorneyMatched && !hasUpcomingConsult
-    ? { action: 'Next Step: Schedule Consultation', detail: 'Book a call with your attorney to discuss your case', cta: 'Schedule Consultation', href: '#schedule', isSchedule: true }
+    ? { action: t('plaintiffDashboard.dynamic.action.scheduleConsult'), detail: t('plaintiffDashboard.dynamic.action.scheduleConsultDetail'), cta: t('plaintiffDashboard.dynamic.action.scheduleConsultCta'), href: '#schedule', isSchedule: true }
     : nextDocumentRequest
     ? {
-        action: 'Upload the documents your attorney requested',
-        detail: `${nextDocumentRequest.remainingDocs.length || nextDocumentRequest.items.length || 1} item${(nextDocumentRequest.remainingDocs.length || nextDocumentRequest.items.length || 1) === 1 ? '' : 's'} still missing`,
-        cta: 'Upload Documents',
+        action: t('plaintiffDashboard.dynamic.action.uploadRequested'),
+        detail: t(
+          (nextDocumentRequest.remainingDocs.length || nextDocumentRequest.items.length || 1) === 1
+            ? 'plaintiffDashboard.dynamic.action.itemsMissingOne'
+            : 'plaintiffDashboard.dynamic.action.itemsMissingMany',
+          { count: nextDocumentRequest.remainingDocs.length || nextDocumentRequest.items.length || 1 }
+        ),
+        cta: t('plaintiffDashboard.dynamic.action.uploadDocumentsCta'),
         href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start',
         isSchedule: false
       }
     : attorneyMatched && hasUpcomingConsult
-    ? { action: 'Consultation scheduled', detail: 'Prepare for your call with your attorney', cta: 'View Details', href: '#consultation', isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.consultScheduled'), detail: t('plaintiffDashboard.dynamic.action.consultScheduledDetail'), cta: t('plaintiffDashboard.dynamic.action.viewDetailsCta'), href: '#consultation', isSchedule: false }
     : inManualReview
-    ? { action: 'Our team is reviewing your case', detail: 'You do not need to do anything urgent unless we request more information.', cta: 'Upload Evidence', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.teamReviewing'), detail: t('plaintiffDashboard.dynamic.action.teamReviewingDetail'), cta: t('plaintiffDashboard.dynamic.action.uploadEvidenceCta'), href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
     : needsMoreInfo
-    ? { action: 'Add the requested information', detail: 'Responding quickly helps attorneys continue reviewing your case', cta: 'Upload Evidence', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.addRequested'), detail: t('plaintiffDashboard.dynamic.action.addRequestedDetail'), cta: t('plaintiffDashboard.dynamic.action.uploadEvidenceCta'), href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
     : notRoutableYet
-    ? { action: 'Strengthen your case details', detail: 'More evidence and complete facts can make your case routable', cta: 'Improve Case', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.strengthenDetails'), detail: t('plaintiffDashboard.dynamic.action.strengthenDetailsDetail'), cta: t('plaintiffDashboard.dynamic.action.improveCaseCta'), href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
     : !hasNarrative
-    ? { action: 'Complete your accident description', detail: 'How the accident happened is the first thing an attorney reads', cta: 'Edit case', href: `/edit-assessment/${activeAssessment?.id}`, isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.completeDescription'), detail: t('plaintiffDashboard.dynamic.action.completeDescriptionDetail'), cta: t('plaintiffDashboard.dynamic.action.editCaseCta'), href: `/edit-assessment/${activeAssessment?.id}`, isSchedule: false }
     : !hasLocation
-    ? { action: 'Add incident location', detail: 'Where it happened determines which attorneys can take the case', cta: 'Edit case', href: `/edit-assessment/${activeAssessment?.id}`, isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.addLocation'), detail: t('plaintiffDashboard.dynamic.action.addLocationDetail'), cta: t('plaintiffDashboard.dynamic.action.editCaseCta'), href: `/edit-assessment/${activeAssessment?.id}`, isSchedule: false }
     : evidenceCount === 0
-    ? { action: 'Upload your urgent care or hospital bill', detail: 'Your treatment costs cannot be counted until they are documented', cta: 'Upload Document', href: `/evidence-upload/${activeAssessment?.id}`, isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.uploadBill'), detail: t('plaintiffDashboard.dynamic.action.uploadBillDetail'), cta: t('plaintiffDashboard.dynamic.action.uploadDocumentCta'), href: `/evidence-upload/${activeAssessment?.id}`, isSchedule: false }
     : !hasWageLoss
-    ? { action: 'Document wage loss if you missed work', detail: 'Time you already missed is recoverable, but only if it is documented', cta: 'Add wage loss', href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.documentWageLoss'), detail: t('plaintiffDashboard.dynamic.action.documentWageLossDetail'), cta: t('plaintiffDashboard.dynamic.action.addWageLossCta'), href: activeAssessment ? `/evidence-upload/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
     : submittedForReview
-    ? { action: 'Your case has been submitted for attorney review', detail: `Attorneys typically respond within ${responseDeadlineLabel}`, cta: 'View Case Report', href: activeAssessment ? `/results/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
-    : { action: 'Submit your case for attorney review', detail: 'Get matched with attorneys', cta: 'Send for review', href: activeAssessment ? `/results/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    ? { action: t('plaintiffDashboard.dynamic.action.submitted'), detail: t('plaintiffDashboard.dynamic.action.submittedDetail', { label: responseDeadlineLabel }), cta: t('plaintiffDashboard.dynamic.action.viewReportCta'), href: activeAssessment ? `/results/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
+    : { action: t('plaintiffDashboard.dynamic.action.submitCase'), detail: t('plaintiffDashboard.dynamic.action.submitCaseDetail'), cta: t('plaintiffDashboard.dynamic.action.sendForReviewCta'), href: activeAssessment ? `/results/${activeAssessment.id}` : '/assessment/start', isSchedule: false }
   const routingTimelineItems = [
     submittedForReview
       ? {
-          title: 'Case submitted for attorney review',
-          detail: plaintiffRoutingStatusMessage || 'Your case is in the matching queue.',
+          title: t('plaintiffDashboard.dynamic.timeline.submittedTitle'),
+          detail: plaintiffRoutingStatusMessage || t('plaintiffDashboard.dynamic.timeline.submittedDetail'),
           tone: 'border-brand-200 bg-brand-50 text-brand-700',
         }
       : null,
     attorneyMatched && routingStatus?.attorneyMatched
       ? {
-          title: `${routingStatus.attorneyMatched.name} is interested in your case`,
+          title: t('plaintiffDashboard.dynamic.timeline.interestedTitle', { name: routingStatus.attorneyMatched.name }),
           detail: hasUpcomingConsult
-            ? 'Your consultation is the next milestone.'
-            : 'Schedule a consultation to move forward.',
+            ? t('plaintiffDashboard.dynamic.timeline.interestedDetailUpcoming')
+            : t('plaintiffDashboard.dynamic.timeline.interestedDetailSchedule'),
           tone: 'border-emerald-200 bg-emerald-50 text-emerald-700',
         }
       : null,
     hasUpcomingConsult && routingStatus?.upcomingAppointment
       ? {
-          title: 'Consultation scheduled',
+          title: t('plaintiffDashboard.dynamic.timeline.consultScheduledTitle'),
           detail: new Date(routingStatus.upcomingAppointment.scheduledAt).toLocaleString('en-US', {
             month: 'short',
             day: 'numeric',
@@ -770,14 +792,14 @@ export default function Dashboard() {
       : null,
     routingStatus?.upcomingAppointment?.preparation?.waitlistStatus
       ? {
-          title: 'Earlier-slot waitlist active',
-          detail: `Status: ${routingStatus.upcomingAppointment.preparation.waitlistStatus}`,
+          title: t('plaintiffDashboard.dynamic.timeline.waitlistTitle'),
+          detail: t('plaintiffDashboard.dynamic.timeline.waitlistDetail', { status: routingStatus.upcomingAppointment.preparation.waitlistStatus }),
           tone: 'border-violet-200 bg-violet-50 text-violet-700',
         }
       : null,
     ...((routingStatus?.attorneyActivity || []).slice(0, 4).map((activity) => ({
       title: activity.message,
-      detail: activity.timeAgo || 'Recent update',
+      detail: activity.timeAgo || t('plaintiffDashboard.dynamic.timeline.recentUpdate'),
       tone: 'border-slate-200 bg-slate-50 text-slate-700',
     }))),
   ].filter(Boolean) as Array<{ title: string; detail: string; tone: string }>
@@ -790,13 +812,13 @@ export default function Dashboard() {
   ]
   const attorneyActivity = routingStatus?.attorneyActivity ?? []
   const latestAttorneyActivity = attorneyActivity[0]
-  const latestAttorneyActivityTime = latestAttorneyActivity?.timeAgo || (submittedForReview ? '10 minutes ago' : 'No attorney activity yet')
-  const reviewStageLabel = attorneyMatched ? 'Matched' : submittedForReview ? 'Attorney Review' : 'Assessment'
+  const latestAttorneyActivityTime = latestAttorneyActivity?.timeAgo || (submittedForReview ? t('plaintiffDashboard.dynamic.activity.tenMinutesAgo') : t('plaintiffDashboard.dynamic.activity.none'))
+  const reviewStageLabel = attorneyMatched ? t('plaintiffDashboard.dynamic.stage.matched') : submittedForReview ? t('plaintiffDashboard.dynamic.stage.attorneyReview') : t('plaintiffDashboard.dynamic.stage.assessment')
   const strengthOpportunities = [
-    !hasMedicalRecords && { label: 'Upload medical records', impact: 'Highest Impact' },
-    !hasHospitalBill && { label: 'Upload hospital bill', impact: 'Medium Impact' },
-    !hasPoliceReport && { label: 'Upload police report', impact: 'Medium Impact' },
-    !hasWageLoss && { label: 'Upload wage loss documents', impact: 'Helpful' },
+    !hasMedicalRecords && { label: t('plaintiffDashboard.dynamic.opportunity.medicalRecords'), impact: t('plaintiffDashboard.dynamic.impact.highest') },
+    !hasHospitalBill && { label: t('plaintiffDashboard.dynamic.opportunity.hospitalBill'), impact: t('plaintiffDashboard.dynamic.impact.medium') },
+    !hasPoliceReport && { label: t('plaintiffDashboard.dynamic.opportunity.policeReport'), impact: t('plaintiffDashboard.dynamic.impact.medium') },
+    !hasWageLoss && { label: t('plaintiffDashboard.dynamic.opportunity.wageLoss'), impact: t('plaintiffDashboard.dynamic.impact.helpful') },
   ].filter(Boolean) as Array<{ label: string; impact: string }>
   const hasErTreatment = Array.isArray(treatment) && treatment.some((item: any) =>
     String(item?.type || item?.providerType || item || '').toLowerCase().includes('er') ||
@@ -2061,7 +2083,7 @@ export default function Dashboard() {
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                       <div className="rounded-xl border border-gray-200 bg-white p-4">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-500">{t('plaintiffDashboard.metrics.caseReadiness')}</p>
-                        <p className="mt-1 text-3xl font-bold text-emerald-600">{caseReadinessLabel}</p>
+                        <p className="mt-1 text-3xl font-bold text-emerald-600">{bandLabel(caseReadinessLabel)}</p>
                         <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${docPercent}%` }} /></div>
                         <p className="mt-1.5 text-xs font-medium text-gray-500">{t('plaintiffDashboard.metrics.caseDetailsComplete', { complete: caseReadinessComplete, total: caseReadinessTotal })}</p>
                       </div>
@@ -2202,7 +2224,7 @@ export default function Dashboard() {
                   {/* Row 1: Upload Evidence | Case Progress */}
                   <div className="bg-white rounded-xl border border-gray-200 p-5 min-h-[280px] flex flex-col">
                     <h3 className="text-lg font-bold text-gray-900 mb-1">{t('plaintiffDashboard.strengthenCard.title')}</h3>
-                    <p className="text-sm text-gray-600 mb-4">{t('plaintiffDashboard.strengthenCard.currentReadiness')} <span className="font-semibold text-brand-700">{caseReadinessLabel}</span></p>
+                    <p className="text-sm text-gray-600 mb-4">{t('plaintiffDashboard.strengthenCard.currentReadiness')} <span className="font-semibold text-brand-700">{bandLabel(caseReadinessLabel)}</span></p>
                     <div className="space-y-3">
                       {(strengthOpportunities.length > 0 ? strengthOpportunities : [{ label: t('plaintiffDashboard.metrics.coreDocsUploaded'), impact: t('plaintiffDashboard.strengthenCard.goodProgress') }]).map((item) => (
                         <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm">
@@ -2365,12 +2387,12 @@ export default function Dashboard() {
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 md:grid-cols-4">
                       <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-xs font-medium text-gray-500">{t('plaintiffDashboard.metrics.caseReadiness')}</p>
-                        <p className="font-semibold text-gray-900">{caseReadinessLabel}</p>
+                        <p className="font-semibold text-gray-900">{bandLabel(caseReadinessLabel)}</p>
                       </div>
                       <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-xs font-medium text-gray-500">{t('plaintiffDashboard.advancedDetails.liability')}</p>
                         <p className="font-semibold text-gray-900">
-                          {liabilityLabel}{liabilityPercent != null ? ` (${liabilityPercent}%)` : ''}
+                          {bandLabel(liabilityLabel)}{liabilityPercent != null ? ` (${liabilityPercent}%)` : ''}
                         </p>
                       </div>
                       <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -2379,7 +2401,7 @@ export default function Dashboard() {
                       </div>
                       <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-xs font-medium text-gray-500">{t('plaintiffDashboard.advancedDetails.damages')}</p>
-                        <p className="font-semibold text-gray-900">{damagesLabel}</p>
+                        <p className="font-semibold text-gray-900">{bandLabel(damagesLabel)}</p>
                       </div>
                       <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                         <p className="text-xs font-medium text-gray-500">{t('plaintiffDashboard.advancedDetails.attorneyInterest')}</p>

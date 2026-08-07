@@ -3879,6 +3879,109 @@
         "edit": "Edit",
         "delete": "Delete"
       }
+    },
+    "dynamic": {
+      "notif": {
+        "viewed": "An attorney viewed your case.",
+        "accepted": "An attorney is interested in your case!",
+        "requestedInfo": "An attorney requested more information.",
+        "manualReview": "Your case is in team review.",
+        "rankAdvanced": "Your case moved to the next attorney in your ranked list.",
+        "rankBatch": "Your original top choices were unavailable, so we expanded the search to more matching attorneys."
+      },
+      "scheduleLoadError": "Could not load consultation times.",
+      "banner": {
+        "matchedTitle": "Attorney Interested In Your Case",
+        "matchedSubtitle": "You're now working with an attorney. Schedule your consultation to discuss your case.",
+        "reviewTitle": "Your Case Is In Team Review",
+        "reviewSubtitle": "Our team is checking routing fit and the next best step.",
+        "moreInfoTitle": "More Information Needed",
+        "moreInfoSubtitle": "Add the requested details or documents so your case can keep moving.",
+        "needsDetailTitle": "Your Case Needs More Detail",
+        "needsDetailSubtitle": "Strengthen your case with more facts or evidence before routing.",
+        "submittedTitle": "Submitted for Attorney Review",
+        "submittedSubtitle": "Expected response within {label}"
+      },
+      "action": {
+        "scheduleConsult": "Next Step: Schedule Consultation",
+        "scheduleConsultDetail": "Book a call with your attorney to discuss your case",
+        "scheduleConsultCta": "Schedule Consultation",
+        "uploadRequested": "Upload the documents your attorney requested",
+        "itemsMissingOne": "{count} item still missing",
+        "itemsMissingMany": "{count} items still missing",
+        "uploadDocumentsCta": "Upload Documents",
+        "consultScheduled": "Consultation scheduled",
+        "consultScheduledDetail": "Prepare for your call with your attorney",
+        "viewDetailsCta": "View Details",
+        "teamReviewing": "Our team is reviewing your case",
+        "teamReviewingDetail": "You do not need to do anything urgent unless we request more information.",
+        "uploadEvidenceCta": "Upload Evidence",
+        "addRequested": "Add the requested information",
+        "addRequestedDetail": "Responding quickly helps attorneys continue reviewing your case",
+        "strengthenDetails": "Strengthen your case details",
+        "strengthenDetailsDetail": "More evidence and complete facts can make your case routable",
+        "improveCaseCta": "Improve Case",
+        "completeDescription": "Complete your accident description",
+        "completeDescriptionDetail": "How the accident happened is the first thing an attorney reads",
+        "editCaseCta": "Edit case",
+        "addLocation": "Add incident location",
+        "addLocationDetail": "Where it happened determines which attorneys can take the case",
+        "uploadBill": "Upload your urgent care or hospital bill",
+        "uploadBillDetail": "Your treatment costs cannot be counted until they are documented",
+        "uploadDocumentCta": "Upload Document",
+        "documentWageLoss": "Document wage loss if you missed work",
+        "documentWageLossDetail": "Time you already missed is recoverable, but only if it is documented",
+        "addWageLossCta": "Add wage loss",
+        "submitted": "Your case has been submitted for attorney review",
+        "submittedDetail": "Attorneys typically respond within {label}",
+        "viewReportCta": "View Case Report",
+        "submitCase": "Submit your case for attorney review",
+        "submitCaseDetail": "Get matched with attorneys",
+        "sendForReviewCta": "Send for review"
+      },
+      "timeline": {
+        "submittedTitle": "Case submitted for attorney review",
+        "submittedDetail": "Your case is in the matching queue.",
+        "interestedTitle": "{name} is interested in your case",
+        "interestedDetailUpcoming": "Your consultation is the next milestone.",
+        "interestedDetailSchedule": "Schedule a consultation to move forward.",
+        "consultScheduledTitle": "Consultation scheduled",
+        "waitlistTitle": "Earlier-slot waitlist active",
+        "waitlistDetail": "Status: {status}",
+        "recentUpdate": "Recent update"
+      },
+      "activity": {
+        "tenMinutesAgo": "10 minutes ago",
+        "none": "No attorney activity yet"
+      },
+      "stage": {
+        "matched": "Matched",
+        "attorneyReview": "Attorney Review",
+        "assessment": "Assessment"
+      },
+      "opportunity": {
+        "medicalRecords": "Upload medical records",
+        "hospitalBill": "Upload hospital bill",
+        "policeReport": "Upload police report",
+        "wageLoss": "Upload wage loss documents"
+      },
+      "impact": {
+        "highest": "Highest Impact",
+        "medium": "Medium Impact",
+        "helpful": "Helpful"
+      },
+      "band": {
+        "high": "High",
+        "moderate": "Moderate",
+        "building": "Building",
+        "notAssessed": "Not assessed",
+        "strong": "Strong",
+        "weak": "Weak",
+        "missing": "Missing",
+        "improving": "Improving",
+        "documented": "Documented",
+        "notDocumented": "Not documented"
+      }
     }
   },
   "notFound": {

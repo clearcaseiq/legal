@@ -3879,6 +3879,109 @@
         "edit": "Editar",
         "delete": "Eliminar"
       }
+    },
+    "dynamic": {
+      "notif": {
+        "viewed": "Un abogado revisó su caso.",
+        "accepted": "¡Un abogado está interesado en su caso!",
+        "requestedInfo": "Un abogado solicitó más información.",
+        "manualReview": "Su caso está en revisión del equipo.",
+        "rankAdvanced": "Su caso pasó al siguiente abogado de su lista clasificada.",
+        "rankBatch": "Sus primeras opciones no estaban disponibles, así que ampliamos la búsqueda a más abogados compatibles."
+      },
+      "scheduleLoadError": "No se pudieron cargar los horarios de consulta.",
+      "banner": {
+        "matchedTitle": "Un abogado está interesado en su caso",
+        "matchedSubtitle": "Ahora está trabajando con un abogado. Programe su consulta para hablar sobre su caso.",
+        "reviewTitle": "Su caso está en revisión del equipo",
+        "reviewSubtitle": "Nuestro equipo está verificando la compatibilidad de asignación y el mejor paso a seguir.",
+        "moreInfoTitle": "Se necesita más información",
+        "moreInfoSubtitle": "Agregue los detalles o documentos solicitados para que su caso siga avanzando.",
+        "needsDetailTitle": "Su caso necesita más detalles",
+        "needsDetailSubtitle": "Fortalezca su caso con más hechos o evidencia antes de la asignación.",
+        "submittedTitle": "Enviado para revisión de un abogado",
+        "submittedSubtitle": "Respuesta esperada en {label}"
+      },
+      "action": {
+        "scheduleConsult": "Siguiente paso: programar consulta",
+        "scheduleConsultDetail": "Reserve una llamada con su abogado para hablar sobre su caso",
+        "scheduleConsultCta": "Programar consulta",
+        "uploadRequested": "Suba los documentos que solicitó su abogado",
+        "itemsMissingOne": "Falta {count} elemento",
+        "itemsMissingMany": "Faltan {count} elementos",
+        "uploadDocumentsCta": "Subir documentos",
+        "consultScheduled": "Consulta programada",
+        "consultScheduledDetail": "Prepárese para su llamada con su abogado",
+        "viewDetailsCta": "Ver detalles",
+        "teamReviewing": "Nuestro equipo está revisando su caso",
+        "teamReviewingDetail": "No necesita hacer nada urgente a menos que solicitemos más información.",
+        "uploadEvidenceCta": "Subir evidencia",
+        "addRequested": "Agregue la información solicitada",
+        "addRequestedDetail": "Responder rápido ayuda a que los abogados sigan revisando su caso",
+        "strengthenDetails": "Fortalezca los detalles de su caso",
+        "strengthenDetailsDetail": "Más evidencia y hechos completos pueden hacer que su caso sea asignable",
+        "improveCaseCta": "Mejorar caso",
+        "completeDescription": "Complete la descripción de su accidente",
+        "completeDescriptionDetail": "Cómo ocurrió el accidente es lo primero que lee un abogado",
+        "editCaseCta": "Editar caso",
+        "addLocation": "Agregue el lugar del incidente",
+        "addLocationDetail": "Dónde ocurrió determina qué abogados pueden tomar el caso",
+        "uploadBill": "Suba su factura de urgencias u hospital",
+        "uploadBillDetail": "Sus costos de tratamiento no pueden contarse hasta que estén documentados",
+        "uploadDocumentCta": "Subir documento",
+        "documentWageLoss": "Documente la pérdida de salario si faltó al trabajo",
+        "documentWageLossDetail": "El tiempo que ya perdió es recuperable, pero solo si está documentado",
+        "addWageLossCta": "Agregar pérdida de salario",
+        "submitted": "Su caso se envió para revisión de un abogado",
+        "submittedDetail": "Los abogados suelen responder en {label}",
+        "viewReportCta": "Ver informe del caso",
+        "submitCase": "Envíe su caso para revisión de un abogado",
+        "submitCaseDetail": "Conéctese con abogados",
+        "sendForReviewCta": "Enviar para revisión"
+      },
+      "timeline": {
+        "submittedTitle": "Caso enviado para revisión de un abogado",
+        "submittedDetail": "Su caso está en la cola de asignación.",
+        "interestedTitle": "{name} está interesado en su caso",
+        "interestedDetailUpcoming": "Su consulta es el próximo hito.",
+        "interestedDetailSchedule": "Programe una consulta para avanzar.",
+        "consultScheduledTitle": "Consulta programada",
+        "waitlistTitle": "Lista de espera para un horario más temprano activa",
+        "waitlistDetail": "Estado: {status}",
+        "recentUpdate": "Actualización reciente"
+      },
+      "activity": {
+        "tenMinutesAgo": "hace 10 minutos",
+        "none": "Aún no hay actividad de abogados"
+      },
+      "stage": {
+        "matched": "Asignado",
+        "attorneyReview": "Revisión de abogado",
+        "assessment": "Evaluación"
+      },
+      "opportunity": {
+        "medicalRecords": "Subir registros médicos",
+        "hospitalBill": "Subir factura del hospital",
+        "policeReport": "Subir informe policial",
+        "wageLoss": "Subir documentos de pérdida de salario"
+      },
+      "impact": {
+        "highest": "Mayor impacto",
+        "medium": "Impacto medio",
+        "helpful": "Útil"
+      },
+      "band": {
+        "high": "Alta",
+        "moderate": "Moderada",
+        "building": "En desarrollo",
+        "notAssessed": "Sin evaluar",
+        "strong": "Fuerte",
+        "weak": "Débil",
+        "missing": "Faltante",
+        "improving": "Mejorando",
+        "documented": "Documentado",
+        "notDocumented": "No documentado"
+      }
     }
   },
   "notFound": {
