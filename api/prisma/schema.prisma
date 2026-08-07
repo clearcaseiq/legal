@@ -163,6 +163,11 @@ model Assessment {
   venueCounty String?
   status      String  @default("DRAFT")
   facts       String  @db.Text
+  // Short, human-friendly case reference (e.g. "CCIQ-7Q2K9F") shown to the
+  // plaintiff after they send a case and used by phone support to identify a
+  // caller (always paired with a contact fact — the code alone is not proof of
+  // identity). Nullable so legacy rows load before the backfill assigns one.
+  referenceCode String? @unique
   // Attorney-chosen caption, conventionally "Plaintiff v. Defendant". Free text
   // because no defendant name is captured anywhere in intake, so the caption
   // cannot be assembled from stored data. Null means fall back to the derived

@@ -130,6 +130,7 @@ function getAttorneyRecommendationReasons(
 type ResultsSubmittedViewProps = {
   assessmentId?: string
   assessmentClaimType?: string
+  referenceCode?: string | null
   handleDownloadReportPdf: () => void | Promise<void>
   handleCopyShareLink: () => void
   improveCaseValueItems: ImproveCaseValueItem[]
@@ -145,6 +146,7 @@ type ResultsSubmittedViewProps = {
 export function ResultsSubmittedView({
   assessmentId,
   assessmentClaimType,
+  referenceCode,
   handleDownloadReportPdf,
   handleCopyShareLink,
   improveCaseValueItems,
@@ -157,6 +159,15 @@ export function ResultsSubmittedView({
   venueState,
 }: ResultsSubmittedViewProps) {
   const { t } = useLanguage()
+  const [refCopied, setRefCopied] = useState(false)
+  const copyReference = () => {
+    if (!referenceCode) return
+    try {
+      void navigator.clipboard?.writeText(referenceCode)
+      setRefCopied(true)
+      window.setTimeout(() => setRefCopied(false), 1600)
+    } catch { /* clipboard unavailable — the code is still shown */ }
+  }
   const attorneyCards = Array.isArray(rankedAttorneys) ? rankedAttorneys : []
   const improvementItems = Array.isArray(improveCaseValueItems) ? improveCaseValueItems : []
   const timeline = Array.isArray(submissionTimeline) ? submissionTimeline : []
@@ -179,6 +190,25 @@ export function ResultsSubmittedView({
               <Clock className="h-3.5 w-3.5" aria-hidden />
               {t('results.submitted.initialResponses')}
             </p>
+            {referenceCode && (
+              <div className="mt-5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-50/80">
+                  {t('results.submitted.referenceLabel')}
+                </p>
+                <button
+                  type="button"
+                  onClick={copyReference}
+                  title={t('results.submitted.referenceCopy')}
+                  className="mt-1.5 inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 font-mono text-lg font-bold tracking-wider text-white ring-1 ring-white/30 transition-colors hover:bg-white/25"
+                >
+                  {referenceCode}
+                  {refCopied ? <CheckCircle className="h-4 w-4" aria-hidden /> : <Copy className="h-4 w-4 opacity-80" aria-hidden />}
+                </button>
+                <p className="mx-auto mt-2 max-w-xs text-[11px] leading-relaxed text-emerald-50/80">
+                  {t('results.submitted.referenceHelp')}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 

@@ -6,6 +6,9 @@ import { AssessmentWrite, AssessmentUpdate, SubmitCaseForReview } from '../lib/v
 import { logger } from '../lib/logger'
 import { optionalAuthMiddleware, authMiddleware, AuthRequest } from '../lib/auth'
 import { enforceAssessmentReadAccess } from '../lib/assessment-access'
+import { assignReferenceCode, ensureReferenceCode } from '../lib/case-reference'
+import { createClaimToken, verifyClaimToken } from '../lib/claim-token'
+import { webUrl } from '../lib/app-url'
 import {
   ATTORNEY_PARTICIPATION_DISCLOSURE_VERSION,
   PLATFORM_DISCLOSURE_CONSENT_TYPE,
@@ -87,6 +90,10 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
 
     logger.info('Assessment created', { assessmentId: assessment.id, claimType: assessment.claimType })
 
+    // Mint the human-friendly reference code up front so it is available the
+    // moment the case exists (support lookups, the report header, etc.).
+    const referenceCode = await assignReferenceCode(assessment.id)
+
     // The disclosure is acknowledged before an assessment exists, so the browser
     // holds it until there is a case to attach it to. Recorded here rather than
     // left in localStorage: it is the only point at which a claimant is told we
@@ -153,6 +160,7 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
     
     res.json({ 
       assessment_id: assessment.id,
+      reference_code: referenceCode,
       status: assessment.status,
       created_at: assessment.createdAt
     })
@@ -370,6 +378,9 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Assessment not found' })
     }
 
+    // Legacy cases created before reference codes existed get one on first read.
+    const referenceCode = await ensureReferenceCode(assessment.id, assessment.referenceCode)
+
     const latest = assessment.predictions[0]
     const previous = assessment.predictions[1]
     const now = new Date()
@@ -394,6 +405,7 @@ router.get('/:id', optionalAuthMiddleware, async (req: AuthRequest, res) => {
 
     res.json({
       id: assessment.id,
+      reference_code: referenceCode,
       claimType: assessment.claimType,
       venue: {
         state: assessment.venueState,
@@ -964,6 +976,10 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     }
     logger.info('Case submitted for review', { assessmentId: id, userId: req.user?.id })
 
+    // Every case carries a short reference the plaintiff can quote to support.
+    // Minted at creation, but ensured here for legacy/edge cases.
+    const referenceCode = await ensureReferenceCode(id, assessment.referenceCode)
+
     // Confirm receipt by email so the submitter — including guests without an
     // account — knows the case went through. Best-effort and non-blocking so a
     // mail failure never breaks submission/routing (CP-361).
@@ -971,11 +987,29 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
     if (confirmationEmail) {
       const submitterName =
         (firstName && firstName.trim()) || (plaintiffContext.firstName as string | undefined) || 'there'
+      const referenceLine = referenceCode
+        ? `\n\nYour case reference number is ${referenceCode}. Keep it handy — quote it if you call or email us.`
+        : ''
+      // Guests have no way back to their case once they close the tab (the URL
+      // is their only key). Give them a one-click path to register and have this
+      // exact case attached to the new account so they can track it.
+      let claimLine = ''
+      if (!req.user) {
+        try {
+          const claimUrl = webUrl(`/register?claim=${encodeURIComponent(createClaimToken(id))}`)
+          claimLine = `\n\nWant to track your case and add documents anytime? Create your free account here — your case is already linked:\n${claimUrl}`
+        } catch (linkErr) {
+          logger.warn('Could not build claim link for confirmation email', {
+            assessmentId: id,
+            error: linkErr instanceof Error ? linkErr.message : String(linkErr),
+          })
+        }
+      }
       void deliverDirectNotification({
         type: 'email',
         recipient: confirmationEmail,
         subject: 'We received your case — ClearCaseIQ',
-        message: `Hi ${submitterName},\n\nThanks for submitting your case to ClearCaseIQ. Our attorney network is reviewing it now, and we'll email you as soon as an attorney responds, typically within about 24 hours.\n\nWhat happens next:\n• Attorneys review your case summary\n• A matched attorney reaches out to you directly\n• You can add documents anytime to strengthen your case\n\nBest regards,\nClearCaseIQ`,
+        message: `Hi ${submitterName},\n\nThanks for submitting your case to ClearCaseIQ. Our attorney network is reviewing it now, and we'll email you as soon as an attorney responds, typically within about 24 hours.${referenceLine}\n\nWhat happens next:\n• Attorneys review your case summary\n• A matched attorney reaches out to you directly\n• You can add documents anytime to strengthen your case${claimLine}\n\nBest regards,\nClearCaseIQ`,
         userId: req.user?.id || null,
         assessmentId: id,
         role: 'plaintiff',
@@ -1017,7 +1051,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
           logger.error('Failed to propose attorneys on submit', { assessmentId: id, error: err.message })
         )
 
-      return res.json({ ok: true, submitted: true, awaitingAttorneyApproval: true })
+      return res.json({ ok: true, submitted: true, awaitingAttorneyApproval: true, reference_code: referenceCode })
     }
 
     // Trigger unified routing orchestration against the attorneys the plaintiff chose.
@@ -1053,7 +1087,7 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       }
     }).catch(err => logger.error('Unified routing failed on submit', { assessmentId: id, error: err.message }))
 
-    res.json({ ok: true, submitted: true })
+    res.json({ ok: true, submitted: true, reference_code: referenceCode })
   } catch (error: any) {
     logger.error('Failed to submit case for review', { error, assessmentId: req.params.id })
     res.status(500).json({ error: 'Internal server error' })
@@ -1224,6 +1258,52 @@ router.post('/associate', authMiddleware, async (req: AuthRequest, res) => {
   } catch (error) {
     logger.error('Failed to associate assessments', { error, userId: req.user?.id })
     res.status(500).json({ error: 'Failed to associate assessments' })
+  }
+})
+
+/**
+ * Claim a case from an emailed "claim your case" link.
+ *
+ * The signed token names one assessment. We transfer it to the now-authenticated
+ * user under the same rule as `/associate` — only unowned or synthetic
+ * guest-owned cases move — so a stale/forwarded link can never capture a case
+ * already belonging to a real account.
+ */
+router.post('/claim', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const token = typeof req.body?.token === 'string' ? req.body.token : ''
+    if (!token) return res.status(400).json({ error: 'A claim token is required' })
+
+    const assessmentId = verifyClaimToken(token)
+    if (!assessmentId) {
+      return res.status(400).json({ error: 'This claim link is invalid or has expired.' })
+    }
+
+    const assessment = await prisma.assessment.findUnique({
+      where: { id: assessmentId },
+      select: { id: true, userId: true, referenceCode: true, user: { select: { email: true } } },
+    })
+    if (!assessment) return res.status(404).json({ error: 'Case not found' })
+
+    // Already owned by this user — nothing to do, treat as success (the link may
+    // have been clicked twice).
+    if (assessment.userId === req.user!.id) {
+      return res.json({ claimed: true, assessmentId, reference_code: assessment.referenceCode })
+    }
+
+    const transferable = !assessment.userId || isGuestCaseUserEmail(assessment.user?.email || '')
+    if (!transferable) {
+      return res.status(409).json({ error: 'This case is already linked to another account.' })
+    }
+
+    await prisma.assessment.update({ where: { id: assessmentId }, data: { userId: req.user!.id } })
+    await prisma.evidenceFile.updateMany({ where: { assessmentId }, data: { userId: req.user!.id } })
+
+    logger.info('Case claimed via claim link', { assessmentId, userId: req.user!.id })
+    res.json({ claimed: true, assessmentId, reference_code: assessment.referenceCode })
+  } catch (error) {
+    logger.error('Failed to claim case', { error, userId: req.user?.id })
+    res.status(500).json({ error: 'Failed to claim case' })
   }
 })
 

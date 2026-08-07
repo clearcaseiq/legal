@@ -24,6 +24,7 @@
 import type { Response } from 'express'
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { isGuestCaseUserEmail } from './client-consent-guard'
 
 export interface AssessmentAccessResult {
   allowed: boolean
@@ -50,6 +51,7 @@ export async function canReadAssessment(
       id: true,
       userId: true,
       lawFirmId: true,
+      user: { select: { email: true } },
       leadSubmission: { select: { assignedAttorneyId: true, assignmentType: true, status: true } },
     },
   })
@@ -57,6 +59,15 @@ export async function canReadAssessment(
 
   // Pre-account intake. The id is the credential; nothing more can be checked.
   if (!assessment.userId) return { allowed: true, anonymous: true }
+
+  // Uploading evidence during anonymous intake attaches the assessment to a
+  // synthetic guest-case user (`guest+<id>@caseiq.local`) so the file has an
+  // owner row. That is not a real account, so the case is still reachable by id
+  // alone — treat it as anonymous rather than locking the guest out with a 401
+  // the moment they add a document (the pre-account funnel must keep working).
+  if (assessment.user?.email && isGuestCaseUserEmail(assessment.user.email)) {
+    return { allowed: true, anonymous: true }
+  }
 
   if (!user) {
     return { allowed: false, status: 401, message: 'Authentication required' }

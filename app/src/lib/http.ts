@@ -390,7 +390,18 @@ function handleRequestError(
         (url === '/v1/auth/admin-access' || url.endsWith('/v1/auth/admin-access')) &&
         (pathname.startsWith('/login/admin') || pathname === '/admin-login')
 
-      if (hadToken && status === 401 && !sessionSafeScreen) {
+      // Evidence upload/precheck/read APIs (/v1/evidence*) are always optional and
+      // handled by the caller: InlineEvidenceUpload degrades to local storage for
+      // guests and prechecks are non-blocking. A 401/403 from one of these must
+      // never wipe a session or bounce the user to login. Previously, a guest who
+      // hit an upload error was thrown to the "Continue your injury case" login
+      // screen because the interceptor redirected before the component's own catch
+      // ran. Scoped to the plaintiff/guest evidence path (not attorney evidence).
+      const isEvidenceApiCall =
+        typeof url === 'string' &&
+        (url === '/v1/evidence' || url.startsWith('/v1/evidence/') || url.startsWith('/v1/evidence?'))
+
+      if (hadToken && status === 401 && !sessionSafeScreen && !isEvidenceApiCall) {
         if (!registerConsentSave && !consentStatusBootstrap && !adminAccessCheck) {
           clearStoredAuth()
         }
@@ -400,7 +411,7 @@ function handleRequestError(
         throw error
       }
 
-      if (!onLoginPage && !guestOnResults && !guestOnEvidence && !guestOnIntake && !sessionSafeScreen) {
+      if (!onLoginPage && !guestOnResults && !guestOnEvidence && !guestOnIntake && !sessionSafeScreen && !isEvidenceApiCall) {
         if (
           !(registerConsentSave && (status === 401 || status === 403)) &&
           !(consentStatusBootstrap && (status === 401 || status === 403)) &&

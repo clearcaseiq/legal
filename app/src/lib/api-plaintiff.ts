@@ -218,6 +218,16 @@ export async function associateAssessments(assessmentIds: string[]) {
   return data
 }
 
+/**
+ * Claim a case from an emailed "claim your case" link. The signed token names
+ * the exact assessment; the server transfers it to the now-authenticated user
+ * under the same rules as associate. Returns the claimed assessment id.
+ */
+export async function claimAssessmentByToken(token: string) {
+  const { data } = await api.post('/v1/assessments/claim', { token })
+  return data as { claimed: boolean; assessmentId: string; reference_code?: string | null }
+}
+
 export async function submitCaseForReview(
   assessmentId: string,
   contactInfo?: {

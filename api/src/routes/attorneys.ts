@@ -51,6 +51,13 @@ router.get('/search', async (req: Request, res: Response) => {
       claim_type && fieldMappings ? resolveMatchValues(fieldMappings, 'claimType', claim_type) : []
     const specialtiesMatchClaim = (list: string[]) =>
       Array.isArray(list) && claimTypeMatchSlugs.some((slug) => list.includes(slug))
+    // Generic/"other" personal-injury buckets (e.g. `other`, `other_pi`,
+    // `general`) don't map to any attorney specialty slug, so a strict specialty
+    // filter would strand every attorney and the plaintiff sees "We could not
+    // load attorney matches" for a perfectly valid PI case. When the claim type
+    // resolves to no specialty slugs, treat it as unfiltered on claim (venue
+    // still applies) rather than filtering everyone out.
+    const claimIsResolvable = claimTypeMatchSlugs.length > 0
     
     // Score a broad candidate pool first, then apply the requested limit.
     const attorneys = await prisma.attorney.findMany({
@@ -178,14 +185,23 @@ router.get('/search', async (req: Request, res: Response) => {
     // rather than only boosting fit score. Previously these were scoring-only, so
     // the State/Case Type selectors appeared to do nothing and unrelated attorneys
     // were still listed for the chosen filters.
-    const filteredResults = attorneyResults.filter((a) => {
-      const venueOk =
-        !venue ||
-        (Array.isArray(a.venues) && a.venues.includes(venue)) ||
-        (a.law_firm as { state?: string } | undefined)?.state === venue
-      const claimOk = !claim_type || specialtiesMatchClaim(a.specialties)
-      return venueOk && claimOk
+    const venueMatches = (a: (typeof attorneyResults)[number]) =>
+      !venue ||
+      (Array.isArray(a.venues) && a.venues.includes(venue)) ||
+      (a.law_firm as { state?: string } | undefined)?.state === venue
+
+    let filteredResults = attorneyResults.filter((a) => {
+      const claimOk = !claim_type || !claimIsResolvable || specialtiesMatchClaim(a.specialties)
+      return venueMatches(a) && claimOk
     })
+
+    // Last-resort fallback: a real, resolvable claim type that still matched no
+    // verified attorney in-venue should degrade to venue-only rather than
+    // returning an empty slate the plaintiff cannot act on. The plaintiff can
+    // still send the case and pick from venue-appropriate PI attorneys.
+    if (filteredResults.length === 0 && claim_type) {
+      filteredResults = attorneyResults.filter((a) => venueMatches(a))
+    }
 
     // Sort by fit score
     filteredResults.sort((a, b) => b.fit_score - a.fit_score)

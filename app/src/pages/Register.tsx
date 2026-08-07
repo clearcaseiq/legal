@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { register } from '../lib/api-auth'
 import { createConsent } from '../lib/api-consent'
-import { associateAssessments, listAssessments } from '../lib/api-plaintiff'
+import { associateAssessments, claimAssessmentByToken, listAssessments } from '../lib/api-plaintiff'
 import OAuthButtons from '../components/OAuthButtons'
 import ConsentWorkflow from '../components/ConsentWorkflow'
 import BrandLogo from '../components/BrandLogo'
@@ -38,6 +38,9 @@ export default function Register() {
   const [fieldErrors, setFieldErrors] = useState<RegisterFieldErrors>({})
   const [showConsentWorkflow, setShowConsentWorkflow] = useState(false)
   const [registeredUserId, setRegisteredUserId] = useState<string | null>(null)
+  // Resolved from a claim link (?claim=<token>) after registration, so the final
+  // redirect lands on the just-claimed case.
+  const [claimedAssessmentId, setClaimedAssessmentId] = useState<string | null>(null)
   const [acceptedLegalSignup, setAcceptedLegalSignup] = useState(false)
   const [consentSaving, setConsentSaving] = useState(false)
   const [consentSaveError, setConsentSaveError] = useState<string | null>(null)
@@ -49,6 +52,9 @@ export default function Register() {
   const { showToast } = useToast()
   const [searchParams] = useSearchParams()
   const assessmentId = searchParams.get('assessmentId')
+  // Signed "claim your case" token from the guest confirmation email. Names the
+  // exact case to attach to the new account (see /assessments/claim).
+  const claimToken = searchParams.get('claim')
   // After an intake signup, send the user straight to their dashboard (with the
   // new case linked). Otherwise honor an explicit redirect or fall back home.
   const redirectTo = assessmentId
@@ -126,7 +132,22 @@ export default function Register() {
           console.error('Failed to associate assessment after register:', error)
         }
       }
-      
+
+      // Attach the case named by the emailed claim link, then send the user to
+      // that case once consent is done.
+      if (claimToken) {
+        try {
+          const claimResult = await claimAssessmentByToken(claimToken)
+          if (claimResult?.assessmentId) {
+            setClaimedAssessmentId(claimResult.assessmentId)
+            const assessments = await listAssessments()
+            updateCachedPlaintiffAssessments(assessments || [])
+          }
+        } catch (error) {
+          console.error('Failed to claim case after register:', error)
+        }
+      }
+
       clearPendingRegistration()
 
       // Set up consent workflow
@@ -157,7 +178,7 @@ export default function Register() {
               : new Date(Date.now() + 2 * 365 * 24 * 60 * 60 * 1000).toISOString(),
         })
       }
-      navigate(redirectTo)
+      navigate(claimedAssessmentId ? `/dashboard?case=${encodeURIComponent(claimedAssessmentId)}` : redirectTo)
     } catch (error: unknown) {
       console.error('Error saving consents:', error)
       const ax = error as { response?: { data?: { error?: string } }; message?: string }

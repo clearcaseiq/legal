@@ -3409,7 +3409,7 @@ export default function IntakeWizardQuick() {
           aria-pressed={isChosen}
           onClick={() => chooseSubtype(value)}
           style={{ animationDelay: `${Math.min(index, 8) * 25}ms` }}
-          className={`cc-option-rise relative flex w-[84px] shrink-0 flex-col items-center justify-start gap-2 rounded-2xl px-2 py-3 text-center transition-all duration-150 active:scale-[0.99] motion-reduce:transition-none sm:w-24 ${
+          className={`cc-option-rise relative flex w-[96px] shrink-0 flex-col items-center justify-start gap-2.5 rounded-2xl px-3 py-4 text-center transition-all duration-150 active:scale-[0.99] motion-reduce:transition-none sm:w-28 ${
             isChosen
               ? 'bg-brand-50 shadow-md ring-2 ring-brand-500 dark:bg-brand-950/40 dark:ring-brand-400'
               : 'bg-white ring-1 ring-slate-200 hover:bg-slate-50 hover:ring-brand-300 dark:bg-slate-900/50 dark:ring-slate-700 dark:hover:bg-slate-900'
@@ -3421,22 +3421,22 @@ export default function IntakeWizardQuick() {
             </span>
           )}
           <span
-            className={`flex h-10 w-10 items-center justify-center rounded-full sm:h-11 sm:w-11 ${
+            className={`flex h-12 w-12 items-center justify-center rounded-full sm:h-14 sm:w-14 ${
               isChosen ? 'bg-brand-100 dark:bg-brand-900/50' : 'bg-slate-100 dark:bg-slate-800'
             }`}
           >
             {isConfirming ? (
-              <Check className="h-5 w-5 text-brand-600 dark:text-brand-300" strokeWidth={3} aria-hidden />
+              <Check className="h-6 w-6 text-brand-600 dark:text-brand-300" strokeWidth={3} aria-hidden />
             ) : (
               <OptionIcon
-                className={`h-5 w-5 ${isChosen ? 'text-brand-600 dark:text-brand-300' : 'text-slate-500 dark:text-slate-400'}`}
+                className={`h-6 w-6 ${isChosen ? 'text-brand-600 dark:text-brand-300' : 'text-slate-500 dark:text-slate-400'}`}
                 strokeWidth={1.9}
                 aria-hidden
               />
             )}
           </span>
           <span
-            className={`text-[12px] font-medium leading-tight ${
+            className={`text-[13px] font-medium leading-tight sm:text-sm ${
               isChosen ? 'text-brand-900 dark:text-brand-100' : 'text-slate-700 dark:text-slate-200'
             }`}
           >
@@ -3450,18 +3450,22 @@ export default function IntakeWizardQuick() {
       <div className="cc-panel-drop col-span-3 mt-5 rounded-2xl bg-slate-50/80 px-4 py-5 dark:bg-slate-800/40">
         {/* Reads as a second question rather than a stray box: the answered part
             is stated, ruled off, and the new question sits underneath it. */}
-        <div className="flex items-center justify-center gap-3 pb-3 sm:justify-between">
-          <p className="hidden min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.04em] text-brand-700 sm:flex sm:text-xs sm:tracking-[0.08em] dark:text-brand-300">
-            <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            <span className="truncate">{selectedType ? t(`intake.${selectedType.labelKey}`) : ''}</span>
-          </p>
+        <div className="flex items-center justify-between gap-3 pb-4">
+          <span className="inline-flex min-w-0 items-center gap-2 rounded-full border border-brand-100 bg-white py-1 pl-1 pr-3.5 shadow-sm dark:border-brand-800/60 dark:bg-slate-800/80">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-600 text-white shadow-sm">
+              <Check className="h-3.5 w-3.5" strokeWidth={3} aria-hidden />
+            </span>
+            <span className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">
+              {selectedType ? t(`intake.${selectedType.labelKey}`) : ''}
+            </span>
+          </span>
           <button
             type="button"
             onClick={() => {
               setSubtypePanelOpen(false)
               updateForm({ injuryType: '', claimType: '', incidentSubtype: '', otherInjuryDescription: '', branch: {} })
             }}
-            className="inline-flex shrink items-center gap-1.5 rounded-lg border border-brand-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-brand-700 shadow-sm transition-colors hover:border-brand-400 hover:bg-brand-50 hover:text-brand-900 sm:px-3 sm:text-xs dark:border-brand-700 dark:bg-slate-800 dark:text-brand-300 dark:hover:bg-slate-700"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-[11px] font-semibold text-slate-600 shadow-sm transition-all hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 hover:shadow sm:text-xs dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:hover:text-brand-200"
           >
             <CornerUpLeft className="h-3.5 w-3.5" aria-hidden />
             {tx('subtype_chooseAnother')}
@@ -3482,7 +3486,7 @@ export default function IntakeWizardQuick() {
               className="mt-4 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-brand-500 dark:focus:ring-brand-800"
             />
           ) : (
-            <div className="mt-5 flex flex-wrap justify-center gap-2 sm:gap-3">
+            <div className="mt-5 flex flex-wrap justify-center gap-3 sm:gap-4">
               {primary.map((option, index) => chip(option, index))}
             </div>
           )}
@@ -6735,7 +6739,7 @@ export default function IntakeWizardQuick() {
   }
 
   return (
-    <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-[1440px] flex-col overflow-visible px-0 pb-[calc(6.75rem+env(safe-area-inset-bottom))] sm:px-4 sm:pb-[calc(0.5rem+env(safe-area-inset-bottom))] md:min-h-[calc(100dvh-7.5rem)] md:overflow-visible md:px-8 md:py-3 ${isFirstStep ? 'py-1' : 'py-1.5 sm:py-2'}`}>
+    <div className={`mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-[1600px] flex-col overflow-visible px-0 pb-[calc(6.75rem+env(safe-area-inset-bottom))] sm:px-4 sm:pb-[calc(0.5rem+env(safe-area-inset-bottom))] md:min-h-[calc(100dvh-7.5rem)] md:overflow-visible md:px-8 md:py-3 ${isFirstStep ? 'py-1' : 'py-1.5 sm:py-2'}`}>
       {generatingReport && createPortal(
         <ReportGeneratingOverlay
           title={tx('generatingTitle')}
@@ -6757,7 +6761,7 @@ export default function IntakeWizardQuick() {
           On mobile the pinned background is inset (mx-4) and rounded so it keeps
           the same left/right padding as the step card and footer below it,
           rather than bleeding edge-to-edge. */}
-      <div className="sticky top-0 z-20 mx-4 mb-1 shrink-0 rounded-2xl bg-white/95 px-4 pt-1 pb-1.5 backdrop-blur-sm sm:mx-0 sm:rounded-none sm:px-0 dark:bg-slate-950/95" aria-busy={loading}>
+      <div className="sticky top-0 z-30 mx-4 mb-1 shrink-0 rounded-2xl bg-white px-4 pt-2 pb-1.5 sm:mx-0 sm:rounded-none sm:px-0 dark:bg-slate-950" aria-busy={loading}>
         <p className={`mb-0.5 text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300 md:text-sm ${isFirstStep ? 'hidden sm:block' : ''}`}>
           {t('intake.timePromise')}
         </p>
@@ -6774,7 +6778,7 @@ export default function IntakeWizardQuick() {
               answer to "how much is left?" than the step count next to it, and
               naming the step is the only place the claimant is told what they
               are being asked about on the opening screen. */}
-          <span className="flex items-center gap-2">
+          <span className="flex items-center gap-2 ml-2 sm:ml-3">
             <span className="font-semibold text-brand-700 dark:text-brand-300">
               {t('intake.step')} {currentStepIndex + 1} {t('intake.of')} {visibleSteps.length}
             </span>
@@ -6790,7 +6794,7 @@ export default function IntakeWizardQuick() {
               </>
             )}
           </span>
-          <span className="flex items-center gap-3">
+          <span className="flex items-center gap-3 mr-2 sm:mr-3">
             <span>
               {currentStepIndex + 1 < visibleSteps.length
                 ? `• ${t('intake.progressTimeRemaining').replace('{seconds}', String(estimatedSecondsLeft))}`

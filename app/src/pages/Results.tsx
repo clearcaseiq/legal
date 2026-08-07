@@ -883,6 +883,9 @@ export default function Results() {
   const [shareAuthorized, setShareAuthorized] = useState(false)
   const [contactFormError, setContactFormError] = useState<string | null>(null)
   const [contactPhoneError, setContactPhoneError] = useState<string | null>(null)
+  // Human-friendly case reference (e.g. "CCIQ-7Q2K9F") shown after a guest sends
+  // their case, so they can quote it to support and find their way back.
+  const [caseReferenceCode, setCaseReferenceCode] = useState<string | null>(null)
   // Send modal: collapse heavy/optional steps so the form reads as "send as… + consent + send".
   const [showAttorneyRanking, setShowAttorneyRanking] = useState(false)
   const [showContactEdit, setShowContactEdit] = useState(false)
@@ -1248,7 +1251,7 @@ export default function Results() {
           console.warn('Could not associate case with account:', e)
         }
       }
-      await submitCaseForReview(resolvedAssessmentId, {
+      const submitResult = await submitCaseForReview(resolvedAssessmentId, {
         firstName: firstName.trim(),
         email: email.trim(),
         phone: phone.trim(),
@@ -1258,6 +1261,7 @@ export default function Results() {
         dismissedAttorneyIds,
         attorneyShareAuthorized: shareAuthorized
       })
+      if (submitResult?.reference_code) setCaseReferenceCode(submitResult.reference_code)
       setCaseSubmittedForReview(true)
       setSendModalOpen(false)
       // Store case ID so Dashboard can associate if needed (backup for API association)
@@ -1341,6 +1345,7 @@ export default function Results() {
         // Load assessment
         const assessmentData = await getAssessment(resolvedAssessmentId)
         setAssessment(assessmentData)
+        if (assessmentData.reference_code) setCaseReferenceCode(assessmentData.reference_code)
         setCaseSubmittedForReview(!!assessmentData.submittedForReview)
         
         // Get prediction if not already available. A valuation failure must
@@ -3216,6 +3221,7 @@ Checklist:
         <ResultsSubmittedView
           assessmentId={assessment?.id}
           assessmentClaimType={assessment?.claimType}
+          referenceCode={caseReferenceCode}
           handleDownloadReportPdf={handleDownloadReportPdf}
           handleCopyShareLink={handleCopyShareLink}
           improveCaseValueItems={improveCaseValueItems}
@@ -3236,7 +3242,7 @@ Checklist:
   // snapshot's dense cards get the same horizontal room.
   return (
     // px-0 on mobile: the snapshot goes edge-to-edge like the intake steps; cards keep their own inner padding.
-    <div className="page-shell overflow-safe max-w-[1440px] px-0 sm:px-6 lg:px-8">
+    <div className="page-shell overflow-safe max-w-[1600px] px-0 sm:px-6 lg:px-8">
       {/* Soft interstitial — informed choice when sending with no documents */}
       {sendInterstitialOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm" onClick={() => setSendInterstitialOpen(false)} role="dialog" aria-modal="true">

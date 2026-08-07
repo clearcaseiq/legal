@@ -92,7 +92,16 @@ export default function Layout({ children }: LayoutProps) {
   // Dense, grid/table/dashboard workspace screens render edge-to-edge instead of
   // the centered reading-width column used by the rest of the app. The calendar
   // additionally uses a tighter vertical rhythm (it manages its own height).
-  const isFullWidthWorkspace = isWideContentRoute(location.pathname)
+  // The plaintiff "My Case" dashboard shares the claimant wide width so it lines
+  // up with the Case Snapshot and intake screens (handled locally so the shared
+  // isWideContentRoute — reused by attorney-route logic — stays untouched).
+  const isPlaintiffDashboard = location.pathname === '/dashboard'
+  const isFullWidthWorkspace = isWideContentRoute(location.pathname) || isPlaintiffDashboard
+  // The intake wizard (steps 1–5) gets an even wider canvas than the rest of the
+  // wide workspace so the multi-column steps have maximum horizontal room. The
+  // claimant "Your Case Snapshot" (results) report shares that same wider width.
+  const isIntakeRoute = ['/assess', '/intake', '/intake2'].includes(location.pathname)
+  const isWideClaimantRoute = isIntakeRoute || location.pathname.startsWith('/results') || isPlaintiffDashboard
   const isCalendar = isCalendarRoute(location.pathname)
   const isAttorney = !isAdmin && (!!attorney || location.pathname.startsWith('/attorney-dashboard') || location.pathname.startsWith('/firm-dashboard'))
   // Claimant/marketing routes (everything that isn't the attorney workspace or
@@ -618,18 +627,18 @@ export default function Layout({ children }: LayoutProps) {
         id="main-content"
         className={`mx-auto w-full overflow-x-clip ${
           isFullWidthWorkspace
-            ? 'max-w-[1440px] px-4 xl:px-6 2xl:px-8'
+            ? `${isWideClaimantRoute ? 'max-w-[1600px]' : 'max-w-[1440px]'} px-4 xl:px-6 2xl:px-8`
             : 'max-w-7xl sm:px-6 lg:px-8'
         } ${
-          ['/assess', '/intake', '/intake2'].includes(location.pathname)
-            ? 'h-[calc(100dvh-4.5rem-1px)] overflow-y-auto overscroll-y-contain py-2 md:h-[calc(100dvh-5rem-1px)]'
+          isIntakeRoute
+            ? 'h-[calc(100dvh-4.5rem-1px)] overflow-y-auto overscroll-y-contain pt-0 pb-2 md:h-[calc(100dvh-5rem-1px)]'
             : isCalendar
               ? 'py-4'
               : 'py-8'
         }`}
       >
         <div className={`min-w-0 ${
-          ['/assess', '/intake', '/intake2'].includes(location.pathname)
+          isIntakeRoute
             ? 'min-h-full px-0'
             // The Case Snapshot (results) page goes edge-to-edge on mobile like
             // the intake steps; its cards carry their own inner padding.
