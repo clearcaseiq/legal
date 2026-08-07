@@ -1,7 +1,7 @@
 /**
  * ClearCaseIQ Universal + Branching 12-Screen Intake Flow
  */
-import { Fragment, useState, useEffect, useRef, type ReactNode } from 'react'
+import { Fragment, useState, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, type IntakeLeadPayload } from '../lib/api-plaintiff'
@@ -1429,7 +1429,7 @@ export default function IntakeWizardQuick() {
   // the top. On mobile the panel is a normal block (the page scrolls), so reset the
   // window scroll too — otherwise a new step can start mid-page.
   const stepScrollRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
+  useLayoutEffect(() => {
     // Dismiss the on-screen keyboard first. Arriving on a step with a text
     // field still focused (e.g. the Step 2 description box) keeps the mobile
     // keyboard up; on iOS the keyboard offsets the visual viewport and shrinks
@@ -1438,15 +1438,28 @@ export default function IntakeWizardQuick() {
     const active = document.activeElement
     if (active instanceof HTMLElement && active !== document.body) active.blur()
     const scrollTop = () => {
-      window.scrollTo({ top: 0, behavior: 'instant' })
+      // Plain assignment rather than scrollTo({behavior:'instant'}): an unknown
+      // enum value throws a TypeError, which would abort this function before
+      // the containers below were reset.
+      window.scrollTo(0, 0)
       document.documentElement.scrollTop = 0
       document.body.scrollTop = 0
       if (document.scrollingElement) document.scrollingElement.scrollTop = 0
-      // On the intake routes the Layout makes <main> the scroll container, so
-      // resetting the window/body alone leaves a new step opening mid-page.
-      const main = document.getElementById('main-content')
-      if (main) main.scrollTop = 0
-      stepScrollRef.current?.scrollTo({ top: 0, behavior: 'instant' })
+
+      // Walk up from the step panel and reset anything that actually scrolls.
+      // Earlier passes at CP-503 named containers one at a time (<main>, the
+      // step panel) and kept missing whichever one was carrying the offset for
+      // a given step; the ancestor walk cannot miss one, because it asks the
+      // element rather than assuming.
+      for (
+        let node: HTMLElement | null = stepScrollRef.current;
+        node;
+        node = node.parentElement
+      ) {
+        if (node.scrollHeight > node.clientHeight && node.scrollTop !== 0) {
+          node.scrollTop = 0
+        }
+      }
     }
     scrollTop()
     requestAnimationFrame(scrollTop)
@@ -4232,13 +4245,24 @@ export default function IntakeWizardQuick() {
             <div className={`grid grid-cols-2 gap-1.5 sm:gap-2 ${snapshotCards.length >= 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
               {snapshotCards.map(({ key, icon: Icon, label, value, sub, tone, tip }, i) => (
                 <div key={key} className="group relative min-w-0 cursor-help overflow-hidden rounded-lg border border-slate-200 bg-white px-2 py-1 sm:px-2.5 dark:border-slate-700 dark:bg-slate-900/40" tabIndex={0}>
-                  <div className="flex items-center gap-1 text-[9px] font-semibold uppercase leading-none tracking-wide text-gray-600 dark:text-slate-300">
-                    <Icon className="h-3 w-3 shrink-0" aria-hidden />
-                    <span className="truncate">{label}</span>
-                    {tip && <Info className="ml-auto h-3 w-3 shrink-0 text-slate-400" aria-hidden />}
+                  {/*
+                    These wrap rather than truncate. On a two-column grid at
+                    ~340px each card is about 160px wide, and `truncate` was
+                    cutting the metric values and captions off mid-word — which
+                    is precisely what CP-528 and CP-515 report as "text is
+                    getting hidden". Hiding the overflow made the earlier fixes
+                    look correct on a desktop viewport while leaving the phone
+                    worse off, since a clipped number is not just ugly, it is
+                    wrong. Letting them run to a second line costs a few pixels
+                    of height and keeps the value readable.
+                  */}
+                  <div className="flex items-start gap-1 text-[9px] font-semibold uppercase leading-tight tracking-wide text-gray-600 dark:text-slate-300">
+                    <Icon className="mt-px h-3 w-3 shrink-0" aria-hidden />
+                    <span className="min-w-0 break-words">{label}</span>
+                    {tip && <Info className="ml-auto mt-px h-3 w-3 shrink-0 text-slate-400" aria-hidden />}
                   </div>
-                  <p className={`mt-0.5 truncate font-display text-[13px] font-bold leading-none ${tone}`}>{value}</p>
-                  <p className="mt-0.5 truncate text-[9px] font-medium leading-none text-gray-600 dark:text-slate-400">{sub}</p>
+                  <p className={`mt-0.5 break-words font-display text-[13px] font-bold leading-tight ${tone}`}>{value}</p>
+                  <p className="mt-0.5 break-words text-[9px] font-medium leading-tight text-gray-600 dark:text-slate-400">{sub}</p>
                   {tip && (
                     /*
                       The tooltip is 15rem wide but the card it hangs off is half

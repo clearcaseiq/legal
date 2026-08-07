@@ -357,17 +357,25 @@ export default function AdminCases() {
     setRoutingStatusFilter(tab === 'all' ? '' : tab)
   }
 
+  // `shrink-0` is load-bearing. These icons are flex items, and flex items shrink
+  // below their declared size by default, so in a column whose width is set by
+  // short cell content (Score holds a badge, Submitted a short date) the icon was
+  // squeezed to zero width and vanished while wider columns kept theirs. That is
+  // why CP-320 kept coming back for exactly those two columns.
   const SortIcon = ({ field }: { field: SortField }) =>
     sortField === field ? (
       sortDirection === 'asc' ? (
-        <ChevronUp className="h-4 w-4 text-slate-700" />
+        <ChevronUp className="h-4 w-4 shrink-0 text-slate-700" />
       ) : (
-        <ChevronDown className="h-4 w-4 text-slate-700" />
+        <ChevronDown className="h-4 w-4 shrink-0 text-slate-700" />
       )
     ) : (
       // Inactive but sortable: show a clearly visible (not near-invisible) indicator
       // so the column reads as clickable without waiting for a first click (CP-320).
-      <ChevronsUpDown className="h-4 w-4 text-slate-400 group-hover:text-slate-600" aria-hidden />
+      <ChevronsUpDown
+        className="h-4 w-4 shrink-0 text-slate-400 group-hover:text-slate-600"
+        aria-hidden
+      />
     )
 
   /**
@@ -386,7 +394,7 @@ export default function AdminCases() {
         type="button"
         onClick={() => handleSort(field)}
         title={`Sort by ${label}`}
-        className="group -mx-1 inline-flex items-center gap-1 rounded px-1 py-0.5 font-medium uppercase transition hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:hover:text-slate-100"
+        className="group -mx-1 inline-flex items-center gap-1 whitespace-nowrap rounded px-1 py-0.5 font-medium uppercase transition hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 dark:hover:text-slate-100"
       >
         {label}
         <SortIcon field={field} />
