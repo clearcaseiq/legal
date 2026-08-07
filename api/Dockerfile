@@ -1,7 +1,9 @@
 FROM node:20-alpine AS base
 # openssl is required for Prisma to detect the OpenSSL version and load the
 # correct query engine (linux-musl-openssl-3.0.x) on Alpine.
-RUN apk add --no-cache libc6-compat openssl
+# ffmpeg is used to sample frames from uploaded evidence videos for Rekognition
+# relevance validation (see api/src/lib/evidence-vision.ts analyzeVideoRelevance).
+RUN apk add --no-cache libc6-compat openssl ffmpeg
 WORKDIR /repo
 RUN corepack enable
 

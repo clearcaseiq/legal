@@ -16,7 +16,7 @@ import { ENV } from '../env'
 import { prisma } from '../lib/prisma'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence, extractDataFromBuffer } from '../lib/evidence-processing'
 import { syncCaseCoachTasks } from '../lib/case-coach-loop'
-import { analyzeImageRelevance, analyzePdfRelevance, type VisionRelevanceResult } from '../lib/evidence-vision'
+import { analyzeImageRelevance, analyzePdfRelevance, analyzeVideoRelevance, type VisionRelevanceResult } from '../lib/evidence-vision'
 import { syncPlaintiffDocumentRequestStatuses } from '../lib/document-request-status'
 
 const router = Router()
@@ -565,6 +565,8 @@ router.post('/upload', upload.single('file'), async (req: any, res) => {
     let visionResult: VisionRelevanceResult | null = null
     const looksLikePdf =
       req.file.mimetype === 'application/pdf' || /\.pdf$/i.test(req.file.originalname || '')
+    const looksLikeVideo =
+      req.file.mimetype.startsWith('video/') || /\.(mp4|mov|webm|m4v|avi|mkv)$/i.test(req.file.originalname || '')
     if (req.file.mimetype.startsWith('image/')) {
       try {
         visionResult = await analyzeImageRelevance({
@@ -583,6 +585,15 @@ router.post('/upload', upload.single('file'), async (req: any, res) => {
         })
       } catch (visionError) {
         logger.warn('PDF relevance check failed', { error: visionError })
+      }
+    } else if (looksLikeVideo) {
+      try {
+        visionResult = await analyzeVideoRelevance({
+          category: category || 'video',
+          filePath: req.file.path,
+        })
+      } catch (visionError) {
+        logger.warn('Video relevance check failed', { error: visionError })
       }
     }
 
@@ -736,6 +747,8 @@ router.post('/upload-multiple', optionalAuthMiddleware, upload.array('files', 10
         let visionResult: VisionRelevanceResult | null = null
         const looksLikePdf =
           file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname || '')
+        const looksLikeVideo =
+          file.mimetype.startsWith('video/') || /\.(mp4|mov|webm|m4v|avi|mkv)$/i.test(file.originalname || '')
         if (file.mimetype.startsWith('image/')) {
           try {
             visionResult = await analyzeImageRelevance({
@@ -754,6 +767,15 @@ router.post('/upload-multiple', optionalAuthMiddleware, upload.array('files', 10
             })
           } catch (visionError) {
             logger.warn('PDF relevance check failed (batch)', { error: visionError, filename: file.originalname })
+          }
+        } else if (looksLikeVideo) {
+          try {
+            visionResult = await analyzeVideoRelevance({
+              category: category || 'video',
+              filePath: file.path,
+            })
+          } catch (visionError) {
+            logger.warn('Video relevance check failed (batch)', { error: visionError, filename: file.originalname })
           }
         }
 

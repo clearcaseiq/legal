@@ -1,5 +1,7 @@
 import path from 'path'
-import { existsSync, readFileSync } from 'fs'
+import os from 'os'
+import { spawn } from 'child_process'
+import { existsSync, readFileSync, mkdtempSync, readdirSync, rmSync } from 'fs'
 import sharp from 'sharp'
 import { DetectLabelsCommand, RekognitionClient } from '@aws-sdk/client-rekognition'
 import { DetectDocumentTextCommand, TextractClient } from '@aws-sdk/client-textract'
@@ -532,6 +534,140 @@ export async function analyzeImageRelevance(args: AnalyzeArgs): Promise<VisionRe
       provider: 'aws_rekognition',
       checkedAt: new Date().toISOString(),
       reason: error?.name || 'rekognition_error',
+    }
+  }
+}
+
+// ---- Video relevance (frame sampling + image label detection) ----------------------
+//
+// Rekognition's synchronous DetectLabels only accepts still images, and its async
+// video API (StartLabelDetection) requires the file in S3. Evidence is stored on
+// local disk, so instead we sample a few frames with ffmpeg and run the exact same
+// image label pipeline on them — giving an instant verdict with no S3 round-trip.
+
+const VIDEO_FRAME_COUNT = 3
+const FFMPEG_TIMEOUT_MS = 20_000
+
+function runFfmpeg(args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const bin = process.env.FFMPEG_PATH || 'ffmpeg'
+    const proc = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+    let stderr = ''
+    const timer = setTimeout(() => {
+      proc.kill('SIGKILL')
+      reject(new Error('ffmpeg_timeout'))
+    }, FFMPEG_TIMEOUT_MS)
+    proc.stderr?.on('data', (d) => { stderr += d.toString() })
+    proc.on('error', (err) => { clearTimeout(timer); reject(err) })
+    proc.on('close', (code) => {
+      clearTimeout(timer)
+      if (code === 0) resolve()
+      else reject(new Error(`ffmpeg_exit_${code}: ${stderr.slice(-300)}`))
+    })
+  })
+}
+
+/** Sample up to `count` downscaled JPEG frames from the start of a video via ffmpeg. */
+async function extractVideoFrames(filePath: string, count: number): Promise<Buffer[]> {
+  const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'evid-vid-'))
+  try {
+    await runFfmpeg([
+      '-hide_banner', '-loglevel', 'error',
+      '-i', filePath,
+      // 1 frame/sec, scaled to a Rekognition-friendly width (even height), capped at `count`.
+      '-vf', 'fps=1,scale=1024:-2',
+      '-frames:v', String(count),
+      '-q:v', '3',
+      path.join(tmpDir, 'frame-%02d.jpg'),
+    ])
+    return readdirSync(tmpDir)
+      .filter((f) => f.endsWith('.jpg'))
+      .sort()
+      .map((f) => readFileSync(path.join(tmpDir, f)))
+  } finally {
+    try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Assess whether an uploaded video looks relevant to the case by sampling a few
+ * frames and running the image label pipeline on them. Non-blocking by contract:
+ * any failure returns a 'skipped'/'error' verdict the caller surfaces as a soft
+ * warning, never a hard rejection.
+ */
+export async function analyzeVideoRelevance(args: { category: string; filePath: string }): Promise<VisionRelevanceResult> {
+  const category = args.category || 'video'
+  const expected = CATEGORY_EXPECTATION[category] || CATEGORY_EXPECTATION.video || 'footage relevant to your case'
+  const skipped = (reason: string): VisionRelevanceResult => ({
+    status: 'skipped',
+    score: 0,
+    category,
+    matchedLabels: [],
+    topLabels: [],
+    expected,
+    message: null,
+    provider: 'aws_rekognition',
+    checkedAt: new Date().toISOString(),
+    reason,
+  })
+
+  if (!isVisionEnabled()) return skipped('vision_disabled')
+  const resolved = path.isAbsolute(args.filePath) ? args.filePath : path.resolve(process.cwd(), args.filePath)
+  if (!existsSync(resolved)) return skipped('file_missing')
+
+  let frames: Buffer[] = []
+  try {
+    frames = await extractVideoFrames(resolved, VIDEO_FRAME_COUNT)
+  } catch (err: any) {
+    const msg = err?.message || String(err)
+    logger.warn('Vision: video frame extraction failed', { error: msg })
+    // ffmpeg not installed -> skip quietly rather than error the whole verdict.
+    return skipped(err?.code === 'ENOENT' || /ENOENT/.test(msg) ? 'ffmpeg_missing' : 'frame_extract_failed')
+  }
+  if (!frames.length) return skipped('no_frames')
+
+  try {
+    // Merge labels across sampled frames, keeping the highest confidence per label.
+    const byName = new Map<string, DetectedLabel>()
+    for (const frame of frames) {
+      const jpeg = await toRekognitionJpeg(frame)
+      if (!jpeg) continue
+      const labels = await detectLabels(jpeg)
+      for (const l of labels) {
+        const key = l.name.toLowerCase()
+        const prev = byName.get(key)
+        if (!prev || l.confidence > prev.confidence) byName.set(key, l)
+      }
+    }
+    const merged = [...byName.values()].sort((a, b) => b.confidence - a.confidence)
+    if (!merged.length) return skipped('no_labels')
+
+    const result = assessRelevance(category, merged)
+    logger.info('Vision video relevance assessed', {
+      category,
+      status: result.status,
+      frames: frames.length,
+      score: Number(result.score.toFixed(2)),
+      topLabels: result.topLabels.map((l) => `${l.name}:${Math.round(l.confidence)}`),
+    })
+    return result
+  } catch (error: any) {
+    logger.warn('Vision: video relevance failed', {
+      error: error?.message || String(error),
+      name: error?.name,
+      category,
+    })
+    return {
+      status: 'error',
+      score: 0,
+      category,
+      matchedLabels: [],
+      topLabels: [],
+      expected,
+      message: null,
+      provider: 'aws_rekognition',
+      checkedAt: new Date().toISOString(),
+      reason: error?.name || 'video_vision_error',
     }
   }
 }
