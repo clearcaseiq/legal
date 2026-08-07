@@ -3042,6 +3042,8 @@
       "settlementEstimateRange": "Estimated Settlement Range",
       "basedOnYourInfo": "Based on the information you provided.",
       "notAGuarantee": "Not a guarantee of outcome.",
+      "notAGuaranteeInfo": "This range is a preliminary estimate based only on the details you've shared so far — it compares your case to similar injury cases. It is not legal advice and not a promise of any recovery. Your actual result depends on liability, your medical records and bills, insurance coverage, and how your case is negotiated or litigated. Adding medical records and bills sharpens this estimate.",
+      "moreInfo": "More info",
       "mostLikely": "Most likely:",
       "afterFeesA": "After fees & costs, you keep about",
       "seeBreakdown": "See breakdown",

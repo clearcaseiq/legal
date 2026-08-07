@@ -732,6 +732,38 @@ function getReadinessStatusLabel(score: number): string {
   return 'Early stage'
 }
 
+/**
+ * Inline, tap-friendly info disclosure. Renders a short caption with a leading
+ * "i" button that toggles an explanatory panel below. Unlike a hover tooltip
+ * (which never fires on touch devices), this works on mobile because it is a
+ * real button with an onClick toggle. Used for the estimate "not a guarantee"
+ * captions on the Case Snapshot.
+ */
+function InfoDisclosure({ caption, detail, moreLabel }: { caption: string; detail: string; moreLabel: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <span className="mt-1 block">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-start gap-1.5 text-left text-xs font-medium text-slate-600 transition-colors hover:text-slate-800"
+      >
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+        <span className="flex-1">
+          {caption} <span className="font-semibold text-brand-700 underline decoration-dotted underline-offset-2">{moreLabel}</span>
+        </span>
+        <ChevronDown className={`mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
+      </button>
+      {open && (
+        <span className="mt-1.5 block rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">
+          {detail}
+        </span>
+      )}
+    </span>
+  )
+}
+
 function getTreatmentStrengthLabel(params: {
   hasErTreatment: boolean
   hasMri: boolean
@@ -3866,10 +3898,11 @@ Checklist:
                   the page: the figure a claimant reads first should not look
                   authoritative on its own (C3). */}
               <p className="mt-1 text-xs text-slate-500">{t('results.chrome.basedOnYourInfo')}</p>
-              <p className="mt-1 flex items-start gap-1.5 text-xs font-medium text-slate-600">
-                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                <span>{t('results.chrome.notAGuarantee')}</span>
-              </p>
+              <InfoDisclosure
+                caption={t('results.chrome.notAGuarantee')}
+                detail={t('results.chrome.notAGuaranteeInfo')}
+                moreLabel={t('results.chrome.moreInfo')}
+              />
               <p className="mt-2 text-sm text-slate-600">{t('results.chrome.mostLikely')} <span className="font-semibold text-slate-900">{formatCurrency(displaySettlementExpected)}</span></p>
               <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="text-xs text-slate-500">{t('results.chrome.confidence')}</span>
@@ -3890,10 +3923,11 @@ Checklist:
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('results.chrome.ifTrial')}</p>
                 <p className="mt-1 text-xs text-slate-500">{t('results.chrome.trialRange')}</p>
                 <p className="font-display text-xl font-bold tabular-nums text-slate-900 [overflow-wrap:anywhere]">{trialValueText}</p>
-                <p className="mt-1 flex items-start gap-1.5 text-xs font-medium text-slate-600">
-                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                  <span>{t('results.chrome.notAGuarantee')}</span>
-                </p>
+                <InfoDisclosure
+                  caption={t('results.chrome.notAGuarantee')}
+                  detail={t('results.chrome.notAGuaranteeInfo')}
+                  moreLabel={t('results.chrome.moreInfo')}
+                />
                 <p className="mt-2 text-sm text-slate-600">{t('results.chrome.mostLikely')} <span className="font-semibold text-slate-900">{formatCurrency(Math.round((potentialTrialLow + potentialTrialHigh) / 2))}</span></p>
                 <p className="mt-2 text-xs leading-5 text-slate-500">{t('results.chrome.trialGrossA')} <span className="font-semibold text-slate-600">{t('results.chrome.trialGrossMid')}</span>{t('results.chrome.trialGrossB')}</p>
                 <button

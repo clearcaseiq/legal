@@ -3042,6 +3042,8 @@
       "settlementEstimateRange": "和解金额估算区间",
       "basedOnYourInfo": "基于您提供的信息。",
       "notAGuarantee": "这不是对结果的保证。",
+      "notAGuaranteeInfo": "此范围仅是根据您目前提供的信息得出的初步估算，它将您的案件与类似的伤害案件进行比较。这不是法律建议，也不承诺任何赔偿。您的实际结果取决于责任认定、您的医疗记录和账单、保险范围，以及案件的协商或诉讼方式。添加医疗记录和账单可使此估算更准确。",
+      "moreInfo": "更多信息",
       "mostLikely": "最可能：",
       "afterFeesA": "扣除费用和成本后，您大约保留",
       "seeBreakdown": "查看明细",

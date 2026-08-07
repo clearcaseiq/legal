@@ -352,6 +352,24 @@ function handleRequestError(
       const guestOnIntake =
         !hadToken &&
         (pathname === '/assess' || pathname === '/intake' || pathname === '/intake2')
+      // Claimant-facing screens fire optional/background calls that can 401 even for
+      // a *signed-in* plaintiff — the results session probe (loadPlaintiffSessionSummary),
+      // evidence read/insights/jobs (authMiddleware routes), prediction, etc. A 401 from
+      // one of these must never wipe a valid session or force a redirect: doing so kicked
+      // a signed-in plaintiff off the "Supporting Documents" screen (/intake2 evidence
+      // mode) so that clicking "Done" bounced them to the "Continue your injury case"
+      // login page instead of back to their owned case report. The pages themselves still
+      // enforce auth (Results redirects when there is genuinely no token), so the case
+      // read is never actually served to an unauthenticated caller — this only stops an
+      // optional probe from destroying an otherwise-valid session. Unlike the guest*
+      // guards above, this applies whether or not a token is present.
+      const sessionSafeScreen =
+        pathname.startsWith('/results/') ||
+        pathname.startsWith('/evidence-upload/') ||
+        pathname.startsWith('/evidence-dashboard') ||
+        pathname === '/assess' ||
+        pathname === '/intake' ||
+        pathname === '/intake2'
       // Post-registration consent save: show error on /register instead of clearing session + sending to login
       const registerConsentSave =
         pathname.startsWith('/register') &&
@@ -372,7 +390,7 @@ function handleRequestError(
         (url === '/v1/auth/admin-access' || url.endsWith('/v1/auth/admin-access')) &&
         (pathname.startsWith('/login/admin') || pathname === '/admin-login')
 
-      if (hadToken && status === 401) {
+      if (hadToken && status === 401 && !sessionSafeScreen) {
         if (!registerConsentSave && !consentStatusBootstrap && !adminAccessCheck) {
           clearStoredAuth()
         }
@@ -382,7 +400,7 @@ function handleRequestError(
         throw error
       }
 
-      if (!onLoginPage && !guestOnResults && !guestOnEvidence && !guestOnIntake) {
+      if (!onLoginPage && !guestOnResults && !guestOnEvidence && !guestOnIntake && !sessionSafeScreen) {
         if (
           !(registerConsentSave && (status === 401 || status === 403)) &&
           !(consentStatusBootstrap && (status === 401 || status === 403)) &&

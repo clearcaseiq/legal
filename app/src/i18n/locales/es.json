@@ -3042,6 +3042,8 @@
       "settlementEstimateRange": "Rango estimado del acuerdo",
       "basedOnYourInfo": "Basado en la información que usted proporcionó.",
       "notAGuarantee": "No es una garantía de resultado.",
+      "notAGuaranteeInfo": "Este rango es una estimación preliminar basada únicamente en los detalles que ha compartido hasta ahora; compara su caso con casos de lesiones similares. No es asesoramiento legal ni una promesa de recuperación. Su resultado real depende de la responsabilidad, sus registros y facturas médicas, la cobertura del seguro y cómo se negocie o litigue su caso. Agregar registros y facturas médicas afina esta estimación.",
+      "moreInfo": "Más información",
       "mostLikely": "Más probable:",
       "afterFeesA": "Después de honorarios y costos, usted conserva aproximadamente",
       "seeBreakdown": "Ver desglose",
