@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { Activity, AlertTriangle, Calculator, CheckCircle, ChevronRight, FileText, Search, Shield, Stethoscope, TrendingUp } from 'lucide-react'
 import { landingPagesBySlug } from '../data/seoLandingPages'
+import { landingPageFaqs } from '../data/seoLandingPageSchema'
 import { topicContentBySlug, type TopicContent } from '../data/seoLandingPageTopicContent'
 
 const categoryTone: Record<string, string> = {
@@ -146,19 +147,6 @@ const settlementValueDetails = [
   { label: 'Treatment continuity', copy: 'Consistent care helps connect the accident, symptoms, diagnosis, and recovery timeline into a more credible file.' },
   { label: 'Commercial insurance', copy: 'Rideshare, trucking, delivery, employer-owned, or other commercial coverage may change available insurance and negotiation posture.' },
   { label: 'Lost wages', copy: 'Missed work, reduced hours, job restrictions, or business interruption can convert medical harm into documented economic loss.' },
-]
-
-const expandedFaqs = [
-  { q: 'Does delayed pain after an accident matter?', a: 'Yes. Many serious injuries develop gradually after a crash. The key is documenting when symptoms started, when they worsened, and when you sought medical care.' },
-  { q: 'Should I get an MRI after an accident?', a: 'That is a medical decision for a provider. From a case-readiness perspective, MRI findings can help document disc, ligament, soft-tissue, or nerve-related injuries when symptoms persist.' },
-  { q: 'Do chiropractors or physical therapy help claims?', a: 'They can help document pain, range-of-motion limits, treatment continuity, and recovery progress. Insurers may still scrutinize duration, gaps, and medical necessity.' },
-  { q: 'What if insurance denies treatment or says it was unnecessary?', a: 'Save the denial, explanation of benefits, adjuster emails, provider notes, and bills. The reason for denial can become an important litigation-readiness signal.' },
-  { q: 'Does surgery increase settlement value?', a: 'Surgery or a surgery recommendation is often a high-impact severity signal, but value still depends on liability, causation, coverage, prior history, and recovery outcome.' },
-  { q: 'What if symptoms worsen later?', a: 'Worsening symptoms should be medically evaluated. Keep a timeline of changes and upload new records because escalation can change severity, confidence, and next steps.' },
-  { q: 'Will a treatment gap hurt my case?', a: 'A gap can create questions, but it may be explainable. Work conflicts, insurance delays, referral delays, transportation issues, or provider availability should be documented.' },
-  { q: 'What documents are most useful?', a: 'Police reports, photos, medical records, bills, MRI reports, PT notes, wage loss proof, insurance letters, and witness information are usually high-value documents.' },
-  { q: 'Can ClearCaseIQ tell me exactly what my case is worth?', a: 'No tool can guarantee a result. ClearCaseIQ provides a preliminary intelligence report based on available facts, documents, and underwriting signals.' },
-  { q: 'Is this legal advice?', a: 'No. ClearCaseIQ is not a law firm. The report is educational and can help organize information for possible attorney review.' },
 ]
 
 function getScenario(page: { category: string; cluster: string; title: string; signals: string[] }) {
@@ -475,7 +463,7 @@ export default function SeoLandingPage() {
   if (!page) return <Navigate to="/" replace />
 
   const tone = categoryTone[page.category] || 'from-brand-50 to-white border-brand-100 text-brand-950'
-  const allFaqs = [...page.faqs, ...expandedFaqs].slice(0, 12)
+  const allFaqs = landingPageFaqs(page)
   const topicContent = topicContentBySlug[page.slug]
   const scenario = topicContent?.scenario || getScenario(page)
   const diagram = getDiagramCopy(page)
@@ -511,45 +499,8 @@ export default function SeoLandingPage() {
     location.pathname.includes('case-worth')
       ? '/tools/settlement-calculator'
       : '/assessment/start'
-  const schema = {
-    '@context': 'https://schema.org',
-    '@graph': [
-      {
-        '@type': 'Article',
-        headline: page.title,
-        description: page.description,
-        author: { '@type': 'Organization', name: 'ClearCaseIQ' },
-        publisher: { '@type': 'Organization', name: 'ClearCaseIQ' },
-        mainEntityOfPage: location.pathname,
-      },
-      {
-        '@type': 'BreadcrumbList',
-        itemListElement: [
-          { '@type': 'ListItem', position: 1, name: 'Home', item: '/' },
-          { '@type': 'ListItem', position: 2, name: page.category, item: `/${location.pathname.split('/')[1]}` },
-          { '@type': 'ListItem', position: 3, name: page.title, item: location.pathname },
-        ],
-      },
-      {
-        '@type': 'FAQPage',
-        mainEntity: allFaqs.map((faq) => ({
-          '@type': 'Question',
-          name: faq.q,
-          acceptedAnswer: { '@type': 'Answer', text: faq.a },
-        })),
-      },
-      {
-        '@type': 'MedicalCondition',
-        name: page.cluster,
-        description: page.sections.whyItMatters,
-        signOrSymptom: page.signals.map((signal) => ({ '@type': 'MedicalSymptom', name: signal })),
-      },
-    ],
-  }
-
   return (
     <main className="mx-auto w-full max-w-6xl overflow-x-clip px-3 py-6 sm:px-6 sm:py-10 lg:px-8">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
       <section className={`overflow-hidden rounded-3xl border bg-gradient-to-br ${tone} shadow-card`}>
         <div className="grid gap-6 p-4 sm:gap-8 sm:p-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] lg:p-10">
           <div>

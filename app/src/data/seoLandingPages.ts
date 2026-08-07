@@ -35,27 +35,6 @@ export type LandingPage = {
 
 export const landingPages: LandingPage[] = [
   {
-    slug: '/injuries/lower-back-pain-after-accident',
-    category: 'Symptoms',
-    cluster: 'Lower Back Injuries',
-    title: 'Lower Back Pain After an Accident',
-    eyebrow: 'Back injury case signals',
-    description: 'Lower back pain after a crash can be a simple strain, a disc injury, or early sciatica. ClearCaseIQ helps organize your symptoms, treatment path, and documents so you can understand whether your injury may support a claim.',
-    psychology: 'Something feels wrong.',
-    cta: 'Get Free AI Case Assessment',
-    exampleQueries: ['lower back pain after accident', 'lower back pain after rear end accident', 'sciatica after car accident', 'herniated disc after crash', 'MRI for back pain after accident'],
-    signals: ['Pain severity', 'MRI status', 'Treatment progression', 'Numbness or radiating pain', 'Mobility limitations'],
-    sections: {
-      whyItMatters: 'Back injuries often develop over days or weeks. The value and seriousness of the claim usually depend on whether pain resolves, progresses into radiating symptoms, or is confirmed by imaging and consistent treatment.',
-      whatToTrack: ['When the pain started and whether it was delayed', 'Any leg numbness, tingling, weakness, or sciatica', 'Whether an MRI or specialist referral was recommended', 'Physical therapy, chiropractic care, injections, or surgery discussions', 'Missed work or limits on lifting, sitting, walking, or driving'],
-      howClearCaseHelps: 'The assessment captures symptom severity, treatment escalation, medical records, and billing signals to estimate readiness and a preliminary case value range.',
-    },
-    faqs: [
-      { q: 'Is lower back pain after a crash serious?', a: 'It can be. Persistent pain, radiating pain, numbness, weakness, or MRI findings may indicate a more significant injury than a simple strain.' },
-      { q: 'Does an MRI matter for a back injury claim?', a: 'MRI evidence can help confirm disc injuries, nerve involvement, and treatment escalation, but the full story also depends on symptoms, timing, and care continuity.' },
-    ],
-  },
-  {
     slug: '/injuries/whiplash-after-rear-end',
     category: 'Symptoms',
     cluster: 'Neck / Whiplash',
