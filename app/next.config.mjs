@@ -19,6 +19,15 @@ const nextConfig = {
     // those files and webpack tries to parse raw TypeScript as JavaScript.
     externalDir: true,
   },
+  async redirects() {
+    return [
+      // Retired public URL. The SPA already redirected in the browser, but that
+      // returns 200 to a crawler and passes no ranking signal; this makes it a
+      // real redirect. 301 rather than the 308 `permanent: true` emits, because
+      // third-party SEO tooling reads 301 more consistently.
+      { source: '/for-attorneys', destination: '/attorney-network', statusCode: 301 },
+    ]
+  },
   webpack: (config) => {
     // Force the web app to use the same React runtime that Next resolves from the workspace root.
     config.resolve.alias = {

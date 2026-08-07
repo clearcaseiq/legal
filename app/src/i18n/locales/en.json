@@ -3738,5 +3738,12 @@
         "delete": "Delete"
       }
     }
+  },
+  "notFound": {
+    "code": "404 Error",
+    "title": "We could not find that page",
+    "body": "The link may be out of date, or the address may have a typo. Your case information is safe — pick up where you left off below.",
+    "startAssessment": "Start Free Case Assessment",
+    "home": "Go to Home"
   }
 }

@@ -135,6 +135,7 @@ const HipaaAuthorization = lazy(() => import('./pages/HipaaAuthorization'))
 const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess'))
 const PaymentCancel = lazy(() => import('./pages/PaymentCancel'))
 const SeoLandingPage = lazy(() => import('./pages/SeoLandingPage'))
+const NotFound = lazy(() => import('./pages/NotFound'))
 
 function RouteFallback() {
   return (
@@ -515,6 +516,7 @@ function App() {
             <Route path="/book/:slug" element={<PublicBookingPage />} />
             <Route path="/book/:slug/:eventSlug" element={<PublicBookingPage />} />
             <Route path="/booking/manage/:token" element={<BookingManagePage />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
         </RouteErrorBoundary>

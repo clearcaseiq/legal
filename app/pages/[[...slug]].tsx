@@ -2,6 +2,7 @@ import type { GetServerSideProps } from 'next'
 import dynamic from 'next/dynamic'
 import Head from 'next/head'
 import SsrRoot from '../src/ssr-root'
+import { isKnownAppRoute } from '../src/data/appRoutes'
 import { marketingPagesByPath } from '../src/data/marketingPages'
 import { landingPagesBySlug } from '../src/data/seoLandingPages'
 import {
@@ -28,6 +29,8 @@ type SeoProps = {
   description: string
   canonical: string
   schema: string | null
+  /** Set on 404s so search engines drop the URL instead of indexing it. */
+  noindex?: boolean
 }
 
 type PageProps = {
@@ -42,7 +45,8 @@ export default function CatchAllPage({ seo, ssrLocation }: PageProps) {
       <Head>
         <title>{seo.title}</title>
         <meta name="description" content={seo.description} />
-        <link rel="canonical" href={seo.canonical} />
+        {seo.noindex ? <meta name="robots" content="noindex, follow" /> : null}
+        {seo.noindex ? null : <link rel="canonical" href={seo.canonical} />}
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="ClearCaseIQ" />
         <meta property="og:title" content={seo.title} />
@@ -103,6 +107,25 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ params
           description: marketingPage.description,
           canonical,
           schema: null,
+        },
+      },
+    }
+  }
+
+  if (!isKnownAppRoute(pathname)) {
+    // The URL matches nothing the app can render. Answering 200 here would make
+    // every typo look like a real page to a crawler.
+    res.statusCode = 404
+
+    return {
+      props: {
+        ssrLocation: null,
+        seo: {
+          title: 'Page Not Found | ClearCaseIQ',
+          description: DEFAULT_DESCRIPTION,
+          canonical,
+          schema: null,
+          noindex: true,
         },
       },
     }

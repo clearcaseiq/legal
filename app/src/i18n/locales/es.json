@@ -3738,5 +3738,12 @@
         "delete": "Eliminar"
       }
     }
+  },
+  "notFound": {
+    "code": "Error 404",
+    "title": "No pudimos encontrar esa página",
+    "body": "Es posible que el enlace esté desactualizado o que la dirección tenga un error. La información de su caso está segura: continúe desde donde lo dejó.",
+    "startAssessment": "Iniciar evaluación gratuita del caso",
+    "home": "Ir al inicio"
   }
 }
