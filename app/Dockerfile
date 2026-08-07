@@ -24,6 +24,18 @@ COPY shared ./shared
 WORKDIR /repo/app
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+# Next inlines NEXT_PUBLIC_* into the client bundle during `pnpm build`, so these
+# have to arrive as build args. Setting them on the running container does
+# nothing, and does it silently: analytics and the verification tags simply
+# never render. All four are optional and the build succeeds without them.
+ARG NEXT_PUBLIC_SITE_URL
+ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
+ARG NEXT_PUBLIC_GA_MEASUREMENT_ID
+ENV NEXT_PUBLIC_GA_MEASUREMENT_ID=${NEXT_PUBLIC_GA_MEASUREMENT_ID}
+ARG NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
+ENV NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION=${NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION}
+ARG NEXT_PUBLIC_BING_SITE_VERIFICATION
+ENV NEXT_PUBLIC_BING_SITE_VERIFICATION=${NEXT_PUBLIC_BING_SITE_VERIFICATION}
 RUN pnpm build
 
 FROM base AS runner

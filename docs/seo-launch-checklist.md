@@ -13,10 +13,15 @@ should report 176 server-rendered, 3 client-only, 0 failures.
 
 ### Environment variables
 
-The app reads these at build time. They are all optional, and each feature is
-silently skipped when its variable is unset, so a missing value fails quietly
-rather than loudly. Confirm they are present in the production build
-environment, not just in a local `.env`.
+Next inlines `NEXT_PUBLIC_*` into the bundle **when the image is built**, so
+these must be passed as Docker build args. Setting them on the running container
+does nothing, and does it silently. `app/Dockerfile` declares each as an `ARG`
+in the builder stage, and both compose files forward them from the deploy
+environment.
+
+They are all optional, and each feature is skipped when its variable is unset,
+so a missing value fails quietly rather than loudly. Confirm they are present in
+the production build environment, not just in a local `.env`.
 
 | Variable | Purpose | Effect if missing |
 | --- | --- | --- |
@@ -66,13 +71,24 @@ addresses and the ranking signals split between them.
 - [ ] Confirm a pageview lands from a landing page in the realtime report
 - [ ] Link GA4 to Search Console so query data appears alongside behaviour
 
-Note a deliberate constraint: analytics load **only on public marketing and SEO
-pages**. They do not load on the intake wizard, dashboards, or any signed-in
-screen, because those are where claimants describe injuries and upload medical
-records, and HHS guidance treats third-party tracking on such pages as a
-disclosure of health information. Client-side route changes are not tracked for
-the same reason. Extending coverage into the funnel needs a HIPAA review first —
-see `app/src/components/SiteAnalytics.tsx`.
+- [ ] **Turn off GA4 enhanced measurement**, form interactions above all. See
+      the boundary described below — this setting is the part of it that lives
+      in the GA4 admin rather than in code.
+
+Note a deliberate constraint: analytics are requested **only on public marketing
+and SEO pages**, and client-side route changes are not tracked, so only the
+entry page is reported. Those routes are excluded because the intake wizard and
+dashboards are where claimants describe injuries and upload medical records, and
+HHS guidance treats third-party tracking on such pages as a disclosure of health
+information.
+
+Be precise about the limit of that guarantee when discussing it with counsel.
+The app is a single-page app behind a catch-all route, so a visitor who lands on
+a public page and then navigates to the intake wizard still has the GA script
+resident in the document. It sends no pageview for that route, but GA4 enhanced
+measurement can fire on its own, which is why the setting above matters.
+Widening this boundary needs a HIPAA review — see
+`app/src/components/SiteAnalytics.tsx`.
 
 ---
 
@@ -104,9 +120,10 @@ see `app/src/components/SiteAnalytics.tsx`.
       claimants to attorneys sits inside that scope. Confirm required
       disclaimers appear where the rules demand.
 - [ ] **E-E-A-T signals.** Personal injury is a YMYL category, where Google
-      weighs demonstrable trust unusually heavily. The highest-value additions
-      are named authors with credentials, a legal or medical reviewer byline, a
-      substantive about page, and a verifiable business address.
+      weighs demonstrable trust unusually heavily. Ship `/about` with founder
+      story, company identity, and content standards (done in-app). Still add
+      named outside legal/medical reviewer bylines and a verifiable street
+      address when available.
 
 ---
 
