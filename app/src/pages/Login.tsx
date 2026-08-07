@@ -135,11 +135,6 @@ export default function Login() {
     >
       <div className="mb-6">
         <OAuthButtons onError={setError} disabled={isLoading} emphasizeGoogle />
-        <ul className="mt-4 grid gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800 list-disc list-inside marker:text-emerald-500">
-          <li>{t('auth.benefitFree')}</li>
-          <li>{t('auth.benefitNoObligation')}</li>
-          <li>{t('auth.benefitPrivate')}</li>
-        </ul>
       </div>
 
       <div className="relative mb-6">
@@ -228,25 +223,7 @@ export default function Login() {
         </div>
       </form>
 
-      <div className="mt-6 rounded-xl border border-brand-100 bg-brand-50 px-4 py-4">
-        <h2 className="text-sm font-semibold text-brand-950">{t('auth.afterSignInTitle')}</h2>
-        <p className="mt-2 text-sm leading-relaxed text-brand-800">
-          {t('auth.afterSignInDesc')}
-        </p>
-        <ul className="mt-3 grid gap-2 text-sm text-brand-800 list-disc list-inside marker:text-brand-500">
-          <li>{t('auth.afterSignInItem1')}</li>
-          <li>{t('auth.afterSignInItem2')}</li>
-          <li>{t('auth.afterSignInItem3')}</li>
-          <li>{t('auth.afterSignInItem4')}</li>
-        </ul>
-      </div>
-
-      <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-center">
-        <p className="text-sm font-semibold text-slate-800">{t('auth.trustedTitle')}</p>
-        <p className="mt-1 text-xs text-slate-500">{t('auth.trustedDesc')}</p>
-      </div>
-
-      <p className="mt-4 text-center text-xs leading-relaxed text-slate-500">
+      <p className="mt-6 text-center text-xs leading-relaxed text-slate-500">
         {t('auth.platformDisclaimer')}
       </p>
     </LoginLayout>

@@ -160,6 +160,15 @@ export default function Layout({ children }: LayoutProps) {
   const roleLabel = isAdmin ? 'Administrator' : isAttorney ? 'Attorney' : 'Client'
   const pendingAssessmentId =
     browserStateReady && !isAuthenticated ? localStorage.getItem('pending_assessment_id') : null
+  // Once a claimant has started/completed a case, the marketing links ("How it
+  // works", "For Attorneys") are noise — hide them so the nav focuses on their
+  // case. Covers the active intake/results screens and any state where we know a
+  // case exists (a pending assessment id for guests, or a server case once
+  // signed in — both reflected in `hasCase`).
+  const inCaseFlow =
+    hasCase ||
+    ['/assess', '/intake', '/intake2'].includes(location.pathname) ||
+    location.pathname.startsWith('/results')
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -231,12 +240,12 @@ export default function Layout({ children }: LayoutProps) {
   const navItems = ([
     // Marketing links are only relevant pre-login; hide them once a user is
     // signed in so the nav focuses on their workspace (#138).
-    isAuthenticated ? null : { name: t('common.howItWorks'), href: navLinks.howItWorks, icon: null },
+    isAuthenticated || inCaseFlow ? null : { name: t('common.howItWorks'), href: navLinks.howItWorks, icon: null },
     // Attorneys navigate via the workspace sidebar + logo + account menu, so the
     // center pill ("My Cases") is redundant for them — hide it. Plaintiffs and
     // logged-out visitors still get their case link.
     isAttorney ? null : caseNavItem,
-    isAuthenticated ? null : { name: t('common.forAttorneys'), href: navLinks.forAttorneys, icon: ScaleIcon },
+    isAuthenticated || inCaseFlow ? null : { name: t('common.forAttorneys'), href: navLinks.forAttorneys, icon: ScaleIcon },
     // Help is intentionally NOT in the top header bar — it stays in the hamburger
     // menu, the account dropdown (attorneys), and the footer. Dropping it from the
     // header frees room so the language switcher is always visible on every device.
@@ -481,12 +490,16 @@ export default function Layout({ children }: LayoutProps) {
                 narrow phones until the user scrolled the row (CP-348). */}
             <div className="flex items-center gap-2 py-2">
               <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto [-webkit-overflow-scrolling:touch]">
-                <Link to={navLinks.howItWorks} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
-                  {t('common.howItWorks')}
-                </Link>
-                <Link to={navLinks.forAttorneys} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
-                  {t('common.forAttorneys')}
-                </Link>
+                {!inCaseFlow && (
+                  <>
+                    <Link to={navLinks.howItWorks} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
+                      {t('common.howItWorks')}
+                    </Link>
+                    <Link to={navLinks.forAttorneys} className="shrink-0 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
+                      {t('common.forAttorneys')}
+                    </Link>
+                  </>
+                )}
               </div>
               {/* Language switcher is pinned OUTSIDE the horizontal scroller so it is
                   always visible, even on the narrowest phones (previously it was the
