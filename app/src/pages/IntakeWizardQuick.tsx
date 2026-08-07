@@ -1470,6 +1470,34 @@ export default function IntakeWizardQuick() {
     }
   }, [errors])
 
+  // Keep the fixed mobile Back/Next bar above the on-screen keyboard. iOS anchors
+  // `position: fixed; bottom: 0` to the *layout* viewport, so when the keyboard
+  // opens (e.g. focusing a text field on the injury-details step) the bar slides
+  // underneath it and appears to vanish. The VisualViewport API reports the
+  // keyboard overlap; we translate the bar up by that amount so it stays visible.
+  const navBarRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const vv = typeof window !== 'undefined' ? window.visualViewport : undefined
+    if (!vv) return
+    const apply = () => {
+      const el = navBarRef.current
+      if (!el) return
+      // Only lift on mobile widths where the bar is `fixed`; at sm+ (>=640px) it
+      // is a static, in-flow element and must never be transformed.
+      const isMobile = window.matchMedia('(max-width: 639px)').matches
+      const overlap = isMobile ? Math.max(0, window.innerHeight - (vv.height + vv.offsetTop)) : 0
+      el.style.transform = overlap > 1 ? `translateY(-${Math.round(overlap)}px)` : ''
+    }
+    apply()
+    vv.addEventListener('resize', apply)
+    vv.addEventListener('scroll', apply)
+    return () => {
+      vv.removeEventListener('resize', apply)
+      vv.removeEventListener('scroll', apply)
+      if (navBarRef.current) navBarRef.current.style.transform = ''
+    }
+  }, [])
+
   // Prefetch the IP-based location as soon as the wizard mounts (not when the user
   // first reaches the "when/where" step). Resolving it ahead of time means step 2
   // renders in its final state on first paint, instead of swapping the location
@@ -6874,7 +6902,7 @@ export default function IntakeWizardQuick() {
           the step grows (e.g. expanding "Additional information"). `sticky` on a
           last child collapsed to the end of the scrolled content and vanished.
           sm+: back to an in-flow card below the step. */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/90 bg-white/95 px-4 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-4px_20px_rgba(15,23,42,0.10)] backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 sm:static sm:inset-auto sm:z-20 sm:mx-0 sm:shrink-0 sm:rounded-2xl sm:border sm:px-1.5 sm:py-1.5 sm:shadow-lg sm:shadow-slate-200/70 md:rounded-3xl">
+      <div ref={navBarRef} className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/90 bg-white/95 px-4 pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-4px_20px_rgba(15,23,42,0.10)] backdrop-blur transition-transform duration-150 ease-out dark:border-slate-700 dark:bg-slate-950/95 sm:static sm:inset-auto sm:z-20 sm:mx-0 sm:shrink-0 sm:transform-none sm:rounded-2xl sm:border sm:px-1.5 sm:py-1.5 sm:shadow-lg sm:shadow-slate-200/70 md:rounded-3xl">
       <div className="flex flex-col items-stretch gap-1.5 sm:flex-row sm:items-center sm:justify-between">
         <button
           type="button"
