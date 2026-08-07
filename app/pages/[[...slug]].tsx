@@ -1,6 +1,8 @@
 import type { GetServerSideProps } from 'next'
 import dynamic from 'next/dynamic'
 import Head from 'next/head'
+import SsrRoot from '../src/ssr-root'
+import { marketingPagesByPath } from '../src/data/marketingPages'
 import { landingPagesBySlug } from '../src/data/seoLandingPages'
 import {
   buildLandingPageSchema,
@@ -9,9 +11,9 @@ import {
   siteUrl,
 } from '../src/data/seoLandingPageSchema'
 
-// The app shell stays client-rendered; only the document head is produced on the
-// server so crawlers get real metadata without the whole SPA needing to be
-// SSR-safe.
+// SEO landing pages are rendered on the server so crawlers receive the article
+// text, not an empty shell. Every other route is app UI behind a login and has
+// no SEO value, so it keeps mounting client-side.
 const NextRoot = dynamic(() => import('../src/next-root'), {
   ssr: false,
 })
@@ -28,7 +30,13 @@ type SeoProps = {
   schema: string | null
 }
 
-export default function CatchAllPage({ seo }: { seo: SeoProps }) {
+type PageProps = {
+  seo: SeoProps
+  /** Path to render on the server, or null for client-only routes. */
+  ssrLocation: string | null
+}
+
+export default function CatchAllPage({ seo, ssrLocation }: PageProps) {
   return (
     <>
       <Head>
@@ -49,12 +57,12 @@ export default function CatchAllPage({ seo }: { seo: SeoProps }) {
           <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: seo.schema }} />
         ) : null}
       </Head>
-      <NextRoot />
+      {ssrLocation ? <SsrRoot location={ssrLocation} /> : <NextRoot />}
     </>
   )
 }
 
-export const getServerSideProps: GetServerSideProps<{ seo: SeoProps }> = async ({ params, res }) => {
+export const getServerSideProps: GetServerSideProps<PageProps> = async ({ params, res }) => {
   const segments = Array.isArray(params?.slug) ? params.slug : []
   const pathname = segments.length ? `/${segments.join('/')}` : '/'
   const page = landingPagesBySlug.get(pathname)
@@ -66,6 +74,7 @@ export const getServerSideProps: GetServerSideProps<{ seo: SeoProps }> = async (
 
     return {
       props: {
+        ssrLocation: pathname,
         seo: {
           title: landingPageTitle(page),
           description: page.description,
@@ -76,12 +85,36 @@ export const getServerSideProps: GetServerSideProps<{ seo: SeoProps }> = async (
     }
   }
 
+  const canonical = `${siteUrl}${pathname === '/' ? '' : pathname}`
+  const marketingPage = marketingPagesByPath.get(pathname)
+
+  if (marketingPage) {
+    if (marketingPage.serverRender) {
+      // Server-rendered marketing pages show the signed-out shell to everyone,
+      // so the response is identical for every visitor and safe to cache.
+      res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=86400')
+    }
+
+    return {
+      props: {
+        ssrLocation: marketingPage.serverRender ? pathname : null,
+        seo: {
+          title: marketingPage.title,
+          description: marketingPage.description,
+          canonical,
+          schema: null,
+        },
+      },
+    }
+  }
+
   return {
     props: {
+      ssrLocation: null,
       seo: {
         title: DEFAULT_TITLE,
         description: DEFAULT_DESCRIPTION,
-        canonical: `${siteUrl}${pathname === '/' ? '' : pathname}`,
+        canonical,
         schema: null,
       },
     },

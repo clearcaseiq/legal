@@ -13,6 +13,7 @@ import {
 } from './StartupIcons'
 import { useTheme } from '../contexts/ThemeContext'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useBrowserStateReady } from '../contexts/ServerRenderContext'
 import { clearStoredAuth, getStoredRole, getStoredUser, hasValidAuthToken } from '../lib/auth'
 import { isCalendarRoute, isWideContentRoute } from '../lib/layoutWidth'
 import { loadPlaintiffHasCase, resetPlaintiffCaseHintCache } from '../lib/plaintiffCaseHint'
@@ -75,10 +76,15 @@ export default function Layout({ children }: LayoutProps) {
   const footerRef = useRef<HTMLElement>(null)
 
   const { showWorkspaceThemeToggle, darkMode, toggle } = useTheme()
-  const authToken = localStorage.getItem('auth_token')
-  const attorney = localStorage.getItem('attorney')
-  const isAuthenticated = hasValidAuthToken()
-  const storedRole = getStoredRole()
+  // Sign-in state lives in localStorage, which the server cannot see. On
+  // server-rendered routes these stay empty through hydration so both renders
+  // produce the signed-out chrome, then the real values arrive on the next
+  // commit. Client-only routes read them immediately, as before.
+  const browserStateReady = useBrowserStateReady()
+  const authToken = browserStateReady ? localStorage.getItem('auth_token') : null
+  const attorney = browserStateReady ? localStorage.getItem('attorney') : null
+  const isAuthenticated = browserStateReady && hasValidAuthToken()
+  const storedRole = browserStateReady ? getStoredRole() : null
   const isAdmin = isAuthenticated && storedRole === 'admin'
   const isAdminArea = location.pathname.startsWith('/admin')
   const isDashboard = location.pathname.startsWith('/dashboard')
@@ -147,15 +153,13 @@ export default function Layout({ children }: LayoutProps) {
   // reported as "home page not opening on logo click" (CP-549).
   const logoDestination = navLinks.home
   const shouldLoadPlaintiffSummary = !!authToken && !isAttorney
-  const storedUser = getStoredUser<{ firstName?: string }>('user')
+  const storedUser = browserStateReady ? getStoredUser<{ firstName?: string }>('user') : null
   const userName = storedUser?.firstName || 'User'
   const headerLabel = isAdmin ? 'Admin' : (userName || 'User')
   const avatarInitial = (headerLabel || 'U').trim().charAt(0).toUpperCase()
   const roleLabel = isAdmin ? 'Administrator' : isAttorney ? 'Attorney' : 'Client'
   const pendingAssessmentId =
-    typeof window !== 'undefined' && !isAuthenticated
-      ? localStorage.getItem('pending_assessment_id')
-      : null
+    browserStateReady && !isAuthenticated ? localStorage.getItem('pending_assessment_id') : null
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

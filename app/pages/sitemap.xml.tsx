@@ -1,4 +1,5 @@
 import type { GetServerSideProps } from 'next'
+import { marketingSitemapPaths } from '../src/data/marketingPages'
 import { allLandingPages } from '../src/data/seoLandingPages'
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.clearcaseiq.com'
@@ -44,8 +45,7 @@ function priorityForPath(path: string) {
 
 export const getServerSideProps: GetServerSideProps = async ({ res }) => {
   const uniqueSeoPaths = Array.from(new Set(allLandingPages.map((page) => page.slug))).sort()
-  const staticPaths = ['/', '/how-it-works', '/for-attorneys', '/attorneys', '/privacy-policy', '/terms-of-service']
-  const paths = Array.from(new Set([...staticPaths, ...uniqueSeoPaths]))
+  const paths = Array.from(new Set([...marketingSitemapPaths, ...uniqueSeoPaths]))
   const lastmod = new Date().toISOString().split('T')[0]
 
   const urls = paths

@@ -1,10 +1,13 @@
+import type { ReactNode } from 'react'
 import { BrowserRouter } from 'react-router-dom'
+import { StaticRouter } from 'react-router-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import { LanguageProvider } from './contexts/LanguageContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { HeuristicsProvider } from './contexts/HeuristicsContext'
+import { ServerRenderedProvider } from './contexts/ServerRenderContext'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,20 +22,36 @@ const queryClient = new QueryClient({
   },
 })
 
-export default function AppProviders() {
+type AppProvidersProps = {
+  /** Set on routes rendered by the server so children can defer browser state. */
+  serverRendered?: boolean
+  /** Request path, required by the server router since there is no history. */
+  location?: string
+}
+
+function Router({ location, children }: { location?: string; children: ReactNode }) {
+  if (typeof window === 'undefined') {
+    return <StaticRouter location={location ?? '/'}>{children}</StaticRouter>
+  }
+  return <BrowserRouter>{children}</BrowserRouter>
+}
+
+export default function AppProviders({ serverRendered = false, location }: AppProvidersProps) {
   return (
-    <QueryClientProvider client={queryClient}>
-      <LanguageProvider>
-        <BrowserRouter>
-          <ThemeProvider>
-            <ToastProvider>
-              <HeuristicsProvider>
-                <App />
-              </HeuristicsProvider>
-            </ToastProvider>
-          </ThemeProvider>
-        </BrowserRouter>
-      </LanguageProvider>
-    </QueryClientProvider>
+    <ServerRenderedProvider value={serverRendered}>
+      <QueryClientProvider client={queryClient}>
+        <LanguageProvider deferStoredLanguage={serverRendered}>
+          <Router location={location}>
+            <ThemeProvider>
+              <ToastProvider>
+                <HeuristicsProvider>
+                  <App />
+                </HeuristicsProvider>
+              </ToastProvider>
+            </ThemeProvider>
+          </Router>
+        </LanguageProvider>
+      </QueryClientProvider>
+    </ServerRenderedProvider>
   )
 }

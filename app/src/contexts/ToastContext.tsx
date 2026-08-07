@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from 'react'
@@ -50,6 +51,13 @@ const VARIANT_ICON_CLASS: Record<ToastVariant, string> = {
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([])
+  // The portal target only exists in the browser. Portals render outside this
+  // subtree, so attaching after mount cannot cause a hydration mismatch.
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null)
+
+  useEffect(() => {
+    setPortalTarget(document.body)
+  }, [])
 
   const showToast = useCallback((t: Omit<ToastItem, 'id'>) => {
     const id =
@@ -67,7 +75,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      {createPortal(
+      {portalTarget && createPortal(
         <div
           className="fixed bottom-4 right-4 z-[220] flex max-w-[calc(100vw-2rem)] flex-col gap-2 pointer-events-none md:max-w-sm"
           aria-live="polite"
@@ -98,7 +106,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             )
           })}
         </div>,
-        document.body
+        portalTarget
       )}
     </ToastContext.Provider>
   )

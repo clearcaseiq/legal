@@ -18,8 +18,27 @@ type LanguageContextValue = {
 
 const LanguageContext = createContext<LanguageContextValue | null>(null)
 
-export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguageState] = useState<LanguageCode>(() => getInitialLanguage())
+export function LanguageProvider({
+  children,
+  deferStoredLanguage = false,
+}: {
+  children: ReactNode
+  /**
+   * On server-rendered routes the first client render has to match markup the
+   * server produced with the default language, so the stored preference is
+   * adopted one commit later instead of during the initial render.
+   */
+  deferStoredLanguage?: boolean
+}) {
+  const [language, setLanguageState] = useState<LanguageCode>(() =>
+    deferStoredLanguage ? DEFAULT_LANGUAGE : getInitialLanguage()
+  )
+  // Captured before any effect runs so the deferred adoption below cannot read
+  // back a value that this provider itself has already persisted.
+  const [pendingLanguage] = useState<LanguageCode | null>(() =>
+    deferStoredLanguage && typeof window !== 'undefined' ? getInitialLanguage() : null
+  )
+  const [adopted, setAdopted] = useState(!pendingLanguage)
   const [resourceVersion, setResourceVersion] = useState(0)
 
   const setLanguage = useCallback((nextLanguage: LanguageCode) => {
@@ -27,11 +46,18 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    if (adopted) return
+    if (pendingLanguage) setLanguageState(pendingLanguage)
+    setAdopted(true)
+  }, [adopted, pendingLanguage])
+
+  useEffect(() => {
+    if (!adopted) return
     setStoredLanguage(language)
     if (typeof document !== 'undefined') {
       document.documentElement.lang = language
     }
-  }, [language])
+  }, [language, adopted])
 
   useEffect(() => {
     if (hasLanguageResources(language)) return

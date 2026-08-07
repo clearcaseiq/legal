@@ -3,6 +3,7 @@ import { useSearchParams, Link, useLocation } from 'react-router-dom'
 import { searchAttorneys, getAttorneyProfile, getAttorneyTrustMetrics, requestIntroduction, type AttorneyTrustMetrics } from '../lib/api'
 import { type AttorneySummary } from '../lib/schemas'
 import { BackButton } from '../features/shared/ui'
+import { useBrowserStateReady } from '../contexts/ServerRenderContext'
 import { 
   Search, 
   Star, 
@@ -21,7 +22,10 @@ import {
 export default function Attorneys() {
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
-  const fromPath = (location.state as { from?: string })?.from ?? (localStorage.getItem('auth_token') ? '/dashboard' : '/')
+  const browserStateReady = useBrowserStateReady()
+  const fromPath =
+    (location.state as { from?: string })?.from ??
+    (browserStateReady && localStorage.getItem('auth_token') ? '/dashboard' : '/')
   const [attorneys, setAttorneys] = useState<AttorneySummary[]>([])
   const [selectedAttorney, setSelectedAttorney] = useState<any>(null)
   const [selectedAttorneyId, setSelectedAttorneyId] = useState<string | null>(null)
