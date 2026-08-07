@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createAdminFeatureToggle, getAdminFeatureToggles, updateAdminFeatureToggle } from '../lib/api'
+import {
+  createAdminFeatureToggle,
+  getAdminFeatureToggles,
+  getAdminFirms,
+  getAdminUsers,
+  updateAdminFeatureToggle,
+} from '../lib/api'
+import { getAdminLoginPath, isAdminAuthError } from '../lib/auth'
 import {
   Badge,
   DataTable,
@@ -20,9 +27,33 @@ interface FeatureToggle {
   createdAt?: string
 }
 
+interface FirmOption {
+  id: string
+  name: string
+  slug?: string
+}
+
+interface UserOption {
+  id: string
+  email: string
+  firstName?: string
+  lastName?: string
+}
+
+function firmLabel(firm: FirmOption) {
+  return firm.name || firm.slug || firm.id
+}
+
+function userLabel(user: UserOption) {
+  const name = `${user.firstName || ''} ${user.lastName || ''}`.trim()
+  return name ? `${name} (${user.email})` : user.email
+}
+
 export default function AdminFeatureToggles() {
   const navigate = useNavigate()
   const [toggles, setToggles] = useState<FeatureToggle[]>([])
+  const [firms, setFirms] = useState<FirmOption[]>([])
+  const [users, setUsers] = useState<UserOption[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState({
@@ -31,20 +62,31 @@ export default function AdminFeatureToggles() {
     enabled: false,
     scope: 'global' as 'global' | 'firm' | 'user',
     lawFirmId: '',
-    userId: ''
+    userId: '',
   })
+
+  const redirectOnAuthError = (err: unknown) => {
+    if (isAdminAuthError(err)) {
+      navigate(getAdminLoginPath('/admin/feature-toggles'), { replace: true })
+      return true
+    }
+    return false
+  }
 
   const loadToggles = async () => {
     try {
       setLoading(true)
       setError(null)
-      const data = await getAdminFeatureToggles()
-      setToggles(data.data || [])
+      const [toggleData, firmData, userData] = await Promise.all([
+        getAdminFeatureToggles(),
+        getAdminFirms().catch(() => ({ data: [] })),
+        getAdminUsers({ limit: 200 }).catch(() => ({ data: [] })),
+      ])
+      setToggles(toggleData.data || [])
+      setFirms(Array.isArray(firmData?.data) ? firmData.data : [])
+      setUsers(Array.isArray(userData?.data) ? userData.data : [])
     } catch (err: any) {
-      if (err.response?.status === 401 || err.response?.status === 403) {
-        navigate('/login/admin?redirect=/admin/feature-toggles')
-        return
-      }
+      if (redirectOnAuthError(err)) return
       setError(err.response?.data?.error || 'Failed to load feature toggles')
     } finally {
       setLoading(false)
@@ -55,6 +97,18 @@ export default function AdminFeatureToggles() {
     loadToggles()
   }, [])
 
+  const resolveTargetLabel = (toggle: FeatureToggle) => {
+    if (toggle.scope === 'firm') {
+      const firm = firms.find((item) => item.id === toggle.lawFirmId)
+      return firm ? firmLabel(firm) : toggle.lawFirmId || '—'
+    }
+    if (toggle.scope === 'user') {
+      const user = users.find((item) => item.id === toggle.userId)
+      return user ? userLabel(user) : toggle.userId || '—'
+    }
+    return '—'
+  }
+
   const handleCreate = async () => {
     try {
       setError(null)
@@ -62,13 +116,21 @@ export default function AdminFeatureToggles() {
         setError('Key is required')
         return
       }
+      if (form.scope === 'firm' && !form.lawFirmId) {
+        setError('Select a law firm for firm-scoped toggles')
+        return
+      }
+      if (form.scope === 'user' && !form.userId) {
+        setError('Select a user for user-scoped toggles')
+        return
+      }
       const payload = {
         key: form.key.trim(),
         description: form.description.trim() || undefined,
         enabled: form.enabled,
         scope: form.scope,
-        lawFirmId: form.scope === 'firm' ? (form.lawFirmId || undefined) : undefined,
-        userId: form.scope === 'user' ? (form.userId || undefined) : undefined
+        lawFirmId: form.scope === 'firm' ? form.lawFirmId || undefined : undefined,
+        userId: form.scope === 'user' ? form.userId || undefined : undefined,
       }
       const created = await createAdminFeatureToggle(payload)
       setToggles((prev) => [created.data, ...prev])
@@ -78,9 +140,10 @@ export default function AdminFeatureToggles() {
         enabled: false,
         scope: 'global',
         lawFirmId: '',
-        userId: ''
+        userId: '',
       })
     } catch (err: any) {
+      if (redirectOnAuthError(err)) return
       setError(err.response?.data?.error || 'Failed to create feature toggle')
     }
   }
@@ -88,10 +151,11 @@ export default function AdminFeatureToggles() {
   const handleToggle = async (toggle: FeatureToggle) => {
     try {
       const updated = await updateAdminFeatureToggle(toggle.id, {
-        enabled: !toggle.enabled
+        enabled: !toggle.enabled,
       })
       setToggles((prev) => prev.map((item) => (item.id === toggle.id ? updated.data : item)))
     } catch (err: any) {
+      if (redirectOnAuthError(err)) return
       setError(err.response?.data?.error || 'Failed to update feature toggle')
     }
   }
@@ -118,8 +182,8 @@ export default function AdminFeatureToggles() {
       key: 'target',
       header: 'Target',
       cell: (toggle) => (
-        <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
-          {toggle.scope === 'firm' ? toggle.lawFirmId : toggle.scope === 'user' ? toggle.userId : '—'}
+        <span className="text-xs text-slate-600 dark:text-slate-300" title={toggle.lawFirmId || toggle.userId || undefined}>
+          {resolveTargetLabel(toggle)}
         </span>
       ),
     },
@@ -181,7 +245,14 @@ export default function AdminFeatureToggles() {
             className="input"
             aria-label="Scope"
             value={form.scope}
-            onChange={(e) => setForm({ ...form, scope: e.target.value as 'global' | 'firm' | 'user' })}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                scope: e.target.value as 'global' | 'firm' | 'user',
+                lawFirmId: '',
+                userId: '',
+              })
+            }
           >
             <option value="global">Global</option>
             <option value="firm">Firm</option>
@@ -199,22 +270,34 @@ export default function AdminFeatureToggles() {
         </div>
 
         {form.scope === 'firm' && (
-          <input
+          <select
             className="input mt-3"
-            placeholder="Law firm ID"
-            aria-label="Law firm ID"
+            aria-label="Law firm"
             value={form.lawFirmId}
             onChange={(e) => setForm({ ...form, lawFirmId: e.target.value })}
-          />
+          >
+            <option value="">Select a law firm…</option>
+            {firms.map((firm) => (
+              <option key={firm.id} value={firm.id}>
+                {firmLabel(firm)}
+              </option>
+            ))}
+          </select>
         )}
         {form.scope === 'user' && (
-          <input
+          <select
             className="input mt-3"
-            placeholder="User ID"
-            aria-label="User ID"
+            aria-label="User"
             value={form.userId}
             onChange={(e) => setForm({ ...form, userId: e.target.value })}
-          />
+          >
+            <option value="">Select a user…</option>
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {userLabel(user)}
+              </option>
+            ))}
+          </select>
         )}
 
         <div className="mt-4">

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   getAdminNotifications,
   getAdminFailedNotifications,
@@ -12,6 +13,7 @@ import {
 } from '../../lib/api'
 import { formatClaimType } from '../../lib/claimTypes'
 import { formatDate } from '../../lib/formatters'
+import { getAdminLoginPath, isAdminAuthError } from '../../lib/auth'
 import { RefreshCw, AlertTriangle, Send, MessageSquare } from 'lucide-react'
 import EmptyState from '../../components/EmptyState'
 import {
@@ -23,6 +25,13 @@ import {
 
 type Tab = 'notifications' | 'failed' | 'tickets' | 'routing-alerts'
 
+const VALID_TABS: Tab[] = ['notifications', 'failed', 'tickets', 'routing-alerts']
+
+function parseTab(raw: string | null): Tab {
+  if (raw && VALID_TABS.includes(raw as Tab)) return raw as Tab
+  return 'notifications'
+}
+
 function notificationTone(status: string) {
   if (status === 'sent' || status === 'delivered') return 'success' as const
   if (status === 'failed') return 'danger' as const
@@ -30,7 +39,16 @@ function notificationTone(status: string) {
 }
 
 export default function AdminCommunications() {
-  const [activeTab, setActiveTab] = useState<Tab>('notifications')
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = parseTab(searchParams.get('tab'))
+  const setActiveTab = (tab: Tab) => {
+    if (tab === 'notifications') {
+      setSearchParams({}, { replace: true })
+    } else {
+      setSearchParams({ tab }, { replace: true })
+    }
+  }
   const [notifications, setNotifications] = useState<any[]>([])
   const [failedNotifications, setFailedNotifications] = useState<any[]>([])
   const [tickets, setTickets] = useState<any[]>([])
@@ -55,11 +73,15 @@ export default function AdminCommunications() {
       })
       setNotifications(data.notifications || [])
     } catch (err: any) {
+      if (isAdminAuthError(err)) {
+        navigate(getAdminLoginPath('/admin/communications'), { replace: true })
+        return
+      }
       setError(err.response?.data?.error || 'Failed to load notifications')
     } finally {
       setLoading(false)
     }
-  }, [roleFilter, statusFilter])
+  }, [roleFilter, statusFilter, navigate])
 
   const loadFailed = useCallback(async () => {
     try {
@@ -68,11 +90,15 @@ export default function AdminCommunications() {
       const data = await getAdminFailedNotifications()
       setFailedNotifications(data.failed || [])
     } catch (err: any) {
+      if (isAdminAuthError(err)) {
+        navigate(getAdminLoginPath('/admin/communications'), { replace: true })
+        return
+      }
       setError(err.response?.data?.error || 'Failed to load failed notifications')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [navigate])
 
   const loadTickets = useCallback(async () => {
     try {
@@ -83,11 +109,15 @@ export default function AdminCommunications() {
       })
       setTickets(data.tickets || [])
     } catch (err: any) {
+      if (isAdminAuthError(err)) {
+        navigate(getAdminLoginPath('/admin/communications'), { replace: true })
+        return
+      }
       setError(err.response?.data?.error || 'Failed to load tickets')
     } finally {
       setLoading(false)
     }
-  }, [ticketStatusFilter])
+  }, [ticketStatusFilter, navigate])
 
   const loadRoutingAlerts = useCallback(async () => {
     try {
@@ -96,11 +126,15 @@ export default function AdminCommunications() {
       const data = await getAdminRoutingAlerts()
       setRoutingAlerts(data.alerts || [])
     } catch (err: any) {
+      if (isAdminAuthError(err)) {
+        navigate(getAdminLoginPath('/admin/communications'), { replace: true })
+        return
+      }
       setError(err.response?.data?.error || 'Failed to load routing alerts')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [navigate])
 
   useEffect(() => {
     if (activeTab === 'notifications') loadNotifications()

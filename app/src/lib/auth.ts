@@ -42,6 +42,19 @@ export function clearStoredAuth() {
   localStorage.removeItem('pending_assessment_id')
   localStorage.removeItem('auth_provider')
   localStorage.removeItem('auth_role')
+  localStorage.removeItem('admin_capabilities')
+}
+
+/** True when an API call failed because the admin session is missing or not authorized. */
+export function isAdminAuthError(err: unknown): boolean {
+  const status = (err as { response?: { status?: number } } | null)?.response?.status
+  return status === 401 || status === 403
+}
+
+/** Admin login URL, optionally preserving the page the user was trying to open. */
+export function getAdminLoginPath(pathname?: string) {
+  if (!pathname) return '/login/admin'
+  return `/login/admin?redirect=${encodeURIComponent(pathname)}`
 }
 
 export function getLoginRedirect(pathname: string, role?: WebAppRole | WebAppRole[]) {

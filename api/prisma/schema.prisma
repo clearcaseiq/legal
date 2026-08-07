@@ -18,6 +18,10 @@ model User {
   isActive      Boolean   @default(true)
   emailVerified Boolean   @default(false)
   role          String    @default("client") // client, attorney, staff, admin
+  /// JSON array of admin capability scopes (ops|network|oversight|config|users).
+  /// Null/empty means full access for role=admin (backward compatible).
+  /// ADMIN_EMAILS allowlist always receives every capability.
+  adminCapabilities String?
   lastLoginAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt

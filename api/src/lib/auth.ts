@@ -11,6 +11,7 @@ export interface AuthRequest extends Request {
 
 const JWT_SECRET: Secret = ENV.JWT_SECRET
 const JWT_EXPIRES_IN = ENV.JWT_EXPIRES_IN as SignOptions['expiresIn']
+const prismaAny = prisma as any
 
 // Resolve the effective request role. Admin emails always win; otherwise we
 // honor the stored User.role (client | attorney | staff | admin) so backend
@@ -52,7 +53,7 @@ export async function authMiddleware(
     const token = authHeader.substring(7)
     const decoded = verifyToken(token)
     
-    const user = await prisma.user.findUnique({
+    const user = await prismaAny.user.findUnique({
       where: { id: decoded.userId },
       select: {
         id: true,
@@ -60,7 +61,8 @@ export async function authMiddleware(
         firstName: true,
         lastName: true,
         isActive: true,
-        role: true
+        role: true,
+        adminCapabilities: true,
       }
     })
 
@@ -108,7 +110,7 @@ export async function optionalAuthMiddleware(
     const token = authHeader.substring(7)
     const decoded = verifyToken(token)
     
-    const user = await prisma.user.findUnique({
+    const user = await prismaAny.user.findUnique({
       where: { id: decoded.userId },
       select: {
         id: true,
@@ -116,7 +118,8 @@ export async function optionalAuthMiddleware(
         firstName: true,
         lastName: true,
         isActive: true,
-        role: true
+        role: true,
+        adminCapabilities: true,
       }
     })
 

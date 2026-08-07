@@ -14,6 +14,7 @@ import {
   Pagination,
   SectionCard,
 } from '../../features/shared/ui'
+import { getAdminLoginPath, isAdminAuthError } from '../../lib/auth'
 
 const DEFAULT_LIMIT = 50
 
@@ -120,8 +121,8 @@ export default function AdminAuditLogs() {
       setLogs(page.logs || [])
       setTotal(page.total || 0)
     } catch (err: any) {
-      if (err?.response?.status === 401 || err?.response?.status === 403) {
-        navigate('/login/admin?redirect=/admin/audit-logs')
+      if (isAdminAuthError(err)) {
+        navigate(getAdminLoginPath('/admin/audit-logs'), { replace: true })
         return
       }
       setError(err?.response?.data?.error || 'Failed to load audit logs')

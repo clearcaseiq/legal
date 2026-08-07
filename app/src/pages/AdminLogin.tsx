@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { login, verifyAdminAccess } from '../lib/api-auth'
 import { clearStoredAuth } from '../lib/auth'
+import { storeAdminCapabilities } from '../lib/adminCapabilities'
 import LoginLayout from '../components/LoginLayout'
 import { PasswordInputWithReveal } from '../components/PasswordInputWithReveal'
 import { type LoginFieldErrors, type LoginInput, validateLoginInput } from '../lib/loginValidation'
@@ -40,11 +41,12 @@ export default function AdminLogin() {
       localStorage.setItem('user', JSON.stringify(response.user))
 
       try {
-        await verifyAdminAccess()
+        const access = await verifyAdminAccess()
+        storeAdminCapabilities(access.capabilities)
       } catch {
         clearStoredAuth()
         setError(
-          'This account is not authorized for admin access. Add your email to ADMIN_EMAILS in the API environment (api/.env), then try again.',
+          'This account is not authorized for admin access. Ask an existing admin to grant the admin role (Configuration → User Roles), or add your email to ADMIN_EMAILS in the API environment (api/.env), then try again.',
         )
         return
       }

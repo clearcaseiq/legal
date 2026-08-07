@@ -6,7 +6,7 @@ import { logger } from '../lib/logger'
 import { webUrl } from '../lib/app-url'
 import { UserRegister, UserLogin, UserUpdate, PasswordResetRequest, PasswordReset } from '../lib/validators'
 import { generateToken, authMiddleware, AuthRequest } from '../lib/auth'
-import { isAdminUser } from '../lib/admin-access'
+import { isAdminUser, resolveAdminCapabilities } from '../lib/admin-access'
 import { sendClaimEmail } from '../lib/claims'
 import { permissionsForRole } from '../lib/firm-roles'
 
@@ -612,7 +612,8 @@ router.get('/admin-access', authMiddleware, (req: AuthRequest, res) => {
   if (!isAdminUser(req.user)) {
     return res.status(403).json({ error: 'Admin access required', code: 'NOT_ADMIN' })
   }
-  res.json({ ok: true })
+  const capabilities = resolveAdminCapabilities(req.user)
+  res.json({ ok: true, capabilities })
 })
 
 // Get current user

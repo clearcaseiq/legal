@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getAdminFirms, getAdminFirmSettings, upsertAdminFirmSetting } from '../lib/api'
+import { getAdminLoginPath, isAdminAuthError } from '../lib/auth'
 import {
   DataTable,
   PageHeader,
@@ -53,8 +54,8 @@ export default function AdminFirmSettings() {
         setSelectedFirmId(firmList[0].id)
       }
     } catch (err: any) {
-      if (err.response?.status === 401 || err.response?.status === 403) {
-        navigate('/login/admin?redirect=/admin/firm-settings')
+      if (isAdminAuthError(err)) {
+        navigate(getAdminLoginPath('/admin/firm-settings'), { replace: true })
         return
       }
       setError(err.response?.data?.error || 'Failed to load firms')
@@ -69,8 +70,8 @@ export default function AdminFirmSettings() {
       setSettings(data.data || [])
       setError(null)
     } catch (err: any) {
-      if (err.response?.status === 401 || err.response?.status === 403) {
-        navigate('/login/admin?redirect=/admin/firm-settings')
+      if (isAdminAuthError(err)) {
+        navigate(getAdminLoginPath('/admin/firm-settings'), { replace: true })
         return
       }
       setError(err.response?.data?.error || 'Failed to load firm settings')

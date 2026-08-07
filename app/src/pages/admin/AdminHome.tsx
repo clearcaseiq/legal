@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   getAdminFailedNotifications,
   getAdminIntakeLeads,
@@ -25,11 +25,14 @@ import {
   Inbox,
   UserPlus,
   MailWarning,
+  ClipboardCheck,
 } from 'lucide-react'
 import { PageHeader } from '../../features/shared/ui'
 import { formatClaimType } from '../../lib/claimTypes'
+import { getAdminLoginPath, isAdminAuthError } from '../../lib/auth'
 
 export default function AdminHome() {
+  const navigate = useNavigate()
   const [stats, setStats] = useState<any>(null)
   const [automationLogs, setAutomationLogs] = useState<any[]>([])
   const [auditLogs, setAuditLogs] = useState<any[]>([])
@@ -68,6 +71,10 @@ export default function AdminHome() {
           .slice(0, 12),
       )
     } catch (err: any) {
+      if (isAdminAuthError(err)) {
+        navigate(getAdminLoginPath('/admin'), { replace: true })
+        return
+      }
       const msg =
         err.response?.data?.error ||
         err.response?.data?.detail ||
@@ -165,14 +172,14 @@ export default function AdminHome() {
       label: `${routingAlerts.length} routing alert${routingAlerts.length === 1 ? '' : 's'}`,
       detail: 'Routing alerts may indicate unavailable attorneys, failed escalations, or operational exceptions.',
       tone: 'border-blue-200 bg-blue-50 text-blue-900',
-      to: '/admin/communications',
+      to: '/admin/communications?tab=routing-alerts',
       priority: 'Medium',
     },
     failedNotifications.length > 0 && {
       label: `${failedNotifications.length} failed notification${failedNotifications.length === 1 ? '' : 's'}`,
       detail: 'Review failed email/SMS delivery so plaintiffs and attorneys are not blocked.',
       tone: 'border-rose-200 bg-rose-50 text-rose-900',
-      to: '/admin/communications',
+      to: '/admin/communications?tab=failed',
       priority: 'Medium',
     },
   ].filter(Boolean) as Array<{ label: string; detail: string; tone: string; to: string; priority: string }>
@@ -277,6 +284,52 @@ export default function AdminHome() {
           </button>
         }
       />
+
+      <section className="premium-panel">
+        <h2 className="text-sm font-semibold text-slate-900">Where to work cases</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Three queues cover different jobs. Use Cases for browse and bulk actions; Routing Queue for
+          live dispatch; Manual Review for held/fraud/quality gates.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <Link
+            to="/admin/cases"
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 transition-shadow hover:shadow-sm dark:border-slate-700 dark:bg-slate-900/40"
+          >
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+              <FileText className="h-4 w-4 text-brand-600" />
+              Cases
+            </div>
+            <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+              Search, filter, export, and bulk-route across all platform cases.
+            </p>
+          </Link>
+          <Link
+            to="/admin/routing-queue"
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 transition-shadow hover:shadow-sm dark:border-slate-700 dark:bg-slate-900/40"
+          >
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+              <GitBranch className="h-4 w-4 text-emerald-600" />
+              Routing Queue
+            </div>
+            <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+              Live list of cases waiting to be routed or escalated right now.
+            </p>
+          </Link>
+          <Link
+            to="/admin/manual-review"
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 transition-shadow hover:shadow-sm dark:border-slate-700 dark:bg-slate-900/40"
+          >
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+              <ClipboardCheck className="h-4 w-4 text-amber-600" />
+              Manual Review
+            </div>
+            <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+              Human gate for held cases — approve, reject, or request more information.
+            </p>
+          </Link>
+        </div>
+      </section>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <section className="premium-panel">

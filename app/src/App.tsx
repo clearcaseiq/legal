@@ -103,6 +103,7 @@ const AdminFeatureToggles = lazy(() => import('./pages/AdminFeatureToggles'))
 const AdminFirmSettings = lazy(() => import('./pages/AdminFirmSettings'))
 const AdminLayout = lazy(() => import('./components/AdminLayout'))
 const AdminHome = lazy(() => import('./pages/admin/AdminHome'))
+const AdminOpsInbox = lazy(() => import('./pages/admin/AdminOpsInbox'))
 const AdminCases = lazy(() => import('./pages/admin/AdminCases'))
 const AdminCaseDetail = lazy(() => import('./pages/admin/AdminCaseDetail'))
 const AdminRoutingQueue = lazy(() => import('./pages/admin/AdminRoutingQueue'))
@@ -330,6 +331,7 @@ function App() {
             <Route element={<ProtectedRoute role="admin" />}>
               <Route path="/admin" element={<AdminLayout />}>
                 <Route index element={<AdminHome />} />
+                <Route path="ops-inbox" element={<AdminOpsInbox />} />
                 <Route path="cases" element={<AdminCases />} />
                 <Route path="cases/:id" element={<AdminCaseDetail />} />
                 <Route path="routing-queue" element={<AdminRoutingQueue />} />

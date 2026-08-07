@@ -40,9 +40,13 @@ export async function getCurrentUser() {
   return data
 }
 
-/** Ensures the current JWT is an ADMIN_EMAILS account (call after password login on admin UI). */
-export async function verifyAdminAccess(): Promise<void> {
-  await api.get('/v1/auth/admin-access')
+/** Ensures the current JWT is allowed for the admin console (allowlist or admin role). */
+export async function verifyAdminAccess(): Promise<{ ok: boolean; capabilities: string[] }> {
+  const { data } = await api.get('/v1/auth/admin-access')
+  return {
+    ok: !!data?.ok,
+    capabilities: Array.isArray(data?.capabilities) ? data.capabilities : [],
+  }
 }
 
 export async function registerAttorney(data: any) {

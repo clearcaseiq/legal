@@ -112,15 +112,13 @@ function SmsTestPanel() {
 }
 
 export default function AdminSettings() {
-  // The link cards that used to live here were the only way to reach User Roles,
-  // Feature Toggles, and Firm Settings. Those are now first-class sidebar items,
-  // so this page holds hands-on tests instead of duplicating the nav. Read-only
-  // health lives on System Status; what stays here actually sends something.
+  // Hands-on SMS delivery tests only. Roles, feature flags, and firm
+  // configuration live under Configuration; read-only health is under System Status.
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Settings"
-        description="Hands-on delivery tests. Read-only health is under Oversight → System Status; roles, feature flags, and firm configuration are under Configuration."
+        title="SMS tools"
+        description="Send a test text to confirm the SMS provider is live. Roles, feature flags, and firm configuration are under Configuration; read-only health is under Oversight → System Status."
       />
       <SmsTestPanel />
     </div>

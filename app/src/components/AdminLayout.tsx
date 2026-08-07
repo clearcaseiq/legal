@@ -1,5 +1,5 @@
-import { ReactNode } from 'react'
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { ReactNode, useEffect, useState } from 'react'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   FileText,
@@ -17,7 +17,7 @@ import {
   ScrollText,
   Activity,
   Shield,
-  Settings,
+  MessageSquareText,
   Menu,
   Power,
   X,
@@ -26,12 +26,21 @@ import {
   UserCog,
   Moon,
   Sun,
+  LogOut,
+  Inbox,
 } from 'lucide-react'
-import { useState } from 'react'
 import { BrandMark } from './BrandLogo'
 import { useAdminRoutingStatus } from '../hooks/useAdminRoutingStatus'
 import { useTheme } from '../contexts/ThemeContext'
 import AdminNotificationBell from './AdminNotificationBell'
+import { clearStoredAuth, getAdminLoginPath, getStoredUser } from '../lib/auth'
+import { verifyAdminAccess } from '../lib/api-auth'
+import {
+  capabilityForAdminPath,
+  getStoredAdminCapabilities,
+  storeAdminCapabilities,
+  type AdminCapability,
+} from '../lib/adminCapabilities'
 
 /**
  * Sidebar grouped by intent rather than one flat list: what you work through
@@ -41,11 +50,15 @@ import AdminNotificationBell from './AdminNotificationBell'
  * previously reachable only via link cards on the Settings page — so deep-linking
  * to them left nothing highlighted in the nav.
  */
-const navGroups: { label: string; items: { path: string; label: string; icon: typeof LayoutDashboard }[] }[] = [
+const navGroups: {
+  label: string
+  items: { path: string; label: string; icon: typeof LayoutDashboard }[]
+}[] = [
   {
     label: 'Operations',
     items: [
       { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
+      { path: '/admin/ops-inbox', label: 'Ops Inbox', icon: Inbox },
       { path: '/admin/cases', label: 'Cases', icon: FileText },
       { path: '/admin/case-flow', label: 'Case Flow', icon: Workflow },
       { path: '/admin/routing-queue', label: 'Routing Queue', icon: GitBranch },
@@ -77,7 +90,7 @@ const navGroups: { label: string; items: { path: string; label: string; icon: ty
       { path: '/admin/users', label: 'User Roles', icon: UserCog },
       { path: '/admin/feature-toggles', label: 'Feature Toggles', icon: ToggleLeft },
       { path: '/admin/firm-settings', label: 'Firm Settings', icon: Building2 },
-      { path: '/admin/settings', label: 'Settings', icon: Settings },
+      { path: '/admin/settings', label: 'SMS tools', icon: MessageSquareText },
     ],
   },
 ]
@@ -85,9 +98,50 @@ const navGroups: { label: string; items: { path: string; label: string; icon: ty
 
 export default function AdminLayout({ children }: { children?: ReactNode }) {
   const location = useLocation()
+  const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [capabilities, setCapabilities] = useState<AdminCapability[]>(() => getStoredAdminCapabilities())
   const { routingEnabled, loading: routingStatusLoading } = useAdminRoutingStatus()
   const { darkMode, toggle } = useTheme()
+  const adminUser = getStoredUser<{ email?: string; firstName?: string }>('user')
+  const adminEmail = adminUser?.email?.trim() || null
+
+  // Re-verify admin access when the shell mounts so a forged/stale localStorage
+  // role cannot keep showing the console after the JWT is no longer allowed.
+  useEffect(() => {
+    let cancelled = false
+    verifyAdminAccess()
+      .then((access) => {
+        if (cancelled) return
+        storeAdminCapabilities(access.capabilities)
+        setCapabilities(getStoredAdminCapabilities())
+      })
+      .catch(() => {
+        if (cancelled) return
+        clearStoredAuth()
+        navigate(getAdminLoginPath(location.pathname), { replace: true })
+      })
+    return () => {
+      cancelled = true
+    }
+    // Only on shell mount — not on every pathname change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const visibleNavGroups = navGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => {
+        const required = capabilityForAdminPath(item.path)
+        return !required || capabilities.includes(required)
+      }),
+    }))
+    .filter((group) => group.items.length > 0)
+
+  const handleSignOut = () => {
+    clearStoredAuth()
+    navigate('/login/admin', { replace: true })
+  }
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.1),_transparent_28%),linear-gradient(180deg,_#f8fafc_0%,_#eef2ff_100%)] dark:bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.12),_transparent_24%),linear-gradient(180deg,_#020617_0%,_#0f172a_100%)]">
@@ -117,7 +171,15 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
               {routingStatusLoading ? 'Routing status...' : routingEnabled === false ? 'Routing off' : 'Routing on'}
             </Link>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 sm:gap-2">
+            {adminEmail && (
+              <span
+                className="hidden max-w-[180px] truncate text-xs text-slate-500 dark:text-slate-400 md:inline"
+                title={adminEmail}
+              >
+                {adminEmail}
+              </span>
+            )}
             <AdminNotificationBell />
             <button
               type="button"
@@ -126,6 +188,15 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
               className="pressable rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             >
               {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              aria-label="Sign out"
+              className="pressable inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Sign out</span>
             </button>
           </div>
         </div>
@@ -139,7 +210,7 @@ export default function AdminLayout({ children }: { children?: ReactNode }) {
           } lg:translate-x-0 fixed lg:static inset-y-0 left-0 z-30 w-64 border-r border-slate-200/80 bg-white/88 pt-14 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/90 lg:pt-0 transition-transform duration-200`}
         >
           <nav className="h-full space-y-5 overflow-y-auto p-4 pb-8">
-            {navGroups.map((group) => (
+            {visibleNavGroups.map((group) => (
               <div key={group.label}>
                 <p className="px-3 pb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                   {group.label}

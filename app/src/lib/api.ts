@@ -4198,9 +4198,45 @@ export async function getAdminUsers(params?: {
   return data
 }
 
-export async function updateAdminUserRole(userId: string, role: string) {
-  const { data } = await api.patch(`/v1/admin/users/${userId}/role`, { role })
+export async function updateAdminUserRole(userId: string, role: string, capabilities?: string[]) {
+  const { data } = await api.patch(`/v1/admin/users/${userId}/role`, {
+    role,
+    ...(capabilities ? { capabilities } : {}),
+  })
   return data
+}
+
+export async function updateAdminUserCapabilities(userId: string, capabilities: string[]) {
+  const { data } = await api.patch(`/v1/admin/users/${userId}/capabilities`, { capabilities })
+  return data
+}
+
+export type AdminOpsInboxItem = {
+  id: string
+  kind: 'routing' | 'manual_review' | 'failed_notification'
+  priority: 'high' | 'medium' | 'low'
+  title: string
+  detail: string
+  href: string
+  ageMinutes: number
+  createdAt: string
+  caseId?: string | null
+}
+
+export async function getAdminOpsInbox(): Promise<{
+  items: AdminOpsInboxItem[]
+  counts: {
+    routing: number
+    manualReview: number
+    failedNotifications: number
+    total: number
+  }
+}> {
+  const { data } = await api.get('/v1/admin/ops-inbox')
+  return {
+    items: Array.isArray(data?.items) ? data.items : [],
+    counts: data?.counts || { routing: 0, manualReview: 0, failedNotifications: 0, total: 0 },
+  }
 }
 
 export async function getAdminFeatureToggles() {

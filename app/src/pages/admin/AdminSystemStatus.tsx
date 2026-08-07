@@ -17,6 +17,7 @@ import {
   type SystemStatusLevel,
 } from '../../lib/api'
 import { Badge, PageHeader, SectionCard, type BadgeTone } from '../../features/shared/ui'
+import { getAdminLoginPath, isAdminAuthError } from '../../lib/auth'
 
 const REFRESH_MS = 60_000
 
@@ -106,8 +107,8 @@ export default function AdminSystemStatus() {
       setError(null)
       setStatus(await getAdminSystemStatus())
     } catch (err: any) {
-      if (err?.response?.status === 401 || err?.response?.status === 403) {
-        navigate('/login/admin?redirect=/admin/system-status')
+      if (isAdminAuthError(err)) {
+        navigate(getAdminLoginPath('/admin/system-status'), { replace: true })
         return
       }
       setError(err?.response?.data?.error || 'Failed to load system status')

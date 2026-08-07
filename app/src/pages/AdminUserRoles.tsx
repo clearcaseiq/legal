@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getAdminUsers, updateAdminUserRole } from '../lib/api'
+import { getAdminUsers, updateAdminUserCapabilities, updateAdminUserRole } from '../lib/api'
+import { getAdminLoginPath, isAdminAuthError } from '../lib/auth'
+import {
+  ADMIN_CAPABILITIES,
+  ADMIN_CAPABILITY_LABELS,
+  type AdminCapability,
+} from '../lib/adminCapabilities'
 import {
   Avatar,
   Badge,
@@ -19,6 +25,7 @@ interface AdminUser {
   role: string
   isActive: boolean
   createdAt: string
+  capabilities?: AdminCapability[]
 }
 
 const ROLE_OPTIONS = ['client', 'attorney', 'staff', 'admin']
@@ -33,8 +40,6 @@ export default function AdminUserRoles() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  // Searching in memory would only ever match the current page, so the term is
-  // debounced and sent to the server instead.
   const [appliedSearch, setAppliedSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
   const [savingId, setSavingId] = useState<string | null>(null)
@@ -60,8 +65,8 @@ export default function AdminUserRoles() {
       setUsers(data.data || [])
       setTotal(data.total ?? (data.data?.length || 0))
     } catch (err: any) {
-      if (err.response?.status === 401 || err.response?.status === 403) {
-        navigate('/login/admin?redirect=/admin/users')
+      if (isAdminAuthError(err)) {
+        navigate(getAdminLoginPath('/admin/users'), { replace: true })
         return
       }
       setError(err.response?.data?.error || 'Failed to load users')
@@ -77,12 +82,52 @@ export default function AdminUserRoles() {
   const handleRoleChange = async (userId: string, role: string) => {
     try {
       setSavingId(userId)
-      const updated = await updateAdminUserRole(userId, role)
+      const updated = await updateAdminUserRole(
+        userId,
+        role,
+        role === 'admin' ? [...ADMIN_CAPABILITIES] : undefined,
+      )
       setUsers((prev) =>
-        prev.map((user) => (user.id === userId ? { ...user, role: updated.data.role } : user))
+        prev.map((user) =>
+          user.id === userId
+            ? {
+                ...user,
+                role: updated.data.role,
+                capabilities: updated.data.capabilities || user.capabilities,
+              }
+            : user,
+        ),
       )
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to update role')
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  const handleCapabilityToggle = async (user: AdminUser, capability: AdminCapability) => {
+    if (user.role !== 'admin') return
+    const current = new Set(user.capabilities?.length ? user.capabilities : [...ADMIN_CAPABILITIES])
+    if (current.has(capability)) current.delete(capability)
+    else current.add(capability)
+    const next = ADMIN_CAPABILITIES.filter((cap) => current.has(cap))
+    if (next.length === 0) {
+      setError('Admins need at least one capability')
+      return
+    }
+    try {
+      setSavingId(user.id)
+      setError(null)
+      const updated = await updateAdminUserCapabilities(user.id, next)
+      setUsers((prev) =>
+        prev.map((row) =>
+          row.id === user.id
+            ? { ...row, capabilities: updated.data.capabilities || next }
+            : row,
+        ),
+      )
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to update capabilities')
     } finally {
       setSavingId(null)
     }
@@ -127,6 +172,34 @@ export default function AdminUserRoles() {
       ),
     },
     {
+      key: 'capabilities',
+      header: 'Admin capabilities',
+      cell: (user) => {
+        if (user.role !== 'admin') {
+          return <span className="text-xs text-slate-400">—</span>
+        }
+        const active = new Set(user.capabilities?.length ? user.capabilities : [...ADMIN_CAPABILITIES])
+        return (
+          <div className="flex max-w-md flex-wrap gap-1.5">
+            {ADMIN_CAPABILITIES.map((cap) => (
+              <button
+                key={cap}
+                type="button"
+                disabled={savingId === user.id}
+                onClick={() => handleCapabilityToggle(user, cap)}
+                className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                title={`Toggle ${ADMIN_CAPABILITY_LABELS[cap]}`}
+              >
+                <Badge tone={active.has(cap) ? 'success' : 'neutral'}>
+                  {ADMIN_CAPABILITY_LABELS[cap]}
+                </Badge>
+              </button>
+            ))}
+          </div>
+        )
+      },
+    },
+    {
       key: 'status',
       header: 'Status',
       cell: (user) => (
@@ -141,7 +214,7 @@ export default function AdminUserRoles() {
     <div className="space-y-6">
       <PageHeader
         title="User & role management"
-        description="Grant platform admin, attorney, or firm staff access. Admin unlocks every screen in this console."
+        description="Grant platform roles and scope admin capabilities (ops, network, oversight, config, users). Allowlisted ADMIN_EMAILS accounts always keep full access."
         actions={
           <button type="button" onClick={() => navigate('/admin')} className="btn-outline text-ui-sm">
             Back to dashboard
