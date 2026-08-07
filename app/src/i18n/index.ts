@@ -88,10 +88,21 @@ function getNestedTranslation(source: unknown, path: string): string | undefined
   return typeof value === 'string' ? value : undefined
 }
 
-export function translate(language: LanguageCode, key: string): string {
-  return (
+export type TranslateParams = Record<string, string | number>
+
+// Replace `{name}` style placeholders with provided values. Unknown placeholders
+// are left intact so a missing param is visible rather than silently dropped.
+function interpolate(template: string, params?: TranslateParams): string {
+  if (!params) return template
+  return template.replace(/\{(\w+)\}/g, (match, name: string) =>
+    Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match
+  )
+}
+
+export function translate(language: LanguageCode, key: string, params?: TranslateParams): string {
+  const template =
     getNestedTranslation(resources[language], key) ??
     getNestedTranslation(resources[DEFAULT_LANGUAGE], key) ??
     key
-  )
+  return interpolate(template, params)
 }

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { CheckCircle, ChevronRight, Clock, Download, FileText, MessageCircle, Plus, TrendingUp, Upload, Users } from 'lucide-react'
 import { formatCurrency } from '../lib/formatters'
 import { linkify } from '../lib/linkify'
+import { useLanguage } from '../contexts/LanguageContext'
 
 type DeferredTabId = 'tasks' | 'documents' | 'attorney' | 'value' | 'journal' | 'insights' | 'evidence' | 'activity'
 
@@ -186,18 +187,19 @@ export default function PlaintiffDashboardDeferredTabPanel({
   caseMessages,
   attorneyName,
 }: Props) {
+  const { t } = useLanguage()
   // Intake stores each treatment as { type, <value> } where the value lives in a
   // type-specific field (imaging/procedure/recommendation/finding/status/notes),
   // while processed medical docs use provider/date/diagnosis/amount/details. Pull
   // whichever detail is present so the Medical Summary shows real information
   // instead of just a category label and a "-" (#23).
   const treatmentTypeLabels: Record<string, string> = {
-    imaging: 'Imaging',
-    procedure: 'Procedure',
-    future_treatment: 'Future Treatment',
-    surgery_status: 'Surgery Status',
-    shoulder_finding: 'Shoulder Finding',
-    back_finding: 'Back Finding',
+    imaging: t('plaintiffDashboard.deferred.documents.typeImaging'),
+    procedure: t('plaintiffDashboard.deferred.documents.typeProcedure'),
+    future_treatment: t('plaintiffDashboard.deferred.documents.typeFutureTreatment'),
+    surgery_status: t('plaintiffDashboard.deferred.documents.typeSurgeryStatus'),
+    shoulder_finding: t('plaintiffDashboard.deferred.documents.typeShoulderFinding'),
+    back_finding: t('plaintiffDashboard.deferred.documents.typeBackFinding'),
   }
   const humanizeTreatment = (value: string) =>
     value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
@@ -217,7 +219,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
     entry.label ||
     (entry.type ? treatmentTypeLabels[entry.type] || humanizeTreatment(String(entry.type)) : '') ||
     entry.provider ||
-    'Treatment'
+    t('plaintiffDashboard.deferred.documents.treatment')
   // OCR on sample/scanned docs often trails boilerplate ("DISCLAIMER: This document
   // is entirely fictitious…") into extracted fields. Strip that noise and cap length
   // so the Medical Summary stays readable (#doc-summary).
@@ -269,16 +271,16 @@ export default function PlaintiffDashboardDeferredTabPanel({
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <h3 className="font-display text-xl font-bold text-slate-900">Your next steps</h3>
+              <h3 className="font-display text-xl font-bold text-slate-900">{t('plaintiffDashboard.deferred.tasks.title')}</h3>
               <p className="mt-1 text-sm text-slate-600">
                 {openTasks.length > 0
-                  ? `${openTasks.length} thing${openTasks.length !== 1 ? 's' : ''} that will strengthen your case.`
-                  : 'You are all caught up. Nothing to do right now.'}
+                  ? t(openTasks.length === 1 ? 'plaintiffDashboard.deferred.tasks.oneThing' : 'plaintiffDashboard.deferred.tasks.manyThings', { count: openTasks.length })
+                  : t('plaintiffDashboard.deferred.tasks.caughtUp')}
               </p>
             </div>
             <div className="shrink-0 text-right">
               <p className="text-2xl font-bold text-emerald-600 tabular-nums">{doneTasks.length}<span className="text-sm font-medium text-slate-400">/{totalTasks}</span></p>
-              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">done</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('plaintiffDashboard.deferred.tasks.done')}</p>
             </div>
           </div>
           <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-100">
@@ -293,12 +295,12 @@ export default function PlaintiffDashboardDeferredTabPanel({
               const kind = taskKind(task.href)
               const meta =
                 kind === 'upload'
-                  ? { Icon: Upload, tint: 'bg-amber-100 text-amber-700', cta: 'Add documents', ctaClass: 'bg-amber-500 text-white hover:bg-amber-600', ctaIcon: true, badge: 'Strengthens your case', badgeClass: 'bg-amber-50 text-amber-700' }
+                  ? { Icon: Upload, tint: 'bg-amber-100 text-amber-700', cta: t('plaintiffDashboard.deferred.tasks.addDocuments'), ctaClass: 'bg-amber-500 text-white hover:bg-amber-600', ctaIcon: true, badge: t('plaintiffDashboard.deferred.tasks.strengthensBadge'), badgeClass: 'bg-amber-50 text-amber-700' }
                   : kind === 'message'
-                  ? { Icon: MessageCircle, tint: 'bg-brand-100 text-brand-700', cta: 'Open messages', ctaClass: 'bg-brand-600 text-white hover:bg-brand-700', ctaIcon: false, badge: null as string | null, badgeClass: '' }
+                  ? { Icon: MessageCircle, tint: 'bg-brand-100 text-brand-700', cta: t('plaintiffDashboard.deferred.tasks.openMessages'), ctaClass: 'bg-brand-600 text-white hover:bg-brand-700', ctaIcon: false, badge: null as string | null, badgeClass: '' }
                   : kind === 'submit'
-                  ? { Icon: TrendingUp, tint: 'bg-brand-100 text-brand-700', cta: 'Review & send', ctaClass: 'bg-brand-600 text-white hover:bg-brand-700', ctaIcon: false, badge: null as string | null, badgeClass: '' }
-                  : { Icon: Clock, tint: 'bg-slate-100 text-slate-500', cta: null as string | null, ctaClass: '', ctaIcon: false, badge: 'No action needed', badgeClass: 'bg-slate-100 text-slate-500' }
+                  ? { Icon: TrendingUp, tint: 'bg-brand-100 text-brand-700', cta: t('plaintiffDashboard.deferred.tasks.reviewSend'), ctaClass: 'bg-brand-600 text-white hover:bg-brand-700', ctaIcon: false, badge: null as string | null, badgeClass: '' }
+                  : { Icon: Clock, tint: 'bg-slate-100 text-slate-500', cta: null as string | null, ctaClass: '', ctaIcon: false, badge: t('plaintiffDashboard.deferred.tasks.noActionBadge'), badgeClass: 'bg-slate-100 text-slate-500' }
               const Icon = meta.Icon
               return (
                 <div key={`${task.label}-${task.detail}`} className="flex items-start gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -325,7 +327,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
         {/* Completed tasks */}
         {doneTasks.length > 0 && (
           <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Completed</p>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{t('plaintiffDashboard.deferred.tasks.completed')}</p>
             <div className="space-y-2">
               {doneTasks.map((task) => (
                 <div key={`${task.label}-${task.detail}`} className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3">
@@ -341,7 +343,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
         <div className="rounded-2xl border border-brand-100 bg-brand-50/60 p-5">
           <div className="flex items-center gap-2">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white"><TrendingUp className="h-5 w-5" aria-hidden /></span>
-            <p className="text-sm font-semibold text-brand-900">Case Coach tip</p>
+            <p className="text-sm font-semibold text-brand-900">{t('plaintiffDashboard.deferred.tasks.coachTip')}</p>
           </div>
           <p className="mt-2 text-sm font-semibold text-brand-900">{caseCoachDisplay.tip}</p>
           <p className="mt-1 text-sm text-brand-800">{caseCoachDisplay.action}</p>
@@ -353,12 +355,12 @@ export default function PlaintiffDashboardDeferredTabPanel({
   if (activeTab === 'attorney') {
     const inTeamReview = routingLifecycle === 'manual_review_needed'
     const statusTitle = attorneyMatched
-      ? 'Attorney matched'
+      ? t('plaintiffDashboard.deferred.attorney.statusMatched')
       : inTeamReview
-      ? 'Team review'
+      ? t('plaintiffDashboard.deferred.attorney.statusTeamReview')
       : submittedForReview
-      ? 'Attorney review in progress'
-      : 'Not submitted yet'
+      ? t('plaintiffDashboard.deferred.attorney.statusReviewProgress')
+      : t('plaintiffDashboard.deferred.attorney.statusNotSubmitted')
     const stageMeta = attorneyMatched
       ? { tint: 'from-emerald-600 to-emerald-700', Icon: CheckCircle }
       : inTeamReview
@@ -368,10 +370,10 @@ export default function PlaintiffDashboardDeferredTabPanel({
       : { tint: 'from-slate-500 to-slate-600', Icon: Clock }
     const StageIcon = stageMeta.Icon
     const reviewSteps = [
-      { label: 'Submitted', done: submittedForReview || attorneyMatched, current: false },
-      { label: 'Under review', done: attorneyMatched, current: submittedForReview && !attorneyMatched },
-      { label: 'Matched', done: attorneyMatched, current: false },
-      { label: 'Consultation', done: hasUpcomingConsult, current: attorneyMatched && !hasUpcomingConsult },
+      { label: t('plaintiffDashboard.deferred.attorney.stepSubmitted'), done: submittedForReview || attorneyMatched, current: false },
+      { label: t('plaintiffDashboard.deferred.attorney.stepUnderReview'), done: attorneyMatched, current: submittedForReview && !attorneyMatched },
+      { label: t('plaintiffDashboard.deferred.attorney.stepMatched'), done: attorneyMatched, current: false },
+      { label: t('plaintiffDashboard.deferred.attorney.stepConsultation'), done: hasUpcomingConsult, current: attorneyMatched && !hasUpcomingConsult },
     ]
 
     return (
@@ -380,13 +382,13 @@ export default function PlaintiffDashboardDeferredTabPanel({
         <section className={`overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br ${stageMeta.tint} p-6 text-white shadow-sm`}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">Attorney Review</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">{t('plaintiffDashboard.deferred.attorney.heading')}</p>
               <h3 className="mt-1 font-display text-2xl font-bold">{statusTitle}</h3>
               <p className="mt-1 max-w-md text-sm text-white/90">
                 {routingStatusMessage ||
                   (submittedForReview
-                    ? 'Attorneys typically respond within about 24 hours.'
-                    : 'Submit your case when you are ready to review attorney matches.')}
+                    ? t('plaintiffDashboard.deferred.attorney.respond24')
+                    : t('plaintiffDashboard.deferred.attorney.submitWhenReady'))}
               </p>
             </div>
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/25"><StageIcon className="h-6 w-6" aria-hidden /></span>
@@ -407,16 +409,16 @@ export default function PlaintiffDashboardDeferredTabPanel({
         {/* Stat tiles */}
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-2"><Users className="h-4 w-4 text-brand-600" aria-hidden /><p className="text-xs font-medium text-slate-500">Reviewing</p></div>
+            <div className="flex items-center gap-2"><Users className="h-4 w-4 text-brand-600" aria-hidden /><p className="text-xs font-medium text-slate-500">{t('plaintiffDashboard.deferred.attorney.reviewing')}</p></div>
             <p className="mt-1 text-2xl font-bold text-slate-900 tabular-nums">{attorneyReviewCount}</p>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-2"><CheckCircle className="h-4 w-4 text-slate-400" aria-hidden /><p className="text-xs font-medium text-slate-500">Matched</p></div>
-            <p className="mt-1 text-sm font-semibold text-slate-900">{attorneyMatched ? attorneyName || 'Attorney matched' : 'Not yet'}</p>
+            <div className="flex items-center gap-2"><CheckCircle className="h-4 w-4 text-slate-400" aria-hidden /><p className="text-xs font-medium text-slate-500">{t('plaintiffDashboard.deferred.attorney.matched')}</p></div>
+            <p className="mt-1 text-sm font-semibold text-slate-900">{attorneyMatched ? attorneyName || t('plaintiffDashboard.deferred.attorney.statusMatched') : t('plaintiffDashboard.deferred.attorney.notYet')}</p>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-2"><Clock className="h-4 w-4 text-slate-400" aria-hidden /><p className="text-xs font-medium text-slate-500">Consultation</p></div>
-            <p className="mt-1 text-sm font-semibold text-slate-900">{hasUpcomingConsult ? 'Scheduled' : 'Not scheduled'}</p>
+            <div className="flex items-center gap-2"><Clock className="h-4 w-4 text-slate-400" aria-hidden /><p className="text-xs font-medium text-slate-500">{t('plaintiffDashboard.deferred.attorney.consultation')}</p></div>
+            <p className="mt-1 text-sm font-semibold text-slate-900">{hasUpcomingConsult ? t('plaintiffDashboard.deferred.attorney.scheduled') : t('plaintiffDashboard.deferred.attorney.notScheduled')}</p>
           </div>
         </div>
 
@@ -424,16 +426,16 @@ export default function PlaintiffDashboardDeferredTabPanel({
         <div className="flex flex-wrap gap-2">
           {submittedForReview ? (
             <Link to={`/results/${activeAssessmentId}`} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
-              View case report
+              {t('plaintiffDashboard.deferred.attorney.viewReport')}
             </Link>
           ) : (
             <Link to={`/results/${activeAssessmentId}?review=1`} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
-              Submit for review
+              {t('plaintiffDashboard.deferred.attorney.submitForReview')}
             </Link>
           )}
           <Link to={`/evidence-upload/${activeAssessmentId}`} className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600">
             <Upload className="h-4 w-4" aria-hidden />
-            Upload documents
+            {t('plaintiffDashboard.deferred.attorney.uploadDocuments')}
           </Link>
         </div>
 
@@ -441,7 +443,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <MessageCircle className="h-5 w-5 text-brand-600" aria-hidden />
-            <h3 className="font-display text-lg font-bold text-slate-900">Messages</h3>
+            <h3 className="font-display text-lg font-bold text-slate-900">{t('plaintiffDashboard.deferred.attorney.messages')}</h3>
           </div>
           {caseMessages.length > 0 ? (
             <div className="mt-4 space-y-3">
@@ -449,7 +451,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
                 const isYou = message.from === 'plaintiff'
                 return (
                   <div key={`${message.createdAt}-${index}`} className={`rounded-xl border p-4 ${isYou ? 'border-brand-100 bg-brand-50/50' : 'border-slate-200 bg-slate-50'}`}>
-                    <p className="mb-1 text-xs font-semibold text-slate-500">{isYou ? 'You' : attorneyName || 'Attorney'}</p>
+                    <p className="mb-1 text-xs font-semibold text-slate-500">{isYou ? t('plaintiffDashboard.deferred.attorney.you') : attorneyName || t('plaintiffDashboard.deferred.attorney.attorney')}</p>
                     {message.subject && <p className="text-sm font-semibold text-slate-900">{message.subject}</p>}
                     <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{linkify(message.message)}</p>
                   </div>
@@ -459,11 +461,11 @@ export default function PlaintiffDashboardDeferredTabPanel({
           ) : (
             <div className="mt-4 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/60 px-6 py-10 text-center">
               <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand-50 text-brand-600"><MessageCircle className="h-6 w-6" aria-hidden /></span>
-              <p className="text-sm font-medium text-slate-700">{submittedForReview ? 'No messages yet' : 'Messages appear after you submit'}</p>
+              <p className="text-sm font-medium text-slate-700">{submittedForReview ? t('plaintiffDashboard.deferred.attorney.noMessagesYet') : t('plaintiffDashboard.deferred.attorney.messagesAfterSubmit')}</p>
               <p className="mx-auto mt-1 max-w-sm text-sm text-slate-500">
                 {submittedForReview
-                  ? "When an attorney responds or requests documents, it'll show up here, and we'll email you."
-                  : 'Submit your case to start receiving attorney responses.'}
+                  ? t('plaintiffDashboard.deferred.attorney.noMessagesBody')
+                  : t('plaintiffDashboard.deferred.attorney.submitToReceive')}
               </p>
             </div>
           )}
@@ -473,7 +475,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
         {attorneyActivity.length > 0 && (
           <details className="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <summary className="flex cursor-pointer list-none items-center justify-between text-base font-bold text-slate-900">
-              <span>Review activity</span>
+              <span>{t('plaintiffDashboard.deferred.attorney.reviewActivity')}</span>
               <ChevronRight className="h-4 w-4 text-slate-400 transition-transform group-open:rotate-90" aria-hidden />
             </summary>
             <div className="mt-4 space-y-3">
@@ -482,7 +484,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
                   <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand-500" aria-hidden />
                   <div>
                     <p className="text-sm font-medium text-slate-900">{activity.message}</p>
-                    <p className="text-xs text-slate-500">{activity.timeAgo || 'Recent update'}</p>
+                    <p className="text-xs text-slate-500">{activity.timeAgo || t('plaintiffDashboard.deferred.attorney.recentUpdate')}</p>
                   </div>
                 </div>
               ))}
@@ -498,7 +500,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4">
-            What Drives Your Case Readiness
+            {t('plaintiffDashboard.deferred.insights.whatDrives')}
           </h3>
           <div className="space-y-4">
             {scoreFactors.map((factor) => (
@@ -518,7 +520,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
                   </span>
                 </div>
                 <p className="text-sm text-gray-600 mb-2">{factor.explanation}</p>
-                {factor.improve && <p className="text-sm text-brand-600 font-medium">How to improve: {factor.improve}</p>}
+                {factor.improve && <p className="text-sm text-brand-600 font-medium">{t('plaintiffDashboard.deferred.insights.howToImprove', { improve: factor.improve })}</p>}
               </div>
             ))}
           </div>
@@ -526,7 +528,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
 
         {scoreFactors.some((factor) => factor.improve) && (
           <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">How To Improve Your Score</h3>
+            <h3 className="text-lg font-bold text-gray-900 mb-4">{t('plaintiffDashboard.deferred.insights.howToImproveScore')}</h3>
             <ul className="space-y-2">
               {scoreFactors
                 .filter((factor) => factor.improve)
@@ -542,7 +544,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
               className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700"
             >
               <Upload className="h-4 w-4" />
-              Upload Evidence
+              {t('plaintiffDashboard.deferred.insights.uploadEvidence')}
             </Link>
           </div>
         )}
@@ -550,7 +552,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
             <TrendingUp className="h-5 w-5 text-brand-600" />
-            Case Value History
+            {t('plaintiffDashboard.deferred.insights.valueHistory')}
           </h3>
           <div className="flex items-end gap-2 mb-4">
             {caseValueHistory.map((entry, index) => {
@@ -571,19 +573,19 @@ export default function PlaintiffDashboardDeferredTabPanel({
             })}
           </div>
           <div className="space-y-1 text-sm text-gray-600">
-            <p>Initial estimate: {formatCurrency(caseValueHistory[0]?.value ?? 0)}</p>
-            {caseValueHistory.length > 2 && <p>After injury details: {formatCurrency(caseValueHistory[1]?.value ?? 0)}</p>}
-            <p className="font-semibold text-brand-600">Current estimate: {formatCurrency(settlementHigh)}</p>
+            <p>{t('plaintiffDashboard.deferred.insights.initialEstimate', { value: formatCurrency(caseValueHistory[0]?.value ?? 0) })}</p>
+            {caseValueHistory.length > 2 && <p>{t('plaintiffDashboard.deferred.insights.afterInjury', { value: formatCurrency(caseValueHistory[1]?.value ?? 0) })}</p>}
+            <p className="font-semibold text-brand-600">{t('plaintiffDashboard.deferred.insights.currentEstimate', { value: formatCurrency(settlementHigh) })}</p>
           </div>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4">
-            Case Readiness: {caseReadinessLabel}
+            {t('plaintiffDashboard.deferred.insights.caseReadiness', { label: caseReadinessLabel })}
           </h3>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-xs font-medium text-gray-500">Liability</p>
+              <p className="text-xs font-medium text-gray-500">{t('plaintiffDashboard.deferred.insights.liability')}</p>
               <p
                 className={`font-semibold ${
                   liabilityLabel === 'Strong'
@@ -597,36 +599,36 @@ export default function PlaintiffDashboardDeferredTabPanel({
               </p>
             </div>
             <div className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-xs font-medium text-gray-500">Evidence</p>
+              <p className="text-xs font-medium text-gray-500">{t('plaintiffDashboard.deferred.insights.evidence')}</p>
               <p
                 className={`font-semibold ${
                   evidencePercent >= 75 ? 'text-green-600' : evidencePercent >= 25 ? 'text-amber-600' : 'text-red-600'
                 }`}
               >
-                {evidencePercent >= 75 ? 'Complete' : evidencePercent >= 25 ? 'Incomplete' : 'Missing'}
+                {evidencePercent >= 75 ? t('plaintiffDashboard.deferred.insights.complete') : evidencePercent >= 25 ? t('plaintiffDashboard.deferred.insights.incomplete') : t('plaintiffDashboard.deferred.insights.missing')}
               </p>
             </div>
             <div className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-xs font-medium text-gray-500">Medical Treatment</p>
+              <p className="text-xs font-medium text-gray-500">{t('plaintiffDashboard.deferred.insights.medicalTreatment')}</p>
               <p className={`font-semibold ${treatment.length > 0 ? 'text-green-600' : 'text-amber-600'}`}>
-                {treatment.length > 0 ? 'Good' : 'Missing'}
+                {treatment.length > 0 ? t('plaintiffDashboard.deferred.insights.good') : t('plaintiffDashboard.deferred.insights.missing')}
               </p>
             </div>
             <div className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-xs font-medium text-gray-500">Damages</p>
+              <p className="text-xs font-medium text-gray-500">{t('plaintiffDashboard.deferred.insights.damages')}</p>
               <p className={`font-semibold ${damagesLabel === 'Documented' ? 'text-green-600' : 'text-amber-600'}`}>
-                {damagesLabel === 'Documented' ? 'Documented' : 'Missing documentation'}
+                {damagesLabel === 'Documented' ? t('plaintiffDashboard.deferred.insights.documented') : t('plaintiffDashboard.deferred.insights.missingDocumentation')}
               </p>
             </div>
           </div>
           {scoreFactors.some((factor) => factor.improve) && (
-            <p className="text-sm text-brand-600 font-medium">Tip: {scoreFactors.find((factor) => factor.improve)?.improve}</p>
+            <p className="text-sm text-brand-600 font-medium">{t('plaintiffDashboard.deferred.insights.tip', { tip: scoreFactors.find((factor) => factor.improve)?.improve ?? '' })}</p>
           )}
         </div>
 
         {strengths.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Your Strengths</h3>
+            <h3 className="text-lg font-bold text-gray-900 mb-4">{t('plaintiffDashboard.deferred.insights.yourStrengths')}</h3>
             <ul className="space-y-2">
               {strengths.map((strength) => (
                 <li key={strength} className="flex items-center gap-2 text-sm text-gray-700">
@@ -639,85 +641,85 @@ export default function PlaintiffDashboardDeferredTabPanel({
         )}
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">What Insurance Companies Often Challenge</h3>
-          <p className="text-sm text-gray-600 mb-2">Insurance adjusters commonly question:</p>
+          <h3 className="text-lg font-bold text-gray-900 mb-4">{t('plaintiffDashboard.deferred.insights.insuranceChallenge')}</h3>
+          <p className="text-sm text-gray-600 mb-2">{t('plaintiffDashboard.deferred.insights.adjustersQuestion')}</p>
           <ul className="text-sm text-gray-600 space-y-1 mb-4">
-            <li>• Gaps in medical treatment</li>
-            <li>• Missing injury documentation</li>
-            <li>• Unclear accident descriptions</li>
+            <li>• {t('plaintiffDashboard.deferred.insights.gapsTreatment')}</li>
+            <li>• {t('plaintiffDashboard.deferred.insights.missingInjuryDocs')}</li>
+            <li>• {t('plaintiffDashboard.deferred.insights.unclearDescriptions')}</li>
           </ul>
-          <p className="text-sm text-brand-600 font-medium">Uploading medical records and injury photos reduces these risks.</p>
+          <p className="text-sm text-brand-600 font-medium">{t('plaintiffDashboard.deferred.insights.uploadReduces')}</p>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Case Risk Level</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-4">{t('plaintiffDashboard.deferred.insights.riskLevel')}</h3>
           <div className="flex items-center gap-1 mb-2">
             <span className={`text-sm font-medium px-3 py-1 rounded ${riskLevel === 'Low' ? 'bg-green-100 text-green-700' : 'text-gray-500'}`}>
-              Low
+              {t('plaintiffDashboard.deferred.insights.low')}
             </span>
             <span className="text-gray-400">-</span>
             <span
               className={`text-sm font-medium px-3 py-1 rounded ${riskLevel === 'Moderate' ? 'bg-amber-100 text-amber-700' : 'text-gray-500'}`}
             >
-              Moderate
+              {t('plaintiffDashboard.deferred.insights.moderate')}
             </span>
             <span className="text-gray-400">-</span>
             <span className={`text-sm font-medium px-3 py-1 rounded ${riskLevel === 'High' ? 'bg-red-100 text-red-700' : 'text-gray-500'}`}>
-              High
+              {t('plaintiffDashboard.deferred.insights.high')}
             </span>
           </div>
           <p className="text-sm text-gray-600">
-            Your case risk level:{' '}
+            {t('plaintiffDashboard.deferred.insights.yourRiskLevel')}{' '}
             <span
               className={`font-semibold ${
                 riskLevel === 'Low' ? 'text-green-600' : riskLevel === 'Moderate' ? 'text-amber-600' : 'text-red-600'
               }`}
             >
-              {riskLevel}
+              {riskLevel === 'Low' ? t('plaintiffDashboard.deferred.insights.low') : riskLevel === 'Moderate' ? t('plaintiffDashboard.deferred.insights.moderate') : t('plaintiffDashboard.deferred.insights.high')}
             </span>
           </p>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Cases like yours in {venueState}</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-4">{t('plaintiffDashboard.deferred.insights.casesLikeYours', { state: venueState })}</h3>
           <div className="grid sm:grid-cols-3 gap-4">
             <div className="p-3 bg-brand-50 rounded-lg">
-              <p className="text-xs font-medium text-brand-600">Typical settlement</p>
+              <p className="text-xs font-medium text-brand-600">{t('plaintiffDashboard.deferred.insights.typicalSettlement')}</p>
               <p className="text-lg font-bold text-brand-900">{formatCurrency(settlementMedian)}</p>
             </div>
             <div className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-xs font-medium text-gray-500">Range</p>
+              <p className="text-xs font-medium text-gray-500">{t('plaintiffDashboard.deferred.insights.range')}</p>
               <p className="text-sm font-semibold text-gray-900">
                 {formatCurrency(settlementLow)} - {formatCurrency(settlementHigh)}
               </p>
             </div>
             <div className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-xs font-medium text-gray-500">Typical timeline</p>
-              <p className="text-sm font-semibold text-gray-900">8 months</p>
+              <p className="text-xs font-medium text-gray-500">{t('plaintiffDashboard.deferred.insights.typicalTimeline')}</p>
+              <p className="text-sm font-semibold text-gray-900">{t('plaintiffDashboard.deferred.insights.months8')}</p>
             </div>
           </div>
-          <p className="text-sm text-gray-600 mt-3">This reinforces our AI model based on similar cases in your area.</p>
+          <p className="text-sm text-gray-600 mt-3">{t('plaintiffDashboard.deferred.insights.reinforces')}</p>
         </div>
 
         <div className="bg-brand-50 border border-brand-100 rounded-xl p-4">
-          <p className="text-sm font-semibold text-brand-900 mb-2">Case Coach</p>
-          <p className="text-sm text-brand-800 mb-1">Tip: {caseCoachDisplay.tip}</p>
+          <p className="text-sm font-semibold text-brand-900 mb-2">{t('plaintiffDashboard.deferred.insights.caseCoach')}</p>
+          <p className="text-sm text-brand-800 mb-1">{t('plaintiffDashboard.deferred.insights.tip', { tip: caseCoachDisplay.tip })}</p>
           <p className="text-sm text-brand-700 font-medium">{caseCoachDisplay.action}</p>
         </div>
 
         {potentialValueIncrease.show && (
           <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-            <h3 className="text-sm font-semibold text-green-900 mb-2">Potential Case Value Increase</h3>
+            <h3 className="text-sm font-semibold text-green-900 mb-2">{t('plaintiffDashboard.deferred.insights.potentialIncrease')}</h3>
             <p className="text-sm text-green-800">{potentialValueIncrease.msg}</p>
           </div>
         )}
 
         <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Analysis Confidence</h3>
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">{t('plaintiffDashboard.deferred.insights.analysisConfidence')}</h3>
           <p className="text-sm text-gray-600">
             {evidenceCount === 0 || !hasWageLoss
-              ? 'Your score will become more accurate once medical records and wage loss information are added.'
-              : 'Your score is based on the information provided. Additional evidence may refine the estimate.'}
+              ? t('plaintiffDashboard.deferred.insights.confidenceLow')
+              : t('plaintiffDashboard.deferred.insights.confidenceHigh')}
           </p>
         </div>
 
@@ -727,7 +729,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700"
           >
             <Upload className="h-4 w-4" />
-            Upload Evidence
+            {t('plaintiffDashboard.deferred.insights.uploadEvidence')}
           </Link>
           <button
             type="button"
@@ -737,14 +739,14 @@ export default function PlaintiffDashboardDeferredTabPanel({
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-brand-600 border border-brand-200 rounded-lg hover:bg-brand-50"
           >
             <Download className="h-4 w-4" />
-            Download Case Report
+            {t('plaintiffDashboard.deferred.insights.downloadReport')}
           </button>
           <Link
             to="/assessment/start"
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
           >
             <Plus className="h-4 w-4" />
-            Start New Case
+            {t('plaintiffDashboard.deferred.insights.startNewCase')}
           </Link>
         </div>
       </div>
@@ -762,12 +764,12 @@ export default function PlaintiffDashboardDeferredTabPanel({
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <h3 className="font-display text-xl font-bold text-slate-900">Documents & Evidence</h3>
-              <p className="mt-1 text-sm text-slate-600">The documents that help attorneys understand and value your case.</p>
+              <h3 className="font-display text-xl font-bold text-slate-900">{t('plaintiffDashboard.deferred.documents.title')}</h3>
+              <p className="mt-1 text-sm text-slate-600">{t('plaintiffDashboard.deferred.documents.subtitle')}</p>
             </div>
             <div className="shrink-0 text-right">
               <p className="text-2xl font-bold text-emerald-600 tabular-nums">{docsAdded}<span className="text-sm font-medium text-slate-400">/{docsTotal}</span></p>
-              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">added</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('plaintiffDashboard.deferred.documents.added')}</p>
             </div>
           </div>
           <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-100">
@@ -781,7 +783,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
                 </span>
                 <p className={`min-w-0 flex-1 truncate text-sm font-medium ${item.done ? 'text-slate-500' : 'text-slate-800'}`}>{item.label}</p>
                 {item.done ? (
-                  <span className="shrink-0 text-[11px] font-semibold text-emerald-600">Added</span>
+                  <span className="shrink-0 text-[11px] font-semibold text-emerald-600">{t('plaintiffDashboard.deferred.documents.addedBadge')}</span>
                 ) : (
                   <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">{item.impact}</span>
                 )}
@@ -793,7 +795,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
             className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600"
           >
             <Upload className="h-4 w-4" aria-hidden />
-            Upload documents
+            {t('plaintiffDashboard.deferred.documents.uploadDocuments')}
           </Link>
         </div>
 
@@ -801,10 +803,10 @@ export default function PlaintiffDashboardDeferredTabPanel({
         {meaningfulTreatment.length > 0 && (
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex items-center justify-between gap-3">
-              <h3 className="font-display text-xl font-bold text-slate-900">Medical Summary</h3>
+              <h3 className="font-display text-xl font-bold text-slate-900">{t('plaintiffDashboard.deferred.documents.medicalSummary')}</h3>
               {medicalTotal > 0 && (
                 <div className="shrink-0 text-right">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Documented bills</p>
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('plaintiffDashboard.deferred.documents.documentedBills')}</p>
                   <p className="text-lg font-bold text-slate-900 tabular-nums">{formatCurrency(medicalTotal)}</p>
                 </div>
               )}
@@ -826,8 +828,8 @@ export default function PlaintiffDashboardDeferredTabPanel({
                       </div>
                       {provider && <p className="mt-0.5 truncate text-sm text-slate-600">{provider}</p>}
                       {!provider && detail && detail !== title && <p className="mt-0.5 truncate text-sm text-slate-600">{detail}</p>}
-                      {diagnosis && <p className="text-sm text-slate-600">Diagnosis: {diagnosis}</p>}
-                      {entry.sourceFileName && <p className="mt-1 text-xs text-slate-400">From {entry.sourceFileName}</p>}
+                      {diagnosis && <p className="text-sm text-slate-600">{t('plaintiffDashboard.deferred.documents.diagnosis', { diagnosis })}</p>}
+                      {entry.sourceFileName && <p className="mt-1 text-xs text-slate-400">{t('plaintiffDashboard.deferred.documents.fromFile', { file: entry.sourceFileName })}</p>}
                     </div>
                     {entry.amount ? <p className="shrink-0 text-right text-sm font-bold text-slate-900 tabular-nums">{formatCurrency(entry.amount)}</p> : null}
                   </div>
@@ -842,7 +844,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
           className="flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-slate-300 p-4 text-sm font-semibold text-slate-600 hover:border-amber-400 hover:text-amber-700"
         >
           <Upload className="h-4 w-4" aria-hidden />
-          Manage documents
+          {t('plaintiffDashboard.deferred.documents.manageDocuments')}
         </Link>
       </div>
     )
@@ -861,14 +863,14 @@ export default function PlaintiffDashboardDeferredTabPanel({
       <div className="space-y-5">
         {/* Value hero */}
         <section className="rounded-2xl border border-slate-200 bg-gradient-to-br from-brand-600 to-brand-700 p-6 text-white shadow-sm">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">Estimated case value</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">{t('plaintiffDashboard.deferred.value.estimatedValue')}</p>
           <p className="mt-1 font-display text-3xl font-bold tabular-nums">{formatCurrency(settlementLow)} – {formatCurrency(settlementHigh)}</p>
           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-white/90">
-            <span>Most likely: <span className="font-semibold text-white">{formatCurrency(midpoint)}</span></span>
+            <span>{t('plaintiffDashboard.deferred.value.mostLikely')} <span className="font-semibold text-white">{formatCurrency(midpoint)}</span></span>
             {valueGain > 0 && (
               <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold ring-1 ring-white/25">
                 <TrendingUp className="h-3.5 w-3.5" aria-hidden />
-                +{formatCurrency(valueGain)}{valueGainPct > 0 ? ` (+${valueGainPct}%)` : ''} since first estimate
+                {t('plaintiffDashboard.deferred.value.sinceFirst', { gain: formatCurrency(valueGain), pct: valueGainPct > 0 ? ` (+${valueGainPct}%)` : '' })}
               </span>
             )}
           </div>
@@ -878,9 +880,9 @@ export default function PlaintiffDashboardDeferredTabPanel({
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <TrendingUp className="h-5 w-5 text-brand-600" aria-hidden />
-            <h3 className="font-display text-lg font-bold text-slate-900">Case Value History</h3>
+            <h3 className="font-display text-lg font-bold text-slate-900">{t('plaintiffDashboard.deferred.value.valueHistory')}</h3>
           </div>
-          <p className="mt-1 text-sm text-slate-500">How your estimate has grown as you added details and documents.</p>
+          <p className="mt-1 text-sm text-slate-500">{t('plaintiffDashboard.deferred.value.historySubtitle')}</p>
           <div className="mt-5 flex items-end gap-2 sm:gap-3">
             {caseValueHistory.map((entry, index) => {
               const isCurrent = index === caseValueHistory.length - 1
@@ -901,26 +903,26 @@ export default function PlaintiffDashboardDeferredTabPanel({
             })}
           </div>
           <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
-            <span className="text-slate-500">Initial: <span className="font-medium text-slate-700">{formatCurrency(initialValue)}</span></span>
-            <span className="font-semibold text-brand-700">Current: {formatCurrency(currentValue)}</span>
+            <span className="text-slate-500">{t('plaintiffDashboard.deferred.value.initial')} <span className="font-medium text-slate-700">{formatCurrency(initialValue)}</span></span>
+            <span className="font-semibold text-brand-700">{t('plaintiffDashboard.deferred.value.current')} {formatCurrency(currentValue)}</span>
           </div>
         </div>
 
         {/* Cases Like Yours */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="font-display text-lg font-bold text-slate-900">Cases Like Yours in {venueState}</h3>
-          <p className="mt-1 text-sm text-slate-500">Most cases like yours settle within this range, a benchmark for your estimate.</p>
+          <h3 className="font-display text-lg font-bold text-slate-900">{t('plaintiffDashboard.deferred.value.casesLikeYours', { state: venueState })}</h3>
+          <p className="mt-1 text-sm text-slate-500">{t('plaintiffDashboard.deferred.value.benchmarkSubtitle')}</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Typical low</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('plaintiffDashboard.deferred.value.typicalLow')}</p>
               <p className="mt-0.5 text-lg font-bold text-slate-900 tabular-nums">{formatCurrency(settlementLow)}</p>
             </div>
             <div className="rounded-xl border border-brand-100 bg-brand-50 p-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-brand-600">Average</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-brand-600">{t('plaintiffDashboard.deferred.value.average')}</p>
               <p className="mt-0.5 text-lg font-bold text-brand-900 tabular-nums">{formatCurrency(settlementMedian)}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Typical high</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{t('plaintiffDashboard.deferred.value.typicalHigh')}</p>
               <p className="mt-0.5 text-lg font-bold text-slate-900 tabular-nums">{formatCurrency(settlementHigh)}</p>
             </div>
           </div>
@@ -930,7 +932,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
             </div>
             <div className="mt-1.5 flex justify-between text-[11px] text-slate-400">
               <span>{formatCurrency(settlementLow)}</span>
-              <span className="font-medium text-brand-600">Your estimate</span>
+              <span className="font-medium text-brand-600">{t('plaintiffDashboard.deferred.value.yourEstimate')}</span>
               <span>{formatCurrency(settlementHigh)}</span>
             </div>
           </div>
@@ -943,7 +945,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
     return (
       <div className="space-y-6">
         <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Recent Activity</h3>
+          <h3 className="text-lg font-bold text-gray-900 mb-4">{t('plaintiffDashboard.deferred.activity.title')}</h3>
           <ul className="space-y-3">
             {recentActivity.map((item) => (
               <li key={item.label} className="flex items-center gap-3 text-sm">
@@ -959,7 +961,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
         </div>
         {notification && (
           <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-            <p className="text-sm font-medium text-green-800">Update</p>
+            <p className="text-sm font-medium text-green-800">{t('plaintiffDashboard.deferred.activity.update')}</p>
             <p className="text-sm text-green-700">{notification}</p>
           </div>
         )}
@@ -969,24 +971,24 @@ export default function PlaintiffDashboardDeferredTabPanel({
 
   const painTone =
     painLevel <= 3
-      ? { chip: 'bg-emerald-100 text-emerald-700', label: 'Mild' }
+      ? { chip: 'bg-emerald-100 text-emerald-700', label: t('plaintiffDashboard.deferred.journal.mild') }
       : painLevel <= 6
-      ? { chip: 'bg-amber-100 text-amber-700', label: 'Moderate' }
-      : { chip: 'bg-red-100 text-red-700', label: 'Severe' }
+      ? { chip: 'bg-amber-100 text-amber-700', label: t('plaintiffDashboard.deferred.journal.moderate') }
+      : { chip: 'bg-red-100 text-red-700', label: t('plaintiffDashboard.deferred.journal.severe') }
 
   return (
     <div className="space-y-5">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h3 className="font-display text-xl font-bold text-slate-900">Impact on Your Life</h3>
-        <p className="mt-1 text-sm text-slate-600">Document how your injuries affect your daily life. This is powerful evidence attorneys use to value your case.</p>
+        <h3 className="font-display text-xl font-bold text-slate-900">{t('plaintiffDashboard.deferred.journal.title')}</h3>
+        <p className="mt-1 text-sm text-slate-600">{t('plaintiffDashboard.deferred.journal.subtitle')}</p>
 
         <div className="mt-5 grid gap-5 lg:grid-cols-2">
           {/* Lost wages */}
           <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-5">
-            <p className="text-sm font-semibold text-slate-900">Lost wages</p>
+            <p className="text-sm font-semibold text-slate-900">{t('plaintiffDashboard.deferred.journal.lostWages')}</p>
             <div className="mt-3 grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-slate-500">Days missed from work</label>
+                <label className="text-xs font-medium text-slate-500">{t('plaintiffDashboard.deferred.journal.daysMissed')}</label>
                 <input
                   type="number"
                   min="0"
@@ -999,7 +1001,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-slate-500">Daily wage ($)</label>
+                <label className="text-xs font-medium text-slate-500">{t('plaintiffDashboard.deferred.journal.dailyWage')}</label>
                 <input
                   type="number"
                   min="0"
@@ -1014,7 +1016,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
             </div>
             {wageLossEstimate != null && (
               <div className="mt-4 flex items-center justify-between rounded-lg border border-brand-100 bg-brand-50 px-3 py-2.5">
-                <span className="text-xs font-medium text-brand-700">Estimated wage-loss claim</span>
+                <span className="text-xs font-medium text-brand-700">{t('plaintiffDashboard.deferred.journal.wageLossClaim')}</span>
                 <span className="text-lg font-bold text-brand-900 tabular-nums">{formatCurrency(wageLossEstimate)}</span>
               </div>
             )}
@@ -1023,8 +1025,8 @@ export default function PlaintiffDashboardDeferredTabPanel({
           {/* Pain + note */}
           <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-5">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-slate-900">Pain level today</p>
-              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${painTone.chip}`}>{painLevel}/10 · {painTone.label}</span>
+              <p className="text-sm font-semibold text-slate-900">{t('plaintiffDashboard.deferred.journal.painToday')}</p>
+              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${painTone.chip}`}>{t('plaintiffDashboard.deferred.journal.painValue', { level: painLevel, label: painTone.label })}</span>
             </div>
             <div className="mt-3 flex items-center gap-2">
               <span className="text-xs text-slate-400">0</span>
@@ -1039,13 +1041,13 @@ export default function PlaintiffDashboardDeferredTabPanel({
               <span className="text-xs text-slate-400">10</span>
             </div>
             <label className="mt-4 block text-sm font-medium text-slate-700">
-              How did this affect your day? <span className="text-red-500">*</span>
+              {t('plaintiffDashboard.deferred.journal.affectDay')} <span className="text-red-500">*</span>
             </label>
-            <p className="mt-0.5 text-xs text-slate-500">Examples: Couldn't work • Missed activities • Trouble sleeping</p>
+            <p className="mt-0.5 text-xs text-slate-500">{t('plaintiffDashboard.deferred.journal.affectExamples')}</p>
             <textarea
               value={painNote}
               onChange={(event) => onPainNoteChange(event.target.value)}
-              placeholder="Describe how your injuries affected your daily life..."
+              placeholder={t('plaintiffDashboard.deferred.journal.notePlaceholder')}
               aria-invalid={journalError ? true : undefined}
               maxLength={2000}
               className={`mt-2 w-full min-h-[84px] rounded-lg border px-3 py-2 text-sm ${journalError ? 'border-red-400' : 'border-slate-300'}`}
@@ -1061,7 +1063,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
             className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
           >
             <Plus className="h-4 w-4" aria-hidden />
-            {editingEntryIndex !== null ? 'Update entry' : 'Log entry'}
+            {editingEntryIndex !== null ? t('plaintiffDashboard.deferred.journal.updateEntry') : t('plaintiffDashboard.deferred.journal.logEntry')}
           </button>
           {editingEntryIndex !== null && (
             <button
@@ -1069,16 +1071,16 @@ export default function PlaintiffDashboardDeferredTabPanel({
               onClick={onCancelEdit}
               className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
             >
-              Cancel
+              {t('plaintiffDashboard.deferred.journal.cancel')}
             </button>
           )}
-          {journalSaved && <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-600"><CheckCircle className="h-4 w-4" aria-hidden />Entry saved!</span>}
+          {journalSaved && <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-600"><CheckCircle className="h-4 w-4" aria-hidden />{t('plaintiffDashboard.deferred.journal.entrySaved')}</span>}
         </div>
       </div>
 
       {journalEntries.length > 0 && (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h4 className="font-display text-lg font-bold text-slate-900">Your journal entries</h4>
+          <h4 className="font-display text-lg font-bold text-slate-900">{t('plaintiffDashboard.deferred.journal.yourEntries')}</h4>
           <div className="mt-4 max-h-80 space-y-3 overflow-y-auto pr-1">
             {[...journalEntries].reverse().map((entry, displayIndex) => {
               const originalIndex = journalEntries.length - 1 - displayIndex
@@ -1091,7 +1093,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone}`}>Pain {lvl}/10</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone}`}>{t('plaintiffDashboard.deferred.journal.painLabel', { level: lvl })}</span>
                         <span className="text-xs text-slate-500">
                           {new Date(entry.date).toLocaleDateString()} · {new Date(entry.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                         </span>
@@ -1099,9 +1101,9 @@ export default function PlaintiffDashboardDeferredTabPanel({
                       {entry.note && <p className="mt-2 text-sm text-slate-700">{entry.note}</p>}
                       {(hasDays || hasWage) && (
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          {hasDays && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{entry.days} days missed</span>}
-                          {hasWage && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{formatCurrency(entry.dailyWage!)}/day</span>}
-                          {hasDays && hasWage && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Wage loss {formatCurrency(entry.days! * entry.dailyWage!)}</span>}
+                          {hasDays && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{t('plaintiffDashboard.deferred.journal.daysMissedTag', { days: entry.days! })}</span>}
+                          {hasWage && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{t('plaintiffDashboard.deferred.journal.perDay', { amount: formatCurrency(entry.dailyWage!) })}</span>}
+                          {hasDays && hasWage && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">{t('plaintiffDashboard.deferred.journal.wageLossTag', { amount: formatCurrency(entry.days! * entry.dailyWage!) })}</span>}
                         </div>
                       )}
                     </div>
@@ -1111,14 +1113,14 @@ export default function PlaintiffDashboardDeferredTabPanel({
                         onClick={() => onEditEntry(originalIndex)}
                         className="rounded-md px-2 py-1 text-xs font-semibold text-brand-600 hover:bg-brand-50"
                       >
-                        Edit
+                        {t('plaintiffDashboard.deferred.journal.edit')}
                       </button>
                       <button
                         type="button"
                         onClick={() => onDeleteEntry(originalIndex)}
                         className="rounded-md px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
                       >
-                        Delete
+                        {t('plaintiffDashboard.deferred.journal.delete')}
                       </button>
                     </div>
                   </div>

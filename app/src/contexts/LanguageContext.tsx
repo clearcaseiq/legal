@@ -7,12 +7,13 @@ import {
   setStoredLanguage,
   translate,
   type LanguageCode,
+  type TranslateParams,
 } from '../i18n'
 
 type LanguageContextValue = {
   language: LanguageCode
   setLanguage: (language: LanguageCode) => void
-  t: (key: string) => string
+  t: (key: string, params?: TranslateParams) => string
 }
 
 const LanguageContext = createContext<LanguageContextValue | null>(null)
@@ -47,7 +48,10 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     }
   }, [language])
 
-  const t = useCallback((key: string) => translate(language, key), [language, resourceVersion])
+  const t = useCallback(
+    (key: string, params?: TranslateParams) => translate(language, key, params),
+    [language, resourceVersion]
+  )
 
   const value = useMemo(
     () => ({
@@ -67,7 +71,7 @@ export function useLanguage() {
     return {
       language: DEFAULT_LANGUAGE,
       setLanguage: () => undefined,
-      t: (key: string) => translate(DEFAULT_LANGUAGE, key),
+      t: (key: string, params?: TranslateParams) => translate(DEFAULT_LANGUAGE, key, params),
     }
   }
   return context

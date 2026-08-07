@@ -4408,7 +4408,10 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('diagnoses', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 break-words text-sm font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
+                      {/* Match the other Step 3 tiles' label size (text-[13px]); this one
+                          used text-sm, so the diagnoses buttons rendered a larger, mismatched
+                          font than the surrounding sections (CP-551). */}
+                      <span className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )

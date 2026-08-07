@@ -41,6 +41,15 @@ export function caseStatusLabel(key: CaseStatusKey): string {
   return CASE_STATUS_LABELS[key] ?? 'Pending'
 }
 
+/**
+ * i18n key for a status, so React callers can render a localized label via
+ * `t(caseStatusLabelKey(key))` without this pure module depending on the
+ * language context. The English fallback still lives in CASE_STATUS_LABELS.
+ */
+export function caseStatusLabelKey(key: CaseStatusKey): string {
+  return `plaintiffDashboard.statusLabels.${key}`
+}
+
 export function caseStatusColor(key: CaseStatusKey): string {
   return CASE_STATUS_COLORS[key] ?? CASE_STATUS_COLORS.pending
 }

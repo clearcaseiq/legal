@@ -48,6 +48,10 @@
     text-align: center;
     width: 100%;
     padding: 0;
+    /* The empty native date field renders its "mm/dd/yyyy" placeholder in lowercase;
+       uppercase it to "MM/DD/YYYY" for a cleaner, consistent look. Date values are
+       numeric so this only affects the placeholder letters (CP-541). */
+    text-transform: uppercase;
   }
 
   /* Structural guard against horizontal overflow on narrow phones.

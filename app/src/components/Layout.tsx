@@ -141,15 +141,11 @@ export default function Layout({ children }: LayoutProps) {
     }
     return true
   }
-  // Clicking the logo takes signed-in users to their home surface (plaintiffs to
-  // their Dashboard) rather than the marketing landing page.
-  const logoDestination = !isAuthenticated
-    ? navLinks.home
-    : isAdmin || isAdminArea
-      ? '/admin'
-      : isAttorney
-        ? '/attorney-dashboard/leadgen/matches'
-        : '/dashboard'
+  // The logo always returns to the public home page. Previously it routed signed-in
+  // users to their own workspace, which meant that a plaintiff already sitting on
+  // their Dashboard tapped the logo and nothing happened (same-route navigation) —
+  // reported as "home page not opening on logo click" (CP-549).
+  const logoDestination = navLinks.home
   const shouldLoadPlaintiffSummary = !!authToken && !isAttorney
   const storedUser = getStoredUser<{ firstName?: string }>('user')
   const userName = storedUser?.firstName || 'User'
@@ -312,14 +308,14 @@ export default function Layout({ children }: LayoutProps) {
                   {darkMode ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
                 </button>
               )}
-              {!isAttorney && (
-                <div className="hidden lg:block">
-                  <Suspense fallback={languageFallback}>
-                    <LanguageSwitcher />
-                  </Suspense>
-                </div>
-              )}
-              {!isAttorney && <span className="hidden h-6 w-px bg-slate-200 dark:bg-slate-800 lg:block" aria-hidden />}
+              {/* Language switcher is shown for every role, including attorneys, who
+                  otherwise had no way to change language (CP-557). */}
+              <div className="hidden lg:block">
+                <Suspense fallback={languageFallback}>
+                  <LanguageSwitcher />
+                </Suspense>
+              </div>
+              <span className="hidden h-6 w-px bg-slate-200 dark:bg-slate-800 lg:block" aria-hidden />
               {isAuthenticated ? (
                 <>
                   {/* Notification bell for attorneys */}
@@ -509,11 +505,10 @@ export default function Layout({ children }: LayoutProps) {
             <div className="mx-auto flex max-w-lg flex-col gap-2">
               <div className="mb-2 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/40">
                 <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{t('common.menu')}</span>
-                {!isAttorney && (
-                  <Suspense fallback={languageFallback}>
-                    <LanguageSwitcher />
-                  </Suspense>
-                )}
+                {/* Attorneys get the language switcher in the mobile menu too. */}
+                <Suspense fallback={languageFallback}>
+                  <LanguageSwitcher />
+                </Suspense>
               </div>
               {isAuthenticated ? (
                 <>

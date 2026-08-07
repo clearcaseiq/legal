@@ -5,8 +5,9 @@ import EmptyState from '../components/EmptyState'
 import ErrorBanner from '../components/ErrorBanner'
 import { getLoginRedirect } from '../lib/auth'
 import { usePlaintiffSessionSummary } from '../hooks/usePlaintiffSessionSummary'
-import { getPlaintiffCaseStatusKey, caseStatusLabel, caseStatusColor } from '../lib/caseStatus'
+import { getPlaintiffCaseStatusKey, caseStatusLabelKey, caseStatusColor } from '../lib/caseStatus'
 import { formatClaimTypeShort } from '../lib/constants'
+import { useLanguage } from '../contexts/LanguageContext'
 
 interface Assessment {
   id: string
@@ -20,6 +21,7 @@ interface Assessment {
 }
 
 export default function Assessments() {
+  const { t } = useLanguage()
   const [assessments, setAssessments] = useState<Assessment[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const navigate = useNavigate()
@@ -123,7 +125,7 @@ export default function Assessments() {
                     <span
                       className={`inline-flex self-start px-2.5 py-1 text-ui-xs font-semibold rounded-full tabular-nums border ${caseStatusColor(key)}`}
                     >
-                      {caseStatusLabel(key)}
+                      {t(caseStatusLabelKey(key))}
                     </span>
                   )
                 }

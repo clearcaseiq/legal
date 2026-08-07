@@ -1,8 +1,10 @@
 import { Skeleton } from './Skeleton'
+import { useLanguage } from '../contexts/LanguageContext'
 
 export function DashboardPageSkeleton() {
+  const { t } = useLanguage()
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center px-4 py-16" aria-busy="true" aria-label="Loading dashboard">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center px-4 py-16" aria-busy="true" aria-label={t('plaintiffDashboard.skeleton.loadingDashboardAria')}>
       <div className="w-full max-w-lg space-y-4">
         <Skeleton className="h-10 w-48 mx-auto" />
         <Skeleton className="h-4 w-full max-w-md mx-auto" />
@@ -14,7 +16,7 @@ export function DashboardPageSkeleton() {
         <Skeleton className="h-40 w-full rounded-xl mt-6" />
         <Skeleton className="h-32 w-full rounded-xl" />
       </div>
-      <p className="mt-6 text-sm text-slate-500 dark:text-slate-400">Loading your case…</p>
+      <p className="mt-6 text-sm text-slate-500 dark:text-slate-400">{t('plaintiffDashboard.skeleton.loadingCase')}</p>
     </div>
   )
 }
