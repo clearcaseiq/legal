@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   FileText,
   GitBranch,
+  Workflow,
   Users,
   Sliders,
   SlidersHorizontal,
@@ -46,6 +47,7 @@ const navGroups: { label: string; items: { path: string; label: string; icon: ty
     items: [
       { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
       { path: '/admin/cases', label: 'Cases', icon: FileText },
+      { path: '/admin/case-flow', label: 'Case Flow', icon: Workflow },
       { path: '/admin/routing-queue', label: 'Routing Queue', icon: GitBranch },
       { path: '/admin/manual-review', label: 'Manual Review', icon: ClipboardCheck },
     ],

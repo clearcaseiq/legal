@@ -106,6 +106,7 @@ const AdminHome = lazy(() => import('./pages/admin/AdminHome'))
 const AdminCases = lazy(() => import('./pages/admin/AdminCases'))
 const AdminCaseDetail = lazy(() => import('./pages/admin/AdminCaseDetail'))
 const AdminRoutingQueue = lazy(() => import('./pages/admin/AdminRoutingQueue'))
+const AdminCaseFlow = lazy(() => import('./pages/admin/AdminCaseFlow'))
 const AdminAttorneys = lazy(() => import('./pages/admin/AdminAttorneys'))
 const AdminAttorneyDetail = lazy(() => import('./pages/admin/AdminAttorneyDetail'))
 const AdminMatchingRules = lazy(() => import('./pages/admin/AdminMatchingRules'))
@@ -332,6 +333,7 @@ function App() {
                 <Route path="cases" element={<AdminCases />} />
                 <Route path="cases/:id" element={<AdminCaseDetail />} />
                 <Route path="routing-queue" element={<AdminRoutingQueue />} />
+                <Route path="case-flow" element={<AdminCaseFlow />} />
                 <Route path="attorneys" element={<AdminAttorneys />} />
                 <Route path="attorneys/:id" element={<AdminAttorneyDetail />} />
                 <Route path="matching-rules" element={<AdminMatchingRules />} />

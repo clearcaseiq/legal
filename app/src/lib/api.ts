@@ -3998,6 +3998,42 @@ export async function getAdminRoutingQueue() {
   return data
 }
 
+export type AdminCaseFlowStage = {
+  key: string
+  label: string
+  count: number
+  stuckCount: number
+}
+
+export type AdminCaseFlowCase = {
+  id: string
+  referenceCode: string | null
+  plaintiffName: string | null
+  claimType: string | null
+  venueState: string | null
+  valueEstimate: number | null
+  stage: string
+  stageLabel: string
+  enteredStageAt: string | null
+  ageHours: number | null
+  ageLabel: string
+  stuck: boolean
+  stuckReason: string | null
+  waveNumber: number | null
+  assignedAttorneyName: string | null
+  latestIntro: { name: string; status: string; waveNumber: number | null } | null
+  manualReviewReason: string | null
+}
+
+export async function getAdminCaseFlow() {
+  const { data } = await api.get('/v1/admin/case-flow')
+  return data as {
+    stages: AdminCaseFlowStage[]
+    cases: AdminCaseFlowCase[]
+    meta: { totalCases: number; stuckCases: number; responseDeadlineMinutes: number; generatedAt: string }
+  }
+}
+
 export async function getAdminCaseDetail(caseId: string) {
   const { data } = await api.get(`/v1/admin/cases/${caseId}`)
   return data

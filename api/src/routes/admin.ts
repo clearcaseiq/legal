@@ -14,12 +14,14 @@ import { routeTier1Case } from '../lib/tier1-routing'
 import { sendCaseOfferSms, sendSms, isSmsConfigured } from '../lib/sms'
 import { routeTier2Case } from '../lib/tier2-routing'
 import { assignCaseTier } from '../lib/case-tier-classifier'
-import { getMatchingRules, saveMatchingRules } from '../lib/matching-rules-config'
+import { getMatchingRules, saveMatchingRules, getAttorneyResponseDeadlineMinutes } from '../lib/matching-rules-config'
 import { getHeuristics, saveHeuristics } from '../lib/heuristics-config'
 import { getFieldMappings, saveFieldMappings } from '../lib/field-mappings-config'
 import { getAdminCalendarHealth } from '../lib/calendar-sync'
 import { getSystemStatus } from '../lib/ops-status'
 import { CLAIM_INVITE_TTL_DAYS, claimUrl, generateClaimToken, sendClaimEmail } from '../lib/claims'
+import { normalizeReferenceCode } from '../lib/case-reference'
+import { isGuestCaseUserEmail } from '../lib/client-consent-guard'
 
 const router: ExpressRouter = Router()
 const prismaAny = prisma as any
@@ -608,6 +610,79 @@ router.get('/intake-leads', authMiddleware, adminMiddleware, async (req: AuthReq
     res.json({ success: true, data: leads })
   } catch (error) {
     logger.error('Failed to list intake leads', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Support desk: identify a caller by their case reference code.
+ *
+ * A claimant who phones in reads back their reference (e.g. "CCIQ-7Q2K9F"). We
+ * look the case up and return just enough to verify identity and act — the
+ * caller's name/contact (from plaintiffContext), status, and whether an account
+ * exists yet. The reference alone is not proof of identity: the agent still
+ * confirms a name or phone against what is shown before doing anything.
+ */
+router.get('/case-lookup', authMiddleware, adminMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const rawCode = typeof req.query.reference === 'string' ? req.query.reference : ''
+    const code = normalizeReferenceCode(rawCode)
+    if (!code) return res.status(400).json({ error: 'A case reference code is required' })
+
+    const assessment = await prisma.assessment.findUnique({
+      where: { referenceCode: code },
+      select: {
+        id: true,
+        referenceCode: true,
+        claimType: true,
+        venueState: true,
+        status: true,
+        facts: true,
+        createdAt: true,
+        userId: true,
+        user: { select: { email: true, firstName: true, lastName: true } },
+        leadSubmission: { select: { status: true, submittedAt: true, assignedAttorneyId: true } },
+      },
+    })
+
+    if (!assessment) {
+      return res.status(404).json({ error: 'No case matches that reference code.' })
+    }
+
+    let plaintiffContext: Record<string, unknown> = {}
+    try {
+      const facts = JSON.parse(assessment.facts || '{}')
+      plaintiffContext = (facts.plaintiffContext || {}) as Record<string, unknown>
+    } catch {
+      plaintiffContext = {}
+    }
+
+    const hasRealAccount = Boolean(assessment.userId) && !isGuestCaseUserEmail(assessment.user?.email || '')
+
+    res.json({
+      referenceCode: assessment.referenceCode,
+      assessmentId: assessment.id,
+      claimType: assessment.claimType,
+      venueState: assessment.venueState,
+      status: assessment.status,
+      createdAt: assessment.createdAt,
+      contact: {
+        firstName: (plaintiffContext.firstName as string) || assessment.user?.firstName || null,
+        email: (plaintiffContext.email as string) || (hasRealAccount ? assessment.user?.email : null) || null,
+        phone: (plaintiffContext.phone as string) || null,
+        preferredContactMethod: (plaintiffContext.preferredContactMethod as string) || null,
+      },
+      hasRealAccount,
+      submission: assessment.leadSubmission
+        ? {
+            status: assessment.leadSubmission.status,
+            submittedAt: assessment.leadSubmission.submittedAt,
+            assigned: Boolean(assessment.leadSubmission.assignedAttorneyId),
+          }
+        : null,
+    })
+  } catch (error) {
+    logger.error('Failed to look up case by reference', { error })
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -1249,6 +1324,251 @@ router.get('/routing-queue', authMiddleware, adminMiddleware, async (req: AuthRe
     res.json({ cases: queue })
   } catch (error) {
     logger.error('Failed to get routing queue', { error })
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+/**
+ * Case Flow: a single, graphical view of where every live case sits in the
+ * routing → matched → engaged pipeline, and which ones are stuck.
+ *
+ * Every other admin surface shows one slice (the routing queue, the manual
+ * review list, the cases table). This endpoint buckets each case into a single
+ * ordered pipeline stage, measures how long it has sat in that stage, and flags
+ * the ones that have overstayed a stage-specific threshold — so a case stalled
+ * behind a lapsed offer, an overdue escalation, or an un-actioned manual review
+ * is obvious at a glance instead of hiding in a table.
+ *
+ * Read-only. It computes stage/stuck live from the same fields the routing
+ * engine writes; it never mutates anything.
+ */
+const CASE_FLOW_STAGES = [
+  { key: 'intake', label: 'Intake / not routed' },
+  { key: 'routing', label: 'In routing' },
+  { key: 'awaiting_approval', label: 'Awaiting plaintiff approval' },
+  { key: 'manual_review', label: 'Manual review' },
+  { key: 'matched', label: 'Attorney matched' },
+  { key: 'engaged', label: 'Engaged / consult' },
+  { key: 'closed', label: 'Closed' },
+] as const
+type CaseFlowStageKey = (typeof CASE_FLOW_STAGES)[number]['key']
+
+router.get('/case-flow', authMiddleware, adminMiddleware, async (_req: AuthRequest, res) => {
+  try {
+    const matchingRules = await getMatchingRules()
+    const responseDeadlineMinutes = getAttorneyResponseDeadlineMinutes(matchingRules)
+    const now = Date.now()
+
+    // Stage-specific "how long is too long" thresholds, in hours. A case past its
+    // stage's threshold is flagged stuck. Routing uses the configured attorney
+    // response window rather than a fixed number.
+    const STUCK_AWAITING_APPROVAL_HOURS = 48
+    const STUCK_MANUAL_REVIEW_HOURS = 24
+    const STUCK_INTAKE_HOURS = 24
+    const ESCALATION_GRACE_HOURS = Math.max(24, (responseDeadlineMinutes / 60) * 2)
+
+    const leads = await prisma.leadSubmission.findMany({
+      orderBy: { updatedAt: 'desc' },
+      take: 800,
+      select: {
+        status: true,
+        lifecycleState: true,
+        routingLocked: true,
+        assignedAttorneyId: true,
+        assignedAttorney: { select: { name: true } },
+        submittedAt: true,
+        lastContactAt: true,
+        updatedAt: true,
+        sourceDetails: true,
+        assessment: {
+          select: {
+            id: true,
+            claimType: true,
+            venueState: true,
+            referenceCode: true,
+            createdAt: true,
+            manualReviewStatus: true,
+            manualReviewReason: true,
+            manualReviewHeldAt: true,
+            user: { select: { firstName: true, lastName: true } },
+            predictions: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { bands: true },
+            },
+            introductions: {
+              orderBy: { requestedAt: 'desc' },
+              take: 1,
+              select: { status: true, requestedAt: true, waveNumber: true, attorney: { select: { name: true } } },
+            },
+            routingWaves: {
+              orderBy: { waveNumber: 'desc' },
+              take: 1,
+              select: { waveNumber: true, nextEscalationAt: true },
+            },
+          },
+        },
+      },
+    })
+
+    const hoursSince = (d: Date | string | null | undefined): number | null => {
+      if (!d) return null
+      const t = new Date(d).getTime()
+      if (Number.isNaN(t)) return null
+      return (now - t) / 3_600_000
+    }
+    const fmtAge = (h: number | null): string => {
+      if (h == null) return '—'
+      if (h < 1) return `${Math.max(0, Math.round(h * 60))}m`
+      if (h < 48) return `${Math.round(h)}h`
+      return `${Math.round(h / 24)}d`
+    }
+
+    const cases = leads
+      .filter((l) => l.assessment)
+      .map((l) => {
+        const a = l.assessment!
+        const intro = a.introductions[0] || null
+        const wave = a.routingWaves[0] || null
+        const bands = a.predictions[0]?.bands ? (JSON.parse(a.predictions[0].bands) as { median?: number }) : {}
+        const manualPending = a.manualReviewStatus === 'pending' || l.lifecycleState === 'manual_review_needed'
+        const introAccepted = intro?.status === 'ACCEPTED'
+
+        // Parse the proposed-batch timestamp (awaiting-approval clock) out of the
+        // lead's sourceDetails blob without importing the lifecycle module.
+        let proposedAt: string | null = null
+        try {
+          const parsed = l.sourceDetails ? JSON.parse(l.sourceDetails) : null
+          const pending = parsed?.plaintiffAttorneyPreferences?.pendingBatch
+          if (pending?.proposedAt) proposedAt = String(pending.proposedAt)
+        } catch {
+          /* sourceDetails is best-effort */
+        }
+
+        // Bucket into exactly one stage, most-terminal first.
+        let stage: CaseFlowStageKey
+        if (l.lifecycleState === 'closed' || l.status === 'closed') stage = 'closed'
+        else if (l.lifecycleState === 'consultation_scheduled' || l.lifecycleState === 'engaged') stage = 'engaged'
+        else if (introAccepted || l.routingLocked || l.lifecycleState === 'attorney_matched') stage = 'matched'
+        else if (manualPending) stage = 'manual_review'
+        else if (l.lifecycleState === 'awaiting_plaintiff_batch_approval') stage = 'awaiting_approval'
+        else if (
+          l.status === 'submitted' &&
+          !l.routingLocked &&
+          (intro?.status === 'PENDING' || l.lifecycleState === 'routing_active' || l.lifecycleState === 'attorney_review')
+        )
+          stage = 'routing'
+        else stage = 'intake'
+
+        // When did the case enter its current stage (best-effort).
+        let enteredStageAt: Date | string | null
+        switch (stage) {
+          case 'routing':
+            enteredStageAt = intro?.requestedAt || l.submittedAt || a.createdAt
+            break
+          case 'awaiting_approval':
+            enteredStageAt = proposedAt || l.lastContactAt || l.updatedAt
+            break
+          case 'manual_review':
+            enteredStageAt = a.manualReviewHeldAt || l.updatedAt
+            break
+          case 'matched':
+          case 'engaged':
+            enteredStageAt = l.lastContactAt || l.updatedAt
+            break
+          case 'closed':
+            enteredStageAt = l.updatedAt
+            break
+          default:
+            enteredStageAt = a.createdAt
+        }
+        const ageHours = hoursSince(enteredStageAt)
+
+        // Stage-specific stuck detection.
+        let stuck = false
+        let stuckReason: string | null = null
+        if (stage === 'routing') {
+          const offerLapsed =
+            intro?.status === 'PENDING' &&
+            intro.requestedAt &&
+            new Date(intro.requestedAt).getTime() + responseDeadlineMinutes * 60_000 < now
+          const escalationOverdue =
+            wave?.nextEscalationAt && new Date(wave.nextEscalationAt).getTime() + ESCALATION_GRACE_HOURS * 3_600_000 < now
+          const noLiveOffer = !intro && ageHours != null && ageHours > responseDeadlineMinutes / 60
+          if (offerLapsed) {
+            stuck = true
+            stuckReason = 'Attorney offer window lapsed — not re-routed'
+          } else if (escalationOverdue) {
+            stuck = true
+            stuckReason = `Escalation overdue (wave ${wave?.waveNumber ?? '?'})`
+          } else if (noLiveOffer) {
+            stuck = true
+            stuckReason = 'In routing with no live attorney offer'
+          }
+        } else if (stage === 'awaiting_approval') {
+          if (ageHours != null && ageHours > STUCK_AWAITING_APPROVAL_HOURS) {
+            stuck = true
+            stuckReason = `Awaiting plaintiff approval for ${fmtAge(ageHours)}`
+          }
+        } else if (stage === 'manual_review') {
+          if (ageHours != null && ageHours > STUCK_MANUAL_REVIEW_HOURS) {
+            stuck = true
+            stuckReason = `Un-actioned in manual review for ${fmtAge(ageHours)}`
+          }
+        } else if (stage === 'intake') {
+          if (ageHours != null && ageHours > STUCK_INTAKE_HOURS) {
+            stuck = true
+            stuckReason = `Not routed ${fmtAge(ageHours)} after intake`
+          }
+        }
+
+        const plaintiff = `${a.user?.firstName || ''} ${a.user?.lastName || ''}`.trim()
+
+        return {
+          id: a.id,
+          referenceCode: a.referenceCode || null,
+          plaintiffName: plaintiff || null,
+          claimType: a.claimType,
+          venueState: a.venueState,
+          valueEstimate: bands.median ?? null,
+          stage,
+          stageLabel: CASE_FLOW_STAGES.find((s) => s.key === stage)?.label || stage,
+          enteredStageAt: enteredStageAt ? new Date(enteredStageAt).toISOString() : null,
+          ageHours: ageHours != null ? Math.round(ageHours * 10) / 10 : null,
+          ageLabel: fmtAge(ageHours),
+          stuck,
+          stuckReason,
+          waveNumber: wave?.waveNumber ?? null,
+          assignedAttorneyName: l.assignedAttorney?.name || null,
+          latestIntro: intro?.attorney
+            ? { name: intro.attorney.name, status: intro.status, waveNumber: intro.waveNumber }
+            : null,
+          manualReviewReason: stage === 'manual_review' ? a.manualReviewReason || null : null,
+        }
+      })
+
+    const stages = CASE_FLOW_STAGES.map((s) => {
+      const inStage = cases.filter((c) => c.stage === s.key)
+      return {
+        key: s.key,
+        label: s.label,
+        count: inStage.length,
+        stuckCount: inStage.filter((c) => c.stuck).length,
+      }
+    })
+
+    res.json({
+      stages,
+      cases,
+      meta: {
+        totalCases: cases.length,
+        stuckCases: cases.filter((c) => c.stuck).length,
+        responseDeadlineMinutes,
+        generatedAt: new Date().toISOString(),
+      },
+    })
+  } catch (error) {
+    logger.error('Failed to build case flow', { error })
     res.status(500).json({ error: 'Internal server error' })
   }
 })
