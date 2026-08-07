@@ -17,7 +17,7 @@ export type MarketingPage = {
 export const marketingPages: MarketingPage[] = [
   {
     path: '/',
-    title: 'ClearCaseIQ | AI-Powered Personal Injury Case Evaluation & Attorney Matching',
+    title: 'Personal Injury Case Evaluation | ClearCaseIQ',
     description:
       'ClearCaseIQ helps accident victims evaluate personal injury claims, estimate settlement value, organize medical records, and connect with attorneys.',
     serverRender: true,
@@ -31,7 +31,7 @@ export const marketingPages: MarketingPage[] = [
   },
   {
     path: '/attorney-network',
-    title: 'Attorney Network | Pre-Screened Personal Injury Cases | ClearCaseIQ',
+    title: 'Attorney Network | Pre-Screened Injury Cases | ClearCaseIQ',
     description:
       'Join the ClearCaseIQ attorney network to receive pre-screened personal injury cases that arrive with documents, medical signals, and case-readiness scoring.',
     serverRender: true,

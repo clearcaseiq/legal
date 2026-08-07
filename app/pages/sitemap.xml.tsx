@@ -1,4 +1,5 @@
 import type { GetServerSideProps } from 'next'
+import { CONTENT_LAST_UPDATED } from '../src/data/seoLandingPageSchema'
 import { marketingSitemapPaths } from '../src/data/marketingPages'
 import { allLandingPages } from '../src/data/seoLandingPages'
 
@@ -46,7 +47,10 @@ function priorityForPath(path: string) {
 export const getServerSideProps: GetServerSideProps = async ({ res }) => {
   const uniqueSeoPaths = Array.from(new Set(allLandingPages.map((page) => page.slug))).sort()
   const paths = Array.from(new Set([...marketingSitemapPaths, ...uniqueSeoPaths]))
-  const lastmod = new Date().toISOString().split('T')[0]
+  // Deliberately not today's date. Regenerating lastmod on every request told
+  // crawlers all 179 pages changed daily, which trains them to ignore the field
+  // and costs a real signal when the content genuinely does change.
+  const lastmod = CONTENT_LAST_UPDATED
 
   const urls = paths
     .map((path) => {

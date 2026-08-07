@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { Activity, AlertTriangle, Calculator, CheckCircle, ChevronRight, FileText, Search, Shield, Stethoscope, TrendingUp } from 'lucide-react'
 import { landingPagesBySlug } from '../data/seoLandingPages'
+import { cityLocalFacts } from '../data/seoCityLocalFacts'
 import { landingPageFaqs } from '../data/seoLandingPageSchema'
 import { topicContentBySlug, type TopicContent } from '../data/seoLandingPageTopicContent'
 
@@ -419,6 +420,7 @@ function buildPlaintiffGuidance(page: TopicContent & { pageTitle: string; cluste
 export default function SeoLandingPage() {
   const location = useLocation()
   const page = landingPagesBySlug.get(location.pathname)
+  const localFacts = cityLocalFacts[location.pathname]
   const [selectedSignals, setSelectedSignals] = useState<string[]>([])
   const selectedImpacts = useMemo(() => selectedSignals.map((signal) => signalImpact[signal]).filter(Boolean), [selectedSignals])
   const readinessScore = useMemo(() => {
@@ -647,6 +649,50 @@ export default function SeoLandingPage() {
               ))}
             </div>
           </div>
+        </section>
+      )}
+
+      {localFacts && (
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:mt-8 sm:p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Local context</p>
+          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
+            Filing a claim in {localFacts.city}
+          </h2>
+          <p className="mt-4 text-sm leading-7 text-slate-700">{localFacts.localProfile}</p>
+
+          <div className="mt-6 grid gap-6 sm:grid-cols-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-950">Where the case is filed</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{localFacts.court}</p>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-950">
+                Corridors that generate these claims
+              </h3>
+              <ul className="mt-2 space-y-1 text-sm leading-6 text-slate-600">
+                {localFacts.corridors.map((corridor) => (
+                  <li key={corridor}>{corridor}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-950">
+                Public agencies with shorter deadlines
+              </h3>
+              <ul className="mt-2 space-y-1 text-sm leading-6 text-slate-600">
+                {localFacts.publicAgencies.map((agency) => (
+                  <li key={agency}>{agency}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <p className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+            If a public entity vehicle was involved — a city bus, a transit agency vehicle, or a
+            government fleet car — California requires a written claim to that entity well before the
+            ordinary personal injury deadline. Missing it can end the claim regardless of how strong
+            the facts are. Identify who owned the other vehicle as early as possible.
+          </p>
         </section>
       )}
 
