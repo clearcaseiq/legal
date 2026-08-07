@@ -6599,14 +6599,13 @@ export default function IntakeWizardQuick() {
   // evidence UI without the multi-step chrome, and returns to the case report.
   if (isDocumentsMode) {
     const backTo = assessmentId ? `/results/${assessmentId}` : '/results'
-    // Return to wherever the user opened this from (Dashboard, Case Snapshot, a
-    // requested-docs card, etc.). The prior in-app history entry is the true
-    // origin — the /evidence-upload/:id redirect uses `replace`, so it is not on
-    // the stack. Fall back to the case report only for direct/fresh loads.
-    const canGoBack = typeof window !== 'undefined' && ((window.history.state as { idx?: number } | null)?.idx ?? 0) > 0
+    // Always return to the case snapshot (the page the "Add documents" CTAs live
+    // on). We deliberately do NOT use navigate(-1): the /evidence-upload/:id entry
+    // is `replace`d by /intake2, so the prior history entry can be a login/redirect
+    // page — sending the user to "Welcome back, continue your injury case" instead
+    // of their case. /results/:id is the stable, guest-safe destination.
     const goBackToCase = () => {
-      if (canGoBack) navigate(-1)
-      else navigate(backTo)
+      navigate(backTo)
     }
     // Uploaded files already attach to the case as they drop, so submit is just a
     // confirmation + return to the case (CP-499 added the action). We deliberately
