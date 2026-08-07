@@ -315,12 +315,20 @@ export default function Home() {
             <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
               {t('home.legalDisclaimer')}
             </p>
-            <Link
-              to="/disclosures"
-              className="inline-block text-xs font-semibold text-brand-700 hover:text-brand-800 dark:text-brand-300"
-            >
-              {t('home.viewDisclosures')}
-            </Link>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                to="/about"
+                className="inline-block text-xs font-semibold text-brand-700 hover:text-brand-800 dark:text-brand-300"
+              >
+                {t('footer.about')}
+              </Link>
+              <Link
+                to="/disclosures"
+                className="inline-block text-xs font-semibold text-brand-700 hover:text-brand-800 dark:text-brand-300"
+              >
+                {t('home.viewDisclosures')}
+              </Link>
+            </div>
           </div>
         </section>
 

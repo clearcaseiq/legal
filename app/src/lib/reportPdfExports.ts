@@ -844,3 +844,45 @@ export async function downloadWageLossTemplatePdf(input: WageLossReportInput) {
 
   savePdf(buildPdfBytes(pages), input.assessmentId ? `wage-loss-${input.assessmentId}.pdf` : 'wage-loss-template.pdf')
 }
+
+export type MedicalRecordsChecklistPdfInput = {
+  checkedIds: string[]
+  items: { id: string; label: string; hint: string; category: string }[]
+  categories: { id: string; label: string }[]
+}
+
+/** Public educational checklist PDF for the medical-records tool. */
+export async function downloadMedicalRecordsChecklistPdf(input: MedicalRecordsChecklistPdfInput) {
+  const { pages, drawLine, drawWrappedText } = createPdfDocument()
+  const checked = new Set(input.checkedIds)
+
+  drawLine('ClearCaseIQ', { font: 'F2', size: 18 })
+  drawLine('Personal Injury Document Checklist', { font: 'F2', size: 13 })
+  drawWrappedText(
+    'Educational checklist only. ClearCaseIQ is not a law firm and does not provide legal advice. Having documents ready improves case readiness; it does not guarantee a settlement or attorney interest.',
+    { gapAfter: 8 },
+  )
+  drawLine(`Generated: ${new Date().toLocaleDateString('en-US')}`, { size: 10 })
+  drawWrappedText(
+    `Checked ${input.items.filter((item) => checked.has(item.id)).length} of ${input.items.length} items`,
+    { size: 10, gapAfter: 10 },
+  )
+
+  for (const category of input.categories) {
+    const rows = input.items.filter((item) => item.category === category.id)
+    if (!rows.length) continue
+    drawLine(category.label, { font: 'F2', size: 12 })
+    for (const item of rows) {
+      const mark = checked.has(item.id) ? '[x]' : '[ ]'
+      drawLine(`${mark} ${item.label}`, { size: 11 })
+      drawWrappedText(item.hint, { size: 9, gapAfter: 4 })
+    }
+  }
+
+  drawWrappedText(
+    'Next step: start a free ClearCaseIQ assessment at https://www.clearcaseiq.com/assessment/start to organize records into a case snapshot.',
+    { gapAfter: 4 },
+  )
+
+  savePdf(buildPdfBytes(pages), 'ClearCaseIQ-medical-records-checklist.pdf')
+}

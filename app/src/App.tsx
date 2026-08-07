@@ -121,6 +121,12 @@ const AdminAnalytics = lazy(() => import('./pages/admin/AdminAnalytics'))
 const AdminAuditLogs = lazy(() => import('./pages/admin/AdminAuditLogs'))
 const AdminSystemStatus = lazy(() => import('./pages/admin/AdminSystemStatus'))
 const AdminSettings = lazy(() => import('./pages/admin/AdminSettings'))
+const About = lazy(() => import('./pages/About'))
+const PressPage = lazy(() => import('./pages/PressPage'))
+const InsightsPage = lazy(() => import('./pages/InsightsPage'))
+const PartnerBadgePage = lazy(() => import('./pages/PartnerBadgePage'))
+const CaliforniaSolChecker = lazy(() => import('./pages/CaliforniaSolChecker'))
+const MedicalRecordsChecklistTool = lazy(() => import('./pages/MedicalRecordsChecklistTool'))
 const CompleteConsent = lazy(() => import('./pages/CompleteConsent'))
 const ConsentManagement = lazy(() => import('./pages/ConsentManagement'))
 const TestConsent = lazy(() => import('./pages/TestConsent'))
@@ -364,6 +370,10 @@ function App() {
             <Route path="/terms-of-service" element={<TermsOfService />} />
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/disclosures" element={<Disclosures />} />
+            <Route path="/about" element={<About />} />
+            <Route path="/press" element={<PressPage />} />
+            <Route path="/insights" element={<InsightsPage />} />
+            <Route path="/partners/badge" element={<PartnerBadgePage />} />
             <Route path="/help" element={<Help />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
@@ -376,6 +386,9 @@ function App() {
             <Route path="/hipaa-authorization" element={<HipaaAuthorization />} />
             <Route path="/payment/success" element={<PaymentSuccess />} />
             <Route path="/payment/cancel" element={<PaymentCancel />} />
+            {/* Interactive public tools — must be registered before /tools/:slug SEO catch-all. */}
+            <Route path="/tools/california-sol-checker" element={<CaliforniaSolChecker />} />
+            <Route path="/tools/medical-records-checklist" element={<MedicalRecordsChecklistTool />} />
             <Route path="/injuries/:slug" element={<SeoLandingPage />} />
             <Route path="/treatment/:slug" element={<SeoLandingPage />} />
             <Route path="/tools/:slug" element={<SeoLandingPage />} />

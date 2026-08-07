@@ -5,6 +5,7 @@ import { landingPagesBySlug } from '../data/seoLandingPages'
 import { cityLocalFacts } from '../data/seoCityLocalFacts'
 import { landingPageFaqs } from '../data/seoLandingPageSchema'
 import { topicContentBySlug, type TopicContent } from '../data/seoLandingPageTopicContent'
+import SeoCiteEmbed from '../components/SeoCiteEmbed'
 
 const categoryTone: Record<string, string> = {
   Symptoms: 'from-rose-50 to-white border-rose-100 text-rose-950',
@@ -140,6 +141,8 @@ const internalLinks = [
   { label: 'Disputed fault analysis', to: '/liability/disputed-fault' },
   { label: 'Commercial coverage', to: '/insurance/rideshare-commercial-coverage' },
   { label: 'Settlement calculator', to: '/tools/settlement-calculator' },
+  { label: 'California SOL checker', to: '/tools/california-sol-checker' },
+  { label: 'Medical records checklist', to: '/tools/medical-records-checklist' },
 ]
 
 const settlementValueDetails = [
@@ -501,6 +504,14 @@ export default function SeoLandingPage() {
     location.pathname.includes('case-worth')
       ? '/tools/settlement-calculator'
       : '/assessment/start'
+  const citeEmbedToolPath =
+    location.pathname.includes('medical-record') || location.pathname.includes('chronology')
+      ? '/tools/medical-records-checklist'
+      : location.pathname.includes('statute') || location.pathname.includes('deadline')
+        ? '/tools/california-sol-checker'
+        : location.pathname.startsWith('/tools/')
+          ? '/tools/settlement-calculator'
+          : '/tools/california-sol-checker'
   return (
     <main className="mx-auto w-full max-w-6xl overflow-x-clip px-3 py-6 sm:px-6 sm:py-10 lg:px-8">
       <section className={`overflow-hidden rounded-3xl border bg-gradient-to-br ${tone} shadow-card`}>
@@ -1057,6 +1068,14 @@ export default function SeoLandingPage() {
           ))}
         </div>
       </section>
+
+      <div className="mt-8">
+        <SeoCiteEmbed
+          title={page.title}
+          path={location.pathname}
+          embedToolPath={citeEmbedToolPath}
+        />
+      </div>
 
       <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Common questions</p>

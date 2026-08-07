@@ -47,6 +47,12 @@ const navLinks = {
 // sticky CTA. Attorney-facing pages (e.g. /attorney-network) are excluded too.
 const MOBILE_ASSESSMENT_CTA_ROUTES = new Set<string>([
   '/how-it-works',
+  '/about',
+  '/press',
+  '/insights',
+  '/partners/badge',
+  '/tools/california-sol-checker',
+  '/tools/medical-records-checklist',
   '/help',
   '/contact',
   '/privacy-policy',
@@ -58,8 +64,22 @@ const organizationJsonLd = {
   '@context': 'https://schema.org',
   '@type': 'Organization',
   name: 'ClearCaseIQ',
+  legalName: 'ClearCaseIQ Corp.',
   url: 'https://www.clearcaseiq.com',
   logo: 'https://www.clearcaseiq.com/clearcaseiq-logo.png',
+  email: 'support@clearcaseiq.com',
+  description:
+    'AI-powered legal technology that helps injury victims evaluate personal injury claims and connect with participating attorneys — with consent. Not a law firm.',
+  address: {
+    '@type': 'PostalAddress',
+    addressLocality: 'Los Angeles',
+    addressRegion: 'CA',
+    addressCountry: 'US',
+  },
+  areaServed: {
+    '@type': 'AdministrativeArea',
+    name: 'California',
+  },
 }
 
 export default function Layout({ children }: LayoutProps) {
@@ -719,12 +739,18 @@ export default function Layout({ children }: LayoutProps) {
               <ul className="space-y-1.5 text-sm">
                 <li><Link to="/attorney-register" className="text-slate-400 transition-colors hover:text-white">{t('footer.joinAttorneyNetwork')}</Link></li>
                 <li><Link to="/attorney-login" className="text-slate-400 transition-colors hover:text-white">{t('footer.attorneyLogin')}</Link></li>
+                <li><Link to="/partners/badge" className="text-slate-400 transition-colors hover:text-white">Partner badge</Link></li>
               </ul>
             </div>
             <div>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/90">{t('footer.resources')}</h3>
               <ul className="space-y-1.5 text-sm">
                 <li><Link to={navLinks.howItWorks} className="text-slate-400 transition-colors hover:text-white">{t('common.howItWorks')}</Link></li>
+                <li><Link to="/about" className="text-slate-400 transition-colors hover:text-white">{t('footer.about')}</Link></li>
+                <li><Link to="/tools/california-sol-checker" className="text-slate-400 transition-colors hover:text-white">SOL checker</Link></li>
+                <li><Link to="/tools/medical-records-checklist" className="text-slate-400 transition-colors hover:text-white">Records checklist</Link></li>
+                <li><Link to="/insights" className="text-slate-400 transition-colors hover:text-white">Insights</Link></li>
+                <li><Link to="/press" className="text-slate-400 transition-colors hover:text-white">Press</Link></li>
                 <li><Link to="/help#how-we-resolve" className="text-slate-400 transition-colors hover:text-white">{t('footer.support')}</Link></li>
               </ul>
             </div>
