@@ -25,6 +25,7 @@ import { formatClaimTypeShort } from '../lib/constants'
 import { sortRoomsByRecency } from '../lib/messaging'
 import { linkify } from '../lib/linkify'
 import RecordedCallBar from '../components/RecordedCallBar'
+import { useLanguage } from '../contexts/LanguageContext'
 
 interface ChatRoom {
   id: string
@@ -57,6 +58,7 @@ interface Message {
 }
 
 export default function Messaging() {
+  const { t } = useLanguage()
   const { state } = useLocation() as { state?: { attorneyId?: string; assessmentId?: string } }
   const [chatRooms, setChatRooms] = useState<ChatRoom[]>([])
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null)
@@ -147,7 +149,7 @@ export default function Messaging() {
       window.location.href = `tel:${String(phone).replace(/[^\d+]/g, '')}`
     } else if (room.attorney.email) {
       window.location.href = `mailto:${room.attorney.email}?subject=${encodeURIComponent(
-        'Requesting a call about my case',
+        t('messagingPage.emailCallSubject'),
       )}`
     }
   }
@@ -160,7 +162,7 @@ export default function Messaging() {
       window.open(`/book/${room.attorney.bookingSlug}`, '_blank', 'noopener,noreferrer')
     } else if (room.attorney.email) {
       window.location.href = `mailto:${room.attorney.email}?subject=${encodeURIComponent(
-        'Requesting a video consultation about my case',
+        t('messagingPage.emailVideoSubject'),
       )}`
     }
   }
@@ -331,7 +333,7 @@ export default function Messaging() {
       <div className="max-w-6xl mx-auto">
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading messages...</p>
+          <p className="mt-4 text-gray-600">{t('messagingPage.loading')}</p>
         </div>
       </div>
     )
@@ -345,12 +347,12 @@ export default function Messaging() {
           {/* Header */}
           <div className="p-4 border-b border-gray-200">
             <div className="flex items-center justify-between mb-4">
-              <h1 className="text-xl font-bold text-gray-900">Messages</h1>
-              <Tooltip content="AI Assistant" placement="bottom">
+              <h1 className="text-xl font-bold text-gray-900">{t('messagingPage.title')}</h1>
+              <Tooltip content={t('messagingPage.aiAssistant')} placement="bottom">
                 <button
                   onClick={() => setShowChatBot(!showChatBot)}
                   className="p-2 text-primary-600 hover:bg-primary-50 rounded-lg"
-                  aria-label="AI Assistant"
+                  aria-label={t('messagingPage.aiAssistant')}
                 >
                   <Bot className="h-5 w-5" />
                 </button>
@@ -361,7 +363,7 @@ export default function Messaging() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search conversations..."
+                placeholder={t('messagingPage.searchPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
@@ -374,9 +376,9 @@ export default function Messaging() {
             {filteredChatRooms.length === 0 ? (
               <div className="p-4 text-center text-gray-500">
                 <MessageSquare className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                <p>No conversations yet</p>
+                <p>{t('messagingPage.noConversations')}</p>
                 <p className="mt-1 text-sm text-gray-400">
-                  Your matched attorney will appear here once your case is routed.
+                  {t('messagingPage.noConversationsHint')}
                 </p>
               </div>
             ) : (
@@ -464,10 +466,10 @@ export default function Messaging() {
                       onClick={() => handleCallAttorney(selectedRoom)}
                       title={
                         selectedRoom.attorney.phone
-                          ? `Call ${selectedRoom.attorney.name}`
-                          : `Email ${selectedRoom.attorney.name}`
+                          ? t('messagingPage.callName', { name: selectedRoom.attorney.name })
+                          : t('messagingPage.emailName', { name: selectedRoom.attorney.name })
                       }
-                      aria-label="Call attorney"
+                      aria-label={t('messagingPage.callAttorney')}
                       className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
                     >
                       <Phone className="h-5 w-5" />
@@ -477,10 +479,10 @@ export default function Messaging() {
                       onClick={() => handleVideoCallAttorney(selectedRoom)}
                       title={
                         selectedRoom.attorney.bookingSlug
-                          ? 'Book a video consultation'
-                          : 'Request a video consultation'
+                          ? t('messagingPage.bookVideo')
+                          : t('messagingPage.requestVideo')
                       }
-                      aria-label="Start a video consultation"
+                      aria-label={t('messagingPage.startVideo')}
                       className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
                     >
                       <Video className="h-5 w-5" />
@@ -494,7 +496,7 @@ export default function Messaging() {
                 chatRoomId={selectedRoom.id}
                 attorneyId={selectedRoom.attorney?.id}
                 assessmentId={selectedRoom.assessment?.id}
-                attorneyName={selectedRoom.attorney?.name || 'your attorney'}
+                attorneyName={selectedRoom.attorney?.name || t('messagingPage.yourAttorneyLower')}
               />
 
               {/* Messages */}
@@ -503,10 +505,10 @@ export default function Messaging() {
                   <div className="text-center text-gray-500 py-8">
                     <MessageSquare className="h-12 w-12 mx-auto mb-4 text-gray-300" />
                     <p className="font-medium text-gray-700">
-                      {selectedRoom?.attorney?.name || 'Your attorney'} is reviewing your case.
+                      {t('messagingPage.reviewingCase', { name: selectedRoom?.attorney?.name || t('messagingPage.yourAttorney') })}
                     </p>
                     <p className="mt-2 text-sm">
-                      You will receive a message when an attorney responds.
+                      {t('messagingPage.willReceive')}
                     </p>
                   </div>
                 ) : (
@@ -558,7 +560,7 @@ export default function Messaging() {
                         handleSendMessage()
                       }
                     }}
-                    placeholder="Type a message… (Shift+Enter for a new line)"
+                    placeholder={t('messagingPage.composerPlaceholder')}
                     maxLength={5000}
                     className="flex-1 resize-none max-h-40 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     disabled={isSending}
@@ -577,8 +579,8 @@ export default function Messaging() {
             <div className="flex-1 flex items-center justify-center text-gray-500">
               <div className="text-center">
                 <MessageSquare className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-                <h3 className="text-lg font-medium mb-2">Select a conversation</h3>
-                <p>Choose a conversation from the sidebar to start messaging</p>
+                <h3 className="text-lg font-medium mb-2">{t('messagingPage.selectConversation')}</h3>
+                <p>{t('messagingPage.selectConversationHint')}</p>
               </div>
             </div>
           )}
@@ -593,7 +595,7 @@ export default function Messaging() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <Bot className="h-6 w-6 text-primary-600 mr-2" />
-                  <h3 className="text-lg font-semibold text-gray-900">AI Assistant</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">{t('messagingPage.aiAssistant')}</h3>
                 </div>
                 <button
                   onClick={() => setShowChatBot(false)}
@@ -608,7 +610,7 @@ export default function Messaging() {
               {chatBotMessages.length === 0 && (
                 <div className="text-center text-gray-500 py-8">
                   <Bot className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                  <p>Ask me anything about your legal case!</p>
+                  <p>{t('messagingPage.askAnything')}</p>
                 </div>
               )}
               {chatBotMessages.map((message) => (
@@ -645,7 +647,7 @@ export default function Messaging() {
                   value={chatBotInput}
                   onChange={(e) => setChatBotInput(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleChatBotMessage()}
-                  placeholder="Ask a question..."
+                  placeholder={t('messagingPage.askPlaceholder')}
                   maxLength={1000}
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
                 />
