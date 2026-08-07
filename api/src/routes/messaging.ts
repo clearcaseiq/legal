@@ -8,7 +8,6 @@ import {
   requireClientConsentsMiddleware,
   requireVerifiedEmailMiddleware,
 } from '../lib/client-consent-guard'
-import { translateForPlaintiff, getPlaintiffLanguage, translateToEnglish, looksNonEnglish } from '../lib/translate'
 import { notifyAttorneyInApp } from '../lib/case-notifications'
 import { ATTORNEY_EVENTS } from '../lib/notification-events'
 
@@ -124,20 +123,7 @@ router.post(
     // Reverse messages to show oldest first
     chatRoom.messages = chatRoom.messages.reverse()
 
-    // Translate attorney messages to plaintiff's preferred language
-    const plaintiffLang = getPlaintiffLanguage(req)
-    if (plaintiffLang !== 'en') {
-      const translated = await Promise.all(
-        chatRoom.messages.map(async (m) => {
-          if (m.senderType === 'attorney' && m.content) {
-            const content = await translateForPlaintiff(m.content, plaintiffLang)
-            return { ...m, content }
-          }
-          return m
-        })
-      )
-      chatRoom.messages = translated
-    }
+    // CP-572: return original message text as the sender typed it.
 
     res.json({
       chatRoomId: chatRoom.id,
@@ -196,23 +182,7 @@ router.get('/chat-rooms', authMiddleware, async (req: AuthRequest, res) => {
       }
     }))
 
-    // Translate last attorney message in each room to plaintiff's preferred language
-    const plaintiffLang = getPlaintiffLanguage(req)
-    if (plaintiffLang !== 'en') {
-      parsedChatRooms = await Promise.all(
-        parsedChatRooms.map(async (room) => {
-          const lastMsg = room.messages?.[0]
-          if (lastMsg?.senderType === 'attorney' && lastMsg?.content) {
-            const content = await translateForPlaintiff(lastMsg.content, plaintiffLang)
-            return {
-              ...room,
-              messages: [{ ...lastMsg, content }]
-            }
-          }
-          return room
-        })
-      )
-    }
+    // CP-572: keep original last-message previews (no auto-translate).
 
     res.json(parsedChatRooms)
   } catch (error) {
@@ -326,13 +296,10 @@ router.get('/attorney/unread-summary', authMiddleware, async (req: AuthRequest, 
     const rooms = await Promise.all(
       chatRooms.map(async (room) => {
         const last = room.messages[0]
-        let lastMessage = last
+        // CP-572: keep original last-message preview text.
+        const lastMessage = last
           ? { content: last.content, senderType: last.senderType, createdAt: last.createdAt }
           : null
-        // Attorney-facing views are English-only: translate client previews.
-        if (lastMessage && lastMessage.senderType !== 'attorney' && lastMessage.content && looksNonEnglish(lastMessage.content)) {
-          lastMessage = { ...lastMessage, content: await translateToEnglish(lastMessage.content) }
-        }
         const plaintiff = room.user
           ? {
               id: room.user.id,
@@ -513,22 +480,8 @@ router.get('/chat-room/:chatRoomId/messages', authMiddleware, async (req: AuthRe
     // Reverse to show oldest first
     messages.reverse()
 
-    // Translate attorney messages to plaintiff's preferred language
-    const plaintiffLang = getPlaintiffLanguage(req)
-    if (plaintiffLang !== 'en') {
-      const translated = await Promise.all(
-        messages.map(async (m) => {
-          if (m.senderType === 'attorney' && m.content) {
-            const content = await translateForPlaintiff(m.content, plaintiffLang)
-            return { ...m, content }
-          }
-          return m
-        })
-      )
-      res.json(translated)
-    } else {
-      res.json(messages)
-    }
+    // CP-572: return original message text as the sender typed it.
+    res.json(messages)
   } catch (error) {
     logger.error('Failed to get messages', { error, chatRoomId: req.params.chatRoomId })
     res.status(500).json({ error: 'Internal server error' })

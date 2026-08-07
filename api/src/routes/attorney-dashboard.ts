@@ -37,7 +37,6 @@ import { createExternalCalendarEvent, deleteExternalCalendarEvent } from '../lib
 import { notifyWaitlistForFreedSlot } from '../lib/appointment-engagement'
 import { createZoomMeeting } from '../lib/zoom'
 import { deliverDirectNotification, createNotificationEvent, notifyAdmins } from '../lib/platform-notifications'
-import { translateToEnglish, looksNonEnglish } from '../lib/translate'
 import { isValidPhone, normalizePhone, PHONE_ERROR_MESSAGE } from '../lib/phone'
 import { wallClockToUtc, zonedWallClockToUtc } from '../lib/booking-slots'
 import { resolveSchedulingTimezone } from '../lib/scheduling-timezone'
@@ -14972,13 +14971,10 @@ router.get('/messaging/chat-rooms', authMiddleware, async (req: any, res) => {
     const unreadMap = Object.fromEntries(unreadByRoom.map(u => [u.chatRoomId, u._count.id]))
 
     const parsed = await Promise.all(chatRooms.map(async room => {
-      let lastMessage = room.messages[0]
+      const lastMessage = room.messages[0]
         ? { content: room.messages[0].content, senderType: room.messages[0].senderType, createdAt: room.messages[0].createdAt }
         : null
-      // Attorney-facing views are English-only: translate plaintiff previews when needed
-      if (lastMessage && lastMessage.senderType !== 'attorney' && lastMessage.content && looksNonEnglish(lastMessage.content)) {
-        lastMessage = { ...lastMessage, content: await translateToEnglish(lastMessage.content) }
-      }
+      // CP-572: keep the sender's original wording — do not auto-translate chat bodies.
       return {
         id: room.id,
         leadId: room.assessmentId ? leadByAssessment[room.assessmentId] : null,
@@ -15059,15 +15055,7 @@ router.post('/messaging/chat-room', authMiddleware, async (req: any, res) => {
 
     chatRoom.messages = (chatRoom.messages as any[]).reverse()
 
-    // Attorney-facing views are English-only: translate plaintiff messages when needed
-    chatRoom.messages = await Promise.all(
-      (chatRoom.messages as any[]).map(async (m: any) => {
-        if (m.senderType !== 'attorney' && m.content && looksNonEnglish(m.content)) {
-          return { ...m, content: await translateToEnglish(m.content) }
-        }
-        return m
-      })
-    ) as any
+    // CP-572: return original message text as the sender typed it.
 
     res.json({
       chatRoomId: chatRoom.id,
@@ -15106,17 +15094,8 @@ router.get('/messaging/chat-room/:chatRoomId/messages', authMiddleware, async (r
     })
     messages.reverse()
 
-    // Attorney-facing views are English-only: translate plaintiff messages when needed
-    const translated = await Promise.all(
-      messages.map(async (m: any) => {
-        if (m.senderType !== 'attorney' && m.content && looksNonEnglish(m.content)) {
-          return { ...m, content: await translateToEnglish(m.content) }
-        }
-        return m
-      })
-    )
-
-    res.json(translated)
+    // CP-572: return original message text as the sender typed it.
+    res.json(messages)
   } catch (error: any) {
     logger.error('Failed to load messages', { error: error.message })
     res.status(500).json({ error: 'Failed to load messages' })

@@ -1123,12 +1123,40 @@ export default function IntakeWizardQuick() {
           if (typeof snapCustomDate === 'string') setCustomDate(snapCustomDate)
           const hidden = HIDDEN_STEPS_BY_INJURY[snap?.injuryType] || []
           const validKeys = activeSteps.map(s => s.key).filter(key => !hidden.includes(key))
-          const restoredStep = typeof lead.currentStep === 'string'
+          // A step in the URL (shared/copied assessment link) wins over the lead's
+          // last saved step so reopening the same URL lands on that step (CP-518).
+          const urlStepRaw = new URLSearchParams(window.location.search).get('step') || ''
+          const urlStep = urlStepRaw ? (LEGACY_STEP_MAP[urlStepRaw] ?? urlStepRaw) : ''
+          const leadStep = typeof lead.currentStep === 'string'
             ? (LEGACY_STEP_MAP[lead.currentStep] ?? lead.currentStep)
             : undefined
+          const restoredStep = (urlStep && validKeys.includes(urlStep as Step)) ? urlStep : leadStep
           if (restoredStep && validKeys.includes(restoredStep as Step)) {
             setCurrentStep(restoredStep as Step)
           }
+          // Merge a same-device local draft when it belongs to this lead so form
+          // fields that hadn't synced yet aren't lost on resume.
+          try {
+            const raw = localStorage.getItem(draftKey)
+            if (raw) {
+              const draft = JSON.parse(raw)
+              if (draft?.leadId === lead.id && draft.formData?.injuryType) {
+                setFormData(prev => ({
+                  ...prev,
+                  ...draft.formData,
+                  venue: { ...prev.venue, ...(draft.formData.venue || {}) },
+                  injuryDetails: { ...prev.injuryDetails, ...(draft.formData.injuryDetails || {}) },
+                  insuranceCoverage: { ...prev.insuranceCoverage, ...(draft.formData.insuranceCoverage || {}) },
+                  contact: { ...prev.contact, ...(draft.formData.contact || {}) },
+                  consents: { tos: false, privacy: false, ml_use: false },
+                }))
+                if (typeof draft.customDate === 'string') setCustomDate(draft.customDate)
+                if (typeof draft.furthestReachedStepIndex === 'number') {
+                  setFurthestReachedStepIndex(draft.furthestReachedStepIndex)
+                }
+              }
+            }
+          } catch { /* ignore corrupt draft */ }
           // Track the lead id so continued progress updates the same lead instead
           // of spawning a duplicate.
           leadIdRef.current = lead.id
@@ -6473,14 +6501,20 @@ export default function IntakeWizardQuick() {
                     {tx('consent_agreeTermsPre')}
                     <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_termsLink')}</a>
                     {tx('consent_termsMid')}
-                    <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_privacyLink')}<span className="font-semibold text-red-500" aria-hidden>{'\u202F*'}</span></a>
+                    <span className="whitespace-nowrap">
+                      <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_privacyLink')}</a>
+                      <span className="font-semibold text-red-500" aria-hidden>*</span>
+                    </span>
                   </span>
                 </label>
                 <label className={`flex cursor-pointer items-start gap-2 rounded-xl border px-2.5 py-2 transition-all ${consents.ml_use ? 'border-brand-300 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-200 bg-slate-50 hover:border-brand-200 dark:border-slate-700 dark:bg-slate-800/40'}`}>
                   <input type="checkbox" checked={!!consents.ml_use} onChange={e => updateForm({ consents: { ...consents, ml_use: e.target.checked } })} className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600" />
                   <span className="text-xs leading-snug text-gray-700 dark:text-slate-300">
                     {tx('consent_agreeAiPre')}
-                    <a href="/ai-ml-consent" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_aiLink')}<span className="font-semibold text-red-500" aria-hidden>{'\u202F*'}</span></a>
+                    <span className="whitespace-nowrap">
+                      <a href="/ai-ml-consent" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700">{tx('consent_aiLink')}</a>
+                      <span className="font-semibold text-red-500" aria-hidden>*</span>
+                    </span>
                   </span>
                 </label>
               </div>

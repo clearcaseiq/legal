@@ -10,6 +10,10 @@ import { MAX_CASE_NAME_LENGTH } from '../../lib/caseName'
  * name is not captured anywhere in intake, so this is free text rather than two
  * structured fields. When nothing has been typed the heading falls back to the
  * client's name, which is how every case read before captions existed.
+ *
+ * CP-477: the plaintiff's legal name is never editable here. When no caption is
+ * set we show the client name as plain text and only offer "Add case caption".
+ * Opening the editor never prefills with the plaintiff's name.
  */
 export default function CaseNameEditor({
   leadId,
@@ -42,7 +46,9 @@ export default function CaseNameEditor({
   }, [editing])
 
   function open() {
-    setValue(customName ?? suggestion ?? displayName)
+    // Never seed the editor with the plaintiff's legal name — that made the
+    // control look like "edit plaintiff name" (CP-477).
+    setValue(customName ?? suggestion ?? '')
     setError(null)
     setEditing(true)
   }
@@ -63,31 +69,35 @@ export default function CaseNameEditor({
 
   if (!editing) {
     return (
-      <div className="group flex items-center gap-1.5">
-        <h1 className="text-lg font-bold text-slate-900">{displayName}</h1>
-        {customName ? (
-          <button
-            type="button"
-            onClick={open}
-            // This edits the case *caption*, not the plaintiff's legal name (which is
-            // never editable here). Label it explicitly so the pencil next to the name
-            // doesn't read as "edit the plaintiff's name" (CP-477).
-            aria-label="Edit case caption"
-            title="Edit case caption"
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-300 transition hover:bg-slate-100 hover:text-slate-700 focus:opacity-100 group-hover:text-slate-500"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={open}
-            aria-label="Add case caption"
-            title="Add a case caption (e.g., Rivera v. Delgado). This does not change the plaintiff's name"
-            className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-brand-600 opacity-0 transition hover:bg-brand-50 group-hover:opacity-100"
-          >
-            + Add caption
-          </button>
+      <div className="group flex flex-col gap-0.5">
+        <div className="flex items-center gap-1.5">
+          <h1 className="text-lg font-bold text-slate-900">{displayName}</h1>
+          {customName ? (
+            <button
+              type="button"
+              onClick={open}
+              aria-label="Edit case caption"
+              title="Edit case caption"
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-300 transition hover:bg-slate-100 hover:text-slate-700 focus:opacity-100 group-hover:text-slate-500"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={open}
+              aria-label="Add case caption"
+              title="Add a case caption (e.g., Rivera v. Delgado). This does not change the plaintiff's name"
+              className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-brand-600 opacity-0 transition hover:bg-brand-50 group-hover:opacity-100"
+            >
+              + Add caption
+            </button>
+          )}
+        </div>
+        {!customName && (
+          <p className="text-[11px] font-medium text-slate-400">
+            Plaintiff name (not editable) — use Add caption for the case title
+          </p>
         )}
       </div>
     )
@@ -106,7 +116,7 @@ export default function CaseNameEditor({
             if (e.key === 'Escape') setEditing(false)
           }}
           placeholder="Rivera v. Delgado Trucking"
-          aria-label="Case name"
+          aria-label="Case caption"
           className="w-72 max-w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
         />
         <button
@@ -130,8 +140,8 @@ export default function CaseNameEditor({
       </div>
       <p className="text-xs text-slate-500">
         {customName
-          ? 'Clear the field to go back to the client’s name.'
-          : 'Usually the case caption, e.g. “Rivera v. Delgado Trucking”.'}
+          ? 'Clear the field to go back to the client’s name. This does not change the plaintiff’s legal name.'
+          : 'Case caption only (e.g. “Rivera v. Delgado Trucking”). Does not change the plaintiff’s legal name.'}
       </p>
       {error && <p className="text-xs text-rose-600">{error}</p>}
     </div>

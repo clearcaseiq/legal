@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
 import { z } from 'zod'
 import { authMiddleware, AuthRequest } from '../lib/auth'
-import { getPlaintiffLanguage, translateForPlaintiff } from '../lib/translate'
+import { getPlaintiffLanguage } from '../lib/translate'
 import { buildCaseCommandCenter } from '../lib/case-command-center'
 
 const router = Router()
@@ -409,7 +409,8 @@ router.get('/dashboard', authMiddleware, async (req: AuthRequest, res) => {
       }, 0)
     }
 
-    // Translate attorney messages and status text to plaintiff's preferred language.
+    // Translate status UI chrome to plaintiff's preferred language.
+    // CP-572: do not rewrite chat message bodies — keep original wording.
     // A failed translation call (e.g. provider unreachable/misconfigured) must not
     // 500 the whole Case Tracker page for non-English plaintiffs — fall back to the
     // untranslated cards instead of surfacing a generic error (#218).
@@ -419,23 +420,12 @@ router.get('/dashboard', authMiddleware, async (req: AuthRequest, res) => {
       try {
       outputCases = await Promise.all(
         caseData.map(async (c) => {
-          const chatRooms = await Promise.all(
-            (c.chatRooms || []).map(async (room: any) => {
-              const last = room.lastMessage
-              if (last?.senderType === 'attorney' && last?.content) {
-                const content = await translateForPlaintiff(last.content, plaintiffLang)
-                return { ...room, lastMessage: { ...last, content } }
-              }
-              return room
-            })
-          )
           const t = STATUS_TRANSLATIONS[plaintiffLang]
           const p = PROGRESS_LABELS[plaintiffLang]
           const noteEmpty = SETTLEMENT_NOTE[plaintiffLang]
           const noteEst = SETTLEMENT_NOTE_EST[plaintiffLang]
           return {
             ...c,
-            chatRooms,
             transparency: c.transparency ? {
               ...c.transparency,
               plainEnglish: t?.[c.status]?.plain ?? c.transparency.plainEnglish,
@@ -601,7 +591,8 @@ router.get('/case/:caseId', authMiddleware, async (req: AuthRequest, res) => {
       }
     }
 
-    // Translate attorney messages and status text to plaintiff's preferred language
+    // Translate status UI chrome to plaintiff's preferred language.
+    // CP-572: do not rewrite chat message bodies — keep original wording.
     const plaintiffLang = getPlaintiffLanguage(req)
     if (plaintiffLang !== 'en') {
       const t = STATUS_TRANSLATIONS[plaintiffLang]
@@ -610,20 +601,6 @@ router.get('/case/:caseId', authMiddleware, async (req: AuthRequest, res) => {
       const noteEst = SETTLEMENT_NOTE_EST[plaintiffLang]
       caseDetails = {
         ...caseDetails,
-        chatRooms: await Promise.all(
-          caseDetails.chatRooms.map(async (room: any) => ({
-            ...room,
-            messages: await Promise.all(
-              (room.messages || []).map(async (m: any) => {
-                if (m.senderType === 'attorney' && m.content) {
-                  const content = await translateForPlaintiff(m.content, plaintiffLang)
-                  return { ...m, content }
-                }
-                return m
-              })
-            )
-          }))
-        ),
         transparency: {
           ...caseDetails.transparency,
           plainEnglish: t?.[assessment.status]?.plain ?? statusInfo.plain,
