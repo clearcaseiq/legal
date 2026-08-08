@@ -3714,18 +3714,19 @@ export default function IntakeWizardQuick() {
                 <div className="space-y-4">
                 {/* When */}
                 <div>
-                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><CalendarDays className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('when_heading')}</p>
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><CalendarDays className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('when_heading')}<span className="ml-0.5 font-semibold text-red-500" aria-hidden>*</span></p>
                   <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx('when_helper')}</p>
                   {/* When + Where now share a row, so the "When" column is only half-width.
                       Stack the deadline card BELOW the date field/presets (rather than beside
                       them) so the date box and preset buttons keep their full width. */}
                   <div className="mt-2 space-y-3">
                     <div>
-                      {/* Date box + presets: full width on mobile (nothing sits beside them
-                          there, and the cramped 3/4 width made the native date value clip and
-                          the 4 quick-date presets overlap — CP-372/CP-369). Narrow to 3/4 on
-                          larger screens where the layout has room. */}
-                      <div className="flex w-full flex-col gap-2 sm:w-3/4">
+                      {/* Date box + presets span the full column width. The old 3/4 cap on
+                          sm+ left the 4-up presets too cramped on tablets (iPad), where the
+                          fixed-size labels spilled outside their buttons and overlapped
+                          neighbours — CP-577 (also CP-372/CP-369). Full width gives every
+                          preset room in every language. */}
+                      <div className="flex w-full flex-col gap-2">
                       {/* Exact date drives the filing deadline, so lead with it. */}
                       <div className={`group relative w-full rounded-xl border bg-white py-1 pl-3.5 pr-2.5 shadow-sm transition-all focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/25 dark:bg-slate-900/40 ${errors.incidentDate ? 'border-red-400 ring-1 ring-red-400' : 'border-slate-300 hover:border-slate-400 dark:border-slate-600 dark:hover:border-slate-500'}`}>
                         <div className="flex items-center gap-3">
@@ -3791,7 +3792,7 @@ export default function IntakeWizardQuick() {
                               key={p.key}
                               type="button"
                               onClick={() => applyPresetDate(p.iso)}
-                              className={`flex !min-h-0 w-full min-w-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-1 py-1.5 text-center text-xs font-semibold transition-colors sm:text-[11px] ${active ? 'border-brand-600 bg-brand-600 text-white shadow-sm dark:border-brand-400 dark:bg-brand-500 dark:text-white' : 'border-brand-200 bg-brand-50/60 text-brand-700 hover:border-brand-300 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/20'}`}
+                              className={`flex !min-h-0 w-full min-w-0 items-center justify-center gap-1.5 rounded-lg border px-1.5 py-1.5 text-center text-xs font-semibold leading-tight transition-colors sm:text-[11px] ${active ? 'border-brand-600 bg-brand-600 text-white shadow-sm dark:border-brand-400 dark:bg-brand-500 dark:text-white' : 'border-brand-200 bg-brand-50/60 text-brand-700 hover:border-brand-300 hover:bg-brand-100 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/20'}`}
                             >
                               <p.Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
                               {p.label}
@@ -3849,7 +3850,7 @@ export default function IntakeWizardQuick() {
                       // give them more width; City is optional/short, so it gets less.
                       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.2fr)]">
                         <div className="min-w-0">
-                          <label className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-gray-700"><MapPin className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {t('intake.state')}</label>
+                          <label className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-gray-700"><MapPin className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {t('intake.state')}<span className="ml-0.5 font-semibold text-red-500" aria-hidden>*</span></label>
                           <select
                             value={formData.venue.state}
                             onChange={e => {
@@ -3871,7 +3872,7 @@ export default function IntakeWizardQuick() {
                           </select>
                         </div>
                         <div className="min-w-0">
-                          <label className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-gray-700"><Building2 className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {t('intake.county')}</label>
+                          <label className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-gray-700"><Building2 className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {t('intake.county')}<span className="ml-0.5 font-semibold text-red-500" aria-hidden>*</span></label>
                           {countyOptions.length > 0 ? (
                             <select value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full text-xs border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.county ? 'border-red-500' : ''}`}>
                               <option value="">{t('intake.searchCounty')}</option>
@@ -4066,7 +4067,7 @@ export default function IntakeWizardQuick() {
                 </div>
                 {/* Treatment */}
                 <div>
-                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Stethoscope className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx(isDeceased ? 'treatment_heading_deceased' : 'treatment_heading')}</p>
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Stethoscope className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx(isDeceased ? 'treatment_heading_deceased' : 'treatment_heading')}<span className="ml-0.5 font-semibold text-red-500" aria-hidden>*</span></p>
                   <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx(isDeceased ? 'treatment_helper_deceased' : 'treatment_helper')}</p>
                   <div className="mt-2">
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
@@ -4332,7 +4333,7 @@ export default function IntakeWizardQuick() {
               </div>
             {/* Severity */}
             <div>
-              <SectionHeader icon={HeartPulse} title={t('intake.injurySeverity')} helper={tx('injurySeverity_helper')} />
+              <SectionHeader icon={HeartPulse} title={<>{t('intake.injurySeverity')}<span className="ml-0.5 font-semibold text-red-500" aria-hidden>*</span></>} helper={tx('injurySeverity_helper')} />
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5">
                 {INJURY_SEVERITY_OPTIONS.map(({ value, labelKey }) => {
                   const { main, desc } = splitLabel(t(`intake.${labelKey}`))
