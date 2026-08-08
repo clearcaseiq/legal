@@ -14,6 +14,7 @@
  */
 import { prisma } from './prisma'
 import { logger } from './logger'
+import { recordCaseChange } from './data-authority'
 import { buildCaseCoach, type CaseCoachResult, type CoachPriority } from './case-coach'
 import type { GapAction } from './case-intelligence'
 import { deliverDirectNotification } from './platform-notifications'
@@ -437,6 +438,18 @@ async function autoDraftDemandOnce(
   }
 
   logger.info('Auto-drafted demand letter', { assessmentId, source: drafted.source, held: gate })
+
+  void recordCaseChange({
+    assessmentId,
+    source: 'rose_ai',
+    action: 'demand_generated',
+    entityType: 'demand',
+    summary: gate
+      ? 'Rose auto-drafted a demand letter (held for review)'
+      : 'Rose auto-drafted a demand letter',
+    actor: { type: 'ai', label: AI_AUTHOR_NAME },
+  })
+
   return true
 }
 

@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { prisma } from '../lib/prisma'
 import { authMiddleware } from '../lib/auth'
 import { logger } from '../lib/logger'
+import { recordCaseChange } from '../lib/data-authority'
 import { webUrl } from '../lib/app-url'
 import { taskCreatorName } from '../lib/ai-author'
 import { MAX_CASE_NAME_LENGTH, normalizeCaseName, plaintiffNameOf, resolveCaseName } from '../lib/case-name'
@@ -2311,6 +2312,17 @@ async function createReadinessTasks(leadId: string, assessmentId: string) {
     })
     created.push(record)
     existingTitles.add(normalizedTitle)
+  }
+
+  if (created.length > 0) {
+    void recordCaseChange({
+      assessmentId,
+      source: 'rose_ai',
+      action: 'task_created',
+      entityType: 'task',
+      summary: `Rose generated ${created.length} task${created.length === 1 ? '' : 's'}`,
+      actor: { type: 'ai', label: 'Rose' },
+    })
   }
 
   return { summary, plan, tasks: created }
@@ -5565,6 +5577,15 @@ router.post('/leads/:leadId/reassign', authMiddleware, async (req: any, res) => 
       select: { assessmentId: true },
     })
     if (lead?.assessmentId) {
+      void recordCaseChange({
+        assessmentId: lead.assessmentId,
+        source: 'attorney',
+        action: 'assigned',
+        entityType: 'assessment',
+        entityId: lead.assessmentId,
+        summary: `Case assigned to ${targetAttorney.name}`,
+        actor: { type: 'user', id: callerId ?? null, label: callerName ?? null },
+      })
       const { createNotificationEvent } = await import('../lib/platform-notifications')
       await createNotificationEvent({
         userId: undefined,
@@ -9076,6 +9097,16 @@ router.patch('/leads/:leadId/settlement', authMiddleware, async (req: any, res) 
       },
     })
 
+    void recordCaseChange({
+      assessmentId: lead.assessmentId,
+      source: 'attorney',
+      action: 'settlement_updated',
+      entityType: 'settlement',
+      entityId: lead.assessmentId,
+      summary: grossValue != null ? `Settlement scenario updated (gross ${grossValue})` : 'Settlement scenario updated',
+      actor: { type: 'user', id: req.user?.id ?? null },
+    })
+
     const result = await computeSettlement(lead.assessmentId)
     res.json(result)
   } catch (error: any) {
@@ -10676,6 +10707,18 @@ router.patch('/leads/:leadId/tasks/:id', authMiddleware, async (req: any, res) =
       select: caseTaskSelect
     })
 
+    if (status === 'done' && existing.status !== 'done') {
+      void recordCaseChange({
+        assessmentId: auth.lead.assessmentId,
+        source: 'attorney',
+        action: 'task_completed',
+        entityType: 'task',
+        entityId: record.id,
+        summary: `Task completed: ${record.title}`,
+        actor: { type: 'user', id: req.user?.id ?? null },
+      })
+    }
+
     // Handing an existing internal task to the client is the same event as
     // creating one for them, so it earns the same chat message and email.
     if (isClientTaskRole(record.assignedRole) && !isClientTaskRole(existing.assignedRole)) {
@@ -11468,6 +11511,15 @@ router.post('/leads/:leadId/negotiations', authMiddleware, async (req: any, res)
       select: negotiationEventSelect
     })
     await upsertNegotiationInsights(lead.assessmentId)
+    void recordCaseChange({
+      assessmentId: lead.assessmentId,
+      source: 'attorney',
+      action: 'negotiation_logged',
+      entityType: 'negotiation',
+      entityId: record.id,
+      summary: `Negotiation event: ${eventType}${amount ? ` (${Number(amount)})` : ''}`,
+      actor: { type: 'user', id: req.user?.id ?? null },
+    })
     res.json(record)
   } catch (error: any) {
     logger.error('Failed to create negotiation event', { error: error.message })

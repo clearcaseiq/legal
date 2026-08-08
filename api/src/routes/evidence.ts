@@ -14,6 +14,7 @@ import { runCaseRecalculation } from '../lib/case-recalculation'
 import { getClientConsentCompliance, isGuestCaseUserEmail } from '../lib/client-consent-guard'
 import { ENV } from '../env'
 import { prisma } from '../lib/prisma'
+import { recordCaseChange } from '../lib/data-authority'
 import { processEvidenceFileForExtraction, shouldAutoProcessEvidence, extractDataFromBuffer } from '../lib/evidence-processing'
 import { syncCaseCoachTasks } from '../lib/case-coach-loop'
 import { analyzeImageRelevance, analyzePdfRelevance, analyzeVideoRelevance, type VisionRelevanceResult } from '../lib/evidence-vision'
@@ -635,6 +636,18 @@ router.post('/upload', upload.single('file'), async (req: any, res) => {
         provenanceDate: provenanceDate ? new Date(provenanceDate) : null
       }
     })
+
+    if (assessmentId) {
+      void recordCaseChange({
+        assessmentId,
+        source: 'web',
+        action: 'evidence_added',
+        entityType: 'evidence',
+        entityId: evidenceFile.id,
+        summary: `Evidence added: ${req.file.originalname} (${category || 'other'})`,
+        actor: { type: 'user', id: userId ?? null },
+      })
+    }
 
     // Queue processing job
     await prisma.evidenceProcessingJob.create({

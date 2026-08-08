@@ -53,6 +53,8 @@ import payments from './routes/payments'
 import intakeLeads from './routes/intake-leads'
 import heuristics from './routes/heuristics'
 import integrations from './routes/integrations'
+import cases from './routes/cases'
+import sync from './routes/sync'
 import documentPortal from './routes/document-portal'
 import documents from './routes/documents'
 import esignWebhook from './routes/esign-webhook'
@@ -120,6 +122,8 @@ export function buildApp(): Express {
   app.use('/v1/payments', payments)
   app.use('/v1/heuristics', heuristics)
   app.use('/v1/integrations', integrations)
+  app.use('/v1/cases', cases)
+  app.use('/v1/sync', sync)
   app.use('/v1/public/document-requests', documentPortal)
   app.use('/v1/public/booking', publicBooking)
   app.use('/v1/scheduling', scheduling)

@@ -1,13 +1,15 @@
 /**
- * Inbound status sync (Phase 3, scaffold).
+ * Inbound status sync (reconciliation).
  *
  * When a CMS notifies us (via webhook) that a matter's status changed, we map
- * the external matter id back to our assessment (using the outbound sync log)
- * and record the update. Extend `applyInboundMatterStatus` to mutate platform
- * state (e.g. case tracker stage) as product requirements firm up.
+ * the external matter id back to our assessment (using the outbound sync log).
+ * ClearCaseIQ is the source of truth, so the external status is NOT applied
+ * directly — it is filed as an ExternalWriteProposal a firm user reviews and
+ * approves ("ours wins" with a human in the loop).
  */
 import { prisma } from '../prisma'
 import { logger } from '../logger'
+import { createExternalWriteProposal } from '../case-reconciliation'
 
 export interface InboundMatterStatusEvent {
   connectionId: string
@@ -59,16 +61,21 @@ export async function applyInboundMatterStatus(event: InboundMatterStatusEvent):
     return { matched: false, assessmentId: null }
   }
 
-  // Scaffold: surface the CMS status as a case note for visibility. Replace with
-  // a richer case-tracker stage mapping when the product defines the mapping.
-  await prisma.caseNote.create({
-    data: {
-      assessmentId,
-      message: `CMS status update: ${event.status}`,
-      noteType: 'update',
-      authorName: 'CMS Integration',
-    },
-  }).catch((error) => logger.warn('Failed to write inbound status note', { error }))
+  // "Ours wins": file the external status as a proposal for human review rather
+  // than overwriting the canonical case. Approval (in the reconciliation inbox)
+  // is the only path that mutates the record.
+  const connection = await prisma.cmsConnection.findUnique({
+    where: { id: event.connectionId },
+    select: { provider: true },
+  })
+  await createExternalWriteProposal({
+    assessmentId,
+    field: 'status',
+    proposedValue: event.status,
+    source: 'cms_inbound',
+    connectionId: event.connectionId,
+    provider: connection?.provider ?? null,
+  }).catch((error) => logger.warn('Failed to file inbound status proposal', { error }))
 
   return { matched: true, assessmentId }
 }

@@ -8,6 +8,7 @@ import { optionalAuthMiddleware, authMiddleware, AuthRequest } from '../lib/auth
 import { enforceAssessmentReadAccess } from '../lib/assessment-access'
 import { assignReferenceCode, ensureReferenceCode } from '../lib/case-reference'
 import { createClaimToken, verifyClaimToken } from '../lib/claim-token'
+import { recordCaseChange } from '../lib/data-authority'
 import { webUrl } from '../lib/app-url'
 import {
   ATTORNEY_PARTICIPATION_DISCLOSURE_VERSION,
@@ -975,6 +976,17 @@ router.post('/:id/submit-for-review', optionalAuthMiddleware, async (req: AuthRe
       await prisma.leadSubmission.create({ data: { assessmentId: id, ...leadData } })
     }
     logger.info('Case submitted for review', { assessmentId: id, userId: req.user?.id })
+
+    // Canonical lifecycle event → the change feed external systems sync from.
+    void recordCaseChange({
+      assessmentId: id,
+      source: 'web',
+      action: 'submitted',
+      entityType: 'assessment',
+      entityId: id,
+      summary: 'Case submitted to the attorney network',
+      actor: { type: 'user', id: req.user?.id ?? null, label: (email as string | undefined) ?? null },
+    })
 
     // Every case carries a short reference the plaintiff can quote to support.
     // Minted at creation, but ensured here for legacy/edge cases.

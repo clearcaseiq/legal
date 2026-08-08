@@ -178,6 +178,16 @@ model Assessment {
   // label (plaintiff name, then claim type) — see lib/case-name.ts.
   caseName    String?
 
+  // --- Data authority (system of record) -----------------------------------
+  // Monotonic revision bumped on every material change via recordCaseChange().
+  // Enables optimistic concurrency ("ours wins") and lets external systems that
+  // sync FROM us order and de-duplicate changes. Never decreases.
+  revision        Int     @default(0)
+  // Origin of the most recent authoritative write (web | mobile | rose_ai |
+  // attorney | admin | cms_inbound | reconcile | api | system). Provenance used
+  // by conflict resolution and surfaced on the change feed.
+  lastWriteSource String?
+
   // ChatGPT Analysis
   chatgptAnalysis       String?   @db.Text // JSON string of ChatGPT analysis
   chatgptAnalysisDate   DateTime?
@@ -246,6 +256,10 @@ model Assessment {
   caseWorkflow        CaseWorkflow?
   timeEntries         TimeEntry[]
   questionAnswers     CaseQuestionAnswer[]
+
+  // Data authority: the canonical change feed and the inbound reconciliation queue.
+  changeEvents           CaseChangeEvent[]
+  externalWriteProposals ExternalWriteProposal[]
 
   // Phase 2: Communications
   platformNotificationEvents PlatformNotificationEvent[]
@@ -3917,4 +3931,85 @@ model CmsSyncLog {
   @@index([assessmentId])
   @@index([operation, status])
   @@map("cms_sync_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Data authority (system-of-record) primitives.
+//
+// ClearCaseIQ is the canonical source of truth for a case. Other systems sync
+// FROM us: they read the canonical record + a cursor-pageable change feed, and
+// when they want to write a field back they submit a *proposal* a human on the
+// firm approves ("ours wins" with reconciliation). SyncApiKey authenticates
+// those external readers/writers per firm.
+// ---------------------------------------------------------------------------
+
+model CaseChangeEvent {
+  // `seq` is the globally-monotonic cursor external consumers page by; createdAt
+  // is not unique enough to page safely. `id` stays a cuid for stable refs.
+  seq          Int        @unique @default(autoincrement())
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  // Denormalized so the firm-scoped feed can page without joining assessments.
+  lawFirmId    String?
+  // Case revision AFTER this change was applied.
+  revision     Int
+  source       String // web | mobile | rose_ai | attorney | admin | cms_inbound | reconcile | api | system
+  actorType    String? // user | attorney | ai | system | external
+  actorId      String?
+  actorLabel   String?
+  action       String // status_changed | assigned | demand_generated | task_created | evidence_added | ...
+  entityType   String? // assessment | task | demand | evidence | ...
+  entityId     String?
+  summary      String?  @db.Text
+  createdAt    DateTime @default(now())
+
+  @@index([assessmentId, revision])
+  @@index([lawFirmId, seq])
+  @@index([createdAt])
+  @@map("case_change_events")
+}
+
+model ExternalWriteProposal {
+  id            String     @id @default(cuid())
+  assessmentId  String
+  assessment    Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  lawFirmId     String?
+  connectionId  String?
+  provider      String?
+  field         String // canonical field name (see RECONCILABLE_FIELDS)
+  currentValue  String?    @db.Text
+  proposedValue String?    @db.Text
+  // Case revision the external system based its write on (optimistic concurrency).
+  baseRevision     Int?
+  source           String    @default("cms_inbound")
+  status           String    @default("pending") // pending | approved | rejected | superseded
+  note             String?   @db.Text
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([assessmentId])
+  @@index([status])
+  @@index([lawFirmId, status])
+  @@map("external_write_proposals")
+}
+
+model SyncApiKey {
+  id        String @id @default(cuid())
+  lawFirmId String
+  name      String
+  // Visible, non-secret prefix for identifying the key in the UI/logs.
+  prefix    String @unique
+  // sha256 of the full token; the plaintext is shown once, at creation.
+  tokenHash       String    @unique
+  scopes          String? // JSON array; reserved for future scoping
+  createdByUserId String?
+  lastUsedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([lawFirmId])
+  @@map("sync_api_keys")
 }

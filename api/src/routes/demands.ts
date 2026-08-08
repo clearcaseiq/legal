@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { logger } from '../lib/logger'
+import { recordCaseChange } from '../lib/data-authority'
 import { z } from 'zod'
 import { Document, Packer, Paragraph } from 'docx'
 import { authMiddleware, optionalAuthMiddleware, AuthRequest } from '../lib/auth'
@@ -180,6 +181,16 @@ router.post('/draft/:assessmentId', authMiddleware, async (req: AuthRequest, res
       }
     })
 
+    void recordCaseChange({
+      assessmentId,
+      source: 'attorney',
+      action: 'demand_generated',
+      entityType: 'demand',
+      entityId: demand.id,
+      summary: `Demand letter drafted (target ${targetAmount})`,
+      actor: { type: 'user', id: req.user?.id ?? null },
+    })
+
     res.json({
       demand_id: demand.id,
       content,
@@ -268,6 +279,15 @@ router.post('/generate', async (req, res) => {
       demandId: demand.id,
       assessmentId, 
       targetAmount 
+    })
+
+    void recordCaseChange({
+      assessmentId,
+      source: 'attorney',
+      action: 'demand_generated',
+      entityType: 'demand',
+      entityId: demand.id,
+      summary: `Demand letter generated (target ${targetAmount})`,
     })
 
     res.json({

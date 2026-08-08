@@ -32,6 +32,7 @@ import {
   upsertOAuthConnection,
   verifyCmsState,
 } from '../lib/cms'
+import { createSyncApiKey } from '../lib/sync-auth'
 
 const router = Router()
 
@@ -281,6 +282,46 @@ router.post('/export', authMiddleware, async (req: AuthRequest, res) => {
     }
   }
   res.json({ results })
+})
+
+// --- Sync API keys (external systems that read FROM us) ---------------------
+// These authenticate the /v1/sync/* API (canonical read + change feed +
+// write proposals). Firm-scoped: a key only ever sees its own firm's cases.
+router.get('/sync-keys', authMiddleware, async (req: AuthRequest, res) => {
+  const { lawFirmId } = await getActorContext(req)
+  if (!lawFirmId) return res.json({ keys: [] })
+  const keys = await prisma.syncApiKey.findMany({
+    where: { lawFirmId },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, name: true, prefix: true, lastUsedAt: true, revokedAt: true, createdAt: true },
+  })
+  res.json({ keys })
+})
+
+const SyncKeySchema = z.object({ name: z.string().min(1).max(120) })
+
+router.post('/sync-keys', authMiddleware, async (req: AuthRequest, res) => {
+  const { lawFirmId } = await getActorContext(req)
+  if (!lawFirmId) return res.status(403).json({ error: 'No firm associated with this account' })
+  const parsed = SyncKeySchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: 'A key name is required' })
+
+  const { token, record } = await createSyncApiKey({
+    lawFirmId,
+    name: parsed.data.name,
+    createdByUserId: req.user?.id,
+  })
+  // The plaintext token is returned exactly once — the client must store it now.
+  res.status(201).json({ key: record, token })
+})
+
+router.delete('/sync-keys/:id', authMiddleware, async (req: AuthRequest, res) => {
+  const { lawFirmId } = await getActorContext(req)
+  if (!lawFirmId) return res.status(403).json({ error: 'No firm associated with this account' })
+  const key = await prisma.syncApiKey.findUnique({ where: { id: req.params.id }, select: { lawFirmId: true } })
+  if (!key || key.lawFirmId !== lawFirmId) return res.status(404).json({ error: 'Key not found' })
+  await prisma.syncApiKey.update({ where: { id: req.params.id }, data: { revokedAt: new Date() } })
+  res.json({ ok: true })
 })
 
 // --- Inbound webhook (status sync) -----------------------------------------
