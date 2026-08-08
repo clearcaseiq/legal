@@ -25,14 +25,20 @@ import {
   CheckCircle2,
   XCircle,
   ChevronRight,
+  Pencil,
 } from 'lucide-react'
 import {
   addFirmAttorney,
   addFirmMember,
   addFirmOffice,
   addFirmTeam,
+  updateFirmTeam,
+  removeFirmTeam,
   addFirmTeamMember,
   removeFirmTeamMember,
+  updateFirmOffice,
+  removeFirmOffice,
+  updateFirmRolePermissions,
   removeFirmMember,
   updateFirmAttorney,
   updateFirmMember,
@@ -386,6 +392,16 @@ export default function FirmDashboard() {
   const [addPersonType, setAddPersonType] = useState<'attorney' | 'staff'>('attorney')
   const [showRolePermissions, setShowRolePermissions] = useState(true)
   const [expandedMatrixRole, setExpandedMatrixRole] = useState<string | null>(null)
+  const [savingRolePerm, setSavingRolePerm] = useState<string | null>(null)
+  const [roleMatrixError, setRoleMatrixError] = useState<string | null>(null)
+  // Team / office edit + delete
+  const [editingTeam, setEditingTeam] = useState<any>(null)
+  const [editTeamForm, setEditTeamForm] = useState({ name: '', teamType: 'case_team', officeId: '' })
+  const [teamEditSaving, setTeamEditSaving] = useState(false)
+  const [editingOffice, setEditingOffice] = useState<any>(null)
+  const [editOfficeForm, setEditOfficeForm] = useState({ name: '', city: '', state: '', address: '', phone: '', capacity: '' })
+  const [officeEditSaving, setOfficeEditSaving] = useState(false)
+  const [teamOfficeError, setTeamOfficeError] = useState<string | null>(null)
   const [teamSaving, setTeamSaving] = useState(false)
   const [teamError, setTeamError] = useState<string | null>(null)
   const [teamSuccess, setTeamSuccess] = useState<string | null>(null)
@@ -731,6 +747,121 @@ export default function FirmDashboard() {
     const columns = [...orderedKnown, ...extras]
     return { caps, roles, columns }
   }, [workspace?.roleCapabilities])
+
+  const canManageUsers =
+    (workspace?.permissions || []).includes('manage_users') || workspace?.currentRole === 'firm_admin'
+  const canManageRouting =
+    (workspace?.permissions || []).includes('manage_routing') || workspace?.currentRole === 'firm_admin'
+
+  // firm_admin can never lose manage_users (mirrors the server-side lock).
+  const isLockedCell = (role: string, perm: string) => role === 'firm_admin' && perm === 'manage_users'
+
+  const toggleRolePermission = async (role: string, perm: string, has: boolean) => {
+    if (!canManageUsers || isLockedCell(role, perm)) return
+    const current = roleMatrix.caps[role] || []
+    const next = has ? current.filter((p) => p !== perm) : [...current, perm]
+    const key = `${role}:${perm}`
+    setSavingRolePerm(key)
+    setRoleMatrixError(null)
+    try {
+      await updateFirmRolePermissions(role, next)
+      await refresh(true)
+    } catch (e: any) {
+      setRoleMatrixError(e?.response?.data?.error || 'Failed to update permission.')
+    } finally {
+      setSavingRolePerm(null)
+    }
+  }
+
+  const openEditTeam = (team: any) => {
+    setEditingTeam(team)
+    setEditTeamForm({ name: team.name || '', teamType: team.teamType || 'case_team', officeId: team.office?.id || '' })
+    setTeamOfficeError(null)
+  }
+
+  const submitEditTeam = async () => {
+    if (!editingTeam) return
+    if (!editTeamForm.name.trim()) {
+      setTeamOfficeError('Team name is required.')
+      return
+    }
+    setTeamEditSaving(true)
+    setTeamOfficeError(null)
+    try {
+      await updateFirmTeam(editingTeam.id, {
+        name: editTeamForm.name.trim(),
+        teamType: editTeamForm.teamType,
+        officeId: editTeamForm.officeId || null,
+      })
+      setEditingTeam(null)
+      await refresh(true)
+    } catch (e: any) {
+      setTeamOfficeError(e?.response?.data?.error || 'Failed to update team.')
+    } finally {
+      setTeamEditSaving(false)
+    }
+  }
+
+  const handleDeleteTeam = async (team: any) => {
+    if (!window.confirm(`Delete team "${team.name}"? Members stay in the firm; only the team grouping is removed.`)) return
+    setTeamOfficeError(null)
+    try {
+      await removeFirmTeam(team.id)
+      await refresh(true)
+    } catch (e: any) {
+      setTeamOfficeError(e?.response?.data?.error || 'Failed to delete team.')
+    }
+  }
+
+  const openEditOffice = (office: any) => {
+    setEditingOffice(office)
+    setEditOfficeForm({
+      name: office.name || '',
+      city: office.city || '',
+      state: office.state || '',
+      address: office.address || '',
+      phone: office.phone || '',
+      capacity: office.capacity != null ? String(office.capacity) : '',
+    })
+    setTeamOfficeError(null)
+  }
+
+  const submitEditOffice = async () => {
+    if (!editingOffice) return
+    if (!editOfficeForm.name.trim()) {
+      setTeamOfficeError('Office name is required.')
+      return
+    }
+    setOfficeEditSaving(true)
+    setTeamOfficeError(null)
+    try {
+      await updateFirmOffice(editingOffice.id, {
+        name: editOfficeForm.name.trim(),
+        city: editOfficeForm.city.trim() || undefined,
+        state: editOfficeForm.state.trim() || undefined,
+        address: editOfficeForm.address.trim() || undefined,
+        phone: editOfficeForm.phone.trim() || undefined,
+        capacity: editOfficeForm.capacity !== '' ? Number(editOfficeForm.capacity) : undefined,
+      })
+      setEditingOffice(null)
+      await refresh(true)
+    } catch (e: any) {
+      setTeamOfficeError(e?.response?.data?.error || 'Failed to update office.')
+    } finally {
+      setOfficeEditSaving(false)
+    }
+  }
+
+  const handleDeleteOffice = async (office: any) => {
+    if (!window.confirm(`Delete office "${office.name}"? Members, teams, and cases here will be unassigned from it.`)) return
+    setTeamOfficeError(null)
+    try {
+      await removeFirmOffice(office.id)
+      await refresh(true)
+    } catch (e: any) {
+      setTeamOfficeError(e?.response?.data?.error || 'Failed to delete office.')
+    }
+  }
 
   const openEditMember = (m: any) => {
     setEditingMember(m)
@@ -1586,14 +1717,29 @@ export default function FirmDashboard() {
           </SectionCard>
 
           {/* Offices & Teams */}
+          {teamOfficeError && (
+            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{teamOfficeError}</p>
+          )}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <SectionCard title="Offices" trailing={<Badge tone="neutral">{offices.length}</Badge>}>
               {offices.length > 0 && (
                 <ul className="mb-3 space-y-1.5">
                   {offices.map((o) => (
-                    <li key={o.id} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm">
-                      <span className="font-medium text-slate-700">{o.name}</span>
-                      <span className="text-slate-400">{[o.city, o.state].filter(Boolean).join(', ') || '—'}{o.capacity ? ` · cap ${o.capacity}` : ''}</span>
+                    <li key={o.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2 text-sm">
+                      <span className="min-w-0">
+                        <span className="font-medium text-slate-700">{o.name}</span>
+                        <span className="ml-2 text-slate-400">{[o.city, o.state].filter(Boolean).join(', ') || '—'}{o.capacity ? ` · cap ${o.capacity}` : ''}</span>
+                      </span>
+                      {canManageRouting && (
+                        <span className="flex shrink-0 items-center gap-1">
+                          <button type="button" onClick={() => openEditOffice(o)} title="Edit office" className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button type="button" onClick={() => handleDeleteOffice(o)} title="Delete office" className="rounded-md p-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -1633,13 +1779,25 @@ export default function FirmDashboard() {
                             <span className="font-medium text-slate-700">{t.name}</span>
                             <span className="ml-2 text-slate-400">{formatRole(t.teamType)}{t.office ? ` · ${t.office.name}` : ''} · {t.members.length} {t.members.length === 1 ? 'member' : 'members'}</span>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => { setManageTeamId(isOpen ? null : t.id); setTeamMemberPick({ firmMemberId: '', role: 'member' }); setTeamMemberError(null) }}
-                            className="shrink-0 rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
-                          >
-                            {isOpen ? 'Done' : 'Manage members'}
-                          </button>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => { setManageTeamId(isOpen ? null : t.id); setTeamMemberPick({ firmMemberId: '', role: 'member' }); setTeamMemberError(null) }}
+                              className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                            >
+                              {isOpen ? 'Done' : 'Manage members'}
+                            </button>
+                            {canManageUsers && (
+                              <>
+                                <button type="button" onClick={() => openEditTeam(t)} title="Edit team" className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                                <button type="button" onClick={() => handleDeleteTeam(t)} title="Delete team" className="rounded-md p-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </div>
                         {isOpen && (
                           <div className="space-y-3 border-t border-slate-100 px-3 py-3">
@@ -1732,8 +1890,16 @@ export default function FirmDashboard() {
             {showRolePermissions ? (
               <div className="space-y-4">
                 <p className="text-sm text-slate-500">
-                  What each firm role can do. Click a role to see every permission it grants.
+                  What each firm role can do. Click a role name to see its full permission list.
+                  {canManageUsers
+                    ? ' Click any cell to grant or revoke that permission for the whole role.'
+                    : ''}
                 </p>
+                {roleMatrixError && (
+                  <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                    {roleMatrixError}
+                  </p>
+                )}
                 <div className="overflow-x-auto rounded-xl border border-slate-200">
                   <table className="min-w-full border-collapse text-sm">
                     <thead>
@@ -1781,12 +1947,31 @@ export default function FirmDashboard() {
                             </th>
                             {roleMatrix.columns.map((perm) => {
                               const has = perms.includes(perm)
+                              const key = `${role}:${perm}`
+                              const saving = savingRolePerm === key
+                              const locked = isLockedCell(role, perm)
+                              const editable = canManageUsers && !locked
+                              const icon = has ? (
+                                <CheckCircle2 className="mx-auto h-5 w-5 text-emerald-500" aria-label="Allowed" />
+                              ) : (
+                                <XCircle className="mx-auto h-5 w-5 text-slate-300" aria-label="Not allowed" />
+                              )
                               return (
                                 <td key={perm} className="px-3 py-3 text-center">
-                                  {has ? (
-                                    <CheckCircle2 className="mx-auto h-5 w-5 text-emerald-500" aria-label="Allowed" />
+                                  {editable ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleRolePermission(role, perm, has)}
+                                      disabled={saving}
+                                      title={has ? `Revoke "${humanizePermission(perm)}" from ${formatRole(role)}` : `Grant "${humanizePermission(perm)}" to ${formatRole(role)}`}
+                                      className={`mx-auto flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-slate-100 ${saving ? 'opacity-40' : ''}`}
+                                    >
+                                      {icon}
+                                    </button>
                                   ) : (
-                                    <XCircle className="mx-auto h-5 w-5 text-slate-300" aria-label="Not allowed" />
+                                    <span title={locked ? 'Required for Firm Admin' : undefined} className={locked ? 'inline-flex items-center' : undefined}>
+                                      {icon}
+                                    </span>
                                   )}
                                 </td>
                               )
@@ -1839,6 +2024,77 @@ export default function FirmDashboard() {
               <p className="text-sm text-slate-400">The permission matrix is hidden. Click "Show matrix" to review what each role can do.</p>
             )}
           </SectionCard>
+        </div>
+      )}
+
+      {/* Edit team modal */}
+      {editingTeam && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditingTeam(null)}>
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+              <h3 className="text-lg font-semibold text-slate-900">Edit team</h3>
+              <button onClick={() => setEditingTeam(null)} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="space-y-3 px-5 py-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Team name</label>
+                <input type="text" value={editTeamForm.name} maxLength={NAME_MAX} onChange={(e) => setEditTeamForm({ ...editTeamForm, name: e.target.value })} className={inputCls} />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Type</label>
+                <select value={editTeamForm.teamType} onChange={(e) => setEditTeamForm({ ...editTeamForm, teamType: e.target.value })} className={inputCls}>
+                  {TEAM_TYPES.map((type) => (<option key={type.value} value={type.value}>{type.label}</option>))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Office</label>
+                <select value={editTeamForm.officeId} onChange={(e) => setEditTeamForm({ ...editTeamForm, officeId: e.target.value })} className={inputCls}>
+                  <option value="">No office (firm-wide)</option>
+                  {offices.map((office) => (<option key={office.id} value={office.id}>{office.name}</option>))}
+                </select>
+              </div>
+              {teamOfficeError && <p className="text-sm text-red-600">{teamOfficeError}</p>}
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-5 py-4">
+              <button onClick={() => setEditingTeam(null)} className={btnGhost}>Cancel</button>
+              <button onClick={submitEditTeam} disabled={teamEditSaving} className={btnPrimary}>{teamEditSaving ? 'Saving…' : 'Save changes'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit office modal */}
+      {editingOffice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditingOffice(null)}>
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+              <h3 className="text-lg font-semibold text-slate-900">Edit office</h3>
+              <button onClick={() => setEditingOffice(null)} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="space-y-3 px-5 py-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Office name</label>
+                <input type="text" value={editOfficeForm.name} maxLength={NAME_MAX} onChange={(e) => setEditOfficeForm({ ...editOfficeForm, name: e.target.value })} className={inputCls} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input type="text" value={editOfficeForm.city} onChange={(e) => setEditOfficeForm({ ...editOfficeForm, city: e.target.value })} placeholder="City" maxLength={NAME_MAX} className={inputCls} />
+                <select value={editOfficeForm.state} onChange={(e) => setEditOfficeForm({ ...editOfficeForm, state: e.target.value })} className={inputCls}>
+                  <option value="">State</option>
+                  {US_STATES.map((state) => (<option key={state.code} value={state.code}>{state.code}</option>))}
+                </select>
+              </div>
+              <input type="text" value={editOfficeForm.address} onChange={(e) => setEditOfficeForm({ ...editOfficeForm, address: e.target.value })} placeholder="Address (optional)" className={inputCls} />
+              <div className="grid grid-cols-2 gap-2">
+                <input type="text" value={editOfficeForm.phone} onChange={(e) => setEditOfficeForm({ ...editOfficeForm, phone: e.target.value })} placeholder="Phone (optional)" className={inputCls} />
+                <input type="number" min={0} step={1} value={editOfficeForm.capacity} onChange={(e) => setEditOfficeForm({ ...editOfficeForm, capacity: e.target.value })} placeholder="Capacity" className={inputCls} />
+              </div>
+              {teamOfficeError && <p className="text-sm text-red-600">{teamOfficeError}</p>}
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-5 py-4">
+              <button onClick={() => setEditingOffice(null)} className={btnGhost}>Cancel</button>
+              <button onClick={submitEditOffice} disabled={officeEditSaving} className={btnPrimary}>{officeEditSaving ? 'Saving…' : 'Save changes'}</button>
+            </div>
+          </div>
         </div>
       )}
 

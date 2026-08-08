@@ -23,7 +23,14 @@ import {
   ACTIVITY_TYPES,
   serializeTimeEntry,
 } from '../lib/time-tracking'
-import { FIRM_ROLE_PERMISSIONS, CASE_ASSIGNMENT_ROLES, roleHasPermission } from '../lib/firm-roles'
+import {
+  FIRM_ROLE_PERMISSIONS,
+  CASE_ASSIGNMENT_ROLES,
+  roleHasPermission,
+  ALL_FIRM_PERMISSIONS,
+  LOCKED_ROLE_PERMISSIONS,
+  effectiveRolePermissions,
+} from '../lib/firm-roles'
 
 const router: Router = Router()
 
@@ -184,6 +191,7 @@ async function ensureAttorneyFirmContext(user: any, attorney: any) {
     })
   }
 
+  const eff = effectiveRolePermissions((firm as any)?.rolePermissions)
   return {
     user,
     attorney: { ...attorney, lawFirmId: firm.id },
@@ -191,7 +199,8 @@ async function ensureAttorneyFirmContext(user: any, attorney: any) {
     lawFirmId: firm.id,
     role: 'firm_admin',
     member,
-    permissions: FIRM_ROLE_PERMISSIONS.firm_admin
+    permissions: eff.firm_admin,
+    roleCapabilities: eff,
   }
 }
 
@@ -211,6 +220,7 @@ async function getFirmContext(req: any) {
     : null
 
   if (firmMember?.lawFirmId) {
+    const eff = effectiveRolePermissions((firmMember.lawFirm as any)?.rolePermissions)
     return {
       user,
       attorney,
@@ -219,9 +229,10 @@ async function getFirmContext(req: any) {
       role: firmMember.role || 'intake_specialist',
       member: firmMember,
       permissions: [
-        ...(FIRM_ROLE_PERMISSIONS[firmMember.role] || []),
+        ...(eff[firmMember.role] || []),
         ...parseJsonArray(firmMember.permissions)
-      ]
+      ],
+      roleCapabilities: eff,
     }
   }
 
@@ -229,6 +240,7 @@ async function getFirmContext(req: any) {
     const firm = await (prisma as any).lawFirm.findUnique({
       where: { id: attorney.lawFirmId }
     })
+    const eff = effectiveRolePermissions((firm as any)?.rolePermissions)
     return {
       user,
       attorney,
@@ -236,7 +248,8 @@ async function getFirmContext(req: any) {
       lawFirmId: attorney.lawFirmId,
       role: 'firm_admin',
       member: null,
-      permissions: FIRM_ROLE_PERMISSIONS.firm_admin
+      permissions: eff.firm_admin,
+      roleCapabilities: eff,
     }
   }
 
@@ -404,6 +417,179 @@ router.delete('/teams/:teamId/members/:firmMemberId', authMiddleware as any, asy
   } catch (error: any) {
     logger.error('Failed to remove team member', { error: error?.message || String(error) })
     res.status(500).json({ error: 'Failed to remove team member' })
+  }
+})
+
+// --- Edit / delete an office -----------------------------------------------
+router.patch('/offices/:officeId', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_routing')) {
+      return res.status(403).json({ error: 'You do not have permission to manage firm offices' })
+    }
+    const { officeId } = req.params
+    const existing = await (prisma as any).firmOffice.findFirst({
+      where: { id: officeId, lawFirmId: context.lawFirmId },
+      select: { id: true },
+    })
+    if (!existing) return res.status(404).json({ error: 'Office not found in this firm' })
+
+    const { name, city, state, address, phone, countiesServed, languages, practiceAreas, capacity } = req.body || {}
+    const data: any = {}
+    if (typeof name === 'string') {
+      if (!name.trim()) return res.status(400).json({ error: 'Office name cannot be empty' })
+      data.name = name.trim().slice(0, 120)
+    }
+    if (city !== undefined) data.city = typeof city === 'string' ? city.trim().slice(0, 120) : null
+    if (state !== undefined) data.state = typeof state === 'string' ? state.trim().slice(0, 120) : null
+    if (address !== undefined) data.address = typeof address === 'string' ? address.trim().slice(0, 255) : null
+    if (phone !== undefined) data.phone = typeof phone === 'string' ? phone.trim().slice(0, 40) : null
+    if (countiesServed !== undefined) data.countiesServed = Array.isArray(countiesServed) ? JSON.stringify(countiesServed) : null
+    if (languages !== undefined) data.languages = Array.isArray(languages) ? JSON.stringify(languages) : null
+    if (practiceAreas !== undefined) data.practiceAreas = Array.isArray(practiceAreas) ? JSON.stringify(practiceAreas) : null
+    if (capacity !== undefined) data.capacity = Number.isFinite(Number(capacity)) ? Math.max(0, Math.floor(Number(capacity))) : null
+
+    const office = await (prisma as any).firmOffice.update({ where: { id: officeId }, data })
+    res.json({ office })
+  } catch (error: any) {
+    logger.error('Failed to update firm office', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to update firm office' })
+  }
+})
+
+router.delete('/offices/:officeId', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_routing')) {
+      return res.status(403).json({ error: 'You do not have permission to manage firm offices' })
+    }
+    const { officeId } = req.params
+    const existing = await (prisma as any).firmOffice.findFirst({
+      where: { id: officeId, lawFirmId: context.lawFirmId },
+      select: { id: true },
+    })
+    if (!existing) return res.status(404).json({ error: 'Office not found in this firm' })
+
+    // Detach references so the delete doesn't violate FKs, then remove.
+    await prisma.$transaction([
+      (prisma as any).firmMember.updateMany({ where: { officeId }, data: { officeId: null } }),
+      (prisma as any).firmTeam.updateMany({ where: { officeId }, data: { officeId: null } }),
+      (prisma as any).assessment.updateMany({ where: { officeId }, data: { officeId: null } }),
+      (prisma as any).firmOffice.delete({ where: { id: officeId } }),
+    ])
+    res.json({ ok: true })
+  } catch (error: any) {
+    logger.error('Failed to delete firm office', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to delete firm office' })
+  }
+})
+
+// --- Edit / delete a team --------------------------------------------------
+router.patch('/teams/:teamId', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage firm teams' })
+    }
+    const { teamId } = req.params
+    const existing = await (prisma as any).firmTeam.findFirst({
+      where: { id: teamId, lawFirmId: context.lawFirmId },
+      select: { id: true },
+    })
+    if (!existing) return res.status(404).json({ error: 'Team not found in this firm' })
+
+    const { name, teamType, description, officeId } = req.body || {}
+    const data: any = {}
+    if (typeof name === 'string') {
+      if (!name.trim()) return res.status(400).json({ error: 'Team name cannot be empty' })
+      data.name = name.trim().slice(0, 120)
+    }
+    if (typeof teamType === 'string' && teamType) data.teamType = teamType
+    if (description !== undefined) data.description = typeof description === 'string' ? description.trim().slice(0, 500) : null
+    if (officeId !== undefined) data.officeId = typeof officeId === 'string' && officeId ? officeId : null
+
+    const team = await (prisma as any).firmTeam.update({ where: { id: teamId }, data })
+    res.json({ team })
+  } catch (error: any) {
+    logger.error('Failed to update firm team', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to update firm team' })
+  }
+})
+
+router.delete('/teams/:teamId', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage firm teams' })
+    }
+    const { teamId } = req.params
+    const existing = await (prisma as any).firmTeam.findFirst({
+      where: { id: teamId, lawFirmId: context.lawFirmId },
+      select: { id: true },
+    })
+    if (!existing) return res.status(404).json({ error: 'Team not found in this firm' })
+
+    await prisma.$transaction([
+      (prisma as any).firmTeamMember.deleteMany({ where: { teamId } }),
+      (prisma as any).firmTeam.delete({ where: { id: teamId } }),
+    ])
+    res.json({ ok: true })
+  } catch (error: any) {
+    logger.error('Failed to delete firm team', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to delete firm team' })
+  }
+})
+
+// --- Update the permissions a ROLE grants (firm-scoped override) -----------
+router.patch('/roles/:role/permissions', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) return res.status(404).json({ error: 'No law firm associated with this user' })
+    if (!requireFirmPermission(context, 'manage_users')) {
+      return res.status(403).json({ error: 'You do not have permission to manage roles' })
+    }
+    const { role } = req.params
+    if (!FIRM_ROLE_PERMISSIONS[role]) {
+      return res.status(400).json({ error: 'Unknown role' })
+    }
+    const incoming = req.body?.permissions
+    if (!Array.isArray(incoming) || !incoming.every((p: unknown) => typeof p === 'string')) {
+      return res.status(400).json({ error: 'permissions must be an array of strings' })
+    }
+    // Keep only real permissions, then force any locked permissions for the role
+    // (e.g. firm_admin always keeps manage_users) so a firm can't lock itself out.
+    const sanitized = (incoming as string[]).filter((p) => ALL_FIRM_PERMISSIONS.includes(p))
+    const locked = LOCKED_ROLE_PERMISSIONS[role] || []
+    const nextPerms = Array.from(new Set([...sanitized, ...locked]))
+
+    const firm = await (prisma as any).lawFirm.findUnique({
+      where: { id: context.lawFirmId },
+      select: { rolePermissions: true },
+    })
+    const overrides = (() => {
+      try {
+        const parsed = firm?.rolePermissions ? JSON.parse(firm.rolePermissions) : {}
+        return parsed && typeof parsed === 'object' ? (parsed as Record<string, string[]>) : {}
+      } catch {
+        return {} as Record<string, string[]>
+      }
+    })()
+    overrides[role] = nextPerms
+
+    await (prisma as any).lawFirm.update({
+      where: { id: context.lawFirmId },
+      data: { rolePermissions: JSON.stringify(overrides) },
+    })
+
+    const roleCapabilities = effectiveRolePermissions(JSON.stringify(overrides))
+    res.json({ role, permissions: roleCapabilities[role], roleCapabilities })
+  } catch (error: any) {
+    logger.error('Failed to update role permissions', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to update role permissions' })
   }
 })
 
@@ -1971,7 +2157,7 @@ router.get('/', authMiddleware as any, async (req: any, res: Response) => {
       workspace: {
         currentRole: context?.role || 'attorney',
         permissions: context?.permissions || FIRM_ROLE_PERMISSIONS.attorney,
-        roleCapabilities: FIRM_ROLE_PERMISSIONS,
+        roleCapabilities: (context as any)?.roleCapabilities || FIRM_ROLE_PERMISSIONS,
         assignmentRoles: CASE_ASSIGNMENT_ROLES,
         subscription: {
           planName: 'Professional Plan',

@@ -58,3 +58,46 @@ export function permissionsForRole(role: string | null | undefined): string[] {
 export function roleHasPermission(role: string, permission: string): boolean {
   return permissionsForRole(role).includes(permission)
 }
+
+// The full catalog of assignable permissions (union of every role's defaults).
+// Used to validate custom role edits so a firm can't invent permissions.
+export const ALL_FIRM_PERMISSIONS: string[] = Array.from(
+  new Set(Object.values(FIRM_ROLE_PERMISSIONS).flat()),
+).sort()
+
+// firm_admin must always retain user management, otherwise a firm could lock
+// itself out of the very screen used to fix permissions.
+export const LOCKED_ROLE_PERMISSIONS: Record<string, string[]> = {
+  firm_admin: ['manage_users'],
+}
+
+/**
+ * Resolve a firm's effective role→permission map: each known role uses the
+ * firm's override when present (sanitized to the catalog + locked perms), else
+ * the platform default. `overridesJson` is LawFirm.rolePermissions.
+ */
+export function effectiveRolePermissions(
+  overridesJson?: string | null,
+): Record<string, string[]> {
+  let overrides: Record<string, string[]> = {}
+  if (overridesJson) {
+    try {
+      const parsed = JSON.parse(overridesJson)
+      if (parsed && typeof parsed === 'object') overrides = parsed as Record<string, string[]>
+    } catch {
+      /* malformed → treat as no overrides */
+    }
+  }
+  const out: Record<string, string[]> = {}
+  for (const role of Object.keys(FIRM_ROLE_PERMISSIONS)) {
+    const ov = overrides[role]
+    if (Array.isArray(ov)) {
+      const sanitized = ov.filter((p) => ALL_FIRM_PERMISSIONS.includes(p))
+      const locked = LOCKED_ROLE_PERMISSIONS[role] || []
+      out[role] = Array.from(new Set([...sanitized, ...locked]))
+    } else {
+      out[role] = FIRM_ROLE_PERMISSIONS[role]
+    }
+  }
+  return out
+}

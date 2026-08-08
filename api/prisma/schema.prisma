@@ -955,6 +955,10 @@ model LawFirm {
   foundedYear   Int?
   isPublic      Boolean @default(true)
 
+  // Per-firm overrides of the default role→permission map (firm-roles.ts).
+  // JSON object: { [role]: string[] }. Absent roles fall back to defaults.
+  rolePermissions String? @db.Text
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

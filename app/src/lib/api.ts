@@ -4611,7 +4611,7 @@ export async function addFirmMember(payload: {
   return data
 }
 
-export async function addFirmOffice(payload: {
+interface FirmOfficePayload {
   name: string
   city?: string
   state?: string
@@ -4621,18 +4621,42 @@ export async function addFirmOffice(payload: {
   languages?: string[]
   practiceAreas?: string[]
   capacity?: number
-}) {
+}
+
+export async function addFirmOffice(payload: FirmOfficePayload) {
   const { data } = await api.post('/v1/firm-dashboard/offices', payload)
   return data
 }
 
-export async function addFirmTeam(payload: {
+export async function updateFirmOffice(officeId: string, payload: Partial<FirmOfficePayload>) {
+  const { data } = await api.patch(`/v1/firm-dashboard/offices/${officeId}`, payload)
+  return data
+}
+
+export async function removeFirmOffice(officeId: string) {
+  const { data } = await api.delete(`/v1/firm-dashboard/offices/${officeId}`)
+  return data
+}
+
+interface FirmTeamPayload {
   name: string
   teamType?: string
   description?: string
-  officeId?: string
-}) {
+  officeId?: string | null
+}
+
+export async function addFirmTeam(payload: FirmTeamPayload) {
   const { data } = await api.post('/v1/firm-dashboard/teams', payload)
+  return data
+}
+
+export async function updateFirmTeam(teamId: string, payload: Partial<FirmTeamPayload>) {
+  const { data } = await api.patch(`/v1/firm-dashboard/teams/${teamId}`, payload)
+  return data
+}
+
+export async function removeFirmTeam(teamId: string) {
+  const { data } = await api.delete(`/v1/firm-dashboard/teams/${teamId}`)
   return data
 }
 
@@ -4643,6 +4667,14 @@ export async function addFirmTeamMember(teamId: string, payload: { firmMemberId:
 
 export async function removeFirmTeamMember(teamId: string, firmMemberId: string) {
   const { data } = await api.delete(`/v1/firm-dashboard/teams/${teamId}/members/${firmMemberId}`)
+  return data
+}
+
+export async function updateFirmRolePermissions(
+  role: string,
+  permissions: string[]
+): Promise<{ role: string; permissions: string[]; roleCapabilities: Record<string, string[]> }> {
+  const { data } = await api.patch(`/v1/firm-dashboard/roles/${role}/permissions`, { permissions })
   return data
 }
 
