@@ -683,6 +683,12 @@ export default function Dashboard() {
     submittedForReview,
   })
   const waitingState = inManualReview || needsMoreInfo || notRoutableYet
+  // `submittedForReview` is persisted at submission and never cleared once an
+  // attorney accepts, so on its own it kept the "N attorneys reviewing your case"
+  // banner up — and suppressed the matched banner — even after acceptance
+  // (CP-595). Only treat the case as actively in review while no attorney has
+  // engaged (accepted or a consult scheduled).
+  const showReviewBanner = submittedForReview && !attorneyMatched && !hasUpcomingConsult
   const plaintiffRoutingStatusMessage = plaintiffStatusMessage(routingStatus?.statusMessage)
   const waitingBanner = attorneyMatched
     ? {
@@ -1536,7 +1542,7 @@ export default function Dashboard() {
                   lifecycleState={routingLifecycle}
                   statusMessage={plaintiffRoutingStatusMessage}
                 />
-                {submittedForReview && (
+                {showReviewBanner && (
                   <section className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-600 to-brand-700 p-6 text-white shadow-sm">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div className="min-w-0">
@@ -1568,7 +1574,7 @@ export default function Dashboard() {
                   </section>
                 )}
                 {/* Top status banner - changes when attorney accepts */}
-                {waitingBanner && !submittedForReview && (
+                {waitingBanner && !showReviewBanner && (
                   <div className={`${waitingBanner.className} premium-panel px-6 py-5`}>
                     <p className="text-xl font-bold">{waitingBanner.title}</p>
                     <p className={`${waitingBanner.subClassName} text-sm mt-1`}>{waitingBanner.subtitle}</p>

@@ -53,9 +53,12 @@ export default function CaseProgressPipeline({
       }
     : null
 
+  // Once an attorney has responded, "Matched" is an achieved milestone — it must
+  // read as complete (green), not the current/pending (amber) step. The live step
+  // becomes "Next step: schedule a consultation". Previously matching parked the
+  // cursor on "Matched", leaving it amber forever after acceptance (CP-594).
   let currentIdx = 0
-  if (hasScheduledConsult) currentIdx = 4
-  else if (attorneyMatched) currentIdx = 3
+  if (hasScheduledConsult || attorneyMatched) currentIdx = 4
   else if (submittedForReview) currentIdx = 2
   else currentIdx = 0
 
