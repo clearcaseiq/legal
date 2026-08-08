@@ -29,6 +29,7 @@ import {
   getAttorneyTaskSummary,
   getAttorneyCalendarAppointments,
   cancelAttorneyAppointment,
+  ensureAttorneyAppointmentMeetingLink,
   getCalendarEvents,
   getAttorneyFilteredLeads,
   type CalendarEventDto,
@@ -630,6 +631,21 @@ export default function CalendarPage() {
             setConsultsRefresh((n) => n + 1)
           }}
           navigate={navigate}
+          onMeetingLinkReady={(appointmentId, urls) => {
+            const patch = (it: CalItem): CalItem =>
+              it.id === `c-${appointmentId}`
+                ? {
+                    ...it,
+                    consult: {
+                      ...it.consult,
+                      meetingUrl: urls.meetingUrl ?? it.consult?.meetingUrl,
+                      hostMeetingUrl: urls.hostMeetingUrl ?? it.consult?.hostMeetingUrl,
+                    },
+                  }
+                : it
+            setConsults((prev) => prev.map(patch))
+            setSelectedConsult((prev) => (prev ? patch(prev) : prev))
+          }}
         />
       )}
 
@@ -804,28 +820,40 @@ function ConsultDetailPanel({
   onClose,
   onCancelled,
   navigate,
+  onMeetingLinkReady,
 }: {
   item: CalItem
   onClose: () => void
   onCancelled: () => void
   navigate: (to: string) => void
+  onMeetingLinkReady?: (appointmentId: string, urls: { meetingUrl: string | null; hostMeetingUrl: string | null }) => void
 }) {
   const c = item.consult || {}
   const isBooking = item.source === 'booking'
   const meeting = MEETING_META[String(c.type || '')] || { label: claimLabel(c.type) || 'Consultation', icon: CalendarClock }
   const MeetingIcon = meeting.icon
-  const joinUrl = c.hostMeetingUrl || c.meetingUrl || null
+  const [joinUrl, setJoinUrl] = useState<string | null>(c.hostMeetingUrl || c.meetingUrl || null)
   const status = String(c.status || 'SCHEDULED')
   const dateStr = item.date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
   const timeStr = item.date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
   const dateKey = dateKeyOf(item.date)
   const appointmentId = item.id.startsWith('c-') ? item.id.slice(2) : item.id
   const alreadyCancelled = status.toUpperCase() === 'CANCELLED'
+  const isVideo = String(c.type || '') === 'video'
+  const isPhone = String(c.type || '') === 'phone'
 
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [cancelling, setCancelling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
+  const [creatingLink, setCreatingLink] = useState(false)
+  const [linkError, setLinkError] = useState<string | null>(null)
+
+  // Keep the join URL in sync if the parent refreshes the selected item.
+  useEffect(() => {
+    setJoinUrl(c.hostMeetingUrl || c.meetingUrl || null)
+    setLinkError(null)
+  }, [c.hostMeetingUrl, c.meetingUrl, item.id])
 
   const go = (path: string) => {
     onClose()
@@ -841,6 +869,27 @@ function ConsultDetailPanel({
     } catch (err: any) {
       setCancelError(err?.response?.data?.error || 'Could not cancel this consultation.')
       setCancelling(false)
+    }
+  }
+
+  const ensureJoinLink = async () => {
+    if (!isVideo || creatingLink) return
+    setCreatingLink(true)
+    setLinkError(null)
+    try {
+      const urls = await ensureAttorneyAppointmentMeetingLink(appointmentId)
+      const next = urls.hostMeetingUrl || urls.meetingUrl || null
+      if (!next) {
+        setLinkError('No meeting link was created. Connect Zoom or a calendar in Scheduling settings.')
+        return
+      }
+      setJoinUrl(next)
+      onMeetingLinkReady?.(appointmentId, urls)
+      window.open(next, '_blank', 'noopener,noreferrer')
+    } catch (err: any) {
+      setLinkError(err?.response?.data?.error || 'Could not create a meeting link.')
+    } finally {
+      setCreatingLink(false)
     }
   }
 
@@ -943,17 +992,40 @@ function ConsultDetailPanel({
         </div>
 
         <div className="mt-auto space-y-2.5 border-t border-slate-200 bg-slate-50 px-5 py-4">
-          {joinUrl ? (
+          {/* Always offer a primary join/call action for scheduled meetings (CP-601). */}
+          {isVideo ? (
+            joinUrl ? (
+              <a
+                href={joinUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
+              >
+                <Video className="h-4 w-4" />
+                Join meeting
+              </a>
+            ) : !alreadyCancelled ? (
+              <button
+                type="button"
+                onClick={() => void ensureJoinLink()}
+                disabled={creatingLink}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 disabled:opacity-60"
+              >
+                <Video className="h-4 w-4" />
+                {creatingLink ? 'Creating meeting link…' : 'Join meeting'}
+              </button>
+            ) : null
+          ) : null}
+          {isPhone && c.phoneNumber ? (
             <a
-              href={joinUrl}
-              target="_blank"
-              rel="noreferrer"
+              href={`tel:${c.phoneNumber}`}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
             >
-              <Video className="h-4 w-4" />
-              Join meeting
+              <Phone className="h-4 w-4" />
+              Call now
             </a>
           ) : null}
+          {linkError ? <p className="text-xs text-red-600">{linkError}</p> : null}
           {isBooking && c.manageToken ? (
             <a
               href={`/booking/manage/${c.manageToken}`}

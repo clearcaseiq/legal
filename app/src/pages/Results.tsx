@@ -5726,7 +5726,7 @@ Checklist:
                   <p className="mt-0.5 text-xs text-slate-500">{t('results.next.caseSavedSub')}</p>
                   <Link
                     to="/dashboard"
-                    className="mt-4 block w-full rounded-lg bg-brand-700 px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
+                    className="mt-4 block w-full rounded-lg bg-brand-700 px-6 py-3 text-center text-sm font-semibold text-white shadow-sm hover:bg-brand-800"
                   >
                     {t('results.next.goToDashboard')}
                   </Link>

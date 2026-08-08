@@ -666,10 +666,12 @@ export function ResultsReportDetails({
       </div>
 
       {isLoggedIn && (
-        <div className="flex justify-center px-6 pb-8">
+        // Extra horizontal/vertical padding so the CTA isn't flush against the
+        // page edge on the Case Snapshot report (CP-517).
+        <div className="flex justify-center px-6 pb-10 pt-2 sm:px-10">
           <Link
             to="/dashboard"
-            className="inline-flex items-center justify-center px-5 py-2.5 text-sm font-semibold text-brand-800 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 shadow-sm"
+            className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-brand-800 shadow-sm hover:bg-slate-50"
           >
             {t('results.report.goToDashboard')}
           </Link>

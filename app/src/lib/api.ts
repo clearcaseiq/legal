@@ -1916,6 +1916,15 @@ export async function cancelAttorneyAppointment(appointmentId: string, reason?: 
   return data
 }
 
+/** Mint (or return) a video join link for an existing calendar appointment (CP-601). */
+export async function ensureAttorneyAppointmentMeetingLink(appointmentId: string): Promise<{
+  meetingUrl: string | null
+  hostMeetingUrl: string | null
+}> {
+  const { data } = await api.post(`/v1/attorney-dashboard/appointments/${appointmentId}/ensure-meeting-link`)
+  return data
+}
+
 /* ------------------------------------------------------------------ */
 /* General calendar events (MyCase-style "Add event")                 */
 /* ------------------------------------------------------------------ */

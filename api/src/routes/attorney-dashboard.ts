@@ -4009,6 +4009,123 @@ router.post('/appointments/:appointmentId/cancel', authMiddleware, async (req: a
   }
 })
 
+// Mint (or return) a video join link for an existing appointment so the calendar
+// detail panel always has a Join action for video meetings (CP-601).
+router.post('/appointments/:appointmentId/ensure-meeting-link', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAttorneyFromReq(req)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { attorney } = auth
+    const appointmentId = String(req.params.appointmentId || '')
+
+    const appointment = await prisma.appointment.findFirst({
+      where: { id: appointmentId, attorneyId: attorney.id },
+      select: {
+        id: true,
+        type: true,
+        scheduledAt: true,
+        duration: true,
+        assessmentId: true,
+        meetingUrl: true,
+        hostMeetingUrl: true,
+        status: true,
+      },
+    })
+    if (!appointment) {
+      return res.status(404).json({ error: 'Appointment not found' })
+    }
+    if (String(appointment.type || '') !== 'video') {
+      return res.status(400).json({ error: 'Meeting links are only available for video consultations' })
+    }
+    if (appointment.meetingUrl || appointment.hostMeetingUrl) {
+      return res.json({
+        meetingUrl: appointment.meetingUrl,
+        hostMeetingUrl: appointment.hostMeetingUrl,
+      })
+    }
+
+    let meetingUrl: string | null = null
+    let hostMeetingUrl: string | null = null
+
+    try {
+      const zoomMeeting = await createZoomMeeting({
+        attorneyId: attorney.id,
+        topic: 'ClearCaseIQ Consultation',
+        start: appointment.scheduledAt,
+        durationMinutes: appointment.duration,
+        agenda: appointment.assessmentId
+          ? `Video consultation booked in ClearCaseIQ for assessment ${appointment.assessmentId}.`
+          : 'Video consultation booked in ClearCaseIQ.',
+      })
+      if (zoomMeeting) {
+        meetingUrl = zoomMeeting.joinUrl
+        hostMeetingUrl = zoomMeeting.startUrl
+        await prisma.appointment.update({
+          where: { id: appointment.id },
+          data: {
+            meetingUrl,
+            hostMeetingUrl,
+            externalCalendarProvider: 'zoom',
+            externalCalendarSyncedAt: new Date(),
+          },
+        })
+      }
+    } catch (zoomError: any) {
+      logger.warn('Zoom ensure-meeting-link failed', {
+        zoomError: zoomError?.message,
+        appointmentId: appointment.id,
+        attorneyId: attorney.id,
+      })
+    }
+
+    if (!meetingUrl) {
+      try {
+        const externalEvent = await createExternalCalendarEvent({
+          attorneyId: attorney.id,
+          title: 'ClearCaseIQ Consultation (video)',
+          start: appointment.scheduledAt,
+          end: new Date(appointment.scheduledAt.getTime() + appointment.duration * 60000),
+          description: appointment.assessmentId
+            ? `Video consultation booked in ClearCaseIQ for assessment ${appointment.assessmentId}.`
+            : 'Video consultation booked in ClearCaseIQ.',
+          createVideoLink: true,
+        })
+        if (externalEvent?.meetingUrl) {
+          meetingUrl = externalEvent.meetingUrl
+          await prisma.appointment.update({
+            where: { id: appointment.id },
+            data: {
+              meetingUrl,
+              externalCalendarProvider: externalEvent.provider,
+              externalCalendarEventId: externalEvent.externalEventId,
+              externalCalendarSyncedAt: new Date(),
+            },
+          })
+        }
+      } catch (calendarError: any) {
+        logger.warn('Calendar ensure-meeting-link failed', {
+          calendarError: calendarError?.message,
+          appointmentId: appointment.id,
+          attorneyId: attorney.id,
+        })
+      }
+    }
+
+    if (!meetingUrl && !hostMeetingUrl) {
+      return res.status(422).json({
+        error: 'Could not create a meeting link. Connect Zoom or Google/Outlook calendar in Scheduling settings, then try again.',
+      })
+    }
+
+    res.json({ meetingUrl, hostMeetingUrl })
+  } catch (error: any) {
+    logger.error('Failed to ensure meeting link', { error: error.message, appointmentId: req.params.appointmentId })
+    res.status(500).json({ error: 'Failed to create meeting link' })
+  }
+})
+
 // Register Expo push token for the signed-in attorney user (same User row as JWT).
 router.post('/push/register', authMiddleware, async (req: any, res) => {
   try {

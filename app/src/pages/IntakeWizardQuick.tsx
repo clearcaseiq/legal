@@ -3025,26 +3025,26 @@ export default function IntakeWizardQuick() {
     return (
       <div className="space-y-3">
               {/* ===== Insurance Card ===== */}
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
-                <div className="flex items-center gap-2.5">
+              <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+                <div className="flex min-w-0 items-center gap-2.5">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
-                  <div>
+                  <div className="min-w-0">
                     <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_insurance')}</h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400">{tx('insurance_subtitle')}</p>
                   </div>
                 </div>
 
-                <div className="mt-4 grid gap-6 lg:grid-cols-2">
+                <div className="mt-4 grid min-w-0 gap-6 lg:grid-cols-2">
                   {/* Other party insurance */}
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-start gap-2">
                       <Shield className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_otherPartyInsuredQuestion')}</p>
                         <p className="mt-0.5 text-xs text-slate-500">{tx('insurance_otherHelper')}</p>
                       </div>
                     </div>
-                    <div className="mt-3 grid grid-cols-3 gap-2">
+                    <div className="mt-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
                       {renderChoice(icLegal.otherPartyInsured === 'yes', () => setInsuranceField('otherPartyInsured', 'yes'), ShieldCheck, tx('optionYes'), { tone: 'emerald', stack: true })}
                       {renderChoice(icLegal.otherPartyInsured === 'no', () => setInsuranceField('otherPartyInsured', 'no'), XCircle, tx('optionNo'), { tone: 'red', stack: true })}
                       {renderChoice(icLegal.otherPartyInsured === 'unsure', () => setInsuranceField('otherPartyInsured', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
@@ -3052,15 +3052,15 @@ export default function IntakeWizardQuick() {
                   </div>
 
                   {/* Health insurance */}
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-start gap-2">
                       <HeartPulse className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden />
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-display text-sm font-semibold text-slate-950 dark:text-slate-100">{tx('legal_healthInsuranceQuestion')}</p>
                         <p className="mt-0.5 text-xs text-slate-500">{tx('insurance_healthHelper')}</p>
                       </div>
                     </div>
-                    <div className="mt-3 grid grid-cols-3 gap-2">
+                    <div className="mt-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
                       {renderChoice(icLegal.healthCoverage === 'yes', () => setInsuranceField('healthCoverage', 'yes'), CheckCircle2, tx('optionYes'), { tone: 'emerald', stack: true })}
                       {renderChoice(icLegal.healthCoverage === 'no', () => setInsuranceField('healthCoverage', 'no'), XCircle, tx('optionNo'), { tone: 'red', stack: true })}
                       {renderChoice(icLegal.healthCoverage === 'unsure', () => setInsuranceField('healthCoverage', 'unsure'), HelpCircle, tx('optionNotSure'), { stack: true })}
@@ -3184,31 +3184,33 @@ export default function IntakeWizardQuick() {
                 </div>
               </section>
             {/* ===== Insurance Coverage (Optional) ===== */}
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
-              <div className="flex items-center gap-2.5">
+            {/* min-w-0 + overflow-hidden keeps the vehicle-insurance accordion from
+                pushing past the viewport on narrow phones (CP-545). */}
+            <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
+              <div className="flex min-w-0 items-center gap-2.5">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
-                <div>
+                <div className="min-w-0">
                   <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('icov_title')}</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">{tx('icov_subtitle')}</p>
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-6 lg:grid-cols-[1fr_280px]">
+              <div className="mt-4 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
                 {/* Left: accordion sections */}
-                <div className="space-y-3">
+                <div className="min-w-0 space-y-3">
                   {/* 1. Other Driver's Insurance */}
-                  <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700" open>
-                    <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                  <details className="group min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700" open>
+                    <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 [&::-webkit-details-marker]:hidden">
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800"><Shield className="h-4 w-4" aria-hidden /></span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">1. {tx('icov_otherDriverTitle')}</span>
-                        <span className="block text-[11px] text-slate-500">{tx('icov_otherDriverSub')}</span>
+                        <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">1. {tx('icov_otherDriverTitle')}</span>
+                        <span className="block truncate text-[11px] text-slate-500">{tx('icov_otherDriverSub')}</span>
                       </span>
-                      {icLegal.defendantCoverageLimits && <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
+                      {icLegal.defendantCoverageLimits && <span className="hidden shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600 sm:flex"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
                       <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
                     </summary>
-                    <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="min-w-0 border-t border-slate-100 px-3 py-3 sm:px-4 dark:border-slate-700">
+                      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                         {DEFENDANT_COVERAGE_OPTIONS.map(({ value, label }) => {
                           const meta = coverageMeta[value] || { Icon: HelpCircle, sub: '', wrap: 'bg-slate-100 text-slate-500' }
                           const sel = icLegal.defendantCoverageLimits === value
@@ -3230,18 +3232,18 @@ export default function IntakeWizardQuick() {
 
                   {/* 2. UM/UIM Coverage */}
                   {isVehicle && (
-                  <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700">
-                    <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                  <details className="group min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700">
+                    <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 [&::-webkit-details-marker]:hidden">
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-500"><ShieldCheck className="h-4 w-4" aria-hidden /></span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">2. {tx('icov_umUimTitle')}</span>
-                        <span className="block text-[11px] text-slate-500">{tx('icov_umUimSub')}</span>
+                        <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">2. {tx('icov_umUimTitle')}</span>
+                        <span className="block truncate text-[11px] text-slate-500">{tx('icov_umUimSub')}</span>
                       </span>
-                      {icLegal.umUimCoverage && <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
+                      {icLegal.umUimCoverage && <span className="hidden shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600 sm:flex"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
                       <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
                     </summary>
-                    <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    <div className="min-w-0 border-t border-slate-100 px-3 py-3 sm:px-4 dark:border-slate-700">
+                      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
                         {UM_UIM_OPTIONS.map(({ value, label }) => {
                           const sel = icLegal.umUimCoverage === value
                           return renderChoice(sel, () => updateForm({ insuranceCoverage: { ...icLegal, umUimCoverage: sel ? '' : value } }),
@@ -3259,18 +3261,18 @@ export default function IntakeWizardQuick() {
 
                   {/* 3. PIP Coverage */}
                   {isVehicle && (
-                  <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700">
-                    <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                  <details className="group min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700">
+                    <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 [&::-webkit-details-marker]:hidden">
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-500"><HeartPulse className="h-4 w-4" aria-hidden /></span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">3. {tx('icov_pipTitle')}</span>
-                        <span className="block text-[11px] text-slate-500">{tx('icov_pipSub')}</span>
+                        <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">3. {tx('icov_pipTitle')}</span>
+                        <span className="block truncate text-[11px] text-slate-500">{tx('icov_pipSub')}</span>
                       </span>
-                      {icLegal.pipCoverage && <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
+                      {icLegal.pipCoverage && <span className="hidden shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600 sm:flex"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
                       <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
                     </summary>
-                    <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    <div className="min-w-0 border-t border-slate-100 px-3 py-3 sm:px-4 dark:border-slate-700">
+                      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
                         {PIP_OPTIONS.map(({ value, label }) => {
                           const sel = icLegal.pipCoverage === value
                           return renderChoice(sel, () => updateForm({ insuranceCoverage: { ...icLegal, pipCoverage: sel ? '' : value } }),
@@ -3288,18 +3290,18 @@ export default function IntakeWizardQuick() {
 
                   {/* 4. MedPay Coverage */}
                   {isVehicle && (
-                  <details className="group rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700">
-                    <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                  <details className="group min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm open:border-brand-200 dark:border-slate-700">
+                    <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 [&::-webkit-details-marker]:hidden">
                       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-500"><HeartPulse className="h-4 w-4" aria-hidden /></span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">4. {tx('icov_medPayTitle')}</span>
-                        <span className="block text-[11px] text-slate-500">{tx('icov_medPaySub')}</span>
+                        <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">4. {tx('icov_medPayTitle')}</span>
+                        <span className="block truncate text-[11px] text-slate-500">{tx('icov_medPaySub')}</span>
                       </span>
-                      {icLegal.medPayCoverage && <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
+                      {icLegal.medPayCoverage && <span className="hidden shrink-0 items-center gap-1 text-[11px] font-semibold text-emerald-600 sm:flex"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />{tx('icov_completed')}</span>}
                       <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" aria-hidden />
                     </summary>
-                    <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-700">
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    <div className="min-w-0 border-t border-slate-100 px-3 py-3 sm:px-4 dark:border-slate-700">
+                      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
                         {PIP_OPTIONS.map(({ value, label }) => {
                           const sel = icLegal.medPayCoverage === value
                           return renderChoice(sel, () => updateForm({ insuranceCoverage: { ...icLegal, medPayCoverage: sel ? '' : value } }),
@@ -3483,7 +3485,10 @@ export default function IntakeWizardQuick() {
       <div className="cc-panel-drop col-span-3 mt-5 rounded-2xl bg-slate-50/80 px-4 py-5 dark:bg-slate-800/40">
         {/* Reads as a second question rather than a stray box: the answered part
             is stated, ruled off, and the new question sits underneath it. */}
-        <div className="flex items-center justify-between gap-3 pb-4">
+        {/* Stack + center on narrow screens so "Choose another incident" isn't
+            pinned to the right edge (CP-543). Keep the side-by-side chip/button
+            layout from sm and up. */}
+        <div className="flex flex-col items-center gap-3 pb-4 sm:flex-row sm:items-center sm:justify-between">
           <span className="inline-flex min-w-0 items-center gap-2 rounded-full border border-brand-100 bg-white py-1 pl-1 pr-3.5 shadow-sm dark:border-brand-800/60 dark:bg-slate-800/80">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-600 text-white shadow-sm">
               <Check className="h-3.5 w-3.5" strokeWidth={3} aria-hidden />
@@ -4391,10 +4396,10 @@ export default function IntakeWizardQuick() {
               </div>
 
               {formData.injuryDetails.bodyParts.includes('other') && (
-                <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/40">
-                  <div className="flex items-center gap-2.5">
+                <div className="mt-3 min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/40">
+                  <div className="flex min-w-0 items-center gap-2.5">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Pencil className="h-3.5 w-3.5" aria-hidden /></span>
-                    <span className="text-xs font-semibold text-gray-800 dark:text-slate-200">{tx('injuryDetails_otherInjuryDescribe')}</span>
+                    <span className="min-w-0 text-xs font-semibold text-gray-800 dark:text-slate-200">{tx('injuryDetails_otherInjuryDescribe')}</span>
                   </div>
                   <textarea
                     value={formData.injuryDetails.bodyPartsOther}
@@ -4402,7 +4407,7 @@ export default function IntakeWizardQuick() {
                     placeholder={tx('injuryDetails_otherInjuryPlaceholder')}
                     rows={3}
                     maxLength={2000}
-                    className="mt-2 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                    className="mt-2 box-border w-full max-w-full min-w-0 resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
                   />
                 </div>
               )}
