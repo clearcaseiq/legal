@@ -26,6 +26,7 @@ import {
   XCircle,
   ChevronRight,
   Pencil,
+  Inbox,
 } from 'lucide-react'
 import {
   addFirmAttorney,
@@ -46,6 +47,8 @@ import {
   assignFirmCase,
   setCaseOffice,
   getFirmTeamCaseload,
+  getFirmNewLeads,
+  type FirmNewLead,
 } from '../lib/api'
 import {
   BackButton,
@@ -297,9 +300,10 @@ type CaseloadData = {
   offices: Array<{ officeId: string; name: string; capacity: number | null; assignedCases: number; utilization: number | null }>
 }
 
-type TabKey = 'overview' | 'caseload' | 'team' | 'booking' | 'templates' | 'workflow' | 'time'
+type TabKey = 'overview' | 'newleads' | 'caseload' | 'team' | 'booking' | 'templates' | 'workflow' | 'time'
 const TABS: Array<{ key: TabKey; label: string; icon: typeof LayoutDashboard }> = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { key: 'newleads', label: 'New Leads', icon: Inbox },
   { key: 'caseload', label: 'Caseload', icon: Briefcase },
   { key: 'team', label: 'Team & Roles', icon: Users },
   { key: 'booking', label: 'Booking Links', icon: CalendarClock },
@@ -320,6 +324,10 @@ function canSeeFirmTab(tab: TabKey, role: string | undefined, permissions: strin
     case 'overview':
     case 'caseload':
       return true
+    case 'newleads':
+      // Intake specialists own this surface; firm admins/attorneys reach it via
+      // their broader case-visibility permissions (CP-588).
+      return has('review_new_leads') || has('view_all_cases') || has('review_cases') || has('accept_cases')
     case 'team':
       return has('manage_users')
     case 'booking':
@@ -435,6 +443,78 @@ export default function FirmDashboard() {
   useEffect(() => {
     void refreshCaseload()
   }, [refreshCaseload])
+
+  // New Leads tab: marketplace leads routed to the firm, split into active
+  // offers and expired (lapsed/re-routed) ones (CP-588, CP-592).
+  const [newLeads, setNewLeads] = useState<{ active: FirmNewLead[]; expired: FirmNewLead[] }>({ active: [], expired: [] })
+  const [newLeadsLoading, setNewLeadsLoading] = useState(false)
+  const [newLeadsError, setNewLeadsError] = useState<string | null>(null)
+
+  const refreshNewLeads = useCallback(async () => {
+    setNewLeadsLoading(true)
+    setNewLeadsError(null)
+    try {
+      setNewLeads(await getFirmNewLeads())
+    } catch (err: any) {
+      setNewLeadsError(err?.response?.data?.error || 'Failed to load new leads.')
+      setNewLeads({ active: [], expired: [] })
+    } finally {
+      setNewLeadsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (tab === 'newleads') void refreshNewLeads()
+  }, [tab, refreshNewLeads])
+
+  const newLeadColumns = useMemo<DataTableColumn<FirmNewLead>[]>(
+    () => [
+      {
+        key: 'case',
+        header: 'Case',
+        cell: (r) => (
+          <div className="min-w-0">
+            <div className="truncate font-medium text-slate-800">{r.caseName || formatClaimType(r.claimType)}</div>
+            <div className="truncate text-xs text-slate-400">
+              {formatClaimType(r.claimType)}
+              {r.venueCounty ? ` · ${r.venueCounty}` : ''}
+              {r.venueState ? `, ${r.venueState}` : ''}
+              {r.referenceCode ? ` · ${r.referenceCode}` : ''}
+            </div>
+          </div>
+        ),
+      },
+      {
+        key: 'routedTo',
+        header: 'Routed to',
+        cell: (r) =>
+          r.attorneys.length === 0 ? (
+            <span className="text-slate-300">—</span>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {r.attorneys.slice(0, 4).map((a) => (
+                <span key={a.id} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                  {a.name}
+                </span>
+              ))}
+              {r.attorneys.length > 4 && <span className="text-xs text-slate-400">+{r.attorneys.length - 4}</span>}
+            </div>
+          ),
+      },
+      { key: 'wave', header: 'Wave', align: 'center', cell: (r) => <span className="text-slate-500">{r.waveNumber}</span> },
+      {
+        key: 'routed',
+        header: 'Routed',
+        cell: (r) => <span className="text-slate-400">{r.routedAt ? new Date(r.routedAt).toLocaleDateString() : '—'}</span>,
+      },
+      {
+        key: 'status',
+        header: 'Status',
+        cell: (r) => (r.status === 'expired' ? <Badge tone="warning">Expired</Badge> : <Badge tone="blue">New</Badge>),
+      },
+    ],
+    [],
+  )
 
   // Move a case to a different office, then refresh cases + capacity bars.
   const handleCaseOfficeChange = async (assessmentId: string, officeId: string) => {
@@ -1445,6 +1525,55 @@ export default function FirmDashboard() {
       {/* ---------------------------------------------------------------- */}
       {/* CASELOAD — who owns / is working on what                          */}
       {/* ---------------------------------------------------------------- */}
+      {tab === 'newleads' && (
+        <div className="space-y-6">
+          <SectionCard
+            title="New leads"
+            trailing={
+              <div className="flex items-center gap-2">
+                <Badge tone="brand">{newLeads.active.length}</Badge>
+                <button onClick={() => void refreshNewLeads()} className={btnGhost + ' !px-2.5 !py-1 !text-xs'}>
+                  Refresh
+                </button>
+              </div>
+            }
+          >
+            <p className="mb-3 text-sm text-slate-500">
+              Leads routed to your firm and awaiting a response. Client identity is revealed once an attorney accepts.
+            </p>
+            {newLeadsError ? (
+              <EmptyState message={newLeadsError} />
+            ) : newLeadsLoading ? (
+              <EmptyState message="Loading new leads…" />
+            ) : newLeads.active.length === 0 ? (
+              <EmptyState message="No new leads waiting. New matches routed to your firm will appear here." />
+            ) : (
+              <DataTable
+                columns={newLeadColumns}
+                rows={newLeads.active}
+                rowKey={(r: FirmNewLead) => r.assessmentId}
+              />
+            )}
+          </SectionCard>
+
+          {newLeads.expired.length > 0 && (
+            <SectionCard
+              title="Expired leads"
+              trailing={<Badge tone="warning">{newLeads.expired.length}</Badge>}
+            >
+              <p className="mb-3 text-sm text-slate-500">
+                Offers whose response window lapsed and re-routed to other attorneys. Kept here for visibility (CP-592).
+              </p>
+              <DataTable
+                columns={newLeadColumns}
+                rows={newLeads.expired}
+                rowKey={(r: FirmNewLead) => r.assessmentId}
+              />
+            </SectionCard>
+          )}
+        </div>
+      )}
+
       {tab === 'caseload' && (
         <div className="space-y-6">
           {caseloadByOwner.length > 0 && (

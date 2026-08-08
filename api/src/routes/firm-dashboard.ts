@@ -1280,6 +1280,132 @@ router.get('/case-contacts', authMiddleware as any, async (req: any, res: Respon
   }
 })
 
+// New marketplace leads routed to the firm's attorneys but not yet accepted.
+// This is the staff/intake-specialist equivalent of the attorney "New Matches"
+// surface: staff land on /firm-dashboard (not the attorney dashboard) and had no
+// place to review incoming leads (CP-588). The `expired` bucket surfaces offers
+// whose response window lapsed and re-routed away — the attorney New Matches view
+// hides these, so staff never saw them either (CP-592).
+//
+// Leads are anonymized (claim type + venue only, no plaintiff PII) exactly like
+// the attorney marketplace preview: identity is revealed only after acceptance.
+router.get('/new-leads', authMiddleware as any, async (req: any, res: Response) => {
+  try {
+    const context = await getFirmContext(req)
+    if (!context) {
+      return res.status(404).json({ error: 'No law firm associated with this user' })
+    }
+    // Intake specialists own this surface (`review_new_leads`); firm admins and
+    // attorneys reach it through their broader case-visibility permissions.
+    const canReview =
+      requireFirmPermission(context, 'review_new_leads') ||
+      requireFirmPermission(context, 'view_all_cases') ||
+      requireFirmPermission(context, 'review_cases') ||
+      requireFirmPermission(context, 'accept_cases')
+    if (!canReview) {
+      return res.status(403).json({ error: 'You do not have permission to review new leads' })
+    }
+
+    const firmAttorneys = await prisma.attorney.findMany({
+      where: { lawFirmId: context.lawFirmId },
+      select: { id: true },
+    })
+    const attorneyIds = firmAttorneys.map((a) => a.id)
+    if (attorneyIds.length === 0) {
+      return res.json({ active: [], expired: [] })
+    }
+
+    // Every non-accepted, non-declined offer routed to a firm attorney. Grouped
+    // by assessment below so a lead fanned out to several attorneys is one row.
+    const intros = await prisma.introduction.findMany({
+      where: {
+        attorneyId: { in: attorneyIds },
+        status: { in: ['PENDING', 'REQUESTED_INFO', 'EXPIRED'] },
+      },
+      select: {
+        id: true,
+        status: true,
+        requestedAt: true,
+        respondedAt: true,
+        waveNumber: true,
+        attorney: { select: { id: true, name: true } },
+        assessment: {
+          select: {
+            id: true,
+            claimType: true,
+            venueState: true,
+            venueCounty: true,
+            referenceCode: true,
+            caseName: true,
+            createdAt: true,
+            leadSubmission: { select: { id: true, status: true } },
+            introductions: { select: { status: true } },
+          },
+        },
+      },
+      orderBy: { requestedAt: 'desc' },
+    })
+
+    type LeadRow = {
+      assessmentId: string
+      leadId: string | null
+      claimType: string
+      venueState: string
+      venueCounty: string | null
+      referenceCode: string | null
+      caseName: string | null
+      createdAt: string | null
+      routedAt: string | null
+      status: 'new' | 'expired'
+      waveNumber: number
+      attorneys: Array<{ id: string; name: string }>
+    }
+
+    const byAssessment = new Map<string, LeadRow>()
+    for (const intro of intros) {
+      const a = intro.assessment
+      if (!a) continue
+      // A lead the firm already engaged is an active case, not a new lead.
+      if ((a.introductions || []).some((i) => i.status === 'ACCEPTED')) continue
+
+      const existing = byAssessment.get(a.id)
+      const isActiveOffer = intro.status === 'PENDING' || intro.status === 'REQUESTED_INFO'
+      if (!existing) {
+        byAssessment.set(a.id, {
+          assessmentId: a.id,
+          leadId: a.leadSubmission?.id ?? null,
+          claimType: a.claimType,
+          venueState: a.venueState,
+          venueCounty: a.venueCounty ?? null,
+          referenceCode: a.referenceCode ?? null,
+          caseName: a.caseName ?? null,
+          createdAt: a.createdAt ? a.createdAt.toISOString() : null,
+          routedAt: intro.requestedAt ? intro.requestedAt.toISOString() : null,
+          status: isActiveOffer ? 'new' : 'expired',
+          waveNumber: intro.waveNumber,
+          attorneys: intro.attorney ? [{ id: intro.attorney.id, name: intro.attorney.name }] : [],
+        })
+      } else {
+        // Any live offer wins over an expired one for the row's status.
+        if (isActiveOffer) existing.status = 'new'
+        if (intro.attorney && !existing.attorneys.some((x) => x.id === intro.attorney!.id)) {
+          existing.attorneys.push({ id: intro.attorney.id, name: intro.attorney.name })
+        }
+        existing.waveNumber = Math.max(existing.waveNumber, intro.waveNumber)
+      }
+    }
+
+    const rows = Array.from(byAssessment.values())
+    res.json({
+      active: rows.filter((r) => r.status === 'new'),
+      expired: rows.filter((r) => r.status === 'expired'),
+    })
+  } catch (error: any) {
+    logger.error('Failed to get firm new leads', { error: error?.message || String(error) })
+    res.status(500).json({ error: 'Failed to get firm new leads' })
+  }
+})
+
 // Per-team caseload aggregation: distinct active cases owned by each team's
 // members, plus per-office capacity utilization.
 router.get('/teams/caseload', authMiddleware as any, async (req: any, res: Response) => {

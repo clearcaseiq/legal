@@ -1808,6 +1808,28 @@ export async function getFirmCaseContacts() {
   return data
 }
 
+export type FirmNewLead = {
+  assessmentId: string
+  leadId: string | null
+  claimType: string
+  venueState: string
+  venueCounty: string | null
+  referenceCode: string | null
+  caseName: string | null
+  createdAt: string | null
+  routedAt: string | null
+  status: 'new' | 'expired'
+  waveNumber: number
+  attorneys: Array<{ id: string; name: string }>
+}
+
+// New marketplace leads routed to the firm (staff/intake "New Matches"), split
+// into active offers and expired (lapsed/re-routed) offers.
+export async function getFirmNewLeads(): Promise<{ active: FirmNewLead[]; expired: FirmNewLead[] }> {
+  const { data } = await api.get(`/v1/firm-dashboard/new-leads`)
+  return data
+}
+
 // Per-team caseload aggregation (+ office capacity utilization). Firm-admin scoped.
 export async function getFirmTeamCaseload() {
   const { data } = await api.get(`/v1/firm-dashboard/teams/caseload`)
