@@ -107,7 +107,7 @@ describe('Consent API (integration)', () => {
       expect(res.body.success).toBe(false)
     })
 
-    it('400 when the same consent version is already granted', async () => {
+    it('200 idempotently returns the existing consent when already granted', async () => {
       vi.mocked(prisma.consent.findFirst).mockResolvedValue({
         id: 'consent-existing',
         userId: plaintiffUser.id,
@@ -120,10 +120,11 @@ describe('Consent API (integration)', () => {
         .post('/v1/consent')
         .set(authHeader(plaintiffUser.id))
         .send(validConsentBody)
-        .expect(400)
+        .expect(200)
 
-      expect(res.body.success).toBe(false)
-      expect(res.body.error).toMatch(/already granted/i)
+      expect(res.body.success).toBe(true)
+      expect(res.body.alreadyGranted).toBe(true)
+      expect(res.body.data.id).toBe('consent-existing')
       expect(prisma.consent.create).not.toHaveBeenCalled()
     })
   })

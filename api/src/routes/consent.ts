@@ -130,10 +130,15 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
       }
     })
 
+    // Granting a consent the user already granted is a no-op, not an error.
+    // Returning the existing record keeps flows that re-submit consent (e.g.
+    // finishing a requested-document upload) from hitting a hard, blocking
+    // error (CP-599).
     if (existingConsent && validatedData.granted) {
-      return res.status(400).json({
-        success: false,
-        error: 'Consent already granted for this version'
+      return res.status(200).json({
+        success: true,
+        data: existingConsent,
+        alreadyGranted: true
       })
     }
 
