@@ -394,6 +394,10 @@ export default function FirmDashboard() {
   const [expandedMatrixRole, setExpandedMatrixRole] = useState<string | null>(null)
   const [savingRolePerm, setSavingRolePerm] = useState<string | null>(null)
   const [roleMatrixError, setRoleMatrixError] = useState<string | null>(null)
+  // Explicit per-role permission editor (checkbox modal)
+  const [editingRole, setEditingRole] = useState<string | null>(null)
+  const [editRolePerms, setEditRolePerms] = useState<string[]>([])
+  const [roleSaving, setRoleSaving] = useState(false)
   // Team / office edit + delete
   const [editingTeam, setEditingTeam] = useState<any>(null)
   const [editTeamForm, setEditTeamForm] = useState({ name: '', teamType: 'case_team', officeId: '' })
@@ -770,6 +774,38 @@ export default function FirmDashboard() {
       setRoleMatrixError(e?.response?.data?.error || 'Failed to update permission.')
     } finally {
       setSavingRolePerm(null)
+    }
+  }
+
+  // Full permission catalog (labelled perms + any extras a firm already uses).
+  const permissionCatalog = useMemo(
+    () => Array.from(new Set([...Object.keys(PERMISSION_LABELS), ...roleMatrix.columns])),
+    [roleMatrix.columns],
+  )
+
+  const openEditRole = (role: string) => {
+    setEditingRole(role)
+    setEditRolePerms([...(roleMatrix.caps[role] || [])])
+    setRoleMatrixError(null)
+  }
+
+  const toggleEditRolePerm = (perm: string) => {
+    if (editingRole && isLockedCell(editingRole, perm)) return
+    setEditRolePerms((prev) => (prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm]))
+  }
+
+  const submitEditRole = async () => {
+    if (!editingRole) return
+    setRoleSaving(true)
+    setRoleMatrixError(null)
+    try {
+      await updateFirmRolePermissions(editingRole, editRolePerms)
+      setEditingRole(null)
+      await refresh(true)
+    } catch (e: any) {
+      setRoleMatrixError(e?.response?.data?.error || 'Failed to update permissions.')
+    } finally {
+      setRoleSaving(false)
     }
   }
 
@@ -1892,7 +1928,7 @@ export default function FirmDashboard() {
                 <p className="text-sm text-slate-500">
                   What each firm role can do. Click a role name to see its full permission list.
                   {canManageUsers
-                    ? ' Click any cell to grant or revoke that permission for the whole role.'
+                    ? ' To change what a role can do, click the Edit button next to the role (or click any cell to toggle a single permission).'
                     : ''}
                 </p>
                 {roleMatrixError && (
@@ -1931,19 +1967,32 @@ export default function FirmDashboard() {
                               scope="row"
                               className={`sticky left-0 z-10 px-4 py-3 text-left ${isOpen ? 'bg-brand-50' : 'bg-white'}`}
                             >
-                              <button
-                                type="button"
-                                onClick={() => setExpandedMatrixRole(isOpen ? null : role)}
-                                className="flex items-center gap-1.5 text-left font-semibold text-slate-800 hover:text-brand-700"
-                              >
-                                <ChevronRight
-                                  className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}
-                                />
-                                <span className="whitespace-nowrap">{formatRole(role)}</span>
-                                <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
-                                  {perms.length}
-                                </span>
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedMatrixRole(isOpen ? null : role)}
+                                  className="flex items-center gap-1.5 text-left font-semibold text-slate-800 hover:text-brand-700"
+                                >
+                                  <ChevronRight
+                                    className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                                  />
+                                  <span className="whitespace-nowrap">{formatRole(role)}</span>
+                                  <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                                    {perms.length}
+                                  </span>
+                                </button>
+                                {canManageUsers && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditRole(role)}
+                                    title={`Edit ${formatRole(role)} permissions`}
+                                    className="inline-flex items-center gap-1 rounded-md border border-brand-200 bg-brand-50 px-2 py-1 text-[11px] font-semibold text-brand-700 transition hover:bg-brand-100"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                    Edit
+                                  </button>
+                                )}
+                              </div>
                             </th>
                             {roleMatrix.columns.map((perm) => {
                               const has = perms.includes(perm)
@@ -2093,6 +2142,60 @@ export default function FirmDashboard() {
             <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-5 py-4">
               <button onClick={() => setEditingOffice(null)} className={btnGhost}>Cancel</button>
               <button onClick={submitEditOffice} disabled={officeEditSaving} className={btnPrimary}>{officeEditSaving ? 'Saving…' : 'Save changes'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit role permissions modal */}
+      {editingRole && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditingRole(null)}>
+          <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">{formatRole(editingRole)} permissions</h3>
+                <p className="text-xs text-slate-500">Check what this role can do across the firm.</p>
+              </div>
+              <button onClick={() => setEditingRole(null)} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-5 py-4">
+              {permissionCatalog.map((perm) => {
+                const checked = editRolePerms.includes(perm)
+                const locked = isLockedCell(editingRole, perm)
+                return (
+                  <label
+                    key={perm}
+                    className={`flex items-start gap-3 rounded-lg border px-3 py-2.5 transition ${
+                      checked ? 'border-brand-200 bg-brand-50/50' : 'border-slate-200 bg-white'
+                    } ${locked ? 'opacity-70' : 'cursor-pointer hover:border-brand-200'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={locked}
+                      onChange={() => toggleEditRolePerm(perm)}
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-slate-800">
+                        {humanizePermission(perm)}
+                        {locked && <span className="ml-2 text-[10px] font-semibold uppercase text-slate-400">Required</span>}
+                      </span>
+                      {(PERMISSION_DESCRIPTIONS[perm] || '') && (
+                        <span className="block text-xs text-slate-500">{PERMISSION_DESCRIPTIONS[perm]}</span>
+                      )}
+                    </span>
+                  </label>
+                )
+              })}
+              {roleMatrixError && <p className="text-sm text-rose-600">{roleMatrixError}</p>}
+            </div>
+            <div className="flex items-center justify-between border-t border-slate-100 px-5 py-4">
+              <span className="text-xs text-slate-500">{editRolePerms.length} permission{editRolePerms.length === 1 ? '' : 's'} selected</span>
+              <div className="flex items-center gap-3">
+                <button onClick={() => setEditingRole(null)} className={btnGhost}>Cancel</button>
+                <button onClick={submitEditRole} disabled={roleSaving} className={btnPrimary}>{roleSaving ? 'Saving…' : 'Save changes'}</button>
+              </div>
             </div>
           </div>
         </div>
