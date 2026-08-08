@@ -23,10 +23,7 @@ export const ATTORNEY_ROUTE_PREFIXES = [
 
 /** Calendar gets both full-width AND a full-height (viewport) treatment. */
 export function isCalendarRoute(pathname: string): boolean {
-  return (
-    pathname.startsWith('/attorney-dashboard/cases/calendar') ||
-    pathname.startsWith('/attorney-dashboard/calendar')
-  )
+  return pathname.startsWith('/attorney-dashboard/cases/calendar')
 }
 
 /** True for screens that should span the full viewport width. */

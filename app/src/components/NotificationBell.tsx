@@ -109,7 +109,7 @@ export default function NotificationBell() {
                 {chatRooms.slice(0, 10).map((room) => (
                   <Link
                     key={room.id}
-                    to={room.leadId ? `/attorney-dashboard/lead/${room.leadId}/overview` : '/attorney-dashboard?tab=leads'}
+                    to={room.leadId ? `/attorney-dashboard/lead/${room.leadId}/overview` : '/attorney-dashboard/leadgen/matches'}
                     onClick={() => setOpen(false)}
                     className="block p-3 hover:bg-slate-50 text-left"
                   >
@@ -147,7 +147,7 @@ export default function NotificationBell() {
           </div>
           <div className="p-2 border-t border-slate-200">
             <Link
-              to="/attorney-dashboard?tab=leads"
+              to="/attorney-dashboard/leadgen/matches"
               onClick={() => setOpen(false)}
               className="block text-center text-sm font-medium text-brand-600 hover:text-brand-700"
             >

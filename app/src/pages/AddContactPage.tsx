@@ -77,7 +77,7 @@ export default function AddContactPage() {
         notes: notes.trim() || undefined
       })
       invalidateAttorneyDashboardSummary()
-      navigate(returnTo === 'contacts' ? '/attorney-dashboard/contacts' : '/attorney-dashboard')
+      navigate(returnTo === 'contacts' ? '/attorney-dashboard/cases/contacts' : '/attorney-dashboard')
     } catch (err: any) {
       const msg = err?.response?.data?.error || err?.message || 'Failed to save contact.'
       const details = err?.response?.data?.details

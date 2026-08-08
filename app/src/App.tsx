@@ -58,8 +58,6 @@ const CaseBillingPage = lazy(() => import('./features/casework/BillingPage'))
 const CaseCopilotPage = lazy(() => import('./features/casework/CopilotPage'))
 const AiCaseManagerPage = lazy(() => import('./features/casework/AiCaseManagerPage'))
 const AddContactPage = lazy(() => import('./pages/AddContactPage'))
-const ContactsPage = lazy(() => import('./pages/ContactsPage'))
-const CaseDocumentsPage = lazy(() => import('./pages/CaseDocumentsPage'))
 const TimeEntryPage = lazy(() => import('./pages/TimeEntryPage'))
 const AddTaskPage = lazy(() => import('./pages/AddTaskPage'))
 const AddNotePage = lazy(() => import('./pages/AddNotePage'))
@@ -84,6 +82,18 @@ function EvidenceUploadRedirect() {
   return (
     <Navigate
       to={assessmentId ? `/intake2?assessment=${assessmentId}&step=evidence` : '/assess'}
+      replace
+    />
+  )
+}
+// The standalone per-case documents page is retired in favor of the case file's
+// Evidence tab inside the workspace shell. Old /attorney-dashboard/documents/:leadId
+// links now forward there.
+function AttorneyCaseDocumentsRedirect() {
+  const { leadId } = useParams()
+  return (
+    <Navigate
+      to={leadId ? `/attorney-dashboard/cases/${leadId}/evidence` : '/attorney-dashboard/cases/active'}
       replace
     />
   )
@@ -485,8 +495,8 @@ function App() {
               {/* Default landing → new two-domain workspace; ?tab= deep links
                   still render the legacy dashboard (see AttorneyDashboardEntry). */}
               <Route path="/attorney-dashboard" element={<AttorneyDashboardEntry />} />
-              <Route path="/attorney-dashboard/contacts" element={<ContactsPage />} />
-              <Route path="/attorney-dashboard/documents/:leadId" element={<CaseDocumentsPage />} />
+              <Route path="/attorney-dashboard/contacts" element={<Navigate to="/attorney-dashboard/cases/contacts" replace />} />
+              <Route path="/attorney-dashboard/documents/:leadId" element={<AttorneyCaseDocumentsRedirect />} />
               <Route path="/attorney-dashboard/add-contact/:leadId" element={<AddContactPage />} />
               <Route path="/attorney-dashboard/time-entry/:leadId" element={<TimeEntryPage />} />
               <Route path="/attorney-dashboard/add-task/:leadId" element={<AddTaskPage />} />
@@ -496,7 +506,7 @@ function App() {
               <Route path="/attorney-dashboard/schedule-consult/:leadId" element={<ScheduleConsultPage />} />
               <Route path="/attorney-dashboard/request-docs/:leadId" element={<DocumentRequestPage />} />
               <Route path="/attorney-dashboard/draft-message/:leadId" element={<DraftMessagePage />} />
-              <Route path="/attorney-dashboard/calendar" element={<CalendarPage />} />
+              <Route path="/attorney-dashboard/calendar" element={<Navigate to="/attorney-dashboard/cases/calendar" replace />} />
               <Route path="/firm-settings" element={<FirmSettings />} />
               <Route path="/attorney-billing" element={<AttorneyBilling />} />
               <Route path="/attorney-profile" element={<AttorneyProfile />} />
