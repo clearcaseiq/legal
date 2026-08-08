@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, Link, useLocation, useParams, useNavigate, use
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
 import { GuestRoute, ProtectedRoute } from './components/AuthRoute'
+import { getStoredRole, getPostLoginRoute } from './lib/auth'
 
 const Home = lazy(() => import('./pages/Home'))
 const Login = lazy(() => import('./pages/Login'))
@@ -164,6 +165,19 @@ function AttorneyDashboardEntry() {
   return <Navigate to="/attorney-dashboard/leadgen/matches" replace />
 }
 
+// The marketing home page (and its "Start Free Case Assessment" CTA) is a
+// plaintiff/guest surface. Signed-in attorneys, firm staff, and admins have no
+// business creating claimant cases, so clicking the logo (which points at "/")
+// should return them to their own workspace instead of the claimant funnel
+// (CP-571). Guests and plaintiffs continue to see the marketing home.
+function HomeRoute() {
+  const role = getStoredRole()
+  if (role === 'attorney' || role === 'admin' || role === 'staff') {
+    return <Navigate to={getPostLoginRoute(role)} replace />
+  }
+  return <Home />
+}
+
 // Lightweight landing for the Zoom OAuth redirect. When opened as a popup (the
 // Schedule Consultation "Connect Zoom" flow) it notifies the opener and closes
 // itself; otherwise it forwards to the dashboard so the settings-card connect
@@ -274,7 +288,7 @@ function App() {
         <RouteErrorBoundary>
         <Suspense fallback={<RouteFallback />}>
           <Routes>
-            <Route path="/" element={<Home />} />
+            <Route path="/" element={<HomeRoute />} />
             <Route path="/auth/callback" element={<OAuthCallback />} />
             <Route path="/oauth/zoom/complete" element={<ZoomOAuthComplete />} />
             {/* Public so a reset link works even if the user happens to be logged in. */}

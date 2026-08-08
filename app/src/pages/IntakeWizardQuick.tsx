@@ -1068,11 +1068,16 @@ export default function IntakeWizardQuick() {
     if (index === currentStepIndex) return sum + stepFieldFraction(step.key)
     return sum
   }, 0)
-  const progressPercent = Math.max(
-    // Keep a little bar showing on step 1 even before anything is filled.
-    Math.round((currentStepIndex / visibleSteps.length) * 100) + 2,
-    Math.round((completedFraction / visibleSteps.length) * 100),
-  )
+  const progressPercent = currentStepIndex === visibleSteps.length - 1
+    // On the final step the claimant has answered every question; the only thing
+    // left is ticking the consent gate, which isn't a "question". Show a full bar
+    // so "Step N of N" doesn't read as still-incomplete (CP-569).
+    ? 100
+    : Math.max(
+        // Keep a little bar showing on step 1 even before anything is filled.
+        Math.round((currentStepIndex / visibleSteps.length) * 100) + 2,
+        Math.round((completedFraction / visibleSteps.length) * 100),
+      )
   // Estimate remaining time from steps left (whole assessment budgeted at ~60s),
   // rounded to a friendly 5-second increment so the header reflects real progress
   // instead of showing a static "about 60 seconds total" on every step.
@@ -3943,7 +3948,7 @@ export default function IntakeWizardQuick() {
                       id="injuredParty-when"
                       value={formData.injuredParty}
                       onChange={(e) => updateForm({ injuredParty: e.target.value as typeof formData.injuredParty })}
-                      className="input w-full max-w-xs border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0"
+                      className="input w-full max-w-xs text-xs border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0"
                     >
                       <option value="self">{tx('injuredParty_self')}</option>
                       <option value="child">{tx('injuredParty_child')}</option>
@@ -4378,7 +4383,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('bodyParts', value)} className={tileClass(selected)}>
                       <span className="hidden h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs dark:bg-slate-800 sm:flex" aria-hidden>{disp?.emoji || '•'}</span>
-                      <span className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{disp?.label || label}</span>
+                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{disp?.label || label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -4496,7 +4501,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('imaging', value)} className={tileClass(selected)}>
                       <span className="hidden h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800 sm:flex"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
+                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -4517,7 +4522,7 @@ export default function IntakeWizardQuick() {
                       {/* Match the other Step 3 tiles' label size (text-[13px]); this one
                           used text-sm, so the diagnoses buttons rendered a larger, mismatched
                           font than the surrounding sections (CP-551). */}
-                      <span className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
+                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -4546,7 +4551,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('currentSymptoms', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
+                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -4573,7 +4578,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, recoveryStatus: selected ? '' : value } })} className={radioCardClass(selected)}>
                       {radioDot(selected)}
-                      <span className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
+                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
                     </button>
                   )
                 })}
@@ -4590,7 +4595,7 @@ export default function IntakeWizardQuick() {
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('lifestyleImpact', value)} className={tileClass(selected)}>
                       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
+                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
                       {renderCheck(selected)}
                     </button>
                   )
@@ -4679,7 +4684,7 @@ export default function IntakeWizardQuick() {
                       return (
                         <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('futureTreatment', value, value === 'none')} className={tileClass(selected)}>
                           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                          <span className="min-w-0 flex-1 break-words text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
+                          <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
                           {renderCheck(selected)}
                         </button>
                       )
@@ -6808,7 +6813,7 @@ export default function IntakeWizardQuick() {
             {t('intake.startHelper')}
           </p>
         )}
-        <div className="mt-1 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 tabular-nums sm:text-sm">
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400 tabular-nums sm:text-sm">
           {/* Position, then what this step is about. A percentage is a worse
               answer to "how much is left?" than the step count next to it, and
               naming the step is the only place the claimant is told what they
@@ -6829,16 +6834,21 @@ export default function IntakeWizardQuick() {
               </>
             )}
           </span>
-          <span className="flex items-center gap-3 mr-2 sm:mr-3">
-            <span>
-              {currentStepIndex + 1 < visibleSteps.length
-                ? `• ${t('intake.progressTimeRemaining').replace('{seconds}', String(estimatedSecondsLeft))}`
-                : `• ${t('intake.almostDone')}`}
+          <span className="flex min-w-0 items-center gap-2.5 mr-2 sm:mr-3">
+            {/* CP-575: a clock icon reads as "time remaining" far better than a
+                leading bullet point. */}
+            <span className="flex min-w-0 items-center gap-1">
+              <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" aria-hidden />
+              <span className="truncate">
+                {currentStepIndex + 1 < visibleSteps.length
+                  ? t('intake.progressTimeRemaining').replace('{seconds}', String(estimatedSecondsLeft))
+                  : t('intake.almostDone')}
+              </span>
             </span>
             <button
               type="button"
               onClick={() => setShowResetConfirm(true)}
-              className="inline-flex items-center gap-1 font-semibold text-blue-600 transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+              className="inline-flex shrink-0 items-center gap-1 font-semibold text-blue-600 transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
             >
               {tx('draft_startOver')}
               <RotateCw className="h-3.5 w-3.5" aria-hidden />
