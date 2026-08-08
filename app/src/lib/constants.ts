@@ -13,6 +13,7 @@ export const US_STATES = [
   { code: 'CO', name: 'Colorado' },
   { code: 'CT', name: 'Connecticut' },
   { code: 'DE', name: 'Delaware' },
+  { code: 'DC', name: 'District of Columbia' },
   { code: 'FL', name: 'Florida' },
   { code: 'GA', name: 'Georgia' },
   { code: 'HI', name: 'Hawaii' },
@@ -54,8 +55,7 @@ export const US_STATES = [
   { code: 'WA', name: 'Washington' },
   { code: 'WV', name: 'West Virginia' },
   { code: 'WI', name: 'Wisconsin' },
-  { code: 'WY', name: 'Wyoming' },
-  { code: 'DC', name: 'District of Columbia' }
+  { code: 'WY', name: 'Wyoming' }
 ] as const
 
 /**

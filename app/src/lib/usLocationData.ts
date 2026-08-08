@@ -11,16 +11,23 @@ function readStatesWithCounties(): StateCountyRow[] {
   return mod.usaStatesWithCounties ?? mod.default?.usaStatesWithCounties ?? []
 }
 
+function sortCounties(counties: string[]): string[] {
+  return [...counties].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+}
+
 function buildCountiesByState(): Record<string, readonly string[]> {
   const entries = readStatesWithCounties()
     .filter((state) => Array.isArray(state.counties) && state.counties.length > 0)
     .map(
       (state) =>
-        [state.abbreviation, state.counties!.map((county) => normalizeCountyName(county))] as const,
+        [
+          state.abbreviation,
+          sortCounties(state.counties!.map((county) => normalizeCountyName(county))),
+        ] as const,
     )
 
   if (entries.length === 0) {
-    return { CA: [...CA_COUNTIES] }
+    return { CA: sortCounties([...CA_COUNTIES]) }
   }
 
   return Object.fromEntries(entries)
