@@ -33,6 +33,7 @@ import {
 } from '../../lib/api'
 import { PageHeader, SectionCard, EmptyState, Badge } from '../shared/ui'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import AttorneyCalendarZoomSettings from './AttorneyCalendarZoomSettings'
 
 const COMMON_TIMEZONES = [
   'America/New_York',
@@ -118,6 +119,13 @@ export default function SchedulingSettingsPage() {
         <AvailabilityCard settings={settings} onSaved={load} />
         <EventTypesCard settings={settings} onChanged={load} />
       </div>
+      <SectionCard title="Calendar & video connections">
+        <p className="mb-4 text-xs text-slate-500">
+          Connect your calendar so bookings only offer times you're actually free, and connect Zoom so video
+          consultations get a real meeting link automatically.
+        </p>
+        <AttorneyCalendarZoomSettings />
+      </SectionCard>
     </div>
   )
 }

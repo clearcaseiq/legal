@@ -167,10 +167,24 @@ function RouteFallback() {
 // Attorneys landing on /attorney-dashboard should see the new two-domain
 // workspace by default. Legacy deep links that carry a ?tab= param
 // (profile/analytics/intake/overview) still render the classic dashboard.
+// Legacy ?tab= deep links. Tabs that have a confirmed 1:1 modern route redirect
+// there; the rest (analytics/overview/profile) still host settings that haven't
+// been consolidated onto standalone pages yet (bar-license verification, the
+// decision profile, ROI analytics), so they keep rendering the legacy dashboard
+// until that content is migrated.
+const LEGACY_TAB_REDIRECTS: Record<string, string> = {
+  leads: '/attorney-dashboard/leadgen/matches',
+  intake: '/attorney-dashboard/cases/intake',
+}
+
 function AttorneyDashboardEntry() {
   const location = useLocation()
-  const hasLegacyTab = new URLSearchParams(location.search).get('tab')
-  if (hasLegacyTab) return <AttorneyDashboard />
+  const tab = new URLSearchParams(location.search).get('tab')
+  if (tab) {
+    const redirectTo = LEGACY_TAB_REDIRECTS[tab]
+    if (redirectTo) return <Navigate to={redirectTo} replace />
+    return <AttorneyDashboard />
+  }
   return <Navigate to="/attorney-dashboard/leadgen/matches" replace />
 }
 
