@@ -188,6 +188,23 @@ export default function PlaintiffDashboardDeferredTabPanel({
   attorneyName,
 }: Props) {
   const { t } = useLanguage()
+  // caseReadinessLabel/liabilityLabel/scoreFactor.value arrive as stable English
+  // enums (they drive colour logic and comparisons). bandLabel translates them
+  // only at render so the displayed word follows the selected language.
+  const bandLabelKeys: Record<string, string> = {
+    'High': 'plaintiffDashboard.dynamic.band.high',
+    'Moderate': 'plaintiffDashboard.dynamic.band.moderate',
+    'Building': 'plaintiffDashboard.dynamic.band.building',
+    'Not assessed': 'plaintiffDashboard.dynamic.band.notAssessed',
+    'Strong': 'plaintiffDashboard.dynamic.band.strong',
+    'Weak': 'plaintiffDashboard.dynamic.band.weak',
+    'Missing': 'plaintiffDashboard.dynamic.band.missing',
+    'Improving': 'plaintiffDashboard.dynamic.band.improving',
+    'Documented': 'plaintiffDashboard.dynamic.band.documented',
+    'Not documented': 'plaintiffDashboard.dynamic.band.notDocumented',
+  }
+  const bandLabel = (value: string | null | undefined): string =>
+    value && bandLabelKeys[value] ? t(bandLabelKeys[value]) : (value ?? '')
   // Intake stores each treatment as { type, <value> } where the value lives in a
   // type-specific field (imaging/procedure/recommendation/finding/status/notes),
   // while processed medical docs use provider/date/diagnosis/amount/details. Pull
@@ -516,7 +533,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
                           : 'text-amber-600'
                     }`}
                   >
-                    {factor.value}
+                    {bandLabel(factor.value)}
                   </span>
                 </div>
                 <p className="text-sm text-gray-600 mb-2">{factor.explanation}</p>
@@ -581,7 +598,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
 
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4">
-            {t('plaintiffDashboard.deferred.insights.caseReadiness', { label: caseReadinessLabel })}
+            {t('plaintiffDashboard.deferred.insights.caseReadiness', { label: bandLabel(caseReadinessLabel) })}
           </h3>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div className="p-3 bg-gray-50 rounded-lg">
@@ -595,7 +612,7 @@ export default function PlaintiffDashboardDeferredTabPanel({
                       : 'text-red-600'
                 }`}
               >
-                {liabilityLabel}
+                {bandLabel(liabilityLabel)}
               </p>
             </div>
             <div className="p-3 bg-gray-50 rounded-lg">

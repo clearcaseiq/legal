@@ -3981,6 +3981,88 @@
         "improving": "Improving",
         "documented": "Documented",
         "notDocumented": "Not documented"
+      },
+      "checklist": {
+        "describeAccident": "Describe the accident",
+        "provideLocation": "Provide location",
+        "uploadInjuryPhotos": "Upload injury photos",
+        "uploadMedicalRecords": "Upload medical records",
+        "documentWageLoss": "Document wage loss"
+      },
+      "evidence": {
+        "medicalRecords": "Medical Records",
+        "injuryPhotos": "Injury Photos",
+        "policeReport": "Police Report",
+        "wageLossProof": "Wage Loss Proof"
+      },
+      "coach": {
+        "gapTip": "Insurance companies often challenge treatment gaps.",
+        "gapAction": "Uploading medical records strengthens your case and reduces disputes.",
+        "wageTip": "Documenting lost wages can add thousands to your settlement.",
+        "wageAction": "Add pay stubs or employer verification to strengthen this factor.",
+        "policeTip": "Police reports establish liability.",
+        "policeAction": "If you have one, upload it to support your claim.",
+        "strongTip": "Your case looks strong.",
+        "strongAction": "Submitting for attorney review is the next step.",
+        "readyTip": "Your attorney is ready to discuss your case.",
+        "readyAction": "Schedule your consultation to get started.",
+        "prepTip": "Prepare for your consultation.",
+        "prepAction": "Upload medical records and any documents your attorney may need.",
+        "reviewTip": "Your case is under attorney review.",
+        "reviewAction": "Attorneys typically respond within {label}.",
+        "teamTip": "Your case is in team review.",
+        "teamAction": "You can upload missing evidence while we check routing options.",
+        "moreInfoTip": "An attorney needs more information.",
+        "moreInfoAction": "Add documents or details now to keep the review moving.",
+        "notRoutableTip": "Your case is not routable yet.",
+        "notRoutableAction": "More evidence or clearer details can improve the next review."
+      },
+      "factor": {
+        "liabilityLabel": "Liability",
+        "injuryLabel": "Injury Evidence",
+        "docLabel": "Documentation",
+        "damagesLabel": "Damages",
+        "expLiabStrong": "The other party appears primarily responsible for the accident.",
+        "expLiabModerate": "Responsibility for the accident may be shared.",
+        "expLiabWeak": "More details about fault would strengthen this factor.",
+        "impLiab": "Provide more details about how the accident occurred and who was at fault.",
+        "expInjStrong": "Your injury appears consistent with the incident description.",
+        "expInjWeak": "Injury details have not been fully documented yet.",
+        "impInj": "Describe your injuries and upload injury photos if available.",
+        "expDocImproving": "Some medical documentation has been provided.",
+        "expDocMissing": "Medical records or bills have not been uploaded yet.",
+        "impDocMissing": "Upload medical records or hospital bills to strengthen this factor.",
+        "impDocImproving": "Add more medical records to further strengthen your case.",
+        "expDamDocumented": "Lost wages or financial impact has been recorded.",
+        "expDamNot": "Lost wages or financial impact has not been recorded.",
+        "impDam": "Add wage loss documentation or medical expense records."
+      },
+      "task": {
+        "uploaded": "Uploaded to your case.",
+        "estimatedImpact": "{impact} estimated impact when added.",
+        "scheduleLabel": "Schedule or prepare for consultation",
+        "waitLabel": "Wait for attorney review",
+        "scheduledDetail": "Your consultation is scheduled. Upload any documents your attorney may need.",
+        "bookDetail": "Book a consultation with your matched attorney.",
+        "waitDetail": "You do not need to do anything urgent unless we request more information.",
+        "submitLabel": "Submit for attorney review",
+        "submitDetail": "Send your case when you are ready to see attorney matches.",
+        "loadFailedLabel": "We couldn’t load requests from your legal team",
+        "loadFailedDetail": "Refresh the page to try again. If it keeps happening, message your attorney.",
+        "attorneyDue": "Requested by your attorney — due {date}.",
+        "attorneyRequested": "Requested by your attorney."
+      },
+      "recent": {
+        "caseCreated": "Case created",
+        "incidentCompleted": "Incident description completed",
+        "caseReadiness": "Case readiness: {label}",
+        "evidenceUploaded": "Evidence uploaded",
+        "reviewSubmitted": "Attorney review submitted"
+      },
+      "potential": {
+        "narrative": "Completing your accident description could increase your estimated value by $2,000–$5,000.",
+        "medical": "Adding medical records could increase your estimated case value by $5,000–$15,000.",
+        "wage": "Adding wage loss documentation could increase your estimated case value by $1,000–$5,000."
       }
     }
   },

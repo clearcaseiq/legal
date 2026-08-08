@@ -3981,6 +3981,88 @@
         "improving": "改善中",
         "documented": "已记录",
         "notDocumented": "未记录"
+      },
+      "checklist": {
+        "describeAccident": "描述事故经过",
+        "provideLocation": "提供地点",
+        "uploadInjuryPhotos": "上传伤情照片",
+        "uploadMedicalRecords": "上传医疗记录",
+        "documentWageLoss": "记录薪资损失"
+      },
+      "evidence": {
+        "medicalRecords": "医疗记录",
+        "injuryPhotos": "伤情照片",
+        "policeReport": "警方报告",
+        "wageLossProof": "薪资损失证明"
+      },
+      "coach": {
+        "gapTip": "保险公司常常质疑治疗中断。",
+        "gapAction": "上传医疗记录可加强您的案件并减少争议。",
+        "wageTip": "记录薪资损失可为您的和解增加数千美元。",
+        "wageAction": "添加工资单或雇主证明以加强这一因素。",
+        "policeTip": "警方报告可确立责任。",
+        "policeAction": "如果您有，请上传以支持您的索赔。",
+        "strongTip": "您的案件看起来很有力。",
+        "strongAction": "提交律师审核是下一步。",
+        "readyTip": "您的律师已准备好讨论您的案件。",
+        "readyAction": "预约咨询即可开始。",
+        "prepTip": "为您的咨询做好准备。",
+        "prepAction": "上传医疗记录以及您的律师可能需要的任何文件。",
+        "reviewTip": "您的案件正在律师审核中。",
+        "reviewAction": "律师通常在 {label} 内回复。",
+        "teamTip": "您的案件正在团队审核中。",
+        "teamAction": "在我们核查分配方案时，您可以上传缺失的证据。",
+        "moreInfoTip": "律师需要更多信息。",
+        "moreInfoAction": "立即添加文件或详情，让审核继续推进。",
+        "notRoutableTip": "您的案件尚不可分配。",
+        "notRoutableAction": "更多证据或更清晰的细节可以改善下一次审核。"
+      },
+      "factor": {
+        "liabilityLabel": "责任",
+        "injuryLabel": "伤情证据",
+        "docLabel": "文件材料",
+        "damagesLabel": "损害赔偿",
+        "expLiabStrong": "对方似乎对事故负主要责任。",
+        "expLiabModerate": "事故责任可能由双方分担。",
+        "expLiabWeak": "关于过错的更多细节将加强这一因素。",
+        "impLiab": "请提供更多关于事故如何发生以及谁有过错的细节。",
+        "expInjStrong": "您的伤情似乎与事故描述一致。",
+        "expInjWeak": "伤情细节尚未完全记录。",
+        "impInj": "描述您的伤情，如有伤情照片请上传。",
+        "expDocImproving": "已提供部分医疗文件。",
+        "expDocMissing": "尚未上传医疗记录或账单。",
+        "impDocMissing": "上传医疗记录或医院账单以加强这一因素。",
+        "impDocImproving": "添加更多医疗记录以进一步加强您的案件。",
+        "expDamDocumented": "已记录薪资损失或经济影响。",
+        "expDamNot": "尚未记录薪资损失或经济影响。",
+        "impDam": "添加薪资损失文件或医疗费用记录。"
+      },
+      "task": {
+        "uploaded": "已上传至您的案件。",
+        "estimatedImpact": "添加后预计影响 {impact}。",
+        "scheduleLabel": "安排或准备咨询",
+        "waitLabel": "等待律师审核",
+        "scheduledDetail": "您的咨询已安排。请上传您的律师可能需要的任何文件。",
+        "bookDetail": "与为您匹配的律师预约咨询。",
+        "waitDetail": "除非我们要求提供更多信息，否则您无需进行任何紧急操作。",
+        "submitLabel": "提交律师审核",
+        "submitDetail": "当您准备好查看匹配的律师时，请提交您的案件。",
+        "loadFailedLabel": "我们无法加载来自您法律团队的请求",
+        "loadFailedDetail": "刷新页面重试。如果持续出现，请给您的律师发消息。",
+        "attorneyDue": "由您的律师请求 — 截止 {date}。",
+        "attorneyRequested": "由您的律师请求。"
+      },
+      "recent": {
+        "caseCreated": "案件已创建",
+        "incidentCompleted": "事故描述已完成",
+        "caseReadiness": "案件准备度：{label}",
+        "evidenceUploaded": "证据已上传",
+        "reviewSubmitted": "律师审核已提交"
+      },
+      "potential": {
+        "narrative": "完成事故描述可能使您的估计价值提高 $2,000–$5,000。",
+        "medical": "添加医疗记录可能使您的案件估计价值提高 $5,000–$15,000。",
+        "wage": "添加薪资损失文件可能使您的案件估计价值提高 $1,000–$5,000。"
       }
     }
   },

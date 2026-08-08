@@ -3981,6 +3981,88 @@
         "improving": "Mejorando",
         "documented": "Documentado",
         "notDocumented": "No documentado"
+      },
+      "checklist": {
+        "describeAccident": "Describa el accidente",
+        "provideLocation": "Indique el lugar",
+        "uploadInjuryPhotos": "Suba fotos de las lesiones",
+        "uploadMedicalRecords": "Suba registros médicos",
+        "documentWageLoss": "Documente la pérdida de salario"
+      },
+      "evidence": {
+        "medicalRecords": "Registros médicos",
+        "injuryPhotos": "Fotos de lesiones",
+        "policeReport": "Informe policial",
+        "wageLossProof": "Prueba de pérdida de salario"
+      },
+      "coach": {
+        "gapTip": "Las compañías de seguros suelen cuestionar las interrupciones en el tratamiento.",
+        "gapAction": "Subir registros médicos fortalece su caso y reduce las disputas.",
+        "wageTip": "Documentar la pérdida de salario puede añadir miles a su acuerdo.",
+        "wageAction": "Agregue recibos de pago o verificación del empleador para fortalecer este factor.",
+        "policeTip": "Los informes policiales establecen la responsabilidad.",
+        "policeAction": "Si tiene uno, súbalo para respaldar su reclamo.",
+        "strongTip": "Su caso se ve sólido.",
+        "strongAction": "Enviarlo para revisión de un abogado es el siguiente paso.",
+        "readyTip": "Su abogado está listo para hablar sobre su caso.",
+        "readyAction": "Programe su consulta para comenzar.",
+        "prepTip": "Prepárese para su consulta.",
+        "prepAction": "Suba registros médicos y cualquier documento que su abogado pueda necesitar.",
+        "reviewTip": "Su caso está en revisión de un abogado.",
+        "reviewAction": "Los abogados suelen responder en {label}.",
+        "teamTip": "Su caso está en revisión del equipo.",
+        "teamAction": "Puede subir la evidencia faltante mientras revisamos las opciones de asignación.",
+        "moreInfoTip": "Un abogado necesita más información.",
+        "moreInfoAction": "Agregue documentos o detalles ahora para que la revisión siga avanzando.",
+        "notRoutableTip": "Su caso aún no es asignable.",
+        "notRoutableAction": "Más evidencia o detalles más claros pueden mejorar la próxima revisión."
+      },
+      "factor": {
+        "liabilityLabel": "Responsabilidad",
+        "injuryLabel": "Evidencia de lesiones",
+        "docLabel": "Documentación",
+        "damagesLabel": "Daños",
+        "expLiabStrong": "La otra parte parece ser la principal responsable del accidente.",
+        "expLiabModerate": "La responsabilidad del accidente podría ser compartida.",
+        "expLiabWeak": "Más detalles sobre la culpa fortalecerían este factor.",
+        "impLiab": "Proporcione más detalles sobre cómo ocurrió el accidente y quién tuvo la culpa.",
+        "expInjStrong": "Su lesión parece coherente con la descripción del incidente.",
+        "expInjWeak": "Los detalles de las lesiones aún no se han documentado por completo.",
+        "impInj": "Describa sus lesiones y suba fotos de ellas si las tiene.",
+        "expDocImproving": "Se ha proporcionado alguna documentación médica.",
+        "expDocMissing": "Aún no se han subido registros ni facturas médicas.",
+        "impDocMissing": "Suba registros médicos o facturas del hospital para fortalecer este factor.",
+        "impDocImproving": "Agregue más registros médicos para fortalecer aún más su caso.",
+        "expDamDocumented": "Se ha registrado la pérdida de salario o el impacto financiero.",
+        "expDamNot": "No se ha registrado la pérdida de salario ni el impacto financiero.",
+        "impDam": "Agregue documentación de pérdida de salario o registros de gastos médicos."
+      },
+      "task": {
+        "uploaded": "Subido a su caso.",
+        "estimatedImpact": "{impact} de impacto estimado al agregarlo.",
+        "scheduleLabel": "Programar o prepararse para la consulta",
+        "waitLabel": "Espere la revisión del abogado",
+        "scheduledDetail": "Su consulta está programada. Suba cualquier documento que su abogado pueda necesitar.",
+        "bookDetail": "Reserve una consulta con su abogado asignado.",
+        "waitDetail": "No necesita hacer nada urgente a menos que solicitemos más información.",
+        "submitLabel": "Enviar para revisión de un abogado",
+        "submitDetail": "Envíe su caso cuando esté listo para ver los abogados que coinciden.",
+        "loadFailedLabel": "No pudimos cargar las solicitudes de su equipo legal",
+        "loadFailedDetail": "Actualice la página para volver a intentarlo. Si sigue ocurriendo, envíe un mensaje a su abogado.",
+        "attorneyDue": "Solicitado por su abogado — vence el {date}.",
+        "attorneyRequested": "Solicitado por su abogado."
+      },
+      "recent": {
+        "caseCreated": "Caso creado",
+        "incidentCompleted": "Descripción del incidente completada",
+        "caseReadiness": "Preparación del caso: {label}",
+        "evidenceUploaded": "Evidencia subida",
+        "reviewSubmitted": "Revisión de abogado enviada"
+      },
+      "potential": {
+        "narrative": "Completar la descripción de su accidente podría aumentar su valor estimado en $2,000–$5,000.",
+        "medical": "Agregar registros médicos podría aumentar el valor estimado de su caso en $5,000–$15,000.",
+        "wage": "Agregar documentación de pérdida de salario podría aumentar el valor estimado de su caso en $1,000–$5,000."
       }
     }
   },

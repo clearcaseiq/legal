@@ -616,11 +616,11 @@ export default function Dashboard() {
   ]
   const evidenceScorePercent = Math.round((evidenceChecklist.filter(c => c.done).length / evidenceChecklist.length) * 100)
   const checklist = [
-    { label: 'Describe the accident', done: hasNarrative },
-    { label: 'Provide location', done: hasLocation },
-    { label: 'Upload injury photos', done: hasInjuryPhotos },
-    { label: 'Upload medical records', done: hasMedicalRecords },
-    { label: 'Document wage loss', done: hasWageLoss }
+    { label: t('plaintiffDashboard.dynamic.checklist.describeAccident'), done: hasNarrative },
+    { label: t('plaintiffDashboard.dynamic.checklist.provideLocation'), done: hasLocation },
+    { label: t('plaintiffDashboard.dynamic.checklist.uploadInjuryPhotos'), done: hasInjuryPhotos },
+    { label: t('plaintiffDashboard.dynamic.checklist.uploadMedicalRecords'), done: hasMedicalRecords },
+    { label: t('plaintiffDashboard.dynamic.checklist.documentWageLoss'), done: hasWageLoss }
   ]
   const docPercent = Math.round((checklist.filter(c => c.done).length / checklist.length) * 100)
   const evidencePercent = evidenceScorePercent
@@ -805,10 +805,10 @@ export default function Dashboard() {
   ].filter(Boolean) as Array<{ title: string; detail: string; tone: string }>
 
   const evidenceImpact = [
-    { label: 'Medical Records', done: hasMedicalRecords, impact: '+22%' },
-    { label: 'Injury Photos', done: hasInjuryPhotos, impact: '+10%' },
-    { label: 'Police Report', done: hasPoliceReport, impact: '+8%' },
-    { label: 'Wage Loss Proof', done: hasWageLoss, impact: '+15%' }
+    { label: t('plaintiffDashboard.dynamic.evidence.medicalRecords'), done: hasMedicalRecords, impact: '+22%' },
+    { label: t('plaintiffDashboard.dynamic.evidence.injuryPhotos'), done: hasInjuryPhotos, impact: '+10%' },
+    { label: t('plaintiffDashboard.dynamic.evidence.policeReport'), done: hasPoliceReport, impact: '+8%' },
+    { label: t('plaintiffDashboard.dynamic.evidence.wageLossProof'), done: hasWageLoss, impact: '+15%' }
   ]
   const attorneyActivity = routingStatus?.attorneyActivity ?? []
   const latestAttorneyActivity = attorneyActivity[0]
@@ -879,30 +879,30 @@ export default function Dashboard() {
   ]
 
   const caseCoachTips = [
-    { tip: 'Insurance companies often challenge treatment gaps.', action: 'Uploading medical records strengthens your case and reduces disputes.' },
-    { tip: 'Documenting lost wages can add thousands to your settlement.', action: 'Add pay stubs or employer verification to strengthen this factor.' },
-    { tip: 'Police reports establish liability.', action: 'If you have one, upload it to support your claim.' },
-    { tip: 'Your case looks strong.', action: 'Submitting for attorney review is the next step.' }
+    { tip: t('plaintiffDashboard.dynamic.coach.gapTip'), action: t('plaintiffDashboard.dynamic.coach.gapAction') },
+    { tip: t('plaintiffDashboard.dynamic.coach.wageTip'), action: t('plaintiffDashboard.dynamic.coach.wageAction') },
+    { tip: t('plaintiffDashboard.dynamic.coach.policeTip'), action: t('plaintiffDashboard.dynamic.coach.policeAction') },
+    { tip: t('plaintiffDashboard.dynamic.coach.strongTip'), action: t('plaintiffDashboard.dynamic.coach.strongAction') }
   ]
   const caseCoachDisplay = attorneyMatched && !hasUpcomingConsult
-    ? { tip: 'Your attorney is ready to discuss your case.', action: 'Schedule your consultation to get started.' }
+    ? { tip: t('plaintiffDashboard.dynamic.coach.readyTip'), action: t('plaintiffDashboard.dynamic.coach.readyAction') }
     : attorneyMatched && hasUpcomingConsult
-    ? { tip: 'Prepare for your consultation.', action: 'Upload medical records and any documents your attorney may need.' }
+    ? { tip: t('plaintiffDashboard.dynamic.coach.prepTip'), action: t('plaintiffDashboard.dynamic.coach.prepAction') }
     : submittedForReview
-    ? { tip: 'Your case is under attorney review.', action: plaintiffRoutingStatusMessage || `Attorneys typically respond within ${responseDeadlineLabel}.` }
+    ? { tip: t('plaintiffDashboard.dynamic.coach.reviewTip'), action: plaintiffRoutingStatusMessage || t('plaintiffDashboard.dynamic.coach.reviewAction', { label: responseDeadlineLabel }) }
     : inManualReview
-    ? { tip: 'Your case is in team review.', action: 'You can upload missing evidence while we check routing options.' }
+    ? { tip: t('plaintiffDashboard.dynamic.coach.teamTip'), action: t('plaintiffDashboard.dynamic.coach.teamAction') }
     : needsMoreInfo
-    ? { tip: 'An attorney needs more information.', action: 'Add documents or details now to keep the review moving.' }
+    ? { tip: t('plaintiffDashboard.dynamic.coach.moreInfoTip'), action: t('plaintiffDashboard.dynamic.coach.moreInfoAction') }
     : notRoutableYet
-    ? { tip: 'Your case is not routable yet.', action: 'More evidence or clearer details can improve the next review.' }
+    ? { tip: t('plaintiffDashboard.dynamic.coach.notRoutableTip'), action: t('plaintiffDashboard.dynamic.coach.notRoutableAction') }
     : !hasMedicalRecords ? caseCoachTips[0] : !hasWageLoss ? caseCoachTips[1] : !hasPoliceReport ? caseCoachTips[2] : caseCoachTips[3]
 
   const scoreFactors = [
-    { label: 'Liability', value: liabilityLabel, explanation: liabilityLabel === 'Strong' ? 'The other party appears primarily responsible for the accident.' : liabilityLabel === 'Moderate' ? 'Responsibility for the accident may be shared.' : 'More details about fault would strengthen this factor.', improve: liabilityLabel !== 'Strong' ? 'Provide more details about how the accident occurred and who was at fault.' : null },
-    { label: 'Injury Evidence', value: injuryLabel, explanation: injuryLabel === 'Strong' ? 'Your injury appears consistent with the incident description.' : 'Injury details have not been fully documented yet.', improve: injuryLabel !== 'Strong' ? 'Describe your injuries and upload injury photos if available.' : null },
-    { label: 'Documentation', value: docLabel, explanation: docLabel === 'Improving' ? 'Some medical documentation has been provided.' : 'Medical records or bills have not been uploaded yet.', improve: docLabel === 'Missing' ? 'Upload medical records or hospital bills to strengthen this factor.' : docLabel === 'Improving' ? 'Add more medical records to further strengthen your case.' : null },
-    { label: 'Damages', value: damagesLabel, explanation: damagesLabel === 'Documented' ? 'Lost wages or financial impact has been recorded.' : 'Lost wages or financial impact has not been recorded.', improve: damagesLabel !== 'Documented' ? 'Add wage loss documentation or medical expense records.' : null }
+    { label: t('plaintiffDashboard.dynamic.factor.liabilityLabel'), value: liabilityLabel, explanation: liabilityLabel === 'Strong' ? t('plaintiffDashboard.dynamic.factor.expLiabStrong') : liabilityLabel === 'Moderate' ? t('plaintiffDashboard.dynamic.factor.expLiabModerate') : t('plaintiffDashboard.dynamic.factor.expLiabWeak'), improve: liabilityLabel !== 'Strong' ? t('plaintiffDashboard.dynamic.factor.impLiab') : null },
+    { label: t('plaintiffDashboard.dynamic.factor.injuryLabel'), value: injuryLabel, explanation: injuryLabel === 'Strong' ? t('plaintiffDashboard.dynamic.factor.expInjStrong') : t('plaintiffDashboard.dynamic.factor.expInjWeak'), improve: injuryLabel !== 'Strong' ? t('plaintiffDashboard.dynamic.factor.impInj') : null },
+    { label: t('plaintiffDashboard.dynamic.factor.docLabel'), value: docLabel, explanation: docLabel === 'Improving' ? t('plaintiffDashboard.dynamic.factor.expDocImproving') : t('plaintiffDashboard.dynamic.factor.expDocMissing'), improve: docLabel === 'Missing' ? t('plaintiffDashboard.dynamic.factor.impDocMissing') : docLabel === 'Improving' ? t('plaintiffDashboard.dynamic.factor.impDocImproving') : null },
+    { label: t('plaintiffDashboard.dynamic.factor.damagesLabel'), value: damagesLabel, explanation: damagesLabel === 'Documented' ? t('plaintiffDashboard.dynamic.factor.expDamDocumented') : t('plaintiffDashboard.dynamic.factor.expDamNot'), improve: damagesLabel !== 'Documented' ? t('plaintiffDashboard.dynamic.factor.impDam') : null }
   ]
 
   const strengths = checklist.filter(c => c.done).map(c => c.label)
@@ -929,25 +929,25 @@ export default function Dashboard() {
     .map((item) => ({
       label: item.label,
       detail: item.done
-        ? 'Uploaded to your case.'
-        : `${item.impact} estimated impact when added.`,
+        ? t('plaintiffDashboard.dynamic.task.uploaded')
+        : t('plaintiffDashboard.dynamic.task.estimatedImpact', { impact: item.impact }),
       done: item.done,
       href: `/evidence-upload/${assessmentIdForTasks}`,
     }))
   const reviewTask = submittedForReview
     ? {
-        label: attorneyMatched ? 'Schedule or prepare for consultation' : 'Wait for attorney review',
+        label: attorneyMatched ? t('plaintiffDashboard.dynamic.task.scheduleLabel') : t('plaintiffDashboard.dynamic.task.waitLabel'),
         detail: attorneyMatched
           ? hasUpcomingConsult
-            ? 'Your consultation is scheduled. Upload any documents your attorney may need.'
-            : 'Book a consultation with your matched attorney.'
-          : 'You do not need to do anything urgent unless we request more information.',
+            ? t('plaintiffDashboard.dynamic.task.scheduledDetail')
+            : t('plaintiffDashboard.dynamic.task.bookDetail')
+          : t('plaintiffDashboard.dynamic.task.waitDetail'),
         done: attorneyMatched && hasUpcomingConsult,
         href: attorneyMatched ? '/messaging' : `/results/${assessmentIdForTasks}`,
       }
     : {
-        label: 'Submit for attorney review',
-        detail: 'Send your case when you are ready to see attorney matches.',
+        label: t('plaintiffDashboard.dynamic.task.submitLabel'),
+        detail: t('plaintiffDashboard.dynamic.task.submitDetail'),
         done: false,
         href: `/results/${assessmentIdForTasks}?review=1`,
       }
@@ -955,8 +955,8 @@ export default function Dashboard() {
   // requests from the legal team, so they take priority over generated tips (#157).
   const attorneyTaskItems = attorneyTasksFailed
     ? [{
-        label: 'We couldn’t load requests from your legal team',
-        detail: 'Refresh the page to try again. If it keeps happening, message your attorney.',
+        label: t('plaintiffDashboard.dynamic.task.loadFailedLabel'),
+        detail: t('plaintiffDashboard.dynamic.task.loadFailedDetail'),
         done: false,
         href: '/messaging',
       }]
@@ -965,8 +965,8 @@ export default function Dashboard() {
         detail: task.notes?.trim()
           ? task.notes.trim()
           : task.dueDate
-          ? `Requested by your attorney — due ${new Date(task.dueDate).toLocaleDateString()}.`
-          : 'Requested by your attorney.',
+          ? t('plaintiffDashboard.dynamic.task.attorneyDue', { date: new Date(task.dueDate).toLocaleDateString() })
+          : t('plaintiffDashboard.dynamic.task.attorneyRequested'),
         done: task.status === 'done',
         href: '/messaging',
       }))
@@ -975,19 +975,19 @@ export default function Dashboard() {
 
   const riskLevel: 'Low' | 'Moderate' | 'High' = docLabel === 'Missing' ? 'Moderate' : evidenceCount === 0 ? 'Moderate' : 'Low'
   const potentialValueIncrease = !hasNarrative
-    ? { msg: 'Completing your accident description could increase your estimated value by $2,000–$5,000.', show: true }
+    ? { msg: t('plaintiffDashboard.dynamic.potential.narrative'), show: true }
     : evidenceCount === 0
-    ? { msg: 'Adding medical records could increase your estimated case value by $5,000–$15,000.', show: true }
+    ? { msg: t('plaintiffDashboard.dynamic.potential.medical'), show: true }
     : !hasWageLoss
-    ? { msg: 'Adding wage loss documentation could increase your estimated case value by $1,000–$5,000.', show: true }
+    ? { msg: t('plaintiffDashboard.dynamic.potential.wage'), show: true }
     : { msg: null, show: false }
 
   const recentActivity = [
-    { label: 'Case created', done: true },
-    { label: 'Incident description completed', done: hasNarrative },
-    { label: `Case readiness: ${caseReadinessLabel}`, done: caseReadinessComplete > 0 },
-    { label: 'Evidence uploaded', done: evidenceCount > 0 },
-    { label: 'Attorney review submitted', done: submittedForReview }
+    { label: t('plaintiffDashboard.dynamic.recent.caseCreated'), done: true },
+    { label: t('plaintiffDashboard.dynamic.recent.incidentCompleted'), done: hasNarrative },
+    { label: t('plaintiffDashboard.dynamic.recent.caseReadiness', { label: bandLabel(caseReadinessLabel) }), done: caseReadinessComplete > 0 },
+    { label: t('plaintiffDashboard.dynamic.recent.evidenceUploaded'), done: evidenceCount > 0 },
+    { label: t('plaintiffDashboard.dynamic.recent.reviewSubmitted'), done: submittedForReview }
   ]
 
   const wageLossEstimate = (() => {
