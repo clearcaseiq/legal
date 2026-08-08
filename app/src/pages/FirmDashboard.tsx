@@ -985,6 +985,15 @@ export default function FirmDashboard() {
     }
   }, [visibleTabs, tab])
 
+  const canSeeTab = (k: TabKey) => visibleTabs.some((t) => t.key === k)
+  // Jump to a tab from a summary tile (only if the user can see that tab).
+  const goToTab = (k: TabKey, opts?: { people?: 'all' | 'attorneys' | 'staff' }) => {
+    if (!canSeeTab(k)) return
+    if (opts?.people) setPeopleFilter(opts.people)
+    setTab(k)
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   const leadIdByAssessment = useMemo(() => {
     const m = new Map<string, string>()
     for (const c of cases) if (c.leadId) m.set(c.assessmentId, c.leadId)
@@ -1156,8 +1165,24 @@ export default function FirmDashboard() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Badge tone="brand">{metrics.attorneyCount} attorneys</Badge>
-          <Badge tone="blue">{metrics.activeCases || 0} cases</Badge>
+          <button
+            type="button"
+            onClick={() => goToTab('team', { people: 'attorneys' })}
+            disabled={!canSeeTab('team')}
+            className="disabled:cursor-default"
+            title={canSeeTab('team') ? 'View attorneys' : undefined}
+          >
+            <Badge tone="brand">{metrics.attorneyCount} attorneys</Badge>
+          </button>
+          <button
+            type="button"
+            onClick={() => goToTab('caseload')}
+            disabled={!canSeeTab('caseload')}
+            className="disabled:cursor-default"
+            title={canSeeTab('caseload') ? 'Open caseload' : undefined}
+          >
+            <Badge tone="blue">{metrics.activeCases || 0} cases</Badge>
+          </button>
         </div>
       </div>
 
@@ -1187,16 +1212,57 @@ export default function FirmDashboard() {
       {tab === 'overview' && (
         <div className="space-y-6">
           <StatGrid columns={4}>
-            <FilterStat filled tone="brand" value={metrics.attorneyCount} label="Attorneys" />
-            <FilterStat filled tone="blue" value={metrics.activeCases || 0} label="Active cases" />
-            <FilterStat filled tone="success" value={formatCurrency(metrics.feesCollectedFromPayments)} label="Fees collected" />
+            <FilterStat
+              filled
+              tone="brand"
+              value={metrics.attorneyCount}
+              label="Attorneys"
+              onClick={canSeeTab('team') ? () => goToTab('team', { people: 'attorneys' }) : undefined}
+              hint={canSeeTab('team') ? 'View attorneys in Team & Roles' : undefined}
+            />
+            <FilterStat
+              filled
+              tone="blue"
+              value={metrics.activeCases || 0}
+              label="Active cases"
+              onClick={canSeeTab('caseload') ? () => goToTab('caseload') : undefined}
+              hint={canSeeTab('caseload') ? 'Open the active caseload' : undefined}
+            />
+            <FilterStat
+              filled
+              tone="success"
+              value={formatCurrency(metrics.feesCollectedFromPayments)}
+              label="Fees collected"
+              onClick={canSeeTab('time') ? () => goToTab('time') : undefined}
+              hint={canSeeTab('time') ? 'Open Time & Billing' : undefined}
+            />
             <FilterStat filled tone="warning" value={metrics.firmROI != null ? `${metrics.firmROI.toFixed(1)}x` : '—'} label="Marketing ROI" />
           </StatGrid>
           <StatGrid columns={4}>
-            <FilterStat value={metrics.totalLeadsReceived} label="Leads received" />
-            <FilterStat value={metrics.acceptedCases || 0} label="Accepted" />
-            <FilterStat value={metrics.retainedCases || 0} label="Retained" />
-            <FilterStat value={metrics.avgAttorneyRating ? metrics.avgAttorneyRating.toFixed(1) : 'N/A'} label="Avg. rating" />
+            <FilterStat
+              value={metrics.totalLeadsReceived}
+              label="Leads received"
+              onClick={canSeeTab('caseload') ? () => goToTab('caseload') : undefined}
+              hint={canSeeTab('caseload') ? 'See cases in the caseload' : undefined}
+            />
+            <FilterStat
+              value={metrics.acceptedCases || 0}
+              label="Accepted"
+              onClick={canSeeTab('caseload') ? () => goToTab('caseload') : undefined}
+              hint={canSeeTab('caseload') ? 'See cases in the caseload' : undefined}
+            />
+            <FilterStat
+              value={metrics.retainedCases || 0}
+              label="Retained"
+              onClick={canSeeTab('caseload') ? () => goToTab('caseload') : undefined}
+              hint={canSeeTab('caseload') ? 'See cases in the caseload' : undefined}
+            />
+            <FilterStat
+              value={metrics.avgAttorneyRating ? metrics.avgAttorneyRating.toFixed(1) : 'N/A'}
+              label="Avg. rating"
+              onClick={canSeeTab('team') ? () => goToTab('team', { people: 'attorneys' }) : undefined}
+              hint={canSeeTab('team') ? 'View attorneys in Team & Roles' : undefined}
+            />
           </StatGrid>
 
           {unassignedCount > 0 && (
@@ -1217,9 +1283,16 @@ export default function FirmDashboard() {
               ) : (
                 <div className="space-y-3">
                   {(caseload?.teams || []).map((t) => (
-                    <div key={t.teamId}>
+                    <button
+                      key={t.teamId}
+                      type="button"
+                      onClick={() => goToTab('caseload')}
+                      disabled={!canSeeTab('caseload')}
+                      className={`block w-full text-left ${canSeeTab('caseload') ? 'group rounded-lg -mx-2 px-2 py-1 transition hover:bg-slate-50' : 'cursor-default'}`}
+                      title={canSeeTab('caseload') ? 'Open caseload' : undefined}
+                    >
                       <div className="mb-1 flex items-center justify-between text-sm">
-                        <span className="font-medium text-slate-700">
+                        <span className={`font-medium text-slate-700 ${canSeeTab('caseload') ? 'group-hover:text-brand-700' : ''}`}>
                           {t.name} <span className="text-slate-400">· {t.memberCount} {t.memberCount === 1 ? 'member' : 'members'}</span>
                         </span>
                         <span className="font-semibold text-slate-800">{t.activeCaseCount} cases</span>
@@ -1227,7 +1300,7 @@ export default function FirmDashboard() {
                       <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                         <div className="h-full rounded-full bg-brand-500" style={{ width: `${Math.round((t.activeCaseCount / maxTeamCaseload) * 100)}%` }} />
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -1242,9 +1315,16 @@ export default function FirmDashboard() {
                     const util = o.utilization ?? null
                     const tone = util == null ? 'bg-slate-300' : util >= 90 ? 'bg-rose-500' : util >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
                     return (
-                      <div key={o.officeId}>
+                      <button
+                        key={o.officeId}
+                        type="button"
+                        onClick={() => goToTab('caseload')}
+                        disabled={!canSeeTab('caseload')}
+                        className={`block w-full text-left ${canSeeTab('caseload') ? 'group rounded-lg -mx-2 px-2 py-1 transition hover:bg-slate-50' : 'cursor-default'}`}
+                        title={canSeeTab('caseload') ? 'Open caseload' : undefined}
+                      >
                         <div className="mb-1 flex items-center justify-between text-sm">
-                          <span className="font-medium text-slate-700">{o.name}</span>
+                          <span className={`font-medium text-slate-700 ${canSeeTab('caseload') ? 'group-hover:text-brand-700' : ''}`}>{o.name}</span>
                           <span className="font-semibold text-slate-800">
                             {o.assignedCases}
                             {o.capacity ? ` / ${o.capacity}` : ''} {util != null && <span className="text-slate-400">({util}%)</span>}
@@ -1253,7 +1333,7 @@ export default function FirmDashboard() {
                         <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                           <div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.min(100, util ?? Math.min(100, o.assignedCases * 10))}%` }} />
                         </div>
-                      </div>
+                      </button>
                     )
                   })}
                 </div>
