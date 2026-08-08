@@ -532,6 +532,17 @@ router.patch('/attorneys/:id/status', authMiddleware, adminMiddleware, requireAd
       select: { id: true, name: true, email: true, isActive: true, isVerified: true },
     })
 
+    // The attorney's login lives on the User table (matched by email). The auth
+    // middleware gates every request on User.isActive, so flip it in lockstep —
+    // otherwise a deactivated attorney keeps a valid session and stays logged in
+    // until their token naturally expires (CP-580).
+    if (existing.email) {
+      await prisma.user.updateMany({
+        where: { email: existing.email },
+        data: { isActive: parsed.data.isActive },
+      })
+    }
+
     await writeAdminAudit(req, {
       action: parsed.data.isActive ? 'attorney_activated' : 'attorney_deactivated',
       entityType: 'attorney',
