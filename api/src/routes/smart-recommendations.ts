@@ -207,9 +207,13 @@ router.get('/similar-cases/:assessmentId', optionalAuthMiddleware, async (req: A
 
 // Helper functions
 async function generateSmartRecommendations(facts: any, preferences?: any) {
-  // Get all attorneys from database with their profiles
+  // Get all attorneys from database with their profiles.
+  // Only verified attorneys are surfaced to claimants — the public /attorneys
+  // search already gates on isVerified, and this plaintiff-facing recommendation
+  // list must do the same so unverified attorneys never appear in the "send your
+  // case" popup (CP-593).
   const attorneys = await prisma.attorney.findMany({
-    where: { isActive: true },
+    where: { isActive: true, isVerified: true },
     include: {
       availability: true,
       attorneyProfile: true, // Include profile for routing preferences
