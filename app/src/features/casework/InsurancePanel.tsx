@@ -523,8 +523,8 @@ export default function InsurancePanel({ leadId }: { leadId: string; claimType?:
 
 function Field({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className={`rounded-xl border px-3 py-2.5 ${accent ? 'border-brand-100 bg-brand-50/50' : 'border-slate-200 bg-slate-50/60'}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+    <div className={`min-w-0 overflow-hidden rounded-xl border px-3 py-2.5 ${accent ? 'border-brand-100 bg-brand-50/50' : 'border-slate-200 bg-slate-50/60'}`}>
+      <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
       <p className={`mt-0.5 truncate text-sm font-bold ${accent ? 'text-brand-700' : 'text-slate-900'}`}>{value}</p>
     </div>
   )

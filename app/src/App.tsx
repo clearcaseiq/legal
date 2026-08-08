@@ -68,7 +68,6 @@ const CreateInvoicePage = lazy(() => import('./pages/CreateInvoicePage'))
 const ScheduleConsultPage = lazy(() => import('./pages/ScheduleConsultPage'))
 const DocumentRequestPage = lazy(() => import('./pages/DocumentRequestPage'))
 const DraftMessagePage = lazy(() => import('./pages/DraftMessagePage'))
-const EventsPage = lazy(() => import('./pages/EventsPage'))
 const CalendarPage = lazy(() => import('./pages/CalendarPage'))
 const FirmDashboard = lazy(() => import('./pages/FirmDashboard'))
 const FirmSettings = lazy(() => import('./pages/FirmSettings'))
@@ -497,7 +496,6 @@ function App() {
               <Route path="/attorney-dashboard/schedule-consult/:leadId" element={<ScheduleConsultPage />} />
               <Route path="/attorney-dashboard/request-docs/:leadId" element={<DocumentRequestPage />} />
               <Route path="/attorney-dashboard/draft-message/:leadId" element={<DraftMessagePage />} />
-              <Route path="/attorney-dashboard/events" element={<EventsPage />} />
               <Route path="/attorney-dashboard/calendar" element={<CalendarPage />} />
               <Route path="/firm-settings" element={<FirmSettings />} />
               <Route path="/attorney-billing" element={<AttorneyBilling />} />

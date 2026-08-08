@@ -74,7 +74,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/attorney-dashboard/cases/ai-manager', id: 'aiManager', label: 'Rose — AI Case Manager', description: 'Raises the next task on every case', icon: Bot },
       { to: '/attorney-dashboard/cases/copilot', id: 'copilot', label: 'AI Copilot', description: 'Analysis & next actions', icon: Sparkles },
       { to: '/attorney-dashboard/cases/firm', id: 'firm', label: 'Firm Dashboard', description: 'Team caseload', icon: Building2, firmAdminOnly: true },
-      { to: '/attorney-dashboard/cases/intake', id: 'intake', label: 'Intake', description: 'Manual & imported leads', icon: Upload, comingSoon: true },
+      { to: '/attorney-dashboard/cases/intake', id: 'intake', label: 'Intake', description: 'Manual & imported leads', icon: Upload },
     ],
   },
 ]

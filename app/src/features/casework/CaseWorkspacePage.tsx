@@ -3281,7 +3281,7 @@ function evidenceStatusTone(status?: string): Tone {
 function Metric({ label, value, accent = false }: { label: string; value: ReactNode; accent?: boolean }) {
   return (
     <div
-      className={`overflow-hidden rounded-xl border px-4 py-3 ${
+      className={`min-w-0 overflow-hidden rounded-xl border px-4 py-3 ${
         accent ? 'border-brand-100 bg-brand-50/50' : 'border-slate-200 bg-slate-50/60'
       }`}
     >
