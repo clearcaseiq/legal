@@ -38,8 +38,16 @@ const ATTORNEY_EMAIL = process.env.ATTORNEY_EMAIL || 'admin@ad.com'
 const NUM_ACTIVE = Number(process.env.NUM_ACTIVE || 6)
 const NUM_NEW = Number(process.env.NUM_NEW || 4)
 const FORCE = process.env.FORCE === '1'
-// Short, stable namespace for deterministic demo plaintiff emails.
-const EMAIL_NS = 'admin-cases'
+// Short, stable namespace for deterministic demo plaintiff emails. Defaults to
+// a per-attorney namespace so seeding a second attorney doesn't collide with an
+// earlier attorney's plaintiff pool (which would otherwise skip every slot).
+// Override with EMAIL_NS to force a specific pool.
+const EMAIL_NS =
+  process.env.EMAIL_NS ||
+  `admin-cases-${(process.env.ATTORNEY_EMAIL || 'admin@ad.com')
+    .split('@')[0]
+    .replace(/[^a-z0-9]+/gi, '-')
+    .toLowerCase()}`
 
 // Used only when the attorney/firm must be created (ATTORNEY_EMAIL not found).
 const FIRM_NAME = process.env.FIRM_NAME || 'Admin Law Firm'
