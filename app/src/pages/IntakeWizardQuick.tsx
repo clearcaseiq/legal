@@ -6586,10 +6586,10 @@ export default function IntakeWizardQuick() {
     legal_status: tx('stepTitles_legal_status'),
     consent: t('intake.stepTitles_consent')
   }
-  stepTitles.when = 'Incident & Location'
-  stepTitles.injury_severity = 'Your Injuries & Treatment'
-  stepTitles.financial_impact = 'Damages & Insurance'
-  stepTitles.consent = 'Review & Consent'
+  stepTitles.when = tx('stepHeading_incidentLocation')
+  stepTitles.injury_severity = tx('stepHeading_injuriesTreatment')
+  stepTitles.financial_impact = tx('stepHeading_damagesInsurance')
+  stepTitles.consent = tx('stepHeading_reviewConsent')
 
   const isFirstStep = currentStep === 'injury_type'
   const isRevisitingAnsweredStep =
