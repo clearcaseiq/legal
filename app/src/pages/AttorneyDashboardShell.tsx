@@ -349,7 +349,7 @@ export interface AttorneyDashboardProps {
   initialView?: AttorneyDashboardInitialView
 }
 
-export default function AttorneyDashboard({ chromeless = false, initialView }: AttorneyDashboardProps = {}) {
+export default function AttorneyDashboardShell({ chromeless = false, initialView }: AttorneyDashboardProps = {}) {
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()

@@ -434,7 +434,7 @@ export default function Layout({ children }: LayoutProps) {
                             </Link>
                             {isAttorney && (
                               <>
-                                <Link to="/attorney-dashboard?tab=profile" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
+                                <Link to="/attorney-dashboard/settings/profile" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
                                   Profile Settings
                                 </Link>
                                 <Link to="/firm-dashboard" onClick={() => setUserMenuOpen(false)} className={menuItemCls}>
@@ -583,7 +583,7 @@ export default function Layout({ children }: LayoutProps) {
                       )}
                       {isAttorney && (
                         <>
-                          <Link to="/attorney-dashboard?tab=profile" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Profile Settings</Link>
+                          <Link to="/attorney-dashboard/settings/profile" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Profile Settings</Link>
                           <Link to="/firm-dashboard" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Dashboard</Link>
                           <Link to="/firm-settings" onClick={() => setMobileMenuOpen(false)} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">Firm Settings</Link>
                         </>

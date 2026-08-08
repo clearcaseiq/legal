@@ -33,10 +33,12 @@ const Financing = lazy(() => import('./pages/Financing'))
 const Messaging = lazy(() => import('./pages/Messaging'))
 const RecoveryHub = lazy(() => import('./pages/RecoveryHub'))
 const SmartRecommendations = lazy(() => import('./pages/SmartRecommendations'))
-const AttorneyDashboard = lazy(() => import('./pages/AttorneyDashboard'))
 // Two-domain attorney workspace (Lead Generation vs Case Management)
 const AttorneyWorkspaceLayout = lazy(() => import('./features/shared/AttorneyWorkspaceLayout'))
 const NewMatchesPage = lazy(() => import('./features/leadgen/NewMatchesPage'))
+const AttorneyAnalyticsPage = lazy(() => import('./features/leadgen/AttorneyAnalyticsPage'))
+const AttorneyOverviewPage = lazy(() => import('./features/leadgen/AttorneyOverviewPage'))
+const AttorneyProfileSettingsPage = lazy(() => import('./features/casework/AttorneyProfileSettingsPage'))
 const IntakePage = lazy(() => import('./features/leadgen/IntakePage'))
 const MarketplacePerformancePage = lazy(() => import('./features/leadgen/MarketplacePerformancePage'))
 const MatchQualityPage = lazy(() => import('./features/leadgen/MatchQualityPage'))
@@ -165,27 +167,22 @@ function RouteFallback() {
 }
 
 // Attorneys landing on /attorney-dashboard should see the new two-domain
-// workspace by default. Legacy deep links that carry a ?tab= param
-// (profile/analytics/intake/overview) still render the classic dashboard.
-// Legacy ?tab= deep links. Tabs that have a confirmed 1:1 modern route redirect
-// there; the rest (analytics/overview/profile) still host settings that haven't
-// been consolidated onto standalone pages yet (bar-license verification, the
-// decision profile, ROI analytics), so they keep rendering the legacy dashboard
-// until that content is migrated.
+// workspace by default. The legacy AttorneyDashboard monolith is retired:
+// every ?tab= deep link now forwards to the first-class route that owns that
+// surface. Unknown tabs fall back to the default landing.
 const LEGACY_TAB_REDIRECTS: Record<string, string> = {
   leads: '/attorney-dashboard/leadgen/matches',
   intake: '/attorney-dashboard/cases/intake',
+  analytics: '/attorney-dashboard/leadgen/analytics',
+  overview: '/attorney-dashboard/overview',
+  profile: '/attorney-dashboard/settings/profile',
 }
 
 function AttorneyDashboardEntry() {
   const location = useLocation()
   const tab = new URLSearchParams(location.search).get('tab')
-  if (tab) {
-    const redirectTo = LEGACY_TAB_REDIRECTS[tab]
-    if (redirectTo) return <Navigate to={redirectTo} replace />
-    return <AttorneyDashboard />
-  }
-  return <Navigate to="/attorney-dashboard/leadgen/matches" replace />
+  const target = (tab && LEGACY_TAB_REDIRECTS[tab]) || '/attorney-dashboard/leadgen/matches'
+  return <Navigate to={target} replace />
 }
 
 // The marketing home page (and its "Start Free Case Assessment" CTA) is a
@@ -481,6 +478,10 @@ function App() {
                 <Route path="/attorney-dashboard/leadgen/matches/:leadId/:section" element={<NewMatchesPage />} />
                 <Route path="/attorney-dashboard/leadgen/quality" element={<MatchQualityPage />} />
                 <Route path="/attorney-dashboard/leadgen/marketplace" element={<MarketplacePerformancePage />} />
+                <Route path="/attorney-dashboard/leadgen/analytics" element={<AttorneyAnalyticsPage />} />
+                {/* Standalone homes for the retired legacy dashboard tabs. */}
+                <Route path="/attorney-dashboard/overview" element={<AttorneyOverviewPage />} />
+                <Route path="/attorney-dashboard/settings/profile" element={<AttorneyProfileSettingsPage />} />
                 {/* Intake now lives under Case Management; keep the old leadgen path as a redirect. */}
                 <Route path="/attorney-dashboard/leadgen/intake" element={<Navigate to="/attorney-dashboard/cases/intake" replace />} />
                 {/* Case Management */}
@@ -506,8 +507,8 @@ function App() {
                 <Route path="/attorney-dashboard/lead/:leadId/:section" element={<CaseWorkspacePage />} />
                 <Route path="/attorney-dashboard/cases/:leadId/:section" element={<CaseWorkspacePage />} />
               </Route>
-              {/* Default landing → new two-domain workspace; ?tab= deep links
-                  still render the legacy dashboard (see AttorneyDashboardEntry). */}
+              {/* Default landing → new two-domain workspace; legacy ?tab= deep
+                  links redirect to their first-class route (see AttorneyDashboardEntry). */}
               <Route path="/attorney-dashboard" element={<AttorneyDashboardEntry />} />
               <Route path="/attorney-dashboard/contacts" element={<Navigate to="/attorney-dashboard/cases/contacts" replace />} />
               <Route path="/attorney-dashboard/documents/:leadId" element={<AttorneyCaseDocumentsRedirect />} />

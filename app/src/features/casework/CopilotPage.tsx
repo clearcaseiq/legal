@@ -1,5 +1,5 @@
-import AttorneyDashboard from '../../pages/AttorneyDashboard'
+import AttorneyDashboardShell from '../../pages/AttorneyDashboardShell'
 
 export default function CopilotPage() {
-  return <AttorneyDashboard chromeless initialView={{ tab: 'overview', overviewFocus: 'ai' }} />
+  return <AttorneyDashboardShell chromeless initialView={{ tab: 'overview', overviewFocus: 'ai' }} />
 }

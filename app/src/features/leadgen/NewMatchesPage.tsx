@@ -1,5 +1,5 @@
-import AttorneyDashboard from '../../pages/AttorneyDashboard'
+import AttorneyDashboardShell from '../../pages/AttorneyDashboardShell'
 
 export default function NewMatchesPage() {
-  return <AttorneyDashboard chromeless initialView={{ tab: 'leads', leadsSection: 'matches' }} />
+  return <AttorneyDashboardShell chromeless initialView={{ tab: 'leads', leadsSection: 'matches' }} />
 }
