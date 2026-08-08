@@ -23,6 +23,8 @@ import {
   Shield,
   Ban,
   CheckCircle2,
+  XCircle,
+  ChevronRight,
 } from 'lucide-react'
 import {
   addFirmAttorney,
@@ -84,6 +86,81 @@ const FIRM_ROLES = [
   { value: 'demand_writer', label: 'Demand Writer' },
   { value: 'medical_records', label: 'Medical Records' },
 ]
+
+// Human-friendly labels + one-line descriptions for every firm permission.
+// Ordered so the role matrix columns stay stable regardless of API ordering.
+const PERMISSION_LABELS: Record<string, string> = {
+  manage_users: 'Manage users',
+  manage_routing: 'Manage routing',
+  assign_cases: 'Assign cases',
+  view_all_cases: 'View all cases',
+  view_assigned_cases: 'View assigned cases',
+  view_analytics: 'View analytics',
+  review_cases: 'Review cases',
+  review_new_leads: 'Review new leads',
+  accept_cases: 'Accept cases',
+  decline_cases: 'Decline cases',
+  manage_assigned_cases: 'Work assigned cases',
+  message_plaintiffs: 'Message clients',
+  schedule_consultations: 'Schedule consults',
+  generate_demands: 'Generate demands',
+  manage_chronology: 'Manage chronology',
+  upload_records: 'Upload records',
+  request_records: 'Request records',
+  request_evidence: 'Request evidence',
+  manage_documents: 'Manage documents',
+  upload_documents: 'Upload documents',
+  manage_billing: 'Manage billing',
+  manage_invoices: 'Manage invoices',
+  process_payments: 'Process payments',
+  manage_subscriptions: 'Manage subscriptions',
+  view_subscriptions: 'View subscriptions',
+}
+
+const PERMISSION_DESCRIPTIONS: Record<string, string> = {
+  manage_users: 'Add, edit, and remove firm members and set their roles.',
+  manage_routing: 'Configure how new matched cases are routed to the firm.',
+  assign_cases: 'Assign or reassign cases to attorneys and staff.',
+  view_all_cases: 'See every case in the firm, not just assigned ones.',
+  view_assigned_cases: 'See only the cases this person is assigned to.',
+  view_analytics: 'View firm performance dashboards and reports.',
+  review_cases: 'Open and review incoming case details.',
+  review_new_leads: 'Triage newly matched leads before acceptance.',
+  accept_cases: 'Accept a matched case on behalf of the firm.',
+  decline_cases: 'Decline a matched case on behalf of the firm.',
+  manage_assigned_cases: 'Do day-to-day work on assigned cases.',
+  message_plaintiffs: 'Message clients through the platform.',
+  schedule_consultations: 'Book and manage client consultations.',
+  generate_demands: 'Draft and generate demand letters.',
+  manage_chronology: 'Build and edit the medical/treatment chronology.',
+  upload_records: 'Upload medical and billing records.',
+  request_records: 'Request records from providers.',
+  request_evidence: 'Request evidence and documents from clients.',
+  manage_documents: 'Organize and manage case documents.',
+  upload_documents: 'Upload documents to a case.',
+  manage_billing: 'Manage firm billing and platform spend.',
+  manage_invoices: 'Create and manage client invoices.',
+  process_payments: 'Process client and settlement payments.',
+  manage_subscriptions: 'Change the firm plan and seats.',
+  view_subscriptions: 'View the firm plan and seat usage.',
+}
+
+// Mirror of api/src/lib/firm-roles.ts — used only if the API hasn't sent
+// roleCapabilities (older backend). The API remains the source of truth.
+const FIRM_ROLE_PERMISSIONS_FALLBACK: Record<string, string[]> = {
+  firm_admin: ['manage_users', 'manage_routing', 'manage_billing', 'view_all_cases', 'view_analytics', 'assign_cases', 'manage_subscriptions'],
+  attorney: ['review_cases', 'accept_cases', 'decline_cases', 'message_plaintiffs', 'generate_demands', 'manage_assigned_cases', 'assign_cases'],
+  case_manager: ['upload_records', 'manage_documents', 'message_plaintiffs', 'request_evidence', 'manage_assigned_cases'],
+  intake_specialist: ['review_new_leads', 'schedule_consultations', 'request_records'],
+  paralegal: ['view_assigned_cases', 'manage_chronology', 'upload_documents'],
+  billing_admin: ['manage_invoices', 'view_subscriptions', 'process_payments'],
+  legal_assistant: ['view_assigned_cases', 'manage_documents', 'schedule_consultations'],
+  demand_writer: ['view_assigned_cases', 'generate_demands', 'manage_documents'],
+  medical_records: ['view_assigned_cases', 'upload_records', 'request_records'],
+}
+
+const humanizePermission = (p: string) =>
+  PERMISSION_LABELS[p] || p.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
 const TEAM_TYPES = [
   { value: 'case_team', label: 'Case Team' },
@@ -307,7 +384,8 @@ export default function FirmDashboard() {
   const [teamMemberError, setTeamMemberError] = useState<string | null>(null)
   const [peopleFilter, setPeopleFilter] = useState<'all' | 'attorneys' | 'staff'>('all')
   const [addPersonType, setAddPersonType] = useState<'attorney' | 'staff'>('attorney')
-  const [showRolePermissions, setShowRolePermissions] = useState(false)
+  const [showRolePermissions, setShowRolePermissions] = useState(true)
+  const [expandedMatrixRole, setExpandedMatrixRole] = useState<string | null>(null)
   const [teamSaving, setTeamSaving] = useState(false)
   const [teamError, setTeamError] = useState<string | null>(null)
   const [teamSuccess, setTeamSuccess] = useState<string | null>(null)
@@ -633,6 +711,25 @@ export default function FirmDashboard() {
       (perms as string[]).forEach((p) => set.add(p))
     )
     return Array.from(set).sort()
+  }, [workspace?.roleCapabilities])
+
+  // Role × permission matrix data. Uses the API's roleCapabilities when present,
+  // else the local mirror. Columns are ordered by PERMISSION_LABELS, with any
+  // unknown permissions appended so nothing is silently dropped.
+  const roleMatrix = useMemo(() => {
+    const apiCaps = workspace?.roleCapabilities as Record<string, string[]> | undefined
+    const caps = apiCaps && Object.keys(apiCaps).length ? apiCaps : FIRM_ROLE_PERMISSIONS_FALLBACK
+    const knownRoleOrder = FIRM_ROLES.map((r) => r.value)
+    const roles = [
+      ...knownRoleOrder.filter((r) => caps[r]),
+      ...Object.keys(caps).filter((r) => !knownRoleOrder.includes(r)),
+    ]
+    const present = new Set<string>()
+    roles.forEach((r) => (caps[r] || []).forEach((p) => present.add(p)))
+    const orderedKnown = Object.keys(PERMISSION_LABELS).filter((p) => present.has(p))
+    const extras = Array.from(present).filter((p) => !orderedKnown.includes(p))
+    const columns = [...orderedKnown, ...extras]
+    return { caps, roles, columns }
   }, [workspace?.roleCapabilities])
 
   const openEditMember = (m: any) => {
@@ -1618,9 +1715,9 @@ export default function FirmDashboard() {
             </SectionCard>
           </div>
 
-          {/* ── ③ REFERENCE ──────────────────────────────────────── */}
+          {/* ── ③ ROLE × PERMISSION MATRIX ─────────────────────────── */}
           <SectionCard
-            title="Role permissions"
+            title="Roles & permissions"
             trailing={
               <button
                 type="button"
@@ -1628,21 +1725,118 @@ export default function FirmDashboard() {
                 className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 transition hover:text-slate-700"
               >
                 <ShieldCheck className="h-4 w-4 text-slate-400" />
-                {showRolePermissions ? 'Hide' : 'Show'}
+                {showRolePermissions ? 'Hide matrix' : 'Show matrix'}
               </button>
             }
           >
             {showRolePermissions ? (
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {Object.entries(workspace?.roleCapabilities || {}).slice(0, 8).map(([role, permissions]) => (
-                  <div key={role} className="rounded-lg border border-slate-100 p-3">
-                    <p className="text-sm font-semibold text-slate-800">{formatRole(role)}</p>
-                    <p className="mt-1 text-xs text-slate-500">{(permissions as string[]).slice(0, 4).map((p) => p.replace(/_/g, ' ')).join(', ')}</p>
+              <div className="space-y-4">
+                <p className="text-sm text-slate-500">
+                  What each firm role can do. Click a role to see every permission it grants.
+                </p>
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="min-w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-slate-50">
+                        <th className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Role
+                        </th>
+                        {roleMatrix.columns.map((perm) => (
+                          <th
+                            key={perm}
+                            title={PERMISSION_DESCRIPTIONS[perm] || humanizePermission(perm)}
+                            className="whitespace-nowrap px-3 py-3 text-center align-bottom text-[11px] font-semibold text-slate-600"
+                          >
+                            {humanizePermission(perm)}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {roleMatrix.roles.map((role) => {
+                        const perms = roleMatrix.caps[role] || []
+                        const isOpen = expandedMatrixRole === role
+                        return (
+                          <tr
+                            key={role}
+                            className={`border-t border-slate-100 transition ${isOpen ? 'bg-brand-50/50' : 'hover:bg-slate-50'}`}
+                          >
+                            <th
+                              scope="row"
+                              className={`sticky left-0 z-10 px-4 py-3 text-left ${isOpen ? 'bg-brand-50' : 'bg-white'}`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setExpandedMatrixRole(isOpen ? null : role)}
+                                className="flex items-center gap-1.5 text-left font-semibold text-slate-800 hover:text-brand-700"
+                              >
+                                <ChevronRight
+                                  className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                                />
+                                <span className="whitespace-nowrap">{formatRole(role)}</span>
+                                <span className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                                  {perms.length}
+                                </span>
+                              </button>
+                            </th>
+                            {roleMatrix.columns.map((perm) => {
+                              const has = perms.includes(perm)
+                              return (
+                                <td key={perm} className="px-3 py-3 text-center">
+                                  {has ? (
+                                    <CheckCircle2 className="mx-auto h-5 w-5 text-emerald-500" aria-label="Allowed" />
+                                  ) : (
+                                    <XCircle className="mx-auto h-5 w-5 text-slate-300" aria-label="Not allowed" />
+                                  )}
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {expandedMatrixRole && (
+                  <div className="rounded-xl border border-brand-100 bg-brand-50/40 p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h4 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                        <Shield className="h-4 w-4 text-brand-600" />
+                        {formatRole(expandedMatrixRole)} — permissions
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedMatrixRole(null)}
+                        className="text-slate-400 hover:text-slate-600"
+                        aria-label="Close"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {(roleMatrix.caps[expandedMatrixRole] || []).map((perm) => (
+                        <li key={perm} className="flex items-start gap-2 rounded-lg bg-white px-3 py-2 shadow-sm">
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-800">{humanizePermission(perm)}</p>
+                            <p className="text-xs text-slate-500">{PERMISSION_DESCRIPTIONS[perm] || ''}</p>
+                          </div>
+                        </li>
+                      ))}
+                      {(roleMatrix.caps[expandedMatrixRole] || []).length === 0 && (
+                        <li className="text-sm text-slate-400">This role has no permissions yet.</li>
+                      )}
+                    </ul>
+                    <p className="mt-3 text-xs text-slate-500">
+                      These are the defaults for the role. To grant or remove a specific permission for one person, open that
+                      member and use <span className="font-medium">Manage member → Permissions</span>.
+                    </p>
                   </div>
-                ))}
+                )}
               </div>
             ) : (
-              <p className="text-sm text-slate-400">What each firm role can do. Click "Show" to review the permission matrix.</p>
+              <p className="text-sm text-slate-400">The permission matrix is hidden. Click "Show matrix" to review what each role can do.</p>
             )}
           </SectionCard>
         </div>
