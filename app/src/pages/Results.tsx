@@ -3130,21 +3130,21 @@ Checklist:
     ? Math.max(0, Math.round((Math.max(...medTimelineTimes) - Math.min(...medTimelineTimes)) / 86_400_000))
     : 0
   const fmtMedDate = (iso: string | null | undefined) => {
-    if (!iso) return 'PRESENT'
+    if (!iso) return t('results.calc.medPresent')
     const d = new Date(iso)
-    if (Number.isNaN(d.getTime())) return 'PRESENT'
+    if (Number.isNaN(d.getTime())) return t('results.calc.medPresent')
     return d.toLocaleDateString(undefined, { month: 'short', day: '2-digit', year: 'numeric' }).toUpperCase()
   }
   const medDayLabel = (iso: string | null | undefined) => {
-    if (!iso || medFirstTime == null) return 'Ongoing'
-    const t = new Date(iso).getTime()
-    if (!Number.isFinite(t)) return 'Ongoing'
-    return `Day ${Math.max(0, Math.round((t - medFirstTime) / 86_400_000))}`
+    if (!iso || medFirstTime == null) return t('results.calc.medOngoing')
+    const time = new Date(iso).getTime()
+    if (!Number.isFinite(time)) return t('results.calc.medOngoing')
+    return t('results.calc.medDay', { count: Math.max(0, Math.round((time - medFirstTime) / 86_400_000)) })
   }
   const medTimelineRows = medTreatmentEvents.map((e, i) => ({
     id: e?.id ?? `med-ev-${i}`,
     dateLabel: fmtMedDate(e?.date),
-    title: e?.label || (e?.source === 'incident' ? 'Incident' : 'Treatment'),
+    title: e?.label || (e?.source === 'incident' ? t('results.calc.medIncident') : t('results.calc.medTreatment')),
     detail: e?.details || e?.provider || '',
     dayLabel: medDayLabel(e?.date),
     amount: typeof e?.amount === 'number' && e.amount > 0 ? e.amount : null,
@@ -3153,54 +3153,59 @@ Checklist:
 
   const hasPhysicalTherapy = medTreatmentEvents.some((e) => /therapy|rehab/i.test(`${e?.label || ''} ${e?.details || ''}`))
   const medMissingEvidence = [
-    { label: 'Medical records', present: hasMedicalRecords, impact: '+10%' },
-    { label: 'Medical bills', present: hasMedicalBills, impact: '+8%' },
-    { label: 'MRI report', present: hasMriReportedFlag, impact: '+7%' },
-    { label: 'Physical therapy records', present: hasPhysicalTherapy, impact: '+5%' },
-    { label: 'Doctor notes / restrictions', present: false, impact: '+5%' },
+    { label: t('results.calc.medEvMedicalRecords'), present: hasMedicalRecords, impact: '+10%' },
+    { label: t('results.calc.medEvMedicalBills'), present: hasMedicalBills, impact: '+8%' },
+    { label: t('results.calc.medEvMriReport'), present: hasMriReportedFlag, impact: '+7%' },
+    { label: t('results.calc.medEvPhysicalTherapy'), present: hasPhysicalTherapy, impact: '+5%' },
+    { label: t('results.calc.medEvDoctorNotes'), present: false, impact: '+5%' },
   ].filter((row) => !row.present)
 
   // Confidence in the estimate is a function of which documents are on file, so it is
   // anchored to the documentation score rather than to predicted case viability.
   const medConfidenceSteps = [
-    { label: 'Current', pct: clampPercent(estimateConfidenceScore) },
-    { label: '+ Medical\u00A0Records', pct: clampPercent(estimateConfidenceScore + 10) },
-    { label: '+ Bills', pct: clampPercent(estimateConfidenceScore + 18) },
-    { label: '+ Records + Bills + MRI', pct: clampPercent(estimateConfidenceScore + 30) },
+    { label: t('results.calc.medStepCurrent'), pct: clampPercent(estimateConfidenceScore) },
+    { label: t('results.calc.medStepRecords'), pct: clampPercent(estimateConfidenceScore + 10) },
+    { label: t('results.calc.medStepBills'), pct: clampPercent(estimateConfidenceScore + 18) },
+    { label: t('results.calc.medStepAll'), pct: clampPercent(estimateConfidenceScore + 30) },
   ]
 
   const medEconomicRows = [
-    { label: 'Medical Bills (received)', value: documentedMedicalCharges },
-    { label: 'Lost Wages (reported)', value: documentedWageLoss },
-    { label: 'Property Damage', value: Number(damagesObj.property_damage || damagesObj.estimated_property_damage || 0) },
-    { label: 'Out-of-Pocket Expenses', value: documentedOutOfPocket },
+    { label: t('results.calc.medEconMedicalBills'), value: documentedMedicalCharges },
+    { label: t('results.calc.medEconLostWages'), value: documentedWageLoss },
+    { label: t('results.calc.medEconPropertyDamage'), value: Number(damagesObj.property_damage || damagesObj.estimated_property_damage || 0) },
+    { label: t('results.calc.medEconOutOfPocket'), value: documentedOutOfPocket },
   ]
   const medEconomicTotal = medEconomicRows.reduce((sum, row) => sum + (Number(row.value) || 0), 0)
 
   const medFutureIndicators: { label: string; status: 'yes' | 'unconfirmed' | 'unknown' }[] = [
-    { label: 'Physical therapy ongoing', status: hasPhysicalTherapy ? 'yes' : 'unconfirmed' },
-    { label: 'Symptoms reported as continuing', status: 'yes' },
-    { label: 'Specialist evaluation', status: 'unconfirmed' },
-    { label: 'Injection or pain management', status: 'unconfirmed' },
-    { label: 'Surgery discussed', status: 'unknown' },
+    { label: t('results.calc.medFuturePhysicalTherapy'), status: hasPhysicalTherapy ? 'yes' : 'unconfirmed' },
+    { label: t('results.calc.medFutureSymptoms'), status: 'yes' },
+    { label: t('results.calc.medFutureSpecialist'), status: 'unconfirmed' },
+    { label: t('results.calc.medFutureInjection'), status: 'unconfirmed' },
+    { label: t('results.calc.medFutureSurgery'), status: 'unknown' },
   ]
   const medFutureRiskWord = (hasMriReportedFlag || medTreatmentEvents.length >= 4)
-    ? 'Moderate'
-    : severityPercent >= 66 ? 'Elevated' : 'Low'
+    ? t('results.calc.strengthModerate')
+    : severityPercent >= 66 ? t('results.calc.medRiskElevated') : t('results.calc.riskLow')
 
   const medRequiredEvidence = [
-    { title: 'Medical Records', desc: 'Complete records from all providers and facilities.', present: hasMedicalRecords, icon: Stethoscope },
-    { title: 'Medical Bills', desc: 'Itemized bills from all treatment providers.', present: hasMedicalBills, icon: FileText },
-    { title: 'MRI/Imaging Reports', desc: 'Radiology reports and imaging results.', present: hasMriReportedFlag, icon: Activity },
-    { title: 'Specialist Reports', desc: 'Reports from specialists or other providers.', present: false, icon: ClipboardList },
+    { title: t('results.calc.medReqRecords'), desc: t('results.calc.medReqRecordsDesc'), present: hasMedicalRecords, icon: Stethoscope },
+    { title: t('results.calc.medReqBills'), desc: t('results.calc.medReqBillsDesc'), present: hasMedicalBills, icon: FileText },
+    { title: t('results.calc.medReqImaging'), desc: t('results.calc.medReqImagingDesc'), present: hasMriReportedFlag, icon: Activity },
+    { title: t('results.calc.medReqSpecialist'), desc: t('results.calc.medReqSpecialistDesc'), present: false, icon: ClipboardList },
   ]
   const medHelpfulEvidence = [
-    { title: 'Injury Photos', desc: 'Photos of visible injuries after the accident.', icon: Camera },
-    { title: 'Medication Receipts', desc: 'Prescription and medication receipts.', icon: FileText },
-    { title: 'Work Restrictions', desc: 'Doctor notes for work restrictions.', icon: Briefcase },
-    { title: 'Appointment Summaries', desc: 'Visit summaries and treatment notes.', icon: Calendar },
+    { title: t('results.calc.medHelpPhotos'), desc: t('results.calc.medHelpPhotosDesc'), icon: Camera },
+    { title: t('results.calc.medHelpReceipts'), desc: t('results.calc.medHelpReceiptsDesc'), icon: FileText },
+    { title: t('results.calc.medHelpRestrictions'), desc: t('results.calc.medHelpRestrictionsDesc'), icon: Briefcase },
+    { title: t('results.calc.medHelpSummaries'), desc: t('results.calc.medHelpSummariesDesc'), icon: Calendar },
   ]
-  const medAiSummary = `Based on the information and records reviewed so far, ${(treatment.length > 0 || hasMedicalRecords) ? 'you sought treatment shortly after the accident' : 'treatment documentation is still limited'}. ${medTreatmentEvents.length > 0 ? `Your care includes ${hasErTreatment ? 'emergency treatment, ' : ''}${hasMriReportedFlag ? 'diagnostic imaging, ' : ''}and physical therapy for neck and back injuries` : 'Adding records will help build your treatment timeline'}. Symptoms appear consistent with the reported injuries.`
+  const medAiSummary = t('results.calc.medAiSummary', {
+    treatmentClause: (treatment.length > 0 || hasMedicalRecords) ? t('results.calc.medAiTreatmentSought') : t('results.calc.medAiTreatmentLimited'),
+    careClause: medTreatmentEvents.length > 0
+      ? t('results.calc.medAiCareIncludes', { parts: `${hasErTreatment ? t('results.calc.medAiEmergency') : ''}${hasMriReportedFlag ? t('results.calc.medAiImaging') : ''}` })
+      : t('results.calc.medAiAddRecords'),
+  })
 
   // "What to do now" banner state for the Medical Story tab.
   const medReviewStatusValue = plaintiffMedicalReview?.review.status ?? 'pending'
