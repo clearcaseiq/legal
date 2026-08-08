@@ -1840,11 +1840,11 @@ export default function Results() {
     .filter((item) => item.totalAmount > 0)
   const extractedWageLossTotal = extractedWageLossItems.reduce((sum, item) => sum + item.totalAmount, 0)
   const evidenceCompletionChecklist = [
-    { label: 'Incident description', done: !!parsedFacts?.incident?.narrative, valueBoost: null },
-    { label: 'Location confirmed', done: !!(parsedFacts?.incident?.location || parsedFacts?.venue?.state), valueBoost: null },
-    { label: 'Upload injury photos', done: hasInjuryPhotos, valueBoost: '+10-20% value' },
-    { label: 'Upload medical records', done: hasMedicalRecords, valueBoost: '+15-40% value' },
-    { label: 'Upload wage loss proof', done: hasWageLossProof, valueBoost: '+10-25% value' }
+    { label: t('results.calc.evcIncidentDescription'), done: !!parsedFacts?.incident?.narrative, valueBoost: null },
+    { label: t('results.calc.evcLocationConfirmed'), done: !!(parsedFacts?.incident?.location || parsedFacts?.venue?.state), valueBoost: null },
+    { label: t('results.calc.evcInjuryPhotos'), done: hasInjuryPhotos, valueBoost: t('results.calc.boost1020') },
+    { label: t('results.calc.evcMedicalRecords'), done: hasMedicalRecords, valueBoost: t('results.calc.boost1540') },
+    { label: t('results.calc.evcWageLoss'), done: hasWageLossProof, valueBoost: t('results.calc.boost1025') }
   ]
   const evidenceCompletionPercent = Math.round((evidenceCompletionChecklist.filter(c => c.done).length / 5) * 100)
 
@@ -1893,7 +1893,7 @@ export default function Results() {
         ? 85
         : 62
   )
-  const insuranceRecoveryLabel = insuranceRecoveryPercent >= 75 ? 'Coverage appears sufficient based on reported facts.' : insuranceRecoveryPercent >= 50 ? 'Coverage still needs confirmation.' : 'Potential policy limit concerns.'
+  const insuranceRecoveryLabel = insuranceRecoveryPercent >= 75 ? t('results.calc.insCoverageSufficient') : insuranceRecoveryPercent >= 50 ? t('results.calc.insCoverageNeedsConfirm') : t('results.calc.insCoveragePolicyConcerns')
   const missingDocItems = (Array.isArray(casePreparation?.missingDocs) ? casePreparation.missingDocs : [])
     .filter((item: any) => !(hasHipaaConsent && String(item?.label ?? '').toLowerCase().includes('hipaa')))
   const treatmentGapItems = Array.isArray(casePreparation?.treatmentGaps) ? casePreparation.treatmentGaps : []
@@ -2226,15 +2226,15 @@ export default function Results() {
     treatment.length > 0 && 'Treatment documented',
   ].filter(Boolean).slice(0, 4) as string[]
   const attorneyInterestMissing = [
-    !hasMedicalRecords && 'Medical records',
-    treatment.length === 0 && 'Treatment history',
-    !hasPoliceReport && liabilityOutlook !== 'strong' && 'Liability documentation',
+    !hasMedicalRecords && t('results.calc.aimMedicalRecords'),
+    treatment.length === 0 && t('results.calc.aimTreatmentHistory'),
+    !hasPoliceReport && liabilityOutlook !== 'strong' && t('results.calc.aimLiabilityDocs'),
   ].filter(Boolean).slice(0, 3) as string[]
   const caseCompletenessItems = [
-    { label: 'Medical records', done: hasMedicalRecords, boost: '+10%' },
-    { label: 'Medical bills', done: hasMedicalBills, boost: '+8%' },
-    { label: 'Police report', done: hasPoliceReport, boost: '+12%' },
-    { label: 'Wage loss evidence', done: hasWageLossProof, boost: '+6%' },
+    { key: 'medicalRecords', label: t('results.calc.ccMedicalRecords'), done: hasMedicalRecords, boost: '+10%' },
+    { key: 'medicalBills', label: t('results.calc.ccMedicalBills'), done: hasMedicalBills, boost: '+8%' },
+    { key: 'policeReport', label: t('results.calc.ccPoliceReport'), done: hasPoliceReport, boost: '+12%' },
+    { key: 'wageLoss', label: t('results.calc.ccWageLoss'), done: hasWageLossProof, boost: '+6%' },
   ]
   const caseCompletenessPercent = Math.round(
     (caseCompletenessItems.filter((item) => item.done).length / caseCompletenessItems.length) * 100
@@ -2674,14 +2674,15 @@ Checklist:
     }
   }
 
+  const whatThisMeansStateLabel = venueState === 'CA' ? t('results.calc.california') : venueState
   const whatThisMeansBullets = [
     liabilitySummary,
-    injuries.length > 0 && 'Your injury indicates possible damages',
-    treatment.length > 0 && 'Medical treatment supports your claim',
+    injuries.length > 0 && t('results.calc.wtmInjuryDamages'),
+    treatment.length > 0 && t('results.calc.wtmTreatmentSupports'),
     settlementBenchmarks
-      ? `Comparable ${formatClaimTypeLabel(assessment?.claimType)} cases in ${venueState === 'CA' ? 'California' : venueState} often land near ${formatCurrency(settlementBenchmarks.p50)} with a broader range of ${benchmarkRangeText}.`
-      : `Similar cases in ${venueState === 'CA' ? 'California' : venueState} settled between ${displaySettlementRangeText}`,
-    missingDocItems.length > 0 && `The fastest way to strengthen this estimate is to add ${missingDocItems.slice(0, 2).map((item: any) => (item?.label ?? '').toLowerCase()).join(' and ')}.`
+      ? t('results.calc.wtmComparable', { claim: formatClaimTypeLabel(assessment?.claimType, t), state: whatThisMeansStateLabel, p50: formatCurrency(settlementBenchmarks.p50), range: benchmarkRangeText })
+      : t('results.calc.wtmSimilar', { state: whatThisMeansStateLabel, range: displaySettlementRangeText }),
+    missingDocItems.length > 0 && t('results.calc.wtmFastest', { items: missingDocItems.slice(0, 2).map((item: any) => (item?.label ?? '').toLowerCase()).join(` ${t('results.calc.and')} `) })
   ].filter(Boolean) as string[]
   const displayedPlaintiffMedicalReview = hasHipaaConsent && plaintiffMedicalReview
     ? {
@@ -2836,9 +2837,9 @@ Checklist:
   // the case. They were hardcoded, and a percentage attached to an act the claimant
   // has not taken yet is a promise about a result.
   const improveCaseValueItems = [
-    { label: 'Upload injury photos', done: hasInjuryPhotos, boost: 'Shows the injury at the time it happened' },
-    { label: 'Upload medical records', done: hasMedicalRecords, boost: 'Establishes diagnosis and treatment' },
-    { label: 'Add proof of lost wages', done: hasWageLossProof, boost: 'Documents income you already lost' }
+    { label: t('results.calc.icvInjuryPhotos'), done: hasInjuryPhotos, boost: t('results.calc.icvInjuryPhotosBoost') },
+    { label: t('results.calc.icvMedicalRecords'), done: hasMedicalRecords, boost: t('results.calc.icvMedicalRecordsBoost') },
+    { label: t('results.calc.icvWageLoss'), done: hasWageLossProof, boost: t('results.calc.icvWageLossBoost') }
   ]
   const attorneyReviewRedirect = resolvedAssessmentId ? `/results/${resolvedAssessmentId}?review=1` : '/dashboard'
   const authAssessmentQuery = resolvedAssessmentId ? `&assessmentId=${encodeURIComponent(resolvedAssessmentId)}` : ''
@@ -2888,22 +2889,22 @@ Checklist:
     { label: 'Liability strength', level: liabilityStrengthLevel },
   ]
   const snapshotActionMeta: Record<string, { icon: typeof FileText; cta: string; title: string; desc: string }> = {
-    'Police report': { icon: FileText, cta: 'Upload', title: 'Upload police report', desc: 'Liability is easier to prove with official documentation.' },
-    'Medical records': { icon: Stethoscope, cta: 'Upload', title: 'Upload medical records', desc: 'Shows the extent of your injuries and treatment.' },
-    'Medical bills': { icon: FileText, cta: 'Upload', title: 'Upload medical bills', desc: 'Documents the economic value of your treatment.' },
-    'Wage loss evidence': { icon: DollarSign, cta: 'Add', title: 'Add wage verification or pay stubs', desc: 'Helps prove lost income and work impact.' },
+    policeReport: { icon: FileText, cta: t('results.calc.actUpload'), title: t('results.calc.actUploadPoliceTitle'), desc: t('results.calc.actUploadPoliceDesc') },
+    medicalRecords: { icon: Stethoscope, cta: t('results.calc.actUpload'), title: t('results.calc.actUploadRecordsTitle'), desc: t('results.calc.actUploadRecordsDesc') },
+    medicalBills: { icon: FileText, cta: t('results.calc.actUpload'), title: t('results.calc.actUploadBillsTitle'), desc: t('results.calc.actUploadBillsDesc') },
+    wageLoss: { icon: DollarSign, cta: t('results.calc.actAdd'), title: t('results.calc.actAddWageTitle'), desc: t('results.calc.actAddWageDesc') },
   }
   const snapshotTopActions = [
     ...caseCompletenessItems
       .filter((item) => !item.done)
       .map((item) => ({
-        title: snapshotActionMeta[item.label]?.title ?? item.label,
-        desc: snapshotActionMeta[item.label]?.desc ?? 'Strengthens your case.',
+        title: snapshotActionMeta[item.key]?.title ?? item.label,
+        desc: snapshotActionMeta[item.key]?.desc ?? t('results.calc.actStrengthens'),
         boost: item.boost,
-        icon: snapshotActionMeta[item.label]?.icon ?? FileText,
-        cta: snapshotActionMeta[item.label]?.cta ?? 'Add',
+        icon: snapshotActionMeta[item.key]?.icon ?? FileText,
+        cta: snapshotActionMeta[item.key]?.cta ?? t('results.calc.actAdd'),
       })),
-    { title: 'Continue consistent treatment', desc: 'Ongoing treatment improves case value.', boost: '+5%', icon: Calendar, cta: 'Learn more' },
+    { title: t('results.calc.actContinueTreatment'), desc: t('results.calc.actContinueTreatmentDesc'), boost: '+5%', icon: Calendar, cta: t('results.calc.actLearnMore') },
   ].slice(0, 4)
 
   // Localized labels for the case-snapshot cost/action sections (#14). The
@@ -2950,8 +2951,8 @@ Checklist:
     (!hasInjuryPhotos ? 7 : 0)
   const docReadinessBoost = Math.min(rawDocReadinessBoost, Math.max(0, 100 - readinessDetails.percent))
   const docStepDesc = hasMedicalRecords
-    ? 'Add injury photos and wage-loss proof so attorneys see the full picture. Stronger files draw more attorney interest.'
-    : 'Attorneys see a limited summary until you add medical records. Cases with records are valued materially higher.'
+    ? t('results.calc.docStepDescHasRecords')
+    : t('results.calc.docStepDescNoRecords')
 
   // ---- "Your next step" guidance: the single linear path the plaintiff should follow ----
   const nextStepItems: Array<{
@@ -2973,29 +2974,29 @@ Checklist:
     // already completed a review they never did.
     const treatmentReviewStep = medicalChronology.length > 0
       ? [{
-          title: 'Review your treatment timeline',
-          desc: 'Confirm or adjust your medical story so attorneys see an accurate timeline.',
+          title: t('results.calc.nsReviewTimeline'),
+          desc: t('results.calc.nsReviewTimelineDesc'),
           done: !medicalReviewPending,
-          cta: 'Review',
+          cta: t('results.calc.nsReviewCta'),
           action: () => openAnchoredResultsSection('#medical-story-review'),
         }]
       : []
     const docsStep = {
-      title: 'Add records for a stronger review',
+      title: t('results.calc.nsAddRecords'),
       desc: docStepDesc,
       done: keyDocsComplete,
-      boost: 'Strengthens your case',
+      boost: t('results.calc.nsStrengthens'),
       boostPct: docReadinessBoost,
       readiness: readinessDetails.percent,
-      cta: 'Add records',
+      cta: t('results.calc.nsAddRecordsCta'),
       href: evidenceUploadPath,
     }
     const sendStep = {
-      title: 'Send your case for attorney review',
-      desc: 'Attorneys who handle cases like yours review it. Free, with no obligation.',
+      title: t('results.calc.nsSendReview'),
+      desc: t('results.calc.nsSendReviewDesc'),
       done: false,
       primary: true,
-      cta: 'Send for review',
+      cta: t('results.calc.nsSendCta'),
       action: openAttorneyReviewFlow,
     }
     // Send leads (Step 1) as the primary action; adding records follows as Step 2.
@@ -3028,27 +3029,27 @@ Checklist:
   const painSufferingLow = Math.round(displaySettlementLow * 0.4)
   const painSufferingHigh = Math.round(displaySettlementHigh * 0.6)
   const overviewDamageRows = [
-    { label: 'Medical Specials (bills received)', value: documentedMedicalCharges > 0 ? formatCurrency(documentedMedicalCharges) : 'Not provided' },
-    { label: 'Future Medical (estimated)', value: futureMedicalEstimateHigh > 0 ? `${formatCurrency(futureMedicalEstimateLow)} – ${formatCurrency(futureMedicalEstimateHigh)}` : 'Not calculated' },
-    { label: 'Lost Wages (reported)', value: documentedWageLoss > 0 ? formatCurrency(documentedWageLoss) : 'Not provided' },
-    { label: 'Reduced Earning Capacity', value: 'Not calculated' },
-    { label: 'Pain & Suffering (estimated)', value: `${formatCurrency(painSufferingLow)} – ${formatCurrency(painSufferingHigh)}` },
+    { label: t('results.calc.ovMedicalSpecials'), value: documentedMedicalCharges > 0 ? formatCurrency(documentedMedicalCharges) : t('results.calc.ovNotProvided') },
+    { label: t('results.calc.ovFutureMedical'), value: futureMedicalEstimateHigh > 0 ? `${formatCurrency(futureMedicalEstimateLow)} – ${formatCurrency(futureMedicalEstimateHigh)}` : t('results.calc.ovNotCalculated') },
+    { label: t('results.calc.ovLostWages'), value: documentedWageLoss > 0 ? formatCurrency(documentedWageLoss) : t('results.calc.ovNotProvided') },
+    { label: t('results.calc.ovReducedEarning'), value: t('results.calc.ovNotCalculated') },
+    { label: t('results.calc.ovPainSuffering'), value: `${formatCurrency(painSufferingLow)} – ${formatCurrency(painSufferingHigh)}` },
   ]
   const overviewMissingMeta: Record<string, { range: string; priority: 'High' | 'Medium' | 'Low' }> = {
-    'Police report': { range: '+10-15%', priority: 'High' },
-    'Medical records': { range: '+10-15%', priority: 'High' },
-    'Medical bills': { range: '+5-10%', priority: 'Medium' },
-    'Wage loss evidence': { range: '+5-10%', priority: 'Medium' },
+    policeReport: { range: '+10-15%', priority: 'High' },
+    medicalRecords: { range: '+10-15%', priority: 'High' },
+    medicalBills: { range: '+5-10%', priority: 'Medium' },
+    wageLoss: { range: '+5-10%', priority: 'Medium' },
   }
   const overviewMissingRows: { label: string; range: string; priority: 'High' | 'Medium' | 'Low' }[] = caseCompletenessItems
     .filter((item) => !item.done)
     .map((item) => ({
       label: item.label,
-      range: overviewMissingMeta[item.label]?.range ?? item.boost,
-      priority: overviewMissingMeta[item.label]?.priority ?? 'Medium',
+      range: overviewMissingMeta[item.key]?.range ?? item.boost,
+      priority: overviewMissingMeta[item.key]?.priority ?? 'Medium',
     }))
   if (!hasInjuryPhotos) {
-    overviewMissingRows.push({ label: 'Photos of vehicle damage', range: '+2-5%', priority: 'Low' })
+    overviewMissingRows.push({ label: t('results.calc.ovPhotosVehicleDamage'), range: '+2-5%', priority: 'Low' })
   }
   const overviewNarrative = [
     isRearEndCase ? 'You were rear-ended' : `Your ${caseSnapshotClaimLabel.toLowerCase()} occurred`,
@@ -3218,13 +3219,13 @@ Checklist:
   // the confirmation screen (e.g. Download PDF).
   if (caseSubmittedForReview) {
     const submissionTimeline = [
-      { label: 'Case submitted', done: true },
-      { label: 'Attorneys reviewing', done: false },
-      { label: 'Attorney responses', done: false },
-      { label: 'Choose an attorney', done: false }
+      { label: t('results.calc.subCaseSubmitted'), done: true },
+      { label: t('results.calc.subAttorneysReviewing'), done: false },
+      { label: t('results.calc.subAttorneyResponses'), done: false },
+      { label: t('results.calc.subChooseAttorney'), done: false }
     ]
     return (
-      <Suspense fallback={<ResultsPanelSkeleton message="Loading submitted case view..." />}>
+      <Suspense fallback={<ResultsPanelSkeleton message={t('results.calc.subLoading')} />}>
         <ResultsSubmittedView
           assessmentId={assessment?.id}
           assessmentClaimType={assessment?.claimType}
@@ -3883,7 +3884,7 @@ Checklist:
             </div>
             <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
               <MapPin className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
-              <span>{[venueCounty, venueState === 'CA' ? 'California' : venueState].filter(Boolean).join(', ') || t('results.chrome.jurisdictionUnavailable')}</span>
+              <span>{[venueCounty, venueState === 'CA' ? t('results.calc.california') : venueState].filter(Boolean).join(', ') || t('results.chrome.jurisdictionUnavailable')}</span>
             </div>
             <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
               <Calendar className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
@@ -5468,7 +5469,7 @@ Checklist:
                 <>
                   <p className="text-2xl font-bold text-gray-900">{formatCurrency(settlementBenchmarks.p50)}</p>
                   <p className="text-sm text-gray-600 mt-1">
-                    {t('results.value.midpointA')} {formatClaimTypeLabel(assessment?.claimType)} {t('results.value.midpointB')} {venueState === 'CA' ? 'California' : venueState}
+                    {t('results.value.midpointA')} {formatClaimTypeLabel(assessment?.claimType, t)} {t('results.value.midpointB')} {venueState === 'CA' ? t('results.calc.california') : venueState}
                   </p>
                   <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
                     <div className="rounded-lg bg-gray-50 px-3 py-2">
