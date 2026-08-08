@@ -1941,10 +1941,10 @@ export default function Results() {
   const comparativeFaultPercent = Math.round((liabilityDetails?.comparativeNegligence || 0) * 100)
   const liabilitySummary = normalizeReportText(liabilityFactors[0])
     || (liabilityOutlook === 'strong'
-      ? 'The current facts point toward the other side being primarily at fault.'
+      ? t('results.calc.liabSummaryStrong')
       : liabilityOutlook === 'moderate'
-        ? 'Liability looks mixed right now and may depend on more evidence.'
-        : 'Liability is still uncertain and needs better supporting facts.')
+        ? t('results.calc.liabSummaryModerate')
+        : t('results.calc.liabSummaryWeak'))
   const liabilityConfidence = hasPoliceReport || (hasInjuryPhotos && !!parsedFacts?.incident?.narrative)
     ? 'Medium'
     : effectiveEvidenceCount > 0 || !!parsedFacts?.incident?.narrative
@@ -1953,21 +1953,21 @@ export default function Results() {
   const comparativeFaultRisk = comparativeFaultPercent >= 30 ? 'High' : comparativeFaultPercent > 0 ? 'Medium' : 'Low'
   const liabilityPositiveSignals = [
     ...liabilityFactors,
-    hasPoliceReport && 'A police or incident report is attached.',
-    hasInjuryPhotos && 'Photos may help show scene conditions or damage.',
-    parsedFacts?.incident?.narrative && 'Your incident description gives attorneys a starting fault story.',
+    hasPoliceReport && t('results.calc.liabPosPoliceReport'),
+    hasInjuryPhotos && t('results.calc.liabPosPhotos'),
+    parsedFacts?.incident?.narrative && t('results.calc.liabPosNarrative'),
   ].filter(Boolean).slice(0, 4) as string[]
   const liabilityRiskSignals = [
-    !hasPoliceReport && 'A police or incident report is not uploaded yet.',
-    !hasInjuryPhotos && 'Scene, injury, or damage photos are not uploaded yet.',
-    !parsedFacts?.incident?.narrative && 'The accident description is still limited.',
-    comparativeFaultPercent > 0 && `The model detected possible shared-fault risk around ${comparativeFaultPercent}%.`,
+    !hasPoliceReport && t('results.calc.liabRiskNoPolice'),
+    !hasInjuryPhotos && t('results.calc.liabRiskNoPhotos'),
+    !parsedFacts?.incident?.narrative && t('results.calc.liabRiskLimitedDesc'),
+    comparativeFaultPercent > 0 && t('results.calc.liabRiskSharedFault', { percent: comparativeFaultPercent }),
   ].filter(Boolean).slice(0, 4) as string[]
   const liabilityStrengthenActions = [
-    !hasPoliceReport && 'Upload the police or incident report.',
-    !hasInjuryPhotos && 'Add scene, vehicle/property damage, or injury photos.',
-    !parsedFacts?.incident?.narrative && 'Clarify what happened and why the other party may be responsible.',
-    'Add witness names, insurance details, or repair estimates if available.',
+    !hasPoliceReport && t('results.calc.liabActUploadPolice'),
+    !hasInjuryPhotos && t('results.calc.liabActAddPhotos'),
+    !parsedFacts?.incident?.narrative && t('results.calc.liabActClarify'),
+    t('results.calc.liabActAddWitness'),
   ].filter(Boolean).slice(0, 3) as string[]
   const evidenceLevelConfidence = (() => {
     if (effectiveEvidenceCount === 0) return { level: 'No documents', confidence: 'Low' }
@@ -3067,50 +3067,51 @@ Checklist:
   const liabFaultYou = clampPercent(Math.round((100 - liabilityPercent) * 0.35))
   const liabFaultShared = clampPercent(100 - liabFaultOther - liabFaultYou)
   const liabMostLikelyAtFault = liabFaultOther >= liabFaultShared && liabFaultOther >= liabFaultYou
-    ? 'Other Driver'
-    : liabFaultShared >= liabFaultYou ? 'Shared Fault' : 'You'
+    ? t('results.calc.faultOtherDriver')
+    : liabFaultShared >= liabFaultYou ? t('results.calc.faultShared') : t('results.calc.faultYou')
   const sharedFaultRiskWord = liabilityPercent >= 65 ? 'Low' : liabilityPercent >= 45 ? 'Medium' : 'High'
-  const sharedFaultRiskDesc = sharedFaultRiskWord === 'Low' ? 'Estimated 20% or less' : sharedFaultRiskWord === 'Medium' ? 'Estimated 20–40%' : 'Estimated 40% or more'
+  const sharedFaultRiskLabel = sharedFaultRiskWord === 'Low' ? t('results.calc.riskLow') : sharedFaultRiskWord === 'Medium' ? t('results.calc.strengthModerate') : t('results.calc.strengthHigh')
+  const sharedFaultRiskDesc = sharedFaultRiskWord === 'Low' ? t('results.calc.sharedFaultDescLow') : sharedFaultRiskWord === 'Medium' ? t('results.calc.sharedFaultDescMedium') : t('results.calc.sharedFaultDescHigh')
   const sharedFaultRiskPos = sharedFaultRiskWord === 'Low' ? 18 : sharedFaultRiskWord === 'Medium' ? 50 : 82
-  const liabStrengthLabel = liabilityPercent >= 70 ? 'Strongly Favorable' : liabilityPercent >= 55 ? 'Moderately Favorable' : liabilityPercent >= 40 ? 'Mixed' : 'Needs Proof'
+  const liabStrengthLabel = liabilityPercent >= 70 ? t('results.calc.liabStronglyFavorable') : liabilityPercent >= 55 ? t('results.calc.liabModeratelyFavorable') : liabilityPercent >= 40 ? t('results.calc.liabMixed') : t('results.calc.liabNeedsProof')
   const liabStrongFactors = ([
-    isRearEndCase ? { label: 'Rear-end collision', impact: 25 } : null,
-    (treatment.length > 0 || hasMedicalRecords) ? { label: 'Immediate medical treatment', impact: 10 } : null,
-    hasMriReportedFlag ? { label: 'Injury pattern consistent', impact: 8 } : null,
-    { label: 'Consistent timeline reported', impact: 7 },
-    { label: 'Defendant identified', impact: 5 },
+    isRearEndCase ? { label: t('results.calc.liabFactorRearEnd'), impact: 25 } : null,
+    (treatment.length > 0 || hasMedicalRecords) ? { label: t('results.calc.liabFactorImmediateTreatment'), impact: 10 } : null,
+    hasMriReportedFlag ? { label: t('results.calc.liabFactorInjuryConsistent'), impact: 8 } : null,
+    { label: t('results.calc.liabFactorConsistentTimeline'), impact: 7 },
+    { label: t('results.calc.liabFactorDefendantIdentified'), impact: 5 },
   ].filter(Boolean) as { label: string; impact: number }[])
   const liabPositiveTotal = liabStrongFactors.reduce((sum, f) => sum + f.impact, 0)
   const liabInsuranceArgues = ([
-    !hasPoliceReport ? 'No police report uploaded' : null,
-    !hasWitnessStatements ? 'No witness statements identified' : null,
-    !hasInjuryPhotos ? 'No scene or vehicle damage photos' : null,
-    'Liability based mostly on your description',
-    isRearEndCase ? 'Possible argument of sudden stop' : null,
+    !hasPoliceReport ? t('results.calc.liabArgueNoPolice') : null,
+    !hasWitnessStatements ? t('results.calc.liabArgueNoWitness') : null,
+    !hasInjuryPhotos ? t('results.calc.liabArgueNoPhotos') : null,
+    t('results.calc.liabArgueDescriptionOnly'),
+    isRearEndCase ? t('results.calc.liabArgueSuddenStop') : null,
   ].filter(Boolean) as string[])
   const liabNegativeTotal = Math.min(45, liabInsuranceArgues.length * 7)
   const liabAdditionalEvidence = ([
-    !hasPoliceReport ? { label: 'Police report', impact: 15, icon: FileText } : null,
-    !hasWitnessStatements ? { label: 'Witness statement', impact: 12, icon: User } : null,
-    !hasInjuryPhotos ? { label: 'Scene photos', impact: 10, icon: MapPin } : null,
-    { label: 'Traffic citation', impact: 10, icon: Scale },
-    { label: 'Dashcam / video', impact: 20, icon: Activity },
+    !hasPoliceReport ? { label: t('results.calc.liabEvPoliceReport'), impact: 15, icon: FileText } : null,
+    !hasWitnessStatements ? { label: t('results.calc.liabEvWitnessStatement'), impact: 12, icon: User } : null,
+    !hasInjuryPhotos ? { label: t('results.calc.liabEvScenePhotos'), impact: 10, icon: MapPin } : null,
+    { label: t('results.calc.liabEvTrafficCitation'), impact: 10, icon: Scale },
+    { label: t('results.calc.liabEvDashcam'), impact: 20, icon: Activity },
   ].filter(Boolean) as { label: string; impact: number; icon: typeof FileText }[])
   const liabMaxIncrease = liabAdditionalEvidence.reduce((sum, e) => sum + e.impact, 0)
   // Projecting a liability gain requires a measured starting point.
   const liabImproveSteps = !hasLiabilityScore ? [] : [
-    { score: `${clampPercent(Math.round(liabilityPercent))}%`, label: 'Current Score', desc: "Based on today's information" },
-    { score: `${clampPercent(Math.round(liabilityPercent) + 15)}%`, label: '+ Police report', desc: 'Strong official documentation' },
-    { score: `${clampPercent(Math.round(liabilityPercent) + 25)}%`, label: '+ Police report + Photos', desc: 'Visual proof supports your version' },
-    { score: `${clampPercent(Math.round(liabilityPercent) + 35)}%`, label: '+ Report + Photos + Witness', desc: 'Strong position with multiple evidence' },
-    { score: '95%+', label: '+ Report + Photos + Video', desc: 'Very strong liability position' },
+    { score: `${clampPercent(Math.round(liabilityPercent))}%`, label: t('results.calc.liabStepCurrent'), desc: t('results.calc.liabStepCurrentDesc') },
+    { score: `${clampPercent(Math.round(liabilityPercent) + 15)}%`, label: t('results.calc.liabStepPolice'), desc: t('results.calc.liabStepPoliceDesc') },
+    { score: `${clampPercent(Math.round(liabilityPercent) + 25)}%`, label: t('results.calc.liabStepPolicePhotos'), desc: t('results.calc.liabStepPolicePhotosDesc') },
+    { score: `${clampPercent(Math.round(liabilityPercent) + 35)}%`, label: t('results.calc.liabStepReportPhotosWitness'), desc: t('results.calc.liabStepReportPhotosWitnessDesc') },
+    { score: '95%+', label: t('results.calc.liabStepReportPhotosVideo'), desc: t('results.calc.liabStepReportPhotosVideoDesc') },
   ]
   const liabVenueImpactLow = Math.max(5, Math.round(venueImpactPercent * 0.6))
   const liabRecommendedSteps = [
-    { label: 'Upload police report', impact: '+15%', desc: 'Highest impact evidence' },
-    { label: 'Add witness information', impact: '+12%', desc: 'Independent accounts help' },
-    { label: 'Upload scene photos', impact: '+10%', desc: 'Visual evidence is powerful' },
-    { label: 'Confirm insurance details', impact: '+8%', desc: 'Helps identify all coverage' },
+    { label: t('results.calc.liabRecUploadPolice'), impact: '+15%', desc: t('results.calc.liabRecUploadPoliceDesc') },
+    { label: t('results.calc.liabRecAddWitness'), impact: '+12%', desc: t('results.calc.liabRecAddWitnessDesc') },
+    { label: t('results.calc.liabRecUploadPhotos'), impact: '+10%', desc: t('results.calc.liabRecUploadPhotosDesc') },
+    { label: t('results.calc.liabRecConfirmInsurance'), impact: '+8%', desc: t('results.calc.liabRecConfirmInsuranceDesc') },
   ]
 
   // ---- Medical Story tab derived values ----
@@ -4293,7 +4294,7 @@ Checklist:
             {/* Shared fault risk */}
             <div className="rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-sm">
               <p className="flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500"><Shield className="h-3.5 w-3.5" aria-hidden /> {t('results.liability.sharedFaultRisk')}</p>
-              <p className="mt-3 font-display text-2xl font-bold text-emerald-600">{sharedFaultRiskWord}</p>
+              <p className="mt-3 font-display text-2xl font-bold text-emerald-600">{sharedFaultRiskLabel}</p>
               <p className="text-[11px] text-slate-500">{sharedFaultRiskDesc}</p>
               <p className="mt-4 text-[11px] text-slate-500">{t('results.liability.comparativeNegligence')}</p>
               <div className="mt-2">
