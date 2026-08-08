@@ -579,7 +579,12 @@ export default function AttorneyDashboardProfileTab({
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Firm Name</label>
-                {editing ? (
+                {/* Firm-level details are owned by the firm, not the individual
+                    attorney. Associates linked to a firm must not edit firm info
+                    from their personal profile — it is managed centrally via the
+                    Firm Dashboard (CP-591). Only solo attorneys (no firm link)
+                    can set their firm name here. */}
+                {editing && !hasFirmDashboard ? (
                   <input
                     type="text"
                     value={profile.firmName || ''}
@@ -589,7 +594,12 @@ export default function AttorneyDashboardProfileTab({
                     maxLength={160}
                   />
                 ) : (
-                  <p className="text-gray-900">{profile.firmName || 'Not provided'}</p>
+                  <>
+                    <p className="text-gray-900">{profile.firmName || 'Not provided'}</p>
+                    {editing && hasFirmDashboard ? (
+                      <p className="mt-1 text-xs text-gray-500">Managed by your firm. Update firm details from the Firm Dashboard.</p>
+                    ) : null}
+                  </>
                 )}
               </div>
               {firmLocations.length > 0 ? (

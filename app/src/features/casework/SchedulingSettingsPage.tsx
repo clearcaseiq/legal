@@ -807,6 +807,11 @@ function EventTypesCard({ settings, onChanged }: { settings: SchedulingSettings;
 
       {editing && (
         <EventTypeForm
+          // Remount when switching between "new" and a specific type (or between
+          // two types) so the form re-seeds from the selected value. Without this
+          // the internal form state persists, and clicking Edit on an existing
+          // type after typing a new one overwrites it with the typed values (CP-585).
+          key={editing.id ?? 'new'}
           value={editing}
           onCancel={() => setEditing(null)}
           onSaved={() => {
