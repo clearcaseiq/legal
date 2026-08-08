@@ -78,6 +78,19 @@ export default function ScheduleConsultPage() {
   const [zoomStatus, setZoomStatus] = useState<AttorneyZoomStatus | null>(null)
   const [zoomConnecting, setZoomConnecting] = useState(false)
 
+  // Keep the controlled <select> value in the option list. When the attorney
+  // picks today after a default like "2:00 PM" has already passed, a stale
+  // value looked selectable but the API rejected it as past (CP-598).
+  useEffect(() => {
+    if (availableSlots.length === 0) {
+      if (time) setTime('')
+      return
+    }
+    if (!availableSlots.includes(time)) {
+      setTime(availableSlots[0])
+    }
+  }, [date, availableSlots, time])
+
   useEffect(() => {
     if (!leadId) {
       setError('No case selected')
@@ -272,7 +285,8 @@ export default function ScheduleConsultPage() {
               <select
                 value={time}
                 onChange={(e) => setTime(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500"
+                disabled={availableSlots.length === 0}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 disabled:bg-gray-50"
               >
                 {availableSlots.length === 0 ? (
                   <option value="">No times left today. Pick another date</option>
@@ -365,7 +379,7 @@ export default function ScheduleConsultPage() {
             </button>
             <button
               onClick={handleSubmit}
-              disabled={saving || zoomNeedsConnect}
+              disabled={saving || zoomNeedsConnect || !time || availableSlots.length === 0}
               title={zoomNeedsConnect ? 'Connect your Zoom account first' : undefined}
               className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >

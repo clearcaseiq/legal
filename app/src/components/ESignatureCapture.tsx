@@ -264,9 +264,9 @@ export default function ESignatureCapture({
     !hasSignature || (signatureMethod === 'typed' && !typedSignature.trim())
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[110] overflow-y-auto p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[calc(100vh-2rem)] overflow-y-auto">
-        <div className="flex items-center justify-between p-6 border-b">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-stretch sm:items-center justify-center z-[110] overflow-y-auto p-0 sm:p-4">
+      <div className="bg-white sm:rounded-lg shadow-xl w-full sm:max-w-2xl h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[calc(100dvh-2rem)] overflow-y-auto">
+        <div className="flex items-center justify-between p-4 sm:p-6 border-b">
           <h3 className="text-lg font-semibold text-gray-900">Electronic Signature</h3>
           <button type="button" onClick={onCancel} className="text-gray-400 hover:text-gray-600" aria-label="Close">
             <X className="h-6 w-6" />
@@ -435,11 +435,11 @@ export default function ESignatureCapture({
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
+        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3 p-4 sm:p-6 border-t bg-gray-50 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            className="px-4 py-3 sm:py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
           >
             Cancel
           </button>
@@ -447,7 +447,7 @@ export default function ESignatureCapture({
             type="button"
             onClick={handleSubmit}
             disabled={submitDisabled}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-3 sm:py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Submit Signature
           </button>

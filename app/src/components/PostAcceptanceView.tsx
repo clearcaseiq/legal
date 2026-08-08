@@ -241,9 +241,19 @@ export default function PostAcceptanceView({
     try {
       const dt = new Date(scheduledAt)
       if (selectedLead?.id) {
+        // Use local wall-clock date/time (not UTC ISO) so a late-day slot doesn't
+        // shift to the next calendar day, and format AM/PM the way the schedule
+        // API expects (CP-598).
+        const pad = (n: number) => String(n).padStart(2, '0')
+        const date = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`
+        const h24 = dt.getHours()
+        const mins = dt.getMinutes()
+        const isPm = h24 >= 12
+        const h12 = h24 % 12 === 0 ? 12 : h24 % 12
+        const time = `${h12}:${pad(mins)} ${isPm ? 'PM' : 'AM'}`
         await scheduleConsultation(selectedLead.id, {
-          date: dt.toISOString().slice(0, 10),
-          time: dt.toTimeString().slice(0, 5),
+          date,
+          time,
           meetingType,
         })
       } else if (onCreateContact) {

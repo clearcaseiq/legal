@@ -63,6 +63,8 @@ export function AttorneyWorkspaceProvider({ children }: { children: ReactNode })
 
   // Poll the unread-message counts so the "Messages" / "Team Chat" nav badges stay
   // fresh while the attorney works elsewhere. Best-effort; errors are ignored.
+  // Also refresh immediately when a thread is marked read (CP-602) or the tab
+  // regains focus / visibility.
   useEffect(() => {
     let cancelled = false
     const refresh = async () => {
@@ -88,11 +90,19 @@ export function AttorneyWorkspaceProvider({ children }: { children: ReactNode })
     refresh()
     const id = window.setInterval(refresh, UNREAD_POLL_MS)
     const onFocus = () => refresh()
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    const onMarkedRead = () => refresh()
     window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('attorney-unread-refresh', onMarkedRead)
     return () => {
       cancelled = true
       window.clearInterval(id)
       window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('attorney-unread-refresh', onMarkedRead)
     }
   }, [])
 

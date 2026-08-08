@@ -3910,7 +3910,7 @@
     "cat_photos": "Photos",
     "cat_correspondence": "Correspondence",
     "cat_other": "Other",
-    "status_pending": "Pending",
+    "status_pending": "Uploaded",
     "status_processing": "Processing",
     "status_completed": "Completed",
     "status_failed": "Failed",

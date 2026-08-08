@@ -252,7 +252,12 @@ export default function ConsentWorkflow({
 
   const wrap = (inner: ReactNode) => {
     if (presentation === 'inline') return <div className="w-full max-w-4xl mx-auto px-4">{inner}</div>
-    return <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 overflow-y-auto">{inner}</div>
+    // Mobile: edge-to-edge sheet so the dialog isn't a tiny inset card (CP-547).
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-stretch sm:items-center justify-center z-[100] p-0 sm:p-4 overflow-y-auto">
+        {inner}
+      </div>
+    )
   }
 
   // —— Combined attestation: all documents, one checkbox, one signature; API still gets one record per type ——
@@ -265,39 +270,38 @@ export default function ConsentWorkflow({
         role="dialog"
         aria-modal="true"
         aria-labelledby="consent-workflow-title"
-        className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-4xl w-full border border-slate-200 dark:border-slate-700 flex flex-col max-h-[calc(100vh-2rem)]"
+        className="bg-white dark:bg-slate-900 sm:rounded-lg shadow-xl w-full sm:max-w-4xl border-0 sm:border border-slate-200 dark:border-slate-700 flex flex-col h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[calc(100dvh-2rem)]"
       >
-        <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
-          <div>
-            <h3 id="consent-workflow-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+        <div className="flex items-start justify-between gap-3 p-4 sm:p-6 border-b border-slate-200 dark:border-slate-700 shrink-0">
+          <div className="min-w-0">
+            <h3 id="consent-workflow-title" className="text-base sm:text-lg font-semibold text-slate-900 dark:text-slate-100">
               Review and e-sign agreements
             </h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
               {requiredConsents.length} document{requiredConsents.length !== 1 ? 's' : ''} · one electronic signature
             </p>
-            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-              <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" aria-hidden /> Takes about a minute</span>
-              <span className="inline-flex items-center gap-1"><Lock className="h-3.5 w-3.5" aria-hidden /> Secure &amp; encrypted</span>
-              <span className="inline-flex items-center gap-1"><Mail className="h-3.5 w-3.5" aria-hidden /> We&apos;ll email you a copy of each signed agreement</span>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+              <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" aria-hidden /> About a minute</span>
+              <span className="inline-flex items-center gap-1"><Lock className="h-3.5 w-3.5" aria-hidden /> Secure</span>
+              <span className="hidden sm:inline-flex items-center gap-1"><Mail className="h-3.5 w-3.5" aria-hidden /> We&apos;ll email you a copy of each signed agreement</span>
             </div>
           </div>
           <button
             type="button"
             onClick={onCancel}
-            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg p-1 pressable"
+            className="shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg p-2 -mr-1 pressable"
             aria-label="Exit and sign out"
           >
             <X className="h-6 w-6" />
           </button>
         </div>
 
-        <div className="px-6 py-3 bg-amber-50/80 dark:bg-amber-950/30 border-b border-amber-100 dark:border-amber-900/50 text-xs text-amber-950 dark:text-amber-200">
-          <strong className="font-medium">Legal notice:</strong> Each agreement is stored separately with its version ID for
-          your records. Your single electronic signature below applies to each document version shown. Have counsel review this
-          flow if you change wording or process.
+        <div className="px-4 sm:px-6 py-2.5 sm:py-3 bg-amber-50/80 dark:bg-amber-950/30 border-b border-amber-100 dark:border-amber-900/50 text-xs text-amber-950 dark:text-amber-200 shrink-0">
+          <strong className="font-medium">Legal notice:</strong> Each agreement is stored separately. Your single
+          electronic signature applies to each document version shown.
         </div>
 
-        <div className="px-6 py-3 border-b border-slate-200 dark:border-slate-700">
+        <div className="px-4 sm:px-6 py-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Your progress</span>
             <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">{reviewedCount} of {requiredConsents.length} reviewed</span>
@@ -309,7 +313,7 @@ export default function ConsentWorkflow({
                 <a
                   key={type}
                   href={`#consent-section-${type}`}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 sm:px-3 py-1 text-xs sm:text-sm font-medium transition-colors ${
                     seen
                       ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
                       : 'border-slate-200 bg-white text-slate-600 hover:text-brand-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
@@ -325,7 +329,7 @@ export default function ConsentWorkflow({
           </div>
         </div>
 
-        <div className="p-6 space-y-10 flex-1 min-h-0 overflow-y-auto">
+        <div className="p-4 sm:p-6 space-y-8 sm:space-y-10 flex-1 min-h-0 overflow-y-auto overscroll-contain">
           {requiredConsents.map((type) => {
             const template = consentTemplates[type]
             const fullPath = fullPagePath[type]
@@ -424,10 +428,10 @@ export default function ConsentWorkflow({
           })}
         </div>
 
-        <div className="p-6 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 space-y-4">
+        <div className="p-4 sm:p-6 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 space-y-3 sm:space-y-4 shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {!allViewed && (
             <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-300">
-              <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
               Scroll through each agreement above to continue ({reviewedCount} of {requiredConsents.length} reviewed).
             </p>
           )}
@@ -435,7 +439,7 @@ export default function ConsentWorkflow({
             <input
               type="checkbox"
               disabled={!allViewed}
-              className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 disabled:cursor-not-allowed"
+              className="mt-1 h-5 w-5 sm:h-4 sm:w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 disabled:cursor-not-allowed"
               checked={combinedAttested}
               onChange={(e) => setCombinedAttested(e.target.checked)}
             />
@@ -446,12 +450,12 @@ export default function ConsentWorkflow({
             </span>
           </label>
 
-          <div className="flex justify-end">
+          <div className="flex justify-stretch sm:justify-end">
             <button
               type="button"
               disabled={!combinedAttested || !allViewed}
               onClick={() => setShowSignature(true)}
-              className="px-4 py-2 text-sm font-medium text-white bg-brand-600 border border-transparent rounded-md hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed pressable"
+              className="w-full sm:w-auto px-4 py-3 sm:py-2 text-sm font-medium text-white bg-brand-600 border border-transparent rounded-md hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed pressable"
             >
               Continue to e-signature
             </button>
@@ -473,10 +477,10 @@ export default function ConsentWorkflow({
       role="dialog"
       aria-modal="true"
       aria-labelledby="consent-workflow-title"
-      className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-slate-200 dark:border-slate-700"
+      className="bg-white dark:bg-slate-900 sm:rounded-lg shadow-xl w-full sm:max-w-4xl h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[90vh] overflow-y-auto border-0 sm:border border-slate-200 dark:border-slate-700"
     >
-      <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
-        <div>
+      <div className="flex items-start justify-between gap-3 p-4 sm:p-6 border-b border-slate-200 dark:border-slate-700">
+        <div className="min-w-0">
           <h3 id="consent-workflow-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">
             Legal consent required
           </h3>

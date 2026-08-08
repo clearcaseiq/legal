@@ -1044,6 +1044,11 @@ export async function sendAttorneyMessage(chatRoomId: string, content: string, m
 
 export async function markAttorneyMessagesRead(chatRoomId: string) {
   const { data } = await api.put(`/v1/attorney-dashboard/messaging/chat-room/${chatRoomId}/read`)
+  // Nav unread badges poll on an interval; nudge them immediately so the
+  // Messages count drops as soon as the attorney opens/reads a thread (CP-602).
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('attorney-unread-refresh'))
+  }
   return data
 }
 

@@ -3910,7 +3910,7 @@
     "cat_photos": "照片",
     "cat_correspondence": "往来信函",
     "cat_other": "其他",
-    "status_pending": "待处理",
+    "status_pending": "已上传",
     "status_processing": "处理中",
     "status_completed": "已完成",
     "status_failed": "失败",

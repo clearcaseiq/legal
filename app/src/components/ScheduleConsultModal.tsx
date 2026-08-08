@@ -48,6 +48,32 @@ export default function ScheduleConsultModal({
   const [meetingType, setMeetingType] = useState<string>('phone')
   const [notes, setNotes] = useState('')
   const [zoomStatus, setZoomStatus] = useState<AttorneyZoomStatus | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+
+  const slotToMinutes = (slot: string): number => {
+    const isPm = /pm/i.test(slot)
+    const [hRaw, mRaw] = slot.replace(/\s*[AP]M/i, '').trim().split(':')
+    let h = parseInt(hRaw || '0', 10)
+    if (isPm && h < 12) h += 12
+    if (!isPm && h === 12) h = 0
+    return h * 60 + (parseInt(mRaw || '0', 10) || 0)
+  }
+  const isToday = date === todayStr
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  // Hide past slots for today and keep the selected time in the option list so
+  // the next available slot can actually be submitted (CP-598).
+  const availableSlots = isToday ? TIME_SLOTS.filter((s) => slotToMinutes(s) > nowMinutes) : TIME_SLOTS
+
+  useEffect(() => {
+    if (!isOpen) return
+    if (availableSlots.length === 0) {
+      setTime('')
+      return
+    }
+    if (!availableSlots.includes(time)) {
+      setTime(availableSlots[0])
+    }
+  }, [isOpen, date, availableSlots, time])
 
   // Selecting "Zoom" used to give no indication of whether a link would actually
   // be created, so on a server without Zoom credentials the consult was booked
@@ -62,6 +88,11 @@ export default function ScheduleConsultModal({
   }, [isOpen, meetingType, zoomStatus])
 
   const handleSubmit = async () => {
+    if (!time || (isToday && slotToMinutes(time) <= nowMinutes)) {
+      setSubmitError('Please choose a time later today. You cannot schedule a consultation in the past.')
+      return
+    }
+    setSubmitError(null)
     await onSubmit({ date, time, meetingType, notes: notes.trim() || undefined })
     onClose()
   }
@@ -89,6 +120,11 @@ export default function ScheduleConsultModal({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
             />
           </div>
+          {submitError && (
+            <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+              {submitError}
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Select time:</label>
             <select
@@ -96,9 +132,13 @@ export default function ScheduleConsultModal({
               onChange={e => setTime(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
             >
-              {TIME_SLOTS.map(slot => (
-                <option key={slot} value={slot}>{slot}</option>
-              ))}
+              {availableSlots.length === 0 ? (
+                <option value="">No times left today. Pick another date</option>
+              ) : (
+                availableSlots.map(slot => (
+                  <option key={slot} value={slot}>{slot}</option>
+                ))
+              )}
             </select>
           </div>
           <div>
@@ -150,7 +190,7 @@ export default function ScheduleConsultModal({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={loading}
+            disabled={loading || !time || availableSlots.length === 0}
             className="px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 disabled:opacity-50"
           >
             {loading ? 'Scheduling…' : 'Schedule Consultation'}

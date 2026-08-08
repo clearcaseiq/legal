@@ -109,10 +109,11 @@ export default function EvidenceDashboard() {
     const label = t(key)
     return label === key ? value.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()) : label
   }
-  const statusLabel = (value: string) => {
-    const key = `evidence.status_${value}`
+  const statusLabel = (value?: string | null) => {
+    const status = (value || 'pending').toLowerCase()
+    const key = `evidence.status_${status}`
     const label = t(key)
-    return label === key ? value.charAt(0).toUpperCase() + value.slice(1) : label
+    return label === key ? status.charAt(0).toUpperCase() + status.slice(1) : label
   }
   const [files, setFiles] = useState<EvidenceFile[]>([])
   const [filteredFiles, setFilteredFiles] = useState<EvidenceFile[]>([])
@@ -594,8 +595,14 @@ export default function EvidenceDashboard() {
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-1 shrink-0">
-                    {getProcessingStatusIcon(file.processingStatus)}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700"
+                      title={statusLabel(file.processingStatus)}
+                    >
+                      {getProcessingStatusIcon(file.processingStatus)}
+                      {statusLabel(file.processingStatus)}
+                    </span>
                     <button
                       onClick={() => handleDeleteFile(file.id)}
                       className="w-8 h-8 flex-none inline-flex items-center justify-center rounded text-red-500 hover:text-red-700 hover:bg-red-50"
