@@ -17,7 +17,7 @@ const ACCEPTED_STATUSES = ['contacted', 'consulted', 'retained']
 // a scheduled consult; a consulted case works toward a signed retainer. These SLA
 // offsets turn a case's last-updated date into a concrete "next action" due date.
 const STAGE: Record<string, { label: string; tone: StageTone; nextAction: string; slaDays: number }> = {
-  contacted: { label: 'Contacted', tone: 'info', nextAction: 'Schedule consult', slaDays: 2 },
+  contacted: { label: 'Accepted', tone: 'info', nextAction: 'Schedule consult', slaDays: 2 },
   consulted: { label: 'Consult scheduled', tone: 'warning', nextAction: 'Send retainer', slaDays: 3 },
   retained: { label: 'Retained', tone: 'success', nextAction: 'Prepare demand', slaDays: 14 },
 }
@@ -487,7 +487,7 @@ export default function ActiveCasesPage() {
         label: 'Stage',
         options: [
           { value: '', label: 'All stages' },
-          { value: 'contacted', label: 'Contacted' },
+          { value: 'contacted', label: 'Accepted' },
           { value: 'consulted', label: 'Consult scheduled' },
           { value: 'retained', label: 'Retained' },
         ],

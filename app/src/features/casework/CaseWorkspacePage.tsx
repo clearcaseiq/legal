@@ -111,7 +111,10 @@ function claimLabel(type?: string) {
 
 const STATUS_LABEL: Record<string, string> = {
   submitted: 'New match',
-  contacted: 'Contacted',
+  // First post-acceptance stage. Shown as "Accepted" so a freshly accepted
+  // case reads clearly to the attorney instead of the internal "Contacted"
+  // pipeline value (CP-597).
+  contacted: 'Accepted',
   consulted: 'Consult scheduled',
   retained: 'Retained',
   rejected: 'Declined',
