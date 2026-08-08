@@ -3856,11 +3856,12 @@ export default function IntakeWizardQuick() {
                       </div>
                     )}
                     {(!detectedLocation || locationAccepted || formData.venue.state) && (
-                      // State & County hold long values ("California", "Los Angeles") so
-                      // give them more width; City is optional/short, so it gets less.
-                      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.2fr)]">
+                      // Keep State/County/City stacked through tablet widths so the
+                      // native dropdowns stay readable (CP-544). Side-by-side from md+.
+                      // text-base on mobile avoids iOS focus-zoom; md:text-sm restores denser desktop.
+                      <div className="grid grid-cols-1 gap-2.5 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.3fr)_minmax(0,1.2fr)]">
                         <div className="min-w-0">
-                          <label className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-gray-700"><MapPin className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {t('intake.state')}<span className="ml-0.5 font-semibold text-red-500" aria-hidden>*</span></label>
+                          <label className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-gray-700 md:text-xs"><MapPin className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {t('intake.state')}<span className="ml-0.5 font-semibold text-red-500" aria-hidden>*</span></label>
                           <select
                             value={formData.venue.state}
                             onChange={e => {
@@ -3875,26 +3876,26 @@ export default function IntakeWizardQuick() {
                                 city: stateChanged ? '' : formData.venue.city,
                               })
                             }}
-                            className={`input w-full text-xs border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.state ? 'border-red-500' : ''}`}
+                            className={`input w-full border-gray-300 text-base focus-visible:ring-inset focus-visible:ring-offset-0 md:text-sm ${errors.state ? 'border-red-500' : ''}`}
                           >
                             <option value="">{t('intake.selectState')}</option>
                             {US_STATES.map(s => (<option key={s.code} value={s.code}>{s.name}</option>))}
                           </select>
                         </div>
                         <div className="min-w-0">
-                          <label className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-gray-700"><Building2 className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {t('intake.county')}<span className="ml-0.5 font-semibold text-red-500" aria-hidden>*</span></label>
+                          <label className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-gray-700 md:text-xs"><Building2 className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {t('intake.county')}<span className="ml-0.5 font-semibold text-red-500" aria-hidden>*</span></label>
                           {countyOptions.length > 0 ? (
-                            <select value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full text-xs border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.county ? 'border-red-500' : ''}`}>
+                            <select value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full border-gray-300 text-base focus-visible:ring-inset focus-visible:ring-offset-0 md:text-sm ${errors.county ? 'border-red-500' : ''}`}>
                               <option value="">{t('intake.searchCounty')}</option>
                               {(countyOptions ?? []).map(c => (<option key={c} value={c}>{c}</option>))}
                             </select>
                           ) : (
-                            <input type="text" maxLength={80} value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full text-xs border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0 ${errors.county ? 'border-red-500' : ''}`} placeholder={tx('where_countyPlaceholder')} />
+                            <input type="text" maxLength={80} value={formData.venue.county} onChange={e => updateVenue({ county: e.target.value })} className={`input w-full border-gray-300 text-base focus-visible:ring-inset focus-visible:ring-offset-0 md:text-sm ${errors.county ? 'border-red-500' : ''}`} placeholder={tx('where_countyPlaceholder')} />
                           )}
                         </div>
                         <div className="min-w-0">
-                          <label className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-gray-700"><MapPin className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {t('intake.city')}</label>
-                          <input type="text" maxLength={80} value={formData.venue.city} onChange={e => updateVenue({ city: e.target.value })} className="input w-full text-xs border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0" placeholder={tx('where_cityPlaceholder')} />
+                          <label className="mb-1 flex items-center gap-1.5 whitespace-nowrap text-sm font-medium text-gray-700 md:text-xs"><MapPin className="h-3.5 w-3.5 shrink-0 text-brand-600" /> {t('intake.city')}</label>
+                          <input type="text" maxLength={80} value={formData.venue.city} onChange={e => updateVenue({ city: e.target.value })} className="input w-full border-gray-300 text-base focus-visible:ring-inset focus-visible:ring-offset-0 md:text-sm" placeholder={tx('where_cityPlaceholder')} />
                         </div>
                       </div>
                     )}
@@ -3953,7 +3954,7 @@ export default function IntakeWizardQuick() {
                       id="injuredParty-when"
                       value={formData.injuredParty}
                       onChange={(e) => updateForm({ injuredParty: e.target.value as typeof formData.injuredParty })}
-                      className="input w-full max-w-xs text-xs border-gray-300 focus-visible:ring-inset focus-visible:ring-offset-0"
+                      className="input w-full max-w-md border-gray-300 text-base focus-visible:ring-inset focus-visible:ring-offset-0 md:max-w-xs md:text-sm"
                     >
                       <option value="self">{tx('injuredParty_self')}</option>
                       <option value="child">{tx('injuredParty_child')}</option>

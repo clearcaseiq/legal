@@ -221,7 +221,9 @@ export async function serializeCaseWorkflow(cw: any) {
     return item.status
   }
 
-  // Group items into phases -> stages.
+  // Group items into phases -> stages. First pass uses signal-derived AI status;
+  // a second pass below auto-completes AI milestones once every sibling
+  // (non-AI) step in the same stage is done (CP-581).
   type StageNode = { name: string; order: number; steps: any[] }
   type PhaseNode = { name: string; order: number; stages: StageNode[]; stageMap: Map<number, StageNode> }
   const phaseMap = new Map<number, PhaseNode>()
@@ -255,6 +257,24 @@ export async function serializeCaseWorkflow(cw: any) {
       status: aiStatusFor(it),
       completedAt: it.completedAt,
     })
+  }
+
+  // When the attorney finishes every manual step in a stage, the Auto/AI
+  // milestone in that stage should read as complete too — otherwise the
+  // Workflow tab looks stuck even after "all the workflow steps" are done
+  // (CP-581). Signal-derived done still wins when the data already proves it.
+  for (const phase of phaseMap.values()) {
+    for (const stage of phase.stages) {
+      const manual = stage.steps.filter((st: any) => st.stepType !== 'ai_milestone')
+      if (manual.length === 0) continue
+      const allManualDone = manual.every((st: any) => st.status === 'done' || st.status === 'skipped')
+      if (!allManualDone) continue
+      for (const st of stage.steps) {
+        if (st.stepType === 'ai_milestone' && st.status !== 'done') {
+          st.status = 'done'
+        }
+      }
+    }
   }
 
   const phases = [...phaseMap.values()].sort((a, b) => a.order - b.order).map((p) => {

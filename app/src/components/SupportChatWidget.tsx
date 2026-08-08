@@ -105,7 +105,9 @@ export default function SupportChatWidget({ raiseOnMobile = false }: { raiseOnMo
         <div
           role="dialog"
           aria-label={t('chat.title')}
-          className="fixed inset-x-3 bottom-3 z-50 flex max-h-[80vh] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-[24rem] sm:max-h-[70vh]"
+          // Cap to the dynamic viewport so the panel (and composer) never
+          // spills off-screen on mobile when the keyboard opens (CP-550).
+          className="fixed inset-x-3 bottom-3 z-50 flex max-h-[min(80vh,calc(100dvh-1.5rem))] w-auto max-w-[calc(100vw-1.5rem)] min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-[24rem] sm:max-h-[70vh] sm:max-w-none"
         >
           {/* Header */}
           <div className="flex items-start justify-between gap-2 bg-gradient-to-br from-brand-700 to-brand-800 px-4 py-3 text-white">
@@ -194,8 +196,8 @@ export default function SupportChatWidget({ raiseOnMobile = false }: { raiseOnMo
           </div>
 
           {/* Composer */}
-          <form onSubmit={handleSubmit} className="border-t border-slate-200 bg-white px-3 py-3">
-            <div className="flex items-end gap-2">
+          <form onSubmit={handleSubmit} className="min-w-0 border-t border-slate-200 bg-white px-3 py-3">
+            <div className="flex min-w-0 items-end gap-2">
               <textarea
                 ref={inputRef}
                 value={input}
@@ -208,7 +210,7 @@ export default function SupportChatWidget({ raiseOnMobile = false }: { raiseOnMo
                 }}
                 rows={1}
                 placeholder={t('chat.placeholder')}
-                className="max-h-28 min-h-[2.5rem] flex-1 resize-none rounded-xl border border-slate-300 px-3 py-2.5 text-base focus:border-brand-500 focus:ring-2 focus:ring-brand-500 sm:text-sm"
+                className="max-h-28 min-h-[2.5rem] min-w-0 flex-1 resize-none rounded-xl border border-slate-300 px-3 py-2.5 text-base focus:border-brand-500 focus:ring-2 focus:ring-brand-500 sm:text-sm"
               />
               <button
                 type="submit"

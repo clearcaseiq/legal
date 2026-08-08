@@ -134,12 +134,17 @@ export async function loadSignalContext(assessmentId: string): Promise<SignalCon
 
   const leadId = (assessment as any).leadSubmission?.id as string | undefined
 
-  const [pendingDocs, totalDocs, treatmentDone, demandLetters, demandEvents, offerEvents, acceptedEvents] =
+  const [pendingDocs, totalDocs, evidenceCount, treatmentDone, demandLetters, demandEvents, offerEvents, acceptedEvents] =
     await Promise.all([
       leadId
         ? (prisma as any).documentRequest.count({ where: { leadId, status: { not: 'completed' } } })
         : Promise.resolve(0),
       leadId ? (prisma as any).documentRequest.count({ where: { leadId } }) : Promise.resolve(0),
+      // Evidence uploaded directly (no formal document request) still counts toward
+      // the "documents complete" Auto milestone (CP-581).
+      (prisma as any).evidenceFile
+        .count({ where: { assessmentId } })
+        .catch(() => 0),
       (prisma as any).caseTask.count({
         where: { assessmentId, checkpointType: 'medical_checkpoint', status: 'done' },
       }),
@@ -152,7 +157,10 @@ export async function loadSignalContext(assessmentId: string): Promise<SignalCon
   const status = String((assessment as any).status || '').toLowerCase()
 
   return {
-    documentsComplete: totalDocs > 0 && pendingDocs === 0,
+    // Prefer formal document-request completion; fall back to uploaded evidence
+    // when the firm never opened document requests for the case.
+    documentsComplete:
+      (totalDocs > 0 && pendingDocs === 0) || (totalDocs === 0 && evidenceCount > 0),
     treatmentComplete: treatmentDone > 0,
     demandSent: demandLetters > 0 || demandEvents > 0,
     offerReceived: offerEvents > 0,
