@@ -12,6 +12,8 @@ import {
   type CaseTimeResponse,
   type TimeEntry,
 } from '../../lib/api'
+import { useToast } from '../../contexts/ToastContext'
+import ConfirmDialog from '../../components/ConfirmDialog'
 
 const inputCls =
   'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100'
@@ -43,9 +45,12 @@ function elapsed(ms: number) {
 }
 
 export default function CaseTimePanel({ leadId }: { leadId: string }) {
+  const { showToast } = useToast()
   const [data, setData] = useState<CaseTimeResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<TimeEntry | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const [hours, setHours] = useState('')
   const [activityType, setActivityType] = useState('general')
@@ -99,7 +104,7 @@ export default function CaseTimePanel({ leadId }: { leadId: string }) {
   const add = async () => {
     const h = Number(hours)
     if (!Number.isFinite(h) || h <= 0) {
-      alert('Enter hours greater than 0.')
+      showToast({ variant: 'error', title: 'Enter hours greater than 0.' })
       return
     }
     setBusy(true)
@@ -115,8 +120,9 @@ export default function CaseTimePanel({ leadId }: { leadId: string }) {
       setHours('')
       setDescription('')
       await load()
+      showToast({ variant: 'success', title: 'Time logged' })
     } catch (e: any) {
-      alert(e?.response?.data?.error || 'Failed to log time')
+      showToast({ variant: 'error', title: e?.response?.data?.error || 'Failed to log time' })
     } finally {
       setBusy(false)
     }
@@ -150,20 +156,25 @@ export default function CaseTimePanel({ leadId }: { leadId: string }) {
       discardTimer()
       setTDesc('')
       await load()
+      showToast({ variant: 'success', title: 'Time logged' })
     } catch (e: any) {
-      alert(e?.response?.data?.error || 'Failed to log timer')
+      showToast({ variant: 'error', title: e?.response?.data?.error || 'Failed to log timer' })
     } finally {
       setBusy(false)
     }
   }
 
-  const remove = async (entry: TimeEntry) => {
-    if (!confirm('Delete this time entry?')) return
+  const confirmRemove = async () => {
+    if (!pendingDelete) return
+    setDeleting(true)
     try {
-      await deleteCaseTime(leadId, entry.id)
+      await deleteCaseTime(leadId, pendingDelete.id)
       await load()
+      setPendingDelete(null)
     } catch (e: any) {
-      alert(e?.response?.data?.error || 'Failed to delete')
+      showToast({ variant: 'error', title: e?.response?.data?.error || 'Failed to delete' })
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -379,7 +390,7 @@ export default function CaseTimePanel({ leadId }: { leadId: string }) {
                   <td className="px-3 py-2 text-right">
                     <button
                       type="button"
-                      onClick={() => remove(e)}
+                      onClick={() => setPendingDelete(e)}
                       className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-500"
                       title="Delete entry"
                     >
@@ -392,6 +403,17 @@ export default function CaseTimePanel({ leadId }: { leadId: string }) {
           </table>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Delete time entry?"
+        message="This will permanently remove the logged time from this case."
+        confirmLabel="Delete"
+        tone="danger"
+        busy={deleting}
+        onConfirm={confirmRemove}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   )
 }
