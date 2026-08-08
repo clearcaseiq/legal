@@ -575,8 +575,10 @@ function getConsumerConfidenceLevel(score: number): ConsumerConfidenceLevel {
   return 'Low'
 }
 
-function formatStrengthLabel(level: ConsumerConfidenceLevel): string {
-  return level === 'Medium' ? 'Moderate' : level
+function formatStrengthLabel(t: TFn, level: ConsumerConfidenceLevel): string {
+  if (level === 'High') return t('results.calc.strengthHigh')
+  if (level === 'Medium') return t('results.calc.strengthModerate')
+  return t('results.calc.strengthLow')
 }
 
 function clampPercent(value: number) {
@@ -2195,24 +2197,24 @@ export default function Results() {
     liabilityOutlook === 'strong' ? 'High' : liabilityOutlook === 'moderate' ? 'Medium' : 'Low'
   const deadlineRiskLabel =
     sol?.status === 'critical' || sol?.status === 'expired'
-      ? 'Urgent'
+      ? t('results.calc.riskUrgent')
       : sol?.status === 'warning'
-        ? 'Watch'
-        : 'Safe'
+        ? t('results.calc.riskWatch')
+        : t('results.calc.riskSafe')
   const estimateConfidenceReasons = [
-    !hasMedicalRecords && 'Missing medical records',
-    !hasMedicalBills && 'Missing medical bills',
-    !hasPoliceReport && 'No police report',
-    liabilityOutlook !== 'strong' && 'Liability not fully established',
-    treatment.length === 0 && 'Limited treatment documentation',
+    !hasMedicalRecords && t('results.calc.reasonMissingMedRecords'),
+    !hasMedicalBills && t('results.calc.reasonMissingMedBills'),
+    !hasPoliceReport && t('results.calc.reasonNoPoliceReport'),
+    liabilityOutlook !== 'strong' && t('results.calc.reasonLiabilityNotEstablished'),
+    treatment.length === 0 && t('results.calc.reasonLimitedTreatment'),
   ].filter(Boolean).slice(0, 4) as string[]
   const litigationReadinessMissing = [
-    !hasMedicalRecords && 'Medical records',
-    !hasMedicalBills && 'Bills',
-    !hasPoliceReport && 'Police report',
-    !hasInjuryPhotos && 'Scene or injury photos',
-    !hasWageLossProof && 'Wage loss proof',
-    treatment.length === 0 && 'Treatment history',
+    !hasMedicalRecords && t('results.calc.readyMedicalRecords'),
+    !hasMedicalBills && t('results.calc.readyBills'),
+    !hasPoliceReport && t('results.calc.readyPoliceReport'),
+    !hasInjuryPhotos && t('results.calc.readyPhotos'),
+    !hasWageLossProof && t('results.calc.readyWageLoss'),
+    treatment.length === 0 && t('results.calc.readyTreatmentHistory'),
   ].filter(Boolean).slice(0, 4) as string[]
   const attorneyInterestFactors = [
     isRearEndCase && 'Rear-end collision',
@@ -2301,12 +2303,13 @@ export default function Results() {
           }
         : null
   const caseSignalRows = [
-    { signal: 'Documentation', status: `${documentationScore}%` },
-    { signal: 'Treatment', status: formatStrengthLabel(treatmentStrengthLevel) },
-    { signal: 'Liability', status: formatStrengthLabel(liabilityStrengthLevel) },
-    { signal: 'Deadline', status: deadlineRiskLabel },
+    { signal: t('results.calc.signalDocumentation'), status: `${documentationScore}%` },
+    { signal: t('results.calc.signalTreatment'), status: formatStrengthLabel(t, treatmentStrengthLevel) },
+    { signal: t('results.calc.signalLiability'), status: formatStrengthLabel(t, liabilityStrengthLevel) },
+    { signal: t('results.calc.signalDeadline'), status: deadlineRiskLabel },
   ]
-  const consumerEstimateLabel = `Confidence: ${estimateConfidenceLevel}`
+  const estimateConfidenceLevelLabel = estimateConfidenceLevel === 'High' ? t('results.shared.high') : estimateConfidenceLevel === 'Medium' ? t('results.shared.medium') : t('results.shared.low')
+  const consumerEstimateLabel = t('results.calc.confidenceLabel', { level: estimateConfidenceLevelLabel })
   // Self-reported economic inputs the client may have skipped at intake. Unlike
   // the document-evidence prompts above, these are the dollar figures that feed
   // the valuation directly — when missing, the estimate is a conservative floor.
@@ -2330,40 +2333,40 @@ export default function Results() {
   // for a doctor, so nothing here should read as a reason to seek more treatment.
   const missingEstimateInputs = [
     documentedMedicalCharges <= 0 && {
-      label: 'Medical bill total',
-      helper: 'Treatment costs are a core part of the claim, and the estimate cannot account for bills it has not seen.',
+      label: t('results.calc.inputMedicalBillTotal'),
+      helper: t('results.calc.inputMedicalBillTotalHelper'),
     },
     documentedWageLoss <= 0 && {
-      label: 'Lost wages',
-      helper: 'Time you already missed from work is recoverable, but only if it is documented.',
+      label: t('results.calc.inputLostWages'),
+      helper: t('results.calc.inputLostWagesHelper'),
     },
     !hasReportedInsuranceInfo && {
-      label: 'Insurance / policy limits',
-      helper: "Knowing the at-fault driver's coverage helps set a realistic recovery ceiling.",
+      label: t('results.calc.inputInsuranceLimits'),
+      helper: t('results.calc.inputInsuranceLimitsHelper'),
     },
     reportedPropertyDamage <= 0 && {
-      label: 'Property / vehicle damage',
-      helper: 'Vehicle and property damage counts toward your economic losses.',
+      label: t('results.calc.inputPropertyDamage'),
+      helper: t('results.calc.inputPropertyDamageHelper'),
     },
     reportedFutureTreatment <= 0 && {
-      label: 'Expected future treatment',
-      helper: 'If a provider has recommended further care, its expected cost belongs in the estimate.',
+      label: t('results.calc.inputFutureTreatment'),
+      helper: t('results.calc.inputFutureTreatmentHelper'),
     },
   ].filter(Boolean) as Array<{ label: string; helper: string }>
   const litigationExposureText = isEarlyStageEstimate
-    ? 'Current assessment: Preliminary'
+    ? t('results.calc.litExposurePreliminary')
     : `${formatCurrency(potentialTrialLow)} - ${formatCurrency(potentialTrialHigh)}`
   const litigationExposureHelper = isEarlyStageEstimate
-    ? 'Too little is documented yet to model a litigation range. Medical records, imaging, liability evidence, and proof of wage loss are what make one possible.'
-    : 'This is not a prediction of verdict value. It reflects possible litigation exposure if the case is disputed, and an actual outcome can fall outside this range in either direction.'
+    ? t('results.calc.litExposureHelperEarly')
+    : t('results.calc.litExposureHelperModeled')
   const formatSolRemaining = () => {
-    if (sol?.yearsRemaining == null) return '1 year 9 months'
+    if (sol?.yearsRemaining == null) return t('results.calc.solFallback')
     const y = Math.floor(sol.yearsRemaining)
     const m = Math.round((sol.yearsRemaining % 1) * 12)
     const parts = []
-    if (y > 0) parts.push(`${y} year${y > 1 ? 's' : ''}`)
-    if (m > 0) parts.push(`${m} month${m > 1 ? 's' : ''}`)
-    return parts.join(' ') || '1 year 9 months'
+    if (y > 0) parts.push(t(y > 1 ? 'results.calc.years' : 'results.calc.year', { count: y }))
+    if (m > 0) parts.push(t(m > 1 ? 'results.calc.months' : 'results.calc.month', { count: m }))
+    return parts.join(' ') || t('results.calc.solFallback')
   }
   const solRemaining = formatSolRemaining()
   const solDeadline = sol?.expiresAt ? new Date(sol.expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null
@@ -2739,45 +2742,45 @@ Checklist:
     evidenceModifierExplanation,
   ]
   const valuationKeyDrivers = [
-    liabilityOutlook === 'strong' ? 'Clear liability' : liabilityOutlook === 'moderate' ? 'Mixed liability' : 'Unclear liability',
-    hasMedicalRecords ? 'Medical records' : null,
-    hasMedicalBills ? 'Medical bills included' : null,
-    structuredValuationDrivers.priorInjury && structuredValuationDrivers.priorInjury !== 'none' ? 'Prior injury / causation discount' : null,
-    structuredValuationDrivers.representationStage && structuredValuationDrivers.representationStage !== 'no_lawyer' ? 'Attorney / litigation stage' : null,
-    structuredValuationDrivers.surgeryStatus && structuredValuationDrivers.surgeryStatus !== 'not_discussed' ? 'Surgery recommendation/status' : null,
-    Array.isArray(structuredValuationDrivers.procedures) && structuredValuationDrivers.procedures.some((item: string) => item !== 'none' && item !== 'unknown') ? 'Injections or procedures' : null,
-    Array.isArray(structuredValuationDrivers.futureTreatment) && structuredValuationDrivers.futureTreatment.some((item: string) => item !== 'none' && item !== 'unknown') ? 'Future treatment' : null,
-    structuredValuationDrivers.wageLoss > 0 ? 'Wage loss' : null,
-    prediction?.severity?.level >= 3 ? 'High injury severity' : prediction?.severity?.level >= 2 ? 'Moderate injury severity' : null,
-    treatment.length > 0 ? 'Treatment documented' : 'Treatment still undocumented',
-    policyLimitConstrained ? 'Policy-limit constraints' : null,
-    evidenceLevelConfidence.confidence !== 'Very high' ? 'Evidence confidence limits' : null,
+    liabilityOutlook === 'strong' ? t('results.calc.driverClearLiability') : liabilityOutlook === 'moderate' ? t('results.calc.driverMixedLiability') : t('results.calc.driverUnclearLiability'),
+    hasMedicalRecords ? t('results.calc.driverMedicalRecords') : null,
+    hasMedicalBills ? t('results.calc.driverMedicalBillsIncluded') : null,
+    structuredValuationDrivers.priorInjury && structuredValuationDrivers.priorInjury !== 'none' ? t('results.calc.driverPriorInjury') : null,
+    structuredValuationDrivers.representationStage && structuredValuationDrivers.representationStage !== 'no_lawyer' ? t('results.calc.driverLitigationStage') : null,
+    structuredValuationDrivers.surgeryStatus && structuredValuationDrivers.surgeryStatus !== 'not_discussed' ? t('results.calc.driverSurgeryStatus') : null,
+    Array.isArray(structuredValuationDrivers.procedures) && structuredValuationDrivers.procedures.some((item: string) => item !== 'none' && item !== 'unknown') ? t('results.calc.driverProcedures') : null,
+    Array.isArray(structuredValuationDrivers.futureTreatment) && structuredValuationDrivers.futureTreatment.some((item: string) => item !== 'none' && item !== 'unknown') ? t('results.calc.driverFutureTreatment') : null,
+    structuredValuationDrivers.wageLoss > 0 ? t('results.calc.driverWageLoss') : null,
+    prediction?.severity?.level >= 3 ? t('results.calc.driverHighSeverity') : prediction?.severity?.level >= 2 ? t('results.calc.driverModerateSeverity') : null,
+    treatment.length > 0 ? t('results.calc.driverTreatmentDocumented') : t('results.calc.driverTreatmentUndocumented'),
+    policyLimitConstrained ? t('results.calc.driverPolicyLimits') : null,
+    evidenceLevelConfidence.confidence !== 'Very high' ? t('results.calc.driverEvidenceLimits') : null,
   ].filter(Boolean).slice(0, 7) as string[]
   const estimateImprovementItems = [
-    !hasMedicalRecords && 'Medical records',
-    !hasMedicalBills && 'Medical bills',
-    !hasPoliceReport && 'Police or incident report',
-    treatment.length === 0 && 'Additional treatment details',
-    !hasWageLossProof && 'Wage loss proof',
+    !hasMedicalRecords && t('results.calc.improveMedicalRecords'),
+    !hasMedicalBills && t('results.calc.improveMedicalBills'),
+    !hasPoliceReport && t('results.calc.improvePoliceReport'),
+    treatment.length === 0 && t('results.calc.improveTreatmentDetails'),
+    !hasWageLossProof && t('results.calc.improveWageLoss'),
   ].filter(Boolean).slice(0, 4) as string[]
   const diyRiskFlags = [
-    settlementHigh >= 75000 && 'The estimated settlement range is high enough that attorney review may be important.',
-    comparativeFaultPercent >= 20 && 'There may be shared-fault arguments to address.',
-    missingDocItems.some((item: any) => item?.priority === 'high') && 'High-impact records are still missing.',
-    sol?.status === 'critical' || sol?.status === 'expired' ? 'The legal deadline may be close or expired.' : null,
+    settlementHigh >= 75000 && t('results.calc.diyFlagHighSettlement'),
+    comparativeFaultPercent >= 20 && t('results.calc.diyFlagSharedFault'),
+    missingDocItems.some((item: any) => item?.priority === 'high') && t('results.calc.diyFlagMissingRecords'),
+    sol?.status === 'critical' || sol?.status === 'expired' ? t('results.calc.diyFlagDeadline') : null,
   ].filter(Boolean) as string[]
   const diySuitabilityLabel = diyRiskFlags.length >= 2
-    ? 'Attorney review recommended'
+    ? t('results.calc.diyAttorneyRecommended')
     : diyRiskFlags.length === 1
-      ? 'Use caution'
-      : 'Potential DIY fit'
+      ? t('results.calc.diyUseCaution')
+      : t('results.calc.diyPotentialFit')
   const deadlineUrgencyLabel = sol?.status === 'critical' || sol?.status === 'expired'
-    ? 'Urgent'
+    ? t('results.calc.riskUrgent')
     : sol?.status === 'warning'
-      ? 'Watch'
+      ? t('results.calc.riskWatch')
       : solDeadline
-        ? 'Low'
-        : 'Unknown'
+        ? t('results.calc.riskLow')
+        : t('results.calc.riskUnknown')
   const guidedNextSteps = [
     isLoggedIn === false && 'Create your secure account so the case can be saved and sent to attorney review.',
     isLoggedIn !== false && medicalReviewPending && 'Confirm or skip the medical story so attorneys know whether the treatment timeline is accurate.',
@@ -3910,7 +3913,7 @@ Checklist:
               <p className="mt-2 text-sm text-slate-600">{t('results.chrome.mostLikely')} <span className="font-semibold text-slate-900">{formatCurrency(displaySettlementExpected)}</span></p>
               <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="text-xs text-slate-500">{t('results.chrome.confidence')}</span>
-                <span className={estimateConfidenceLevel === 'High' ? 'text-xs font-semibold text-emerald-700' : estimateConfidenceLevel === 'Medium' ? 'text-xs font-semibold text-amber-600' : 'text-xs font-semibold text-rose-600'}>{estimateConfidenceLevel}</span>
+                <span className={estimateConfidenceLevel === 'High' ? 'text-xs font-semibold text-emerald-700' : estimateConfidenceLevel === 'Medium' ? 'text-xs font-semibold text-amber-600' : 'text-xs font-semibold text-rose-600'}>{estimateConfidenceLevelLabel}</span>
                 {estimateConfidenceLevel !== 'High' && (
                   <span className="text-[11px] text-slate-500">{t('results.chrome.addRecordsSharpen')}</span>
                 )}
