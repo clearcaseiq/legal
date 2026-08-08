@@ -1530,11 +1530,16 @@ export default function FirmDashboard() {
                     const displayName = m.attorney?.name || userName || m.user?.email || m.attorney?.email || '—'
                     const att = m.attorney?.id ? attorneyById.get(m.attorney.id) : null
                     return (
-                      <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => openEditMember(m)}
+                        title="View & edit permissions"
+                        className="group flex items-center gap-3 text-left"
+                      >
                         <Avatar name={displayName} />
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-medium text-slate-800">{displayName}</span>
+                            <span className="font-medium text-slate-800 group-hover:text-brand-700 group-hover:underline">{displayName}</span>
                             {m.status === 'invited' && <Badge tone="warning">Pending</Badge>}
                           </div>
                           {att ? (
@@ -1545,7 +1550,7 @@ export default function FirmDashboard() {
                             <div className="text-xs text-slate-400">{m.title}</div>
                           ) : null}
                         </div>
-                      </div>
+                      </button>
                     )
                   },
                 },
@@ -2300,7 +2305,7 @@ export default function FirmDashboard() {
                   Permissions
                 </label>
                 <p className="mb-3 text-xs text-slate-400">
-                  Permissions from the selected role are checked by default. Toggle additional permissions or remove role defaults by unchecking them.
+                  Permissions from the selected role (marked <span className="font-semibold text-brand-600">Role</span>) are always granted. Check any others to give this person extra access on top of their role.
                 </p>
                 <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
                   {ALL_PERMISSIONS.map((perm) => {
