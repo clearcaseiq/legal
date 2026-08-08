@@ -215,14 +215,14 @@ function parseJsonArrayValue(value?: string | null) {
   }
 }
 
-function getDocumentProcessingLabel(file: any) {
+function getDocumentProcessingLabel(t: TFn, file: any) {
   const latestJob = Array.isArray(file?.processingJobs) ? file.processingJobs[0] : null
-  if (file?.processingStatus === 'failed' || latestJob?.status === 'failed') return 'Could not read'
-  if (file?.processingStatus === 'processing' || latestJob?.status === 'running') return 'Reading document'
+  if (file?.processingStatus === 'failed' || latestJob?.status === 'failed') return t('results.calc.docCouldNotRead')
+  if (file?.processingStatus === 'processing' || latestJob?.status === 'running') return t('results.calc.docReading')
   if (file?.processingStatus === 'completed') {
-    return file?.extractedData?.[0]?.isManualReview ? 'Needs review' : 'Extracted'
+    return file?.extractedData?.[0]?.isManualReview ? t('results.calc.docNeedsReview') : t('results.calc.docExtracted')
   }
-  return 'Uploaded'
+  return t('results.calc.docUploaded')
 }
 
 function normalizeExplainability(value: any) {
@@ -231,28 +231,29 @@ function normalizeExplainability(value: any) {
   return Object.values(value).filter((item) => item && typeof item === 'object')
 }
 
-function getMissingDocAction(item: any, assessmentId?: string) {
+function getMissingDocAction(t: TFn, item: any, assessmentId?: string) {
   const label = String(item?.label ?? '').toLowerCase()
   if (label.includes('hipaa')) {
     const returnPath = assessmentId ? `/results/${assessmentId}` : '/results'
     return {
-      label: 'Complete HIPAA authorization',
+      label: t('results.calc.completeHipaa'),
       to: `/hipaa-authorization?return=${encodeURIComponent(returnPath)}`,
     }
   }
 
-  const uploadLabel = item?.label ? `Upload ${String(item.label).toLowerCase()}` : 'Upload document'
+  const uploadLabel = item?.label ? t('results.calc.uploadItem', { label: String(item.label).toLowerCase() }) : t('results.calc.uploadDocGeneric')
   return {
     label: uploadLabel,
     to: assessmentId ? `/evidence-upload/${assessmentId}` : '/evidence-upload',
   }
 }
 
-function getResponseBadge(attorney: any) {
-  return attorney.responseBadge || ((attorney.responseTimeHours || 24) <= 8 ? 'Same-day replies' : 'Replies within 24h')
+function getResponseBadge(t: TFn, attorney: any) {
+  return attorney.responseBadge || ((attorney.responseTimeHours || 24) <= 8 ? t('results.calc.responseSameDay') : t('results.calc.response24h'))
 }
 
 function getAttorneyPracticePreview(
+  t: TFn,
   attorney: any,
   context?: {
     venueState?: string
@@ -264,15 +265,16 @@ function getAttorneyPracticePreview(
   const localVenue = formatVenueLabel(context?.venueState, context?.venueCounty)
   const location = localVenue || attorney.law_firm?.state || venues[0]
   const pieces = [
-    specialties.slice(0, 2).map((value: string) => formatClaimTypeLabel(value)).join(' + '),
-    location ? `${localVenue ? 'Serves' : 'Practices in'} ${location}` : '',
-    attorney.yearsExperience ? `${attorney.yearsExperience}+ years experience` : '',
+    specialties.slice(0, 2).map((value: string) => formatClaimTypeLabel(value, t)).join(' + '),
+    location ? `${localVenue ? t('results.calc.serves') : t('results.calc.practicesIn')} ${location}` : '',
+    attorney.yearsExperience ? t('results.calc.yearsExperience', { years: attorney.yearsExperience }) : '',
   ].filter(Boolean)
 
   return pieces.join(' • ')
 }
 
 function getAttorneyWhyMatched(
+  t: TFn,
   attorney: any,
   context?: {
     assessmentClaimType?: string
@@ -281,17 +283,20 @@ function getAttorneyWhyMatched(
   }
 ) {
   const specialty = context?.assessmentClaimType
-    ? formatClaimTypeLabel(context.assessmentClaimType)
+    ? formatClaimTypeLabel(context.assessmentClaimType, t)
     : Array.isArray(attorney.specialties) && attorney.specialties[0]
-      ? formatClaimTypeLabel(attorney.specialties[0])
-      : 'similar cases'
+      ? formatClaimTypeLabel(attorney.specialties[0], t)
+      : t('results.calc.similarCases')
   const venue = formatVenueLabel(context?.venueState, context?.venueCounty)
     || attorney.law_firm?.state
     || (Array.isArray(attorney.venues) ? attorney.venues[0] : '')
-  return `Why matched: strong for ${specialty} matters${venue ? ` in ${venue}` : ''}.`
+  return venue
+    ? t('results.calc.whyMatchedVenue', { specialty, venue })
+    : t('results.calc.whyMatchedBase', { specialty })
 }
 
 function getAttorneyRecommendationReasons(
+  t: TFn,
   attorney: any,
   context?: {
     assessmentClaimType?: string
@@ -301,24 +306,26 @@ function getAttorneyRecommendationReasons(
 ) {
   const reasons: string[] = []
   const specialty = context?.assessmentClaimType
-    ? formatClaimTypeLabel(context.assessmentClaimType)
+    ? formatClaimTypeLabel(context.assessmentClaimType, t)
     : Array.isArray(attorney.specialties) && attorney.specialties[0]
-      ? formatClaimTypeLabel(attorney.specialties[0])
+      ? formatClaimTypeLabel(attorney.specialties[0], t)
       : ''
   const venue = formatVenueLabel(context?.venueState, context?.venueCounty)
     || attorney.law_firm?.state
     || (Array.isArray(attorney.venues) ? attorney.venues[0] : '')
 
-  if (specialty) reasons.push(`Handles ${specialty} cases`)
-  if (venue) reasons.push(`Serves ${venue}`)
-  if ((attorney.responseTimeHours || 24) <= 8 || attorney.responseBadge) reasons.push(getResponseBadge(attorney))
-  if (attorney.yearsExperience) reasons.push(`${attorney.yearsExperience}+ years of experience`)
-  if ((attorney.averageRating || attorney.rating || 0) > 0) reasons.push(`${(attorney.averageRating || attorney.rating || 0).toFixed(1)} average rating`)
+  if (specialty) reasons.push(t('results.calc.handlesCases', { specialty }))
+  if (venue) reasons.push(t('results.calc.servesVenue', { venue }))
+  if ((attorney.responseTimeHours || 24) <= 8 || attorney.responseBadge) reasons.push(getResponseBadge(t, attorney))
+  if (attorney.yearsExperience) reasons.push(t('results.calc.yearsOfExperience', { years: attorney.yearsExperience }))
+  if ((attorney.averageRating || attorney.rating || 0) > 0) reasons.push(t('results.calc.averageRating', { rating: (attorney.averageRating || attorney.rating || 0).toFixed(1) }))
 
-  return reasons.length > 0 ? reasons.slice(0, 3) : [getAttorneyWhyMatched(attorney, context)]
+  return reasons.length > 0 ? reasons.slice(0, 3) : [getAttorneyWhyMatched(t, attorney, context)]
 }
 
-function buildTimelineEstimate(params: {
+type TFn = (key: string, params?: Record<string, string | number>) => string
+
+function buildTimelineEstimate(t: TFn, params: {
   claimType?: string
   missingDocCount: number
   treatmentGapCount: number
@@ -352,11 +359,11 @@ function buildTimelineEstimate(params: {
   )
 
   const drivers: string[] = []
-  if (params.claimType === 'medmal') drivers.push('Medical malpractice claims usually take longer because expert review is often needed.')
-  if (params.missingDocCount > 0) drivers.push(`${params.missingDocCount} missing document${params.missingDocCount === 1 ? '' : 's'} may delay attorney review and demand preparation.`)
-  if (!params.hasTreatment) drivers.push('No treatment has been documented yet, which usually slows valuation and negotiation.')
-  if (params.treatmentGapCount > 0) drivers.push('Treatment gaps can extend investigation because attorneys and insurers will ask follow-up questions.')
-  if (drivers.length === 0) drivers.push('Your file looks organized enough for a more typical pre-litigation timeline.')
+  if (params.claimType === 'medmal') drivers.push(t('results.calc.timelineDriverMedmal'))
+  if (params.missingDocCount > 0) drivers.push(t(params.missingDocCount === 1 ? 'results.calc.timelineDriverMissingDocsOne' : 'results.calc.timelineDriverMissingDocsMany', { count: params.missingDocCount }))
+  if (!params.hasTreatment) drivers.push(t('results.calc.timelineDriverNoTreatment'))
+  if (params.treatmentGapCount > 0) drivers.push(t('results.calc.timelineDriverGaps'))
+  if (drivers.length === 0) drivers.push(t('results.calc.timelineDriverOrganized'))
 
   const confidence: TimelineEstimate['confidence'] =
     params.missingDocCount === 0 && params.evidenceCount >= 2
@@ -367,20 +374,35 @@ function buildTimelineEstimate(params: {
 
   const stage =
     params.missingDocCount > 0
-      ? 'Document collection'
+      ? t('results.calc.timelineStageDocCollection')
       : params.hasTreatment
-        ? 'Attorney-review ready'
-        : 'Early intake'
+        ? t('results.calc.timelineStageReviewReady')
+        : t('results.calc.timelineStageEarlyIntake')
 
   return {
-    label: `${minMonths}-${maxMonths} months`,
+    label: t('results.calc.monthsRange', { min: minMonths, max: maxMonths }),
     stage,
     confidence,
     drivers
   }
 }
 
-function getBaseCaseTypeRange(claimType?: string) {
+function getBaseCaseTypeRange(t: TFn, claimType?: string) {
+  const ex = (base: string) => [t(`${base}Ex1`), t(`${base}Ex2`), t(`${base}Ex3`)]
+  const auto = {
+    label: t('results.calc.baselineAutoLabel'),
+    range: '$15,000 - $75,000',
+    floor: t('results.calc.baselineAutoFloor'),
+    why: t('results.calc.baselineAutoWhy'),
+    examples: ex('results.calc.baselineAuto'),
+  }
+  const slip = {
+    label: t('results.calc.baselineSlipLabel'),
+    range: '$12,000 - $60,000',
+    floor: t('results.calc.baselineSlipFloor'),
+    why: t('results.calc.baselineSlipWhy'),
+    examples: ex('results.calc.baselineSlip'),
+  }
   const ranges: Record<string, {
     label: string
     range: string
@@ -388,111 +410,87 @@ function getBaseCaseTypeRange(claimType?: string) {
     why: string
     examples: string[]
   }> = {
-    auto: {
-      label: 'Auto accident',
-      range: '$15,000 - $75,000',
-      floor: 'Starts in the standard personal-injury range.',
-      why: 'Auto cases often have clearer incident timing, insurance coverage, police reports, vehicle damage, and treatment records. The range can move up quickly when imaging, injections, surgery, commercial coverage, or serious wage loss appear.',
-      examples: ['Soft-tissue soreness with limited treatment starts lower.', 'MRI-confirmed disc injury, injections, or surgery can move the case higher.', 'Clear rear-end liability and commercial coverage can materially improve review priority.'],
-    },
-    auto_accident: {
-      label: 'Auto accident',
-      range: '$15,000 - $75,000',
-      floor: 'Starts in the standard personal-injury range.',
-      why: 'Auto cases often have clearer incident timing, insurance coverage, police reports, vehicle damage, and treatment records. The range can move up quickly when imaging, injections, surgery, commercial coverage, or serious wage loss appear.',
-      examples: ['Soft-tissue soreness with limited treatment starts lower.', 'MRI-confirmed disc injury, injections, or surgery can move the case higher.', 'Clear rear-end liability and commercial coverage can materially improve review priority.'],
-    },
-    slip_and_fall: {
-      label: 'Slip and fall',
-      range: '$12,000 - $60,000',
-      floor: 'Starts slightly lower until notice and hazard proof are clear.',
-      why: 'Premises cases depend heavily on proving the property owner knew or should have known about the hazard. Photos, incident reports, witness statements, and medical records can move the case out of the lower baseline.',
-      examples: ['A fall with no photos or witnesses starts cautiously.', 'Fractures, surgery, or visible hazard evidence can raise the range.', 'A store incident report or video preservation can improve liability confidence.'],
-    },
-    premises: {
-      label: 'Premises liability',
-      range: '$12,000 - $60,000',
-      floor: 'Starts slightly lower until notice and hazard proof are clear.',
-      why: 'Premises cases depend heavily on proving the property owner knew or should have known about the hazard. Photos, incident reports, witness statements, and medical records can move the case out of the lower baseline.',
-      examples: ['A fall with no photos or witnesses starts cautiously.', 'Fractures, surgery, or visible hazard evidence can raise the range.', 'A store incident report or video preservation can improve liability confidence.'],
-    },
+    auto,
+    auto_accident: auto,
+    slip_and_fall: slip,
+    premises: { ...slip, label: t('results.calc.baselinePremisesLabel') },
     dog_bite: {
-      label: 'Dog bite',
+      label: t('results.calc.baselineDogLabel'),
       range: '$20,000 - $90,000',
-      floor: 'Starts higher when liability and visible injury are documented.',
-      why: 'Dog bite cases can have strong liability rules and visible damages. Photos, scarring, infection, nerve injury, and plastic surgery recommendations can push the baseline higher.',
-      examples: ['Minor puncture wounds without scarring stay closer to the lower range.', 'Facial injuries, permanent scars, or child victims may increase value.', 'Animal-control reports and photos are especially important.'],
+      floor: t('results.calc.baselineDogFloor'),
+      why: t('results.calc.baselineDogWhy'),
+      examples: ex('results.calc.baselineDog'),
     },
     medmal: {
-      label: 'Medical malpractice',
+      label: t('results.calc.baselineMedmalLabel'),
       range: '$50,000 - $250,000+',
-      floor: 'Starts higher, but only after expert-support risk is considered.',
-      why: 'Medical malpractice matters are more expensive and harder to prove. The baseline is higher because injuries may be severe, but the case needs records, causation analysis, and often expert review before attorneys can value it confidently.',
-      examples: ['A poor outcome alone does not create a strong case.', 'Clear deviation from standard care plus serious harm can increase value.', 'Complete medical records and chronology are critical before attorney review.'],
+      floor: t('results.calc.baselineMedmalFloor'),
+      why: t('results.calc.baselineMedmalWhy'),
+      examples: ex('results.calc.baselineMedmal'),
     },
     nursing_home_abuse: {
-      label: 'Nursing home abuse',
+      label: t('results.calc.baselineNursingLabel'),
       range: '$50,000 - $250,000+',
-      floor: 'Starts higher when neglect, injury, and facility responsibility are documented.',
-      why: 'Elder-care cases often involve serious harm, vulnerable plaintiffs, regulatory issues, and facility records. The baseline depends on medical proof, staffing/fall records, photos, and whether neglect caused the injury.',
-      examples: ['Pressure sores, falls, dehydration, or medication errors need records.', 'Severe injury or death can move the case into a higher band.', 'Facility charting and photos are key evidence.'],
+      floor: t('results.calc.baselineNursingFloor'),
+      why: t('results.calc.baselineNursingWhy'),
+      examples: ex('results.calc.baselineNursing'),
     },
     wrongful_death: {
-      label: 'Wrongful death',
+      label: t('results.calc.baselineDeathLabel'),
       range: '$100,000 - $500,000+',
-      floor: 'Starts in a high-severity band because the claimed harm is catastrophic.',
-      why: 'Wrongful death cases involve the highest damages category, but valuation still depends on liability, causation, available insurance, beneficiaries, economic losses, and supporting records.',
-      examples: ['Clear liability and strong insurance can materially increase value.', 'Causation disputes can reduce confidence.', 'Beneficiary and economic-loss documentation is important.'],
+      floor: t('results.calc.baselineDeathFloor'),
+      why: t('results.calc.baselineDeathWhy'),
+      examples: ex('results.calc.baselineDeath'),
     },
     product: {
-      label: 'Product liability',
+      label: t('results.calc.baselineProductLabel'),
       range: '$25,000 - $150,000+',
-      floor: 'Starts above ordinary injury cases when defect proof is plausible.',
-      why: 'Product cases depend on proving a defective product, warnings issue, or design/manufacturing problem. The baseline grows with preserved product evidence, serious injury, similar incidents, and expert support.',
-      examples: ['Preserving the product is often critical.', 'Burns, fractures, surgery, or permanent harm can raise value.', 'Manufacturer identity and purchase records matter.'],
+      floor: t('results.calc.baselineProductFloor'),
+      why: t('results.calc.baselineProductWhy'),
+      examples: ex('results.calc.baselineProduct'),
     },
   }
 
   return ranges[claimType || ''] || {
-    label: formatClaimTypeLabel(claimType),
+    label: formatClaimTypeLabel(claimType, t),
     range: '$10,000 - $75,000',
-    floor: 'Starts in a general personal-injury baseline until the facts are more specific.',
-    why: 'The system begins with a broad injury-case range, then adjusts based on liability, injury severity, treatment, evidence, venue, insurance, and missing documents.',
-    examples: ['Clear liability improves confidence.', 'Objective medical proof can raise the range.', 'Missing records keep the estimate conservative.'],
+    floor: t('results.calc.baselineGenericFloor'),
+    why: t('results.calc.baselineGenericWhy'),
+    examples: ex('results.calc.baselineGeneric'),
   }
 }
 
-function getLiabilityModifierExplanation(params: {
+function getLiabilityModifierExplanation(t: TFn, params: {
   liabilityScore: number
   comparativeFaultPercent: number
 }) {
   if (params.liabilityScore >= 0.7 && params.comparativeFaultPercent < 20) {
     return {
-      label: 'Clearer liability',
-      effect: 'Lower fault discount',
-      range: '0-10% liability discount',
-      explanation: 'When fault appears clearer, the model does not need to discount the case as heavily for disputed responsibility.',
+      label: t('results.calc.liabClearerLabel'),
+      effect: t('results.calc.liabClearerEffect'),
+      range: t('results.calc.liabClearerRange'),
+      explanation: t('results.calc.liabClearerExplanation'),
     }
   }
 
   if (params.liabilityScore >= 0.4) {
     return {
-      label: 'Mixed liability',
-      effect: 'Moderate fault discount',
-      range: '15-30% liability discount',
-      explanation: 'When fault is partly unclear or shared fault may be argued, the model keeps more risk in the estimate.',
+      label: t('results.calc.liabMixedLabel'),
+      effect: t('results.calc.liabMixedEffect'),
+      range: t('results.calc.liabMixedRange'),
+      explanation: t('results.calc.liabMixedExplanation'),
     }
   }
 
   return {
-    label: 'Unclear liability',
-    effect: 'Higher fault discount',
-    range: '35-50% liability discount',
-    explanation: 'When fault is hard to prove, the model treats the case more conservatively because the claim may be disputed.',
+    label: t('results.calc.liabUnclearLabel'),
+    effect: t('results.calc.liabUnclearEffect'),
+    range: t('results.calc.liabUnclearRange'),
+    explanation: t('results.calc.liabUnclearExplanation'),
   }
 }
 
-function getInjuryTreatmentModifierExplanation(params: {
+function getInjuryTreatmentModifierExplanation(t: TFn, params: {
   severityLevel?: number
   hasTreatment: boolean
   chronologyCount: number
@@ -500,72 +498,72 @@ function getInjuryTreatmentModifierExplanation(params: {
 }) {
   if ((params.severityLevel ?? 0) >= 3) {
     return {
-      label: 'High severity',
-      effect: 'Upward severity modifier',
-      range: 'Higher value band',
-      explanation: 'Serious injuries, escalation of care, surgery recommendations, or lasting impairment can move the case above the starting category range.',
+      label: t('results.calc.injHighLabel'),
+      effect: t('results.calc.injHighEffect'),
+      range: t('results.calc.injHighRange'),
+      explanation: t('results.calc.injHighExplanation'),
     }
   }
 
   if (params.hasTreatment && params.chronologyCount >= 2 && params.treatmentGapCount === 0) {
     return {
-      label: 'Documented treatment',
-      effect: 'Moderate upward support',
-      range: 'Stronger causation support',
-      explanation: 'Consistent treatment makes the injury story easier to connect to the incident and reduces causation uncertainty.',
+      label: t('results.calc.injDocumentedLabel'),
+      effect: t('results.calc.injDocumentedEffect'),
+      range: t('results.calc.injDocumentedRange'),
+      explanation: t('results.calc.injDocumentedExplanation'),
     }
   }
 
   if (params.treatmentGapCount > 0) {
     return {
-      label: 'Treatment gaps',
-      effect: 'Confidence reduction',
-      range: 'Wider / more cautious range',
-      explanation: 'Gaps in treatment can cause insurers or attorneys to question injury severity, causation, or continuity of symptoms.',
+      label: t('results.calc.injGapsLabel'),
+      effect: t('results.calc.injGapsEffect'),
+      range: t('results.calc.injGapsRange'),
+      explanation: t('results.calc.injGapsExplanation'),
     }
   }
 
   return {
-    label: 'Early treatment picture',
-    effect: 'Limited severity support',
-    range: 'Conservative until records improve',
-    explanation: 'Without a clear treatment timeline, the model avoids overstating value until records, bills, or medical events are confirmed.',
+    label: t('results.calc.injEarlyLabel'),
+    effect: t('results.calc.injEarlyEffect'),
+    range: t('results.calc.injEarlyRange'),
+    explanation: t('results.calc.injEarlyExplanation'),
   }
 }
 
-function getEvidenceModifierExplanation(confidence: string) {
+function getEvidenceModifierExplanation(t: TFn, confidence: string) {
   if (confidence === 'Very high') {
     return {
-      label: 'Strong document support',
-      effect: 'Narrower confidence range',
-      range: 'Higher confidence',
-      explanation: 'Police reports, medical records, bills, photos, or other supporting files make the estimate more grounded and less speculative.',
+      label: t('results.calc.evStrongLabel'),
+      effect: t('results.calc.evStrongEffect'),
+      range: t('results.calc.evStrongRange'),
+      explanation: t('results.calc.evStrongExplanation'),
     }
   }
 
   if (confidence === 'High') {
     return {
-      label: 'Good document support',
-      effect: 'Improved confidence',
-      range: 'Moderate narrowing',
-      explanation: 'The file has useful evidence, but additional records may still refine the value range.',
+      label: t('results.calc.evGoodLabel'),
+      effect: t('results.calc.evGoodEffect'),
+      range: t('results.calc.evGoodRange'),
+      explanation: t('results.calc.evGoodExplanation'),
     }
   }
 
   if (confidence === 'Medium') {
     return {
-      label: 'Partial document support',
-      effect: 'Wider range',
-      range: 'More uncertainty',
-      explanation: 'Some evidence is available, but missing medical records, bills, photos, or liability documents may still change the estimate.',
+      label: t('results.calc.evPartialLabel'),
+      effect: t('results.calc.evPartialEffect'),
+      range: t('results.calc.evPartialRange'),
+      explanation: t('results.calc.evPartialExplanation'),
     }
   }
 
   return {
-    label: 'Intake-first estimate',
-    effect: 'Wide confidence range',
-    range: 'Most conservative confidence',
-    explanation: 'When the case is based mostly on intake answers, the model keeps the range wider because documents have not confirmed the key facts yet.',
+    label: t('results.calc.evIntakeLabel'),
+    effect: t('results.calc.evIntakeEffect'),
+    range: t('results.calc.evIntakeRange'),
+    explanation: t('results.calc.evIntakeExplanation'),
   }
 }
 
@@ -726,10 +724,10 @@ function buildAttorneyInterestLevel(params: {
   return 'Low'
 }
 
-function getReadinessStatusLabel(score: number): string {
-  if (score >= 70) return 'Well positioned'
-  if (score >= 45) return 'Needs strengthening'
-  return 'Early stage'
+function getReadinessStatusLabel(t: TFn, score: number): string {
+  if (score >= 70) return t('results.calc.readinessWellPositioned')
+  if (score >= 45) return t('results.calc.readinessNeedsStrengthening')
+  return t('results.calc.readinessEarlyStage')
 }
 
 /**
@@ -1900,8 +1898,8 @@ export default function Results() {
   const benchmarkRangeText = settlementBenchmarks
     ? `${formatCurrency(settlementBenchmarks.p25)} - ${formatCurrency(settlementBenchmarks.p75)}`
     : settlementRangeText
-  const baseCaseTypeRange = getBaseCaseTypeRange(assessment?.claimType)
-  const timelineEstimate = buildTimelineEstimate({
+  const baseCaseTypeRange = getBaseCaseTypeRange(t, assessment?.claimType)
+  const timelineEstimate = buildTimelineEstimate(t, {
     claimType: assessment?.claimType,
     missingDocCount: missingDocItems.length,
     treatmentGapCount: treatmentGapItems.length,
@@ -2033,7 +2031,7 @@ export default function Results() {
     hasInjuryPhotos,
     hasWageLossProof,
   })
-  const litigationReadinessStatus = getReadinessStatusLabel(litigationReadinessScore)
+  const litigationReadinessStatus = getReadinessStatusLabel(t, litigationReadinessScore)
   const attorneyInterestLevel = buildAttorneyInterestLevel({
     viability: overallViability,
     liabilityOutlook,
@@ -2424,7 +2422,7 @@ export default function Results() {
       ? rankedSnapshotAttorneys.map((a: any, i: number) => ({
           name: String(a?.name ?? a?.law_firm?.name ?? `Top match ${i + 1}`),
           detail: [venueCounty || venueState, formatClaimTypeLabel(assessment?.claimType)].filter(Boolean).join(' - '),
-          meta: [getResponseBadge(a), 'Free consultation'].filter(Boolean).join(' - '),
+          meta: [getResponseBadge(t, a), 'Free consultation'].filter(Boolean).join(' - '),
           score: formatMatchScore(a?.matchScore ?? a?.match_score ?? a?.score, 94 - i * 3),
         }))
       : [
@@ -2710,7 +2708,7 @@ Checklist:
     .filter(Boolean)
   const bestMissingDoc = missingDocItems.find((item: any) => item?.priority === 'high') ?? missingDocItems[0]
   const supportingNextAction = bestMissingDoc
-    ? getMissingDocAction(bestMissingDoc, assessment?.id)
+    ? getMissingDocAction(t, bestMissingDoc, assessment?.id)
     : medicalReviewPending
       ? { label: 'Review medical story', to: '#medical-story-review' }
       : null
@@ -2724,17 +2722,17 @@ Checklist:
   // Translated display of the same value; the English `liabilityClarityLabel`
   // above is kept as a stable enum for the branching logic further below.
   const liabilityClarityDisplay = liabilityOutlook === 'strong' ? t('results.snapshotGrades.strong') : liabilityOutlook === 'moderate' ? t('results.snapshotGrades.mixed') : t('results.snapshotGrades.unclear')
-  const liabilityModifierExplanation = getLiabilityModifierExplanation({
+  const liabilityModifierExplanation = getLiabilityModifierExplanation(t, {
     liabilityScore,
     comparativeFaultPercent,
   })
-  const injuryTreatmentModifierExplanation = getInjuryTreatmentModifierExplanation({
+  const injuryTreatmentModifierExplanation = getInjuryTreatmentModifierExplanation(t, {
     severityLevel: prediction?.severity?.level,
     hasTreatment: treatment.length > 0,
     chronologyCount: medicalChronology.length,
     treatmentGapCount: treatmentGapItems.length,
   })
-  const evidenceModifierExplanation = getEvidenceModifierExplanation(evidenceLevelConfidence.confidence)
+  const evidenceModifierExplanation = getEvidenceModifierExplanation(t, evidenceLevelConfidence.confidence)
   const calculationModifierRows = [
     liabilityModifierExplanation,
     injuryTreatmentModifierExplanation,
@@ -3421,14 +3419,14 @@ Checklist:
                               {[
                                 attorney?.law_firm?.name ?? 'Law Firm',
                                 `${Math.round((attorney.fit_score || 0.6) * 100)}% fit`,
-                                getResponseBadge(attorney)
+                                getResponseBadge(t, attorney)
                               ].filter(Boolean).join(' • ')}
                             </p>
                             <p className="mt-1 text-xs text-slate-500">
-                              {getAttorneyPracticePreview(attorney, {
+                              {getAttorneyPracticePreview(t, attorney, {
                                 venueState,
                                 venueCounty,
-                              }) || getAttorneyWhyMatched(attorney, {
+                              }) || getAttorneyWhyMatched(t, attorney, {
                                 assessmentClaimType: assessment?.claimType,
                                 venueState,
                                 venueCounty,
@@ -3442,7 +3440,7 @@ Checklist:
                             <div className="mt-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2">
                               <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">Why this attorney matched</p>
                               <ul className="mt-1 space-y-1 text-[11px] text-brand-900">
-                                {getAttorneyRecommendationReasons(attorney, {
+                                {getAttorneyRecommendationReasons(t, attorney, {
                                   assessmentClaimType: assessment?.claimType,
                                   venueState,
                                   venueCounty,
@@ -3468,7 +3466,7 @@ Checklist:
                                 </span>
                               )}
                               <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
-                                {getResponseBadge(attorney)}
+                                {getResponseBadge(t, attorney)}
                               </span>
                             </div>
                           </div>
@@ -4922,7 +4920,7 @@ Checklist:
               {missingDocItems.length > 0 ? (
                 <div className="mt-4 space-y-3">
                   {missingDocItems.slice(0, 4).map((item: any, idx: number) => {
-                    const action = getMissingDocAction(item, assessment?.id)
+                    const action = getMissingDocAction(t, item, assessment?.id)
                     const l = String(item?.label ?? '').toLowerCase()
                     const DocIcon = l.includes('police') || l.includes('incident report') ? Shield : l.includes('photo') ? Camera : l.includes('bill') ? DollarSign : (l.includes('wage') || l.includes('employ')) ? Briefcase : FileText
                     const files = l.includes('photo') ? 'JPG, PNG' : 'PDF, JPG, PNG'
@@ -5102,7 +5100,7 @@ Checklist:
                     <div key={file.id || file.originalName} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-700">
                       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                         <span className="font-medium text-slate-900">{file.originalName || t('results.documents.medicalDocument')}</span>
-                        <span className="font-semibold text-brand-700">{getDocumentProcessingLabel(file)}</span>
+                        <span className="font-semibold text-brand-700">{getDocumentProcessingLabel(t, file)}</span>
                       </div>
                       {(timelineCount > 0 || datesCount > 0 || extracted?.totalAmount) && (
                         <p className="mt-1 text-slate-500">
@@ -5651,7 +5649,7 @@ Checklist:
                       <p className="text-xs font-semibold text-slate-700">{t('results.next.itemsStrengthen')}</p>
                       <ul className="mt-2 space-y-2">
                         {missingDocItems.slice(0, 3).map((item: any) => {
-                          const action = getMissingDocAction(item, assessment?.id)
+                          const action = getMissingDocAction(t, item, assessment?.id)
                           return (
                             <li key={item.key ?? item.label} className="flex items-center justify-between gap-2">
                               <span className="flex items-center gap-2 text-xs text-slate-600"><AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" aria-hidden />{item?.label?.trim() ? item.label : t('results.shared.missingDocument')}</span>
