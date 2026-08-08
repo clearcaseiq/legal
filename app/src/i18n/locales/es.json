@@ -15,27 +15,69 @@
       "configuration": "Configuración"
     },
     "items": {
-      "dashboard": { "label": "Panel" },
-      "opsInbox": { "label": "Bandeja de operaciones" },
-      "cases": { "label": "Casos" },
-      "caseFlow": { "label": "Flujo de casos" },
-      "routingQueue": { "label": "Cola de enrutamiento" },
-      "manualReview": { "label": "Revisión manual" },
-      "attorneys": { "label": "Abogados" },
-      "analytics": { "label": "Analíticas" },
-      "routingFeedback": { "label": "Retroalimentación de enrutamiento" },
-      "communications": { "label": "Comunicaciones" },
-      "documents": { "label": "Documentos y OCR" },
-      "auditLogs": { "label": "Registros de auditoría" },
-      "systemStatus": { "label": "Estado del sistema" },
-      "compliance": { "label": "Cumplimiento" },
-      "matchingRules": { "label": "Reglas de coincidencia" },
-      "heuristics": { "label": "Heurísticas" },
-      "fieldMappings": { "label": "Asignación de campos" },
-      "users": { "label": "Roles de usuario" },
-      "featureToggles": { "label": "Interruptores de funciones" },
-      "firmSettings": { "label": "Ajustes del bufete" },
-      "smsTools": { "label": "Herramientas SMS" }
+      "dashboard": {
+        "label": "Panel"
+      },
+      "opsInbox": {
+        "label": "Bandeja de operaciones"
+      },
+      "cases": {
+        "label": "Casos"
+      },
+      "caseFlow": {
+        "label": "Flujo de casos"
+      },
+      "routingQueue": {
+        "label": "Cola de enrutamiento"
+      },
+      "manualReview": {
+        "label": "Revisión manual"
+      },
+      "attorneys": {
+        "label": "Abogados"
+      },
+      "analytics": {
+        "label": "Analíticas"
+      },
+      "routingFeedback": {
+        "label": "Retroalimentación de enrutamiento"
+      },
+      "communications": {
+        "label": "Comunicaciones"
+      },
+      "documents": {
+        "label": "Documentos y OCR"
+      },
+      "auditLogs": {
+        "label": "Registros de auditoría"
+      },
+      "systemStatus": {
+        "label": "Estado del sistema"
+      },
+      "compliance": {
+        "label": "Cumplimiento"
+      },
+      "matchingRules": {
+        "label": "Reglas de coincidencia"
+      },
+      "heuristics": {
+        "label": "Heurísticas"
+      },
+      "fieldMappings": {
+        "label": "Asignación de campos"
+      },
+      "users": {
+        "label": "Roles de usuario"
+      },
+      "featureToggles": {
+        "label": "Interruptores de funciones"
+      },
+      "firmSettings": {
+        "label": "Ajustes del bufete"
+      },
+      "smsTools": {
+        "label": "Herramientas SMS"
+      }
     }
   },
   "attorneyWorkspace": {
@@ -56,24 +98,78 @@
       "workspace": "Espacio del abogado"
     },
     "nav": {
-      "matches": { "label": "Nuevas coincidencias", "description": "Casos pendientes de revisión" },
-      "quality": { "label": "Calidad de coincidencia", "description": "Conversión por área de práctica" },
-      "marketplace": { "label": "Rendimiento del mercado", "description": "ROI de adquisición" },
-      "active": { "label": "Casos activos", "description": "Cartera y reingreso rápido" },
-      "calendar": { "label": "Calendario y consultas", "description": "Próximas reuniones" },
-      "scheduling": { "label": "Programación", "description": "Tu enlace público de reservas" },
-      "messages": { "label": "Mensajes", "description": "Hilos con clientes y ajustadores" },
-      "team": { "label": "Chat del equipo", "description": "Mensajea a colegas del bufete" },
-      "activity": { "label": "Actividad", "description": "Menciones y discusión del caso" },
-      "documents": { "label": "Documentos y firma electrónica", "description": "Solicitudes y firmas" },
-      "tasks": { "label": "Tareas", "description": "Cola entre casos" },
-      "deadlines": { "label": "Plazos", "description": "Radar de prescripción" },
-      "contacts": { "label": "Contactos", "description": "Directorio de partes" },
-      "billing": { "label": "Facturación", "description": "Honorarios, facturas, costos" },
-      "aiManager": { "label": "Rose — Gestor de casos IA", "description": "Plantea la siguiente tarea en cada caso" },
-      "copilot": { "label": "Copiloto IA", "description": "Análisis y próximas acciones" },
-      "firm": { "label": "Panel del bufete", "description": "Cartera del equipo" },
-      "intake": { "label": "Admisión", "description": "Clientes manuales e importados" }
+      "matches": {
+        "label": "Nuevas coincidencias",
+        "description": "Casos pendientes de revisión"
+      },
+      "quality": {
+        "label": "Calidad de coincidencia",
+        "description": "Conversión por área de práctica"
+      },
+      "marketplace": {
+        "label": "Rendimiento del mercado",
+        "description": "ROI de adquisición"
+      },
+      "active": {
+        "label": "Casos activos",
+        "description": "Cartera y reingreso rápido"
+      },
+      "calendar": {
+        "label": "Calendario y consultas",
+        "description": "Próximas reuniones"
+      },
+      "scheduling": {
+        "label": "Programación",
+        "description": "Tu enlace público de reservas"
+      },
+      "messages": {
+        "label": "Mensajes",
+        "description": "Hilos con clientes y ajustadores"
+      },
+      "team": {
+        "label": "Chat del equipo",
+        "description": "Mensajea a colegas del bufete"
+      },
+      "activity": {
+        "label": "Actividad",
+        "description": "Menciones y discusión del caso"
+      },
+      "documents": {
+        "label": "Documentos y firma electrónica",
+        "description": "Solicitudes y firmas"
+      },
+      "tasks": {
+        "label": "Tareas",
+        "description": "Cola entre casos"
+      },
+      "deadlines": {
+        "label": "Plazos",
+        "description": "Radar de prescripción"
+      },
+      "contacts": {
+        "label": "Contactos",
+        "description": "Directorio de partes"
+      },
+      "billing": {
+        "label": "Facturación",
+        "description": "Honorarios, facturas, costos"
+      },
+      "aiManager": {
+        "label": "Rose — Gestor de casos IA",
+        "description": "Plantea la siguiente tarea en cada caso"
+      },
+      "copilot": {
+        "label": "Copiloto IA",
+        "description": "Análisis y próximas acciones"
+      },
+      "firm": {
+        "label": "Panel del bufete",
+        "description": "Cartera del equipo"
+      },
+      "intake": {
+        "label": "Admisión",
+        "description": "Clientes manuales e importados"
+      }
     }
   },
   "common": {
@@ -3364,7 +3460,7 @@
       "medEvPhysicalTherapy": "Registros de fisioterapia",
       "medEvDoctorNotes": "Notas médicas / restricciones",
       "medStepCurrent": "Actual",
-      "medStepRecords": "+ Registros\u00A0médicos",
+      "medStepRecords": "+ Registros médicos",
       "medStepBills": "+ Facturas",
       "medStepAll": "+ Registros + Facturas + Resonancia",
       "medEconMedicalBills": "Facturas médicas (recibidas)",
@@ -3468,7 +3564,80 @@
       "wtmComparable": "Los casos comparables de {claim} en {state} a menudo se sitúan cerca de {p50} con un rango más amplio de {range}.",
       "wtmSimilar": "Casos similares en {state} se resolvieron entre {range}",
       "wtmFastest": "La forma más rápida de fortalecer esta estimación es agregar {items}.",
-      "and": "y"
+      "and": "y",
+      "addBack": "Volver a agregar",
+      "approveNextTitle": "Apruebe a los siguientes abogados antes de que los contactemos",
+      "approveNextBody": "Los abogados que eligió no pudieron aceptar su caso. Estos manejan este tipo de asuntos en su área. No contactaremos a nadie hasta que usted lo indique, y nos comunicamos con un abogado a la vez en el orden que se muestra.",
+      "assessmentNotFound": "Evaluación no encontrada",
+      "attorneyFallback": "Abogado",
+      "batchApprovedMsg": "Gracias. Nos estamos comunicando con los abogados que aprobó, uno a la vez.",
+      "batchDeclinedMsg": "Entendido. No contactaremos a esos abogados. Nuestro equipo se comunicará con usted sobre otras opciones.",
+      "choice": "Opción {{n}}",
+      "contactChoiceOrder": "Contactaremos primero a la Opción 1. Si rechazan o no responden a tiempo, pasamos automáticamente a la siguiente opción.",
+      "contactMethod_phone": "Teléfono",
+      "contactMethod_text": "Mensaje de texto",
+      "contactMethod_email": "Correo electrónico",
+      "contactSelected": "Contactar a {{count}} abogados seleccionados",
+      "contactTheseAttorneys": "Contactaremos a estos {{count}} abogados, en este orden",
+      "contactThisAttorney": "Contactaremos a este abogado",
+      "couldNotLoadMatches": "No pudimos cargar las coincidencias de abogados",
+      "couldNotLoadMatchesBody1": "Aún puede enviar su caso. Le mostraremos qué abogados sugerimos y esperaremos su aprobación antes de contactar a cualquiera de ellos. O",
+      "couldNotLoadMatchesBody2": "para elegirlos ahora.",
+      "customizeOrder": "Personalizar orden",
+      "doNotContactAnyone": "No contactar a nadie",
+      "done": "Listo",
+      "edit": "Editar",
+      "emailLabel": "Correo electrónico *",
+      "fileReady": "Su expediente está {{percent}}% listo",
+      "findingAttorneys": "Buscando abogados participantes que manejen este tipo de caso en su área...",
+      "findingMatches": "Buscando abogados coincidentes...",
+      "firstNameLabel": "Nombre *",
+      "firstNamePlaceholder": "Juan",
+      "hipaaAlreadyOnFile": "Ya registrado.",
+      "hipaaConsentBody": "para que los abogados coincidentes puedan revisar los registros médicos y los detalles del tratamiento extraídos.",
+      "hipaaLinkText": "divulgación HIPAA para registros médicos",
+      "hipaaOptionalNeeded": "Opcional, pero necesario para una revisión médica completa.",
+      "iAuthorize": "Autorizo",
+      "interstitialTitle": "¿Agregar registros para que los abogados vean su caso completo?",
+      "interstitialBody": "Está a punto de enviar sin documentos. Los abogados pueden rechazar expedientes limitados. Agregar registros médicos les ayuda a valorar su caso y responder más rápido.",
+      "invalidLinkTitle": "Enlace de informe de caso no válido",
+      "invalidLinkBody": "A este enlace de Resultados le falta una referencia de caso válida. Inicie una nueva evaluación para generar un informe nuevo.",
+      "lawFirmDetailsOnRequest": "Detalles del bufete a solicitud",
+      "lawFirmFallback": "Bufete de abogados",
+      "loadErrorTitle": "No pudimos cargar su informe",
+      "medRecordsNotSentTitle": "Los registros médicos aún no se enviarán.",
+      "medRecordsNotSentBody": "Los abogados solo verán el resumen no médico de su caso y sus datos de contacto. Cree una cuenta y complete la autorización HIPAA más tarde para compartir registros médicos, extracción por OCR, facturas y la cronología del tratamiento.",
+      "modalTitle": "Antes de enviar su caso a los abogados",
+      "modalSubtitle": "Agregue su información de contacto para que los abogados puedan comunicarse con usted sobre su caso. No se requiere cuenta.",
+      "moveDown": "Bajar",
+      "moveUp": "Subir",
+      "newProfile": "Perfil nuevo",
+      "phoneLabel": "Teléfono *",
+      "preferredContact": "Contacto preferido",
+      "prefers": "prefiere",
+      "preparingReport": "Preparando su Informe de Inteligencia del Caso…",
+      "rankingDisclaimer": "Estos abogados son bufetes participantes independientes, identificados con criterios objetivos: jurisdicción, tipo de asunto, señales de respuesta y ajuste de perfil. ClearCaseIQ no recomienda ni respalda a ningún abogado. No es necesario arrastrar; use Subir/Bajar para reordenar, o Quitar para eliminar a un abogado de su lista.",
+      "ratingLabel": "calificación {{rating}}",
+      "reloadMatches": "recargar coincidencias",
+      "remove": "Quitar",
+      "removedEveryoneTitle": "Eliminó a todos de su lista",
+      "removedEveryoneBody": "No hay problema. Aún puede enviar su caso: buscaremos un grupo diferente de abogados, se los mostraremos y esperaremos su aprobación antes de contactar a nadie. Los abogados que eliminó no se sugerirán de nuevo.",
+      "removedHeader": "Eliminados: no contactaremos a estos",
+      "requiredToSend": "Requerido para enviar su caso",
+      "responsibleAttorney": "Abogado responsable:",
+      "saving": "Guardando...",
+      "sendFooter1": "Los abogados revisarán su caso y normalmente responden dentro de las 24 horas. Los registros médicos no se comparten a menos que cree una cuenta o inicie sesión y autorice la divulgación médica.",
+      "sendFooter2": "Sin compromiso. No está obligado a contratar a ningún abogado.",
+      "sendLimitedFile": "Enviar expediente limitado",
+      "sendMyCase": "Enviar mi caso",
+      "sending": "Enviando...",
+      "sendingAs": "Enviando como",
+      "startNewAssessment": "Iniciar nueva evaluación",
+      "tryAgain": "Intentar de nuevo",
+      "uncheckingNote": "Desmarcar a un abogado significa que no lo contactaremos. Nunca está obligado a contratar a nadie.",
+      "verifiedReviews": "{{count}} reseñas verificadas",
+      "whyMatchedHeader": "Por qué coincidió este abogado",
+      "withRecords": "+{{percent}}% con registros"
     },
     "next": {
       "handoffTitle": "Siguiente paso",

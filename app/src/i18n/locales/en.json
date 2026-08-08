@@ -15,27 +15,69 @@
       "configuration": "Configuration"
     },
     "items": {
-      "dashboard": { "label": "Dashboard" },
-      "opsInbox": { "label": "Ops Inbox" },
-      "cases": { "label": "Cases" },
-      "caseFlow": { "label": "Case Flow" },
-      "routingQueue": { "label": "Routing Queue" },
-      "manualReview": { "label": "Manual Review" },
-      "attorneys": { "label": "Attorneys" },
-      "analytics": { "label": "Analytics" },
-      "routingFeedback": { "label": "Routing Feedback" },
-      "communications": { "label": "Communications" },
-      "documents": { "label": "Documents & OCR" },
-      "auditLogs": { "label": "Audit Logs" },
-      "systemStatus": { "label": "System Status" },
-      "compliance": { "label": "Compliance" },
-      "matchingRules": { "label": "Matching Rules" },
-      "heuristics": { "label": "Heuristics" },
-      "fieldMappings": { "label": "Field Mappings" },
-      "users": { "label": "User Roles" },
-      "featureToggles": { "label": "Feature Toggles" },
-      "firmSettings": { "label": "Firm Settings" },
-      "smsTools": { "label": "SMS tools" }
+      "dashboard": {
+        "label": "Dashboard"
+      },
+      "opsInbox": {
+        "label": "Ops Inbox"
+      },
+      "cases": {
+        "label": "Cases"
+      },
+      "caseFlow": {
+        "label": "Case Flow"
+      },
+      "routingQueue": {
+        "label": "Routing Queue"
+      },
+      "manualReview": {
+        "label": "Manual Review"
+      },
+      "attorneys": {
+        "label": "Attorneys"
+      },
+      "analytics": {
+        "label": "Analytics"
+      },
+      "routingFeedback": {
+        "label": "Routing Feedback"
+      },
+      "communications": {
+        "label": "Communications"
+      },
+      "documents": {
+        "label": "Documents & OCR"
+      },
+      "auditLogs": {
+        "label": "Audit Logs"
+      },
+      "systemStatus": {
+        "label": "System Status"
+      },
+      "compliance": {
+        "label": "Compliance"
+      },
+      "matchingRules": {
+        "label": "Matching Rules"
+      },
+      "heuristics": {
+        "label": "Heuristics"
+      },
+      "fieldMappings": {
+        "label": "Field Mappings"
+      },
+      "users": {
+        "label": "User Roles"
+      },
+      "featureToggles": {
+        "label": "Feature Toggles"
+      },
+      "firmSettings": {
+        "label": "Firm Settings"
+      },
+      "smsTools": {
+        "label": "SMS tools"
+      }
     }
   },
   "attorneyWorkspace": {
@@ -56,24 +98,78 @@
       "workspace": "Attorney Workspace"
     },
     "nav": {
-      "matches": { "label": "New Matches", "description": "Cases awaiting review" },
-      "quality": { "label": "Match Quality", "description": "Conversion by practice area" },
-      "marketplace": { "label": "Marketplace Performance", "description": "Acquisition ROI" },
-      "active": { "label": "Active Cases", "description": "Caseload & quick re-entry" },
-      "calendar": { "label": "Calendar & Consults", "description": "Upcoming meetings" },
-      "scheduling": { "label": "Scheduling", "description": "Your public booking link" },
-      "messages": { "label": "Messages", "description": "Client & adjuster threads" },
-      "team": { "label": "Team Chat", "description": "Message firm colleagues" },
-      "activity": { "label": "Activity", "description": "Mentions & case discussion" },
-      "documents": { "label": "Documents & E-sign", "description": "Requests & signatures" },
-      "tasks": { "label": "Tasks", "description": "Cross-case queue" },
-      "deadlines": { "label": "Deadlines", "description": "Statute-of-limitations radar" },
-      "contacts": { "label": "Contacts", "description": "Parties directory" },
-      "billing": { "label": "Billing", "description": "Fees, invoices, costs" },
-      "aiManager": { "label": "Rose — AI Case Manager", "description": "Raises the next task on every case" },
-      "copilot": { "label": "AI Copilot", "description": "Analysis & next actions" },
-      "firm": { "label": "Firm Dashboard", "description": "Team caseload" },
-      "intake": { "label": "Intake", "description": "Manual & imported leads" }
+      "matches": {
+        "label": "New Matches",
+        "description": "Cases awaiting review"
+      },
+      "quality": {
+        "label": "Match Quality",
+        "description": "Conversion by practice area"
+      },
+      "marketplace": {
+        "label": "Marketplace Performance",
+        "description": "Acquisition ROI"
+      },
+      "active": {
+        "label": "Active Cases",
+        "description": "Caseload & quick re-entry"
+      },
+      "calendar": {
+        "label": "Calendar & Consults",
+        "description": "Upcoming meetings"
+      },
+      "scheduling": {
+        "label": "Scheduling",
+        "description": "Your public booking link"
+      },
+      "messages": {
+        "label": "Messages",
+        "description": "Client & adjuster threads"
+      },
+      "team": {
+        "label": "Team Chat",
+        "description": "Message firm colleagues"
+      },
+      "activity": {
+        "label": "Activity",
+        "description": "Mentions & case discussion"
+      },
+      "documents": {
+        "label": "Documents & E-sign",
+        "description": "Requests & signatures"
+      },
+      "tasks": {
+        "label": "Tasks",
+        "description": "Cross-case queue"
+      },
+      "deadlines": {
+        "label": "Deadlines",
+        "description": "Statute-of-limitations radar"
+      },
+      "contacts": {
+        "label": "Contacts",
+        "description": "Parties directory"
+      },
+      "billing": {
+        "label": "Billing",
+        "description": "Fees, invoices, costs"
+      },
+      "aiManager": {
+        "label": "Rose — AI Case Manager",
+        "description": "Raises the next task on every case"
+      },
+      "copilot": {
+        "label": "AI Copilot",
+        "description": "Analysis & next actions"
+      },
+      "firm": {
+        "label": "Firm Dashboard",
+        "description": "Team caseload"
+      },
+      "intake": {
+        "label": "Intake",
+        "description": "Manual & imported leads"
+      }
     }
   },
   "common": {
@@ -3364,7 +3460,7 @@
       "medEvPhysicalTherapy": "Physical therapy records",
       "medEvDoctorNotes": "Doctor notes / restrictions",
       "medStepCurrent": "Current",
-      "medStepRecords": "+ Medical\u00A0Records",
+      "medStepRecords": "+ Medical Records",
       "medStepBills": "+ Bills",
       "medStepAll": "+ Records + Bills + MRI",
       "medEconMedicalBills": "Medical Bills (received)",
@@ -3468,7 +3564,80 @@
       "wtmComparable": "Comparable {claim} cases in {state} often land near {p50} with a broader range of {range}.",
       "wtmSimilar": "Similar cases in {state} settled between {range}",
       "wtmFastest": "The fastest way to strengthen this estimate is to add {items}.",
-      "and": "and"
+      "and": "and",
+      "addBack": "Add back",
+      "approveNextTitle": "Approve the next attorneys before we contact them",
+      "approveNextBody": "The attorneys you picked were not able to take your case. These handle this type of matter in your area. We will not contact anyone until you say so, and we reach out to one attorney at a time in the order shown.",
+      "assessmentNotFound": "Assessment not found",
+      "attorneyFallback": "Attorney",
+      "batchApprovedMsg": "Thanks. We are reaching out to the attorneys you approved, one at a time.",
+      "batchDeclinedMsg": "Understood. We will not contact those attorneys. Our team will follow up with you about other options.",
+      "choice": "Choice {{n}}",
+      "contactChoiceOrder": "We will contact Choice 1 first. If they decline or time out, we automatically move to the next choice.",
+      "contactMethod_phone": "Phone",
+      "contactMethod_text": "Text",
+      "contactMethod_email": "Email",
+      "contactSelected": "Contact {{count}} selected attorneys",
+      "contactTheseAttorneys": "We’ll contact these {{count}} attorneys, in this order",
+      "contactThisAttorney": "We’ll contact this attorney",
+      "couldNotLoadMatches": "We could not load attorney matches",
+      "couldNotLoadMatchesBody1": "You can still send your case. We will show you which attorneys we suggest and wait for your approval before contacting any of them. Or",
+      "couldNotLoadMatchesBody2": "to choose them now.",
+      "customizeOrder": "Customize order",
+      "doNotContactAnyone": "Do not contact anyone",
+      "done": "Done",
+      "edit": "Edit",
+      "emailLabel": "Email *",
+      "fileReady": "Your file is {{percent}}% ready",
+      "findingAttorneys": "Finding participating attorneys who handle this type of case in your area...",
+      "findingMatches": "Finding attorney matches...",
+      "firstNameLabel": "First Name *",
+      "firstNamePlaceholder": "John",
+      "hipaaAlreadyOnFile": "Already on file.",
+      "hipaaConsentBody": "so matched attorneys can review medical records and extracted treatment details.",
+      "hipaaLinkText": "HIPAA disclosure for medical records",
+      "hipaaOptionalNeeded": "Optional, but needed for full medical review.",
+      "iAuthorize": "I authorize",
+      "interstitialTitle": "Add records so attorneys see your full case?",
+      "interstitialBody": "You’re about to send with no documents. Attorneys may pass on limited files. Adding medical records helps them value your case and respond faster.",
+      "invalidLinkTitle": "Invalid case report link",
+      "invalidLinkBody": "This Results link is missing a valid case reference. Start a new assessment to generate a fresh report.",
+      "lawFirmDetailsOnRequest": "Law firm details on request",
+      "lawFirmFallback": "Law Firm",
+      "loadErrorTitle": "We couldn’t load your report",
+      "medRecordsNotSentTitle": "Medical records will not be sent yet.",
+      "medRecordsNotSentBody": "Attorneys will see your non-medical case summary and contact details only. Create an account and complete HIPAA authorization later to share medical records, OCR extraction, bills, and the treatment chronology.",
+      "modalTitle": "Before we send your case to attorneys",
+      "modalSubtitle": "Add your contact info so attorneys can reach you about your case. No account required.",
+      "moveDown": "Down",
+      "moveUp": "Up",
+      "newProfile": "New profile",
+      "phoneLabel": "Phone *",
+      "preferredContact": "Preferred contact",
+      "prefers": "prefers",
+      "preparingReport": "Preparing your Case Intelligence Report…",
+      "rankingDisclaimer": "These attorneys are independent participating law firms, identified using objective criteria: venue, matter type, response signals, and profile fit. ClearCaseIQ does not recommend or endorse any attorney. Dragging is not required; use Up/Down to reorder, or Remove to take an attorney off your list.",
+      "ratingLabel": "{{rating}} rating",
+      "reloadMatches": "reload matches",
+      "remove": "Remove",
+      "removedEveryoneTitle": "You removed everyone from your list",
+      "removedEveryoneBody": "That is fine. You can still send your case: we will find a different set of attorneys, show them to you, and wait for your approval before contacting anyone. The attorneys you removed will not be suggested again.",
+      "removedHeader": "Removed: we will not contact these",
+      "requiredToSend": "Required to send your case",
+      "responsibleAttorney": "Responsible attorney:",
+      "saving": "Saving...",
+      "sendFooter1": "Attorneys will review your case and typically respond within 24 hours. Medical records are not shared unless you create/sign in to an account and authorize medical disclosure.",
+      "sendFooter2": "No obligation. You are not required to hire any attorney.",
+      "sendLimitedFile": "Send limited file",
+      "sendMyCase": "Send My Case",
+      "sending": "Sending...",
+      "sendingAs": "Sending as",
+      "startNewAssessment": "Start New Assessment",
+      "tryAgain": "Try again",
+      "uncheckingNote": "Unchecking an attorney means we will not contact them. You are never required to hire anyone.",
+      "verifiedReviews": "{{count}} verified reviews",
+      "whyMatchedHeader": "Why this attorney matched",
+      "withRecords": "+{{percent}}% with records"
     },
     "next": {
       "handoffTitle": "Next step",

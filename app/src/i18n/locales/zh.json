@@ -15,27 +15,69 @@
       "configuration": "配置"
     },
     "items": {
-      "dashboard": { "label": "仪表板" },
-      "opsInbox": { "label": "运营收件箱" },
-      "cases": { "label": "案件" },
-      "caseFlow": { "label": "案件流程" },
-      "routingQueue": { "label": "路由队列" },
-      "manualReview": { "label": "人工审核" },
-      "attorneys": { "label": "律师" },
-      "analytics": { "label": "分析" },
-      "routingFeedback": { "label": "路由反馈" },
-      "communications": { "label": "通讯" },
-      "documents": { "label": "文档与 OCR" },
-      "auditLogs": { "label": "审计日志" },
-      "systemStatus": { "label": "系统状态" },
-      "compliance": { "label": "合规" },
-      "matchingRules": { "label": "匹配规则" },
-      "heuristics": { "label": "启发式规则" },
-      "fieldMappings": { "label": "字段映射" },
-      "users": { "label": "用户角色" },
-      "featureToggles": { "label": "功能开关" },
-      "firmSettings": { "label": "事务所设置" },
-      "smsTools": { "label": "短信工具" }
+      "dashboard": {
+        "label": "仪表板"
+      },
+      "opsInbox": {
+        "label": "运营收件箱"
+      },
+      "cases": {
+        "label": "案件"
+      },
+      "caseFlow": {
+        "label": "案件流程"
+      },
+      "routingQueue": {
+        "label": "路由队列"
+      },
+      "manualReview": {
+        "label": "人工审核"
+      },
+      "attorneys": {
+        "label": "律师"
+      },
+      "analytics": {
+        "label": "分析"
+      },
+      "routingFeedback": {
+        "label": "路由反馈"
+      },
+      "communications": {
+        "label": "通讯"
+      },
+      "documents": {
+        "label": "文档与 OCR"
+      },
+      "auditLogs": {
+        "label": "审计日志"
+      },
+      "systemStatus": {
+        "label": "系统状态"
+      },
+      "compliance": {
+        "label": "合规"
+      },
+      "matchingRules": {
+        "label": "匹配规则"
+      },
+      "heuristics": {
+        "label": "启发式规则"
+      },
+      "fieldMappings": {
+        "label": "字段映射"
+      },
+      "users": {
+        "label": "用户角色"
+      },
+      "featureToggles": {
+        "label": "功能开关"
+      },
+      "firmSettings": {
+        "label": "事务所设置"
+      },
+      "smsTools": {
+        "label": "短信工具"
+      }
     }
   },
   "attorneyWorkspace": {
@@ -56,24 +98,78 @@
       "workspace": "律师工作区"
     },
     "nav": {
-      "matches": { "label": "新匹配", "description": "待审核的案件" },
-      "quality": { "label": "匹配质量", "description": "按业务领域的转化率" },
-      "marketplace": { "label": "市场表现", "description": "获客投资回报" },
-      "active": { "label": "进行中的案件", "description": "案件量与快速返回" },
-      "calendar": { "label": "日历与咨询", "description": "即将到来的会议" },
-      "scheduling": { "label": "排期", "description": "你的公开预约链接" },
-      "messages": { "label": "消息", "description": "客户与理赔员对话" },
-      "team": { "label": "团队聊天", "description": "与事务所同事沟通" },
-      "activity": { "label": "动态", "description": "提及与案件讨论" },
-      "documents": { "label": "文件与电子签名", "description": "请求与签名" },
-      "tasks": { "label": "任务", "description": "跨案件队列" },
-      "deadlines": { "label": "截止日期", "description": "诉讼时效雷达" },
-      "contacts": { "label": "联系人", "description": "当事人名录" },
-      "billing": { "label": "账单", "description": "费用、发票、成本" },
-      "aiManager": { "label": "Rose — AI 案件经理", "description": "为每个案件提出下一项任务" },
-      "copilot": { "label": "AI 副驾", "description": "分析与后续行动" },
-      "firm": { "label": "事务所仪表板", "description": "团队案件量" },
-      "intake": { "label": "接案", "description": "手动与导入的客户" }
+      "matches": {
+        "label": "新匹配",
+        "description": "待审核的案件"
+      },
+      "quality": {
+        "label": "匹配质量",
+        "description": "按业务领域的转化率"
+      },
+      "marketplace": {
+        "label": "市场表现",
+        "description": "获客投资回报"
+      },
+      "active": {
+        "label": "进行中的案件",
+        "description": "案件量与快速返回"
+      },
+      "calendar": {
+        "label": "日历与咨询",
+        "description": "即将到来的会议"
+      },
+      "scheduling": {
+        "label": "排期",
+        "description": "你的公开预约链接"
+      },
+      "messages": {
+        "label": "消息",
+        "description": "客户与理赔员对话"
+      },
+      "team": {
+        "label": "团队聊天",
+        "description": "与事务所同事沟通"
+      },
+      "activity": {
+        "label": "动态",
+        "description": "提及与案件讨论"
+      },
+      "documents": {
+        "label": "文件与电子签名",
+        "description": "请求与签名"
+      },
+      "tasks": {
+        "label": "任务",
+        "description": "跨案件队列"
+      },
+      "deadlines": {
+        "label": "截止日期",
+        "description": "诉讼时效雷达"
+      },
+      "contacts": {
+        "label": "联系人",
+        "description": "当事人名录"
+      },
+      "billing": {
+        "label": "账单",
+        "description": "费用、发票、成本"
+      },
+      "aiManager": {
+        "label": "Rose — AI 案件经理",
+        "description": "为每个案件提出下一项任务"
+      },
+      "copilot": {
+        "label": "AI 副驾",
+        "description": "分析与后续行动"
+      },
+      "firm": {
+        "label": "事务所仪表板",
+        "description": "团队案件量"
+      },
+      "intake": {
+        "label": "接案",
+        "description": "手动与导入的客户"
+      }
     }
   },
   "common": {
@@ -3468,7 +3564,80 @@
       "wtmComparable": "{state}的同类{claim}案件通常接近 {p50}，范围更广，约为 {range}。",
       "wtmSimilar": "{state}的类似案件的和解金额在 {range} 之间",
       "wtmFastest": "强化此估算的最快方法是添加{items}。",
-      "and": "和"
+      "and": "和",
+      "addBack": "重新添加",
+      "approveNextTitle": "在我们联系之前，请批准下一组律师",
+      "approveNextBody": "您选择的律师无法承接您的案件。以下律师在您所在地区处理此类事务。在您同意之前我们不会联系任何人，并且会按所示顺序一次联系一位律师。",
+      "assessmentNotFound": "未找到评估",
+      "attorneyFallback": "律师",
+      "batchApprovedMsg": "谢谢。我们正在按顺序逐一联系您批准的律师。",
+      "batchDeclinedMsg": "明白了。我们不会联系那些律师。我们的团队将就其他选择与您跟进。",
+      "choice": "选择 {{n}}",
+      "contactChoiceOrder": "我们会先联系选择 1。如果对方拒绝或超时未回复，我们会自动转到下一个选择。",
+      "contactMethod_phone": "电话",
+      "contactMethod_text": "短信",
+      "contactMethod_email": "电子邮件",
+      "contactSelected": "联系所选的 {{count}} 位律师",
+      "contactTheseAttorneys": "我们将按此顺序联系这 {{count}} 位律师",
+      "contactThisAttorney": "我们将联系这位律师",
+      "couldNotLoadMatches": "我们无法加载律师匹配",
+      "couldNotLoadMatchesBody1": "您仍然可以提交您的案件。我们会向您展示推荐的律师，并在联系任何人之前等待您的批准。或者",
+      "couldNotLoadMatchesBody2": "立即选择他们。",
+      "customizeOrder": "自定义顺序",
+      "doNotContactAnyone": "不要联系任何人",
+      "done": "完成",
+      "edit": "编辑",
+      "emailLabel": "电子邮件 *",
+      "fileReady": "您的档案已完成 {{percent}}%",
+      "findingAttorneys": "正在寻找您所在地区处理此类案件的参与律师...",
+      "findingMatches": "正在查找匹配的律师...",
+      "firstNameLabel": "名字 *",
+      "firstNamePlaceholder": "John",
+      "hipaaAlreadyOnFile": "已存档。",
+      "hipaaConsentBody": "以便匹配的律师可以查看病历和提取的治疗详情。",
+      "hipaaLinkText": "HIPAA 医疗记录披露",
+      "hipaaOptionalNeeded": "可选，但完整的医疗审查需要此项。",
+      "iAuthorize": "我授权",
+      "interstitialTitle": "添加记录以便律师看到您的完整案件？",
+      "interstitialBody": "您即将在没有任何文件的情况下发送。律师可能会放弃资料有限的案件。添加病历有助于他们评估您的案件并更快回复。",
+      "invalidLinkTitle": "无效的案件报告链接",
+      "invalidLinkBody": "此结果链接缺少有效的案件参考。请开始新的评估以生成新报告。",
+      "lawFirmDetailsOnRequest": "律所详情可应要求提供",
+      "lawFirmFallback": "律师事务所",
+      "loadErrorTitle": "我们无法加载您的报告",
+      "medRecordsNotSentTitle": "暂不发送病历。",
+      "medRecordsNotSentBody": "律师只会看到您的非医疗案件摘要和联系方式。稍后创建账户并完成 HIPAA 授权，即可共享病历、OCR 提取内容、账单和治疗时间线。",
+      "modalTitle": "在我们将您的案件发送给律师之前",
+      "modalSubtitle": "添加您的联系信息，以便律师就您的案件与您联系。无需账户。",
+      "moveDown": "下移",
+      "moveUp": "上移",
+      "newProfile": "新档案",
+      "phoneLabel": "电话 *",
+      "preferredContact": "首选联系方式",
+      "prefers": "偏好",
+      "preparingReport": "正在准备您的案件智能报告…",
+      "rankingDisclaimer": "这些律师是独立的参与律所，依据客观标准确定：管辖地、事务类型、响应信号和资料匹配度。ClearCaseIQ 不推荐或背书任何律师。无需拖动；使用上移/下移重新排序，或使用移除将某位律师从您的名单中删除。",
+      "ratingLabel": "{{rating}} 评分",
+      "reloadMatches": "重新加载匹配",
+      "remove": "移除",
+      "removedEveryoneTitle": "您已从名单中移除了所有人",
+      "removedEveryoneBody": "没关系。您仍然可以提交您的案件：我们会找到另一组律师，向您展示，并在联系任何人之前等待您的批准。您移除的律师不会再次被推荐。",
+      "removedHeader": "已移除：我们不会联系这些律师",
+      "requiredToSend": "提交案件所必需",
+      "responsibleAttorney": "负责律师：",
+      "saving": "正在保存...",
+      "sendFooter1": "律师将审查您的案件，通常在 24 小时内回复。除非您创建/登录账户并授权医疗披露，否则不会共享病历。",
+      "sendFooter2": "无义务。您无需聘请任何律师。",
+      "sendLimitedFile": "发送有限资料",
+      "sendMyCase": "提交我的案件",
+      "sending": "正在发送...",
+      "sendingAs": "发送身份",
+      "startNewAssessment": "开始新评估",
+      "tryAgain": "重试",
+      "uncheckingNote": "取消勾选某位律师意味着我们不会联系他们。您永远无需聘请任何人。",
+      "verifiedReviews": "{{count}} 条已验证评价",
+      "whyMatchedHeader": "为何匹配此律师",
+      "withRecords": "添加记录后 +{{percent}}%"
     },
     "next": {
       "handoffTitle": "下一步",

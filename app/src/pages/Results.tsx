@@ -1662,10 +1662,10 @@ export default function Results() {
       <div className="max-w-4xl mx-auto">
         <div className="text-center py-12">
           <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Invalid case report link</h2>
-          <p className="text-gray-600">This Results link is missing a valid case reference. Start a new assessment to generate a fresh report.</p>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">{t('results.calc.invalidLinkTitle')}</h2>
+          <p className="text-gray-600">{t('results.calc.invalidLinkBody')}</p>
           <Link to="/assess" className="btn-primary mt-4">
-            Start New Assessment
+            {t('results.calc.startNewAssessment')}
           </Link>
         </div>
       </div>
@@ -1677,7 +1677,7 @@ export default function Results() {
       <div className="max-w-4xl mx-auto">
         <div className="text-center py-16">
           <div className="animate-spin rounded-full h-11 w-11 border-2 border-slate-200 border-t-brand-600 mx-auto" />
-          <p className="mt-5 text-sm font-medium text-slate-600">Preparing your Case Intelligence Report…</p>
+          <p className="mt-5 text-sm font-medium text-slate-600">{t('results.calc.preparingReport')}</p>
         </div>
       </div>
     )
@@ -1688,19 +1688,19 @@ export default function Results() {
       <div className="max-w-4xl mx-auto">
         <div className="text-center py-12">
           <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">We couldn’t load your report</h2>
-          <p className="text-gray-600">{error || 'Assessment not found'}</p>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">{t('results.calc.loadErrorTitle')}</h2>
+          <p className="text-gray-600">{error || t('results.calc.assessmentNotFound')}</p>
           <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
             {/* A transient fetch failure (e.g. when navigating back to this page)
                 shouldn't force the user to lose their case — let them retry the
                 same report before starting over (#24). */}
             {resolvedAssessmentId && (
               <button type="button" onClick={() => window.location.reload()} className="btn-primary">
-                Try again
+                {t('results.calc.tryAgain')}
               </button>
             )}
             <Link to="/assess" className={resolvedAssessmentId ? 'btn-outline' : 'btn-primary'}>
-              Start New Assessment
+              {t('results.calc.startNewAssessment')}
             </Link>
           </div>
         </div>
@@ -3258,16 +3258,16 @@ Checklist:
             <div className="flex items-start gap-3">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600"><FileText className="h-5 w-5" aria-hidden /></span>
               <div className="min-w-0">
-                <h3 className="font-display text-lg font-semibold text-slate-900">Add records so attorneys see your full case?</h3>
+                <h3 className="font-display text-lg font-semibold text-slate-900">{t('results.calc.interstitialTitle')}</h3>
                 <p className="mt-1 text-sm leading-relaxed text-slate-600">
-                  You're about to send with no documents. Attorneys may pass on limited files. Adding medical records helps them value your case and respond faster.
+                  {t('results.calc.interstitialBody')}
                 </p>
               </div>
             </div>
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3">
               <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                <span>Your file is {readinessDetails.percent}% ready</span>
-                {docReadinessBoost > 0 ? <span className="text-amber-600">+{docReadinessBoost}% with records</span> : null}
+                <span>{t('results.calc.fileReady', { percent: readinessDetails.percent })}</span>
+                {docReadinessBoost > 0 ? <span className="text-amber-600">{t('results.calc.withRecords', { percent: docReadinessBoost })}</span> : null}
               </div>
               <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-200">
                 <div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.max(4, readinessDetails.percent)}%` }} />
@@ -3280,7 +3280,7 @@ Checklist:
                   onClick={() => setSendInterstitialOpen(false)}
                   className="group inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-3 text-sm font-bold text-white shadow-md shadow-amber-500/30 transition-all hover:-translate-y-0.5 hover:shadow-lg"
                 >
-                  <Upload className="h-4 w-4" aria-hidden /> Add records
+                  <Upload className="h-4 w-4" aria-hidden /> {t('results.calc.nsAddRecordsCta')}
                   {docReadinessBoost > 0 ? <span className="rounded bg-white/20 px-1.5 py-0.5 text-[10px] font-bold leading-none">+{docReadinessBoost}%</span> : null}
                 </Link>
               )}
@@ -3289,7 +3289,7 @@ Checklist:
                 onClick={() => { setSendInterstitialOpen(false); proceedSendForReview() }}
                 className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
               >
-                Send limited file
+                {t('results.calc.sendLimitedFile')}
               </button>
             </div>
           </div>
@@ -3300,34 +3300,34 @@ Checklist:
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/55 p-2 backdrop-blur-sm sm:p-4" onClick={() => !submitLoading && setSendModalOpen(false)}>
           <div className="flex min-h-full items-start justify-center py-3 sm:items-center sm:py-6" onClick={e => e.stopPropagation()}>
             <div className="surface-panel max-h-[calc(100vh-1.5rem)] w-full max-w-md overflow-y-auto p-4 shadow-xl sm:p-6">
-            <h3 className="section-title text-ui-xl">Before we send your case to attorneys</h3>
+            <h3 className="section-title text-ui-xl">{t('results.calc.modalTitle')}</h3>
             <p className="section-copy mb-4">
-              Add your contact info so attorneys can reach you about your case. No account required.
+              {t('results.calc.modalSubtitle')}
             </p>
             <div className="space-y-3">
               {contactComplete && !showContactEdit ? (
                 <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
                   <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Sending as</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{t('results.calc.sendingAs')}</p>
                     <p className="truncate text-sm font-semibold text-slate-900">{contactForm.firstName}</p>
-                    <p className="truncate text-xs text-slate-600">{contactForm.email}{'  \u00B7  '}{contactForm.phone}{'  \u00B7  prefers '}{contactForm.preferredContactMethod}</p>
+                    <p className="truncate text-xs text-slate-600">{contactForm.email}{'  \u00B7  '}{contactForm.phone}{`  \u00B7  ${t('results.calc.prefers')} `}{contactForm.preferredContactMethod}</p>
                   </div>
-                  <button type="button" onClick={() => setShowContactEdit(true)} className="shrink-0 text-xs font-semibold text-brand-700 hover:text-brand-800">Edit</button>
+                  <button type="button" onClick={() => setShowContactEdit(true)} className="shrink-0 text-xs font-semibold text-brand-700 hover:text-brand-800">{t('results.calc.edit')}</button>
                 </div>
               ) : (
               <>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">First Name *</label>
+                <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.firstNameLabel')}</label>
                 <input
                   type="text"
                   value={contactForm.firstName}
                   onChange={e => { setShowContactEdit(true); setContactForm(f => ({ ...f, firstName: e.target.value })) }}
                   className="input"
-                  placeholder="John"
+                  placeholder={t('results.calc.firstNamePlaceholder')}
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">Email *</label>
+                <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.emailLabel')}</label>
                 <input
                   type="email"
                   value={contactForm.email}
@@ -3337,7 +3337,7 @@ Checklist:
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">Phone *</label>
+                <label className="mb-1 block text-sm font-medium text-slate-700">{t('results.calc.phoneLabel')}</label>
                 <input
                   type="tel"
                   inputMode="tel"
@@ -3358,7 +3358,7 @@ Checklist:
                 {contactPhoneError && <p className="mt-1 text-xs text-red-600">{contactPhoneError}</p>}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Preferred contact</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t('results.calc.preferredContact')}</label>
                 <div className="flex gap-3">
                   {(['phone', 'text', 'email'] as const).map(m => (
                     <label key={m} className="flex items-center gap-2 cursor-pointer">
@@ -3369,7 +3369,7 @@ Checklist:
                         onChange={() => setContactForm(f => ({ ...f, preferredContactMethod: m }))}
                         className="text-brand-600"
                       />
-                      <span className="text-sm capitalize">{m}</span>
+                      <span className="text-sm">{t(`results.calc.contactMethod_${m}`)}</span>
                     </label>
                   ))}
                 </div>
@@ -3395,7 +3395,7 @@ Checklist:
               </div>
               {attorneySearchLoading && (
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
-                  Finding participating attorneys who handle this type of case in your area...
+                  {t('results.calc.findingAttorneys')}
                 </div>
               )}
               {!attorneySearchLoading && rankedAttorneyCards.length > 0 && (
@@ -3404,30 +3404,30 @@ Checklist:
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-slate-700">
                         {rankedAttorneyCards.length === 1
-                          ? 'We\u2019ll contact this attorney'
-                          : `We\u2019ll contact these ${rankedAttorneyCards.length} attorneys, in this order`}
+                          ? t('results.calc.contactThisAttorney')
+                          : t('results.calc.contactTheseAttorneys', { count: rankedAttorneyCards.length })}
                       </p>
-                      <p className="mt-0.5 truncate text-xs text-slate-500">{rankedAttorneyCards.map((a: any, i) => `${i + 1}. ${a?.name ?? 'Attorney'}`).join('  \u00B7  ')}</p>
+                      <p className="mt-0.5 truncate text-xs text-slate-500">{rankedAttorneyCards.map((a: any, i) => `${i + 1}. ${a?.name ?? t('results.calc.attorneyFallback')}`).join('  \u00B7  ')}</p>
                     </div>
                     <button type="button" onClick={() => setShowAttorneyRanking((v) => !v)} className="shrink-0 whitespace-nowrap text-xs font-semibold text-brand-700 hover:text-brand-800">
-                      {showAttorneyRanking ? 'Done' : 'Customize order'}
+                      {showAttorneyRanking ? t('results.calc.done') : t('results.calc.customizeOrder')}
                     </button>
                   </div>
                   {showAttorneyRanking && (
                   <div className="mt-3">
                   <p className="mb-3 text-xs text-slate-500">
-                    These attorneys are independent participating law firms, identified using objective criteria: venue, matter type, response signals, and profile fit. ClearCaseIQ does not recommend or endorse any attorney. Dragging is not required; use Up/Down to reorder, or Remove to take an attorney off your list.
+                    {t('results.calc.rankingDisclaimer')}
                   </p>
                   <div className="space-y-2">
                     {rankedAttorneyCards.map((attorney: any, index) => (
                       <div key={attorney.id || attorney.attorney_id} className="subtle-panel px-3 py-3">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">Choice {index + 1}</p>
-                            <p className="text-sm font-semibold text-slate-900">{attorney?.name ?? 'Attorney'}</p>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-brand-700">{t('results.calc.choice', { n: index + 1 })}</p>
+                            <p className="text-sm font-semibold text-slate-900">{attorney?.name ?? t('results.calc.attorneyFallback')}</p>
                             <p className="text-xs text-slate-600">
                               {[
-                                attorney?.law_firm?.name ?? 'Law Firm',
+                                attorney?.law_firm?.name ?? t('results.calc.lawFirmFallback'),
                                 `${Math.round((attorney.fit_score || 0.6) * 100)}% fit`,
                                 getResponseBadge(t, attorney)
                               ].filter(Boolean).join(' • ')}
@@ -3444,11 +3444,11 @@ Checklist:
                             </p>
                             {formatAttorneyLicensure(attorney) && (
                               <p className="mt-1 text-[11px] text-slate-500">
-                                Responsible attorney: {formatAttorneyLicensure(attorney)}
+                                {t('results.calc.responsibleAttorney')} {formatAttorneyLicensure(attorney)}
                               </p>
                             )}
                             <div className="mt-2 rounded-lg border border-brand-100 bg-brand-50 px-3 py-2">
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">Why this attorney matched</p>
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700">{t('results.calc.whyMatchedHeader')}</p>
                               <ul className="mt-1 space-y-1 text-[11px] text-brand-900">
                                 {getAttorneyRecommendationReasons(t, attorney, {
                                   assessmentClaimType: assessment?.claimType,
@@ -3466,13 +3466,13 @@ Checklist:
                               <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
                                 <CheckCircle className="mr-1 h-3 w-3" />
                                 {(attorney.verifiedReviewCount || 0) > 0
-                                  ? `${attorney.verifiedReviewCount} verified reviews`
-                                  : 'New profile'}
+                                  ? t('results.calc.verifiedReviews', { count: attorney.verifiedReviewCount })
+                                  : t('results.calc.newProfile')}
                               </span>
                               {(attorney.averageRating || attorney.rating || 0) > 0 && (
                                 <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
                                   <Star className="mr-1 h-3 w-3" />
-                                  {(attorney.averageRating || attorney.rating || 0).toFixed(1)} rating
+                                  {t('results.calc.ratingLabel', { rating: (attorney.averageRating || attorney.rating || 0).toFixed(1) })}
                                 </span>
                               )}
                               <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700">
@@ -3487,7 +3487,7 @@ Checklist:
                               disabled={index === 0 || isSharedReadOnly}
                               className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                             >
-                              Up
+                              {t('results.calc.moveUp')}
                             </button>
                             <button
                               type="button"
@@ -3495,7 +3495,7 @@ Checklist:
                               disabled={index === rankedAttorneyCards.length - 1 || isSharedReadOnly}
                               className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                             >
-                              Down
+                              {t('results.calc.moveDown')}
                             </button>
                             <button
                               type="button"
@@ -3503,7 +3503,7 @@ Checklist:
                               disabled={isSharedReadOnly}
                               className="rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-500 hover:border-rose-200 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
                             >
-                              Remove
+                              {t('results.calc.remove')}
                             </button>
                           </div>
                         </div>
@@ -3513,7 +3513,7 @@ Checklist:
                   {removedAttorneyCards.length > 0 && (
                     <div className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                        Removed: we will not contact these
+                        {t('results.calc.removedHeader')}
                       </p>
                       <ul className="mt-1 space-y-1">
                         {removedAttorneyCards.map((attorney: any) => (
@@ -3521,14 +3521,14 @@ Checklist:
                             key={attorney.id || attorney.attorney_id}
                             className="flex items-center justify-between gap-3 text-xs text-slate-600"
                           >
-                            <span className="truncate">{attorney?.name ?? 'Attorney'}</span>
+                            <span className="truncate">{attorney?.name ?? t('results.calc.attorneyFallback')}</span>
                             <button
                               type="button"
                               onClick={() => restoreRankedAttorney(attorney.id || attorney.attorney_id)}
                               disabled={isSharedReadOnly}
                               className="shrink-0 font-semibold text-brand-700 hover:text-brand-800 disabled:cursor-not-allowed disabled:opacity-40"
                             >
-                              Add back
+                              {t('results.calc.addBack')}
                             </button>
                           </li>
                         ))}
@@ -3536,7 +3536,7 @@ Checklist:
                     </div>
                   )}
                   <p className="mt-2 text-xs text-slate-500">
-                    We will contact Choice 1 first. If they decline or time out, we automatically move to the next choice.
+                    {t('results.calc.contactChoiceOrder')}
                   </p>
                   </div>
                   )}
@@ -3544,11 +3544,9 @@ Checklist:
               )}
               {!attorneySearchLoading && rankedAttorneyCards.length === 0 && dismissedAttorneyIds.length > 0 && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950">
-                  <p className="font-medium text-amber-950">You removed everyone from your list</p>
+                  <p className="font-medium text-amber-950">{t('results.calc.removedEveryoneTitle')}</p>
                   <p className="mt-1 text-xs leading-relaxed text-amber-900/90">
-                    That is fine. You can still send your case: we will find a different set of
-                    attorneys, show them to you, and wait for your approval before contacting anyone.
-                    The attorneys you removed will not be suggested again.
+                    {t('results.calc.removedEveryoneBody')}
                   </p>
                   {removedAttorneyCards.length > 0 && (
                     <ul className="mt-2 space-y-1">
@@ -3557,14 +3555,14 @@ Checklist:
                           key={attorney.id || attorney.attorney_id}
                           className="flex items-center justify-between gap-3 text-xs text-amber-900"
                         >
-                          <span className="truncate">{attorney?.name ?? 'Attorney'}</span>
+                          <span className="truncate">{attorney?.name ?? t('results.calc.attorneyFallback')}</span>
                           <button
                             type="button"
                             onClick={() => restoreRankedAttorney(attorney.id || attorney.attorney_id)}
                             disabled={isSharedReadOnly}
                             className="shrink-0 font-semibold underline decoration-amber-700 underline-offset-2 hover:text-amber-950 disabled:cursor-not-allowed disabled:opacity-40"
                           >
-                            Add back
+                            {t('results.calc.addBack')}
                           </button>
                         </li>
                       ))}
@@ -3574,18 +3572,17 @@ Checklist:
               )}
               {!attorneySearchLoading && rankedAttorneyCards.length === 0 && dismissedAttorneyIds.length === 0 && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950">
-                  <p className="font-medium text-amber-950">We could not load attorney matches</p>
+                  <p className="font-medium text-amber-950">{t('results.calc.couldNotLoadMatches')}</p>
                   <p className="mt-1 text-xs text-amber-900/90 leading-relaxed">
-                    You can still send your case. We will show you which attorneys we suggest and wait
-                    for your approval before contacting any of them. Or{' '}
+                    {t('results.calc.couldNotLoadMatchesBody1')}{' '}
                     <button
                       type="button"
                       className="font-semibold underline decoration-amber-700 underline-offset-2 hover:text-amber-950"
                       onClick={() => void refreshMatchedAttorneys()}
                     >
-                      reload matches
+                      {t('results.calc.reloadMatches')}
                     </button>{' '}
-                    to choose them now.
+                    {t('results.calc.couldNotLoadMatchesBody2')}
                   </p>
                 </div>
               )}
@@ -3600,24 +3597,24 @@ Checklist:
                       className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600 accent-brand-600 focus:ring-brand-500"
                     />
                     <span className="text-sm text-amber-900">
-                      I authorize{' '}
+                      {t('results.calc.iAuthorize')}{' '}
                       <Link
                         to="/hipaa-authorization"
                         target="_blank"
                         rel="noreferrer"
                         className="font-medium underline"
                       >
-                        HIPAA disclosure for medical records
+                        {t('results.calc.hipaaLinkText')}
                       </Link>{' '}
-                      so matched attorneys can review medical records and extracted treatment details. {hasHipaaConsent ? 'Already on file.' : 'Optional, but needed for full medical review.'}
+                      {t('results.calc.hipaaConsentBody')} {hasHipaaConsent ? t('results.calc.hipaaAlreadyOnFile') : t('results.calc.hipaaOptionalNeeded')}
                     </span>
                   </label>
                 </div>
               ) : (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
-                  <p className="font-semibold">Medical records will not be sent yet.</p>
+                  <p className="font-semibold">{t('results.calc.medRecordsNotSentTitle')}</p>
                   <p className="mt-1">
-                    Attorneys will see your non-medical case summary and contact details only. Create an account and complete HIPAA authorization later to share medical records, OCR extraction, bills, and the treatment chronology.
+                    {t('results.calc.medRecordsNotSentBody')}
                   </p>
                 </div>
               )}
@@ -3635,20 +3632,20 @@ Checklist:
                   />
                   <div>
                     <span className={`text-sm font-semibold ${shareAuthorized ? 'text-brand-900' : 'text-slate-800'}`}>{t('disclosures.shareAuthorization')}</span>
-                    {!shareAuthorized && <p className="mt-0.5 text-xs text-amber-700">Required to send your case</p>}
+                    {!shareAuthorized && <p className="mt-0.5 text-xs text-amber-700">{t('results.calc.requiredToSend')}</p>}
                   </div>
                 </label>
               </div>
             </div>
             {contactFormError && <p className="mt-2 text-sm text-red-600">{contactFormError}</p>}
-            <p className="mt-4 text-xs text-slate-500">Attorneys will review your case and typically respond within 24 hours. Medical records are not shared unless you create/sign in to an account and authorize medical disclosure.</p>
-            <p className="mt-1 text-xs text-slate-500">No obligation. You are not required to hire any attorney.</p>
+            <p className="mt-4 text-xs text-slate-500">{t('results.calc.sendFooter1')}</p>
+            <p className="mt-1 text-xs text-slate-500">{t('results.calc.sendFooter2')}</p>
             <button
               onClick={handleSubmitForReview}
               disabled={submitLoading || attorneySearchLoading || !shareAuthorized}
               className="btn-primary mt-4 w-full py-3 text-base disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {submitLoading ? 'Sending...' : attorneySearchLoading ? 'Finding attorney matches...' : 'Send My Case'}
+              {submitLoading ? t('results.calc.sending') : attorneySearchLoading ? t('results.calc.findingMatches') : t('results.calc.sendMyCase')}
             </button>
               <button
                 type="button"
@@ -3664,8 +3661,8 @@ Checklist:
       {pendingBatchResolved && (
         <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
           {pendingBatchResolved === 'approved'
-            ? 'Thanks. We are reaching out to the attorneys you approved, one at a time.'
-            : 'Understood. We will not contact those attorneys. Our team will follow up with you about other options.'}
+            ? t('results.calc.batchApprovedMsg')
+            : t('results.calc.batchDeclinedMsg')}
         </div>
       )}
       {pendingBatch && pendingBatch.attorneys.length > 0 && (
@@ -3674,12 +3671,10 @@ Checklist:
           className="mb-4 rounded-2xl border border-brand-200 bg-brand-50/70 px-4 py-4 sm:px-5"
         >
           <h2 className="text-base font-semibold text-slate-900">
-            Approve the next attorneys before we contact them
+            {t('results.calc.approveNextTitle')}
           </h2>
           <p className="mt-1 text-sm text-slate-700">
-            The attorneys you picked were not able to take your case. These handle this type of matter
-            in your area. We will not contact anyone until you say so, and we reach out to one attorney
-            at a time in the order shown.
+            {t('results.calc.approveNextBody')}
           </p>
           <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-3">
             <p className="text-xs font-semibold text-slate-700">{t('disclosures.participationTitle')}</p>
@@ -3703,11 +3698,11 @@ Checklist:
                     />
                     <span className="min-w-0">
                       <span className="block text-xs font-semibold uppercase tracking-wide text-brand-700">
-                        Choice {index + 1}
+                        {t('results.calc.choice', { n: index + 1 })}
                       </span>
                       <span className="block text-sm font-semibold text-slate-900">{attorney.name}</span>
                       <span className="block text-xs text-slate-600">
-                        {[attorney.firmName, location].filter(Boolean).join(' • ') || 'Law firm details on request'}
+                        {[attorney.firmName, location].filter(Boolean).join(' • ') || t('results.calc.lawFirmDetailsOnRequest')}
                       </span>
                     </span>
                   </label>
@@ -3724,8 +3719,8 @@ Checklist:
               className="btn-primary disabled:cursor-not-allowed disabled:opacity-70"
             >
               {pendingBatchBusy
-                ? 'Saving...'
-                : `Contact ${pendingBatchSelection.length} selected attorney${pendingBatchSelection.length === 1 ? '' : 's'}`}
+                ? t('results.calc.saving')
+                : t('results.calc.contactSelected', { count: pendingBatchSelection.length })}
             </button>
             <button
               type="button"
@@ -3733,12 +3728,11 @@ Checklist:
               disabled={pendingBatchBusy}
               className="btn-ghost"
             >
-              Do not contact anyone
+              {t('results.calc.doNotContactAnyone')}
             </button>
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            Unchecking an attorney means we will not contact them. You are never required to hire
-            anyone.
+            {t('results.calc.uncheckingNote')}
           </p>
         </section>
       )}
