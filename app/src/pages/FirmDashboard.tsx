@@ -994,6 +994,18 @@ export default function FirmDashboard() {
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  // Attorney-performance row click → open that attorney's manage/edit panel.
+  const openAttorneyFromLeaderboard = (attorneyId: string) => {
+    const mem = members.find((m: any) => m.attorney?.id === attorneyId)
+    if (canSeeTab('team')) goToTab('team', { people: 'attorneys' })
+    if (mem) {
+      openEditMember(mem)
+      return
+    }
+    const att = attorneyById.get(attorneyId)
+    if (att) startEditAttorney(att)
+  }
+
   const leadIdByAssessment = useMemo(() => {
     const m = new Map<string, string>()
     for (const c of cases) if (c.leadId) m.set(c.assessmentId, c.leadId)
@@ -1380,6 +1392,10 @@ export default function FirmDashboard() {
             {leaderboard.length === 0 ? (
               <EmptyState message="No attorneys yet." />
             ) : (
+              <>
+              {canManageUsers && (
+                <p className="mb-3 text-xs text-slate-500">Click an attorney to view or edit their role, permissions, and profile.</p>
+              )}
               <DataTable
                 columns={[
                   {
@@ -1418,7 +1434,9 @@ export default function FirmDashboard() {
                 ] as DataTableColumn<any>[]}
                 rows={leaderboard}
                 rowKey={(r: any) => r.id}
+                onRowClick={canManageUsers ? (r: any) => openAttorneyFromLeaderboard(r.id) : undefined}
               />
+              </>
             )}
           </SectionCard>
         </div>
