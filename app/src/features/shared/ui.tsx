@@ -241,6 +241,7 @@ export function StatGrid({ children, columns = 4 }: { children: ReactNode; colum
     3: 'sm:grid-cols-3',
     4: 'sm:grid-cols-2 lg:grid-cols-4',
     5: 'sm:grid-cols-3 lg:grid-cols-5',
+    6: 'sm:grid-cols-3 lg:grid-cols-6',
   }
   return <div className={`grid grid-cols-2 gap-3 ${cols[columns] ?? cols[4]}`}>{children}</div>
 }

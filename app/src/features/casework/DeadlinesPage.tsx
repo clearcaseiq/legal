@@ -14,7 +14,7 @@ import {
 } from '../shared/ui'
 import { formatClaimType } from '../../lib/claimTypes'
 
-type Bucket = 'all' | 'expired' | 'critical' | 'warning' | 'sol' | 'task'
+type Bucket = 'all' | 'expired' | 'critical' | 'warning' | 'sol' | 'litigation' | 'task'
 
 const claimLabel = (s?: string | null) => (s ? formatClaimType(s) : 'Case')
 
@@ -64,6 +64,7 @@ function countdown(days: number) {
 
 function kindBadge(item: AttorneyDeadlineItem): { tone: BadgeTone; label: string } {
   if (item.kind === 'sol') return { tone: 'brand', label: 'Statute' }
+  if (item.kind === 'litigation') return { tone: 'warning', label: 'Litigation' }
   return { tone: 'neutral', label: 'Task' }
 }
 
@@ -96,6 +97,7 @@ export default function DeadlinesPage() {
       critical: items.filter((i) => i.severity === 'critical').length,
       warning: items.filter((i) => i.severity === 'warning').length,
       sol: items.filter((i) => i.kind === 'sol').length,
+      litigation: items.filter((i) => i.kind === 'litigation').length,
       task: items.filter((i) => i.kind === 'task').length,
     }
   }, [items])
@@ -110,6 +112,8 @@ export default function DeadlinesPage() {
         return items.filter((i) => i.severity === 'warning')
       case 'sol':
         return items.filter((i) => i.kind === 'sol')
+      case 'litigation':
+        return items.filter((i) => i.kind === 'litigation')
       case 'task':
         return items.filter((i) => i.kind === 'task')
       default:
@@ -178,11 +182,12 @@ export default function DeadlinesPage() {
         </div>
       ) : null}
 
-      <StatGrid columns={5}>
+      <StatGrid columns={6}>
         <FilterStat value={counts.expired} label="Expired" tone="danger" active={bucket === 'expired'} onClick={() => toggle('expired')} />
         <FilterStat value={counts.critical} label="Critical (≤90d)" tone="danger" active={bucket === 'critical'} onClick={() => toggle('critical')} />
         <FilterStat value={counts.warning} label="Warning (≤1yr)" tone="warning" active={bucket === 'warning'} onClick={() => toggle('warning')} />
         <FilterStat value={counts.sol} label="Statute clocks" tone="info" active={bucket === 'sol'} onClick={() => toggle('sol')} />
+        <FilterStat value={counts.litigation} label="Litigation" tone="warning" active={bucket === 'litigation'} onClick={() => toggle('litigation')} />
         <FilterStat value={counts.task} label="Deadline tasks" active={bucket === 'task'} onClick={() => toggle('task')} />
       </StatGrid>
 

@@ -2041,7 +2041,7 @@ export async function deleteCalendarEvent(id: string): Promise<{ ok: boolean }> 
 
 export interface AttorneyDeadlineItem {
   id: string
-  kind: 'sol' | 'task'
+  kind: 'sol' | 'task' | 'litigation'
   leadId: string
   clientName: string
   claimType: string | null

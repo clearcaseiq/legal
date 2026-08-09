@@ -4709,7 +4709,7 @@ router.get('/deadlines', authMiddleware, async (req: any, res) => {
     const dayMs = 1000 * 60 * 60 * 24
     type DeadlineItem = {
       id: string
-      kind: 'sol' | 'task'
+      kind: 'sol' | 'task' | 'litigation'
       leadId: string
       clientName: string
       claimType: string | null
@@ -4776,9 +4776,12 @@ router.get('/deadlines', authMiddleware, async (req: any, res) => {
       if (!leadId || !t.dueDate) continue
       const assessment = assessments.find((a) => a.id === t.assessmentId)
       const days = Math.ceil((t.dueDate.getTime() - now) / dayMs)
+      // Litigation checklist items are court/procedural deadlines — the most
+      // consequential kind — so tag them distinctly rather than as routine tasks.
+      const kind = (t as any).milestoneType === 'litigation' ? 'litigation' : 'task'
       items.push({
         id: t.id,
-        kind: 'task',
+        kind,
         leadId,
         clientName: clientNameOf(assessment),
         claimType: assessment?.claimType ?? null,
