@@ -98,10 +98,15 @@ const HEALTH_PLANS = ['Aetna', 'Blue Cross Blue Shield', 'Cigna', 'Kaiser Perman
 
 function rand<T>(arr: readonly T[]): T { return arr[Math.floor(Math.random() * arr.length)] }
 function randInt(min: number, max: number): number { return Math.floor(Math.random() * (max - min + 1)) + min }
-function randDate(startYear: number): Date {
-  const start = new Date(startYear, 0, 1).getTime()
-  const end = new Date().getTime() - 30 * 24 * 3600 * 1000
-  return new Date(start + Math.random() * (end - start))
+// Incident date within the last INCIDENT_MAX_AGE_DAYS (default ~10 months) so
+// seeded cases stay inside the statute of limitations and actually surface as
+// "New Matches" instead of being pulled by the SOL sweep. Override via env.
+const INCIDENT_MAX_AGE_DAYS = Number(process.env.INCIDENT_MAX_AGE_DAYS || 300)
+function randRecentDate(): Date {
+  const minAge = 30
+  const maxAge = Math.max(minAge + 1, INCIDENT_MAX_AGE_DAYS)
+  const ageDays = minAge + Math.random() * (maxAge - minAge)
+  return new Date(Date.now() - ageDays * 24 * 3600 * 1000)
 }
 function addDays(d: Date, days: number): Date { return new Date(d.getTime() + days * 24 * 3600 * 1000) }
 function iso(d: Date): string { return d.toISOString().split('T')[0] }
@@ -623,7 +628,7 @@ async function main() {
     const last = rand(LAST_NAMES)
     const county = rand(CA_COUNTIES)
     const city = rand(CA_CITIES[county])
-    const incidentDate = randDate(2023)
+    const incidentDate = randRecentDate()
     const slot = n + 1
 
     // Deterministic plaintiff email so re-runs don't duplicate.
