@@ -1275,8 +1275,8 @@ export default function FirmDashboard() {
           >
             <Badge tone="blue">{metrics.activeCases || 0} cases</Badge>
           </button>
+          </div>
         </div>
-      </div>
 
       {/* Tab nav */}
       <div className="flex flex-wrap gap-1.5 rounded-xl border border-slate-200 bg-white p-1.5">
@@ -1364,8 +1364,8 @@ export default function FirmDashboard() {
                 <span>
                   <strong>{unassignedCount}</strong> {unassignedCount === 1 ? 'case has' : 'cases have'} no owner assigned yet.
                 </span>
-              </div>
             </div>
+          </div>
           )}
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -1388,13 +1388,13 @@ export default function FirmDashboard() {
                           {t.name} <span className="text-slate-400">· {t.memberCount} {t.memberCount === 1 ? 'member' : 'members'}</span>
                         </span>
                         <span className="font-semibold text-slate-800">{t.activeCaseCount} cases</span>
-                      </div>
+        </div>
                       <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                         <div className="h-full rounded-full bg-brand-500" style={{ width: `${Math.round((t.activeCaseCount / maxTeamCaseload) * 100)}%` }} />
-                      </div>
+            </div>
                     </button>
                   ))}
-                </div>
+          </div>
               )}
             </SectionCard>
 
@@ -1421,17 +1421,17 @@ export default function FirmDashboard() {
                             {o.assignedCases}
                             {o.capacity ? ` / ${o.capacity}` : ''} {util != null && <span className="text-slate-400">({util}%)</span>}
                           </span>
-                        </div>
+        </div>
                         <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                           <div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.min(100, util ?? Math.min(100, o.assignedCases * 10))}%` }} />
-                        </div>
+            </div>
                       </button>
                     )
                   })}
-                </div>
+          </div>
               )}
             </SectionCard>
-          </div>
+        </div>
 
           {(caseload?.offices || []).length >= 2 && cases.length > 0 && (
             <SectionCard
@@ -1449,8 +1449,8 @@ export default function FirmDashboard() {
                       <div className="truncate text-xs text-slate-400">
                         {c.claimType ? formatClaimType(c.claimType) : ''}
                         {c.venueCounty ? ` · ${c.venueCounty}` : ''}
-                      </div>
-                    </div>
+              </div>
+            </div>
                     <select
                       value={c.officeId || ''}
                       disabled={caseOfficeSavingId === c.assessmentId}
@@ -1462,9 +1462,9 @@ export default function FirmDashboard() {
                         <option key={o.officeId} value={o.officeId}>{o.name}</option>
                       ))}
                     </select>
-                  </div>
+          </div>
                 ))}
-              </div>
+        </div>
             </SectionCard>
           )}
 
@@ -1485,7 +1485,7 @@ export default function FirmDashboard() {
                       <div className="flex items-center gap-3">
                         <Avatar name={r.name} />
                         <span className="font-medium text-slate-800">{r.name}</span>
-                      </div>
+            </div>
                     ),
                   },
                   { key: 'accepted', header: 'Accepted', cell: (r: any) => r.accepted },
@@ -1519,7 +1519,7 @@ export default function FirmDashboard() {
               </>
             )}
           </SectionCard>
-        </div>
+          </div>
       )}
 
       {/* ---------------------------------------------------------------- */}
@@ -1535,7 +1535,7 @@ export default function FirmDashboard() {
                 <button onClick={() => void refreshNewLeads()} className={btnGhost + ' !px-2.5 !py-1 !text-xs'}>
                   Refresh
                 </button>
-              </div>
+        </div>
             }
           >
             <p className="mb-3 text-sm text-slate-500">
@@ -1571,7 +1571,7 @@ export default function FirmDashboard() {
               />
             </SectionCard>
           )}
-        </div>
+            </div>
       )}
 
       {tab === 'caseload' && (
@@ -1595,12 +1595,12 @@ export default function FirmDashboard() {
                         <span className="block text-xs text-slate-400">
                           {o.total} {o.total === 1 ? 'case' : 'cases'}
                           {o.withTasks > 0 ? ` · ${o.withTasks} with open tasks` : ''}
-                        </span>
+            </span>
                       </span>
                     </button>
                   )
                 })}
-              </div>
+          </div>
             </SectionCard>
           )}
 
@@ -1627,7 +1627,7 @@ export default function FirmDashboard() {
                   placeholder="Search cases, clients, venues…"
                   className="w-full rounded-lg border border-slate-300 bg-white py-1.5 pl-9 pr-3 text-sm text-slate-700 shadow-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
                 />
-              </div>
+            </div>
               {caseloadMember !== 'all' && (
                 <button onClick={() => setCaseloadMember('all')} className={btnGhost + ' !px-2.5 !py-1 !text-xs'}>
                   Clear filter
@@ -1650,8 +1650,8 @@ export default function FirmDashboard() {
                           {c.claimType ? formatClaimType(c.claimType) : ''}
                           {c.venueCounty ? ` · ${c.venueCounty}` : ''}
                           {c.venueState ? `, ${c.venueState}` : ''}
-                        </div>
-                      </div>
+          </div>
+        </div>
                     ),
                   },
                   {
@@ -1662,7 +1662,7 @@ export default function FirmDashboard() {
                         <div className="flex items-center gap-2">
                           <Avatar name={c.primaryAttorney.name} />
                           <span className="text-slate-700">{c.primaryAttorney.name}</span>
-                        </div>
+              </div>
                       ) : (
                         <Badge tone="warning">Unassigned</Badge>
                       ),
@@ -1681,7 +1681,7 @@ export default function FirmDashboard() {
                             </span>
                           ))}
                           {collaborators.length > 4 && <span className="text-xs text-slate-400">+{collaborators.length - 4}</span>}
-                        </div>
+          </div>
                       )
                     },
                   },
@@ -1742,7 +1742,7 @@ export default function FirmDashboard() {
                       {f}
                     </button>
                   ))}
-                </div>
+          </div>
                 <Badge tone="brand">{filteredPeople.length}</Badge>
               </div>
             }
@@ -1764,19 +1764,19 @@ export default function FirmDashboard() {
                         className="group flex items-center gap-3 text-left"
                       >
                         <Avatar name={displayName} />
-                        <div>
+                  <div>
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-slate-800 group-hover:text-brand-700 group-hover:underline">{displayName}</span>
                             {m.status === 'invited' && <Badge tone="warning">Pending</Badge>}
-                          </div>
+                  </div>
                           {att ? (
                             <div className="flex items-center gap-1 text-xs text-slate-400">
                               <Star className="h-3 w-3 text-yellow-400" /> {Number(att.averageRating || 0).toFixed(1)} · {att.isVerified ? 'Verified' : 'Unverified'}
-                            </div>
+                </div>
                           ) : m.title ? (
                             <div className="text-xs text-slate-400">{m.title}</div>
                           ) : null}
-                        </div>
+          </div>
                       </button>
                     )
                   },
@@ -1795,7 +1795,7 @@ export default function FirmDashboard() {
                           <span key={s} className="rounded-full bg-brand-50 px-2 py-0.5 text-xs text-brand-700">{String(s).replace(/_/g, ' ')}</span>
                         ))}
                         {specs.length > 3 && <span className="text-xs text-slate-400">+{specs.length - 3}</span>}
-                      </div>
+        </div>
                     )
                   },
                 },
@@ -1811,7 +1811,7 @@ export default function FirmDashboard() {
                           <span key={n} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{n}</span>
                         ))}
                         {names.length > 3 && <span className="text-xs text-slate-400">+{names.length - 3}</span>}
-                      </div>
+          </div>
                     )
                   },
                 },
@@ -1820,7 +1820,7 @@ export default function FirmDashboard() {
                   key: 'office',
                   header: 'Office',
                   cell: (m: any) => (
-                    <select
+            <select
                       value={m.office?.id || ''}
                       disabled={memberOfficeSavingId === m.id || offices.length === 0}
                       onChange={(e) => handleMemberOfficeChange(m.id, e.target.value)}
@@ -1830,8 +1830,8 @@ export default function FirmDashboard() {
                       <option value="">{offices.length === 0 ? 'No offices' : 'Unassigned'}</option>
                       {offices.map((o) => (
                         <option key={o.id} value={o.id}>{o.name}</option>
-                      ))}
-                    </select>
+              ))}
+            </select>
                   ),
                 },
                 {
@@ -1852,13 +1852,13 @@ export default function FirmDashboard() {
                     return (
                       <div className="flex items-center justify-end gap-2">
                         {m.status === 'invited' && (
-                          <button
+            <button
                             onClick={() => handleResendInvite(m.id)}
                             disabled={resendingMemberId === m.id}
                             className={btnGhost + ' !px-2.5 !py-1 !text-xs disabled:opacity-60'}
                           >
                             {resendingMemberId === m.id ? 'Sending…' : 'Resend invite'}
-                          </button>
+            </button>
                         )}
                         {att && (
                           <button onClick={() => startEditAttorney(att)} className={btnGhost + ' !px-2.5 !py-1 !text-xs'}>Edit profile</button>
@@ -1871,7 +1871,7 @@ export default function FirmDashboard() {
                           <Shield className="mr-1 inline h-3.5 w-3.5" />
                           Manage
                         </button>
-                      </div>
+        </div>
                     )
                   },
                 },
@@ -1886,7 +1886,7 @@ export default function FirmDashboard() {
           <SectionCard title="Add a person">
             <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
               {(['attorney', 'staff'] as const).map((t) => (
-                <button
+            <button
                   key={t}
                   type="button"
                   onClick={() => setAddPersonType(t)}
@@ -1923,22 +1923,22 @@ export default function FirmDashboard() {
                 <button type="submit" disabled={memberSaving} className={btnPrimary}>
                   <Plus className="h-4 w-4" />
                   {memberSaving ? 'Adding…' : 'Add staff member'}
-                </button>
-              </form>
+            </button>
+          </form>
             ) : (
               <form onSubmit={handleAddAttorney} className="space-y-3">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <input type="text" value={newAttorney.firstName} onChange={(e) => setNewAttorney({ ...newAttorney, firstName: e.target.value })} placeholder="First name" maxLength={NAME_MAX} className={inputCls} />
                   <input type="text" value={newAttorney.middleName} onChange={(e) => setNewAttorney({ ...newAttorney, middleName: e.target.value })} placeholder="Middle name" maxLength={NAME_MAX} className={inputCls} />
                   <input type="text" value={newAttorney.lastName} onChange={(e) => setNewAttorney({ ...newAttorney, lastName: e.target.value })} placeholder="Last name" maxLength={NAME_MAX} className={inputCls} />
-                </div>
+          </div>
                 <input type="email" value={newAttorney.email} onChange={(e) => setNewAttorney({ ...newAttorney, email: e.target.value })} placeholder="Attorney email" maxLength={EMAIL_MAX} className={inputCls} required />
                 <div>
                   <div className="mb-2 flex items-center justify-between">
                     <label className="block text-sm font-medium text-slate-700">Specialties *</label>
                     <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="checkbox"
+                  <input
+                    type="checkbox"
                         checked={newAttorney.specialties.length === CASE_TYPES.length}
                         ref={(el) => { if (el) el.indeterminate = newAttorney.specialties.length > 0 && newAttorney.specialties.length < CASE_TYPES.length }}
                         onChange={() => setNewAttorney((prev) => ({ ...prev, specialties: prev.specialties.length === CASE_TYPES.length ? [] : CASE_TYPES.map((t) => t.value) }))}
@@ -1952,19 +1952,19 @@ export default function FirmDashboard() {
                       <label key={type.value} className="flex cursor-pointer items-center gap-2">
                         <input type="checkbox" checked={newAttorney.specialties.includes(type.value)} onChange={() => toggleAttorneyArrayValue('specialties', type.value)} className="rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
                         <span className="text-sm text-slate-700">{type.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
+                </label>
+              ))}
+            </div>
+          </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Jurisdictions (States) * <span className="ml-2 text-xs font-normal text-slate-500">({newAttorney.jurisdictions.length} selected)</span>
-                  </label>
+            </label>
                   <StateMultiSelect
                     value={newAttorney.jurisdictions}
                     onChange={(next) => setNewAttorney((prev) => ({ ...prev, jurisdictions: next }))}
-                  />
-                </div>
+              />
+            </div>
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">Office</label>
                   <select value={newAttorney.officeId} onChange={(e) => setNewAttorney({ ...newAttorney, officeId: e.target.value })} className={inputCls}>
@@ -2022,7 +2022,7 @@ export default function FirmDashboard() {
                       <option key={state.code} value={state.code}>{state.code}</option>
                     ))}
                   </select>
-                </div>
+        </div>
                 <input type="number" min={0} step={1} value={newOffice.capacity} onChange={(e) => setNewOffice({ ...newOffice, capacity: e.target.value })} placeholder="Capacity (optional)" className={inputCls} />
                 {officeError && <p className="text-sm text-red-600">{officeError}</p>}
                 {officeSuccess && <p className="text-sm text-green-600">{officeSuccess}</p>}
@@ -2040,13 +2040,13 @@ export default function FirmDashboard() {
                     const memberIdsInTeam = new Set((t.members || []).map((m) => m.firmMemberId || m.id))
                     const available = members.filter((m: any) => !memberIdsInTeam.has(m.id))
                     const isOpen = manageTeamId === t.id
-                    return (
+                return (
                       <li key={t.id} className="rounded-lg border border-slate-100">
                         <div className="flex items-center justify-between px-3 py-2 text-sm">
                           <div className="min-w-0">
                             <span className="font-medium text-slate-700">{t.name}</span>
                             <span className="ml-2 text-slate-400">{formatRole(t.teamType)}{t.office ? ` · ${t.office.name}` : ''} · {t.members.length} {t.members.length === 1 ? 'member' : 'members'}</span>
-                          </div>
+                    </div>
                           <div className="flex shrink-0 items-center gap-1">
                             <button
                               type="button"
@@ -2065,8 +2065,8 @@ export default function FirmDashboard() {
                                 </button>
                               </>
                             )}
-                          </div>
-                        </div>
+                    </div>
+                    </div>
                         {isOpen && (
                           <div className="space-y-3 border-t border-slate-100 px-3 py-3">
                             {(t.members || []).length > 0 ? (
@@ -2077,7 +2077,7 @@ export default function FirmDashboard() {
                                       <Avatar name={m.name || m.email || '—'} />
                                       <span className="truncate text-slate-700">{m.name || m.email || '—'}</span>
                                       <Badge tone={m.teamRole === 'lead' ? 'brand' : 'neutral'}>{m.teamRole === 'lead' ? 'Lead' : 'Member'}</Badge>
-                                    </span>
+                        </span>
                                     <button type="button" disabled={teamMemberSaving} onClick={() => handleRemoveTeamMember(t.id, m.firmMemberId || m.id)} className="shrink-0 text-xs font-semibold text-red-600 transition hover:text-red-700 disabled:opacity-50">Remove</button>
                                   </li>
                                 ))}
@@ -2109,9 +2109,9 @@ export default function FirmDashboard() {
                               <button type="button" disabled={teamMemberSaving || !teamMemberPick.firmMemberId} onClick={() => handleAddTeamMember(t.id)} className={btnPrimary + ' whitespace-nowrap'}>
                                 <Plus className="h-4 w-4" /> Add
                               </button>
-                            </div>
+                    </div>
                             {teamMemberError && <p className="text-xs text-red-600">{teamMemberError}</p>}
-                          </div>
+                        </div>
                         )}
                       </li>
                     )
@@ -2139,7 +2139,7 @@ export default function FirmDashboard() {
                 </button>
               </form>
             </SectionCard>
-          </div>
+                        </div>
 
           {/* ── ③ ROLE × PERMISSION MATRIX ─────────────────────────── */}
           <SectionCard
@@ -2223,8 +2223,8 @@ export default function FirmDashboard() {
                                     <Pencil className="h-3 w-3" />
                                     Edit
                                   </button>
-                                )}
-                              </div>
+                      )}
+                    </div>
                             </th>
                             {roleMatrix.columns.map((perm) => {
                               const has = perms.includes(perm)
@@ -2240,29 +2240,29 @@ export default function FirmDashboard() {
                               return (
                                 <td key={perm} className="px-3 py-3 text-center">
                                   {editable ? (
-                                    <button
-                                      type="button"
+                    <button
+                      type="button"
                                       onClick={() => toggleRolePermission(role, perm, has)}
                                       disabled={saving}
                                       title={has ? `Revoke "${humanizePermission(perm)}" from ${formatRole(role)}` : `Grant "${humanizePermission(perm)}" to ${formatRole(role)}`}
                                       className={`mx-auto flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-slate-100 ${saving ? 'opacity-40' : ''}`}
                                     >
                                       {icon}
-                                    </button>
+                    </button>
                                   ) : (
                                     <span title={locked ? 'Required for Firm Admin' : undefined} className={locked ? 'inline-flex items-center' : undefined}>
                                       {icon}
                                     </span>
                                   )}
-                                </td>
+                  </td>
                               )
                             })}
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                </tr>
+                )
+              })}
+            </tbody>
+          </table>
+      </div>
 
                 {expandedMatrixRole && (
                   <div className="rounded-xl border border-brand-100 bg-brand-50/40 p-4">
@@ -2271,15 +2271,15 @@ export default function FirmDashboard() {
                         <Shield className="h-4 w-4 text-brand-600" />
                         {formatRole(expandedMatrixRole)} — permissions
                       </h4>
-                      <button
-                        type="button"
+              <button
+                type="button"
                         onClick={() => setExpandedMatrixRole(null)}
                         className="text-slate-400 hover:text-slate-600"
                         aria-label="Close"
-                      >
+              >
                         <X className="h-4 w-4" />
-                      </button>
-                    </div>
+              </button>
+            </div>
                     <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {(roleMatrix.caps[expandedMatrixRole] || []).map((perm) => (
                         <li key={perm} className="flex items-start gap-2 rounded-lg bg-white px-3 py-2 shadow-sm">
@@ -2287,7 +2287,7 @@ export default function FirmDashboard() {
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-slate-800">{humanizePermission(perm)}</p>
                             <p className="text-xs text-slate-500">{PERMISSION_DESCRIPTIONS[perm] || ''}</p>
-                          </div>
+              </div>
                         </li>
                       ))}
                       {(roleMatrix.caps[expandedMatrixRole] || []).length === 0 && (
@@ -2401,8 +2401,8 @@ export default function FirmDashboard() {
                       checked ? 'border-brand-200 bg-brand-50/50' : 'border-slate-200 bg-white'
                     } ${locked ? 'opacity-70' : 'cursor-pointer hover:border-brand-200'}`}
                   >
-                    <input
-                      type="checkbox"
+                      <input
+                        type="checkbox"
                       checked={checked}
                       disabled={locked}
                       onChange={() => toggleEditRolePerm(perm)}
@@ -2417,11 +2417,11 @@ export default function FirmDashboard() {
                         <span className="block text-xs text-slate-500">{PERMISSION_DESCRIPTIONS[perm]}</span>
                       )}
                     </span>
-                  </label>
+                    </label>
                 )
               })}
               {roleMatrixError && <p className="text-sm text-rose-600">{roleMatrixError}</p>}
-            </div>
+                </div>
             <div className="flex items-center justify-between border-t border-slate-100 px-5 py-4">
               <span className="text-xs text-slate-500">{editRolePerms.length} permission{editRolePerms.length === 1 ? '' : 's'} selected</span>
               <div className="flex items-center gap-3">
@@ -2455,7 +2455,7 @@ export default function FirmDashboard() {
                     <option key={r} value={r}>{formatRole(r)}</option>
                   ))}
                 </select>
-              </div>
+                </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-slate-700">Assign to</label>
                 <select value={assignee} onChange={(e) => setAssignee(e.target.value)} className={inputCls}>
@@ -2473,7 +2473,7 @@ export default function FirmDashboard() {
                         .filter((m) => m.user?.id && !m.attorney)
                         .map((m) => {
                           const name = [m.user?.firstName, m.user?.lastName].filter(Boolean).join(' ').trim() || m.user?.email || 'Member'
-                          return (
+                    return (
                             <option key={`usr:${m.user!.id}`} value={`usr:${m.user!.id}`}>{name} — {formatRole(m.role)}</option>
                           )
                         })}
@@ -2539,15 +2539,15 @@ export default function FirmDashboard() {
                     const isRoleDefault = roleDefaultPerms.includes(perm)
                     const isOverride = editMemberPermOverrides.includes(perm)
                     const isActive = isRoleDefault || isOverride
-                    return (
-                      <label
+                          return (
+                          <label
                         key={perm}
                         className={`flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition ${
                           isActive ? 'bg-brand-50 text-brand-800' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
                           checked={isActive}
                           onChange={() => {
                             if (isRoleDefault && !isOverride) return
@@ -2559,7 +2559,7 @@ export default function FirmDashboard() {
                         <span className="flex-1">{perm.replace(/_/g, ' ')}</span>
                         {isRoleDefault && <span className="rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-brand-600">Role</span>}
                         {!isRoleDefault && isOverride && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-600">Extra</span>}
-                      </label>
+                          </label>
                     )
                   })}
                 </div>
@@ -2570,15 +2570,15 @@ export default function FirmDashboard() {
                 <p className="mb-3 text-sm font-semibold text-slate-700">Account controls</p>
                 <div className="flex flex-wrap items-center gap-2">
                   {(editingMember.status || 'active') === 'active' ? (
-                    <button
+              <button
                       onClick={() => handleToggleMemberStatus('suspended')}
                       disabled={editMemberSaving}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 shadow-sm transition hover:bg-amber-50 disabled:opacity-50"
                     >
                       <Ban className="h-3.5 w-3.5" /> Suspend access
-                    </button>
+              </button>
                   ) : editingMember.status === 'suspended' ? (
-                    <button
+              <button
                       onClick={() => handleToggleMemberStatus('active')}
                       disabled={editMemberSaving}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-green-200 bg-white px-3 py-1.5 text-xs font-semibold text-green-700 shadow-sm transition hover:bg-green-50 disabled:opacity-50"
