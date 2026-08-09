@@ -2340,8 +2340,8 @@ export interface DemandLetter {
   recipient: { name: string; address: string; email?: string }
   content: string
   status: 'DRAFT' | 'FINAL' | 'SENT'
-  origin: 'attorney' | 'ai' | 'pro_se'
-  contentSource: 'ai' | 'deterministic' | null
+  origin: 'attorney' | 'ai' | 'pro_se' | 'imported'
+  contentSource: 'ai' | 'deterministic' | 'external' | null
   reviewStatus: 'pending' | 'approved' | null
   reviewedByName: string | null
   reviewedAt: string | null
@@ -2350,6 +2350,9 @@ export interface DemandLetter {
   currentVersion: number
   finalizedAt: string | null
   finalizedByName: string | null
+  // An imported letter keeps its original upload as the canonical download.
+  hasOriginalFile?: boolean
+  importedFileName?: string | null
   sentAt: string | null
   createdAt: string
   updatedAt: string
@@ -2407,6 +2410,43 @@ export async function finalizeLeadDemandLetter(leadId: string, demandId: string)
 export async function markLeadDemandSent(leadId: string, demandId: string, sentAt?: string) {
   const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/send`, sentAt ? { sentAt } : {})
   return data as DemandLetter
+}
+
+export interface ImportDemandLetterInput {
+  /** Uploaded original (.pdf/.docx/.txt). Preserves formatting as the download. */
+  file?: File | null
+  /** Pasted plain text, used when no file is uploaded. */
+  content?: string
+  title?: string
+  recipientName?: string
+  recipientAddress?: string
+  recipientEmail?: string
+  targetAmount?: number
+  /** Record the demand as already sent to the carrier (advances the case stage). */
+  markSent?: boolean
+  sentAt?: string
+}
+
+/** Import a demand letter authored outside the platform (or pasted as text). */
+export async function importLeadDemandLetter(leadId: string, input: ImportDemandLetterInput) {
+  const form = new FormData()
+  if (input.file) form.append('file', input.file)
+  if (input.content) form.append('content', input.content)
+  if (input.title) form.append('title', input.title)
+  if (input.recipientName) form.append('recipientName', input.recipientName)
+  if (input.recipientAddress) form.append('recipientAddress', input.recipientAddress)
+  if (input.recipientEmail) form.append('recipientEmail', input.recipientEmail)
+  if (typeof input.targetAmount === 'number') form.append('targetAmount', String(input.targetAmount))
+  if (input.markSent) form.append('markSent', 'true')
+  if (input.sentAt) form.append('sentAt', input.sentAt)
+  const { data } = await api.post(`${demandLettersPath(leadId)}/import`, form)
+  return data as DemandLetter
+}
+
+/** Download the original uploaded file for an imported letter. */
+export async function downloadLeadDemandOriginal(leadId: string, demandId: string) {
+  const { data } = await api.get(`${demandLettersPath(leadId)}/${demandId}/original`, { responseType: 'blob' })
+  return data as Blob
 }
 
 export async function syncLeadReadinessAutomation(leadId: string) {

@@ -68,6 +68,7 @@ import {
 import { isReviewGateEnabled } from '../lib/task-review'
 import { AI_AUTHOR_NAME } from '../lib/ai-author'
 import { DEFAULT_DEMAND_RECIPIENT, draftDemandForAssessment, saveDemandVersion } from '../lib/demand-drafting'
+import { extractDemandText } from '../lib/demand-import'
 import { askCaseAssistant } from '../services/case-assistant'
 import { isAiCaseManagerEnabled } from '../lib/ai-case-manager-sweep'
 import { syncQuestionTasks, syncSingleQuestionTask } from '../lib/question-tasks'
@@ -190,6 +191,31 @@ const intakeImportUpload = multer({
       return
     }
     cb(new Error('Import files must be CSV, TSV, JSON, XLS, or XLSX exports'))
+  },
+})
+
+/**
+ * Upload of a demand letter authored outside the platform (Word / Google Docs /
+ * PDF). Kept in memory so the route can extract text AND persist the original
+ * file to a non-public dir itself — attorney work product is served through the
+ * authenticated download route, never statically off /uploads.
+ */
+const demandImportUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase()
+    const allowedExt = ['.pdf', '.docx', '.txt']
+    const allowedMime = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+    ]
+    if (allowedExt.includes(ext) || allowedMime.includes(file.mimetype)) {
+      cb(null, true)
+      return
+    }
+    cb(new Error('Upload a PDF, .docx, or .txt — or paste the text instead'))
   },
 })
 
@@ -14182,6 +14208,9 @@ const demandLetterSelect = {
   currentVersion: true,
   finalizedAt: true,
   finalizedByName: true,
+  importedFilePath: true,
+  importedFileName: true,
+  importedFileMime: true,
   sentAt: true,
   createdAt: true,
   updatedAt: true,
@@ -14215,6 +14244,10 @@ function serializeDemandLetter(letter: any, versions?: any[]) {
     currentVersion: letter.currentVersion,
     finalizedAt: letter.finalizedAt || null,
     finalizedByName: letter.finalizedByName || null,
+    // Expose only whether an original file exists + its name; the path stays
+    // server-side and the bytes are served through the authenticated route.
+    hasOriginalFile: !!letter.importedFilePath,
+    importedFileName: letter.importedFileName || null,
     sentAt: letter.sentAt || null,
     createdAt: letter.createdAt,
     updatedAt: letter.updatedAt,
@@ -14366,6 +14399,202 @@ router.post('/leads/:leadId/demand-letters', authMiddleware, async (req: any, re
   } catch (error: any) {
     logger.error('Failed to draft demand letter', { error: error.message, leadId: req.params.leadId })
     res.status(500).json({ error: 'Failed to draft demand letter' })
+  }
+})
+
+/**
+ * Import a demand letter authored outside ClearCaseIQ (Word / Google Docs / PDF)
+ * or pasted as plain text, so a case has one record of the demand.
+ *
+ * When a file is uploaded we keep the ORIGINAL as the canonical download (its
+ * formatting is preserved exactly) and store extracted plain text in `content`
+ * for the record, search, and AI context. Imported letters are attorney-authored
+ * so they skip Rose's review gate. Optionally mark it already-sent, which mirrors
+ * the /send path and advances the case to DEMAND_SENT.
+ *
+ * multipart/form-data fields: file? (pdf/docx/txt), content? (pasted text),
+ * title?, recipientName?, recipientAddress?, recipientEmail?, targetAmount?,
+ * markSent? ("true"), sentAt?.
+ */
+router.post(
+  '/leads/:leadId/demand-letters/import',
+  authMiddleware,
+  (req: any, res, next) => {
+    demandImportUpload.single('file')(req, res, (err: any) => {
+      if (err) return res.status(400).json({ error: err.message || 'Upload failed' })
+      next()
+    })
+  },
+  async (req: any, res) => {
+    try {
+      const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+      if (auth.error) {
+        return res.status(auth.error.status).json({ error: auth.error.message })
+      }
+      const { lead, attorney } = auth
+
+      let importedFilePath: string | null = null
+      let importedFileName: string | null = null
+      let importedFileMime: string | null = null
+      let content = ''
+
+      if (req.file) {
+        const fileName = req.file.originalname || 'demand-letter'
+        const fileMime = req.file.mimetype || 'application/octet-stream'
+        importedFileName = fileName
+        importedFileMime = fileMime
+        // extractDemandText throws a caller-friendly message for unsupported files.
+        content = await extractDemandText(req.file.buffer, fileMime, fileName)
+        if (!content.trim()) {
+          return res.status(400).json({
+            error: 'That file had no readable text (it may be a scan). Paste the text instead, or upload a text-based PDF/.docx.',
+          })
+        }
+      } else if (typeof req.body?.content === 'string' && req.body.content.trim()) {
+        content = req.body.content
+      } else {
+        return res.status(400).json({ error: 'Upload a file or paste the letter text to import.' })
+      }
+      content = content.slice(0, 500_000)
+
+      // Persist the original file to a NON-public dir (not /uploads) so it is
+      // only reachable through the authenticated /original route.
+      if (req.file) {
+        const dir = path.join(process.cwd(), 'storage', 'demand-imports')
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+        const safeName = (importedFileName || 'demand').replace(/[^\w.\-]+/g, '_')
+        const stored = `${uuidv4()}-${safeName}`
+        fs.writeFileSync(path.join(dir, stored), req.file.buffer)
+        importedFilePath = path.join('storage', 'demand-imports', stored)
+      }
+
+      const recipient = {
+        name: String(req.body?.recipientName || DEFAULT_DEMAND_RECIPIENT.name).slice(0, 200),
+        address: String(req.body?.recipientAddress || DEFAULT_DEMAND_RECIPIENT.address).slice(0, 500),
+        email: String(req.body?.recipientEmail || '').slice(0, 200),
+      }
+      const targetAmount = Number.isFinite(Number(req.body?.targetAmount))
+        ? Math.max(0, Number(req.body.targetAmount))
+        : 0
+      const title = typeof req.body?.title === 'string' ? req.body.title.trim().slice(0, 200) || null : null
+      const markSent = req.body?.markSent === 'true' || req.body?.markSent === true
+      const sentAt = markSent ? (req.body?.sentAt ? new Date(req.body.sentAt) : new Date()) : null
+      const actorName = requestActorName(req.user)
+
+      const letter = await prisma.demandLetter.create({
+        data: {
+          assessmentId: lead.assessmentId,
+          title,
+          targetAmount,
+          recipient: JSON.stringify(recipient),
+          content,
+          status: markSent ? 'SENT' : 'DRAFT',
+          origin: 'imported',
+          contentSource: 'external',
+          reviewStatus: null,
+          importedFilePath,
+          importedFileName,
+          importedFileMime,
+          createdById: req.user?.id || null,
+          createdByName: actorName,
+          updatedByName: actorName,
+          ...(markSent ? { finalizedAt: new Date(), finalizedByName: actorName, sentAt } : {}),
+          versions: {
+            create: {
+              version: 1,
+              content,
+              source: 'imported',
+              authorName: actorName,
+              authorId: req.user?.id || null,
+            },
+          },
+        },
+        select: demandLetterSelect,
+      })
+
+      await writeAutomationAudit({
+        userId: req.user?.id,
+        attorneyId: attorney?.id ?? null,
+        action: 'demand_letter_imported',
+        entityType: 'demand_letter',
+        entityId: letter.id,
+        metadata: { leadId: lead.id, hasFile: !!importedFilePath, markSent },
+      })
+
+      void recordCaseChange({
+        assessmentId: lead.assessmentId,
+        source: 'attorney',
+        action: 'demand_imported',
+        entityType: 'demand',
+        entityId: letter.id,
+        summary: `Demand letter imported${req.file ? ` (${importedFileName})` : ''}`,
+        actor: { type: 'user', id: req.user?.id ?? null, label: actorName },
+      })
+
+      // Marking an imported letter sent mirrors /send: log the demand on the
+      // negotiation timeline and advance the case stage to DEMAND_SENT.
+      if (markSent && sentAt) {
+        await prisma.negotiationEvent
+          .create({
+            data: {
+              assessmentId: lead.assessmentId,
+              eventType: 'demand',
+              amount: targetAmount || null,
+              eventDate: sentAt,
+              status: 'open',
+              counterpartyType: 'insurer',
+              notes: 'Imported demand package sent to carrier',
+            },
+          })
+          .catch(() => null)
+        void recordCaseChange({
+          assessmentId: lead.assessmentId,
+          source: 'attorney',
+          action: 'demand_sent',
+          entityType: 'demand_letter',
+          entityId: letter.id,
+          summary: 'Demand package sent to carrier',
+          actor: { type: 'user', id: req.user?.id ?? null, label: actorName },
+        })
+        void syncCaseStage(lead.assessmentId, { source: 'attorney' })
+      }
+
+      res.status(201).json(serializeDemandLetter(letter))
+    } catch (error: any) {
+      logger.error('Failed to import demand letter', { error: error.message, leadId: req.params.leadId })
+      res.status(500).json({ error: error?.message || 'Failed to import demand letter' })
+    }
+  },
+)
+
+/** Stream the original uploaded file for an imported letter (auth-gated). */
+router.get('/leads/:leadId/demand-letters/:demandId/original', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+
+    const letter = await prisma.demandLetter.findFirst({
+      where: { id: req.params.demandId, assessmentId: auth.lead.assessmentId },
+      select: { importedFilePath: true, importedFileName: true, importedFileMime: true },
+    })
+    if (!letter || !letter.importedFilePath) {
+      return res.status(404).json({ error: 'No original file for this letter' })
+    }
+
+    const abs = path.join(process.cwd(), letter.importedFilePath)
+    if (!fs.existsSync(abs)) {
+      return res.status(404).json({ error: 'Original file is missing' })
+    }
+
+    const filename = (letter.importedFileName || 'demand-letter').replace(/["\r\n]/g, '')
+    res.setHeader('Content-Type', letter.importedFileMime || 'application/octet-stream')
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    fs.createReadStream(abs).pipe(res)
+  } catch (error: any) {
+    logger.error('Failed to download imported demand letter', { error: error.message, demandId: req.params.demandId })
+    res.status(500).json({ error: 'Failed to download original file' })
   }
 })
 

@@ -12,6 +12,7 @@ import {
   Check,
   Clock,
   Download,
+  FileDown,
   FileText,
   History,
   Loader2,
@@ -19,15 +20,19 @@ import {
   RefreshCw,
   Send,
   Sparkles,
+  Upload,
   User,
+  X,
 } from 'lucide-react'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import {
   approveLeadDemandLetter,
   downloadDemandLetterDocx,
+  downloadLeadDemandOriginal,
   draftLeadDemandLetter,
   finalizeLeadDemandLetter,
   getLeadDemandLetter,
+  importLeadDemandLetter,
   listLeadDemandLetters,
   markLeadDemandSent,
   regenerateLeadDemandLetter,
@@ -69,6 +74,18 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<{ tone: 'ok' | 'err'; text: string } | null>(null)
   const [showHistory, setShowHistory] = useState(false)
+
+  // Import a letter authored in another tool (Word / Google Docs / PDF).
+  const [showImport, setShowImport] = useState(false)
+  const [importBusy, setImportBusy] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importText, setImportText] = useState('')
+  const [importTitle, setImportTitle] = useState('')
+  const [importRecipient, setImportRecipient] = useState('')
+  const [importTarget, setImportTarget] = useState('')
+  const [importSent, setImportSent] = useState(false)
+  const [importSentDate, setImportSentDate] = useState('')
 
   // The letter the textarea currently reflects, so switching letters can replace
   // the buffer without a stale-edit check fighting the load.
@@ -206,6 +223,67 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
     }
   }
 
+  const handleDownloadOriginal = async () => {
+    if (!active) return
+    setBusy('original')
+    try {
+      const blob = await downloadLeadDemandOriginal(leadId, active.id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = active.importedFileName || `demand-letter-${active.id}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      setMessage({ tone: 'err', text: 'Download failed.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const resetImportForm = () => {
+    setImportFile(null)
+    setImportText('')
+    setImportTitle('')
+    setImportRecipient('')
+    setImportTarget('')
+    setImportSent(false)
+    setImportSentDate('')
+    setImportError(null)
+  }
+
+  const openImport = () => {
+    resetImportForm()
+    setShowImport(true)
+  }
+
+  const canSubmitImport = !!importFile || importText.trim().length > 0
+
+  const handleImport = async () => {
+    if (!canSubmitImport) return
+    setImportBusy(true)
+    setImportError(null)
+    try {
+      const created = await importLeadDemandLetter(leadId, {
+        file: importFile,
+        content: importFile ? undefined : importText,
+        title: importTitle.trim() || undefined,
+        recipientName: importRecipient.trim() || undefined,
+        targetAmount: importTarget.trim() ? Number(importTarget) : undefined,
+        markSent: importSent,
+        sentAt: importSent && importSentDate ? importSentDate : undefined,
+      })
+      setLetters((prev) => [created, ...prev.filter((l) => l.id !== created.id)])
+      await openLetter(created.id)
+      setShowImport(false)
+      setMessage({ tone: 'ok', text: 'Letter imported.' })
+    } catch (err: any) {
+      setImportError(err?.response?.data?.error || 'Import failed.')
+    } finally {
+      setImportBusy(false)
+    }
+  }
+
   const versions = useMemo(() => active?.versions || [], [active])
 
   if (loading) {
@@ -255,15 +333,30 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
             placeholder="Anything to emphasize? e.g. lead with the delayed MRI and the three months of missed work."
             className="mx-auto mt-4 block w-full max-w-xl rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none"
           />
-          <button
-            type="button"
-            onClick={handleDraft}
-            disabled={busy != null}
-            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
-          >
-            {busy === 'draft' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {busy === 'draft' ? 'Drafting…' : 'Draft demand letter'}
-          </button>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={handleDraft}
+              disabled={busy != null}
+              className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-50"
+            >
+              {busy === 'draft' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {busy === 'draft' ? 'Drafting…' : 'Draft demand letter'}
+            </button>
+            <button
+              type="button"
+              onClick={openImport}
+              disabled={busy != null}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              <Upload className="h-4 w-4" />
+              Import a letter
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-slate-400">
+            Already have one written in Word or Google Docs? Import it (PDF, .docx, or paste the text) — the original file is
+            kept for download.
+          </p>
         </div>
       ) : (
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -273,6 +366,12 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
                 <h3 className="truncate text-sm font-semibold text-slate-900">
                   {active.title || 'Demand letter'}
                 </h3>
+                {active.origin === 'imported' ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">
+                    <Upload className="h-3 w-3" />
+                    Imported
+                  </span>
+                ) : null}
                 {locked ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
                     <Lock className="h-3 w-3" />
@@ -300,6 +399,18 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
                   History
                 </button>
               ) : null}
+              {active.hasOriginalFile ? (
+                <button
+                  type="button"
+                  onClick={handleDownloadOriginal}
+                  disabled={busy != null}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                  title={active.importedFileName || 'Original uploaded file'}
+                >
+                  {busy === 'original' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileDown className="h-3.5 w-3.5" />}
+                  Original
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={handleDownload}
@@ -308,6 +419,15 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
               >
                 <Download className="h-3.5 w-3.5" />
                 Word
+              </button>
+              <button
+                type="button"
+                onClick={openImport}
+                disabled={busy != null}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Import
               </button>
               {!locked ? (
                 <>
@@ -453,6 +573,144 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {showImport ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">Import a demand letter</h3>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  Bring in a letter written elsewhere. Upload the file (PDF, .docx, or .txt) and we keep the original for
+                  download, or paste the text.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowImport(false)}
+                className="shrink-0 rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Original file</label>
+                <input
+                  type="file"
+                  accept=".pdf,.docx,.txt"
+                  onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                  className="mt-1.5 block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
+                />
+                {importFile ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    {importFile.name} · the original will be kept for download.
+                  </p>
+                ) : null}
+              </div>
+
+              {!importFile ? (
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Or paste the text</label>
+                  <textarea
+                    value={importText}
+                    onChange={(e) => setImportText(e.target.value)}
+                    rows={6}
+                    placeholder="Paste the full letter text here…"
+                    className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-[13px] text-slate-800 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none"
+                  />
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Title (optional)</label>
+                  <input
+                    value={importTitle}
+                    onChange={(e) => setImportTitle(e.target.value)}
+                    placeholder="e.g. Demand to State Farm"
+                    className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recipient (optional)</label>
+                  <input
+                    value={importRecipient}
+                    onChange={(e) => setImportRecipient(e.target.value)}
+                    placeholder="Adjuster / carrier"
+                    className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Demand amount (optional)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={importTarget}
+                    onChange={(e) => setImportTarget(e.target.value)}
+                    placeholder="0"
+                    className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={importSent}
+                  onChange={(e) => setImportSent(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                />
+                <span className="text-sm text-slate-700">
+                  This letter has already been sent to the carrier
+                  <span className="block text-xs text-slate-500">
+                    Records it as sent and advances the case to “Demand sent.”
+                  </span>
+                </span>
+              </label>
+              {importSent ? (
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sent date (optional)</label>
+                  <input
+                    type="date"
+                    value={importSentDate}
+                    onChange={(e) => setImportSentDate(e.target.value)}
+                    className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none"
+                  />
+                </div>
+              ) : null}
+
+              {importError ? (
+                <div className="flex items-center gap-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  <AlertTriangle className="h-4 w-4" />
+                  {importError}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowImport(false)}
+                disabled={importBusy}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleImport}
+                disabled={importBusy || !canSubmitImport}
+                className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:opacity-40"
+              >
+                {importBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                {importBusy ? 'Importing…' : 'Import letter'}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 

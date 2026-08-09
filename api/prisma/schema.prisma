@@ -1506,6 +1506,18 @@ model DemandLetter {
   finalizedAt     DateTime?
   finalizedByName String?
 
+  // --- Imported letters -----------------------------------------------------
+  // A letter authored OUTSIDE ClearCaseIQ (Word / Google Docs) and imported so
+  // the case still has one record of the demand. The original file is kept as
+  // the canonical download so its formatting is preserved exactly; `content`
+  // holds extracted plain text only, for the record, search, and AI context.
+  // Path is relative to the API cwd and lives under a NON-public dir (not
+  // /uploads) so attorney work product is served through the authenticated
+  // download route rather than statically. Null on every generated letter.
+  importedFilePath String?
+  importedFileName String?
+  importedFileMime String?
+
   // Set to the assessment id on a letter Rose drafted unprompted, and null on
   // every other letter. The unique constraint is the actual guard against
   // double-drafting: the coach loop runs concurrently (per evidence upload, on
