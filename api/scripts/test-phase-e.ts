@@ -59,6 +59,10 @@ async function main() {
   check('assessment.litigationStatus = filed', litRow?.litigationStatus === 'filed', litRow?.litigationStatus)
   const litTasks = await prisma.caseTask.count({ where: { assessmentId, milestoneType: LITIGATION_MILESTONE } })
   check('litigation checklist created', litTasks >= 5, litTasks)
+  const litReminders = await prisma.caseReminder.count({
+    where: { assessmentId, message: { startsWith: 'Litigation deadline:' } },
+  })
+  check('litigation deadline reminders scheduled', litReminders >= 1, litReminders)
 
   console.log('\n2) Idempotency — re-setting to a later active status does not duplicate')
   await setLitigationStatus(assessmentId, 'discovery', { source: 'attorney', actorName: 'Test Attorney' })
@@ -85,6 +89,7 @@ async function main() {
 
   // Cleanup
   await prisma.caseTask.deleteMany({ where: { assessmentId } }).catch(() => {})
+  await prisma.caseReminder.deleteMany({ where: { assessmentId } }).catch(() => {})
   await prisma.negotiationEvent.deleteMany({ where: { assessmentId } }).catch(() => {})
   await prisma.caseChangeEvent.deleteMany({ where: { assessmentId } }).catch(() => {})
   await prisma.assessment.delete({ where: { id: assessmentId } })

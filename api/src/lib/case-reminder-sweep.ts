@@ -66,6 +66,10 @@ function classifyReminder(message: string): ReminderClass {
   if (/^escalation:/i.test(text)) {
     return { subject: 'Case deadline escalation', priority: 'high', kind: 'escalation' }
   }
+  // Litigation dates are court/procedural deadlines — surface loudly, right after SOL.
+  if (/^litigation deadline:/i.test(text)) {
+    return { subject: 'Litigation deadline', priority: 'high', kind: 'litigation' }
+  }
   if (/^\[readiness\]/i.test(text)) {
     return { subject: 'Case readiness reminder', priority: 'normal', kind: 'readiness' }
   }

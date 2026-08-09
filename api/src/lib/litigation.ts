@@ -70,6 +70,28 @@ const LITIGATION_CHECKLIST: LitTaskDef[] = [
   { title: 'Prepare for mediation / mandatory settlement conference', role: 'attorney', dueInDays: 90, priority: 'medium' },
 ]
 
+/**
+ * Schedule a delivered reminder for a litigation deadline. Mirrors the
+ * attorney-dashboard createCaseReminder idempotency (no second identical
+ * still-pending row) and uses the "Litigation deadline:" prefix so the reminder
+ * sweep classifies it as a high-priority litigation alert. Best-effort.
+ */
+async function scheduleLitigationReminder(assessmentId: string, title: string, dueDate: Date, reminderAt: Date) {
+  if (reminderAt.getTime() < Date.now()) return
+  const message = `Litigation deadline: ${title} due ${dueDate.toDateString()}.`
+  try {
+    const existing = await prisma.caseReminder.findFirst({
+      where: { assessmentId, channel: 'email', message, status: 'scheduled' },
+    })
+    if (existing) return
+    await prisma.caseReminder.create({
+      data: { assessmentId, channel: 'email', message, dueAt: reminderAt, status: 'scheduled', deliveryStatus: 'pending' },
+    })
+  } catch (e: any) {
+    logger.warn('Litigation reminder schedule failed', { assessmentId, title, error: e?.message })
+  }
+}
+
 async function createLitigationTasks(
   assessmentId: string,
   opts?: { createdById?: string | null; createdByName?: string | null },
@@ -87,6 +109,7 @@ async function createLitigationTasks(
     const normalized = def.title.trim().toLowerCase()
     if (existingTitles.has(normalized)) continue
     const dueDate = addDays(now, def.dueInDays)
+    const reminderAt = addDays(dueDate, -3)
     await prisma.caseTask
       .create({
         data: {
@@ -95,7 +118,7 @@ async function createLitigationTasks(
           taskType: 'milestone',
           milestoneType: LITIGATION_MILESTONE,
           dueDate,
-          reminderAt: addDays(dueDate, -3),
+          reminderAt,
           priority: def.priority,
           escalationLevel: def.priority === 'high' ? 'warning' : 'none',
           status: 'open',
@@ -105,9 +128,10 @@ async function createLitigationTasks(
           createdByName,
         },
       })
-      .then(() => {
+      .then(async () => {
         created += 1
         existingTitles.add(normalized)
+        await scheduleLitigationReminder(assessmentId, def.title, dueDate, reminderAt)
       })
       .catch((e: any) => logger.warn('Litigation task create failed', { assessmentId, title: def.title, error: e?.message }))
   }
