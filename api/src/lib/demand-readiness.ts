@@ -270,6 +270,18 @@ const TREATMENT_BLOCKER_TITLE: Record<Exclude<TreatmentPosture, 'complete'>, str
 }
 
 /**
+ * Single number every surface should quote for a treatment gap: prefer days of
+ * silence since the last visit when that already clears the gap threshold,
+ * otherwise the largest between-visit gap. Keeps Case Coach tasks, Defense
+ * Risks, and readiness automation from disagreeing.
+ */
+export function reportedTreatmentGapDays(posture: TreatmentPostureResult): number {
+  const since = posture.daysSinceLastTreatment
+  if (since != null && since >= OPEN_TREATMENT_GAP_DAYS) return since
+  return posture.largestGapDays || 0
+}
+
+/**
  * Decide whether the file may move toward a demand. `ready` is false unless
  * every blocker clears — a demand cannot be recalled once it is with a carrier.
  */

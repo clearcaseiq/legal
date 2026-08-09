@@ -16,7 +16,12 @@
 import { prisma } from './prisma'
 import { logger } from './logger'
 import { buildCaseIntelligence, type CaseGap, type GapAction, type GapCategory, type ValueImpact } from './case-intelligence'
-import { deriveTreatmentPosture, evaluateDemandGate, hasTreatmentCompletionSignal } from './demand-readiness'
+import {
+  deriveTreatmentPosture,
+  evaluateDemandGate,
+  hasTreatmentCompletionSignal,
+  reportedTreatmentGapDays,
+} from './demand-readiness'
 
 export type CoachPriority = 'critical' | 'high' | 'medium' | 'low'
 export type CoachCategory = GapCategory | 'deadline' | 'strategy'
@@ -94,6 +99,9 @@ const FIRST_PARTY_COVERAGE_GAP_KEY = 'first_party_coverage'
 /** Coach action set for a gap, folded down to the universal task primitives. */
 function gapToInsight(gap: CaseGap): CoachInsight {
   const title =
+    gap.key === 'product_preservation' ? 'Instruct client to preserve the product unaltered — do not return or repair' :
+    gap.key === 'product_manufacturer' ? 'Identify the product manufacturer, brand, and model' :
+    gap.key === 'defendant_identity' ? 'Identify the defendant' :
     gap.category === 'liability' ? `Secure ${gap.label.toLowerCase()}` :
     gap.category === 'insurance' ? `Confirm ${gap.label.toLowerCase()}` :
     gap.category === 'medical' ? `Obtain ${gap.label.toLowerCase()}` :
@@ -208,23 +216,44 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
     })
   }
 
-  // 3) Treatment gap — a classic value-killer if left unexplained.
-  const gapDays = treatmentPosture.daysSinceLastTreatment
-  if (gapDays != null) {
-    if (gapDays >= 30 && !hasOpenTaskFor('treatment')) {
-      const score = gapDays >= 60 ? 74 : 58
-      insights.push({
-        key: 'treatment_gap',
-        title: 'Contact the client about the treatment gap',
-        category: 'medical',
-        priority: PRIORITY_FROM_SCORE(score),
-        priorityScore: score,
-        why: `No treatment recorded for ${gapDays} days. Insurers argue a gap means the client recovered. Confirm whether treatment ended or lapsed and document the reason.`,
-        impact: 'Prevents a common value-reduction argument',
-        valueImpact: 'medium',
-        actions: ['schedule_followup', 'request_from_client'],
-      })
-    }
+  // 3) Treatment status / gap.
+  // Day-0 files with no records must NOT assert a multi-day "gap" as fact — that
+  // is usually missing paperwork. Confirm status first; only flag a gap once we
+  // have enough dated treatment entries (or an affirmative gap posture with 2+ visits).
+  if (
+    (treatmentPosture.posture === 'unknown' || treatmentPosture.entryCount < 2) &&
+    !hasOpenTaskFor('treatment status') &&
+    !hasOpenTaskFor('treatment gap')
+  ) {
+    insights.push({
+      key: 'confirm_treatment_status',
+      title: 'Confirm current treatment status with client',
+      category: 'medical',
+      priority: 'high',
+      priorityScore: 80,
+      why: 'Treatment status is not confirmed on the file yet (records may still be outstanding). For soft-tissue and similar claims, ongoing care is a primary value driver — confirm whether the client is still treating before estimating damages or asserting a gap.',
+      impact: 'Keeps valuation honest and prevents premature gap tasks',
+      valueImpact: 'high',
+      actions: ['request_from_client', 'schedule_followup'],
+    })
+  } else if (
+    treatmentPosture.posture === 'gap' &&
+    treatmentPosture.entryCount >= 2 &&
+    !hasOpenTaskFor('treatment')
+  ) {
+    const gapDays = reportedTreatmentGapDays(treatmentPosture)
+    const score = gapDays >= 60 ? 74 : 58
+    insights.push({
+      key: 'treatment_gap',
+      title: 'Contact the client about the treatment gap',
+      category: 'medical',
+      priority: PRIORITY_FROM_SCORE(score),
+      priorityScore: score,
+      why: `No treatment recorded for ${gapDays} days after prior visits on file. Insurers argue a gap means the client recovered. Confirm whether treatment ended or lapsed and document the reason.`,
+      impact: 'Prevents a common value-reduction argument',
+      valueImpact: 'medium',
+      actions: ['schedule_followup', 'request_from_client'],
+    })
   }
 
   // 4) Lien / subrogation investigation — start early or it delays disbursement.
@@ -287,7 +316,12 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
         valueImpact: 'high',
         actions: ['assign_paralegal', 'schedule_followup'],
       })
-    } else if (!demandGate.ready && treatmentPosture.posture !== 'complete' && !hasOpenTaskFor('treatment status')) {
+    } else if (
+      !demandGate.ready &&
+      treatmentPosture.posture !== 'complete' &&
+      !insights.some((i) => i.key === 'confirm_treatment_status' || i.key === 'treatment_gap') &&
+      !hasOpenTaskFor('treatment status')
+    ) {
       // The file is organized enough that demand work would otherwise start, so
       // the binding constraint is documenting where care ended.
       insights.push({
@@ -304,9 +338,16 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
     }
   }
 
-  // Rank: priorityScore desc, then value-impact.
-  insights.sort((a, b) => b.priorityScore - a.priorityScore || IMPACT_RANK[b.valueImpact] - IMPACT_RANK[a.valueImpact])
-  const ranked = insights.slice(0, 6)
+  // Rank: priorityScore desc, then value-impact. De-dupe by key so treatment
+  // status / gap never appear twice from different branches.
+  const byKey = new Map<string, CoachInsight>()
+  for (const insight of insights) {
+    const prev = byKey.get(insight.key)
+    if (!prev || insight.priorityScore > prev.priorityScore) byKey.set(insight.key, insight)
+  }
+  const ranked = Array.from(byKey.values())
+    .sort((a, b) => b.priorityScore - a.priorityScore || IMPACT_RANK[b.valueImpact] - IMPACT_RANK[a.valueImpact])
+    .slice(0, 6)
 
   const headline = ranked.length
     ? ranked[0].title

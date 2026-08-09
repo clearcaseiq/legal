@@ -98,11 +98,11 @@ const BANKS: Record<string, BankQuestion[]> = {
     { id: 'wk_duty', section: 'Damages', text: 'Have you been placed on modified duty or taken off work?', whyAsked: 'Drives the wage-loss and disability claim.', valueImpact: 'medium' },
   ],
   product: [
-    { id: 'pr_maker', section: 'Liability', text: 'Do you know the manufacturer, brand, and model of the product?', whyAsked: 'Identifies the defendant(s) in the chain of distribution.', valueImpact: 'high' },
-    { id: 'pr_preserved', section: 'Liability', text: 'Do you still have the product itself (preserved, unaltered)?', whyAsked: 'The product is the key evidence. Spoliation can sink the case.', valueImpact: 'high' },
+    { id: 'pr_maker', section: 'Liability', text: 'Do you know the manufacturer, brand, and model of the product?', whyAsked: 'Identifies the defendant(s) in the chain of distribution.', valueImpact: 'high', gate: onlyIfGap('product_manufacturer'), gapKeys: ['product_manufacturer', 'defendant_identity'] },
+    { id: 'pr_preserved', section: 'Liability', text: 'Do you still have the product itself (preserved, unaltered)?', whyAsked: 'The product is the key evidence. Spoliation can sink the case.', valueImpact: 'high', gate: onlyIfGap('product_preservation'), gapKeys: ['product_preservation'] },
     { id: 'pr_recall', section: 'Liability', text: 'Are you aware of any recalls or similar incidents with this product?', whyAsked: 'Recalls/prior incidents support a known defect.', valueImpact: 'high' },
     { id: 'pr_instructions', section: 'Liability', text: 'Were you using the product as instructed, and do you have the manual/packaging?', whyAsked: 'Anticipates misuse defenses and supports warning claims.', valueImpact: 'medium' },
-    { id: 'pr_receipt', section: 'Damages', text: 'Do you have the purchase receipt or proof of purchase?', whyAsked: 'Establishes ownership and the purchase timeline.', valueImpact: 'low' },
+    { id: 'pr_receipt', section: 'Damages', text: 'Do you have the purchase receipt or proof of purchase?', whyAsked: 'Establishes ownership and the purchase timeline.', valueImpact: 'medium' },
   ],
   wrongful_death: [
     { id: 'wd_relationship', section: 'Damages', text: 'What was your relationship to the deceased, and who are the surviving heirs?', whyAsked: 'Determines standing and the scope of recoverable damages.', valueImpact: 'high' },
@@ -124,14 +124,23 @@ const BANKS: Record<string, BankQuestion[]> = {
 export function buildBaselineQuestions(intel: CaseIntelligence): IntelligentQuestion[] {
   const gapKeys = new Set(intel.gaps.map((g) => g.key))
   const bank = BANKS[intel.claimTypeKey] || BANKS.default
-  const merged = [...bank, ...INSURANCE_COMMON, ...COMMON]
+  // Product cases should not get auto/UM-centric insurance prompts that assume an at-fault driver.
+  const insurance =
+    intel.claimTypeKey === 'product'
+      ? INSURANCE_COMMON.filter((q) => !['ins_um', 'ins_medpay', 'ins_own_declarations'].includes(q.id))
+      : INSURANCE_COMMON
+  const merged = [...bank, ...insurance, ...COMMON]
 
-  const seen = new Set<string>()
+  const seenIds = new Set<string>()
+  const seenText = new Set<string>()
   const out: IntelligentQuestion[] = []
   for (const q of merged) {
-    if (seen.has(q.id)) continue
+    if (seenIds.has(q.id)) continue
     if (q.gate && !q.gate(gapKeys)) continue
-    seen.add(q.id)
+    const norm = q.text.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim()
+    if (seenText.has(norm)) continue
+    seenIds.add(q.id)
+    seenText.add(norm)
     out.push({
       id: q.id,
       section: q.section,

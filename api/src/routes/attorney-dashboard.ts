@@ -2285,16 +2285,26 @@ async function scheduleEscalationAlert(assessmentId: string, task: { title: stri
 async function createReadinessTasks(leadId: string, assessmentId: string) {
   const summary = await buildCaseCommandCenter({ assessmentId, leadId })
   const plan = buildReadinessAutomationPlan(summary)
+  // Dedupe against ALL tasks (any status) by work key so readiness does not
+  // recreate work the Case Coach (or a completed task) already covers — CP OV/DM.
   const existingTasks = await prisma.caseTask.findMany({
-    where: { assessmentId, status: { not: 'done' } },
-    select: { title: true },
+    where: { assessmentId },
+    select: { title: true, checkpointType: true, notes: true },
   })
-  const existingTitles = new Set(existingTasks.map((task) => task.title.trim().toLowerCase()))
+  const { taskWorkAlreadyCovered } = await import('../lib/task-identity')
+  const existingRows = existingTasks.map((task) => ({
+    title: task.title,
+    checkpointType: task.checkpointType,
+    notes: task.notes,
+  }))
   const created: any[] = []
 
   for (const suggestion of plan.tasks) {
-    const normalizedTitle = suggestion.title.trim().toLowerCase()
-    if (existingTitles.has(normalizedTitle)) continue
+    const candidate = {
+      title: suggestion.title,
+      checkpointType: suggestion.checkpointType,
+    }
+    if (taskWorkAlreadyCovered(existingRows, candidate)) continue
     const dueDate = addDays(new Date(), suggestion.dueInDays)
     const reminderAt = addDays(new Date(), suggestion.remindInDays)
     const record = await prisma.caseTask.create({
@@ -2324,7 +2334,7 @@ async function createReadinessTasks(leadId: string, assessmentId: string) {
       escalationLevel: record.escalationLevel,
     })
     created.push(record)
-    existingTitles.add(normalizedTitle)
+    existingRows.push(candidate)
   }
 
   if (created.length > 0) {

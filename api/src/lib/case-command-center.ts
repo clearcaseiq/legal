@@ -6,6 +6,8 @@ import {
   deriveTreatmentPosture,
   evaluateDemandGate,
   hasTreatmentCompletionSignal,
+  OPEN_TREATMENT_GAP_DAYS,
+  reportedTreatmentGapDays,
   type DemandGate,
   type TreatmentPosture,
 } from './demand-readiness'
@@ -606,8 +608,24 @@ export async function buildCaseCommandCenter(params: {
     chronologyDates: chronology.map((item) => item.date),
     completionSignal: await hasTreatmentCompletionSignal(prisma, assessment.id),
   })
+  // Prefer the shared posture calculator so Defense Risks / readiness / Coach
+  // all quote the same gap-day number (reportedTreatmentGapDays).
+  const reportedGap = reportedTreatmentGapDays(treatmentPosture)
+  const treatmentGapsForMonitor =
+    casePreparation.treatmentGaps.length > 0
+      ? casePreparation.treatmentGaps.map((g) => ({ ...g, gapDays: reportedGap || g.gapDays }))
+      : reportedGap > 0
+        ? [{ gapDays: reportedGap }]
+        : []
+  const prepLargest = casePreparation.treatmentGaps.reduce((m, g) => Math.max(m, g.gapDays), 0)
+  const baseMonitor = buildTreatmentMonitor({ chronology, treatmentGaps: treatmentGapsForMonitor })
   const treatmentMonitor = {
-    ...buildTreatmentMonitor({ chronology, treatmentGaps: casePreparation.treatmentGaps }),
+    ...baseMonitor,
+    // One number everywhere: shared reporter when posture is gap; else prep/between-visit.
+    largestGapDays:
+      treatmentPosture.posture === 'gap'
+        ? reportedGap || prepLargest || baseMonitor.largestGapDays
+        : prepLargest || baseMonitor.largestGapDays,
     posture: treatmentPosture.posture,
     postureDetail: treatmentPosture.detail,
   }
@@ -653,11 +671,16 @@ export async function buildCaseCommandCenter(params: {
   }))
 
   const defenseRisks: CaseCommandCenterListItem[] = []
-  for (const gap of casePreparation.treatmentGaps.slice(0, 2)) {
+  // Same gap-day source as tasks / coach (treatmentPosture + preparation gaps).
+  const gapDaysForRisk = treatmentMonitor.largestGapDays
+  if (treatmentPosture.posture === 'gap' && gapDaysForRisk >= OPEN_TREATMENT_GAP_DAYS && treatmentPosture.entryCount >= 2) {
+    const dated = casePreparation.treatmentGaps[0]
     defenseRisks.push({
-      title: `${summarizeGapDays(gap.gapDays)} treatment gap`,
-      detail: `There is a ${gap.gapDays}-day gap between ${gap.startDate} and ${gap.endDate}, which an adjuster may use against causation or damages.`,
-      severity: gap.gapDays >= 60 ? 'high' : 'medium',
+      title: `${summarizeGapDays(gapDaysForRisk)} treatment gap`,
+      detail: dated
+        ? `There is a ${gapDaysForRisk}-day gap between ${dated.startDate} and ${dated.endDate}, which an adjuster may use against causation or damages.`
+        : `No treatment recorded for ${gapDaysForRisk} days after prior visits on file, which an adjuster may use against causation or damages.`,
+      severity: gapDaysForRisk >= 60 ? 'high' : 'medium',
     })
   }
   if ((facts?.liability?.comparativeNegligence ?? facts?.liability?.comparative_negligence) === true) {

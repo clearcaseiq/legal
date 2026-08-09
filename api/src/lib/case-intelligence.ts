@@ -171,6 +171,45 @@ function defendantCarrierKnown(facts: Record<string, any>, insuranceDetails: Arr
   return insuranceDetails.some((d) => (String(d?.insuredParty || '').toLowerCase() === 'defendant') && d?.carrierName)
 }
 
+function defendantIdentityKnown(facts: Record<string, any>, insuranceDetails: Array<any>): boolean {
+  const candidates = [
+    facts?.defendant?.name,
+    facts?.defendant?.fullName,
+    facts?.liability?.defendantName,
+    facts?.liability?.atFaultParty,
+    facts?.incident?.defendantName,
+    facts?.incident?.otherDriverName,
+    facts?.product?.manufacturer,
+    facts?.product?.brand,
+    insuranceDetails.find((d) => String(d?.insuredParty || '').toLowerCase() === 'defendant')?.insuredName,
+  ]
+  return candidates.some((v) => typeof v === 'string' && v.trim().length >= 2)
+}
+
+function resolveDefendantName(facts: Record<string, any>, insuranceDetails: Array<any>): string | null {
+  const candidates = [
+    facts?.defendant?.name,
+    facts?.defendant?.fullName,
+    facts?.liability?.defendantName,
+    facts?.liability?.atFaultParty,
+    facts?.incident?.defendantName,
+    facts?.incident?.otherDriverName,
+    facts?.product?.manufacturer,
+    facts?.product?.brand,
+    insuranceDetails.find((d) => String(d?.insuredParty || '').toLowerCase() === 'defendant')?.insuredName,
+  ]
+  for (const v of candidates) {
+    if (typeof v === 'string' && v.trim().length >= 2) return v.trim()
+  }
+  return null
+}
+
+function productPreserved(facts: Record<string, any>, evidence: Set<string>): boolean {
+  if (facts?.product?.preserved === true || facts?.product?.stillHaveProduct === true) return true
+  if (String(facts?.product?.preservationStatus || '').toLowerCase() === 'preserved') return true
+  return hasAny(evidence, ['product', 'product_evidence', 'product_photos'])
+}
+
 /** Claim types where the client's own auto policy is a live recovery source. */
 const FIRST_PARTY_COVERAGE_CLAIM_TYPES = new Set(['auto', 'vehicle', 'motorcycle', 'truck', 'rideshare', 'pedestrian', 'bicycle'])
 
@@ -270,18 +309,73 @@ export function buildGaps(params: {
       actions: ['generate_doc_request', 'request_from_client'], requestedDoc: 'medical_records',
     })
   }
-  if (missingHas('police') || missingHas('incident report')) {
+
+  const claimKey = String(claimType || '').toLowerCase().replace(/[\s-]+/g, '_')
+  const isProduct = claimKey === 'product' || claimKey === 'product_liability'
+  const isPoliceRelevant = ['auto', 'auto_accident', 'slip_and_fall', 'premises', 'dog_bite'].includes(claimKey)
+
+  // Product liability: preserve the product + identify the manufacturer — not a police report.
+  if (isProduct) {
+    if (missingHas('product preservation') || !productPreserved(facts, evidence)) {
+      gaps.push({
+        key: 'product_preservation',
+        label: 'Product preservation (unaltered)',
+        category: 'evidence',
+        severity: 5,
+        valueImpact: 'high',
+        rationale: 'The product is the key evidence. Instruct the client to preserve it unaltered — do not return, repair, or discard it. Spoliation can sink the case. Consider sending an evidence-preservation letter.',
+        actions: ['request_from_client', 'assign_paralegal', 'schedule_followup'],
+        requestedDoc: 'other',
+      })
+    }
+    if (!facts?.product?.manufacturer && !facts?.product?.brand && !defendantIdentityKnown(facts, insuranceDetails)) {
+      gaps.push({
+        key: 'product_manufacturer',
+        label: 'Product manufacturer / brand / model',
+        category: 'liability',
+        severity: 5,
+        valueImpact: 'high',
+        rationale: 'In a product case the defendant is identified through the product itself (manufacturer, brand, model), not a police report.',
+        actions: ['request_from_client', 'assign_paralegal'],
+      })
+    }
+  } else if ((missingHas('police') || missingHas('incident report')) && isPoliceRelevant) {
+    const needsDefendantId = !defendantIdentityKnown(facts, insuranceDetails)
+    const needsCarrier = !defendantCarrierKnown(facts, insuranceDetails)
+    const rationale = needsDefendantId || needsCarrier
+      ? `Identifies the defendant and their insurance carrier${needsDefendantId && needsCarrier ? ' — both currently unknown' : needsDefendantId ? ' — defendant not yet identified' : ' — carrier currently unknown'}.`
+      : 'Corroborates how the incident happened and often lists witnesses.'
     gaps.push({
       key: 'police_report', label: 'Police / incident report', category: 'liability', severity: 5, valueImpact: 'high',
-      rationale: 'Establishes fault, identifies the defendant/insurer, and often lists witnesses.',
+      rationale,
       actions: ['assign_paralegal', 'generate_doc_request'], requestedDoc: 'police_report',
     })
   }
+
+  if (!isProduct && !defendantIdentityKnown(facts, insuranceDetails)) {
+    gaps.push({
+      key: 'defendant_identity',
+      label: 'Defendant identity',
+      category: 'liability',
+      severity: 4,
+      valueImpact: 'high',
+      rationale: 'The Overview shows who the plaintiff is, but the defendant has not been identified yet. Confirm the at-fault party so the claim can be opened against the right person/entity.',
+      actions: ['request_from_client', 'assign_paralegal'],
+    })
+  }
+
   if (missingHas('photo')) {
     gaps.push({
-      key: 'photos', label: 'Photos (scene / injuries / property damage)', category: 'evidence', severity: 3, valueImpact: 'medium',
-      rationale: 'Visual proof of impact severity and injuries strengthens both liability and damages.',
-      actions: ['request_from_client'], requestedDoc: 'injury_photos',
+      key: 'photos',
+      label: isProduct ? 'Photos of the product / injuries' : 'Photos (scene / injuries / property damage)',
+      category: 'evidence',
+      severity: isProduct ? 4 : 3,
+      valueImpact: 'medium',
+      rationale: isProduct
+        ? 'Photos of the product condition and injuries preserve evidence if the physical product is later unavailable.'
+        : 'Visual proof of impact severity and injuries strengthens both liability and damages.',
+      actions: ['request_from_client'],
+      requestedDoc: 'injury_photos',
     })
   }
   if (missingHas('wage')) {
@@ -299,18 +393,20 @@ export function buildGaps(params: {
     })
   }
 
-  // High-value investigation gaps beyond raw documentation.
+  // High-value investigation gaps beyond raw documentation. Empty Overview
+  // fields (carrier, limits) become task triggers — not just display blanks.
+  if (!defendantCarrierKnown(facts, insuranceDetails)) {
+    gaps.push({
+      key: 'defendant_carrier', label: 'Defendant insurance carrier / claim number', category: 'insurance', severity: 5, valueImpact: 'high',
+      rationale: 'Needed to open the claim and direct the demand to the right adjuster. Currently unknown on the Overview.',
+      actions: ['assign_paralegal', 'request_from_client'], requestedDoc: 'insurance',
+    })
+  }
   if (!defendantLimitsKnown(facts, insuranceDetails)) {
     gaps.push({
       key: 'defendant_policy_limits', label: 'Defendant policy limits', category: 'insurance', severity: 5, valueImpact: 'high',
       rationale: 'Policy limits cap realistic recovery and drive the demand strategy. Send a limits request early.',
       actions: ['assign_paralegal', 'generate_doc_request'], requestedDoc: 'insurance',
-    })
-  } else if (!defendantCarrierKnown(facts, insuranceDetails)) {
-    gaps.push({
-      key: 'defendant_carrier', label: 'Defendant insurance carrier / claim number', category: 'insurance', severity: 4, valueImpact: 'medium',
-      rationale: 'Needed to open the claim and direct the demand to the right adjuster.',
-      actions: ['assign_paralegal', 'request_from_client'], requestedDoc: 'insurance',
     })
   }
 
@@ -361,7 +457,7 @@ export function buildGaps(params: {
     })
   }
 
-  if (hasAny(evidence, ['police_report', 'incident_report'])) {
+  if (isPoliceRelevant && hasAny(evidence, ['police_report', 'incident_report'])) {
     gaps.push({
       key: 'witness_statements', label: 'Witness contact info / statements', category: 'liability', severity: 3, valueImpact: 'medium',
       rationale: 'Police reports typically list witnesses; statements should be collected while memories are fresh.',
@@ -531,21 +627,30 @@ export async function buildCaseIntelligence(assessmentId: string): Promise<CaseI
   if (hasAny(evidence, ['bills', 'medical_bills'])) evidenceLabels.push('Bills')
   const evidenceSummary = evidenceLabels.length ? evidenceLabels.join(' + ') : 'None uploaded yet'
 
-  const carrierName = insuranceDetails.find((d: any) => d?.carrierName)?.carrierName
+  const carrierName = insuranceDetails.find((d: any) => String(d?.insuredParty || '').toLowerCase() === 'defendant' && d?.carrierName)?.carrierName
+    || insuranceDetails.find((d: any) => d?.carrierName)?.carrierName
     || facts?.insurance?.defendant_carrier || facts?.insurance?.carrier || null
+  const defendantName = resolveDefendantName(facts, insuranceDetails)
+  const claimNumber = insuranceDetails.find((d: any) => d?.claimNumber)?.claimNumber
+    || facts?.insurance?.claim_number || facts?.insurance?.claimNumber || null
+  const adjusterName = insuranceDetails.find((d: any) => d?.adjusterName)?.adjusterName
+    || facts?.insurance?.adjuster_name || facts?.insurance?.adjusterName || null
 
   const known: KnownFact[] = [
     { key: 'incident_date', label: 'Accident date', value: facts?.incident?.date ? new Date(facts.incident.date).toLocaleDateString() : 'Not provided' },
     { key: 'claim_type', label: 'Case type', value: String(assessment.claimType || '').replace(/_/g, ' ') || '—', detail: underwriting.normalizedCase.accidentSubtype },
     { key: 'venue', label: 'Venue', value: [assessment.venueCounty, assessment.venueState].filter(Boolean).join(', ') || 'Not provided' },
+    { key: 'defendant', label: 'Defendant', value: defendantName || 'Not yet identified' },
     { key: 'injuries', label: 'Injuries', value: injuryLabel },
     { key: 'treatment', label: 'Medical treatment', value: treatmentSummary },
     { key: 'liability', label: 'Liability', value: `${underwriting.liability.grade} (${underwriting.liability.score})` },
     { key: 'severity', label: 'Severity', value: `${underwriting.severity.tier} (${underwriting.severity.score})` },
-    { key: 'value', label: 'Estimated value', value: `${formatMoney(underwriting.settlement.low)}–${formatMoney(underwriting.settlement.high)}` },
+    { key: 'value', label: 'Modeled settlement range', value: `${formatMoney(underwriting.settlement.low)}–${formatMoney(underwriting.settlement.high)}`, detail: 'Underwriting model' },
     { key: 'attorney_interest', label: 'Attorney interest', value: `${underwriting.attorneyAcceptance.probability}%` },
     { key: 'evidence', label: 'Evidence on file', value: evidenceSummary },
     { key: 'insurance', label: 'Defendant carrier', value: carrierName || 'Unknown' },
+    { key: 'claim_number', label: 'Claim number', value: claimNumber || 'Not yet identified' },
+    { key: 'adjuster', label: 'Adjuster', value: adjusterName || 'Not yet assigned' },
     { key: 'sol', label: 'SOL remaining', value: sol.daysRemaining != null ? `${sol.daysRemaining} days` : 'Confirm' },
   ]
 

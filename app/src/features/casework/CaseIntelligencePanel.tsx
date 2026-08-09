@@ -346,7 +346,7 @@ export default function CaseIntelligencePanel({ leadId }: { leadId: string }) {
 
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           <SummaryStat label="Severity" value={s.severity.label} />
-          <SummaryStat label="Est. value" value={`${money(s.estimatedValue.low)}–${money(s.estimatedValue.high)}`} tone="text-emerald-700" />
+          <SummaryStat label="Underwriting range" value={`${money(s.estimatedValue.low)}–${money(s.estimatedValue.high)}`} tone="text-emerald-700" />
           <SummaryStat label="Attorney interest" value={`${s.attorneyInterest}%`} />
           <SummaryStat label="Liability" value={s.liability.grade} />
           <SummaryStat label="Case strength" value={`${s.caseStrength}`} />
@@ -454,7 +454,10 @@ export default function CaseIntelligencePanel({ leadId }: { leadId: string }) {
         </div>
 
         {qLoading && questions === null ? (
-          <div className="mt-3 flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin text-violet-500" /> Generating questions…</div>
+          <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
+            Loading questions… (baseline may already appear on the Tasks tab)
+          </div>
         ) : grouped.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500">No open questions. The file looks complete.</p>
         ) : (

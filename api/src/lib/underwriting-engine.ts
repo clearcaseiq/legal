@@ -409,9 +409,28 @@ export function calculateDocumentation(input: UnderwritingInput): DocumentationR
     (!hasVerifiedEvidence && (hasEvidence(evidenceFiles, 'wage_loss', ['paystub', 'payroll']) || Number(damages.wage_loss || damages.estimated_wage_loss || 0) > 0))
   const dailyImpact = injuries.some((injury: any) => Array.isArray(injury?.lifestyleImpact) && injury.lifestyleImpact.length > 0)
 
+  const claimType = String(input.claimType || '').toLowerCase().replace(/[\s-]+/g, '_')
+  const isProduct = claimType === 'product' || claimType === 'product_liability'
+  const isPoliceRelevant = ['auto', 'auto_accident', 'slip_and_fall', 'premises', 'dog_bite'].includes(claimType)
+  const productPreserved =
+    facts?.product?.preserved === true ||
+    facts?.product?.stillHaveProduct === true ||
+    String(facts?.product?.preservationStatus || '').toLowerCase() === 'preserved' ||
+    evidenceSet.has('product') ||
+    evidenceSet.has('product_evidence')
+
   if (medicalRecords) { score += 25; positives.push('Medical records') } else missing.push('Medical records')
   if (medicalBills) { score += 20; positives.push('Medical bills') } else missing.push('Medical bills')
-  if (policeReport) { score += 20; positives.push('Police or incident report') } else missing.push('Police or incident report')
+  // Claim-type evidence: MVA/premises need an incident report; product cases need
+  // the product itself preserved — never the car-accident playbook.
+  if (isProduct) {
+    if (productPreserved) { score += 20; positives.push('Product preserved') } else missing.push('Product preservation')
+  } else if (isPoliceRelevant || !claimType) {
+    if (policeReport) { score += 20; positives.push('Police or incident report') } else missing.push('Police or incident report')
+  } else if (policeReport) {
+    score += 10
+    positives.push('Incident report')
+  }
   if (photos) { score += 10; positives.push('Photos') } else missing.push('Photos')
   if (wageProof) { score += 10; positives.push('Wage proof') } else missing.push('Wage proof')
   if (dailyImpact) { score += 15; positives.push('Daily impact statement') } else missing.push('Daily impact statement')

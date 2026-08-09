@@ -6,6 +6,7 @@
 import { prisma } from './prisma'
 import type { Prisma } from '@prisma/client'
 import { analyzeClinicalCodes } from './clinical-codes'
+import { deriveTreatmentPosture, OPEN_TREATMENT_GAP_DAYS } from './demand-readiness'
 
 export interface MedicalChronologyEvent {
   id: string
@@ -663,26 +664,46 @@ export async function computeCasePreparation(assessmentId: string): Promise<Case
   const evidenceCategories = new Set(
     (assessment.evidenceFiles || []).map((f) => f.category)
   )
+  const claimKey = String(assessment.claimType || '').toLowerCase().replace(/[\s-]+/g, '_')
+  const isProduct = claimKey === 'product' || claimKey === 'product_liability'
+  const evidenceCount = (assessment.evidenceFiles || []).length
 
-  // Missing docs checklist
+  // Missing docs checklist — claim-type aware (no police report on product cases).
   if (!evidenceCategories.has('medical_records')) {
     missingDocs.push({ key: 'medical_records', label: 'Medical records', priority: 'high' })
   }
-  if (!evidenceCategories.has('bills')) {
+  if (!evidenceCategories.has('bills') && !evidenceCategories.has('medical_bills')) {
     missingDocs.push({ key: 'bills', label: 'Medical bills', priority: 'high' })
   }
-  if (!evidenceCategories.has('police_report') && ['auto', 'slip_and_fall'].includes(assessment.claimType)) {
+  if (
+    !evidenceCategories.has('police_report') &&
+    ['auto', 'auto_accident', 'slip_and_fall', 'premises', 'dog_bite'].includes(claimKey)
+  ) {
     missingDocs.push({ key: 'police_report', label: 'Police/incident report', priority: 'high' })
   }
+  if (isProduct) {
+    const preserved =
+      facts?.product?.preserved === true ||
+      facts?.product?.stillHaveProduct === true ||
+      String(facts?.product?.preservationStatus || '').toLowerCase() === 'preserved'
+    if (!preserved && !evidenceCategories.has('product') && !evidenceCategories.has('product_evidence')) {
+      missingDocs.push({ key: 'product_preservation', label: 'Product preservation confirmation', priority: 'high' })
+    }
+  }
   if (!evidenceCategories.has('photos')) {
-    missingDocs.push({ key: 'photos', label: 'Injury/damage photos', priority: 'medium' })
+    missingDocs.push({
+      key: 'photos',
+      label: isProduct ? 'Product / injury photos' : 'Injury/damage photos',
+      priority: 'medium',
+    })
   }
   const hasHipaa = facts?.consents?.hipaa === true
   if (!hasHipaa) {
     missingDocs.push({ key: 'hipaa', label: 'HIPAA authorization', priority: 'high' })
   }
 
-  // Treatment gaps - from treatment array dates
+  // Treatment gaps — single source: deriveTreatmentPosture (same days as Defense Risks / Coach).
+  const treatmentPosture = deriveTreatmentPosture({ facts })
   const treatment = facts?.treatment as Array<{ date?: string }> | undefined
   if (Array.isArray(treatment) && treatment.length >= 2) {
     const sortedDates = treatment
@@ -693,21 +714,55 @@ export async function computeCasePreparation(assessmentId: string): Promise<Case
       const prev = new Date(sortedDates[i - 1])
       const curr = new Date(sortedDates[i])
       const gapDays = Math.floor((curr.getTime() - prev.getTime()) / 86400000)
-      if (gapDays > 30) {
+      if (gapDays >= OPEN_TREATMENT_GAP_DAYS) {
         treatmentGaps.push({
           startDate: sortedDates[i - 1],
           endDate: sortedDates[i],
-          gapDays
+          gapDays,
         })
       }
     }
   }
+  // Days-since-last also surfaces when posture is gap and we have a last date.
+  if (
+    treatmentGaps.length === 0 &&
+    treatmentPosture.posture === 'gap' &&
+    treatmentPosture.daysSinceLastTreatment != null &&
+    treatmentPosture.entryCount >= 2
+  ) {
+    const last = Array.isArray(treatment)
+      ? treatment.map((t) => t.date).filter((d): d is string => Boolean(d)).sort().slice(-1)[0]
+      : null
+    if (last) {
+      treatmentGaps.push({
+        startDate: last,
+        endDate: new Date().toISOString().slice(0, 10),
+        gapDays: treatmentPosture.daysSinceLastTreatment,
+      })
+    }
+  }
 
-  // Strengths/weaknesses from prediction and facts
+  // Strengths/weaknesses — liability wording must agree with prediction/underwriting,
+  // not a missing facts.liability.confidence field that contradicts "Very Strong".
   const pred = assessment.predictions?.[0]
+  const viability = (() => {
+    const raw = (pred as any)?.viability
+    if (!raw) return {} as Record<string, number>
+    try {
+      return (typeof raw === 'string' ? JSON.parse(raw) : raw) as Record<string, number>
+    } catch {
+      return {} as Record<string, number>
+    }
+  })()
+  const liabilityConfidence01 = (() => {
+    const explicit = facts?.liability?.confidence
+    if (typeof explicit === 'number' && explicit > 0) return Math.min(1, explicit / 10)
+    if (typeof viability?.liability === 'number' && viability.liability > 0) return Math.min(1, viability.liability)
+    return null
+  })()
+
   if (pred) {
-    const liability = facts?.liability?.confidence
-    if (liability && liability >= 7) {
+    if (liabilityConfidence01 != null && liabilityConfidence01 >= 0.7) {
       strengths.push('Strong liability evidence')
     }
     if (facts?.damages?.med_charges && facts.damages.med_charges > 0) {
@@ -722,92 +777,94 @@ export async function computeCasePreparation(assessmentId: string): Promise<Case
     if (treatmentGaps.length > 0) {
       weaknesses.push(`${treatmentGaps.length} treatment gap(s) - may weaken causation`)
     }
-    if (!liability || liability < 5) {
+    // Only call liability "low" when we have an affirmative weak signal — never when
+    // confidence was simply omitted while the model scores liability as strong.
+    if (liabilityConfidence01 != null && liabilityConfidence01 < 0.45) {
       weaknesses.push('Liability confidence is low')
+    } else if (liabilityConfidence01 == null && evidenceCount === 0) {
+      weaknesses.push('Liability still needs corroborating evidence on file')
     }
   }
 
-  // Readiness score (0-100), broken into weighted factors so the UI can show
-  // exactly what's earned vs. what's holding the score down. Weights sum to 100.
-  //
-  // Beyond the raw evidence checklist we now fold in two qualitative signals:
-  //   - liability strength (how defensible fault is), and
-  //   - treatment continuity graded by GAP SEVERITY (a 100-day gap hurts more than
-  //     a 35-day one), rather than a flat "any gap = penalty".
-  const liabilityConfidence01 = (() => {
-    const explicit = facts?.liability?.confidence
-    if (typeof explicit === 'number' && explicit > 0) return Math.min(1, explicit / 10)
-    // Fall back to the model's predicted liability (stored 0-1) when facts omit it.
-    const viability = (() => {
-      const raw = (pred as any)?.viability
-      if (!raw) return {} as Record<string, number>
-      try {
-        return (typeof raw === 'string' ? JSON.parse(raw) : raw) as Record<string, number>
-      } catch {
-        return {} as Record<string, number>
-      }
-    })()
-    if (typeof viability?.liability === 'number' && viability.liability > 0) return Math.min(1, viability.liability)
-    return 0.5 // neutral when we truly have no liability signal
-  })()
-
-  const largestGapDays = treatmentGaps.reduce((max, gap) => Math.max(max, gap.gapDays), 0)
+  // Readiness score — evidence-driven. An empty file must score low; the old
+  // unconditional base of 40 + neutral liability made zero-doc files look ~54–67% ready.
+  const largestGapDays = Math.max(
+    treatmentGaps.reduce((max, gap) => Math.max(max, gap.gapDays), 0),
+    treatmentPosture.largestGapDays || 0,
+    treatmentPosture.daysSinceLastTreatment || 0,
+  )
+  const hasMedicalRecords = evidenceCategories.has('medical_records')
+  const hasBills = evidenceCategories.has('bills') || evidenceCategories.has('medical_bills')
   const treatmentPoints =
-    treatmentGaps.length === 0 ? 8 : largestGapDays >= 90 ? 0 : largestGapDays >= 45 ? 3 : 5
-  const liabilityPoints = Math.max(0, Math.min(12, Math.round(liabilityConfidence01 * 12)))
+    evidenceCount === 0 || treatmentPosture.entryCount === 0
+      ? 0
+      : treatmentPosture.posture === 'gap' || largestGapDays >= 90
+        ? 0
+        : largestGapDays >= OPEN_TREATMENT_GAP_DAYS
+          ? 4
+          : 12
+  const liabilityPoints =
+    liabilityConfidence01 == null
+      ? 0
+      : Math.max(0, Math.min(16, Math.round(liabilityConfidence01 * 16)))
 
   const readinessFactors: ReadinessFactor[] = [
-    { key: 'base', label: 'Base (retained case)', points: 40, max: 40 },
     {
       key: 'medical_records',
       label: 'Medical records on file',
-      points: evidenceCategories.has('medical_records') ? 12 : 0,
-      max: 12,
-      hint: evidenceCategories.has('medical_records') ? undefined : 'Upload medical records to Evidence',
+      points: hasMedicalRecords ? 28 : 0,
+      max: 28,
+      hint: hasMedicalRecords ? undefined : 'Upload medical records to Evidence',
     },
     {
       key: 'bills',
       label: 'Medical bills on file',
-      points: evidenceCategories.has('bills') ? 12 : 0,
-      max: 12,
-      hint: evidenceCategories.has('bills') ? undefined : 'Add itemized medical bills',
+      points: hasBills ? 22 : 0,
+      max: 22,
+      hint: hasBills ? undefined : 'Add itemized medical bills',
     },
     {
       key: 'hipaa',
       label: 'HIPAA authorization',
-      points: hasHipaa ? 8 : 0,
-      max: 8,
+      points: hasHipaa ? 10 : 0,
+      max: 10,
       hint: hasHipaa ? undefined : 'Get the signed HIPAA authorization',
     },
     {
       key: 'liability',
       label: 'Liability strength',
-      points: liabilityPoints,
-      max: 12,
-      hint: liabilityPoints >= 12 ? undefined : 'Strengthen fault evidence (statements, reports)',
+      points: evidenceCount === 0 ? 0 : liabilityPoints,
+      max: 16,
+      hint: liabilityPoints >= 16 ? undefined : 'Strengthen fault evidence (statements, reports)',
     },
     {
       key: 'treatment',
       label: 'Treatment continuity',
       points: treatmentPoints,
-      max: 8,
+      max: 12,
       hint:
-        treatmentPoints >= 8
+        treatmentPoints >= 12
           ? undefined
-          : largestGapDays >= 90
-            ? `${largestGapDays}-day treatment gap weakens causation`
-            : `Treatment gap of ${largestGapDays} days`,
+          : evidenceCount === 0 || treatmentPosture.entryCount === 0
+            ? 'Confirm treatment status once records are on file'
+            : largestGapDays >= OPEN_TREATMENT_GAP_DAYS
+              ? `${largestGapDays}-day treatment gap weakens causation`
+              : 'Document ongoing care',
     },
     {
       key: 'checklist',
       label: 'Document checklist complete',
-      points: missingDocs.length === 0 ? 8 : 0,
-      max: 8,
+      points: missingDocs.length === 0 && evidenceCount > 0 ? 12 : 0,
+      max: 12,
       hint: missingDocs.length === 0 ? undefined : `${missingDocs.length} item(s) still missing`,
     },
   ]
 
-  const readinessScore = Math.min(100, readinessFactors.reduce((sum, f) => sum + f.points, 0))
+  // Hard ceiling: with nothing uploaded, never look "review ready".
+  let readinessScore = Math.min(100, readinessFactors.reduce((sum, f) => sum + f.points, 0))
+  if (evidenceCount === 0) {
+    readinessScore = Math.min(readinessScore, 18)
+  }
 
   return {
     missingDocs,

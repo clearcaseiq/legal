@@ -54,7 +54,11 @@ export function buildReadinessAutomationPlan(summary: CaseCommandCenter): Readin
     })
   }
 
-  if (summary.treatmentMonitor.largestGapDays >= 45) {
+  // Only assert a continuity gap when treatment chronology actually exists.
+  // An empty file is "confirm treatment status", not a multi-day gap fact.
+  const treatmentPosture = summary.treatmentMonitor.posture
+  const chronologyCount = summary.treatmentMonitor.chronologyCount || 0
+  if (treatmentPosture === 'gap' && chronologyCount >= 2 && summary.treatmentMonitor.largestGapDays >= 45) {
     tasks.push({
       title: 'Resolve treatment continuity gap',
       priority: 'high',
@@ -69,6 +73,20 @@ export function buildReadinessAutomationPlan(summary: CaseCommandCenter): Readin
       category: 'treatment_gap',
       message: `[Readiness][treatment_gap] ${summary.treatmentMonitor.status}. ${summary.treatmentMonitor.recommendedAction}`,
       dueInDays: 0,
+    })
+  } else if (
+    (treatmentPosture === 'unknown' || chronologyCount < 2) &&
+    summary.missingItems.some((item) => item.key === 'medical_records')
+  ) {
+    tasks.push({
+      title: 'Confirm current treatment status with client',
+      priority: 'high',
+      notes: 'Treatment status is not confirmed yet and medical records are not on file. Confirm whether the client is still treating before treating a gap as fact.',
+      taskType: 'checkpoint',
+      checkpointType: 'treatment_status',
+      escalationLevel: 'warning',
+      dueInDays: 3,
+      remindInDays: 1,
     })
   }
 

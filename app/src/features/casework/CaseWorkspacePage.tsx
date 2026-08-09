@@ -343,7 +343,13 @@ interface CaseDetailVM {
   demand: number | null
   daysOpen: string
   adjuster: string
+  defendant: string
+  defendantCarrier: string
+  claimNumber: string
   evidenceFiles: any[]
+  /** Underwriting modeled range when available (distinct from prediction median). */
+  modeledValueLow: number | null
+  modeledValueHigh: number | null
 }
 
 export default function CaseWorkspacePage() {
@@ -471,6 +477,39 @@ export default function CaseWorkspacePage() {
     const highBand = Number(bands.high ?? bands.p75 ?? bands.median ?? 0) || 0
     const caseValue = cc?.valueStory?.median || cc?.valueStory?.high || highBand
     const claimType = a.claimType || ''
+    let facts: Record<string, any> = {}
+    try {
+      facts = typeof a.facts === 'string' ? JSON.parse(a.facts || '{}') : (a.facts || {})
+    } catch {
+      facts = {}
+    }
+    const insuranceRows = Array.isArray(a.insuranceDetails) ? a.insuranceDetails : []
+    const defendant =
+      facts?.defendant?.name ||
+      facts?.defendant?.fullName ||
+      facts?.liability?.defendantName ||
+      facts?.liability?.atFaultParty ||
+      facts?.incident?.defendantName ||
+      facts?.incident?.otherDriverName ||
+      facts?.product?.manufacturer ||
+      facts?.product?.brand ||
+      insuranceRows.find((d: any) => String(d?.insuredParty || '').toLowerCase() === 'defendant')?.insuredName ||
+      null
+    const defendantCarrier =
+      insuranceRows.find((d: any) => String(d?.insuredParty || '').toLowerCase() === 'defendant')?.carrierName ||
+      facts?.insurance?.defendant_carrier ||
+      facts?.insurance?.carrier ||
+      null
+    const claimNumber =
+      insuranceRows.find((d: any) => d?.claimNumber)?.claimNumber ||
+      facts?.insurance?.claim_number ||
+      facts?.insurance?.claimNumber ||
+      null
+    const adjusterName =
+      insuranceRows.find((d: any) => d?.adjusterName)?.adjusterName ||
+      facts?.insurance?.adjuster_name ||
+      facts?.insurance?.adjusterName ||
+      null
     return {
       assessmentId: lead.assessmentId || a.id || null,
       caseName: resolveCaseName(a, 'Client'),
@@ -486,8 +525,13 @@ export default function CaseWorkspacePage() {
       policyLimit: cc?.coverageStory?.policyLimit ?? null,
       demand: cc?.negotiationSummary?.latestDemand ?? null,
       daysOpen: daysOpen(lead.submittedAt || a.createdAt),
-      adjuster: cc?.coverageStory?.label || 'Not yet assigned',
+      adjuster: adjusterName || cc?.coverageStory?.label || 'Not yet assigned',
+      defendant: defendant || 'Not yet identified',
+      defendantCarrier: defendantCarrier || 'Unknown',
+      claimNumber: claimNumber || 'Not yet identified',
       evidenceFiles: (a.evidenceFiles || a.files || []) as any[],
+      modeledValueLow: null,
+      modeledValueHigh: null,
     }
   }, [lead, cc])
 
@@ -597,7 +641,7 @@ export default function CaseWorkspacePage() {
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Metric label="Case value" value={detail.caseValue ? money(detail.caseValue) : 'Pending valuation'} accent />
+              <Metric label="Case value (median)" value={detail.caseValue ? money(detail.caseValue) : 'Pending valuation'} accent />
               <Metric label="Policy limit" value={money(detail.policyLimit)} />
               <Metric label="Demand" value={money(detail.demand)} />
               <Metric label="Days open" value={detail.daysOpen} />
@@ -606,6 +650,15 @@ export default function CaseWorkspacePage() {
             <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 border-t border-slate-100 pt-3 text-sm text-slate-500">
               <span>
                 Client: <span className="text-slate-700">{detail.client}</span> · {detail.phone}
+              </span>
+              <span>
+                Defendant: <span className="text-slate-700">{detail.defendant}</span>
+              </span>
+              <span>
+                Defendant carrier: <span className="text-slate-700">{detail.defendantCarrier}</span>
+              </span>
+              <span>
+                Claim #: <span className="text-slate-700">{detail.claimNumber}</span>
               </span>
               <span>
                 Adjuster: <span className="text-slate-700">{detail.adjuster}</span>
@@ -1435,11 +1488,41 @@ function WorkstreamPanel({
         ) : null}
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Metric label="Est. value" value={estValue} accent />
+          <Metric label="Modeled value (p25–p75)" value={estValue} accent />
           <Metric label="Policy limit" value={money(detail.policyLimit)} />
           <Metric label="Latest demand" value={money(n?.latestDemand)} />
           <Metric label="Days open" value={detail.daysOpen} />
         </div>
+
+        {(() => {
+          const openTasks = (tasks || [])
+            .filter((t: any) => ['open', 'in_progress'].includes(String(t.status || '').toLowerCase()))
+            .slice(0, 5)
+          if (openTasks.length === 0) return null
+          return (
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="flex items-center justify-between gap-3">
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Open tasks</h4>
+                <button
+                  type="button"
+                  onClick={() => goToSection('tasks')}
+                  className="text-xs font-semibold text-brand-700 hover:underline"
+                >
+                  View all on Tasks tab
+                </button>
+              </div>
+              <ul className="mt-2.5 space-y-1.5">
+                {openTasks.map((t: any) => (
+                  <li key={t.id} className="flex items-center gap-2 text-sm text-slate-700">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
+                    <span className="flex-1 truncate">{t.title}</span>
+                    {t.priority ? <PriorityBadge priority={String(t.priority).toLowerCase()} /> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        })()}
 
         {n && n.latestOffer != null ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -1663,6 +1746,10 @@ function CaseInfoPanel({
           <InfoRow label="Name" value={detail.client} />
           <InfoRow label="Case type" value={detail.type} />
           <InfoRow label="Venue" value={detail.venue} />
+          <InfoRow label="Defendant" value={detail.defendant} />
+          <InfoRow label="Defendant carrier" value={detail.defendantCarrier} />
+          <InfoRow label="Claim number" value={detail.claimNumber} />
+          <InfoRow label="Adjuster" value={detail.adjuster} />
           <InfoRow label="Stage" value={stageLabel} />
           <InfoRow label="Date opened" value={fmtFull(openedAt)} />
           {retainedAt ? <InfoRow label="Date retained" value={fmtFull(retainedAt)} /> : null}

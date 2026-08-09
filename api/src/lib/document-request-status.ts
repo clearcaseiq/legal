@@ -25,6 +25,7 @@ export const DOCUMENT_REQUEST_CATEGORY_MAP: Record<string, string[]> = {
   photos: ['photos', 'injury_photos', 'injury', 'injuries'],
   hipaa: ['hipaa', 'hipaa_authorization', 'authorization'],
   prior_treatment: ['prior_treatment', 'medical_records', 'medical'],
+  product_preservation: ['product', 'product_evidence', 'product_photos', 'photos'],
 }
 
 /**
@@ -46,6 +47,7 @@ export const DOCUMENT_REQUEST_LABELS: Record<string, string> = {
   photos: 'Injury/damage photos',
   hipaa: 'HIPAA authorization',
   prior_treatment: 'Prior treatment records',
+  product_preservation: 'Product preservation confirmation',
 }
 
 /**

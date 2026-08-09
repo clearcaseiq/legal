@@ -12,6 +12,31 @@ import { logger } from '../lib/logger'
 import type { CaseIntelligence } from '../lib/case-intelligence'
 import type { IntelligentQuestion, QuestionSection } from '../lib/intake-questions'
 import { getLlmChatClient, LLM_CHAT_MODEL } from '../lib/llm-client'
+import { normalizeQuestionText } from '../lib/task-identity'
+
+function dedupeQuestions(questions: IntelligentQuestion[]): IntelligentQuestion[] {
+  const seen = new Set<string>()
+  const out: IntelligentQuestion[] = []
+  // Prefer higher valueImpact when the same wording appears twice.
+  const rank = { high: 3, medium: 2, low: 1 }
+  const sorted = [...questions].sort((a, b) => (rank[b.valueImpact] || 0) - (rank[a.valueImpact] || 0))
+  for (const q of sorted) {
+    const norm = normalizeQuestionText(q.text)
+    if (!norm || seen.has(norm)) continue
+    // Also collapse near-duplicates that share a long stem (baseline + AI restatement).
+    let duplicate = false
+    for (const existing of seen) {
+      if (norm.length >= 24 && existing.length >= 24 && (norm.includes(existing.slice(0, 28)) || existing.includes(norm.slice(0, 28)))) {
+        duplicate = true
+        break
+      }
+    }
+    if (duplicate) continue
+    seen.add(norm)
+    out.push(q)
+  }
+  return out
+}
 
 const openai = getLlmChatClient()
 const QUESTIONS_MODEL = LLM_CHAT_MODEL
@@ -72,16 +97,17 @@ export async function generateIntelligentQuestions(
   intel: CaseIntelligence,
   baseline: IntelligentQuestion[],
 ): Promise<IntelligentQuestionsResult> {
+  const baselineDeduped = dedupeQuestions(baseline)
   if (!openai) {
-    return { questions: baseline, source: 'baseline', modelVersion: 'baseline-v1' }
+    return { questions: baselineDeduped, source: 'baseline', modelVersion: 'baseline-v1' }
   }
 
   try {
     const completion = await openai.chat.completions.create({
       model: QUESTIONS_MODEL,
       messages: [
-        { role: 'system', content: 'You are an expert personal-injury intake attorney. Always respond with valid JSON as specified.' },
-        { role: 'user', content: buildPrompt(intel, baseline) },
+        { role: 'system', content: 'You are an expert personal-injury intake attorney. Always respond with valid JSON as specified. Never repeat a baseline question with different wording.' },
+        { role: 'user', content: buildPrompt(intel, baselineDeduped) },
       ],
       temperature: 0.4,
       max_tokens: 1200,
@@ -94,7 +120,7 @@ export async function generateIntelligentQuestions(
     const parsed = JSON.parse(responseText) as { prune?: unknown; questions?: unknown }
     const pruneIds = new Set(Array.isArray(parsed.prune) ? parsed.prune.map((x) => String(x)) : [])
 
-    const kept = baseline.filter((q) => !pruneIds.has(q.id))
+    const kept = baselineDeduped.filter((q) => !pruneIds.has(q.id))
 
     const aiQuestions: IntelligentQuestion[] = Array.isArray(parsed.questions)
       ? parsed.questions.slice(0, MAX_AI_QUESTIONS).map((raw: any, i: number) => ({
@@ -108,11 +134,11 @@ export async function generateIntelligentQuestions(
         })).filter((q: IntelligentQuestion) => q.text.length > 0)
       : []
 
-    const questions = [...kept, ...aiQuestions].slice(0, MAX_TOTAL_QUESTIONS)
-    logger.info('Generated intelligent questions', { assessmentId: intel.assessmentId, kept: kept.length, added: aiQuestions.length })
+    const questions = dedupeQuestions([...kept, ...aiQuestions]).slice(0, MAX_TOTAL_QUESTIONS)
+    logger.info('Generated intelligent questions', { assessmentId: intel.assessmentId, kept: kept.length, added: aiQuestions.length, afterDedupe: questions.length })
     return { questions, source: 'ai', modelVersion: `${QUESTIONS_MODEL}` }
   } catch (error: any) {
     logger.warn('Intelligent question generation failed; using baseline', { assessmentId: intel.assessmentId, error: error?.message })
-    return { questions: baseline, source: 'baseline', modelVersion: 'baseline-v1' }
+    return { questions: baselineDeduped, source: 'baseline', modelVersion: 'baseline-v1' }
   }
 }

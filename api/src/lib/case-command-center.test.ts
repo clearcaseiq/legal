@@ -57,8 +57,9 @@ describe('buildCaseCommandCenter', () => {
       readinessScore: 54,
       readinessFactors: [],
     })
+    // Recent single visit — chronology is still "thin", not a stale multi-month gap.
     vi.mocked(buildMedicalChronology).mockResolvedValue([
-      { id: 'evt-1', date: '2026-03-01', label: 'ER visit', source: 'treatment' },
+      { id: 'evt-1', date: new Date().toISOString().slice(0, 10), label: 'ER visit', source: 'treatment' },
     ] as any)
     vi.mocked(prisma.evidenceFile.findMany).mockResolvedValue([
       { category: 'photos', originalName: 'vehicle.jpg', createdAt: new Date() },
@@ -110,18 +111,27 @@ describe('buildCaseCommandCenter', () => {
         },
       ],
     } as any)
+    // Between-visit gap of 73 days with a recent last visit so days-since-last
+    // does not dominate the shared gap reporter.
+    const lastVisit = new Date()
+    lastVisit.setDate(lastVisit.getDate() - 10)
+    const midVisit = new Date(lastVisit)
+    midVisit.setDate(midVisit.getDate() - 73)
+    const firstVisit = new Date(midVisit)
+    firstVisit.setDate(firstVisit.getDate() - 30)
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
     vi.mocked(computeCasePreparation).mockResolvedValue({
       missingDocs: [],
-      treatmentGaps: [{ startDate: '2026-01-01', endDate: '2026-03-15', gapDays: 73 }],
+      treatmentGaps: [{ startDate: iso(midVisit), endDate: iso(lastVisit), gapDays: 73 }],
       strengths: ['Documented medical expenses'],
       weaknesses: [],
       readinessScore: 82,
       readinessFactors: [],
     })
     vi.mocked(buildMedicalChronology).mockResolvedValue([
-      { id: 'evt-1', date: '2026-01-01', label: 'Urgent care', source: 'treatment' },
-      { id: 'evt-2', date: '2026-02-01', label: 'PT', source: 'treatment' },
-      { id: 'evt-3', date: '2026-03-20', label: 'MRI', source: 'treatment' },
+      { id: 'evt-1', date: iso(firstVisit), label: 'Urgent care', source: 'treatment' },
+      { id: 'evt-2', date: iso(midVisit), label: 'PT', source: 'treatment' },
+      { id: 'evt-3', date: iso(lastVisit), label: 'MRI', source: 'treatment' },
     ] as any)
     vi.mocked(prisma.evidenceFile.findMany).mockResolvedValue([
       { category: 'medical_records', originalName: 'records.pdf', createdAt: new Date() },
