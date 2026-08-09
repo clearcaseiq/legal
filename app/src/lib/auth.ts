@@ -1,6 +1,15 @@
 export type WebAppRole = 'plaintiff' | 'attorney' | 'admin' | 'staff'
 
+// `localStorage` only exists in the browser. These helpers run during render, so
+// they can be evaluated on the server during Next.js prerendering — guard every
+// access so SSR doesn't throw "localStorage is not defined" (which forced the
+// route to fall back to client rendering with a recoverable-error overlay).
+function canUseStorage(): boolean {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
+}
+
 export function getStoredUser<T = Record<string, unknown>>(key: string): T | null {
+  if (!canUseStorage()) return null
   const raw = localStorage.getItem(key)
   if (!raw) return null
   try {
@@ -11,6 +20,7 @@ export function getStoredUser<T = Record<string, unknown>>(key: string): T | nul
 }
 
 export function hasValidAuthToken() {
+  if (!canUseStorage()) return false
   const token = localStorage.getItem('auth_token')
   return !!token && token.split('.').length === 3
 }
@@ -35,6 +45,7 @@ export function getStoredRole(): WebAppRole | null {
 }
 
 export function clearStoredAuth() {
+  if (!canUseStorage()) return
   localStorage.removeItem('auth_token')
   localStorage.removeItem('user')
   localStorage.removeItem('attorney')

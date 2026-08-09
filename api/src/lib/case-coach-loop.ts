@@ -528,5 +528,14 @@ export async function syncCaseCoachTasks(
     }).catch((e: any) => logger.warn('Reviewer notify failed', { assessmentId, error: e?.message }))
   }
 
+  // Advance the case lifecycle stage from the new signals (monotonic,
+  // retained-only). Dynamic import avoids a static cycle with case-stage.
+  try {
+    const { syncCaseStage } = await import('./case-stage')
+    await syncCaseStage(assessmentId, { source: 'system' })
+  } catch (e: any) {
+    logger.warn('Case stage sync failed', { assessmentId, error: e?.message })
+  }
+
   return coach
 }

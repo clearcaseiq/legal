@@ -22,6 +22,23 @@ const STAGE: Record<string, { label: string; tone: StageTone; nextAction: string
   retained: { label: 'Retained', tone: 'success', nextAction: 'Prepare demand', slaDays: 14 },
 }
 
+// Authoritative post-retention lifecycle stage (Assessment.caseStage), set and
+// advanced by the backend case-stage engine. Shown on retained rows so the
+// attorney sees where the matter actually is (opening → … → closed) rather than
+// a flat "Retained".
+const CASE_STAGE_LABEL: Record<string, string> = {
+  OPENING: 'Case opening',
+  INVESTIGATION: 'Investigation',
+  TREATMENT: 'Medical treatment',
+  RECORD_COLLECTION: 'Records & bills',
+  DEMAND_PREPARATION: 'Demand prep',
+  DEMAND_SENT: 'Demand sent',
+  NEGOTIATION: 'Negotiation',
+  SETTLEMENT_PENDING: 'Settlement pending',
+  DISBURSEMENT: 'Disbursement',
+  CLOSED: 'Closed',
+}
+
 type StageTone = 'info' | 'warning' | 'success'
 type DueKey = 'overdue' | 'today' | 'tomorrow' | 'upcoming'
 type CaseView = 'all' | 'consults' | 'tasks' | 'demands'
@@ -35,6 +52,7 @@ interface CaseRow {
   stageKey: string
   stageLabel: string
   stageTone: StageTone
+  lifecycleLabel: string | null
   jurisdiction: string
   valueLow: number
   valueHigh: number
@@ -336,6 +354,8 @@ export default function ActiveCasesPage() {
       .filter((lead) => ACCEPTED_STATUSES.includes(lead?.status || ''))
       .map((lead) => {
         const stage = STAGE[lead.status as keyof typeof STAGE] ?? STAGE.contacted
+        const rawCaseStage = String(lead?.assessment?.caseStage || '')
+        const lifecycleLabel = rawCaseStage ? CASE_STAGE_LABEL[rawCaseStage] || null : null
         const consultToday = consultTodayLeadIds.has(lead.id)
         const reference = new Date(lead?.lastContactAt || lead?.updatedAt || lead?.submittedAt || Date.now())
         const due = new Date(reference)
@@ -407,6 +427,7 @@ export default function ActiveCasesPage() {
           stageKey: lead.status,
           stageLabel: stage.label,
           stageTone: stage.tone,
+          lifecycleLabel,
           jurisdiction: lead?.assessment?.venueState || '',
           valueLow: low,
           valueHigh: high,
@@ -629,7 +650,14 @@ const caseColumns: DataTableColumn<CaseRow>[] = [
   {
     key: 'stage',
     header: 'Stage',
-    cell: (r) => <Badge tone={STAGE_BADGE[r.stageTone]}>{r.stageLabel}</Badge>,
+    // Retained matters show the live case-lifecycle stage (opening → … → closed);
+    // pre-retention rows keep the acquisition stage label.
+    cell: (r) =>
+      r.stageKey === 'retained' && r.lifecycleLabel ? (
+        <Badge tone="success">{r.lifecycleLabel}</Badge>
+      ) : (
+        <Badge tone={STAGE_BADGE[r.stageTone]}>{r.stageLabel}</Badge>
+      ),
   },
   {
     key: 'next',

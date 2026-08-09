@@ -270,6 +270,9 @@ export async function buildCaseCoach(assessmentId: string): Promise<CaseCoachRes
       treatment: treatmentPosture,
       documentedMedicalBills: s.economic.medicalBills,
       hasMedicalRecords: !intel.gaps.some((g) => g.key === 'medical_records'),
+      liability: facts.liabilityRecord
+        ? { posture: facts.liabilityRecord.faultPosture, strength: facts.liabilityRecord.strength }
+        : null,
     })
 
     if (demandGate.ready && !hasOpenTaskFor('demand')) {

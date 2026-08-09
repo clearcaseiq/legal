@@ -17,6 +17,7 @@ import {
   Loader2,
   Lock,
   RefreshCw,
+  Send,
   Sparkles,
   User,
 } from 'lucide-react'
@@ -28,6 +29,7 @@ import {
   finalizeLeadDemandLetter,
   getLeadDemandLetter,
   listLeadDemandLetters,
+  markLeadDemandSent,
   regenerateLeadDemandLetter,
   saveLeadDemandLetter,
   type DemandLetter,
@@ -74,6 +76,7 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
 
   const dirty = active != null && draftText !== active.content
   const locked = active?.status !== 'DRAFT'
+  const sent = active?.status === 'SENT' || !!active?.sentAt
   const awaitingReview = active?.reviewStatus === 'pending'
 
   const openLetter = useCallback(
@@ -174,6 +177,15 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
     } else {
       go()
     }
+  }
+
+  const handleMarkSent = () => {
+    if (!active) return
+    setPendingConfirm({
+      title: 'Mark demand as sent',
+      message: 'Confirm the demand package has gone to the carrier. This advances the case to “Demand sent” and logs it on the negotiation timeline.',
+      action: () => run('send', () => markLeadDemandSent(leadId, active.id), 'Demand marked as sent.'),
+    })
   }
 
   const handleDownload = async () => {
@@ -332,7 +344,22 @@ export default function DemandLetterWorkspace({ leadId }: { leadId: string }) {
                     Finalize
                   </button>
                 </>
-              ) : null}
+              ) : sent ? (
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700">
+                  <Send className="h-3.5 w-3.5" />
+                  Sent {formatWhen(active.sentAt)}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleMarkSent}
+                  disabled={busy != null}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-700 disabled:opacity-40"
+                >
+                  {busy === 'send' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  Mark as sent
+                </button>
+              )}
             </div>
           </div>
 

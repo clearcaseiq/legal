@@ -94,6 +94,8 @@ export const AI_SIGNALS: { value: string; label: string; description: string }[]
   { value: 'demand_sent', label: 'Demand sent', description: 'A demand letter or demand event exists' },
   { value: 'offer_received', label: 'Offer received', description: 'An insurer/adjuster offer was logged' },
   { value: 'settled', label: 'Settled', description: 'Case settled / offer accepted' },
+  { value: 'settlement_finalized', label: 'Settlement finalized', description: 'Settlement agreement reached; funds pending' },
+  { value: 'disbursement_complete', label: 'Disbursed', description: 'Funds disbursed to the client' },
 ]
 
 const AI_SIGNAL_KEYS = new Set(AI_SIGNALS.map((s) => s.value))
@@ -105,9 +107,15 @@ export function isValidAiSignal(key: unknown): key is string {
 export interface SignalContext {
   documentsComplete: boolean
   treatmentComplete: boolean
+  /** A demand letter has been drafted (any status). Drives DEMAND_PREPARATION. */
+  demandDrafted: boolean
   demandSent: boolean
   offerReceived: boolean
   settled: boolean
+  /** Settlement agreement reached (scenario finalized). Drives SETTLEMENT_PENDING. */
+  settlementFinalized: boolean
+  /** Funds disbursed to the client. Drives DISBURSEMENT. */
+  disbursementComplete: boolean
 }
 
 const SETTLED_STATUSES = new Set(['settled', 'closed', 'resolved', 'won'])
@@ -120,41 +128,58 @@ export async function loadSignalContext(assessmentId: string): Promise<SignalCon
   const empty: SignalContext = {
     documentsComplete: false,
     treatmentComplete: false,
+    demandDrafted: false,
     demandSent: false,
     offerReceived: false,
     settled: false,
+    settlementFinalized: false,
+    disbursementComplete: false,
   }
   if (!assessmentId) return empty
 
   const assessment = await prisma.assessment.findUnique({
     where: { id: assessmentId },
-    select: { id: true, status: true, leadSubmission: { select: { id: true } } },
+    select: {
+      id: true,
+      status: true,
+      leadSubmission: { select: { id: true } },
+      settlementScenario: { select: { status: true } },
+    },
   })
   if (!assessment) return empty
 
   const leadId = (assessment as any).leadSubmission?.id as string | undefined
 
-  const [pendingDocs, totalDocs, evidenceCount, treatmentDone, demandLetters, demandEvents, offerEvents, acceptedEvents] =
-    await Promise.all([
-      leadId
-        ? (prisma as any).documentRequest.count({ where: { leadId, status: { not: 'completed' } } })
-        : Promise.resolve(0),
-      leadId ? (prisma as any).documentRequest.count({ where: { leadId } }) : Promise.resolve(0),
-      // Evidence uploaded directly (no formal document request) still counts toward
-      // the "documents complete" Auto milestone (CP-581).
-      (prisma as any).evidenceFile
-        .count({ where: { assessmentId } })
-        .catch(() => 0),
-      (prisma as any).caseTask.count({
-        where: { assessmentId, checkpointType: 'medical_checkpoint', status: 'done' },
-      }),
-      (prisma as any).demandLetter.count({ where: { assessmentId, sentAt: { not: null } } }),
-      (prisma as any).negotiationEvent.count({ where: { assessmentId, eventType: 'demand' } }),
-      (prisma as any).negotiationEvent.count({ where: { assessmentId, eventType: 'offer' } }),
-      (prisma as any).negotiationEvent.count({ where: { assessmentId, status: 'accepted' } }),
-    ])
+  const [
+    pendingDocs,
+    totalDocs,
+    evidenceCount,
+    treatmentDone,
+    demandDrafts,
+    demandLetters,
+    demandEvents,
+    offerEvents,
+    acceptedEvents,
+  ] = await Promise.all([
+    leadId
+      ? (prisma as any).documentRequest.count({ where: { leadId, status: { not: 'completed' } } })
+      : Promise.resolve(0),
+    leadId ? (prisma as any).documentRequest.count({ where: { leadId } }) : Promise.resolve(0),
+    // Evidence uploaded directly (no formal document request) still counts toward
+    // the "documents complete" Auto milestone (CP-581).
+    (prisma as any).evidenceFile.count({ where: { assessmentId } }).catch(() => 0),
+    (prisma as any).caseTask.count({
+      where: { assessmentId, checkpointType: 'medical_checkpoint', status: 'done' },
+    }),
+    (prisma as any).demandLetter.count({ where: { assessmentId } }),
+    (prisma as any).demandLetter.count({ where: { assessmentId, sentAt: { not: null } } }),
+    (prisma as any).negotiationEvent.count({ where: { assessmentId, eventType: 'demand' } }),
+    (prisma as any).negotiationEvent.count({ where: { assessmentId, eventType: 'offer' } }),
+    (prisma as any).negotiationEvent.count({ where: { assessmentId, status: 'accepted' } }),
+  ])
 
   const status = String((assessment as any).status || '').toLowerCase()
+  const settlementStatus = String((assessment as any).settlementScenario?.status || '').toLowerCase()
 
   return {
     // Prefer formal document-request completion; fall back to uploaded evidence
@@ -162,9 +187,12 @@ export async function loadSignalContext(assessmentId: string): Promise<SignalCon
     documentsComplete:
       (totalDocs > 0 && pendingDocs === 0) || (totalDocs === 0 && evidenceCount > 0),
     treatmentComplete: treatmentDone > 0,
+    demandDrafted: demandDrafts > 0,
     demandSent: demandLetters > 0 || demandEvents > 0,
     offerReceived: offerEvents > 0,
     settled: acceptedEvents > 0 || SETTLED_STATUSES.has(status),
+    settlementFinalized: settlementStatus === 'finalized' || settlementStatus === 'disbursed',
+    disbursementComplete: settlementStatus === 'disbursed',
   }
 }
 
@@ -181,6 +209,10 @@ export function deriveSignal(signal: string | null | undefined, ctx: SignalConte
       return ctx.offerReceived
     case 'settled':
       return ctx.settled
+    case 'settlement_finalized':
+      return ctx.settlementFinalized
+    case 'disbursement_complete':
+      return ctx.disbursementComplete
     default:
       return false
   }

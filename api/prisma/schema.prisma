@@ -188,6 +188,18 @@ model Assessment {
   // by conflict resolution and surfaced on the change feed.
   lastWriteSource String?
 
+  // --- Case lifecycle stage (post-retention) --------------------------------
+  // Null until the matter is retained; then advances monotonically through the
+  // ClearCaseIQ case lifecycle (OPENING → INVESTIGATION → TREATMENT →
+  // RECORD_COLLECTION → DEMAND_PREPARATION → DEMAND_SENT → NEGOTIATION →
+  // SETTLEMENT_PENDING → DISBURSEMENT → CLOSED). Derived from workflow signals
+  // (treatment complete, demand sent, offer received, settled) by
+  // lib/case-stage.ts and never moves backwards. This is the "Case" spine — the
+  // Assessment IS the case-of-record; sub-objects (insurance, liens, tasks,
+  // negotiation, demand, medical) already hang off assessmentId.
+  caseStage       String?
+  caseStageAt     DateTime?
+
   // ChatGPT Analysis
   chatgptAnalysis       String?   @db.Text // JSON string of ChatGPT analysis
   chatgptAnalysisDate   DateTime?
@@ -237,6 +249,10 @@ model Assessment {
   lienHolders         LienHolder[]
   settlementScenario  SettlementScenario?
   caseExpenses        CaseExpense[]
+  damageItems         DamageItem[]
+  liabilityRecord     LiabilityRecord?
+  medicalEntries      MedicalTreatmentEntry[]
+  medicalRecord       MedicalCaseRecord?
   caseTasks           CaseTask[]
   negotiationEvents   NegotiationEvent[]
   decisionMemories    DecisionMemory[]
@@ -346,6 +362,14 @@ model SettlementScenario {
   // case costs in the waterfall. Attorney time is covered by the contingency fee.
   includeStaffTime Boolean  @default(false)
   notes          String?    @db.Text
+  // Settlement lifecycle: draft → finalized (agreement reached, funds pending) →
+  // disbursed (client paid, liens/costs settled). Drives the case stage engine's
+  // SETTLEMENT_PENDING → DISBURSEMENT transition.
+  status          String    @default("draft") // draft | finalized | disbursed
+  finalizedAt     DateTime?
+  finalizedByName String?
+  disbursedAt     DateTime?
+  disbursedByName String?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
@@ -367,6 +391,150 @@ model CaseExpense {
 
   @@index([assessmentId])
   @@map("case_expenses")
+}
+
+// Structured damages ledger — the plaintiff's economic picture (as opposed to
+// CaseExpense, which is the FIRM's advanced costs). Replaces the untyped
+// facts.damages.{medical,lostWages,other} blob with an auditable, itemized
+// ledger. Rollups are written through to facts.damages by lib/damages-ledger.ts
+// so the existing valuation/demand/settlement engines pick them up unchanged.
+model DamageItem {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  // Economic bucket this item rolls up into:
+  //   medical | future_medical | lost_wages | lost_earning_capacity |
+  //   property_damage | out_of_pocket | future_cost | other
+  category     String     @default("other")
+  description  String
+  amount       Float      @default(0)
+  // Medical-bill lifecycle (only meaningful for medical items):
+  //   billed | paid | outstanding | reduced | written_off
+  billingStatus String?
+  provider     String? // provider / payee / employer
+  incurredAt   DateTime?
+  // True for projected/future amounts (future_medical, lost_earning_capacity,
+  // future_cost) vs. already-incurred specials.
+  isFuture     Boolean    @default(false)
+  // manual | evidence (OCR) | imported
+  source       String     @default("manual")
+  notes        String?    @db.Text
+  createdById  String?
+  createdByName String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([assessmentId])
+  @@map("damage_items")
+}
+
+// Living liability analysis — one evolving record per case. Captures the
+// fault theory, defendant/comparative fault, and the presence/status of the
+// core liability evidence (police report, citation, witnesses, photos, video).
+// Rollups write through to facts.liability so the underwriting engine's
+// liability modifier reflects what's entered here.
+model LiabilityRecord {
+  id           String     @id @default(cuid())
+  assessmentId String     @unique
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  // Narrative theory of liability ("rear-end, defendant admitted fault", etc.)
+  faultTheory       String? @db.Text
+  // How contested fault is: clear | disputed | admitted | denied | shared
+  faultPosture      String  @default("clear")
+  // Defendant's share of fault, 0-100 (the plaintiff's recovery is reduced by
+  // the plaintiff's own comparative share = 100 - defendantFaultPct).
+  defendantFaultPct Int     @default(100)
+  // Plaintiff's own comparative negligence, 0-100.
+  comparativeNegPct Int     @default(0)
+
+  // Core liability evidence — status: none | requested | received | n/a
+  policeReportStatus String  @default("none")
+  policeReportNumber String?
+  citationIssuedTo   String? // none | defendant | plaintiff | both
+  hasWitnesses       Boolean @default(false)
+  witnessCount       Int     @default(0)
+  hasPhotos          Boolean @default(false)
+  hasVideo           Boolean @default(false)
+
+  // Defendant identification
+  defendantName    String?
+  defendantInsurer String?
+
+  // Manual override of the derived liability strength (0-100). Null = derived.
+  strengthOverride Int?
+
+  notes         String?  @db.Text
+  createdById   String?
+  updatedById   String?
+  updatedByName String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("liability_records")
+}
+
+// Case-level medical treatment timeline — one row per treatment episode /
+// provider course of care. Keyed on the Assessment (unlike the marketplace
+// ProviderReferral/TreatmentRecord which are LOP-referral scoped). Rollups
+// write through to facts.treatment[] and facts.medical.* so demand-readiness,
+// the treatment-gap coach, and the valuation engine reflect them.
+model MedicalTreatmentEntry {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  provider   String
+  specialty  String?
+  // initial_eval | follow_up | procedure | surgery | imaging | therapy | er | other
+  visitType  String  @default("follow_up")
+  startDate  DateTime?
+  endDate    DateTime?
+  // ongoing | completed | discharged | referred_out | no_show
+  status     String  @default("ongoing")
+  diagnosis  String?
+  billedAmount Float?
+  // True for planned/recommended future care (feeds future-medical planning).
+  isFuture   Boolean @default(false)
+  notes      String? @db.Text
+  source     String  @default("manual") // manual | evidence | imported
+  createdById   String?
+  createdByName String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([assessmentId])
+  @@map("medical_treatment_entries")
+}
+
+// Case-level medical status — one evolving record per case. Captures MMI,
+// treatment status, symptoms, and the future-treatment plan. Write-through
+// maps onto facts.medical.{mmi,mmiDate,dischargeDate,treatmentStatus,
+// stillTreating,lastTreatmentDate} which the readiness/coach engines read.
+model MedicalCaseRecord {
+  id           String     @id @default(cuid())
+  assessmentId String     @unique
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  // treating | completed | mmi | discharged | unknown
+  treatmentStatus String  @default("treating")
+  mmi             Boolean @default(false)
+  mmiDate         DateTime?
+  stillTreating   Boolean @default(true)
+  // JSON string array of current symptoms/complaints.
+  symptoms        String? @db.Text
+  // Narrative of recommended future treatment.
+  futureTreatment String? @db.Text
+  // Planning estimate of future medical cost (informational; enter as a
+  // future_medical DamageItem to flow into the valuation).
+  futureCostEstimate Float?
+  notes         String?  @db.Text
+  updatedById   String?
+  updatedByName String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("medical_case_records")
 }
 
 model CaseTask {

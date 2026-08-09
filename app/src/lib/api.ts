@@ -2404,6 +2404,11 @@ export async function finalizeLeadDemandLetter(leadId: string, demandId: string)
   return data as DemandLetter
 }
 
+export async function markLeadDemandSent(leadId: string, demandId: string, sentAt?: string) {
+  const { data } = await api.post(`${demandLettersPath(leadId)}/${demandId}/send`, sentAt ? { sentAt } : {})
+  return data as DemandLetter
+}
+
 export async function syncLeadReadinessAutomation(leadId: string) {
   const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/readiness/sync`)
   return data as {
@@ -2751,6 +2756,11 @@ export async function updateLeadSettlement(leadId: string, payload: any) {
   return data
 }
 
+export async function setLeadSettlementStatus(leadId: string, status: 'draft' | 'finalized' | 'disbursed') {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/settlement/status`, { status })
+  return data
+}
+
 export async function getLeadExpenses(leadId: string) {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/expenses`)
   return data
@@ -2769,6 +2779,67 @@ export async function updateLeadExpense(leadId: string, expenseId: string, paylo
 export async function deleteLeadExpense(leadId: string, expenseId: string) {
   const { data } = await api.delete(`/v1/attorney-dashboard/leads/${leadId}/expenses/${expenseId}`)
   return data
+}
+
+// ---- Structured damages ledger ---------------------------------------------
+export async function getLeadDamages(leadId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/damages`)
+  return data as { items: any[]; summary: any }
+}
+
+export async function createLeadDamage(leadId: string, payload: any) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/damages`, payload)
+  return data as { item: any; summary: any }
+}
+
+export async function updateLeadDamage(leadId: string, damageId: string, payload: any) {
+  const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/damages/${damageId}`, payload)
+  return data as { item: any; summary: any }
+}
+
+export async function deleteLeadDamage(leadId: string, damageId: string) {
+  const { data } = await api.delete(`/v1/attorney-dashboard/leads/${leadId}/damages/${damageId}`)
+  return data as { ok: boolean; summary: any }
+}
+
+// ---- Living liability record -----------------------------------------------
+export async function getLeadLiability(leadId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/liability`)
+  return data as { liability: any }
+}
+
+export async function updateLeadLiability(leadId: string, payload: any) {
+  const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/liability`, payload)
+  return data as { liability: any }
+}
+
+// ---- Case-level medical timeline -------------------------------------------
+export async function getLeadMedicalTimeline(leadId: string) {
+  const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/medical-timeline`)
+  return data as { timeline: any }
+}
+
+export async function createLeadMedicalEntry(leadId: string, payload: any) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/medical-timeline/entries`, payload)
+  return data as { timeline: any }
+}
+
+export async function updateLeadMedicalEntry(leadId: string, entryId: string, payload: any) {
+  const { data } = await api.patch(
+    `/v1/attorney-dashboard/leads/${leadId}/medical-timeline/entries/${entryId}`,
+    payload,
+  )
+  return data as { timeline: any }
+}
+
+export async function deleteLeadMedicalEntry(leadId: string, entryId: string) {
+  const { data } = await api.delete(`/v1/attorney-dashboard/leads/${leadId}/medical-timeline/entries/${entryId}`)
+  return data as { timeline: any }
+}
+
+export async function updateLeadMedicalStatus(leadId: string, payload: any) {
+  const { data } = await api.patch(`/v1/attorney-dashboard/leads/${leadId}/medical-timeline/status`, payload)
+  return data as { timeline: any }
 }
 
 export async function getLeadTasks(leadId: string) {

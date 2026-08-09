@@ -74,6 +74,12 @@ export interface SettlementResult {
   /** netToClient / gross (0..1). */
   netPct: number
   warnings: SettlementWarning[]
+  /** Settlement lifecycle: draft | finalized | disbursed. */
+  status: 'draft' | 'finalized' | 'disbursed'
+  finalizedAt: string | null
+  finalizedByName: string | null
+  disbursedAt: string | null
+  disbursedByName: string | null
   scenario: {
     grossAmount: number | null
     contingencyPct: number
@@ -133,6 +139,11 @@ export async function computeSettlement(assessmentId: string): Promise<Settlemen
       netToClient: 0,
       netPct: 0,
       warnings: [{ level: 'info', message: 'No case data available yet.' }],
+      status: 'draft',
+      finalizedAt: null,
+      finalizedByName: null,
+      disbursedAt: null,
+      disbursedByName: null,
       scenario: null,
     }
   }
@@ -258,6 +269,11 @@ export async function computeSettlement(assessmentId: string): Promise<Settlemen
     netToClient,
     netPct,
     warnings,
+    status: ((scenario as any)?.status as 'draft' | 'finalized' | 'disbursed') || 'draft',
+    finalizedAt: (scenario as any)?.finalizedAt ? new Date((scenario as any).finalizedAt).toISOString() : null,
+    finalizedByName: (scenario as any)?.finalizedByName ?? null,
+    disbursedAt: (scenario as any)?.disbursedAt ? new Date((scenario as any).disbursedAt).toISOString() : null,
+    disbursedByName: (scenario as any)?.disbursedByName ?? null,
     scenario: scenario
       ? {
           grossAmount: scenario.grossAmount,

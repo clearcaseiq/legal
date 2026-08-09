@@ -617,6 +617,9 @@ export async function buildCaseCommandCenter(params: {
     hasMedicalRecords: evidenceFiles.some((file) =>
       ['medical_records', 'medical', 'bills', 'medical_bills'].includes(String(file.category || '')),
     ),
+    liability: facts?.liabilityRecord
+      ? { posture: facts.liabilityRecord.faultPosture, strength: facts.liabilityRecord.strength }
+      : null,
   })
   const medicalCostBenchmark = buildMedicalCostBenchmarkSummary({
     chronology,

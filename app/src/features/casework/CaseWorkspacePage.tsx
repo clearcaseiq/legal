@@ -89,6 +89,9 @@ import ChatDrawer from '../../components/ChatDrawer'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import InsurancePanel from './InsurancePanel'
 import SettlementPanel from './SettlementPanel'
+import DamagesPanel from './DamagesPanel'
+import LiabilityPanel from './LiabilityPanel'
+import MedicalTimelinePanel from './MedicalTimelinePanel'
 import CaseWorkflowPanel from './CaseWorkflowPanel'
 import CaseTimePanel from './CaseTimePanel'
 import CaseIntelligencePanel from './CaseIntelligencePanel'
@@ -130,7 +133,7 @@ const ROW_TONE: Record<Tone, string> = {
   danger: 'text-rose-700',
 }
 
-const TABS = ['Info', 'Overview', 'Workflow', 'Evidence', 'Signatures', 'Medical', 'Insurance', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Tasks', 'Time'] as const
+const TABS = ['Info', 'Overview', 'Workflow', 'Evidence', 'Signatures', 'Medical', 'Liability', 'Insurance', 'Damages', 'Negotiation', 'Demand', 'Timeline', 'Deadlines', 'Settlement', 'Tasks', 'Time'] as const
 type Tab = (typeof TABS)[number]
 
 const SECTION_TO_TAB: Record<string, Tab> = {
@@ -145,6 +148,9 @@ const SECTION_TO_TAB: Record<string, Tab> = {
   medical: 'Medical',
   coverage: 'Insurance',
   insurance: 'Insurance',
+  liability: 'Liability',
+  fault: 'Liability',
+  damages: 'Damages',
   negotiation: 'Negotiation',
   demand: 'Demand',
   timeline: 'Timeline',
@@ -164,6 +170,8 @@ const TAB_TO_SECTION: Record<Tab, string> = {
   Signatures: 'signatures',
   Medical: 'medical',
   Insurance: 'insurance',
+  Liability: 'liability',
+  Damages: 'damages',
   Negotiation: 'negotiation',
   Demand: 'demand',
   Timeline: 'timeline',
@@ -183,6 +191,8 @@ const TAB_META: Record<Tab, TabMeta> = {
   Signatures: { icon: PenLine, blurb: 'Send retainers and authorizations for e-signature.' },
   Medical: { icon: Stethoscope, blurb: 'Providers, treatment chronology, and cost benchmarks.' },
   Insurance: { icon: Shield, blurb: 'Insurance carriers, policy limits, adjusters, and claims.' },
+  Liability: { icon: Gavel, blurb: 'Fault theory, comparative negligence, and liability evidence.' },
+  Damages: { icon: Receipt, blurb: 'Itemized economic damages: medical, wage loss, and future costs.' },
   Negotiation: { icon: Handshake, blurb: 'Demands, offers, and settlement posture.' },
   Demand: { icon: Gavel, blurb: 'Demand package, case value, and policy limits.' },
   Timeline: { icon: Clock, blurb: 'A chronological record of everything on this matter.' },
@@ -773,11 +783,29 @@ function WorkstreamPanel({
   }
 
   if (tab === 'Medical') {
-    return <MedicalPanel leadId={lead.id} cc={cc} onOpenSection={goToSection} />
+    return (
+      <div className="space-y-6">
+        <MedicalTimelinePanel leadId={lead.id} />
+        <div className="border-t border-slate-100 pt-6">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Evidence-derived chronology
+          </p>
+          <MedicalPanel leadId={lead.id} cc={cc} onOpenSection={goToSection} />
+        </div>
+      </div>
+    )
   }
 
   if (tab === 'Insurance') {
     return <InsurancePanel leadId={lead.id} claimType={detail.claimType} />
+  }
+
+  if (tab === 'Damages') {
+    return <DamagesPanel leadId={lead.id} />
+  }
+
+  if (tab === 'Liability') {
+    return <LiabilityPanel leadId={lead.id} />
   }
 
   if (tab === 'Negotiation') {

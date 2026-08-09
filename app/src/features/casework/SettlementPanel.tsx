@@ -20,10 +20,14 @@ import {
   Coins,
   Receipt,
   TrendingDown,
+  CheckCircle2,
+  Banknote,
+  Undo2,
 } from 'lucide-react'
 import {
   getLeadSettlement,
   updateLeadSettlement,
+  setLeadSettlementStatus,
   createLeadLien,
   updateLeadLien,
   deleteLeadLien,
@@ -74,6 +78,11 @@ interface SettlementData {
   netToClient: number
   netPct: number
   warnings: SettlementWarning[]
+  status: 'draft' | 'finalized' | 'disbursed'
+  finalizedAt: string | null
+  finalizedByName: string | null
+  disbursedAt: string | null
+  disbursedByName: string | null
 }
 
 const LIEN_TYPES: { value: string; label: string }[] = [
@@ -241,6 +250,20 @@ export default function SettlementPanel({ leadId }: { leadId: string }) {
     await refresh()
   }
 
+  const [statusBusy, setStatusBusy] = useState(false)
+  const changeStatus = async (status: 'draft' | 'finalized' | 'disbursed') => {
+    setStatusBusy(true)
+    setError(null)
+    try {
+      const d = await setLeadSettlementStatus(leadId, status)
+      applyData(d)
+    } catch (err: any) {
+      setError(err?.response?.data?.error || 'Could not update settlement status.')
+    } finally {
+      setStatusBusy(false)
+    }
+  }
+
   if (loading) return <p className="text-sm text-slate-500">Loading settlement…</p>
   if (error && !data) return <p className="text-sm text-rose-600">{error}</p>
   if (!data) return null
@@ -253,8 +276,67 @@ export default function SettlementPanel({ leadId }: { leadId: string }) {
   ].filter((p) => p.amount > 0)
   const waterfallTotal = waterfall.reduce((s, p) => s + p.amount, 0) || 1
 
+  const statusMeta =
+    data.status === 'disbursed'
+      ? { label: 'Disbursed', tone: 'border-emerald-200 bg-emerald-50 text-emerald-800', when: data.disbursedAt, by: data.disbursedByName }
+      : data.status === 'finalized'
+        ? { label: 'Finalized — funds pending', tone: 'border-brand-200 bg-brand-50 text-brand-800', when: data.finalizedAt, by: data.finalizedByName }
+        : { label: 'Draft', tone: 'border-slate-200 bg-slate-50 text-slate-600', when: null as string | null, by: null as string | null }
+
   return (
     <div className="space-y-4">
+      {/* Settlement lifecycle */}
+      <div className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${statusMeta.tone}`}>
+        <div className="flex items-center gap-2 text-sm">
+          <Scale className="h-4 w-4 shrink-0" />
+          <span className="font-semibold">Settlement: {statusMeta.label}</span>
+          {statusMeta.when ? (
+            <span className="text-xs opacity-80">
+              · {new Date(statusMeta.when).toLocaleDateString()}
+              {statusMeta.by ? ` · ${statusMeta.by}` : ''}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {data.status === 'draft' && (
+            <button
+              type="button"
+              onClick={() => changeStatus('finalized')}
+              disabled={statusBusy || !(data.gross > 0)}
+              title={!(data.gross > 0) ? 'Enter the agreed settlement amount first' : undefined}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-700 disabled:opacity-40"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" /> Finalize settlement
+            </button>
+          )}
+          {data.status === 'finalized' && (
+            <>
+              <button
+                type="button"
+                onClick={() => changeStatus('disbursed')}
+                disabled={statusBusy}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-40"
+              >
+                <Banknote className="h-3.5 w-3.5" /> Mark disbursed
+              </button>
+              <button
+                type="button"
+                onClick={() => changeStatus('draft')}
+                disabled={statusBusy}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
+              >
+                <Undo2 className="h-3.5 w-3.5" /> Reopen
+              </button>
+            </>
+          )}
+          {data.status === 'disbursed' && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Case funds distributed
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Warnings — the guardrails */}
       {data.warnings.length > 0 && (
         <div className="space-y-2">

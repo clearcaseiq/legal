@@ -106,10 +106,45 @@ export function describeInjuries(facts: any): string[] {
 }
 
 /**
- * Treatment timeline from the logged ledger, falling back to the LLM medical
- * chronology and then to a records-on-request sentence.
+ * Build a treatment timeline from the structured Phase-B medical ledger written
+ * into facts.treatment[] (provider/type/startDate/endDate/status/diagnosis).
+ * Returns null when there is nothing usable so callers fall back.
  */
-export function buildTreatmentTimelineSection(ledger: TreatmentLedger, analysis: any): string {
+function buildTimelineFromFacts(facts: any): string | null {
+  const entries = Array.isArray(facts?.treatment) ? facts.treatment : []
+  const dated = entries
+    .map((e: any) => ({
+      date: e?.startDate || e?.date || e?.endDate || null,
+      end: e?.endDate || null,
+      provider: e?.provider || 'Provider',
+      type: e?.type || e?.visitType || 'visit',
+      diagnosis: e?.diagnosis || null,
+    }))
+    .filter((e: any) => e.date)
+    .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+  if (dated.length === 0) return null
+
+  const first = longDate(dated[0].date)
+  const last = longDate(dated[dated.length - 1].end || dated[dated.length - 1].date)
+  const providers = new Set(dated.map((e: any) => String(e.provider).toLowerCase()))
+  const span =
+    first && last
+      ? `Treatment spanned ${first} through ${last} across ${providers.size} provider${providers.size === 1 ? '' : 's'}.`
+      : ''
+  const lines = dated.map((e: any) => {
+    const parts = [`- ${longDate(e.date)} — ${e.provider}: ${labelizeVisitType(e.type)}`]
+    if (e.diagnosis) parts.push(` — Dx: ${e.diagnosis}`)
+    return parts.join('')
+  })
+  return ['MEDICAL TREATMENT TIMELINE AND RECORDS', span, '', ...lines].filter((l) => l !== undefined).join('\n')
+}
+
+/**
+ * Treatment timeline. Prefers the logged referral ledger, then the structured
+ * Phase-B medical timeline (facts.treatment[]), then the LLM medical chronology,
+ * and finally a records-on-request sentence.
+ */
+export function buildTreatmentTimelineSection(ledger: TreatmentLedger, analysis: any, facts?: any): string {
   if (ledger.entries.length > 0) {
     const span =
       ledger.firstVisit && ledger.lastVisit
@@ -127,6 +162,9 @@ export function buildTreatmentTimelineSection(ledger: TreatmentLedger, analysis:
     })
     return ['MEDICAL TREATMENT TIMELINE AND RECORDS', span, '', ...lines].filter((l) => l !== undefined).join('\n')
   }
+
+  const fromFacts = buildTimelineFromFacts(facts)
+  if (fromFacts) return fromFacts
 
   const chronology = analysis?.medicalChronology
   if (chronology?.timeline?.length) {
@@ -169,24 +207,43 @@ export function buildDemandLetterSections({
     `${assessment.venueState || ''}${assessment.venueCounty ? `, ${assessment.venueCounty}` : ''}`.trim() ||
     'the applicable jurisdiction'
 
-  // Medical specials: prefer the itemized ledger total, fall back to self-reported.
-  const reportedMedical = Number(facts.damages?.med_charges || 0)
-  const medicalTotal = ledger.totalBilled > 0 ? ledger.totalBilled : reportedMedical
-  const lostWages = Number(facts.damages?.wage_loss || facts.damages?.estimated_wage_loss || 0)
-  const futureMedical = Number(facts.damages?.estimated_future_med_charges || 0)
+  const d = facts.damages || {}
+  // Medical specials: prefer the structured damages ledger (written into
+  // facts.damages.medical/med_charges), then the referral ledger total, then
+  // self-reported. Once the Phase-B ledger has items, it is authoritative.
+  const ledgerMedical = Number(d.medical ?? d.med_charges ?? 0)
+  const medicalTotal = ledgerMedical > 0 ? ledgerMedical : ledger.totalBilled > 0 ? ledger.totalBilled : Number(d.med_charges || 0)
+  const lostWages = Number(d.lostWages ?? d.wage_loss ?? d.estimated_wage_loss ?? 0)
+  const futureMedical = Number(d.futureMedical ?? d.future_medical ?? d.estimated_future_med_charges ?? 0)
+  // Other economic damages the structured ledger tracks (property, out-of-pocket,
+  // future non-medical costs, lost earning capacity), rolled into facts.damages.other.
+  const otherEconomic = Number(d.other ?? 0)
 
   // General (pain & suffering) damages: derive from the demand less specials,
   // or fall back to the analysis's pain/suffering valuation split.
-  const specials = medicalTotal + lostWages + futureMedical
+  const specials = medicalTotal + lostWages + futureMedical + otherEconomic
   const painSufferingSplit = Number(analysis?.valuationBreakdown?.damageSplits?.painSuffering || 0)
   const generalDamages =
     targetAmount > specials ? targetAmount - specials : painSufferingSplit > 0 ? painSufferingSplit : 0
 
-  const liabilityText =
+  // Liability narrative: prefer an explicit message, then the structured
+  // liability record's fault theory (Phase B), then the saved analysis, then a
+  // clear-liability default.
+  const liabilityRecord = facts.liabilityRecord && typeof facts.liabilityRecord === 'object' ? facts.liabilityRecord : null
+  const comparativePct = Math.round(Number(facts.liability?.comparativeNegligence || 0) * 100)
+  const defendantName = liabilityRecord?.defendantName ? String(liabilityRecord.defendantName) : 'your insured'
+  const baseLiabilityText =
     (message && message.trim()) ||
+    (liabilityRecord?.faultTheory && String(liabilityRecord.faultTheory).trim()) ||
     (analysis?.liabilityOutline && String(analysis.liabilityOutline).trim()) ||
     (analysis?.liabilityModel?.reasoning && String(analysis.liabilityModel.reasoning).trim()) ||
-    `The incident and resulting injuries were directly and proximately caused by the negligence of your insured. Your insured owed our client a duty of care, breached that duty, and that breach was the direct cause of the injuries and damages described below. Liability is clear.`
+    `The incident and resulting injuries were directly and proximately caused by the negligence of ${defendantName}. ${defendantName === 'your insured' ? 'Your insured' : defendantName} owed our client a duty of care, breached that duty, and that breach was the direct cause of the injuries and damages described below. Liability is clear.`
+  // If comparative fault is on the record, address it head-on rather than letting
+  // the adjuster raise it first — but never volunteer it when it is zero.
+  const liabilityText =
+    comparativePct > 0
+      ? `${baseLiabilityText} We anticipate an argument that our client bears some comparative responsibility; the facts do not support a meaningful apportionment, and any such allocation would be modest and does not diminish the substantial value of this claim.`
+      : baseLiabilityText
 
   const injuries = describeInjuries(facts)
   const injuryClause = injuries.length
@@ -207,6 +264,7 @@ export function buildDemandLetterSections({
     medicalLine,
     `- Lost wages: ${lostWages > 0 ? money(lostWages) : 'To be documented'}`,
     futureMedical > 0 ? `- Future medical expenses: ${money(futureMedical)}` : null,
+    otherEconomic > 0 ? `- Other economic damages (property, out-of-pocket, future costs): ${money(otherEconomic)}` : null,
     `- Pain and suffering (general damages): ${generalDamages > 0 ? money(generalDamages) : 'See above'}`,
   ].filter(Boolean) as string[]
 
@@ -227,7 +285,7 @@ export function buildDemandLetterSections({
       : `We represent the above-referenced client in connection with a personal injury claim arising from an incident that occurred on or about ${incidentDate} in ${venue}. This letter constitutes our formal demand for settlement.`,
     accidentSummary: narrative,
     liability: liabilityText,
-    treatmentTimeline: buildTreatmentTimelineSection(ledger, analysis),
+    treatmentTimeline: buildTreatmentTimelineSection(ledger, analysis, facts),
     medicalBills: [
       'TOTAL MEDICAL BILLS',
       ledger.totalBilled > 0

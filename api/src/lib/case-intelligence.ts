@@ -16,6 +16,8 @@ import { prisma } from './prisma'
 import { logger } from './logger'
 import { underwriteCase } from './underwriting-engine'
 import { deriveSOLStatus, normalizeClaimTypeForSOL } from './solRules'
+import { summarizeDamages, type DamagesSummary } from './damages-ledger'
+import { getLiabilityRecord, type LiabilityView } from './liability-record'
 
 export type GapCategory = 'liability' | 'medical' | 'damages' | 'insurance' | 'evidence' | 'case_strategy'
 export type ValueImpact = 'high' | 'medium' | 'low'
@@ -244,11 +246,15 @@ export function buildGaps(params: {
   insuranceDetails: Array<any>
   primaryInjury: string
   claimType: string
+  /** Structured ledgers (Phase B). When present, they are authoritative over facts. */
+  damages?: DamagesSummary | null
+  liability?: LiabilityView | null
 }): CaseGap[] {
-  const { documentationMissing, facts, evidence, insuranceDetails, primaryInjury, claimType } = params
+  const { documentationMissing, facts, evidence, insuranceDetails, primaryInjury, claimType, damages, liability } = params
   const gaps: CaseGap[] = []
   const missingLower = documentationMissing.map((m) => m.toLowerCase())
   const missingHas = (needle: string) => missingLower.some((m) => m.includes(needle))
+  const hasGap = (key: string) => gaps.some((g) => g.key === key)
 
   if (missingHas('medical record')) {
     gaps.push({
@@ -371,6 +377,96 @@ export function buildGaps(params: {
     })
   }
 
+  // ---- Phase B: structured-ledger gaps -------------------------------------
+  // The damages ledger and liability record are the auditable source of truth.
+  // When they are empty or reveal a provable-fault weakness, surface a gap so it
+  // fans out to the coach/readiness task loops just like every other gap.
+
+  // Empty damages ledger → nothing anchors the case value. Only raise when the
+  // ledger has been introduced (damages !== undefined) and has no items, and we
+  // did not already flag missing bills/records from documentation above.
+  if (damages && damages.itemCount === 0 && !hasGap('medical_bills') && !hasGap('medical_records')) {
+    gaps.push({
+      key: 'damages_ledger_empty',
+      label: 'Itemized damages (medical bills, wage loss)',
+      category: 'damages',
+      severity: 4,
+      valueImpact: 'high',
+      rationale:
+        'No itemized economic damages have been entered. Medical specials and wage loss anchor the settlement value and the general-damages multiplier — build the damages ledger from the bills and records on file.',
+      actions: ['assign_paralegal', 'request_from_client'],
+      requestedDoc: 'medical_records',
+    })
+  } else if (damages && damages.itemCount > 0 && damages.medical.incurred === 0 && !hasGap('medical_bills')) {
+    // Non-medical items entered but no medical specials — usually the biggest bucket.
+    gaps.push({
+      key: 'medical_specials_missing',
+      label: 'Medical specials not itemized',
+      category: 'damages',
+      severity: 3,
+      valueImpact: 'high',
+      rationale:
+        'The damages ledger has entries but no medical specials. Medical bills are typically the largest special and drive the value — enter the billed amounts from the records.',
+      actions: ['assign_paralegal', 'request_from_client'],
+      requestedDoc: 'medical_records',
+    })
+  }
+
+  // Provable-fault weakness: fault is contested but the two evidence pillars that
+  // usually resolve it (police report + independent witnesses) are absent.
+  if (liability) {
+    const contested = ['disputed', 'denied', 'shared'].includes(liability.faultPosture)
+    const noReport = liability.policeReportStatus !== 'received'
+    const noWitnesses = !liability.hasWitnesses
+    if (contested && noReport && noWitnesses) {
+      gaps.push({
+        key: 'liability_evidence',
+        label: 'Liability proof for contested fault',
+        category: 'liability',
+        severity: 5,
+        valueImpact: 'high',
+        rationale: `Fault is ${liability.faultPosture} but there is no police report on file and no independent witnesses. Lock down the report, canvass for witnesses, and preserve any scene/dashcam video before it is lost — contested liability caps the recovery.`,
+        actions: ['assign_paralegal', 'generate_doc_request'],
+        requestedDoc: 'police_report',
+      })
+    }
+    // Comparative negligence asserted but not yet analyzed on the record.
+    if (liability.comparativeNegPct >= 25 && !liability.faultTheory) {
+      gaps.push({
+        key: 'comparative_negligence_theory',
+        label: 'Comparative-negligence rebuttal',
+        category: 'liability',
+        severity: 3,
+        valueImpact: 'medium',
+        rationale: `${liability.comparativeNegPct}% comparative negligence is on the record with no documented theory of liability to rebut it. Draft the fault narrative before the demand.`,
+        actions: ['schedule_followup', 'assign_paralegal'],
+      })
+    }
+  }
+
+  // Insurance coverage entered but never confirmed / claim not opened. Distinct
+  // from the "limits unknown" gap above — here we HAVE a carrier row but it is
+  // unverified, which stalls the demand.
+  const insList = Array.isArray(insuranceDetails) ? insuranceDetails : []
+  if (insList.length > 0 && !hasGap('defendant_policy_limits')) {
+    const anyConfirmed = insList.some((d: any) => d?.coverageConfirmed === true)
+    const anyClaimOpen = insList.some((d: any) => d?.claimStatus && d.claimStatus !== 'not_opened')
+    if (!anyConfirmed || !anyClaimOpen) {
+      gaps.push({
+        key: 'coverage_unconfirmed',
+        label: 'Confirm coverage & open the claim',
+        category: 'insurance',
+        severity: 4,
+        valueImpact: 'high',
+        rationale: !anyConfirmed
+          ? 'An insurance carrier is on file but coverage is not yet confirmed. Verify the policy (declarations page) so the demand targets real, confirmed limits.'
+          : 'A carrier is on file but no claim has been opened. Open the claim so the adjuster clock starts and the demand has a destination.',
+        actions: ['assign_paralegal', 'generate_doc_request'],
+        requestedDoc: 'insurance',
+      })
+    }
+  }
+
   // Sort by criticality (severity desc), then high value-impact first.
   const impactRank: Record<ValueImpact, number> = { high: 3, medium: 2, low: 1 }
   return gaps.sort((a, b) => b.severity - a.severity || impactRank[b.valueImpact] - impactRank[a.valueImpact])
@@ -453,6 +549,12 @@ export async function buildCaseIntelligence(assessmentId: string): Promise<CaseI
     { key: 'sol', label: 'SOL remaining', value: sol.daysRemaining != null ? `${sol.daysRemaining} days` : 'Confirm' },
   ]
 
+  // Structured ledgers (Phase B). Best-effort — never block intelligence on them.
+  const [damagesSummary, liabilityView] = await Promise.all([
+    summarizeDamages(assessmentId).catch(() => null),
+    getLiabilityRecord(assessmentId).catch(() => null),
+  ])
+
   const gaps = buildGaps({
     documentationMissing: underwriting.documentation.missing,
     facts,
@@ -460,6 +562,8 @@ export async function buildCaseIntelligence(assessmentId: string): Promise<CaseI
     insuranceDetails,
     primaryInjury,
     claimType: assessment.claimType,
+    damages: damagesSummary,
+    liability: liabilityView,
   })
 
   return {

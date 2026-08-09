@@ -96,6 +96,16 @@ export interface DemandGateInput {
   documentedMedicalBills?: number | null
   /** Whether medical records are actually on file (not merely claimed at intake). */
   hasMedicalRecords?: boolean
+  /**
+   * Structured liability posture (Phase B). A demand should not go out while
+   * fault is denied or contested without provable support — the adjuster will
+   * simply deny. Sourced from the LiabilityRecord (facts.liabilityRecord).
+   */
+  liability?: {
+    posture?: string | null
+    /** Derived liability strength, 0-100. */
+    strength?: number | null
+  } | null
 }
 
 function toDate(value: unknown): Date | null {
@@ -290,6 +300,24 @@ export function evaluateDemandGate(input: DemandGateInput): DemandGate {
       title: 'No documented medical specials',
       detail: 'There are no documented medical bills to anchor the demand figure.',
     })
+  }
+
+  // Liability must be provable. A denied claim — or a disputed one with thin
+  // support — will bounce off the adjuster, so resolve the fault picture first.
+  if (input.liability) {
+    const posture = String(input.liability.posture || 'clear').toLowerCase()
+    const strength = Number(input.liability.strength ?? 100)
+    const contested = posture === 'denied' || posture === 'disputed'
+    if (posture === 'denied' || (contested && strength < 45)) {
+      blockers.push({
+        key: 'liability_not_established',
+        title: 'Liability not yet established',
+        detail:
+          posture === 'denied'
+            ? 'Fault is denied. Lock down the police report, witnesses, and a documented theory of liability before demanding — an adjuster will reject a demand on a denied claim.'
+            : 'Fault is disputed and the liability support is thin. Strengthen the record (report, witnesses, photos/video) before the demand goes out.',
+      })
+    }
   }
 
   const ready = blockers.length === 0

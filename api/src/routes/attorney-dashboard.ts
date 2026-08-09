@@ -53,6 +53,17 @@ import { buildCaseIntelligence, type GapAction } from '../lib/case-intelligence'
 import { buildBaselineQuestions, BASELINE_QUESTION_GAP_KEYS } from '../lib/intake-questions'
 import { generateIntelligentQuestions } from '../services/intelligent-questions'
 import { syncCaseCoachTasks, resolveCaseAssignees } from '../lib/case-coach-loop'
+import { openCaseStage, syncCaseStage } from '../lib/case-stage'
+import { createCaseOpeningTasks } from '../lib/case-opening'
+import { summarizeDamages, writeThroughDamages, DAMAGE_CATEGORIES } from '../lib/damages-ledger'
+import { getLiabilityRecord, upsertLiabilityRecord } from '../lib/liability-record'
+import {
+  getMedicalTimeline,
+  createMedicalEntry,
+  updateMedicalEntry,
+  deleteMedicalEntry,
+  upsertMedicalStatus,
+} from '../lib/medical-record'
 import { isReviewGateEnabled } from '../lib/task-review'
 import { AI_AUTHOR_NAME } from '../lib/ai-author'
 import { DEFAULT_DEMAND_RECIPIENT, draftDemandForAssessment, saveDemandVersion } from '../lib/demand-drafting'
@@ -941,7 +952,7 @@ const insuranceDetailSelect = {
 } as const
 
 const INSURED_PARTIES = ['defendant', 'client'] as const
-const COVERAGE_TYPES = ['liability', 'um', 'uim', 'medpay', 'other'] as const
+const COVERAGE_TYPES = ['liability', 'um', 'uim', 'medpay', 'pip', 'umbrella', 'health', 'other'] as const
 const CLAIM_STATUSES = ['not_opened', 'open', 'accepted', 'denied', 'closed'] as const
 
 function normalizeEnum<T extends readonly string[]>(
@@ -9243,6 +9254,100 @@ router.patch('/leads/:leadId/settlement', authMiddleware, async (req: any, res) 
   }
 })
 
+/**
+ * Advance the settlement lifecycle: draft → finalized → disbursed.
+ *
+ * These are the transitions that move the case stage into SETTLEMENT_PENDING and
+ * then DISBURSEMENT — until now DISBURSEMENT was unreachable. Finalizing requires
+ * a positive gross recovery to model against; disbursing requires a finalized
+ * scenario. `reopen` returns to draft.
+ */
+router.post('/leads/:leadId/settlement/status', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead, attorney } = auth
+    const target = String(req.body?.status || '').toLowerCase()
+    if (!['finalized', 'disbursed', 'draft'].includes(target)) {
+      return res.status(400).json({ error: 'status must be finalized, disbursed, or draft' })
+    }
+
+    const current = await prisma.settlementScenario.findUnique({
+      where: { assessmentId: lead.assessmentId },
+      select: { status: true, grossAmount: true },
+    })
+
+    if (target === 'finalized') {
+      // Need a gross recovery to finalize against (override or predicted median).
+      const settlement = await computeSettlement(lead.assessmentId)
+      if (!(settlement.gross > 0)) {
+        return res.status(400).json({ error: 'Add the agreed settlement amount before finalizing.' })
+      }
+    }
+    if (target === 'disbursed' && current?.status !== 'finalized' && current?.status !== 'disbursed') {
+      return res.status(400).json({ error: 'Finalize the settlement before marking it disbursed.' })
+    }
+
+    const actorName = requestActorName(req.user)
+    const now = new Date()
+    await prisma.settlementScenario.upsert({
+      where: { assessmentId: lead.assessmentId },
+      create: {
+        assessmentId: lead.assessmentId,
+        status: target,
+        finalizedAt: target === 'finalized' || target === 'disbursed' ? now : null,
+        finalizedByName: target === 'finalized' || target === 'disbursed' ? actorName : null,
+        disbursedAt: target === 'disbursed' ? now : null,
+        disbursedByName: target === 'disbursed' ? actorName : null,
+      },
+      update: {
+        status: target,
+        ...(target === 'finalized'
+          ? { finalizedAt: current?.status === 'disbursed' ? undefined : now, finalizedByName: actorName, disbursedAt: null, disbursedByName: null }
+          : {}),
+        ...(target === 'disbursed' ? { disbursedAt: now, disbursedByName: actorName } : {}),
+        ...(target === 'draft' ? { finalizedAt: null, finalizedByName: null, disbursedAt: null, disbursedByName: null } : {}),
+      },
+    })
+
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: attorney?.id ?? null,
+      action: `settlement_${target}`,
+      entityType: 'settlement',
+      entityId: lead.assessmentId,
+      metadata: { leadId: lead.id },
+    })
+
+    void recordCaseChange({
+      assessmentId: lead.assessmentId,
+      source: 'attorney',
+      action: target === 'disbursed' ? 'settlement_disbursed' : target === 'finalized' ? 'settlement_finalized' : 'settlement_reopened',
+      entityType: 'settlement',
+      entityId: lead.assessmentId,
+      summary:
+        target === 'disbursed'
+          ? 'Settlement funds disbursed to client'
+          : target === 'finalized'
+            ? 'Settlement finalized (agreement reached)'
+            : 'Settlement reopened',
+      actor: { type: 'user', id: req.user?.id ?? null, label: actorName },
+    })
+
+    // Advance the case stage (→ SETTLEMENT_PENDING / DISBURSEMENT).
+    void syncCaseStage(lead.assessmentId, { source: 'attorney' })
+
+    const result = await computeSettlement(lead.assessmentId)
+    res.json(result)
+  } catch (error: any) {
+    logger.error('Failed to update settlement status', { error: error.message })
+    res.status(500).json({ error: 'Failed to update settlement status' })
+  }
+})
+
 // Case expenses (costs advanced)
 router.get('/leads/:leadId/expenses', authMiddleware, async (req: any, res) => {
   try {
@@ -9331,6 +9436,243 @@ router.delete('/leads/:leadId/expenses/:id', authMiddleware, async (req: any, re
   } catch (error: any) {
     logger.error('Failed to delete case expense', { error: error.message })
     res.status(500).json({ error: 'Failed to delete case expense' })
+  }
+})
+
+// ---- Structured damages ledger ---------------------------------------------
+// The plaintiff's economic picture as an itemized, auditable ledger. Rollups are
+// written through to facts.damages so valuation/demand/settlement pick them up.
+const damageItemSelect = {
+  id: true,
+  assessmentId: true,
+  category: true,
+  description: true,
+  amount: true,
+  billingStatus: true,
+  provider: true,
+  incurredAt: true,
+  isFuture: true,
+  source: true,
+  notes: true,
+  createdById: true,
+  createdByName: true,
+  createdAt: true,
+  updatedAt: true,
+} as const
+
+router.get('/leads/:leadId/damages', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const [items, summary] = await Promise.all([
+      (prisma as any).damageItem.findMany({
+        where: { assessmentId: auth.lead.assessmentId },
+        orderBy: [{ category: 'asc' }, { createdAt: 'desc' }],
+        select: damageItemSelect,
+      }),
+      summarizeDamages(auth.lead.assessmentId),
+    ])
+    res.json({ items, summary })
+  } catch (error: any) {
+    logger.error('Failed to load damages ledger', { error: error.message })
+    res.status(500).json({ error: 'Failed to load damages ledger' })
+  }
+})
+
+router.post('/leads/:leadId/damages', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { category, description, amount, billingStatus, provider, incurredAt, isFuture, notes } = req.body
+    if (!description) return res.status(400).json({ error: 'description is required' })
+    if (amount == null || amount === '' || Number.isNaN(Number(amount))) {
+      return res.status(400).json({ error: 'amount is required' })
+    }
+    const cat = (DAMAGE_CATEGORIES as readonly string[]).includes(category) ? category : 'other'
+    const actorName = `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim() || req.user?.email || null
+    const record = await (prisma as any).damageItem.create({
+      data: {
+        assessmentId: auth.lead.assessmentId,
+        category: cat,
+        description,
+        amount: Number(amount),
+        billingStatus: billingStatus || null,
+        provider: provider || null,
+        incurredAt: incurredAt ? new Date(incurredAt) : null,
+        isFuture: Boolean(isFuture) || cat.startsWith('future_') || cat === 'lost_earning_capacity',
+        source: 'manual',
+        notes: notes || null,
+        createdById: req.user?.id ?? null,
+        createdByName: actorName,
+      },
+      select: damageItemSelect,
+    })
+    const summary = await writeThroughDamages(auth.lead.assessmentId, { source: 'attorney', actorId: req.user?.id ?? null })
+    res.json({ item: record, summary })
+  } catch (error: any) {
+    logger.error('Failed to create damage item', { error: error.message })
+    res.status(500).json({ error: 'Failed to create damage item' })
+  }
+})
+
+router.patch('/leads/:leadId/damages/:id', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, id } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { category, description, amount, billingStatus, provider, incurredAt, isFuture, notes } = req.body
+    const data: any = {}
+    if (category !== undefined) data.category = (DAMAGE_CATEGORIES as readonly string[]).includes(category) ? category : 'other'
+    if (description !== undefined) data.description = description
+    if (amount !== undefined && amount !== '') data.amount = Number(amount)
+    if (billingStatus !== undefined) data.billingStatus = billingStatus || null
+    if (provider !== undefined) data.provider = provider || null
+    if (incurredAt !== undefined) data.incurredAt = incurredAt ? new Date(incurredAt) : null
+    if (isFuture !== undefined) data.isFuture = Boolean(isFuture)
+    if (notes !== undefined) data.notes = notes || null
+    const record = await (prisma as any).damageItem.update({ where: { id }, data, select: damageItemSelect })
+    const summary = await writeThroughDamages(auth.lead.assessmentId, { source: 'attorney', actorId: req.user?.id ?? null })
+    res.json({ item: record, summary })
+  } catch (error: any) {
+    logger.error('Failed to update damage item', { error: error.message })
+    res.status(500).json({ error: 'Failed to update damage item' })
+  }
+})
+
+router.delete('/leads/:leadId/damages/:id', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, id } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    await (prisma as any).damageItem.delete({ where: { id } })
+    const summary = await writeThroughDamages(auth.lead.assessmentId, { source: 'attorney', actorId: req.user?.id ?? null })
+    res.json({ ok: true, summary })
+  } catch (error: any) {
+    logger.error('Failed to delete damage item', { error: error.message })
+    res.status(500).json({ error: 'Failed to delete damage item' })
+  }
+})
+
+// Living liability record — one evolving analysis per case.
+router.get('/leads/:leadId/liability', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const liability = await getLiabilityRecord(auth.lead.assessmentId)
+    res.json({ liability })
+  } catch (error: any) {
+    logger.error('Failed to load liability record', { error: error.message })
+    res.status(500).json({ error: 'Failed to load liability record' })
+  }
+})
+
+router.patch('/leads/:leadId/liability', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const actorName = `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim() || req.user?.email || null
+    const liability = await upsertLiabilityRecord(auth.lead.assessmentId, req.body || {}, {
+      source: 'attorney',
+      actorId: req.user?.id ?? null,
+      actorName,
+    })
+    res.json({ liability })
+  } catch (error: any) {
+    logger.error('Failed to update liability record', { error: error.message })
+    res.status(500).json({ error: 'Failed to update liability record' })
+  }
+})
+
+// Case-level medical timeline — structured treatment episodes + medical status.
+router.get('/leads/:leadId/medical-timeline', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const timeline = await getMedicalTimeline(auth.lead.assessmentId)
+    res.json({ timeline })
+  } catch (error: any) {
+    logger.error('Failed to load medical timeline', { error: error.message })
+    res.status(500).json({ error: 'Failed to load medical timeline' })
+  }
+})
+
+router.post('/leads/:leadId/medical-timeline/entries', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    if (!req.body?.provider) return res.status(400).json({ error: 'provider is required' })
+    const actorName = `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim() || req.user?.email || null
+    const timeline = await createMedicalEntry(auth.lead.assessmentId, req.body || {}, {
+      actorId: req.user?.id ?? null,
+      actorName,
+    })
+    res.json({ timeline })
+  } catch (error: any) {
+    logger.error('Failed to create medical entry', { error: error.message })
+    res.status(500).json({ error: 'Failed to create medical entry' })
+  }
+})
+
+router.patch('/leads/:leadId/medical-timeline/entries/:entryId', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, entryId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const timeline = await updateMedicalEntry(auth.lead.assessmentId, entryId, req.body || {}, {
+      actorId: req.user?.id ?? null,
+    })
+    res.json({ timeline })
+  } catch (error: any) {
+    logger.error('Failed to update medical entry', { error: error.message })
+    res.status(500).json({ error: 'Failed to update medical entry' })
+  }
+})
+
+router.delete('/leads/:leadId/medical-timeline/entries/:entryId', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId, entryId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const timeline = await deleteMedicalEntry(auth.lead.assessmentId, entryId, { actorId: req.user?.id ?? null })
+    res.json({ timeline })
+  } catch (error: any) {
+    logger.error('Failed to delete medical entry', { error: error.message })
+    res.status(500).json({ error: 'Failed to delete medical entry' })
+  }
+})
+
+router.patch('/leads/:leadId/medical-timeline/status', authMiddleware, async (req: any, res) => {
+  try {
+    const { leadId } = req.params
+    const auth = await getAuthorizedLead(req, leadId)
+    if (auth.error) return res.status(auth.error.status).json({ error: auth.error.message })
+    const actorName = `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim() || req.user?.email || null
+    const timeline = await upsertMedicalStatus(auth.lead.assessmentId, req.body || {}, {
+      actorId: req.user?.id ?? null,
+      actorName,
+    })
+    res.json({ timeline })
+  } catch (error: any) {
+    logger.error('Failed to update medical status', { error: error.message })
+    res.status(500).json({ error: 'Failed to update medical status' })
   }
 })
 
@@ -11648,6 +11990,9 @@ router.post('/leads/:leadId/negotiations', authMiddleware, async (req: any, res)
       summary: `Negotiation event: ${eventType}${amount ? ` (${Number(amount)})` : ''}`,
       actor: { type: 'user', id: req.user?.id ?? null },
     })
+    // An offer/counter/acceptance can advance the case (→ NEGOTIATION,
+    // SETTLEMENT_PENDING). Fire-and-forget; monotonic so it never regresses.
+    void syncCaseStage(lead.assessmentId, { source: 'attorney' })
     res.json(record)
   } catch (error: any) {
     logger.error('Failed to create negotiation event', { error: error.message })
@@ -11699,6 +12044,16 @@ router.patch('/leads/:leadId/negotiations/:id', authMiddleware, async (req: any,
       select: negotiationEventSelect
     })
     await upsertNegotiationInsights(lead.assessmentId)
+    void recordCaseChange({
+      assessmentId: lead.assessmentId,
+      source: 'attorney',
+      action: 'negotiation_updated',
+      entityType: 'negotiation',
+      entityId: record.id,
+      summary: `Negotiation event updated: ${record.eventType}`,
+      actor: { type: 'user', id: req.user?.id ?? null },
+    })
+    void syncCaseStage(lead.assessmentId, { source: 'attorney' })
     res.json(record)
   } catch (error: any) {
     logger.error('Failed to update negotiation event', { error: error.message })
@@ -14201,6 +14556,87 @@ router.post('/leads/:leadId/demand-letters/:demandId/finalize', authMiddleware, 
 })
 
 /**
+ * Mark a finalized demand as sent to the carrier.
+ *
+ * This is the transition that advances the case to DEMAND_SENT — until now
+ * nothing in the app ever set `sentAt`, so the demand-sent stage was
+ * unreachable. Stamping `sentAt` + logging a negotiation "demand" event feeds
+ * both the stage engine's demand-sent signal and the negotiation timeline.
+ */
+router.post('/leads/:leadId/demand-letters/:demandId/send', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead, attorney } = auth
+
+    const existing = await prisma.demandLetter.findFirst({
+      where: { id: req.params.demandId, assessmentId: lead.assessmentId },
+      select: { id: true, status: true, sentAt: true, targetAmount: true },
+    })
+    if (!existing) {
+      return res.status(404).json({ error: 'Demand letter not found' })
+    }
+    if (existing.status === 'DRAFT') {
+      return res.status(400).json({ error: 'Finalize the letter before marking it sent' })
+    }
+    if (existing.sentAt) {
+      return res.status(400).json({ error: 'This demand has already been marked sent' })
+    }
+
+    const sentAt = req.body?.sentAt ? new Date(req.body.sentAt) : new Date()
+    const letter = await prisma.demandLetter.update({
+      where: { id: existing.id },
+      data: { status: 'SENT', sentAt },
+      select: demandLetterSelect,
+    })
+
+    // Log the demand on the negotiation timeline (best-effort).
+    await prisma.negotiationEvent
+      .create({
+        data: {
+          assessmentId: lead.assessmentId,
+          eventType: 'demand',
+          amount: existing.targetAmount ?? null,
+          eventDate: sentAt,
+          status: 'open',
+          counterpartyType: 'insurer',
+          notes: 'Demand package sent to carrier',
+        },
+      })
+      .catch(() => null)
+
+    await writeAutomationAudit({
+      userId: req.user?.id,
+      attorneyId: attorney?.id ?? null,
+      action: 'demand_letter_sent',
+      entityType: 'demand_letter',
+      entityId: letter.id,
+      metadata: { leadId: lead.id, sentAt: sentAt.toISOString() },
+    })
+
+    void recordCaseChange({
+      assessmentId: lead.assessmentId,
+      source: 'attorney',
+      action: 'demand_sent',
+      entityType: 'demand_letter',
+      entityId: letter.id,
+      summary: 'Demand package sent to carrier',
+      actor: { type: 'user', id: req.user?.id, label: requestActorName(req.user) },
+    })
+
+    // Advance the case stage to DEMAND_SENT.
+    void syncCaseStage(lead.assessmentId, { source: 'attorney' })
+
+    res.json(serializeDemandLetter(letter))
+  } catch (error: any) {
+    logger.error('Failed to mark demand letter sent', { error: error.message, demandId: req.params.demandId })
+    res.status(500).json({ error: 'Failed to mark demand letter sent' })
+  }
+})
+
+/**
  * Rename a case.
  *
  * Attorneys name a matter by its caption ("Rivera v. Delgado Trucking"), which
@@ -14762,6 +15198,20 @@ router.post('/leads/:leadId/status', authMiddleware, async (req: any, res) => {
         outcomeStatus: 'retained',
         outcomeNotes: 'Lead marked retained from attorney dashboard status update'
       })
+
+      // Enter the case-management lifecycle: stamp the OPENING stage and
+      // auto-generate the Day-1 case opening checklist (retainer, HIPAA,
+      // conflict check, LOR, open claim, identify adjuster, SOL deadline, …).
+      const actorName = attorney.name || null
+      await createCaseOpeningTasks(existingLead.assessmentId, {
+        createdById: req.user?.id ?? null,
+        createdByName: actorName,
+      }).catch((err: any) =>
+        logger.warn('Failed to create case opening tasks', { error: err?.message, assessmentId: existingLead.assessmentId })
+      )
+      await openCaseStage(existingLead.assessmentId, { source: 'attorney' }).catch((err: any) =>
+        logger.warn('Failed to open case stage', { error: err?.message, assessmentId: existingLead.assessmentId })
+      )
     }
 
     await calculateAttorneyReputationScore(attorneyId).catch((err: any) => {
