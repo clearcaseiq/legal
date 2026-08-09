@@ -53,7 +53,8 @@ import { buildCaseIntelligence, type GapAction } from '../lib/case-intelligence'
 import { buildBaselineQuestions, BASELINE_QUESTION_GAP_KEYS } from '../lib/intake-questions'
 import { generateIntelligentQuestions } from '../services/intelligent-questions'
 import { syncCaseCoachTasks, resolveCaseAssignees } from '../lib/case-coach-loop'
-import { openCaseStage, syncCaseStage } from '../lib/case-stage'
+import { openCaseStage, syncCaseStage, reopenCaseStage } from '../lib/case-stage'
+import { setLitigationStatus, isLitigationStatus, LITIGATION_LABELS } from '../lib/litigation'
 import { createCaseOpeningTasks } from '../lib/case-opening'
 import { summarizeDamages, writeThroughDamages, DAMAGE_CATEGORIES } from '../lib/damages-ledger'
 import { getLiabilityRecord, upsertLiabilityRecord } from '../lib/liability-record'
@@ -14633,6 +14634,81 @@ router.post('/leads/:leadId/demand-letters/:demandId/send', authMiddleware, asyn
   } catch (error: any) {
     logger.error('Failed to mark demand letter sent', { error: error.message, demandId: req.params.demandId })
     res.status(500).json({ error: 'Failed to mark demand letter sent' })
+  }
+})
+
+/**
+ * Close a case. Sets the authoritative Assessment.status to 'closed' and drives
+ * the stage engine to CLOSED (which materializes the close-out checklist).
+ */
+router.post('/leads/:leadId/close', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead } = auth
+    await prisma.assessment.update({
+      where: { id: lead.assessmentId },
+      data: { status: 'closed', closedAt: new Date() },
+    })
+    void recordCaseChange({
+      assessmentId: lead.assessmentId,
+      source: 'attorney',
+      action: 'case_closed',
+      entityType: 'case',
+      summary: 'Case closed',
+      actor: { type: 'user', id: req.user?.id ?? null, label: requestActorName(req.user) },
+    })
+    const stage = await syncCaseStage(lead.assessmentId, { source: 'attorney', force: true })
+    res.json({ ok: true, caseStage: stage })
+  } catch (error: any) {
+    logger.error('Failed to close case', { error: error.message, leadId: req.params.leadId })
+    res.status(500).json({ error: 'Failed to close case' })
+  }
+})
+
+/** Reopen a closed case — recomputes the stage from current signals. */
+router.post('/leads/:leadId/reopen', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead } = auth
+    await prisma.assessment.update({
+      where: { id: lead.assessmentId },
+      data: { status: 'retained', closedAt: null },
+    })
+    const stage = await reopenCaseStage(lead.assessmentId, { source: 'attorney' })
+    res.json({ ok: true, caseStage: stage })
+  } catch (error: any) {
+    logger.error('Failed to reopen case', { error: error.message, leadId: req.params.leadId })
+    res.status(500).json({ error: 'Failed to reopen case' })
+  }
+})
+
+/** Set the litigation sub-track status (parallel to the settlement lifecycle). */
+router.post('/leads/:leadId/litigation', authMiddleware, async (req: any, res) => {
+  try {
+    const auth = await getAuthorizedLead(req, req.params.leadId, { allowFirmMember: true, firmMemberWrite: true })
+    if (auth.error) {
+      return res.status(auth.error.status).json({ error: auth.error.message })
+    }
+    const { lead } = auth
+    const status = String(req.body?.status || '')
+    if (!isLitigationStatus(status)) {
+      return res.status(400).json({ error: 'Invalid litigation status' })
+    }
+    const result = await setLitigationStatus(lead.assessmentId, status, {
+      source: 'attorney',
+      actorId: req.user?.id ?? null,
+      actorName: requestActorName(req.user),
+    })
+    res.json({ ...result, label: LITIGATION_LABELS[status] })
+  } catch (error: any) {
+    logger.error('Failed to set litigation status', { error: error.message, leadId: req.params.leadId })
+    res.status(500).json({ error: 'Failed to set litigation status' })
   }
 })
 

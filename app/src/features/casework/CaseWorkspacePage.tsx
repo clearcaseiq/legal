@@ -89,6 +89,7 @@ import ChatDrawer from '../../components/ChatDrawer'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import InsurancePanel from './InsurancePanel'
 import SettlementPanel from './SettlementPanel'
+import CaseLifecycleControls from './CaseLifecycleControls'
 import DamagesPanel from './DamagesPanel'
 import LiabilityPanel from './LiabilityPanel'
 import MedicalTimelinePanel from './MedicalTimelinePanel'
@@ -653,7 +654,7 @@ export default function CaseWorkspacePage() {
               </div>
             </header>
             <div className="p-5 sm:p-6">
-              <WorkstreamPanel tab={tab} section={section} lead={lead} detail={detail} cc={cc} tasks={tasks} reloadTasks={reloadTasks} onOpenChat={openChat} />
+              <WorkstreamPanel tab={tab} section={section} lead={lead} detail={detail} cc={cc} tasks={tasks} reloadTasks={reloadTasks} onOpenChat={openChat} onAssessmentPatch={(patch) => setLead((prev: any) => (prev ? { ...prev, assessment: { ...(prev.assessment || {}), ...patch } } : prev))} />
             </div>
           </section>
 
@@ -691,6 +692,7 @@ function WorkstreamPanel({
   tasks,
   reloadTasks,
   onOpenChat,
+  onAssessmentPatch,
 }: {
   tab: Tab
   section?: string
@@ -700,6 +702,7 @@ function WorkstreamPanel({
   tasks: TaskRow[]
   reloadTasks: () => Promise<void> | void
   onOpenChat: (draft?: string) => void
+  onAssessmentPatch?: (patch: { caseStage?: string | null; litigationStatus?: string | null; closedAt?: string | null }) => void
 }) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -1333,7 +1336,18 @@ function WorkstreamPanel({
   }
 
   if (tab === 'Settlement') {
-    return <SettlementPanel leadId={lead.id} />
+    return (
+      <div className="space-y-4">
+        <CaseLifecycleControls
+          leadId={lead.id}
+          caseStage={lead?.assessment?.caseStage ?? null}
+          litigationStatus={lead?.assessment?.litigationStatus ?? null}
+          closedAt={lead?.assessment?.closedAt ?? null}
+          onLocalUpdate={onAssessmentPatch}
+        />
+        <SettlementPanel leadId={lead.id} />
+      </div>
+    )
   }
 
   if (tab === 'Tasks') {

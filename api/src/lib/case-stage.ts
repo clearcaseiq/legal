@@ -184,11 +184,51 @@ export async function syncCaseStage(
         logger.warn('createDisbursementTasks failed', { assessmentId, error: e?.message })
       }
     }
+    if (resolved === 'CLOSED' && enteredFrom < STAGE_ORDER.CLOSED) {
+      try {
+        const { createCloseoutTasks } = await import('./case-closeout')
+        await createCloseoutTasks(assessmentId, { createdByName: 'ClearCaseIQ' })
+      } catch (e: any) {
+        logger.warn('createCloseoutTasks failed', { assessmentId, error: e?.message })
+      }
+    }
 
     logger.info('Case stage advanced', { assessmentId, from: current, to: resolved })
     return resolved
   } catch (error: any) {
     logger.warn('syncCaseStage failed', { assessmentId, error: error?.message })
+    return null
+  }
+}
+
+/**
+ * Reopen a closed case: recompute the stage from current signals and set it
+ * UNCONDITIONALLY (this is the one path allowed to regress, since a reopened
+ * matter should drop back from CLOSED to wherever its signals actually put it).
+ * The caller is responsible for clearing the closing status first.
+ */
+export async function reopenCaseStage(
+  assessmentId: string,
+  opts?: { source?: 'attorney' | 'rose_ai' | 'system' },
+): Promise<CaseStage | null> {
+  try {
+    const target = await computeTargetCaseStage(assessmentId)
+    await prisma.assessment.update({
+      where: { id: assessmentId },
+      data: { caseStage: target, caseStageAt: new Date() },
+    })
+    void recordCaseChange({
+      assessmentId,
+      source: opts?.source ?? 'attorney',
+      action: 'case_reopened',
+      entityType: 'case',
+      summary: `Case reopened → ${CASE_STAGE_LABELS[target]}`,
+      actor: { type: 'system', label: 'ClearCaseIQ' },
+    })
+    logger.info('Case reopened', { assessmentId, to: target })
+    return target
+  } catch (error: any) {
+    logger.warn('reopenCaseStage failed', { assessmentId, error: error?.message })
     return null
   }
 }

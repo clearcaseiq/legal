@@ -199,6 +199,16 @@ model Assessment {
   // negotiation, demand, medical) already hang off assessmentId.
   caseStage       String?
   caseStageAt     DateTime?
+  // When the matter was formally closed (funds disbursed / declined / lost).
+  closedAt        DateTime?
+
+  // --- Litigation sub-track -------------------------------------------------
+  // A parallel track for cases that file suit rather than resolving pre-suit.
+  // Runs alongside caseStage (a case can be "in negotiation" and "in discovery"
+  // at once). Null/"none" = pre-litigation. Values: none | pre_suit | filed |
+  // discovery | mediation | trial | resolved. Set via lib/litigation.ts.
+  litigationStatus String?
+  litigationFiledAt DateTime?
 
   // ChatGPT Analysis
   chatgptAnalysis       String?   @db.Text // JSON string of ChatGPT analysis

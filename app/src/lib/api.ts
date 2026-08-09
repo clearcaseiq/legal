@@ -2761,6 +2761,24 @@ export async function setLeadSettlementStatus(leadId: string, status: 'draft' | 
   return data
 }
 
+// Case lifecycle: close / reopen / litigation sub-track
+export type LitigationStatus = 'none' | 'pre_suit' | 'filed' | 'discovery' | 'mediation' | 'trial' | 'resolved'
+
+export async function closeLeadCase(leadId: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/close`)
+  return data as { ok: boolean; caseStage: string | null }
+}
+
+export async function reopenLeadCase(leadId: string) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/reopen`)
+  return data as { ok: boolean; caseStage: string | null }
+}
+
+export async function setLeadLitigationStatus(leadId: string, status: LitigationStatus) {
+  const { data } = await api.post(`/v1/attorney-dashboard/leads/${leadId}/litigation`, { status })
+  return data as { status: LitigationStatus; filedAt: string | null; tasksCreated: number; label: string }
+}
+
 export async function getLeadExpenses(leadId: string) {
   const { data } = await api.get(`/v1/attorney-dashboard/leads/${leadId}/expenses`)
   return data
