@@ -124,8 +124,13 @@ export function createServer(): Express {
   })
 
   
-  // Security middleware
-  app.use(helmet())
+  // Security middleware.
+  // Allow the web app (separate origin) to load avatar/evidence images from
+  // /uploads — Helmet's default Cross-Origin-Resource-Policy: same-origin
+  // otherwise blocks those <img> requests (CP-579).
+  app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  }))
 
   // CORS — registered BEFORE the rate limiter on purpose. Otherwise a
   // rate-limited (429) response or a preflight rejection is returned without

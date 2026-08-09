@@ -166,8 +166,11 @@ export async function saveDamageEstimates(id: string, payload: {
   return data
 }
 
-export async function getAssessment(id: string) {
-  const { data } = await api.get(`/v1/assessments/${id}`, { params: freshParams() })
+export async function getAssessment(id: string, options?: { skipAuth?: boolean }) {
+  const { data } = await api.get(`/v1/assessments/${id}`, {
+    params: freshParams(),
+    skipAuth: options?.skipAuth,
+  })
   return data
 }
 

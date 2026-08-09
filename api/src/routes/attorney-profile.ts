@@ -261,16 +261,29 @@ const avatarUpload = multer({
     fileSize: 5 * 1024 * 1024, // 5MB limit
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif|webp/
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase())
-    const mimetype = /image\/(jpeg|png|gif|webp)/.test(file.mimetype)
-
-    if (mimetype && extname) {
+    // Accept when either the extension or the MIME type looks like an image.
+    // Some browsers/OS pickers send empty or application/octet-stream mimetypes
+    // for otherwise-valid JPEGs/PNGs; requiring both rejected those uploads (CP-579).
+    const allowedExt = /\.(jpe?g|png|gif|webp)$/i.test(file.originalname || '')
+    const allowedMime = /image\/(jpeg|png|gif|webp)/i.test(file.mimetype || '')
+    if (allowedExt || allowedMime) {
       return cb(null, true)
     }
     cb(new Error('Profile photo must be a JPEG, PNG, GIF, or WebP image'))
   }
 })
+
+/** Run a multer middleware and surface filter/size errors as JSON 400s (CP-579). */
+function runAvatarUpload(req: any, res: any, next: any) {
+  avatarUpload.single('photo')(req, res, (err: any) => {
+    if (!err) return next()
+    const message =
+      err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE'
+        ? 'Profile photo must be 5MB or smaller'
+        : err.message || 'Profile photo must be a JPEG, PNG, GIF, or WebP image'
+    return res.status(400).json({ error: message })
+  })
+}
 
 // Attorney Profile Management
 
@@ -591,7 +604,7 @@ router.put('/profile', authMiddleware, async (req: any, res) => {
 })
 
 // Upload attorney profile photo (avatar)
-router.post('/photo', authMiddleware, avatarUpload.single('photo'), async (req: any, res) => {
+router.post('/photo', authMiddleware, runAvatarUpload, async (req: any, res) => {
   try {
     if (!req.user?.email) {
       return res.status(401).json({ error: 'Authentication required' })

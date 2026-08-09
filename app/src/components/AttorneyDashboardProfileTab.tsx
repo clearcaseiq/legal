@@ -117,7 +117,12 @@ export default function AttorneyDashboardProfileTab({
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
-    if (!file.type.startsWith('image/')) {
+    const looksLikeImage =
+      file.type.startsWith('image/') ||
+      !file.type ||
+      file.type === 'application/octet-stream'
+    const allowedExt = /\.(jpe?g|png|gif|webp)$/i.test(file.name || '')
+    if (!looksLikeImage && !allowedExt) {
       setPhotoError('Profile photo must be an image (JPEG, PNG, GIF, or WebP).')
       return
     }
@@ -276,27 +281,24 @@ export default function AttorneyDashboardProfileTab({
                 <User className="h-16 w-16 text-gray-400" />
               )}
             </div>
-            {editing ? (
-              <>
-                <input
-                  ref={photoInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/gif,image/webp"
-                  className="hidden"
-                  onChange={handlePhotoFileSelected}
-                />
-                <button
-                  type="button"
-                  onClick={() => photoInputRef.current?.click()}
-                  disabled={uploadingPhoto}
-                  className="mt-2 w-full inline-flex items-center justify-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  {uploadingPhoto ? 'Uploading…' : 'Change Photo'}
-                </button>
-                {photoError ? <p className="mt-1 text-xs text-red-600">{photoError}</p> : null}
-              </>
-            ) : null}
+            {/* Photo upload is independent of full-profile edit mode (CP-579). */}
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp,.jpg,.jpeg,.png,.gif,.webp"
+              className="hidden"
+              onChange={handlePhotoFileSelected}
+            />
+            <button
+              type="button"
+              onClick={() => photoInputRef.current?.click()}
+              disabled={uploadingPhoto}
+              className="mt-2 w-full inline-flex items-center justify-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              {uploadingPhoto ? 'Uploading…' : 'Change Photo'}
+            </button>
+            {photoError ? <p className="mt-1 text-xs text-red-600">{photoError}</p> : null}
           </div>
 
           <div className="flex-1">

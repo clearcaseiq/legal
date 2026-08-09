@@ -21,6 +21,8 @@ type RequestConfig = {
   url?: string
   method?: string
   signal?: AbortSignal
+  /** When true, do not attach the stored Bearer token (guest/anonymous retry). */
+  skipAuth?: boolean
 }
 
 type ResponseData<T = any> = {
@@ -148,7 +150,7 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
     hasToken: !!token,
   })
 
-  if (token) {
+  if (token && !config.skipAuth) {
     try {
       const parts = token.split('.')
       if (parts.length === 3) {
@@ -161,7 +163,7 @@ async function request<T = any>(method: string, url: string, data?: unknown, con
       apiDebug.error('Error processing token:', error)
     }
   } else {
-    apiDebug.log('No token found, proceeding without auth')
+    apiDebug.log(config.skipAuth ? 'skipAuth set, proceeding without auth' : 'No token found, proceeding without auth')
   }
 
   const requestConfig: RequestConfig = {

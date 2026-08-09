@@ -1331,24 +1331,39 @@ export default function Results() {
 
   useEffect(() => {
     if (!resolvedAssessmentId) return
+    let cancelled = false
 
     const loadData = async () => {
       try {
         setLoading(true)
-        
+        setError(null)
+
         try {
           const session = await loadPlaintiffSessionSummary()
-          setIsLoggedIn(!!session?.user)
+          if (!cancelled) setIsLoggedIn(!!session?.user)
         } catch {
-          setIsLoggedIn(false)
+          if (!cancelled) setIsLoggedIn(false)
         }
-        
-        // Load assessment
-        const assessmentData = await getAssessment(resolvedAssessmentId)
+
+        // Guest reports stay readable by id (including after evidence upload
+        // attaches a guest-shadow owner). A stale/wrong session can still 401/403
+        // the first attempt — retry once without credentials before failing (CP-540).
+        let assessmentData: any
+        try {
+          assessmentData = await getAssessment(resolvedAssessmentId)
+        } catch (firstErr: any) {
+          const status = firstErr?.response?.status
+          if ((status === 401 || status === 403) && hasValidAuthToken()) {
+            assessmentData = await getAssessment(resolvedAssessmentId, { skipAuth: true })
+          } else {
+            throw firstErr
+          }
+        }
+        if (cancelled) return
         setAssessment(assessmentData)
         if (assessmentData.reference_code) setCaseReferenceCode(assessmentData.reference_code)
         setCaseSubmittedForReview(!!assessmentData.submittedForReview)
-        
+
         // Get prediction if not already available. A valuation failure must
         // never blank the whole results page — fall back to whatever the
         // assessment already carries so the UI can still show a preliminary
@@ -1358,13 +1373,13 @@ export default function Results() {
         } else {
           try {
             const predictionData = await predict(resolvedAssessmentId)
-            setPrediction(predictionData)
+            if (!cancelled) setPrediction(predictionData)
           } catch (predictErr) {
             console.error('Prediction unavailable; rendering preliminary view', predictErr)
-            setPrediction(null)
+            if (!cancelled) setPrediction(null)
           }
         }
-        
+
         // Calculate SOL
         const facts = typeof assessmentData.facts === 'string'
           ? JSON.parse(assessmentData.facts)
@@ -1378,14 +1393,15 @@ export default function Results() {
               facts.venue || { state: assessmentData.venue?.state, county: assessmentData.venue?.county },
               facts.claimType || assessmentData.claimType
             )
-            setSol(solData)
+            if (!cancelled) setSol(solData)
           } catch (solErr) {
             console.warn('SOL unavailable for this venue; continuing without it', solErr)
-            setSol(null)
+            if (!cancelled) setSol(null)
           }
         }
-        
+
       } catch (err: any) {
+        if (cancelled) return
         console.error('Failed to load results:', err)
         console.error('Error details:', {
           message: err.message,
@@ -1404,11 +1420,12 @@ export default function Results() {
         const errorMessage = err.response?.data?.error || err.message || 'Failed to load assessment results'
         setError(errorMessage)
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     loadData()
+    return () => { cancelled = true }
   }, [resolvedAssessmentId, isLoggedIn])
 
   useEffect(() => {

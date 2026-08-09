@@ -6817,10 +6817,9 @@ export default function IntakeWizardQuick() {
           intake scroll area as the claimant scrolls a long step. top-0 is
           relative to <main> (the scroll container on intake routes), which sits
           just below the site nav, so there is no overlap with the nav.
-          On mobile the pinned background is inset (mx-4) and rounded so it keeps
-          the same left/right padding as the step card and footer below it,
-          rather than bleeding edge-to-edge. */}
-      <div className="sticky top-0 z-30 mx-4 mb-1 shrink-0 rounded-2xl bg-white px-4 pt-2 pb-1.5 sm:mx-0 sm:rounded-none sm:px-0 dark:bg-slate-950" aria-busy={loading}>
+          Full-bleed + border/shadow so scrolled step content does not show
+          through the sides of an inset rounded bar (CP-568). */}
+      <div className="sticky top-0 z-30 mb-1 shrink-0 border-b border-slate-200/90 bg-white/95 px-4 pt-2 pb-1.5 shadow-[0_4px_12px_rgba(15,23,42,0.06)] backdrop-blur-md sm:px-0 dark:border-slate-800 dark:bg-slate-950/95" aria-busy={loading}>
         <p className={`mb-0.5 text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-700 dark:text-brand-300 md:text-sm ${isFirstStep ? 'hidden sm:block' : ''}`}>
           {t('intake.timePromise')}
         </p>

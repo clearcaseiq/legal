@@ -2,7 +2,7 @@
  * Coverage / Insurance panel for the attorney case workspace.
  *
  * Surfaces the case's InsuranceDetail records with full view / add / edit /
- * delete, a "request Dec Page" action, and an intake-derived suggestion to
+ * delete, a "request declarations page" action, and an intake-derived suggestion to
  * pre-fill a new policy. Backed by /v1/attorney-dashboard/leads/:leadId/insurance*.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -269,7 +269,7 @@ export default function InsurancePanel({ leadId }: { leadId: string; claimType?:
       setBanner({ tone: 'ok', text: `Requested the declarations page from ${r.carrierName}.` })
       await load()
     } catch (err: any) {
-      setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not request the Dec page.' })
+      setBanner({ tone: 'err', text: err?.response?.data?.error || 'Could not request the declarations page.' })
     } finally {
       setBusyId(null)
     }
@@ -473,17 +473,24 @@ export default function InsurancePanel({ leadId }: { leadId: string; claimType?:
             </div>
           ) : null}
 
-          <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
-            <span className="text-xs text-slate-400">
-              {r.decPageRequestId ? 'Dec page requested' : 'Dec page not requested'}
+          <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
+            <span
+              className="text-xs text-slate-400"
+              title="The declarations (dec) page is the insurer summary of coverage limits, named insureds, and endorsements for this policy."
+            >
+              {r.decPageRequestId
+                ? 'Declarations page requested'
+                : 'Declarations page not requested'}
             </span>
             <button
               type="button"
               onClick={() => requestDec(r)}
               disabled={busyId === r.id || editingId !== null || Boolean(r.decPageRequestId)}
+              title="Ask the carrier for the policy declarations page (coverage limits and endorsements)."
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
             >
-              <FileText className="h-3.5 w-3.5" /> {r.decPageRequestId ? 'Requested' : 'Request Dec page'}
+              <FileText className="h-3.5 w-3.5" />{' '}
+              {r.decPageRequestId ? 'Requested' : 'Request declarations page'}
             </button>
           </div>
         </div>

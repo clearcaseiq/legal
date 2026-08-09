@@ -317,7 +317,12 @@ export default function AttorneyProfile() {
     event.target.value = ''
     if (!file || !profile) return
 
-    if (!file.type.startsWith('image/')) {
+    const looksLikeImage =
+      file.type.startsWith('image/') ||
+      !file.type ||
+      file.type === 'application/octet-stream'
+    const allowedExt = /\.(jpe?g|png|gif|webp)$/i.test(file.name || '')
+    if (!looksLikeImage && !allowedExt) {
       setError('Profile photo must be an image (JPEG, PNG, GIF, or WebP).')
       return
     }
@@ -468,20 +473,19 @@ export default function AttorneyProfile() {
             <input
               ref={photoInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
+              accept="image/jpeg,image/png,image/gif,image/webp,.jpg,.jpeg,.png,.gif,.webp"
               className="hidden"
               onChange={handlePhotoFileSelected}
             />
-            {editing && (
-              <button
-                className="mt-2 w-full btn-secondary text-sm disabled:opacity-50 inline-flex items-center justify-center"
-                onClick={() => photoInputRef.current?.click()}
-                disabled={uploadingPhoto}
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                {uploadingPhoto ? 'Uploading...' : 'Change Photo'}
-              </button>
-            )}
+            {/* Photo upload is independent of full-profile edit mode (CP-579). */}
+            <button
+              className="mt-2 w-full btn-secondary text-sm disabled:opacity-50 inline-flex items-center justify-center"
+              onClick={() => photoInputRef.current?.click()}
+              disabled={uploadingPhoto}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              {uploadingPhoto ? 'Uploading...' : 'Change Photo'}
+            </button>
           </div>
           <div className="flex-1">
             <div className="flex items-center space-x-2 mb-2">
