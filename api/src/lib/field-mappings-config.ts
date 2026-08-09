@@ -53,13 +53,16 @@ export const DEFAULT_FIELD_MAPPINGS: FieldMappingsConfig = {
       sourceLabel: 'Search case type',
       targetLabel: 'Matching specialty slug(s)',
       entries: [
-        { canonical: 'auto', label: 'Auto Accident', aliases: ['vehicle'] },
-        { canonical: 'slip_and_fall', label: 'Slip-and-Fall', aliases: ['slip_fall', 'premises'] },
-        { canonical: 'workplace_injury', label: 'Workplace Injury', aliases: ['workers', 'workers_comp'] },
+        // Attorney profiles store incident-type slugs (vehicle, workplace, slip_fall, …)
+        // from ATTORNEY_CASE_TYPES. Those must be aliases here or specialty filters fall
+        // through to venue-only and show e.g. vehicle-only attorneys under Work Injury (CP-590).
+        { canonical: 'auto', label: 'Auto Accident', aliases: ['vehicle', 'motor_vehicle', 'auto_accident'] },
+        { canonical: 'slip_and_fall', label: 'Slip-and-Fall', aliases: ['slip_fall', 'premises', 'premises_liability'] },
+        { canonical: 'workplace_injury', label: 'Workplace Injury', aliases: ['workplace', 'workers', 'workers_comp'] },
         { canonical: 'dog_bite', label: 'Dog Bite', aliases: ['animal_attack'] },
-        { canonical: 'medmal', label: 'Medical Malpractice', aliases: ['medical_malpractice'] },
-        { canonical: 'product', label: 'Product Liability', aliases: ['defective_product'] },
-        { canonical: 'assault', label: 'Assault / Negligent Security', aliases: ['negligent_security'] },
+        { canonical: 'medmal', label: 'Medical Malpractice', aliases: ['medical_malpractice', 'med_mal'] },
+        { canonical: 'product', label: 'Product Liability', aliases: ['defective_product', 'product_liability'] },
+        { canonical: 'assault', label: 'Assault / Negligent Security', aliases: ['negligent_security', 'intentional_tort'] },
         { canonical: 'toxic', label: 'Toxic Exposure', aliases: ['toxic_exposure', 'environmental'] },
         { canonical: 'nursing_home_abuse', label: 'Nursing Home Abuse', aliases: ['elder_abuse'] },
         { canonical: 'wrongful_death', label: 'Wrongful Death', aliases: [] },

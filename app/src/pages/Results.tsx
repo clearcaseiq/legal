@@ -28,6 +28,7 @@ import {
   type PlaintiffMedicalReviewStatus,
 } from '../lib/api-plaintiff'
 import ChatGPTAnalysis from '../components/ChatGPTAnalysis'
+import BrandLogo from '../components/BrandLogo'
 import { formatPercentage, formatCurrency } from '../lib/formatters'
 import { formatAttorneyLicensure } from '../lib/attorneyLicensure'
 import { ResultsPanelSkeleton } from '../components/PageSkeletons'
@@ -3740,11 +3741,7 @@ Checklist:
         <header className="border-b border-slate-200 bg-gradient-to-b from-slate-50 via-white to-white px-5 py-5 sm:px-8 sm:py-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <img
-                src="/clearcaseiq-logo-transparent.png?v=1"
-                alt="ClearCaseIQ"
-                className="h-7 w-auto object-contain"
-              />
+              <BrandLogo appName={t('common.appName')} size="md" />
               <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
                 {t('results.chrome.preliminaryConfidential')}
               </span>

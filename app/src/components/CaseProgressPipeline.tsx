@@ -55,12 +55,19 @@ export default function CaseProgressPipeline({
 
   // Once an attorney has responded, "Matched" is an achieved milestone — it must
   // read as complete (green), not the current/pending (amber) step. The live step
-  // becomes "Next step: schedule a consultation". Previously matching parked the
-  // cursor on "Matched", leaving it amber forever after acceptance (CP-594).
+  // becomes "Next step: schedule a consultation". After a consult is booked, move
+  // past the last step so every node reads complete (CP-594).
   let currentIdx = 0
-  if (hasScheduledConsult || attorneyMatched) currentIdx = 4
+  if (hasScheduledConsult) currentIdx = STEPS.length
+  else if (attorneyMatched) currentIdx = 4
   else if (submittedForReview) currentIdx = 2
   else currentIdx = 0
+
+  const steps = STEPS.map((step) =>
+    step.id === 'consult' && hasScheduledConsult
+      ? { ...step, label: 'Consultation', description: 'Consultation scheduled' }
+      : step
+  )
 
   return (
     <section
@@ -77,7 +84,7 @@ export default function CaseProgressPipeline({
         </div>
       )}
       <ol className="grid grid-cols-1 sm:grid-cols-5 gap-3">
-        {STEPS.map((step, i) => {
+        {steps.map((step, i) => {
           const complete = i < currentIdx
           const current = i === currentIdx
           const Icon = step.icon

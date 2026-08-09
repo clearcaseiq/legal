@@ -5,6 +5,7 @@ import { logger } from '../lib/logger'
 import { getHeuristics, computeAttorneyFitScore, getResponseBadge } from '../lib/heuristics-config'
 import { getFieldMappings, resolveMatchValues } from '../lib/field-mappings-config'
 import { getMatchingRules, getConfiguredWaveSize } from '../lib/matching-rules-config'
+import { coversClaimType } from '../lib/case-type-match'
 
 const router: Router = Router()
 
@@ -49,14 +50,17 @@ router.get('/search', async (req: Request, res: Response) => {
     const fieldMappings = claim_type ? await getFieldMappings() : null
     const claimTypeMatchSlugs =
       claim_type && fieldMappings ? resolveMatchValues(fieldMappings, 'claimType', claim_type) : []
-    const specialtiesMatchClaim = (list: string[]) =>
-      Array.isArray(list) && claimTypeMatchSlugs.some((slug) => list.includes(slug))
-    // Generic/"other" personal-injury buckets (e.g. `other`, `other_pi`,
-    // `general`) don't map to any attorney specialty slug, so a strict specialty
-    // filter would strand every attorney and the plaintiff sees "We could not
-    // load attorney matches" for a perfectly valid PI case. When the claim type
-    // resolves to no specialty slugs, treat it as unfiltered on claim (venue
-    // still applies) rather than filtering everyone out.
+    // Prefer configured slug aliases, then the shared incident↔claim matcher so
+    // attorney profiles that store `workplace` / `vehicle` still match plaintiff
+    // claim types like `workplace_injury` / `auto` (CP-590).
+    const specialtiesMatchClaim = (list: string[]) => {
+      if (!Array.isArray(list) || !claim_type) return false
+      if (claimTypeMatchSlugs.some((slug) => list.includes(slug))) return true
+      return coversClaimType(list, claim_type)
+    }
+    // Generic/"other" personal-injury buckets that resolve to no specialty slugs
+    // stay unfiltered on claim (venue still applies) rather than emptying the list.
+    // Concrete types like workplace_injury resolve via aliases / coversClaimType.
     const claimIsResolvable = claimTypeMatchSlugs.length > 0
     
     // Score a broad candidate pool first, then apply the requested limit.
@@ -195,11 +199,12 @@ router.get('/search', async (req: Request, res: Response) => {
       return venueMatches(a) && claimOk
     })
 
-    // Last-resort fallback: a real, resolvable claim type that still matched no
-    // verified attorney in-venue should degrade to venue-only rather than
-    // returning an empty slate the plaintiff cannot act on. The plaintiff can
-    // still send the case and pick from venue-appropriate PI attorneys.
-    if (filteredResults.length === 0 && claim_type) {
+    // Last-resort fallback: a real claim type that still matched no verified
+    // attorney in-venue should degrade to venue-only rather than returning an
+    // empty slate. Only use this when specialty filtering is not resolvable
+    // (generic "other" PI). For concrete types like workplace_injury, returning
+    // vehicle-only attorneys under Work Injury is worse than empty (CP-590).
+    if (filteredResults.length === 0 && claim_type && claimTypeMatchSlugs.length === 0) {
       filteredResults = attorneyResults.filter((a) => venueMatches(a))
     }
 

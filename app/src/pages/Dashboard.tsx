@@ -687,8 +687,12 @@ export default function Dashboard() {
   // attorney accepts, so on its own it kept the "N attorneys reviewing your case"
   // banner up — and suppressed the matched banner — even after acceptance
   // (CP-595). Only treat the case as actively in review while no attorney has
-  // engaged (accepted or a consult scheduled).
-  const showReviewBanner = submittedForReview && !attorneyMatched && !hasUpcomingConsult
+  // engaged (accepted, lifecycle advanced, or a consult scheduled).
+  const attorneyEngaged =
+    attorneyMatched ||
+    hasUpcomingConsult ||
+    ['attorney_matched', 'engaged', 'consultation_scheduled', 'retained', 'contacted'].includes(routingLifecycle)
+  const showReviewBanner = submittedForReview && !attorneyEngaged
   const plaintiffRoutingStatusMessage = plaintiffStatusMessage(routingStatus?.statusMessage)
   const waitingBanner = attorneyMatched
     ? {
@@ -873,8 +877,18 @@ export default function Dashboard() {
   const reviewStatusSteps = [
     { label: 'Assessment Complete', sub: 'You provided details about your case.', done: true, current: false },
     { label: 'Submitted', sub: 'Your case has been sent for review.', done: submittedForReview, current: !submittedForReview },
-    { label: 'Attorney Review', sub: 'Attorneys are evaluating your case.', done: false, current: submittedForReview },
-    { label: 'Consultation', sub: 'Interested attorneys may contact you.', done: false, current: false },
+    {
+      label: 'Attorney Review',
+      sub: attorneyEngaged ? 'An attorney is working with you on this case.' : 'Attorneys are evaluating your case.',
+      done: attorneyEngaged,
+      current: submittedForReview && !attorneyEngaged,
+    },
+    {
+      label: 'Consultation',
+      sub: hasUpcomingConsult ? 'Your consultation is scheduled.' : 'Interested attorneys may contact you.',
+      done: hasUpcomingConsult,
+      current: attorneyEngaged && !hasUpcomingConsult,
+    },
     { label: 'Representation', sub: 'You decide if you want to hire.', done: false, current: false },
   ]
   const caseValueIncreaseItems = [
@@ -883,6 +897,9 @@ export default function Dashboard() {
     { label: 'Medical Bills', sub: 'Economic damages', impact: 'Medium', metric: 'Confidence', potential: `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`, done: hasHospitalBill },
     { label: 'Proof of Lost Wages', sub: 'Income & loss documentation', impact: 'Low', metric: 'Value', potential: `${formatCurrency(settlementLow)} - ${formatCurrency(settlementHigh)}`, done: hasWageLossEvidence },
   ]
+  // Hide the bulk "Add documents" CTA once core checklist items are covered (CP-603).
+  const needsMoreDocs =
+    strengthOpportunities.length > 0 || caseValueIncreaseItems.some((item) => !item.done)
 
   const caseCoachTips = [
     { tip: t('plaintiffDashboard.dynamic.coach.gapTip'), action: t('plaintiffDashboard.dynamic.coach.gapAction') },
@@ -2148,7 +2165,9 @@ export default function Dashboard() {
                             <p className="text-xs text-gray-500">{t('plaintiffDashboard.strengthen.subtitle')}</p>
                           </div>
                         </div>
-                        <Link to={`/evidence-upload/${activeAssessment.id}`} className="hidden shrink-0 items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 sm:inline-flex"><Upload className="h-4 w-4" aria-hidden />{t('plaintiffDashboard.strengthen.addDocuments')}</Link>
+                        {needsMoreDocs && (
+                          <Link to={`/evidence-upload/${activeAssessment.id}`} className="hidden shrink-0 items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 sm:inline-flex"><Upload className="h-4 w-4" aria-hidden />{t('plaintiffDashboard.strengthen.addDocuments')}</Link>
+                        )}
                       </div>
                       <div className="mt-4 grid gap-2 sm:grid-cols-2">
                         {caseValueIncreaseItems.map((item) => (
@@ -2167,7 +2186,9 @@ export default function Dashboard() {
                           </div>
                         ))}
                       </div>
-                      <Link to={`/evidence-upload/${activeAssessment.id}`} className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 sm:hidden"><Upload className="h-4 w-4" aria-hidden />{t('plaintiffDashboard.strengthen.addDocuments')}</Link>
+                      {needsMoreDocs && (
+                        <Link to={`/evidence-upload/${activeAssessment.id}`} className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 sm:hidden"><Upload className="h-4 w-4" aria-hidden />{t('plaintiffDashboard.strengthen.addDocuments')}</Link>
+                      )}
                     </div>
 
                     {/* What helps & hurts + Case Coach */}
@@ -2242,10 +2263,12 @@ export default function Dashboard() {
                         </div>
                       ))}
                     </div>
-                    <Link to={`/evidence-upload/${activeAssessment.id}`} className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-sm font-semibold text-white bg-brand-600 rounded-lg hover:bg-brand-700 w-fit">
-                      <Upload className="h-4 w-4" />
-                      {t('plaintiffDashboard.strengthenCard.uploadDocument')}
-                    </Link>
+                    {needsMoreDocs && (
+                      <Link to={`/evidence-upload/${activeAssessment.id}`} className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-sm font-semibold text-white bg-brand-600 rounded-lg hover:bg-brand-700 w-fit">
+                        <Upload className="h-4 w-4" />
+                        {t('plaintiffDashboard.strengthenCard.uploadDocument')}
+                      </Link>
+                    )}
                     <Link to={`/demand/${activeAssessment.id}`} className="inline-flex items-center gap-2 mt-2 px-4 py-2 text-sm font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 w-fit">
                       <FileText className="h-4 w-4" />
                       {t('plaintiffDashboard.strengthenCard.buildDemand')}

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, CheckCircle, ChevronRight, Clock, Copy, Download, LayoutDashboard, ShieldCheck, Square, Star, TrendingUp, Upload } from 'lucide-react'
+import BrandLogo from './BrandLogo'
 import { useLanguage } from '../contexts/LanguageContext'
 import { formatClaimType } from '../lib/claimTypes'
 import { formatAttorneyLicensure } from '../lib/attorneyLicensure'
@@ -485,11 +486,7 @@ export function ResultsReportDetails({
       <summary className="cursor-pointer list-none border-b border-slate-200 bg-slate-50/50 px-6 sm:px-10 py-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <img
-              src="/clearcaseiq-logo-transparent.png?v=1"
-              alt="ClearCaseIQ"
-              className="h-7 w-auto object-contain"
-            />
+            <BrandLogo appName={t('common.appName')} size="md" />
             <p className="mt-1 text-sm font-semibold text-slate-900">{t('results.report.fullReportTitle')}</p>
             <p className="mt-0.5 text-xs text-slate-500">{t('results.report.fullReportDesc')}</p>
           </div>

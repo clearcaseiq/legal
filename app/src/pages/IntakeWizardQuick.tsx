@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, extractEvidenceData, analyzeCaseWithChatGPT, calculateSOL, createIntakeLead, updateIntakeLead, getIntakeLead, getEvidenceFiles, type IntakeLeadPayload } from '../lib/api-plaintiff'
 import { deleteEvidenceFile, extractIncidentDetails, type IncidentExtraction } from '../lib/api'
-import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, X, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, CalendarCheck, History, type LucideIcon } from 'lucide-react'
+import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, X, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, CalendarCheck, History, Hand, CircleDot, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
 import { useLanguage } from '../contexts/LanguageContext'
 import { buildCaseTaxonomy, injuryTypeToClaimType, sanitizeDetectedCounty, usesPoliceReportLabel } from '../lib/intakeQuickHelpers'
@@ -4161,15 +4161,17 @@ export default function IntakeWizardQuick() {
         const hasBackInjury = formData.injuryDetails.bodyParts.includes('lower_back')
         const hasInjectionTreatment = formData.medicalTreatment.includes('injections') || formData.injuryDetails.imaging.includes('injections') || formData.injuryDetails.procedures.some(item => item !== 'none')
         const hasSurgeryTreatment = formData.medicalTreatment.includes('surgery') || formData.injuryDetails.imaging.includes('surgery') || formData.injuryDetails.futureTreatment.includes('surgery') || !!formData.injuryDetails.surgeryStatus
-        const bodyPartDisplay: Record<string, { emoji?: string; label: string }> = {
-          head_concussion: { emoji: '🧠', label: tx('bodyShort_head') },
-          neck: { emoji: '🦴', label: tx('bodyShort_neck') },
-          lower_back: { emoji: '🦴', label: tx('bodyShort_back') },
-          shoulder: { emoji: '💪', label: tx('bodyShort_shoulder') },
-          knee: { emoji: '🦵', label: tx('bodyShort_knee') },
-          hand_wrist: { emoji: '✋', label: tx('bodyShort_hand') },
-          hip: { emoji: '🦴', label: tx('bodyShort_hip') },
-          other: { emoji: '🩹', label: tx('optionOther') },
+        // Distinct Lucide icons (not repeated bone emoji) so Mac Chrome and
+        // mobile show a clear body-part affordance on every breakpoint (CP-542).
+        const bodyPartDisplay: Record<string, { Icon: LucideIcon; label: string }> = {
+          head_concussion: { Icon: Brain, label: tx('bodyShort_head') },
+          neck: { Icon: PersonStanding, label: tx('bodyShort_neck') },
+          lower_back: { Icon: Bone, label: tx('bodyShort_back') },
+          shoulder: { Icon: Dumbbell, label: tx('bodyShort_shoulder') },
+          knee: { Icon: Footprints, label: tx('bodyShort_knee') },
+          hand_wrist: { Icon: Hand, label: tx('bodyShort_hand') },
+          hip: { Icon: CircleDot, label: tx('bodyShort_hip') },
+          other: { Icon: Pencil, label: tx('optionOther') },
         }
         // `overflow-hidden` only clipped a too-long label at the border, which still
         // reads as text escaping the tile. Let the label wrap instead, and break
@@ -4388,7 +4390,14 @@ export default function IntakeWizardQuick() {
                   const disp = bodyPartDisplay[value]
                   return (
                     <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('bodyParts', value)} className={tileClass(selected)}>
-                      <span className="hidden h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs dark:bg-slate-800 sm:flex" aria-hidden>{disp?.emoji || '•'}</span>
+                      {(() => {
+                        const BodyIcon = disp?.Icon
+                        return (
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800 dark:text-brand-400" aria-hidden>
+                            {BodyIcon ? <BodyIcon className="h-3.5 w-3.5" /> : <span className="text-xs">•</span>}
+                          </span>
+                        )
+                      })()}
                       <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{disp?.label || label}</span>
                       {renderCheck(selected)}
                     </button>
@@ -5551,6 +5560,7 @@ export default function IntakeWizardQuick() {
             medical_records: { category: 'medical_records', subcategory: 'records', title: tx('evidence_medicalRecords'), helper: tx('evidence_medicalRecordsHelper'), button: t('intake.uploadRecords'), icon: Hospital },
             bills: { category: 'bills', subcategory: 'medical_bill', title: tx('evidence_medicalBills'), helper: tx('evidence_medicalBillsHelper'), button: t('intake.uploadBills'), icon: FileText },
             insurance_letters: { category: 'insurance_letters', subcategory: 'carrier_letters', title: tx('evidence_insuranceLetters'), helper: tx('evidence_insuranceLettersHelper'), button: tx('evidence_uploadInsuranceLetters'), icon: Mail },
+            dec_page: { category: 'dec_page', subcategory: 'declarations', title: tx('evidence_decPage'), helper: tx('evidence_decPageHelper'), button: tx('evidence_uploadDecPage'), icon: Umbrella },
             wage_verification: { category: 'wage_verification', subcategory: 'income_loss', title: tx('evidence_wageVerification'), helper: tx('evidence_wageVerificationHelper'), button: tx('evidence_uploadWageVerification'), icon: DollarSign },
           }
           // Goal-centric grouping, highest-value documents first within each group.
@@ -5558,7 +5568,9 @@ export default function IntakeWizardQuick() {
           const evGroups = [
             { id: 'accident', title: tx('evidence_groupAccident'), helper: tx('evidence_sectionEvidenceHelper'), items: [itemDefs.photos, itemDefs.video, itemDefs.police_report, itemDefs.witness_statements] },
             { id: 'medical', title: tx('evidence_groupMedical'), helper: tx('evidence_sectionMedicalHelper'), items: [itemDefs.bills, itemDefs.medical_records] },
-            { id: 'financial', title: tx('evidence_groupFinancial'), helper: tx('evidence_groupFinancialHelper'), items: [itemDefs.wage_verification] },
+            // Include Dec page + insurance letters so attorney DEC requests can be
+            // fulfilled from this upload step (CP-583).
+            { id: 'financial', title: tx('evidence_groupFinancial'), helper: tx('evidence_groupFinancialHelper'), items: [itemDefs.dec_page, itemDefs.insurance_letters, itemDefs.wage_verification] },
           ]
           // Only files the vision precheck accepted (or the user confirmed) count as
           // uploaded — a flagged mismatch stays "not uploaded" until confirmed/deleted.
@@ -6676,6 +6688,7 @@ export default function IntakeWizardQuick() {
     { category: 'police_report', label: usesPoliceReportLabel(formData.injuryType) ? tx('evidence_policeReport') : tx('evidence_incidentReport'), weight: 25 },
     { category: 'bills', label: tx('evidence_medicalBills'), weight: 25 },
     { category: 'medical_records', label: tx('evidence_medicalRecords'), weight: 30 },
+    { category: 'dec_page', label: tx('evidence_decPage'), weight: 0 },
     { category: 'insurance_letters', label: tx('evidence_insuranceLetters'), weight: 0 },
     { category: 'wage_verification', label: tx('evidence_wageVerification'), weight: 15 },
   ]

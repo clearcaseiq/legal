@@ -14,7 +14,9 @@ export const DOCUMENT_REQUEST_CATEGORY_MAP: Record<string, string[]> = {
   medical_records: ['medical_records', 'bills', 'medical', 'medical_bills'],
   injury_photos: ['photos', 'injury_photos', 'injury', 'injuries'],
   wage_loss: ['wage_loss', 'lost_wages', 'wages'],
-  insurance: ['insurance', 'insurance_card', 'insurance_info'],
+  insurance: ['insurance', 'insurance_card', 'insurance_info', 'insurance_letters', 'dec_page'],
+  // Declarations page requests (attorney insurance / DEC flow) — CP-583.
+  dec_page: ['dec_page', 'insurance', 'insurance_policy', 'insurance_letters', 'declarations'],
   other: [],
   // AI "suggested document request" keys (from case-insights missingDocs). Mapped
   // here so a client upload advances them and, crucially, so the plaintiff view can
@@ -37,6 +39,7 @@ export const DOCUMENT_REQUEST_LABELS: Record<string, string> = {
   injury_photos: 'Injury photos',
   wage_loss: 'Wage loss documentation',
   insurance: 'Insurance information',
+  dec_page: 'Insurance declarations (Dec) page',
   other: 'Other documents',
   // Suggested-request keys — labels mirror case-insights missingDocs exactly.
   bills: 'Medical bills',
@@ -69,6 +72,10 @@ const REQUEST_KEY_ALIASES: Record<string, string> = {
   'property damage photos': 'photos',
   'insurance information': 'insurance',
   'insurance info': 'insurance',
+  'insurance declarations (dec) page': 'dec_page',
+  'insurance declarations page': 'dec_page',
+  'declarations page': 'dec_page',
+  'dec page': 'dec_page',
   'wage-loss documentation': 'wage_loss',
   'wage loss documentation': 'wage_loss',
   'lost wages': 'wage_loss',
