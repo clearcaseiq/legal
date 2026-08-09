@@ -353,7 +353,9 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
 
   return (
     <ModalPortal>
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4">
+    {/* Center short dialogs; tall plaintiff-questions content still scrolls.
+        items-start previously left a large blank band under short tasks (CP-452). */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4">
       <ConfirmDialog
         open={confirmingDelete}
         title="Delete task?"
@@ -684,10 +686,10 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
               </div>
 
               {tab === 'comments' ? (
-                <div className="flex min-h-[18rem] flex-col">
-                  <div className="flex-1 space-y-3 overflow-y-auto p-3">
+                <div className="flex min-h-0 flex-col">
+                  <div className="max-h-72 flex-1 space-y-3 overflow-y-auto p-3">
                     {comments.length === 0 ? (
-                      <p className="py-8 text-center text-sm text-slate-400">No comments yet.</p>
+                      <p className="py-4 text-center text-sm text-slate-400">No comments yet.</p>
                     ) : (
                       comments.map((c) => (
                         <div key={c.id} className="rounded-lg bg-slate-50 p-2.5">
@@ -750,9 +752,9 @@ export default function TaskDetailModal({ leadId, taskId, caseLabel, onClose, on
                   </div>
                 </div>
               ) : (
-                <div className="min-h-[18rem] space-y-3 overflow-y-auto p-3">
+                <div className="max-h-72 space-y-3 overflow-y-auto p-3">
                   {history.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-slate-400">No activity yet.</p>
+                    <p className="py-4 text-center text-sm text-slate-400">No activity yet.</p>
                   ) : (
                     history.map((h) => (
                       <div key={h.id} className="flex gap-2 text-sm">

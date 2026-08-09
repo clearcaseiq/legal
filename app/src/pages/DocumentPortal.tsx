@@ -198,41 +198,54 @@ export default function DocumentPortal() {
           <p className="mt-2 text-xs text-slate-400">
             PDF, images, video, or Office documents up to 50MB each.
           </p>
-          {stagedFiles.length > 0 && (
-            <div className="mt-3 space-y-1">
-              <p className="text-xs font-semibold text-slate-700">
-                {stagedFiles.length} file{stagedFiles.length > 1 ? 's' : ''} selected
+          {/* Always show Send so the next step is obvious before files are
+              attached (CP-499). Disabled until at least one file is staged. */}
+          <div className="mt-3 space-y-1">
+            {stagedFiles.length > 0 ? (
+              <>
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  {stagedFiles.length} file{stagedFiles.length > 1 ? 's' : ''} selected
+                </p>
+                <ul className="space-y-0.5">
+                  {stagedFiles.map((f, i) => (
+                    <li key={i} className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-300">
+                      <span className="min-w-0 truncate">• {f.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setStagedFiles((prev) => prev.filter((_, j) => j !== i))}
+                        className="ml-2 shrink-0 text-xs font-medium text-rose-500 hover:text-rose-700"
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Choose one or more files above, then send them to the attorney.
               </p>
-              <ul className="space-y-0.5">
-                {stagedFiles.map((f, i) => (
-                  <li key={i} className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-300">
-                    <span className="min-w-0 truncate">• {f.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => setStagedFiles((prev) => prev.filter((_, j) => j !== i))}
-                      className="ml-2 shrink-0 text-xs font-medium text-rose-500 hover:text-rose-700"
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <button
-                type="button"
-                onClick={() => {
-                  const fileList = stagedFiles
-                  setStagedFiles([])
-                  const dt = new DataTransfer()
-                  fileList.forEach((f) => dt.items.add(f))
-                  handleFiles(dt.files)
-                }}
-                disabled={uploading}
-                className="mt-2 w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {uploading ? 'Sending…' : `Send ${stagedFiles.length} file${stagedFiles.length > 1 ? 's' : ''}`}
-              </button>
-            </div>
-          )}
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                const fileList = stagedFiles
+                if (fileList.length === 0) return
+                setStagedFiles([])
+                const dt = new DataTransfer()
+                fileList.forEach((f) => dt.items.add(f))
+                handleFiles(dt.files)
+              }}
+              disabled={uploading || stagedFiles.length === 0}
+              className="mt-2 w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {uploading
+                ? 'Sending…'
+                : stagedFiles.length === 0
+                  ? 'Send files'
+                  : `Send ${stagedFiles.length} file${stagedFiles.length > 1 ? 's' : ''}`}
+            </button>
+          </div>
           {uploading && <p className="mt-2 text-sm text-indigo-600">Uploading…</p>}
           {toast && <p className="mt-2 text-sm text-emerald-600">{toast}</p>}
         </div>
