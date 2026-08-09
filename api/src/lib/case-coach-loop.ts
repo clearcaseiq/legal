@@ -20,7 +20,7 @@ import type { GapAction } from './case-intelligence'
 import { deliverDirectNotification } from './platform-notifications'
 import { isReviewGateEnabled, notifyDemandDraftReviewers, notifyTaskReviewers } from './task-review'
 import { AI_AUTHOR_NAME } from './ai-author'
-import { resolveTaskWorkKey, taskWorkAlreadyCovered } from './task-identity'
+import { resolveTaskWorkKey, taskWorkAlreadyCovered, type TaskIdentitySource } from './task-identity'
 
 const COACH_AUTO_TASK_LIMIT = 3
 const COACH_AUTO_TASK_PRIORITIES: CoachPriority[] = ['critical', 'high']
@@ -215,11 +215,10 @@ async function generateCoachTasks(params: {
   const existing = await prisma.caseTask
     .findMany({ where: { assessmentId }, select: { title: true, checkpointType: true, notes: true, taskType: true } })
     .catch(() => [] as Array<{ title: string; checkpointType: string | null; notes: string | null; taskType: string | null }>)
-  const existingRows = existing.map((t) => ({
+  const existingRows: TaskIdentitySource[] = existing.map((t) => ({
     title: t.title,
     checkpointType: t.checkpointType,
     notes: t.notes,
-    coachKey: t.taskType === 'coach' ? undefined : undefined,
   }))
 
   const createdByName = actor
@@ -236,7 +235,7 @@ async function generateCoachTasks(params: {
     const title = insight.title.trim()
     if (!title) continue
     const workKey = resolveTaskWorkKey({ title, coachKey: insight.key })
-    const candidate = { title, coachKey: insight.key, checkpointType: workKey }
+    const candidate: TaskIdentitySource = { title, coachKey: insight.key, checkpointType: workKey }
     if (taskWorkAlreadyCovered(existingRows, candidate)) {
       insight.autoTaskCreated = true
       continue

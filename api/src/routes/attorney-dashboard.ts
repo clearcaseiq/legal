@@ -69,6 +69,7 @@ import { isReviewGateEnabled } from '../lib/task-review'
 import { AI_AUTHOR_NAME } from '../lib/ai-author'
 import { DEFAULT_DEMAND_RECIPIENT, draftDemandForAssessment, saveDemandVersion } from '../lib/demand-drafting'
 import { extractDemandText } from '../lib/demand-import'
+import type { TaskIdentitySource } from '../lib/task-identity'
 import { askCaseAssistant } from '../services/case-assistant'
 import { isAiCaseManagerEnabled } from '../lib/ai-case-manager-sweep'
 import { syncQuestionTasks, syncSingleQuestionTask } from '../lib/question-tasks'
@@ -2318,7 +2319,7 @@ async function createReadinessTasks(leadId: string, assessmentId: string) {
     select: { title: true, checkpointType: true, notes: true },
   })
   const { taskWorkAlreadyCovered } = await import('../lib/task-identity')
-  const existingRows = existingTasks.map((task) => ({
+  const existingRows: TaskIdentitySource[] = existingTasks.map((task) => ({
     title: task.title,
     checkpointType: task.checkpointType,
     notes: task.notes,
@@ -2326,7 +2327,7 @@ async function createReadinessTasks(leadId: string, assessmentId: string) {
   const created: any[] = []
 
   for (const suggestion of plan.tasks) {
-    const candidate = {
+    const candidate: TaskIdentitySource = {
       title: suggestion.title,
       checkpointType: suggestion.checkpointType,
     }
