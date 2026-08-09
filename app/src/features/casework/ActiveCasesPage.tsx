@@ -39,9 +39,21 @@ const CASE_STAGE_LABEL: Record<string, string> = {
   CLOSED: 'Closed',
 }
 
+// Litigation sub-track labels (Assessment.litigationStatus). Only the "active in
+// suit" statuses get a caseload chip; none/resolved are not surfaced on the row.
+const LITIGATION_LABEL: Record<string, string> = {
+  pre_suit: 'Prepping suit',
+  filed: 'Suit filed',
+  discovery: 'Discovery',
+  mediation: 'Mediation',
+  trial: 'Trial',
+}
+const ACTIVE_LITIGATION = new Set(['pre_suit', 'filed', 'discovery', 'mediation', 'trial'])
+
 type StageTone = 'info' | 'warning' | 'success'
 type DueKey = 'overdue' | 'today' | 'tomorrow' | 'upcoming'
 type CaseView = 'all' | 'consults' | 'tasks' | 'demands'
+type CaseScope = 'active' | 'closed' | 'all'
 
 interface CaseRow {
   id: string
@@ -53,6 +65,8 @@ interface CaseRow {
   stageLabel: string
   stageTone: StageTone
   lifecycleLabel: string | null
+  closed: boolean
+  litigationLabel: string | null
   jurisdiction: string
   valueLow: number
   valueHigh: number
@@ -192,6 +206,42 @@ function ActionLegend() {
   )
 }
 
+// Active / Closed / All segmentation for the caseload. Keeps closed matters out
+// of the day-to-day list without hiding them permanently.
+function ScopeToggle({
+  scope,
+  onChange,
+  closedCount,
+}: {
+  scope: CaseScope
+  onChange: (s: CaseScope) => void
+  closedCount: number
+}) {
+  const opts: { value: CaseScope; label: string }[] = [
+    { value: 'active', label: 'Active' },
+    { value: 'closed', label: closedCount > 0 ? `Closed (${closedCount})` : 'Closed' },
+    { value: 'all', label: 'All' },
+  ]
+  return (
+    <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5" role="tablist" aria-label="Case scope">
+      {opts.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="tab"
+          aria-selected={scope === o.value}
+          onClick={() => onChange(o.value)}
+          className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+            scope === o.value ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 const DOC_SHORT: Record<string, string> = {
   medical_records: 'medical records',
   bills: 'bills',
@@ -311,6 +361,7 @@ export default function ActiveCasesPage() {
   const [error, setError] = useState<string | null>(null)
 
   const [view, setView] = useState<CaseView>('all')
+  const [scope, setScope] = useState<CaseScope>('active')
   const [filters, setFilters] = useState<Record<string, string>>(() => ({
     type: searchParams.get('caseType') || '',
     stage: searchParams.get('stage') === 'retained' ? 'retained' : '',
@@ -356,6 +407,9 @@ export default function ActiveCasesPage() {
         const stage = STAGE[lead.status as keyof typeof STAGE] ?? STAGE.contacted
         const rawCaseStage = String(lead?.assessment?.caseStage || '')
         const lifecycleLabel = rawCaseStage ? CASE_STAGE_LABEL[rawCaseStage] || null : null
+        const closed = rawCaseStage === 'CLOSED' || !!lead?.assessment?.closedAt
+        const litStatus = String(lead?.assessment?.litigationStatus || 'none')
+        const litigationLabel = ACTIVE_LITIGATION.has(litStatus) ? LITIGATION_LABEL[litStatus] || null : null
         const consultToday = consultTodayLeadIds.has(lead.id)
         const reference = new Date(lead?.lastContactAt || lead?.updatedAt || lead?.submittedAt || Date.now())
         const due = new Date(reference)
@@ -428,6 +482,8 @@ export default function ActiveCasesPage() {
           stageLabel: stage.label,
           stageTone: stage.tone,
           lifecycleLabel,
+          closed,
+          litigationLabel,
           jurisdiction: lead?.assessment?.venueState || '',
           valueLow: low,
           valueHigh: high,
@@ -455,6 +511,15 @@ export default function ActiveCasesPage() {
     r.overdueTaskCount > 0 || r.dueTodayTaskCount > 0 || r.dueKey === 'today' || r.dueKey === 'tomorrow' || r.dueKey === 'overdue'
   const isDemandFocus = (r: CaseRow) => r.actionType === 'open_demand' || r.isDemandReady
 
+  // Closed matters leave the active caseload by default but stay one click away
+  // via the Active / Closed / All segmentation. Everything downstream (views,
+  // filters, counts) operates on the scoped set.
+  const closedCount = useMemo(() => rows.filter((r) => r.closed).length, [rows])
+  const scopedRows = useMemo(
+    () => rows.filter((r) => (scope === 'closed' ? r.closed : scope === 'active' ? !r.closed : true)),
+    [rows, scope],
+  )
+
   const passesView = (r: CaseRow) => {
     // "Consults today" must only surface cases with a consult actually scheduled
     // for today — not every case awaiting a consult or in the consulted stage,
@@ -479,18 +544,18 @@ export default function ActiveCasesPage() {
     return true
   }
 
-  const visible = rows.filter((r) => passesView(r) && passesFilters(r))
+  const visible = scopedRows.filter((r) => passesView(r) && passesFilters(r))
 
-  // Tile counts derive from the full accepted set so they stay stable while the
+  // Tile counts derive from the scoped set so they stay stable while the
   // dropdown filters narrow the table below.
   const counts = useMemo(
     () => ({
-      all: rows.length,
-      consults: rows.filter((r) => r.consultToday).length,
-      tasks: rows.filter((r) => isTaskDue(r)).length,
-      demands: rows.filter((r) => isDemandFocus(r)).length,
+      all: scopedRows.length,
+      consults: scopedRows.filter((r) => r.consultToday).length,
+      tasks: scopedRows.filter((r) => isTaskDue(r)).length,
+      demands: scopedRows.filter((r) => isDemandFocus(r)).length,
     }),
-    [rows],
+    [scopedRows],
   )
 
   const filterFields: FilterField[] = useMemo(() => {
@@ -550,7 +615,7 @@ export default function ActiveCasesPage() {
       <StatGrid columns={5}>
         <FilterStat
           value={counts.all}
-          label="Active cases"
+          label={scope === 'closed' ? 'Closed cases' : scope === 'all' ? 'All cases' : 'Active cases'}
           tone="neutral"
           filled
           active={view === 'all'}
@@ -591,12 +656,13 @@ export default function ActiveCasesPage() {
       />
 
       <SectionCard
-        title={VIEW_LABELS[view]}
+        title={view === 'all' && scope !== 'active' ? (scope === 'closed' ? 'Closed cases' : 'All cases') : VIEW_LABELS[view]}
         trailing={
           <div className="flex items-center gap-4">
             <div className="hidden lg:block">
               <ActionLegend />
             </div>
+            <ScopeToggle scope={scope} onChange={setScope} closedCount={closedCount} />
             <Badge tone="brand">{visible.length} shown</Badge>
           </div>
         }
@@ -651,13 +717,20 @@ const caseColumns: DataTableColumn<CaseRow>[] = [
     key: 'stage',
     header: 'Stage',
     // Retained matters show the live case-lifecycle stage (opening → … → closed);
-    // pre-retention rows keep the acquisition stage label.
-    cell: (r) =>
-      r.stageKey === 'retained' && r.lifecycleLabel ? (
-        <Badge tone="success">{r.lifecycleLabel}</Badge>
-      ) : (
-        <Badge tone={STAGE_BADGE[r.stageTone]}>{r.stageLabel}</Badge>
-      ),
+    // pre-retention rows keep the acquisition stage label. A parallel litigation
+    // chip appears when the matter is actively in suit.
+    cell: (r) => (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {r.closed ? (
+          <Badge tone="neutral">Closed</Badge>
+        ) : r.stageKey === 'retained' && r.lifecycleLabel ? (
+          <Badge tone="success">{r.lifecycleLabel}</Badge>
+        ) : (
+          <Badge tone={STAGE_BADGE[r.stageTone]}>{r.stageLabel}</Badge>
+        )}
+        {r.litigationLabel ? <Badge tone="warning">{r.litigationLabel}</Badge> : null}
+      </div>
+    ),
   },
   {
     key: 'next',
