@@ -401,7 +401,10 @@ async function routeCase(params: {
   })
 
   if (pending) {
-    const requestedAt = new Date(Date.now() - randInt(1, 18) * 60 * 1000)
+    // Stamp the offer clock at "now" so the full response window applies from
+    // creation — a backdated requestedAt can push a match past a short admin
+    // response deadline and drop it out of "New Matches" the moment it's made.
+    const requestedAt = new Date()
     await prisma.introduction.create({
       data: { assessmentId, attorneyId, status: 'PENDING', message: `New match routed to ${firmName}.`, requestedAt, waveNumber: 1 },
     })
