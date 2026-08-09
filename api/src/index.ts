@@ -213,8 +213,10 @@ async function runOfferExpiryLoop(trigger: 'startup' | 'interval') {
 }
 
 function startOfferExpiryLoop() {
-  // Attorney response windows are short (minutes), so sweep frequently.
-  const intervalMs = 60 * 1000
+  // Attorney response windows are short (minutes). Sweep every 15s so a lapsed
+  // offer is re-routed to the next attorney quickly (CP-606) without hammering
+  // the DB — the sweep is idempotent and usually finds nothing to expire.
+  const intervalMs = 15 * 1000
   registerSweep('offer-expiry', { label: 'Offer expiry', enabled: true, intervalMs })
   void runOfferExpiryLoop('startup')
   offerExpiryTimer = setInterval(() => {

@@ -93,6 +93,9 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
   const [canAssign, setCanAssign] = useState(false)
   const [stepToDelete, setStepToDelete] = useState<CaseWorkflowStep | null>(null)
   const [panelError, setPanelError] = useState<string | null>(null)
+  // Completed phases stay in the history (CP-582) but collapse by default so
+  // the current phase is the focus. Users can expand any phase to review it.
+  const [expandedPhases, setExpandedPhases] = useState<Record<number, boolean>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -264,28 +267,48 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
 
         {/* Visual pipeline strip */}
         <PipelineStrip phases={workflow.phases} currentOrder={workflow.currentPhaseOrder} />
+        <p className="mt-2 text-xs text-slate-500">
+          Completed phases stay visible as case history. They collapse once done so the current phase stays in focus.
+        </p>
       </div>
 
       {/* Phases → stages → steps */}
       <div className="space-y-4">
         {workflow.phases.map((phase) => {
           const isCurrent = phase.order === workflow.currentPhaseOrder
+          const phaseComplete = phase.totalSteps > 0 && phase.completedSteps >= phase.totalSteps
           const phasePct = phase.totalSteps ? Math.round((phase.completedSteps / phase.totalSteps) * 100) : 0
+          // Current phase always open; completed phases start collapsed (CP-582).
+          const isExpanded = expandedPhases[phase.order] ?? (isCurrent || !phaseComplete)
           return (
             <div
               key={phase.order}
               className={`overflow-hidden rounded-xl border ${
-                isCurrent ? 'border-indigo-300 ring-1 ring-indigo-200' : 'border-slate-200'
+                isCurrent
+                  ? 'border-indigo-300 ring-1 ring-indigo-200'
+                  : phaseComplete
+                    ? 'border-emerald-200'
+                    : 'border-slate-200'
               }`}
             >
-              <div
-                className={`flex items-center justify-between gap-2 border-b px-4 py-2.5 ${
-                  isCurrent ? 'border-indigo-100 bg-indigo-50/60' : 'border-slate-100 bg-slate-50/70'
+              <button
+                type="button"
+                onClick={() => setExpandedPhases((prev) => ({ ...prev, [phase.order]: !isExpanded }))}
+                className={`flex w-full items-center justify-between gap-2 border-b px-4 py-2.5 text-left ${
+                  isCurrent
+                    ? 'border-indigo-100 bg-indigo-50/60'
+                    : phaseComplete
+                      ? 'border-emerald-100 bg-emerald-50/50'
+                      : 'border-slate-100 bg-slate-50/70'
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">
-                    {phase.order + 1}
+                  <span
+                    className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white ${
+                      phaseComplete ? 'bg-emerald-600' : 'bg-indigo-600'
+                    }`}
+                  >
+                    {phaseComplete ? <CheckCircle2 className="h-3.5 w-3.5" /> : phase.order + 1}
                   </span>
                   <span className="font-semibold text-slate-900">{phase.name}</span>
                   {isCurrent && (
@@ -293,54 +316,61 @@ export default function CaseWorkflowPanel({ leadId }: { leadId: string }) {
                       Current
                     </span>
                   )}
+                  {phaseComplete && !isCurrent && (
+                    <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                      Done
+                    </span>
+                  )}
                 </div>
                 <span className="text-xs font-medium text-slate-500">
-                  {phase.completedSteps}/{phase.totalSteps} · {phasePct}%
+                  {phase.completedSteps}/{phase.totalSteps} · {phasePct}% · {isExpanded ? 'Hide' : 'Show'}
                 </span>
-              </div>
+              </button>
 
-              <div className="space-y-3 p-3">
-                {phase.stages.map((stage) => {
-                  const stageDone = stage.steps.filter((s) => s.status === 'done' || s.status === 'skipped').length
-                  return (
-                    <div key={stage.order} className="rounded-lg border border-slate-200">
-                      <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-white px-3 py-2">
-                        <span className="text-sm font-semibold text-slate-700">{stage.name}</span>
-                        <span className="text-xs text-slate-400">
-                          {stageDone}/{stage.steps.length}
-                        </span>
+              {isExpanded && (
+                <div className="space-y-3 p-3">
+                  {phase.stages.map((stage) => {
+                    const stageDone = stage.steps.filter((s) => s.status === 'done' || s.status === 'skipped').length
+                    return (
+                      <div key={stage.order} className="rounded-lg border border-slate-200">
+                        <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-white px-3 py-2">
+                          <span className="text-sm font-semibold text-slate-700">{stage.name}</span>
+                          <span className="text-xs text-slate-400">
+                            {stageDone}/{stage.steps.length}
+                          </span>
+                        </div>
+                        <ul className="divide-y divide-slate-100">
+                          {stage.steps.map((step) => (
+                            <StepItem
+                              key={step.id}
+                              step={step}
+                              pending={pendingId === step.id}
+                              members={members}
+                              canAssign={canAssign}
+                              onToggle={() => toggle(step)}
+                              onAssign={(firmMemberId) => assign(step, firmMemberId)}
+                              onDelete={() => removeTask(step)}
+                            />
+                          ))}
+                        </ul>
+                        <AddTaskRow
+                          members={members}
+                          canAssign={canAssign}
+                          onAdd={(payload) =>
+                            addTask({
+                              ...payload,
+                              phaseName: phase.name,
+                              phaseOrder: phase.order,
+                              stageName: stage.name,
+                              stageOrder: stage.order,
+                            })
+                          }
+                        />
                       </div>
-                      <ul className="divide-y divide-slate-100">
-                        {stage.steps.map((step) => (
-                          <StepItem
-                            key={step.id}
-                            step={step}
-                            pending={pendingId === step.id}
-                            members={members}
-                            canAssign={canAssign}
-                            onToggle={() => toggle(step)}
-                            onAssign={(firmMemberId) => assign(step, firmMemberId)}
-                            onDelete={() => removeTask(step)}
-                          />
-                        ))}
-                      </ul>
-                      <AddTaskRow
-                        members={members}
-                        canAssign={canAssign}
-                        onAdd={(payload) =>
-                          addTask({
-                            ...payload,
-                            phaseName: phase.name,
-                            phaseOrder: phase.order,
-                            stageName: stage.name,
-                            stageOrder: stage.order,
-                          })
-                        }
-                      />
-                    </div>
-                  )
-                })}
-              </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )
         })}

@@ -1,5 +1,5 @@
-import { ENV } from '../env'
 import { logger } from './logger'
+import { getLlmChatClient, LLM_CHAT_MODEL, llmChatDisabled } from './llm-client'
 
 /**
  * Structured details extracted from a claimant's free-text incident narrative.
@@ -31,8 +31,6 @@ export interface IncidentExtraction {
   /** 0..1 self-reported confidence in the structured fields. */
   confidence: number
 }
-
-const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 
 const SYSTEM_PROMPT = `You are an intake assistant for a US personal-injury law platform. You read a short, plain-language description of an accident written by an injured person and extract structured facts.
 
@@ -81,16 +79,18 @@ function coerce(raw: any): IncidentExtraction {
 }
 
 /**
- * Extract structured incident details from a narrative using Claude.
- * Returns null when the feature is unavailable (no key) or the call fails —
- * callers should degrade gracefully (the manual form still works).
+ * Extract structured incident details from a narrative via the shared LLM client
+ * (OpenAI / Kimi per AI_PROVIDER). Returns null when no chat provider is
+ * configured or the call fails — callers should degrade gracefully.
  */
 export async function extractIncidentDetails({ narrative, injuryType }: ExtractInput): Promise<IncidentExtraction | null> {
-  const apiKey = ENV.ANTHROPIC_API_KEY
-  if (!apiKey) {
-    logger.warn('ANTHROPIC_API_KEY not configured — skipping incident extraction')
+  if (llmChatDisabled()) {
+    logger.warn('No LLM chat provider configured — skipping incident extraction')
     return null
   }
+  const client = getLlmChatClient()
+  if (!client) return null
+
   const text = (narrative || '').trim()
   if (text.length < 20) return null
 
@@ -99,32 +99,21 @@ export async function extractIncidentDetails({ narrative, injuryType }: ExtractI
   try {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 12000)
-    const resp = await fetch(ANTHROPIC_URL, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: ENV.ANTHROPIC_MODEL,
-        max_tokens: 400,
+    const completion = await client.chat.completions.create(
+      {
+        model: LLM_CHAT_MODEL,
         temperature: 0,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userContent }],
-      }),
-      signal: controller.signal,
-    })
+        max_tokens: 400,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userContent },
+        ],
+      },
+      { signal: controller.signal },
+    )
     clearTimeout(timeout)
 
-    if (!resp.ok) {
-      const detail = await resp.text().catch(() => '')
-      logger.error('Anthropic extraction request failed', { status: resp.status, detail: detail.slice(0, 500) })
-      return null
-    }
-
-    const data = (await resp.json()) as { content?: Array<{ type?: string; text?: string }> }
-    const rawText = (data.content || []).map((b) => (b?.type === 'text' ? b.text : '')).join('').trim()
+    const rawText = (completion.choices?.[0]?.message?.content || '').trim()
     if (!rawText) return null
 
     // The model is instructed to return raw JSON; strip any accidental code fences.
@@ -132,7 +121,7 @@ export async function extractIncidentDetails({ narrative, injuryType }: ExtractI
     const parsed = JSON.parse(jsonText)
     return coerce(parsed)
   } catch (error: any) {
-    logger.error('Incident extraction failed', { error: error?.message })
+    logger.error('Incident extraction failed', { error: error?.message, model: LLM_CHAT_MODEL })
     return null
   }
 }

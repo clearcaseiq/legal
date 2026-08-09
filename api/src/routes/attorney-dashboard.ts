@@ -73,6 +73,7 @@ import {
   getCaseRoutingFee,
   getMatchingRules,
 } from '../lib/matching-rules-config'
+import { triggerOfferExpirySweepSoon } from '../lib/offer-expiry-sweep'
 
 const router = Router()
 const PROJECTED_CONTINGENCY_RATE = 0.33
@@ -3056,6 +3057,16 @@ router.get('/dashboard', authMiddleware, async (req: any, res) => {
       }
       return true
     }
+    // If this attorney (or anyone) still has a PENDING intro past its deadline,
+    // kick the expiry+escalate sweep immediately so the next attorney is offered
+    // without waiting up to a full sweep interval (CP-606).
+    const hasLapsedOffer = recentMatchedLeads.some((l: any) => {
+      if (l.offerStatus === 'EXPIRED' || l.offerStatus === 'DECLINED') return false
+      if (!l.offerExpiresAt) return false
+      const exp = new Date(l.offerExpiresAt).getTime()
+      return !Number.isNaN(exp) && exp <= nowMs
+    })
+    if (hasLapsedOffer) triggerOfferExpirySweepSoon()
     const openMatchedLeads = recentMatchedLeads.filter(isOfferStillOpen)
     const newCaseMatches = openMatchedLeads.slice(0, 10)
     const topCaseToday = topCaseTodayId

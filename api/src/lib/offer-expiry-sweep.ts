@@ -151,3 +151,22 @@ export async function runOfferExpirySweep(): Promise<OfferExpirySweepResult> {
   }
   return { expired, escalated }
 }
+
+/**
+ * Fire-and-forget trigger used when a dashboard read observes a lapsed offer
+ * window. Ensures the next attorney is offered without waiting for the next
+ * scheduled sweep tick (CP-606). Safe to call frequently — the sweep is
+ * idempotent and cheap when nothing is stale.
+ */
+let lazyExpiryInFlight: Promise<OfferExpirySweepResult> | null = null
+export function triggerOfferExpirySweepSoon(): void {
+  if (lazyExpiryInFlight) return
+  lazyExpiryInFlight = runOfferExpirySweep()
+    .catch((err) => {
+      logger.warn('Lazy offer-expiry sweep failed', { error: (err as Error)?.message || String(err) })
+      return { expired: 0, escalated: 0 } as OfferExpirySweepResult
+    })
+    .finally(() => {
+      lazyExpiryInFlight = null
+    })
+}
