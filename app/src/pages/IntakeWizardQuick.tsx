@@ -185,10 +185,12 @@ const INJURY_SEVERITY_OPTIONS = [
 // localized `{ value, label }` arrays so every render site stays unchanged.
 const MEDICAL_TREATMENT_OPTION_DEFS = [
   { value: 'er', labelKey: 'treatment_er' },
+  { value: 'urgent_care', labelKey: 'treatment_urgent_care' },
   { value: 'chiro_pt', labelKey: 'treatment_pt' },
   { value: 'mri', labelKey: 'treatment_mri' },
-  { value: 'injections', labelKey: 'treatment_injections' },
+  { value: 'orthopedic', labelKey: 'treatment_orthopedic' },
   { value: 'pain_management', labelKey: 'treatment_pain' },
+  { value: 'injections', labelKey: 'treatment_injections' },
   { value: 'surgery', labelKey: 'treatment_surgery' },
   { value: 'none', labelKey: 'treatment_none' }
 ]
@@ -203,8 +205,10 @@ const SEVERITY_ICONS: Record<string, LucideIcon> = {
 }
 const TREATMENT_ICONS: Record<string, LucideIcon> = {
   er: Ambulance,
+  urgent_care: Stethoscope,
   chiro_pt: PersonStanding,
   mri: Scan,
+  orthopedic: Bone,
   injections: Syringe,
   pain_management: Pill,
   surgery: Scissors,
