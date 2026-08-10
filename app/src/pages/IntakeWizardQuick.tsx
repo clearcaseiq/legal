@@ -4188,7 +4188,7 @@ export default function IntakeWizardQuick() {
                           type="button"
                           aria-pressed={selected}
                           onClick={() => updateForm({ emsResponded: formData.emsResponded === value ? '' : value })}
-                          className={`flex items-center justify-center gap-1.5 rounded-xl border-[1.5px] px-3 py-2 text-sm font-semibold transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-600 bg-brand-50 text-brand-800' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400'}`}
+                          className={`flex items-center justify-center gap-1.5 rounded-xl border-[1.5px] px-3 py-2 text-[13px] font-semibold transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-600 bg-brand-50 text-brand-800' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400'}`}
                         >
                           {selected && <Check className="h-4 w-4 text-brand-600" aria-hidden />}
                           {label}
