@@ -189,15 +189,15 @@ const INJURY_SEVERITY_OPTIONS = [
 
 // Option definitions carry translation keys; the component maps them to
 // localized `{ value, label }` arrays so every render site stays unchanged.
+// Where care was accessed (care setting). The specific clinical treatments
+// (PT, MRI, injections, surgery, ...) are now captured per body region in the
+// dynamic injury cards, so this list is intentionally care-setting only and no
+// longer duplicates them.
 const MEDICAL_TREATMENT_OPTION_DEFS = [
+  { value: 'ambulance', labelKey: 'treatment_ambulance' },
   { value: 'er', labelKey: 'treatment_er' },
   { value: 'urgent_care', labelKey: 'treatment_urgent_care' },
-  { value: 'chiro_pt', labelKey: 'treatment_pt' },
-  { value: 'mri', labelKey: 'treatment_mri' },
-  { value: 'orthopedic', labelKey: 'treatment_orthopedic' },
-  { value: 'pain_management', labelKey: 'treatment_pain' },
-  { value: 'injections', labelKey: 'treatment_injections' },
-  { value: 'surgery', labelKey: 'treatment_surgery' },
+  { value: 'primary_care', labelKey: 'treatment_primary_care' },
   { value: 'none', labelKey: 'treatment_none' }
 ]
 
@@ -210,14 +210,10 @@ const SEVERITY_ICONS: Record<string, LucideIcon> = {
   unsure: HelpCircle,
 }
 const TREATMENT_ICONS: Record<string, LucideIcon> = {
-  er: Ambulance,
+  ambulance: Ambulance,
+  er: Hospital,
   urgent_care: Stethoscope,
-  chiro_pt: PersonStanding,
-  mri: Scan,
-  orthopedic: Bone,
-  injections: Syringe,
-  pain_management: Pill,
-  surgery: Scissors,
+  primary_care: Stethoscope,
   none: CalendarDays,
 }
 
@@ -1896,9 +1892,10 @@ export default function IntakeWizardQuick() {
     const missedWork = formData.casePosture.missedWork
     const offerStatus = formData.casePosture.settlementOfferStatus
 
-    if (imaging.includes('mri') || treatment.includes('mri')) insights.push(tx('insight_mri'))
+    const rtx = regionTreatmentCodes()
+    if (imaging.includes('mri') || treatment.includes('mri') || rtx.has('mri')) insights.push(tx('insight_mri'))
     if (imaging.includes('ct_scan') || imaging.includes('xray')) insights.push(tx('insight_imaging'))
-    if (treatment.includes('injections') || formData.injuryDetails.procedures.some(value => value !== 'none')) insights.push(tx('insight_injections'))
+    if (treatment.includes('injections') || formData.injuryDetails.procedures.some(value => value !== 'none') || rtx.has('injection')) insights.push(tx('insight_injections'))
     if (formData.injuryDetails.surgeryStatus && formData.injuryDetails.surgeryStatus !== 'not_discussed') insights.push(tx('insight_surgery'))
     if (missedWork && missedWork !== 'no') insights.push(tx('insight_missedWork'))
     if (priorInjury === 'none') insights.push(tx('insight_noPrior'))
@@ -2342,6 +2339,12 @@ export default function IntakeWizardQuick() {
           // treatment entry made downstream code that tests `treatment.length`
           // read an untreated plaintiff as treated (CP-415).
           ...formData.medicalTreatment.filter(t => t !== 'none').map(t => ({ type: t, notes: '' })),
+          // Per-region clinical treatments (PT, MRI, injection, surgery, ...) now
+          // captured in the dynamic injury cards. Fold them into the treatment
+          // array so the backend/valuation see them like any other treatment.
+          ...Object.entries(formData.injuryDetails.regionDetail || {}).flatMap(([region, d]: [string, any]) =>
+            (Array.isArray(d?.treatments) ? (d.treatments as string[]) : []).map(code => ({ type: code, region, notes: '' }))
+          ),
           ...formData.injuryDetails.imaging.map(imaging => ({ type: 'imaging', imaging })),
           ...(formData.injuryDetails.surgeryStatus ? [{ type: 'surgery_status', status: formData.injuryDetails.surgeryStatus }] : []),
           ...formData.injuryDetails.procedures.map(procedure => ({ type: 'procedure', procedure })),
@@ -2630,11 +2633,19 @@ export default function IntakeWizardQuick() {
   // existing scoring, AI summary, and submit payload keep working untouched.
   const handleRegionDetailChange = (next: RegionDetailMap) => {
     const derived = deriveLegacyInjuryFields(next)
+    // Clinical treatments now live per-region. Keep the legacy `imaging` signal
+    // populated (MRI) so downstream scoring, insights, and the submit payload
+    // still see imaging without a separate global imaging question.
+    const regionTx = new Set<string>(
+      Object.values(next || {}).flatMap((d: any) => (Array.isArray(d?.treatments) ? (d.treatments as string[]) : []))
+    )
+    const imaging = regionTx.has('mri') ? ['mri'] : []
     setFormData(prev => ({
       ...prev,
       injuryDetails: {
         ...prev.injuryDetails,
         regionDetail: next,
+        imaging,
         diagnoses: derived.diagnoses,
         currentSymptoms: derived.currentSymptoms,
         concussionSymptoms: derived.concussionSymptoms,
@@ -2643,6 +2654,16 @@ export default function IntakeWizardQuick() {
       },
     }))
   }
+
+  // Union of clinical treatment codes selected across all injured regions.
+  // Used to keep injection/surgery/MRI signals flowing now that the global
+  // treatment tiles are gone (care setting only).
+  const regionTreatmentCodes = (): Set<string> =>
+    new Set<string>(
+      Object.values(formData.injuryDetails.regionDetail || {}).flatMap((d: any) =>
+        Array.isArray(d?.treatments) ? (d.treatments as string[]) : []
+      )
+    )
 
   const handleCaseTypeDetailChange = (next: Record<string, any>) => {
     setFormData(prev => ({
@@ -4219,8 +4240,9 @@ export default function IntakeWizardQuick() {
         const hasDynamicRegions = formData.injuryDetails.bodyParts.some(r => !!REGION_LIBRARY[r])
         // Non-body-part case module (toxic / med-mal / wrongful death / dog bite).
         const caseTypeModule = caseTypeModuleFor(formData.injuryType)
-        const hasInjectionTreatment = formData.medicalTreatment.includes('injections') || formData.injuryDetails.imaging.includes('injections') || formData.injuryDetails.procedures.some(item => item !== 'none')
-        const hasSurgeryTreatment = formData.medicalTreatment.includes('surgery') || formData.injuryDetails.imaging.includes('surgery') || formData.injuryDetails.futureTreatment.includes('surgery') || !!formData.injuryDetails.surgeryStatus
+        const regionTx = regionTreatmentCodes()
+        const hasInjectionTreatment = formData.medicalTreatment.includes('injections') || formData.injuryDetails.imaging.includes('injections') || formData.injuryDetails.procedures.some(item => item !== 'none') || regionTx.has('injection')
+        const hasSurgeryTreatment = formData.medicalTreatment.includes('surgery') || formData.injuryDetails.imaging.includes('surgery') || formData.injuryDetails.futureTreatment.includes('surgery') || !!formData.injuryDetails.surgeryStatus || regionTx.has('surgery') || regionTx.has('arthroscopy')
         // Distinct Lucide icons (not repeated bone emoji) so Mac Chrome and
         // mobile show a clear body-part affordance on every breakpoint (CP-542).
         const bodyPartDisplay: Record<string, { Icon: LucideIcon; label: string }> = {
@@ -4244,7 +4266,6 @@ export default function IntakeWizardQuick() {
           ) : (
             <span className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" aria-hidden />
           )
-        const treatmentIcons: Record<string, LucideIcon> = { mri: Activity, ct_scan: Scan, xray: Bone, physical_therapy: PersonStanding, chiropractic: Stethoscope, injections: Syringe, surgery: Scissors, other_treatment: Pill }
         const symptomIcons: Record<string, LucideIcon> = { pain: HeartPulse, stiffness: Bone, limited_rom: RotateCw, numbness: Activity, weakness: Dumbbell, headaches: Brain, other_symptom: Pencil }
         const diagnosisIcons: Record<string, LucideIcon> = { herniation: Bone, radiculopathy: Activity, muscle_strain: Dumbbell, tear: Bone, whiplash: PersonStanding, concussion: Brain, fracture: Bone, tbi: Brain, other_diagnosis: Pill }
         const lifeAreaIcons: Record<string, LucideIcon> = { unable_to_work_normally: Briefcase, sleep_disruption: Moon, exercise_limitations: Dumbbell, driving_difficulty: Car, household_chores: Building2, missed_family: CalendarDays, other_life: Pencil }
@@ -4263,7 +4284,7 @@ export default function IntakeWizardQuick() {
         // A "recovery" question is meaningless for a wrongful-death claim, so it is
         // hidden below and excluded from the Step 3 completeness score here.
         const isDeceased = formData.injuredParty === 'deceased'
-        const treatmentsSelected = new Set([...idd.imaging, ...formData.medicalTreatment].filter(v => v !== 'none')).size
+        const treatmentsSelected = new Set([...idd.imaging, ...formData.medicalTreatment, ...regionTx].filter(v => v !== 'none')).size
         const diagnosesSelected = idd.diagnoses.length
         // Symptoms / daily-life impact are hidden for deceased claims, so they must not
         // count toward the severity or completeness scores.
@@ -4514,77 +4535,37 @@ export default function IntakeWizardQuick() {
             )}
             {showDetails && (
             <>
-            {/* ===== Card 2: Medical Care ===== */}
+            {/* ===== Medical Care =====
+                Clinical treatment (PT, MRI, injections, surgery, ...) is captured
+                per body region in the dynamic injury cards above, and care setting
+                on the previous step, so this generic diagnoses list only appears
+                when the claimant skipped the body map. Surgery status and future
+                care remain in the details section below. */}
+            {!hasDynamicRegions && (
             <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/40">
               <div className="flex items-center gap-2.5">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Stethoscope className="h-4 w-4" aria-hidden /></span>
                 <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_medicalCare')}</h3>
               </div>
-            {/* Treatment received recap + imaging */}
-            <div>
-              <SectionHeader icon={Stethoscope} title={tx('injuryDetails_treatmentReceived')} />
-              <p className="mt-2 text-xs font-semibold text-gray-600 dark:text-slate-300">{tx('injuryDetails_treatmentRecapTitle')}</p>
-              {(() => {
-                const picked = MEDICAL_TREATMENT_OPTIONS.filter(o => o.value !== 'none' && formData.medicalTreatment.includes(o.value))
-                return picked.length > 0 ? (
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {picked.map(o => {
-                      const Icon = treatmentIcons[o.value] || Stethoscope
-                      return (
-                        <span key={o.value} className="inline-flex max-w-full items-center gap-1 rounded-full border border-brand-200 bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300">
-                          <Icon className="h-3 w-3 shrink-0" aria-hidden />
-                          <span className="min-w-0 [overflow-wrap:anywhere]">{o.label}</span>
-                        </span>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <p className="mt-1.5 text-xs text-gray-400">{tx('injuryDetails_treatmentRecapEmpty')}</p>
-                )
-              })()}
-              <p className="mt-4 font-display text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_imagingDetailQuestion')}</p>
-              <p className="mt-0.5 text-xs text-gray-500">{tx('injuryDetails_imagingDetailHelper')}</p>
-              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-                {TREATMENT_RECEIVED_OPTIONS.filter(o => ['ct_scan', 'xray', 'chiropractic', 'other_treatment'].includes(o.value)).map(({ value, label }) => {
-                  const selected = formData.injuryDetails.imaging.includes(value)
-                  const Icon = treatmentIcons[value] || Stethoscope
-                  return (
-                    <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('imaging', value)} className={tileClass(selected)}>
-                      <span className="hidden h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800 sm:flex"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
-                      {renderCheck(selected)}
-                    </button>
-                  )
-                })}
+              <div>
+                <SectionHeader icon={ClipboardCheck} title={tx('injuryDetails_diagnosesQuestion')} helper={tx('injuryDetails_diagnosesHelper')} />
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-2.5">
+                  {DIAGNOSIS_OPTIONS.map(({ value, label }) => {
+                    const selected = formData.injuryDetails.diagnoses.includes(value)
+                    const Icon = diagnosisIcons[value] || Stethoscope
+                    return (
+                      <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('diagnoses', value)} className={tileClass(selected)}>
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
+                        <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
+                        {renderCheck(selected)}
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-snug text-gray-400 dark:text-slate-500"><HelpCircle className="mt-px h-3 w-3 shrink-0" aria-hidden />{tx('injuryDetails_notSureNote')}</p>
               </div>
-            </div>
-
-            {/* Diagnoses — the dynamic region cards now capture findings per body
-                area, so this generic list only shows when no body part was picked
-                (e.g. the claimant skipped the body map). */}
-            {!hasDynamicRegions && (
-            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader icon={ClipboardCheck} title={tx('injuryDetails_diagnosesQuestion')} helper={tx('injuryDetails_diagnosesHelper')} />
-              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-2.5">
-                {DIAGNOSIS_OPTIONS.map(({ value, label }) => {
-                  const selected = formData.injuryDetails.diagnoses.includes(value)
-                  const Icon = diagnosisIcons[value] || Stethoscope
-                  return (
-                    <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('diagnoses', value)} className={tileClass(selected)}>
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      {/* Match the other Step 3 tiles' label size (text-[13px]); this one
-                          used text-sm, so the diagnoses buttons rendered a larger, mismatched
-                          font than the surrounding sections (CP-551). */}
-                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
-                      {renderCheck(selected)}
-                    </button>
-                  )
-                })}
-              </div>
-              <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-snug text-gray-400 dark:text-slate-500"><HelpCircle className="mt-px h-3 w-3 shrink-0" aria-hidden />{tx('injuryDetails_notSureNote')}</p>
             </div>
             )}
-            </div>{/* end Card 2 */}
 
             {/* ===== Card 3: How You're Feeling — symptoms, recovery, and daily-life impact
                  are all present/future-tense questions about a living person, so this card is
@@ -5980,10 +5961,13 @@ export default function IntakeWizardQuick() {
         const propertyDamage = isVehicle ? computePropertyDamage(formData.branch) : 0
         const specials = pastMedical + futureMedical
         const economicTotal = specials + lostWages + propertyDamage
-        const hasMRI = idet.imaging.includes('mri') || formData.medicalTreatment.includes('mri')
-        const hasSurgery = formData.medicalTreatment.includes('surgery') || idet.imaging.includes('surgery') || (idet.procedures?.some(p => p !== 'none') ?? false)
-        const hasInjections = formData.medicalTreatment.includes('injections') || idet.imaging.includes('injections')
-        const hasPT = formData.medicalTreatment.includes('physical_therapy') || formData.medicalTreatment.includes('chiropractic')
+        // Clinical treatments now come from the per-region injury cards; fold
+        // them in so the settlement multiplier still reflects MRI/surgery/etc.
+        const rtxFin = regionTreatmentCodes()
+        const hasMRI = idet.imaging.includes('mri') || formData.medicalTreatment.includes('mri') || rtxFin.has('mri')
+        const hasSurgery = formData.medicalTreatment.includes('surgery') || idet.imaging.includes('surgery') || (idet.procedures?.some(p => p !== 'none') ?? false) || rtxFin.has('surgery') || rtxFin.has('arthroscopy')
+        const hasInjections = formData.medicalTreatment.includes('injections') || idet.imaging.includes('injections') || rtxFin.has('injection')
+        const hasPT = formData.medicalTreatment.includes('physical_therapy') || formData.medicalTreatment.includes('chiropractic') || rtxFin.has('pt') || rtxFin.has('chiropractic')
         const hasDiagnoses = idet.diagnoses.length > 0
         const hasOngoing = !!icFinancial.futureMedicalRange && icFinancial.futureMedicalRange !== 'none' && icFinancial.futureMedicalRange !== 'not_sure'
         const severityMultiplierBase: Record<string, number> = { minor: 1.3, moderate: 1.8, serious: 2.4, major: 3.2, not_sure: 1.6 }
@@ -6721,7 +6705,10 @@ export default function IntakeWizardQuick() {
     formData.medicalTreatment.includes('injections') ||
     formData.medicalTreatment.includes('surgery') ||
     formData.injuryDetails.procedures.some((item) => item !== 'none') ||
-    !!formData.injuryDetails.surgeryStatus
+    !!formData.injuryDetails.surgeryStatus ||
+    regionTreatmentCodes().has('injection') ||
+    regionTreatmentCodes().has('surgery') ||
+    regionTreatmentCodes().has('arthroscopy')
   const injuryConfidenceSignals = [
     formData.injuryDetails.bodyParts.length > 0,
     formData.injuryDetails.imaging.length > 0 && !formData.injuryDetails.imaging.includes('none'),
