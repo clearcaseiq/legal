@@ -60,8 +60,13 @@ const TX = {
   pain: { id: 'pain_management', label: 'Pain management' },
   injection: { id: 'injection', label: 'Injection' },
   mri: { id: 'mri', label: 'MRI' },
+  ct: { id: 'ct', label: 'CT scan' },
+  xray: { id: 'xray', label: 'X-ray' },
+  ortho: { id: 'orthopedist', label: 'Orthopedic specialist' },
+  neuro: { id: 'neurologist', label: 'Neurologist' },
   specialist: { id: 'specialist', label: 'Specialist' },
   brace: { id: 'brace', label: 'Brace / splint' },
+  other_tx: { id: 'other_tx', label: 'Other treatment' },
   surgery: { id: 'surgery', label: 'Surgery' },
   arthroscopy: { id: 'arthroscopy', label: 'Arthroscopy' },
   stitches: { id: 'stitches', label: 'Stitches / wound care' },
@@ -514,6 +519,29 @@ export const REGION_LIBRARY: Record<string, RegionConfig> = {
     ],
     treatments: [TX.pt, TX.injection, TX.specialist, TX.surgery],
   },
+}
+
+// Broaden the detailed treatment list to match the intake spec: imaging (X-ray,
+// CT) and the relevant specialist are offered on the common musculoskeletal and
+// neurological regions, and "Other treatment" is available everywhere. The
+// region-specific ordering above is preserved; these are appended only if the
+// region doesn't already list them.
+{
+  const MSK_REGIONS = ['neck', 'upper_back', 'lower_back', 'shoulder', 'arm_elbow', 'hand_wrist', 'hip', 'knee', 'leg', 'ankle_foot']
+  const NEURO_REGIONS = ['head_concussion', 'face', 'vision', 'hearing']
+  for (const [key, cfg] of Object.entries(REGION_LIBRARY)) {
+    const additions: OptionItem[] = []
+    if (MSK_REGIONS.includes(key)) additions.push(TX.xray, TX.ct, TX.ortho)
+    if (NEURO_REGIONS.includes(key)) additions.push(TX.ct, TX.neuro)
+    additions.push(TX.other_tx)
+    const seen = new Set(cfg.treatments.map((t) => t.id))
+    for (const t of additions) {
+      if (!seen.has(t.id)) {
+        cfg.treatments.push(t)
+        seen.add(t.id)
+      }
+    }
+  }
 }
 
 // --- Grouped body-region map (progressive disclosure) ----------------------

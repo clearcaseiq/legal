@@ -189,16 +189,27 @@ const INJURY_SEVERITY_OPTIONS = [
 
 // Option definitions carry translation keys; the component maps them to
 // localized `{ value, label }` arrays so every render site stays unchanged.
-// Where care was accessed (care setting). The specific clinical treatments
-// (PT, MRI, injections, surgery, ...) are now captured per body region in the
-// dynamic injury cards, so this list is intentionally care-setting only and no
-// longer duplicates them.
+// Initial-care facility — where the plaintiff FIRST received care. EMS/ambulance
+// is captured separately (it's transport, not a facility), and the specific
+// clinical treatments (PT, MRI, injections, surgery, ...) are captured per body
+// region in the dynamic injury cards, so this list is facility-only.
 const MEDICAL_TREATMENT_OPTION_DEFS = [
-  { value: 'ambulance', labelKey: 'treatment_ambulance' },
   { value: 'er', labelKey: 'treatment_er' },
   { value: 'urgent_care', labelKey: 'treatment_urgent_care' },
   { value: 'primary_care', labelKey: 'treatment_primary_care' },
+  { value: 'other', labelKey: 'treatment_other' },
   { value: 'none', labelKey: 'treatment_none' }
+]
+
+// How soon after the incident the plaintiff first received care. Timing is a
+// strong causation / treatment-gap signal, so it's captured on the same screen.
+const CARE_TIMING_OPTION_DEFS = [
+  { value: 'same_day', labelKey: 'careTiming_sameDay' },
+  { value: 'next_day', labelKey: 'careTiming_nextDay' },
+  { value: 'within_2_3_days', labelKey: 'careTiming_2to3Days' },
+  { value: 'within_week', labelKey: 'careTiming_withinWeek' },
+  { value: 'more_than_week', labelKey: 'careTiming_moreThanWeek' },
+  { value: 'not_sure', labelKey: 'careTiming_notSure' },
 ]
 
 // Icon per option so the injuries/treatment step can render visual tiles.
@@ -210,10 +221,10 @@ const SEVERITY_ICONS: Record<string, LucideIcon> = {
   unsure: HelpCircle,
 }
 const TREATMENT_ICONS: Record<string, LucideIcon> = {
-  ambulance: Ambulance,
   er: Hospital,
   urgent_care: Stethoscope,
   primary_care: Stethoscope,
+  other: Pencil,
   none: CalendarDays,
 }
 
@@ -836,6 +847,7 @@ export default function IntakeWizardQuick() {
     defs.map(({ labelKey, ...rest }) => ({ ...rest, label: tx(labelKey) }))
 
   const MEDICAL_TREATMENT_OPTIONS = localizeOptions(MEDICAL_TREATMENT_OPTION_DEFS)
+  const CARE_TIMING_OPTIONS = localizeOptions(CARE_TIMING_OPTION_DEFS)
   const PRIOR_INJURY_OPTIONS = localizeOptions(PRIOR_INJURY_OPTION_DEFS)
   // Existing localized body parts, plus every expanded region from the injury
   // library (inline-English labels) so summaries can resolve the new areas.
@@ -983,7 +995,12 @@ export default function IntakeWizardQuick() {
     venue: { state: '', county: '', city: '' },
     narrative: '' as string,
     injurySeverity: '' as string,
+    // Initial-care screen: where the plaintiff FIRST received care (facility),
+    // whether EMS/ambulance responded, and how soon after the incident. Kept
+    // distinct from the detailed per-region treatments captured later.
     medicalTreatment: [] as string[],
+    emsResponded: '' as string,
+    initialCareTiming: '' as string,
     injuryDetails: {
       priorInjury: '' as string,
       bodyParts: [] as string[],
@@ -2468,6 +2485,13 @@ export default function IntakeWizardQuick() {
         incidentSubtype: formData.incidentSubtype,
         otherInjuryDescription: formData.otherInjuryDescription.trim() || undefined,
         caseTaxonomy,
+        // Initial-care signal: first facility, whether EMS responded, and how
+        // soon after the incident. Feeds causation / treatment-gap analysis.
+        initialCare: {
+          facility: formData.medicalTreatment[0] || null,
+          emsResponded: formData.emsResponded || null,
+          timing: formData.initialCareTiming || null,
+        },
         narrative: formData.narrative,
         branch: formData.branch,
         injuryDetails: formData.injuryDetails,
@@ -2564,23 +2588,13 @@ export default function IntakeWizardQuick() {
     setDetectionApplied(true)
   }
 
+  // "Where did you FIRST receive care?" is a single facility, so selecting one
+  // replaces any prior choice (re-selecting clears it).
   const toggleMedicalTreatment = (v: string) => {
-    setFormData(prev => {
-      const medicalTreatment =
-        v === 'none'
-          ? prev.medicalTreatment.includes('none') ? [] : ['none']
-          : prev.medicalTreatment.includes(v)
-          ? prev.medicalTreatment.filter(t => t !== v)
-          : [...prev.medicalTreatment.filter(t => t !== 'none'), v]
-      // Keep step 5's imaging answer in sync so the user never has to say "MRI" twice.
-      let imaging = prev.injuryDetails.imaging
-      if (v === 'mri') {
-        imaging = medicalTreatment.includes('mri')
-          ? Array.from(new Set([...imaging.filter(i => i !== 'none'), 'mri']))
-          : imaging.filter(i => i !== 'mri')
-      }
-      return { ...prev, medicalTreatment, injuryDetails: { ...prev.injuryDetails, imaging } }
-    })
+    setFormData(prev => ({
+      ...prev,
+      medicalTreatment: prev.medicalTreatment.includes(v) ? [] : [v],
+    }))
   }
 
   const toggleInjuryDetail = (
@@ -2639,7 +2653,10 @@ export default function IntakeWizardQuick() {
     const regionTx = new Set<string>(
       Object.values(next || {}).flatMap((d: any) => (Array.isArray(d?.treatments) ? (d.treatments as string[]) : []))
     )
-    const imaging = regionTx.has('mri') ? ['mri'] : []
+    const imaging: string[] = []
+    if (regionTx.has('mri')) imaging.push('mri')
+    if (regionTx.has('ct')) imaging.push('ct_scan')
+    if (regionTx.has('xray')) imaging.push('xray')
     setFormData(prev => ({
       ...prev,
       injuryDetails: {
@@ -4149,12 +4166,40 @@ export default function IntakeWizardQuick() {
                   </div>
                 </div>
 
-                {/* ===== Band 3: Medical Care (required) ===== */}
+                {/* ===== Band 3: Initial Care (required) ===== */}
                 <div className="flex items-center gap-2.5">
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Stethoscope className="h-4 w-4" aria-hidden /></span>
-                  <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('band_medical')}</h3>
+                  <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('band_initialCare')}</h3>
                 </div>
-                {/* Treatment */}
+
+                {/* EMS / ambulance — transport, not a facility, so captured as its own yes/no. */}
+                {!isDeceased && (
+                <div>
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Ambulance className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('initialCare_emsQuestion')}</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2 sm:max-w-xs">
+                    {[
+                      { value: 'yes', label: tx('optionYes') },
+                      { value: 'no', label: tx('optionNo') },
+                    ].map(({ value, label }) => {
+                      const selected = formData.emsResponded === value
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => updateForm({ emsResponded: formData.emsResponded === value ? '' : value })}
+                          className={`flex items-center justify-center gap-1.5 rounded-xl border-[1.5px] px-3 py-2 text-sm font-semibold transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-600 bg-brand-50 text-brand-800' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400'}`}
+                        >
+                          {selected && <Check className="h-4 w-4 text-brand-600" aria-hidden />}
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+                )}
+
+                {/* Where care was FIRST received (single facility). */}
                 <div>
                   <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><Stethoscope className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx(isDeceased ? 'treatment_heading_deceased' : 'treatment_heading')}<span className="ml-0.5 font-semibold text-red-500" aria-hidden>*</span></p>
                   <p className="mt-0.5 text-xs leading-snug text-gray-500 sm:text-sm">{tx(isDeceased ? 'treatment_helper_deceased' : 'treatment_helper')}</p>
@@ -4194,6 +4239,30 @@ export default function IntakeWizardQuick() {
                     <p className="mt-2 text-[11px] leading-snug text-gray-500">{tx('treatment_tip')}</p>
                   </div>
                 </div>
+
+                {/* How soon after the incident — only relevant once some care was received. */}
+                {formData.medicalTreatment.length > 0 && !formData.medicalTreatment.includes('none') && (
+                <div>
+                  <p className="flex items-center gap-1.5 font-display text-[15px] font-semibold leading-tight text-gray-900 dark:text-slate-100"><CalendarClock className="h-4 w-4 shrink-0 text-brand-600" aria-hidden /> {tx('careTiming_question')}</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {CARE_TIMING_OPTIONS.map(({ value, label }) => {
+                      const selected = formData.initialCareTiming === value
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => updateForm({ initialCareTiming: formData.initialCareTiming === value ? '' : value })}
+                          className={`flex items-center justify-center gap-1.5 rounded-xl border px-2.5 py-2 text-center text-[13px] font-semibold transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-500 bg-brand-50/70 text-brand-800 dark:border-brand-500/50 dark:bg-brand-500/10 dark:text-brand-200' : 'border-slate-200 bg-white text-gray-800 hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200'}`}
+                        >
+                          {selected && <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />}
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+                )}
 
               </div>
 
