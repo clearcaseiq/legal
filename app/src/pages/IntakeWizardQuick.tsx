@@ -4188,7 +4188,7 @@ export default function IntakeWizardQuick() {
                           type="button"
                           aria-pressed={selected}
                           onClick={() => updateForm({ emsResponded: formData.emsResponded === value ? '' : value })}
-                          className={`flex items-center justify-center gap-1.5 rounded-xl border-[1.5px] px-3 py-2 text-[13px] font-semibold transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-600 bg-brand-50 text-brand-800' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400'}`}
+                          className={`flex items-center justify-center gap-1.5 rounded-xl border-[1.5px] px-3 py-2 text-sm font-semibold transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-600 bg-brand-50 text-brand-800' : 'border-gray-200 bg-white text-gray-800 hover:border-brand-400'}`}
                         >
                           {selected && <Check className="h-4 w-4 text-brand-600" aria-hidden />}
                           {label}
@@ -4227,7 +4227,7 @@ export default function IntakeWizardQuick() {
                             <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${selected ? 'bg-brand-100' : 'bg-brand-50'}`}>
                               <Icon className={`h-5 w-5 ${selected ? 'text-brand-700' : 'text-brand-600'}`} aria-hidden />
                             </span>
-                            <span className="text-[13px] font-semibold leading-tight text-gray-900">{value === 'none' && isDeceased ? tx('treatment_none_deceased') : getOptionLabel(MEDICAL_TREATMENT_OPTIONS, value)}</span>
+                            <span className="text-sm font-semibold leading-tight text-gray-900">{value === 'none' && isDeceased ? tx('treatment_none_deceased') : getOptionLabel(MEDICAL_TREATMENT_OPTIONS, value)}</span>
                             {selected && fullWidth && <Check className="h-4 w-4 text-brand-600" aria-hidden />}
                           </button>
                         )
@@ -4253,7 +4253,7 @@ export default function IntakeWizardQuick() {
                           type="button"
                           aria-pressed={selected}
                           onClick={() => updateForm({ initialCareTiming: formData.initialCareTiming === value ? '' : value })}
-                          className={`flex items-center justify-center gap-1.5 rounded-xl border px-2.5 py-2 text-center text-[13px] font-semibold transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-500 bg-brand-50/70 text-brand-800 dark:border-brand-500/50 dark:bg-brand-500/10 dark:text-brand-200' : 'border-slate-200 bg-white text-gray-800 hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200'}`}
+                          className={`flex items-center justify-center gap-1.5 rounded-xl border px-2.5 py-2 text-center text-sm font-semibold transition-colors focus-visible:ring-inset focus-visible:ring-offset-0 ${selected ? 'border-brand-500 bg-brand-50/70 text-brand-800 dark:border-brand-500/50 dark:bg-brand-500/10 dark:text-brand-200' : 'border-slate-200 bg-white text-gray-800 hover:border-brand-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200'}`}
                         >
                           {selected && <Check className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />}
                           {label}
