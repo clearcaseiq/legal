@@ -35,6 +35,7 @@ import {
 } from '../lib/routing-lifecycle'
 import { getConfiguredWaveSize, getMatchingRules } from '../lib/matching-rules-config'
 import { validateCaseTypeFromFacts } from '../lib/case-type-validation'
+import { buildMedicalProfile } from '../lib/medical-profile'
 import { runCaseRecalculation } from '../lib/case-recalculation'
 import { DOCUMENT_REQUEST_CATEGORY_MAP, DOCUMENT_REQUEST_LABELS, parseRequestedDocs } from '../lib/document-request-status'
 import { deliverDirectNotification } from '../lib/platform-notifications'
@@ -76,6 +77,10 @@ router.post('/', optionalAuthMiddleware, async (req: AuthRequest, res) => {
     const enrichedFacts = {
       ...parsed.data,
       caseTypeValidation: validateCaseTypeFromFacts(parsed.data.claimType, parsed.data as Record<string, unknown>),
+      // Canonical provenance-tagged medical profile from the structured intake.
+      // Self-reported at creation; the document pipeline confirms/adds documented
+      // findings during recalculation.
+      medicalProfile: buildMedicalProfile(parsed.data as Record<string, unknown>),
     }
 
     const assessment = await prisma.assessment.create({

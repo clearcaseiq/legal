@@ -8,6 +8,12 @@ import { createAssessment, predict, uploadEvidenceFile, processEvidenceFile, ext
 import { deleteEvidenceFile, extractIncidentDetails, type IncidentExtraction } from '../lib/api'
 import { ChevronRight, ChevronLeft, ChevronDown, Car, Footprints, HardHat, Stethoscope, HelpCircle, Check, X, MapPin, Building2, Camera, Video, FileText, Shield, Mail, Phone, DollarSign, Dog, Package, AlertTriangle, Droplets, CalendarDays, Hospital, Scissors, Ambulance, PersonStanding, Scan, Syringe, Pill, Lock, MessageSquare, Info, CheckCircle2, Save, ShieldCheck, Users, HeartPulse, Activity, Bone, CalendarClock, Ban, BedDouble, Moon, Dumbbell, Bike, Truck, User, Briefcase, Landmark, CornerUpLeft, Receipt, Wine, RotateCw, XCircle, Clock, UserX, Lightbulb, ClipboardCheck, Umbrella, Pencil, FolderOpen, Scale, Star, Sparkles, TrendingUp, Brain, Upload, CalendarCheck, History, Hand, CircleDot, type LucideIcon } from 'lucide-react'
 import InlineEvidenceUpload from '../components/InlineEvidenceUpload'
+import DynamicInjuryCards from '../components/DynamicInjuryCards'
+import BodyRegionPicker from '../components/BodyRegionPicker'
+import CaseTypeIntakePanel from '../components/CaseTypeIntakePanel'
+import RecoveryImpactSection from '../components/RecoveryImpactSection'
+import { REGION_LIBRARY, ALL_REGION_OPTIONS, deriveLegacyInjuryFields, type RegionDetailMap } from '../data/injuryQuestionLibrary'
+import { caseTypeModuleFor } from '../data/caseTypeIntake'
 import { useLanguage } from '../contexts/LanguageContext'
 import { buildCaseTaxonomy, injuryTypeToClaimType, sanitizeDetectedCounty, usesPoliceReportLabel } from '../lib/intakeQuickHelpers'
 import { INCIDENT_SUBTYPE_PROMPTS, INCIDENT_SUBTYPE_FREE_TEXT, getIncidentSubtypes, hasIncidentSubtypes } from '../lib/caseTaxonomy'
@@ -835,7 +841,14 @@ export default function IntakeWizardQuick() {
 
   const MEDICAL_TREATMENT_OPTIONS = localizeOptions(MEDICAL_TREATMENT_OPTION_DEFS)
   const PRIOR_INJURY_OPTIONS = localizeOptions(PRIOR_INJURY_OPTION_DEFS)
-  const BODY_PART_OPTIONS = localizeOptions(BODY_PART_OPTION_DEFS)
+  // Existing localized body parts, plus every expanded region from the injury
+  // library (inline-English labels) so summaries can resolve the new areas.
+  const BODY_PART_OPTIONS = (() => {
+    const base = localizeOptions(BODY_PART_OPTION_DEFS)
+    const seen = new Set(base.map(o => o.value))
+    const extra = ALL_REGION_OPTIONS.filter(o => !seen.has(o.id)).map(o => ({ value: o.id, label: o.label }))
+    return [...base, ...extra]
+  })()
   const SURGERY_STATUS_OPTIONS = localizeOptions(SURGERY_STATUS_OPTION_DEFS)
   const PROCEDURE_OPTIONS = localizeOptions(PROCEDURE_OPTION_DEFS)
   const FUTURE_TREATMENT_OPTIONS = localizeOptions(FUTURE_TREATMENT_OPTION_DEFS)
@@ -995,7 +1008,20 @@ export default function IntakeWizardQuick() {
       currentSymptoms: [] as string[],
       otherSymptomDescription: '' as string,
       recoveryStatus: '' as string,
+      // Optional self-rated recovery (0-100) and current treatment status —
+      // richer recovery signal captured alongside recoveryStatus.
+      recoveryPercent: null as number | null,
+      treatmentStatus: '' as string,
+      // Per-area daily-life follow-ups: { areaId: string[] } (e.g. work -> [reduced_hours]).
+      lifeImpactDetail: {} as Record<string, string[]>,
       biggestImpact: '' as string,
+      // Structured, provenance-tagged per-region answers from the dynamic Step 3
+      // cards (see DynamicInjuryCards / injuryQuestionLibrary). Rides along in the
+      // submitted payload; the flat legacy fields above are derived from it.
+      regionDetail: {} as RegionDetailMap,
+      // Answers for the non-body-part case modules (toxic exposure, med-mal,
+      // wrongful death, dog bite). See caseTypeIntake / CaseTypeIntakePanel.
+      caseTypeDetail: {} as Record<string, any>,
     },
     branch: {} as Record<string, any>,
     contact: { email: '', phone: '' },
@@ -2598,6 +2624,33 @@ export default function IntakeWizardQuick() {
     setErrors({})
   }
 
+  // Dynamic injury cards are the source of truth for per-region symptoms /
+  // findings / treatment. On every change we also derive the flat legacy fields
+  // (diagnoses, currentSymptoms, concussion/shoulder/back findings) so the
+  // existing scoring, AI summary, and submit payload keep working untouched.
+  const handleRegionDetailChange = (next: RegionDetailMap) => {
+    const derived = deriveLegacyInjuryFields(next)
+    setFormData(prev => ({
+      ...prev,
+      injuryDetails: {
+        ...prev.injuryDetails,
+        regionDetail: next,
+        diagnoses: derived.diagnoses,
+        currentSymptoms: derived.currentSymptoms,
+        concussionSymptoms: derived.concussionSymptoms,
+        shoulderFindings: derived.shoulderFindings,
+        backFindings: derived.backFindings,
+      },
+    }))
+  }
+
+  const handleCaseTypeDetailChange = (next: Record<string, any>) => {
+    setFormData(prev => ({
+      ...prev,
+      injuryDetails: { ...prev.injuryDetails, caseTypeDetail: next },
+    }))
+  }
+
   const setCasePostureField = (key: string, value: any) => {
     setFormData(prev => {
       // Re-selecting the same single-select value clears it (toggle off).
@@ -4160,9 +4213,12 @@ export default function IntakeWizardQuick() {
         // sub-sections continue the severity numbering (which uses 1-2) instead of
         // restarting at 1. On the standalone treatment step this offset is 0.
         const detailsSectionBase = mergeInjuries ? 2 : 0
-        const hasHeadInjury = formData.injuryDetails.bodyParts.includes('head_concussion')
-        const hasShoulderInjury = formData.injuryDetails.bodyParts.includes('shoulder')
-        const hasBackInjury = formData.injuryDetails.bodyParts.includes('lower_back')
+        // Any selected body part drives a dynamic injury card (which now owns
+        // per-region symptoms + findings), so the generic symptom/diagnosis
+        // blocks below are hidden to avoid asking the same thing twice.
+        const hasDynamicRegions = formData.injuryDetails.bodyParts.some(r => !!REGION_LIBRARY[r])
+        // Non-body-part case module (toxic / med-mal / wrongful death / dog bite).
+        const caseTypeModule = caseTypeModuleFor(formData.injuryType)
         const hasInjectionTreatment = formData.medicalTreatment.includes('injections') || formData.injuryDetails.imaging.includes('injections') || formData.injuryDetails.procedures.some(item => item !== 'none')
         const hasSurgeryTreatment = formData.medicalTreatment.includes('surgery') || formData.injuryDetails.imaging.includes('surgery') || formData.injuryDetails.futureTreatment.includes('surgery') || !!formData.injuryDetails.surgeryStatus
         // Distinct Lucide icons (not repeated bone emoji) so Mac Chrome and
@@ -4236,7 +4292,7 @@ export default function IntakeWizardQuick() {
         const filledGroups = completenessGroups.filter(Boolean).length
         const valueConfidence = filledGroups === 0 ? 0 : Math.min(90, Math.round((filledGroups / completenessGroups.length) * 75) + 15)
         const docLevel = filledGroups <= 2 ? tx('injuryDetails_docEarly') : filledGroups <= 4 ? tx('injuryDetails_docBuilding') : tx('injuryDetails_docStrong')
-        const bodyNames = idd.bodyParts.map(v => bodyPartDisplay[v]?.label || v)
+        const bodyNames = idd.bodyParts.map(v => bodyPartDisplay[v]?.label || REGION_LIBRARY[v]?.label || v)
         const dxNames = DIAGNOSIS_OPTIONS.filter(o => idd.diagnoses.includes(o.value)).map(o => o.label)
         const txNames = Array.from(new Set([
           ...MEDICAL_TREATMENT_OPTIONS.filter(o => o.value !== 'none' && formData.medicalTreatment.includes(o.value)).map(o => o.label),
@@ -4385,29 +4441,29 @@ export default function IntakeWizardQuick() {
               {errors.injurySeverity && <p className="mt-2 text-xs text-red-600">{errors.injurySeverity}</p>}
             </div>
 
-            {/* Body parts */}
+            {/* Case-type module that leads (toxic / med-mal / wrongful death):
+                symptom/harm/decedent questions come before the body map. */}
+            {caseTypeModule?.leadWith && (
+              <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+                <CaseTypeIntakePanel
+                  module={caseTypeModule}
+                  value={formData.injuryDetails.caseTypeDetail}
+                  onChange={handleCaseTypeDetailChange}
+                />
+              </div>
+            )}
+
+            {/* Body parts — grouped, incident-aware picker with progressive
+                disclosure. The most relevant areas surface first; the full
+                catalog (musculoskeletal, head/neuro, internal, skin,
+                psychological, other) sits behind "More body areas". */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
               <SectionHeader icon={Bone} title={tx('injuryDetails_whereInjured')} helper={tx('injuryDetails_whereInjuredHelper')} />
-              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
-                {BODY_PART_OPTIONS.map(({ value, label }) => {
-                  const selected = formData.injuryDetails.bodyParts.includes(value)
-                  const disp = bodyPartDisplay[value]
-                  return (
-                    <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('bodyParts', value)} className={tileClass(selected)}>
-                      {(() => {
-                        const BodyIcon = disp?.Icon
-                        return (
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800 dark:text-brand-400" aria-hidden>
-                            {BodyIcon ? <BodyIcon className="h-3.5 w-3.5" /> : <span className="text-xs">•</span>}
-                          </span>
-                        )
-                      })()}
-                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{disp?.label || label}</span>
-                      {renderCheck(selected)}
-                    </button>
-                  )
-                })}
-              </div>
+              <BodyRegionPicker
+                injuryType={formData.injuryType}
+                value={formData.injuryDetails.bodyParts}
+                onToggle={(id) => toggleInjuryDetail('bodyParts', id)}
+              />
 
               {formData.injuryDetails.bodyParts.includes('other') && (
                 <div className="mt-3 min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/40">
@@ -4426,54 +4482,29 @@ export default function IntakeWizardQuick() {
                 </div>
               )}
 
-              {hasHeadInjury && (
-                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-500/30 dark:bg-amber-500/10">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_headSymptoms')}</p>
-                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {CONCUSSION_SYMPTOM_OPTIONS.map(({ value, label }) => {
-                      const selected = formData.injuryDetails.concussionSymptoms.includes(value)
-                      return (
-                        <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('concussionSymptoms', value)} className={tileClass(selected)}>
-                          <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
-                          {renderCheck(selected)}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
+              {/* Dynamic, per-region injury cards. Symptoms / findings / treatment
+                  and incident-specific follow-ups (e.g. auto + head → airbag,
+                  loss of consciousness) come from injuryQuestionLibrary, plus
+                  red-flag safety messaging. Replaces the old hardcoded
+                  head/shoulder/back blocks and covers every selected region. */}
+              {!isDeceased && (
+                <DynamicInjuryCards
+                  injuryType={formData.injuryType}
+                  selectedRegions={formData.injuryDetails.bodyParts}
+                  value={formData.injuryDetails.regionDetail as RegionDetailMap}
+                  onChange={handleRegionDetailChange}
+                />
               )}
 
-              {hasShoulderInjury && (
-                <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/60 p-3 dark:border-indigo-500/30 dark:bg-indigo-500/10">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_shoulderDetails')}</p>
-                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    {SHOULDER_FINDING_OPTIONS.map(({ value, label }) => {
-                      const selected = formData.injuryDetails.shoulderFindings.includes(value)
-                      return (
-                        <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('shoulderFindings', value)} className={tileClass(selected)}>
-                          <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
-                          {renderCheck(selected)}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {hasBackInjury && (
-                <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{tx('injuryDetails_backDetails')}</p>
-                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {BACK_FINDING_OPTIONS.map(({ value, label }) => {
-                      const selected = formData.injuryDetails.backFindings.includes(value)
-                      return (
-                        <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('backFindings', value)} className={tileClass(selected)}>
-                          <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-xs font-semibold text-gray-800 dark:text-slate-200">{label}</span>
-                          {renderCheck(selected)}
-                        </button>
-                      )
-                    })}
-                  </div>
+              {/* Case-type module that augments the body map (dog bite): bite
+                  location, punctures, stitches, scarring, etc. */}
+              {caseTypeModule && !caseTypeModule.leadWith && (
+                <div className="mt-3">
+                  <CaseTypeIntakePanel
+                    module={caseTypeModule}
+                    value={formData.injuryDetails.caseTypeDetail}
+                    onChange={handleCaseTypeDetailChange}
+                  />
                 </div>
               )}
             </div>
@@ -4528,7 +4559,10 @@ export default function IntakeWizardQuick() {
               </div>
             </div>
 
-            {/* Diagnoses */}
+            {/* Diagnoses — the dynamic region cards now capture findings per body
+                area, so this generic list only shows when no body part was picked
+                (e.g. the claimant skipped the body map). */}
+            {!hasDynamicRegions && (
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
               <SectionHeader icon={ClipboardCheck} title={tx('injuryDetails_diagnosesQuestion')} helper={tx('injuryDetails_diagnosesHelper')} />
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-2.5">
@@ -4549,6 +4583,7 @@ export default function IntakeWizardQuick() {
               </div>
               <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-snug text-gray-400 dark:text-slate-500"><HelpCircle className="mt-px h-3 w-3 shrink-0" aria-hidden />{tx('injuryDetails_notSureNote')}</p>
             </div>
+            )}
             </div>{/* end Card 2 */}
 
             {/* ===== Card 3: How You're Feeling — symptoms, recovery, and daily-life impact
@@ -4560,7 +4595,9 @@ export default function IntakeWizardQuick() {
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white"><Activity className="h-4 w-4" aria-hidden /></span>
                 <h3 className="font-display text-base font-bold text-gray-900 dark:text-slate-100 sm:text-lg">{tx('card_howFeeling')}</h3>
               </div>
-            {/* Symptoms */}
+            {/* Symptoms — captured per body area in the dynamic region cards, so
+                this generic list only appears when no body part was selected. */}
+            {!hasDynamicRegions && (
             <div>
               <SectionHeader icon={HeartPulse} title={tx('injuryDetails_currentSymptomsQuestion')} helper={tx('injuryDetails_selectAllApply')} />
               <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
@@ -4587,49 +4624,26 @@ export default function IntakeWizardQuick() {
               )}
               <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-snug text-gray-400 dark:text-slate-500"><HelpCircle className="mt-px h-3 w-3 shrink-0" aria-hidden />{tx('injuryDetails_notSureNote')}</p>
             </div>
+            )}
 
-            {/* Recovery */}
+            {/* Recovery + daily-life impact — richer recovery (6 levels, optional
+                self-rating, still-treating) and universal life areas with
+                lightweight branching follow-ups. */}
             <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
               <SectionHeader icon={Activity} title={tx('injuryDetails_recoveryQuestion')} />
-              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {RECOVERY_STATUS_OPTIONS.map(({ value, label }) => {
-                  const selected = formData.injuryDetails.recoveryStatus === value
-                  return (
-                    <button key={value} type="button" aria-pressed={selected} onClick={() => updateForm({ injuryDetails: { ...formData.injuryDetails, recoveryStatus: selected ? '' : value } })} className={radioCardClass(selected)}>
-                      {radioDot(selected)}
-                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Daily life */}
-            <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-              <SectionHeader icon={Briefcase} title={tx('injuryDetails_dailyLifeQuestion')} helper={tx('injuryDetails_dailyLifeHelper')} />
-              <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-                {LIFE_AREA_OPTIONS.map(({ value, label }) => {
-                  const selected = formData.injuryDetails.lifestyleImpact.includes(value)
-                  const Icon = lifeAreaIcons[value] || Activity
-                  return (
-                    <button key={value} type="button" aria-pressed={selected} onClick={() => toggleInjuryDetail('lifestyleImpact', value)} className={tileClass(selected)}>
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-brand-600 dark:bg-slate-800"><Icon className="h-3.5 w-3.5" aria-hidden /></span>
-                      <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px] font-semibold leading-tight text-gray-800 dark:text-slate-200 sm:text-xs">{label}</span>
-                      {renderCheck(selected)}
-                    </button>
-                  )
-                })}
-              </div>
-              {formData.injuryDetails.lifestyleImpact.includes('other_life') && (
-                <input
-                  type="text"
-                  maxLength={200}
-                  value={formData.injuryDetails.lifestyleOther}
-                  onChange={(e) => updateForm({ injuryDetails: { ...formData.injuryDetails, lifestyleOther: e.target.value } })}
-                  placeholder={tx('injuryDetails_otherPlaceholder')}
-                  className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+              <div className="mt-3">
+                <RecoveryImpactSection
+                  value={{
+                    recoveryStatus: formData.injuryDetails.recoveryStatus,
+                    recoveryPercent: formData.injuryDetails.recoveryPercent,
+                    treatmentStatus: formData.injuryDetails.treatmentStatus,
+                    lifestyleImpact: formData.injuryDetails.lifestyleImpact,
+                    lifestyleOther: formData.injuryDetails.lifestyleOther,
+                    lifeImpactDetail: formData.injuryDetails.lifeImpactDetail,
+                  }}
+                  onPatch={(patch) => updateForm({ injuryDetails: { ...formData.injuryDetails, ...patch } })}
                 />
-              )}
+              </div>
             </div>
             </div>
             )}{/* end Card 3 */}

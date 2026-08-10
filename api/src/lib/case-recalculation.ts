@@ -8,6 +8,7 @@ import { computeFeatures, predictViability } from './prediction'
 import { logger } from './logger'
 import { sendPlaintiffCaseValueUpdated, sendAttorneyCaseMaterialUpdate } from './case-notifications'
 import { underwriteCase, reconcileValueBandsWithUnderwriting } from './underwriting-engine'
+import { refreshMedicalProfile } from './medical-profile'
 
 const MODEL_VERSION = 'v1.3'
 
@@ -279,6 +280,13 @@ function mergeEvidenceIntoFacts(
     icdCodes: Array.from(icdCodeSet),
     cptCodes: Array.from(cptCodeSet),
   }
+  // Rebuild the canonical medical profile and fold in the newly documented
+  // codes so `documentedRatio` reflects records confirming the self-reported
+  // picture (reported-vs-documented provenance for valuation).
+  merged.medicalProfile = refreshMedicalProfile(merged, {
+    icdCodes: Array.from(icdCodeSet),
+    cptCodes: Array.from(cptCodeSet),
+  })
   return merged
 }
 
